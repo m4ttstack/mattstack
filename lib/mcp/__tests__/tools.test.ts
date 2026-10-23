@@ -8,6 +8,7 @@ import { mcpTools, mrToolDeps } from "../tools.ts";
 import { normalizeGateQuestions } from "../../../packages/rt-client/src/gate-options.ts";
 import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
+import { REPO_TARGET_PROPS, REPO_TARGET_RULE } from "../shared.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 
 const NAMES = ["gate_answer","gate_ask","gate_open","gate_reconcile","gate_record","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_enter","run_next","run_resolve","run_hold","run_close","run_budget","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_posted_since","mr_resolve_branch","respond_post_execute","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","branch_sync_sweep","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","herd_respawn","herd_gate_answer","herd_gate_park","herd_diagnose","herd_nudge","herd_lanes","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","ci_triage","pipeline_jobs","project_labels","pipeline_list","gitlab_get","branch_stack","evidence_record","evidence_attach","dev_endpoints"];
@@ -29,6 +30,18 @@ const realRtCommand = realTransport.rtCommand;
 const ID = "remote:gitlab.com%2Facme%2Facme-dev";
 
 describe("mcpTools", () => {
+  test("a tool that takes mrUrl only to name the repo, with no iid of its own, never says mrUrl supplies iid", () => {
+    const repoTargeted = mcpTools().filter((t) => {
+      const props = (t.inputSchema as { properties?: Record<string, { description?: string }> }).properties ?? {};
+      return props.mrUrl?.description === REPO_TARGET_PROPS.mrUrl.description && !("iid" in props);
+    });
+    expect(repoTargeted.map((t) => t.name).sort()).toEqual(["gitlab_get", "mr_create", "mr_for_branch", "mr_list", "mr_map", "mr_upload", "project_labels"]);
+    for (const tool of repoTargeted) {
+      expect(tool.description, tool.name).toContain(REPO_TARGET_RULE);
+      expect(tool.description, tool.name).not.toContain("which also supplies iid");
+    }
+  });
+
   test("the existing chat tools point unsigned sessions at chat_sign_in", async () => {
     for (const name of ["chat_post", "chat_dm", "chat_ack", "chat_claim", "chat_release"]) {
       const tool = mcpTools().find((t) => t.name === name)!;

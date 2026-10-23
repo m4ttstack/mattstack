@@ -13,7 +13,7 @@ import { statusPorcelainAsync } from "../worktree/git-async.ts";
 import { gitPush, realGitRunner, type GitRunner } from "./git-tools.ts";
 import { resolveMrTarget, resolveRepoTarget, type MrTarget, type TargetInput } from "./mr-target.ts";
 import { runToolDefs } from "./run-tools.ts";
-import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef, type ToolResult } from "./shared.ts";
+import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
 export interface MrCompositeDeps {
@@ -1027,7 +1027,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "mr_map",
-      description: `GitLab only. A repo's open MRs joined to the local worktrees holding their branches, read live from GitLab on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_NAME_RULE}`,
+      description: `GitLab only. A repo's open MRs joined to the local worktrees holding their branches, read live from GitLab on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
