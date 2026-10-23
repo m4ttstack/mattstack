@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { checkPack, skillsAnatomy, skillsBind, skillsCheck, skillsCompile, skillsComposition } from "../../../commands/skills.ts";
 import { childEnv } from "../../subprocess.ts";
-import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
+import { captureSkills, runExpectingCleanExit, useSlotEngines } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
 const PIPELINES_FIX = join(import.meta.dir, "fixtures", "compile-pipelines");
@@ -338,6 +338,7 @@ function buildPipelines(): { pack: string; ms: string; manifest: string; args: s
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
+  useSlotEngines(join(ms, "plugins", "mattstack", "attachments"));
   cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "skills", "model-tiering"), { recursive: true });
   const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
   return { pack, ms, manifest, args: ["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest] };

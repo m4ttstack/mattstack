@@ -1,6 +1,6 @@
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+import { captureSkills, runExpectingCleanExit, useSlotEngines } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -1205,6 +1205,7 @@ function pipelinesFixture(fragment: string | null) {
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
+  useSlotEngines(join(ms, "plugins", "mattstack", "attachments"));
   cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "skills", "model-tiering"), { recursive: true });
   writeFile(join(pack, "attachments", "b", "SKILL.md"), fillSkillMd("b", "evidence-domain@1"));
   const fragmentPath = join(pack, "pack", "skills.jsonc");
