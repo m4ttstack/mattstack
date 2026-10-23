@@ -331,6 +331,16 @@ function packPath(view: PackPathView, arg: string | undefined, raw: string, wher
   return `${SKILL_DIR_TOKEN}/../../${rel}`;
 }
 
+/** Whether `{{pack.path:<arg>}}` would render in this view, without throwing. */
+export function packPathResolves(view: PackPathView, arg: string): boolean {
+  try {
+    packPath(view, arg, `{{pack.path:${arg}}}`, "");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string {
   const q = (xs: string[]) => xs.map((x) => `\`${x}\``).join(", ");
   const consume = meta.consumes.length ? `You consume ${q(meta.consumes)}.` : "You consume nothing.";

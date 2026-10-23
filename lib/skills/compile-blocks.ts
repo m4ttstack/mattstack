@@ -16,7 +16,8 @@ import {
   toWildcardRule,
   type CompileSkillOpts,
 } from "./compile.ts";
-import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, skillDirFor } from "./placeholders.ts";
+import { handPathDiagnostics } from "./hand-paths.ts";
+import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves, skillDirFor } from "./placeholders.ts";
 import { effectiveBindings, type LayeredBindings } from "./pipelines.ts";
 import { AttachmentLoadError } from "./sources.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
@@ -309,14 +310,19 @@ export function compileBlockSkill(
   const resolver: IncludeResolver = (name) => included.get(name) ?? null;
   const placed = placedBlocks([engine, ...[...included.values()].map((s) => s.tree)]);
 
+  const handPaths = handPathsIn(step, includes, sources.filter(({ mode }) => mode === "inline").map(({ fill }) => fill), {
+    verbs: new Set(Object.keys(ctx.verbSides)),
+    packSource: (arg) => packPathResolves(ctx, arg),
+  });
   let rendered;
   const diagnostics: BlockDiagnostic[] = [];
   try {
     rendered = renderTree({ tree: engine, source: { plugin: step.plugin, version: step.version }, values, includes: resolver, ctx });
   } catch (err) {
     if (!(err instanceof BlockError)) throw err;
-    return { files: [], warnings: [], errors: [], diagnostics: err.diagnostics };
+    return { files: [], warnings: [], errors: [], diagnostics: [...handPaths, ...err.diagnostics] };
   }
+  if (handPaths.length > 0) return { files: [], warnings: [], errors: [], diagnostics: handPaths };
   const body = `${HEADER_COMMENT}\n\n${rendered.body}`;
   assertNoPlaceholders(body, step.name);
   assertNoStrayBraces(body, step.name);
@@ -353,6 +359,41 @@ export function compileBlockSkill(
   ];
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];
   return { files, warnings, errors, diagnostics: [] };
+}
+
+/**
+ * Read from the sources as loaded, before the stage-dir and include rewrites
+ * put `${CLAUDE_SKILL_DIR}/../../attachments/...` into the text on purpose. A
+ * fill bound by reference is a skill of its own and is not compiled in. A
+ * flat include admits no placeholder, so its diagnostic offers no fix.
+ */
+function handPathsIn(
+  step: StepSource,
+  includes: Record<string, AttachmentSource>,
+  fills: AttachmentSource[],
+  view: { verbs: ReadonlySet<string>; packSource: (arg: string) => boolean },
+): BlockDiagnostic[] {
+  const out: BlockDiagnostic[] = [];
+  const seen = new Set<string>();
+  const trees = [step.tree!, ...Object.values(includes).flatMap((inc) => (inc.tree ? [inc.tree] : []))];
+  for (const block of trees.flatMap((tree) => walk(tree))) {
+    if (seen.has(block.path)) continue;
+    seen.add(block.path);
+    out.push(...handPathDiagnostics(block.text, block.relPath, { startLine: block.textStartLine, indent: block.textIndent, ...view }));
+  }
+  for (const inc of Object.values(includes)) {
+    const key = `${inc.plugin}:${inc.srcPath}`;
+    if (inc.tree || seen.has(key)) continue;
+    seen.add(key);
+    out.push(...handPathDiagnostics(inc.body, inc.srcPath, { startLine: inc.bodyStartLine, ...view, noFix: true }));
+  }
+  for (const fill of fills) {
+    const key = `${fill.plugin}:${fill.srcPath}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(...handPathDiagnostics(fill.body, fill.srcPath, { startLine: fill.bodyStartLine, ...view }));
+  }
+  return out;
 }
 
 type PropFill = { block: Block; fill: AttachmentSource; dir: string };

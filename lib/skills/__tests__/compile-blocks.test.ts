@@ -42,12 +42,12 @@ function valuesFor(step: StepSource, roots: PluginRoots, b: PropBindings, extra:
   return blockPropValues(trees, b, (binding, prop) => loadAttachment(binding, prop, roots), new Set());
 }
 
-function compileMini(opts: { manifest?: string; stageDir?: string | null; prep?: (s: ReturnType<typeof setup>) => void } = {}) {
+function compileMini(opts: { manifest?: string; stageDir?: string | null; verbSides?: Record<string, "skills" | "attachments">; packRoot?: boolean; prep?: (s: ReturnType<typeof setup>) => void } = {}) {
   const s = setup();
   opts.prep?.(s);
   const step = loadStepSource("mini", s.roots) as StepSource & { tree: BlockTree };
   const values = valuesFor(step, s.roots, bindingsOf(opts.manifest ?? readFileSync(MANIFEST, "utf8")));
-  const result = compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), { stageDir: opts.stageDir ?? null });
+  const result = compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), { stageDir: opts.stageDir ?? null, verbSides: opts.verbSides, packRoot: opts.packRoot ? s.widgets : undefined });
   const skillMd = result.files.find((f) => f.path === "SKILL.md");
   return { ...s, result, skillMd: skillMd && "content" in skillMd ? skillMd.content : "" };
 }
@@ -131,6 +131,45 @@ describe("compileBlockSkill", () => {
     });
     expect(result.files).toEqual([]);
     expect(result.diagnostics.map((d) => d.code)).toEqual(["bad-marker"]);
+  });
+
+  test("a fill reaching another attachment by a hand-typed path fails with hand-typed-path and a pack.path fix", () => {
+    const { result } = compileMini({
+      packRoot: true,
+      prep: ({ widgets }) => {
+        mkdirSync(join(widgets, "attachments", "capture-evidence"), { recursive: true });
+        writeFileSync(join(widgets, "attachments", "capture-evidence", "SKILL.md"), "evidence\n");
+        writeFileSync(join(widgets, "attachments", "mini-rules", "fast.md"), "Follow the fast widget rules.\nRead ../../attachments/capture-evidence/SKILL.md first.\n");
+      },
+    });
+    expect(result.files).toEqual([]);
+    expect(result.diagnostics).toEqual([{
+      file: "attachments/mini-rules/fast.md",
+      line: 2,
+      col: 6,
+      code: "hand-typed-path",
+      message: "hand-typed path ../../attachments/capture-evidence/SKILL.md breaks when its target moves; write {{pack.path:capture-evidence/SKILL.md}} instead",
+      fix: { length: 43, text: "{{pack.path:capture-evidence/SKILL.md}}" },
+    }]);
+  });
+
+  test("an engine block naming a compiled verb by a hand-typed path fails with a verb.path fix", () => {
+    const { result } = compileMini({
+      verbSides: { ship: "skills" },
+      prep: ({ mattstack }) => {
+        const run = join(mattstack, "attachments", "pipeline", "mini", "run", "index.block.md");
+        writeFileSync(run, readFileSync(run, "utf8").replace("Do the work for the widget.", "Then read ../ship/SKILL.md."));
+      },
+    });
+    expect(result.files).toEqual([]);
+    expect(result.diagnostics).toMatchObject([
+      { file: "attachments/pipeline/mini/run/index.block.md", line: 7, col: 11, code: "hand-typed-path", fix: { length: 16, text: "{{verb.path:ship}}" } },
+    ]);
+  });
+
+  test("the stage dir rewrite emits ../../attachments paths, which the rule never sees", () => {
+    const { result } = compileMini({ stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/mini" });
+    expect(result.diagnostics).toEqual([]);
   });
 });
 

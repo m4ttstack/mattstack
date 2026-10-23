@@ -461,7 +461,7 @@ describe("skillsCompile", () => {
     expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toBe("PLANTED\n");
   });
 
-  test("an engine body reading outside the pack root: clean one-line error, exit 1, nothing written", async () => {
+  test("an engine body reading outside the pack root by a hand-typed path: clean error, exit 1, nothing written", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     const manifestPath = makeManifest();
@@ -484,10 +484,9 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("../../../elsewhere/SKILL.md");
     // The engine's own file and line, not a coordinate in an artifact this run
     // refuses to write.
-    expect(errors.join("\n")).toContain("at skills/pipeline/watch-ci/index.block.md:18 resolves outside the pack root");
+    expect(errors.join("\n")).toContain("skills/pipeline/watch-ci/index.block.md:18:7: hand-typed path ../../../elsewhere/SKILL.md breaks when its target moves");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 
@@ -1199,8 +1198,8 @@ describe("base pack attachments", () => {
     expect(existsSync(kit(packDir))).toBe(false);
   });
 
-  test("a relative link onto a base attachment does not warn on the compile that first writes it", async () => {
-    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nRead `../../attachments/review-kit/SKILL.md` first.\n");
+  test("a pack.path link onto a base attachment does not warn on the compile that first writes it", async () => {
+    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nRead `{{pack.path:review-kit/SKILL.md}}` first.\n");
     const { packDir, compile } = seedBaseAndTeam({ domainBody: linked });
     io.clear();
 
