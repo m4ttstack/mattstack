@@ -114,6 +114,9 @@ enum AXID {
     static let settingsGeneralSwitchApp = "settings.general.switchApp"
     static let settingsGeneralShellHandoff = "settings.general.shellHandoff"
     static let settingsTelemetryToggle = "settings.general.telemetry"
+    static func settingsSoundPicker(_ tier: String) -> String { "settings.notifications.\(tier).picker" }
+    static func settingsSoundPreview(_ tier: String) -> String { "settings.notifications.\(tier).preview" }
+    static func settingsSoundError(_ tier: String) -> String { "settings.notifications.\(tier).error" }
     static func settingsPermissionRow(_ id: String) -> String { "settings.permissions.row.\(id)" }
     static func settingsPermissionRowStatus(_ id: String) -> String { "settings.permissions.row.\(id).status" }
     static func settingsPermissionAction(_ id: String) -> String { "settings.permissions.row.\(id).action" }

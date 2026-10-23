@@ -209,34 +209,12 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: - Sound selection
 
-    /// Severity tiers behind the three bundled alert samples. A burst of
-    /// notifications plays the highest tier it contains, once.
-    private enum SoundTier: Int, Comparable {
-        case neutral = 0
-        case positive = 1
-        case warning = 2
+    /// This Mac's picks from Settings > Notifications. Main-actor state, read
+    /// by `play` on the main queue.
+    @MainActor static let sounds = NotificationSoundsModel()
 
-        var resource: String {
-            switch self {
-            case .neutral:  return "neutral"
-            case .positive: return "positive"
-            case .warning:  return "warning"
-            }
-        }
-
-        static func < (lhs: SoundTier, rhs: SoundTier) -> Bool { lhs.rawValue < rhs.rawValue }
-    }
-
-    private static func tier(for category: String) -> SoundTier {
-        switch category {
-        case "pipeline_passed", "mr_approved", "mr_merged", "mr_ready":
-            return .positive
-        case "pipeline_failed", "mr_closed", "merge_conflicts", "merge_error", "runaway_process",
-             readyHeldCategory:
-            return .warning
-        default:
-            return .neutral
-        }
+    static var soundLocations: SoundLocations {
+        SoundLocations(resources: Bundle.main.resourceURL, customSounds: SoundLocations.customSoundsDir(home: AppHome.current))
     }
 
     /// How long a burst is collected before its single tone plays. Long enough
@@ -262,7 +240,7 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// event opens the window, a `pipeline_failed` landing 1ms later still wins
     /// over a `needs_rebase` that arrived first.
     static func playSound(for category: String) {
-        let tier = tier(for: category)
+        let tier = SoundTier(category: category, readyHeldCategory: readyHeldCategory)
 
         // Burst state is main-queue-confined; the queue-drain path calls in off-main.
         DispatchQueue.main.async {
@@ -282,7 +260,7 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 Self.coalescedCount = 0
 
                 if count > 1 {
-                    TrayLog.info("coalesced notification sounds", ["count": count, "tier": winner.resource])
+                    TrayLog.info("coalesced notification sounds", ["count": count, "tier": winner.key])
                 }
                 Self.playIfAllowed(winner)
             }
@@ -294,14 +272,14 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private static func playIfAllowed(_ tier: SoundTier) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             guard NotificationSound.shouldPlay(authorization: settings.authorizationStatus, sound: settings.soundSetting) else {
-                TrayLog.info("notification sound muted by system settings", ["tier": tier.resource])
+                TrayLog.info("notification sound muted by system settings", ["tier": tier.key])
                 return
             }
             DispatchQueue.main.async { Self.play(tier) }
         }
     }
 
-    /// Resolve the tier → bundled .caf file and play it via NSSound.
+    /// Play the tier's picked sound via NSSound.
     ///
     /// We play the sound manually rather than handing it to UNNotificationSound:
     /// on macOS UNNotificationSound(named:) only resolves files inside
@@ -312,13 +290,42 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// Falls back to the built-in macOS "Funk" alert if the bundle didn't ship
     /// the expected .caf (older build, afconvert missing during bundling).
     private static func play(_ tier: SoundTier) {
-        TrayLog.info("notification sound", ["tier": tier.resource])
+        let id = MainActor.assumeIsolated { sounds.picks[tier] }
+        TrayLog.info("notification sound", ["tier": tier.key, "sound": id])
+        playSound(id: id, tier: tier)
+    }
 
-        if let url = Bundle.main.url(forResource: tier.resource, withExtension: "caf"),
-           let sound = NSSound(contentsOf: url, byReference: false) {
-            playingSound = sound
-            sound.play()
+    /// Settings' play button: it plays whatever macOS's own sound toggle says,
+    /// since a pick you can't hear can't be chosen.
+    static func preview(id: String, tier: SoundTier) {
+        DispatchQueue.main.async { playSound(id: id, tier: tier) }
+    }
+
+    private static func playSound(id: String, tier: SoundTier) {
+        let loc = soundLocations
+        var urls: [URL] = []
+        switch SoundCatalog.resolve(id, tier: tier, in: loc) {
+        case .silent:
+            playingSound?.stop()
             return
+        case .file(let file):
+            urls = [file]
+            if case .file(let original) = SoundCatalog.resolve(SoundID.original, tier: tier, in: loc), original != file {
+                urls.append(original)
+            }
+        case .fallback(let original, let missing):
+            TrayLog.warn("picked notification sound missing, playing Original", ["tier": tier.key, "sound": missing])
+            urls = original.map { [$0] } ?? []
+        }
+
+        playingSound?.stop()
+        for url in urls {
+            if let sound = NSSound(contentsOf: url, byReference: false) {
+                playingSound = sound
+                sound.play()
+                return
+            }
+            TrayLog.warn("notification sound would not open", ["tier": tier.key, "file": url.path])
         }
 
         let fallback = NSSound(named: "Funk")

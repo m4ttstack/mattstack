@@ -1,11 +1,12 @@
 import Foundation
 
 public enum SettingsPane: String, CaseIterable, Sendable {
-    case general, permissions, accounts, fastBrowser, devLogins, apps, team, uninstall
+    case general, notifications, permissions, accounts, fastBrowser, devLogins, apps, team, uninstall
 
     public var title: String {
         switch self {
         case .general: return "General"
+        case .notifications: return "Notifications"
         case .permissions: return "Permissions"
         case .accounts: return "Accounts"
         case .fastBrowser: return "Fast Browser"
@@ -24,6 +25,7 @@ public enum SettingsPane: String, CaseIterable, Sendable {
     public var symbol: String {
         switch self {
         case .general: return "gearshape"
+        case .notifications: return "bell"
         case .permissions: return "lock.shield"
         case .accounts: return "person.crop.circle"
         case .fastBrowser: return "globe"
