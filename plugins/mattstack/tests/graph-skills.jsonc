@@ -1,0 +1,19 @@
+// CI-only bindings for tests/graph-roster.jsonc. The plugin job copies it over
+// a temp pack copy's pack/skills.jsonc; work needs a pipeline to compile, and
+// the eight stages are the generic ones the plugin ships.
+{
+  "version": 2,
+  "pipelines": {
+    "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ]
+  },
+  "bindings": {}
+}
