@@ -30,6 +30,7 @@ import {
   backoffNote,
   createFailedError,
   createWorktreeHandlers,
+  gitFailureDetail,
   isClaimable,
 } from "../handlers/worktree.ts";
 import type { HandlerContext, HandlerMap } from "../handlers/types.ts";
@@ -1323,5 +1324,17 @@ describe("createFailedError", () => {
     expect(error).toBe(
       "create-failed:pnpm install\n1 on-deck tree held by retry backoff until 2026-08-21T16:35:05.233Z",
     );
+  });
+});
+
+describe("gitFailureDetail", () => {
+  test("a timed-out git step names itself instead of leaving the reason empty", () => {
+    const timedOut = { stdout: "", stderr: "", exitCode: -1, timedOut: true };
+    expect(gitFailureDetail(timedOut, "git fetch", 300_000)).toBe("git fetch timed out after 300s");
+  });
+
+  test("a git step that exits carries its own output", () => {
+    const failed = { stdout: "", stderr: "fatal: not a valid ref\n", exitCode: 128 };
+    expect(gitFailureDetail(failed, "git checkout", 300_000)).toBe("fatal: not a valid ref");
   });
 });
