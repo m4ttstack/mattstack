@@ -26,8 +26,8 @@ const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
 export type BlockValues = Map<string /* block id */, Map<string /* prop */, PropValue>>;
 
 /**
- * `pipelineLayered` is the pipeline's own section, read after the top level
- * the way `effectiveBindings` reads it. `pipelineSections` is every pipeline's
+ * `pipelineLayered` is the pipeline's own section, which replaces the top
+ * level per prop the way `effectiveBindings` reads it. `pipelineSections` is every pipeline's
  * section, checked for keys naming no block even where no stage copy compiles it.
  */
 export type PropBindings = {
@@ -76,14 +76,14 @@ class ManifestSites {
 
   /** One position per layer value, in the order `effectiveBindings` lists them. */
   values(key: string, prop: string): Pos[] {
+    const countIn = (layered: LayeredBindings | undefined) => (layered && Object.hasOwn(layered, key) ? layered[key]![prop]?.length ?? 0 : 0);
+    const sections = this.sections();
+    const pipelineCount = sections.length > 1 ? countIn(this.b.pipelineLayered) : 0;
+    const [base, count] = pipelineCount > 0 ? [sections[1]!, pipelineCount] : [sections[0]!, countIn(this.b.layered)];
     const out: Pos[] = [];
-    const layeredOf = [this.b.layered, this.b.pipelineLayered ?? {}];
-    this.sections().forEach((base, s) => {
-      const count = (Object.hasOwn(layeredOf[s]!, key) ? layeredOf[s]![key]![prop]?.length : 0) ?? 0;
-      for (let i = 0; i < count; i++) {
-        out.push(this.at([...base, "layered", key, prop, i, "value"], "value") ?? this.at([...base, "bindings", key, prop], "value") ?? this.fallback());
-      }
-    });
+    for (let i = 0; i < count; i++) {
+      out.push(this.at([...base, "layered", key, prop, i, "value"], "value") ?? this.at([...base, "bindings", key, prop], "value") ?? this.fallback());
+    }
     return out;
   }
 }

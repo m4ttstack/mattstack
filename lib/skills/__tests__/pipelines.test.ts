@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defaultPipeline, effectiveBindings, effectiveSlotBindings, fillsDiffer, normalizePipelines, PIPELINE_NAME_RE, pipelineBindingKey, pipelineNameError, stageCopyName } from "../pipelines.ts";
+import type { LayeredBindings } from "../pipelines.ts";
+import { defaultPipeline, effectiveBindings, fillsDiffer, lastWinsBindings, normalizePipelines, PIPELINE_NAME_RE, pipelineBindingKey, pipelineNameError, stageCopyName } from "../pipelines.ts";
 
 describe("normalizePipelines", () => {
   test("a plain list gives stages and no bindings", () => {
@@ -56,45 +57,53 @@ describe("naming helpers", () => {
   });
 });
 
-describe("effectiveSlotBindings", () => {
+describe("lastWinsBindings", () => {
   const defaults = { "acme:r": { a: "acme:a", b: "acme:b" } };
-  test("override slots sit on top of the default slots", () => {
-    expect(effectiveSlotBindings(defaults, { "acme:r": { b: "acme:b2", c: "acme:c" } }, "acme:r")).toEqual({ a: "acme:a", b: "acme:b2", c: "acme:c" });
+  test("override props sit on top of the default props", () => {
+    expect(lastWinsBindings(defaults, { "acme:r": { b: "acme:b2", c: "acme:c" } }, "acme:r")).toEqual({ a: "acme:a", b: "acme:b2", c: "acme:c" });
   });
   test("no override gives the defaults", () => {
-    expect(effectiveSlotBindings(defaults, undefined, "acme:r")).toEqual({ a: "acme:a", b: "acme:b" });
+    expect(lastWinsBindings(defaults, undefined, "acme:r")).toEqual({ a: "acme:a", b: "acme:b" });
   });
   test("an engine with no default and no override gives an empty map", () => {
-    expect(effectiveSlotBindings(defaults, undefined, "acme:other")).toEqual({});
+    expect(lastWinsBindings(defaults, undefined, "acme:other")).toEqual({});
   });
   test("an empty override fill stays in the map", () => {
-    expect(effectiveSlotBindings(defaults, { "acme:r": { a: "" } }, "acme:r")).toEqual({ a: "", b: "acme:b" });
+    expect(lastWinsBindings(defaults, { "acme:r": { a: "" } }, "acme:r")).toEqual({ a: "", b: "acme:b" });
   });
 });
 
 describe("fillsDiffer", () => {
-  test("a different fill differs", () => {
-    expect(fillsDiffer({ r: { s: "acme:a" } }, { r: { s: "acme:b" } }, "r")).toBe(true);
+  /** Each value as one pack layer, the shape a manifest with no stacked layers reads as. */
+  const L = (map: Record<string, Record<string, string>>): LayeredBindings =>
+    Object.fromEntries(Object.entries(map).map(([key, props]) => [key, Object.fromEntries(Object.entries(props).map(([prop, value]) => [prop, [{ layer: "pack", value }]]))]));
+  test("a different value differs", () => {
+    expect(fillsDiffer(L({ r: { s: "acme:a" } }), L({ r: { s: "acme:b" } }), "r")).toBe(true);
   });
-  test("the same fill does not differ", () => {
-    expect(fillsDiffer({ r: { s: "acme:a" } }, { r: { s: "acme:a" } }, "r")).toBe(false);
+  test("the same value does not differ", () => {
+    expect(fillsDiffer(L({ r: { s: "acme:a" } }), L({ r: { s: "acme:a" } }), "r")).toBe(false);
   });
-  test("an empty fill over an absent slot does not differ", () => {
-    expect(fillsDiffer({}, { r: { s: "" } }, "r")).toBe(false);
+  test("an empty value over an absent prop does not differ", () => {
+    expect(fillsDiffer(L({}), L({ r: { s: "" } }), "r")).toBe(false);
   });
-  test("an empty fill over a filled slot differs", () => {
-    expect(fillsDiffer({ r: { s: "acme:a" } }, { r: { s: "" } }, "r")).toBe(true);
+  test("an empty value over a bound prop differs", () => {
+    expect(fillsDiffer(L({ r: { s: "acme:a" } }), L({ r: { s: "" } }), "r")).toBe(true);
   });
   test("no override does not differ", () => {
-    expect(fillsDiffer({ r: { s: "acme:a" } }, undefined, "r")).toBe(false);
+    expect(fillsDiffer(L({ r: { s: "acme:a" } }), undefined, "r")).toBe(false);
   });
-  test("a fill over an absent default slot differs", () => {
-    expect(fillsDiffer({}, { r: { s: "acme:a" } }, "r")).toBe(true);
+  test("a value over an absent default differs", () => {
+    expect(fillsDiffer(L({}), L({ r: { s: "acme:a" } }), "r")).toBe(true);
+  });
+  test("only what follows a value's last clear counts", () => {
+    const stacked = { r: { s: [{ layer: "base:acme", value: "acme:a" }, { layer: "pack", value: "" }, { layer: "pack", value: "acme:b" }] } };
+    expect(fillsDiffer(L({ r: { s: "acme:b" } }), stacked, "r")).toBe(false);
+    expect(fillsDiffer(stacked, L({ r: { s: "acme:b" } }), "r")).toBe(false);
   });
   test("a block path under the engine ref is compared too; another engine's keys are not", () => {
-    expect(fillsDiffer({ "r/gate": { p: "acme:a" } }, { "r/gate": { p: "" } }, "r")).toBe(true);
-    expect(fillsDiffer({ "r/gate": { p: "acme:a" } }, { "r/gate": { p: "acme:a" } }, "r")).toBe(false);
-    expect(fillsDiffer({}, { "rx/gate": { p: "acme:a" } }, "r")).toBe(false);
+    expect(fillsDiffer(L({ "r/gate": { p: "acme:a" } }), L({ "r/gate": { p: "" } }), "r")).toBe(true);
+    expect(fillsDiffer(L({ "r/gate": { p: "acme:a" } }), L({ "r/gate": { p: "acme:a" } }), "r")).toBe(false);
+    expect(fillsDiffer(L({}), L({ "rx/gate": { p: "acme:a" } }), "r")).toBe(false);
   });
 });
 
@@ -117,17 +126,20 @@ describe("effectiveBindings", () => {
   const KEY = "mattstack:ship/flow/fast-checks";
   const defaults = { [KEY]: { rules: [{ layer: "base:acme-base", value: "acme-base:r" }, { layer: "pack", value: "widgets:r" }], domain: [{ layer: "pack", value: "widgets:d" }] } };
 
-  test("a pipeline's layered values follow the top-level ones per prop", () => {
-    const overrides = { [KEY]: { rules: [{ layer: "pack", value: "" }, { layer: "override", value: "me:r" }] } };
+  test("a pipeline's values replace the top level's for each prop it binds, its own layers stacked", () => {
+    const overrides = { [KEY]: { rules: [{ layer: "base:acme-base", value: "acme-base:p" }, { layer: "pack", value: "widgets:p" }] } };
     expect(effectiveBindings(defaults, overrides, KEY)).toEqual({
       rules: [
-        { layer: "base:acme-base", value: "acme-base:r" },
-        { layer: "pack", value: "widgets:r" },
-        { layer: "pack", value: "" },
-        { layer: "override", value: "me:r" },
+        { layer: "base:acme-base", value: "acme-base:p" },
+        { layer: "pack", value: "widgets:p" },
       ],
       domain: [{ layer: "pack", value: "widgets:d" }],
     });
+  });
+
+  test("a pipeline's empty value clears the top level's for its stage copy", () => {
+    const overrides = { [KEY]: { rules: [{ layer: "pack", value: "" }] } };
+    expect(effectiveBindings(defaults, overrides, KEY).rules).toEqual([{ layer: "pack", value: "" }]);
   });
 
   test("no overrides, or an unknown key, gives the top level or nothing", () => {

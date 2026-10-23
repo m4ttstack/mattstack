@@ -716,6 +716,19 @@ describe("block-tree engines end to end", () => {
     expect(readFileSync(join(pack, "attachments", "mini--feature", "SKILL.md"), "utf8")).not.toContain("Follow the fast widget rules.");
   });
 
+  test("a pipeline's value replaces the top-level value of an add prop in its stage copy", async () => {
+    const { pack, ms, manifest, args } = await buildBlocks();
+    writeFileSync(join(pack, "attachments", "mini-rules", "slow.md"), "Follow the slow widget rules.\n");
+    asStage(pack, ms, manifest, '{ "mattstack:mini": { "rules": "widgets:mini-rules/slow" } }');
+    await skillsCompile(args);
+    const stage = readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8");
+    const copy = readFileSync(join(pack, "attachments", "mini--feature", "SKILL.md"), "utf8");
+    expect(stage).toContain("Follow the fast widget rules.");
+    expect(stage).not.toContain("Follow the slow widget rules.");
+    expect(copy).toContain("Follow the slow widget rules.");
+    expect(copy).not.toContain("Follow the fast widget rules.");
+  });
+
   test("a typo block key in a pipeline section refuses compile though no stage copy uses it", async () => {
     const { pack, ms, manifest, args } = await buildBlocks();
     asStage(pack, ms, manifest, '{ "mattstack:mini/gaet": { "tiering": "" } }');

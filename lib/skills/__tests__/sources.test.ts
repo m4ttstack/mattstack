@@ -24,7 +24,7 @@ import {
   type PluginListEntry,
   type PluginRoots,
 } from "../sources.ts";
-import { effectiveSlotBindings } from "../pipelines.ts";
+import { effectiveBindings, type LayeredBindings } from "../pipelines.ts";
 import { BlockError } from "../blocks/diagnostics.ts";
 import * as out from "../../ui/out.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
@@ -735,11 +735,15 @@ test("stageRoster is the distinct union across pipelines, bare names", () => {
 });
 
 describe("stageRoster stage copies", () => {
+  /** Each value as one pack layer, the shape a manifest with no stacked layers reads as. */
+  const L = (map: Record<string, Record<string, string>>): LayeredBindings =>
+    Object.fromEntries(Object.entries(map).map(([key, props]) => [key, Object.fromEntries(Object.entries(props).map(([prop, value]) => [prop, [{ layer: "pack", value }]]))]));
+  const P = (sections: Record<string, Record<string, Record<string, string>>>) => Object.fromEntries(Object.entries(sections).map(([type, map]) => [type, L(map)]));
   const pipelines = {
     feature: ["mattstack:stage-plan", "mattstack:stage-evidence"],
     accessibility: ["mattstack:stage-plan", "mattstack:stage-evidence"],
   };
-  const defaults = { "mattstack:stage-evidence": { domain: "acme:a" } };
+  const defaults = L({ "mattstack:stage-evidence/domain-rules": { rules: "acme:a" } });
   const base = [
     { name: "stage-plan", engine: "stage-plan", description: "" },
     { name: "stage-evidence", engine: "stage-evidence", description: "" },
@@ -747,28 +751,28 @@ describe("stageRoster stage copies", () => {
 
   test("a pipeline's binding on a block path of a block engine adds a copy", () => {
     const mini = { feature: ["mattstack:mini"] };
-    const top = { "mattstack:mini/gate": { tiering: "widgets:tiers/fast" } };
-    const overrides = { feature: { "mattstack:mini/gate": { tiering: "" } } };
+    const top = L({ "mattstack:mini/gate": { tiering: "widgets:tiers/fast" } });
+    const overrides = P({ feature: { "mattstack:mini/gate": { tiering: "" } } });
     expect(stageRoster(mini, overrides, top)).toEqual([
       { name: "mini", engine: "mini", description: "" },
       { name: "mini--feature", engine: "mini", description: "", pipeline: "feature" },
     ]);
-    expect(stageRoster(mini, { feature: { "mattstack:mini/nope": { rules: "widgets:x" } } }, {}).map((v) => v.name)).toEqual(["mini", "mini--feature"]);
-    expect(stageRoster(mini, { feature: { "mattstack:mini-x/gate": { tiering: "widgets:x" } } }, {}).map((v) => v.name)).toEqual(["mini"]);
+    expect(stageRoster(mini, P({ feature: { "mattstack:mini/nope": { rules: "widgets:x" } } }), {}).map((v) => v.name)).toEqual(["mini", "mini--feature"]);
+    expect(stageRoster(mini, P({ feature: { "mattstack:mini-x/gate": { tiering: "widgets:x" } } }), {}).map((v) => v.name)).toEqual(["mini"]);
   });
 
   test("override equal to default makes no copy", () => {
-    const overrides = { accessibility: { "mattstack:stage-evidence": { domain: "acme:a" } } };
+    const overrides = P({ accessibility: { "mattstack:stage-evidence/domain-rules": { rules: "acme:a" } } });
     expect(stageRoster(pipelines, overrides, defaults)).toEqual(base);
   });
 
-  test("empty override over an absent slot makes no copy", () => {
-    const overrides = { accessibility: { "mattstack:stage-evidence": { forge: "" } } };
+  test("empty override over an absent prop makes no copy", () => {
+    const overrides = P({ accessibility: { "mattstack:stage-evidence/domain-rules": { other: "" } } });
     expect(stageRoster(pipelines, overrides, defaults)).toEqual(base);
   });
 
-  test("an override that changes a fill adds a copy for that pipeline", () => {
-    const overrides = { accessibility: { "mattstack:stage-evidence": { domain: "acme:b" } } };
+  test("an override that changes a value adds a copy for that pipeline", () => {
+    const overrides = P({ accessibility: { "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } } });
     expect(stageRoster(pipelines, overrides, defaults)).toEqual([
       ...base,
       { name: "stage-evidence--accessibility", engine: "stage-evidence", description: "", pipeline: "accessibility" },
@@ -776,23 +780,23 @@ describe("stageRoster stage copies", () => {
   });
 
   test("empty override unbinds in the copy only", () => {
-    const overrides = { accessibility: { "mattstack:stage-evidence": { domain: "" } } };
+    const overrides = P({ accessibility: { "mattstack:stage-evidence/domain-rules": { rules: "" } } });
     expect(stageRoster(pipelines, overrides, defaults)).toEqual([
       ...base,
       { name: "stage-evidence--accessibility", engine: "stage-evidence", description: "", pipeline: "accessibility" },
     ]);
-    expect(effectiveSlotBindings(defaults, overrides.accessibility, "mattstack:stage-evidence")).toEqual({ domain: "" });
-    expect(effectiveSlotBindings(defaults, undefined, "mattstack:stage-evidence")).toEqual({ domain: "acme:a" });
+    expect(effectiveBindings(defaults, overrides.accessibility, "mattstack:stage-evidence/domain-rules")).toEqual({ rules: [{ layer: "pack", value: "" }] });
+    expect(effectiveBindings(defaults, undefined, "mattstack:stage-evidence/domain-rules")).toEqual({ rules: [{ layer: "pack", value: "acme:a" }] });
   });
 
   test("a pipeline name that is not a skill name throws when it carries an override", () => {
-    const overrides = { "../x": { "mattstack:stage-evidence": { domain: "acme:b" } } };
+    const overrides = P({ "../x": { "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } } });
     expect(() => stageRoster({ ...pipelines, "../x": ["mattstack:stage-evidence"] }, overrides, defaults))
       .toThrow('pipeline "../x" must match [a-z][a-z0-9-]*');
   });
 
   test("-- in an override-carrying pipeline is refused", () => {
-    const overrides = { "a--b": { "mattstack:stage-evidence": { domain: "acme:b" } } };
+    const overrides = P({ "a--b": { "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } } });
     expect(() => stageRoster({ ...pipelines, "a--b": ["mattstack:stage-evidence"] }, overrides, defaults))
       .toThrow('pipeline "a--b" must not contain "--"');
   });

@@ -1,12 +1,12 @@
 /**
  * `rt setup pack` -- installs a team pack's plugins, materializes skills, then
  * checks that the pack's declared work-type pipeline is usable: every stage it
- * names must have no empty slot in the pack's own bindings file.
+ * names must have no empty binding in the pack's own bindings file.
  */
 
 import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { stripJsonc } from "../jsonc.ts";
-import { effectiveSlotBindings, normalizePipelines, type BindingsMap } from "../skills/pipelines.ts";
+import { lastWinsBindings, normalizePipelines, type BindingsMap } from "../skills/pipelines.ts";
 import type { ApplyContext } from "./apply.ts";
 import { installPlugins } from "./steps/plugins.ts";
 import { materializeSkills } from "./skills-materialize.ts";
@@ -40,7 +40,7 @@ function parseManifest(text: string): PackManifest {
 function stageUnresolved(stage: string, defaults: BindingsMap, overrides: BindingsMap | undefined): boolean {
   const engineRef = `mattstack:${stage}`;
   const known = (map: BindingsMap | undefined) => map !== undefined && Object.hasOwn(map, engineRef);
-  const entry = effectiveSlotBindings(defaults, overrides, known(defaults) || known(overrides) ? engineRef : stage);
+  const entry = lastWinsBindings(defaults, overrides, known(defaults) || known(overrides) ? engineRef : stage);
   return Object.values(entry).some((v) => typeof v !== "string" || v.trim().length === 0);
 }
 

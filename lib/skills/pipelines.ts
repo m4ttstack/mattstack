@@ -49,15 +49,16 @@ export function stageCopyName(stage: string, pipeline: string): string {
   return `${stage}--${pipeline}`;
 }
 
-export function effectiveSlotBindings(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): Record<string, string> {
-  return { ...own(defaults, engineRef), ...own(overrides, engineRef) };
+/** The last-wins value of each prop a pipeline's stage copy reads: the pipeline's own where it binds the prop, else the top level's. */
+export function lastWinsBindings(defaults: BindingsMap, overrides: BindingsMap | undefined, key: string): Record<string, string> {
+  return { ...own(defaults, key), ...own(overrides, key) };
 }
 
-/** A pipeline's values follow the top-level ones, so a pipeline's `""` clears the top level the way a later layer's does. */
+/** A pipeline's binding is not a layer: for each prop it binds, its values replace the top level's, stacked among themselves. */
 export function effectiveBindings(defaults: LayeredBindings, overrides: LayeredBindings | undefined, key: string): Record<string, LayerValue[]> {
   const out: Record<string, LayerValue[]> = Object.create(null);
   for (const source of [own(defaults, key), own(overrides, key)]) {
-    for (const [prop, values] of Object.entries(source ?? {})) out[prop] = [...(out[prop] ?? []), ...values];
+    for (const [prop, values] of Object.entries(source ?? {})) out[prop] = [...values];
   }
   return out;
 }
@@ -68,15 +69,20 @@ export function engineRefOf(key: string): string {
   return slash < 0 ? key : key.slice(0, slash);
 }
 
-/** A block engine's blocks bind under `<engineRef>/<block path>`, so each of those keys can differ too; a slot engine has only `engineRef`. */
-export function fillsDiffer(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): boolean {
+/** A `""` drops every value before it whatever the prop's merge, so only what follows the last one reaches a compiled verb. */
+function afterLastClear(values: LayerValue[]): string[] {
+  return values.slice(values.findLastIndex((v) => v.value === "") + 1).map((v) => v.value);
+}
+
+/** True when a pipeline's own values change a prop of the engine, at its root key or any `<engineRef>/<block path>` key. */
+export function fillsDiffer(defaults: LayeredBindings, overrides: LayeredBindings | undefined, engineRef: string): boolean {
   const ownsKey = (key: string) => key === engineRef || key.startsWith(`${engineRef}/`);
-  const keys = new Set([...Object.keys(defaults), ...Object.keys(overrides ?? {})].filter(ownsKey));
-  for (const key of keys) {
+  for (const key of Object.keys(overrides ?? {}).filter(ownsKey)) {
     const base = own(defaults, key) ?? {};
-    const effective = effectiveSlotBindings(defaults, overrides, key);
-    for (const slot of new Set([...Object.keys(base), ...Object.keys(effective)])) {
-      if ((base[slot] ?? "") !== (effective[slot] ?? "")) return true;
+    for (const [prop, values] of Object.entries(own(overrides, key) ?? {})) {
+      const before = afterLastClear(base[prop] ?? []);
+      const after = afterLastClear(values);
+      if (before.length !== after.length || before.some((v, i) => v !== after[i])) return true;
     }
   }
   return false;

@@ -739,8 +739,8 @@ function readNormalizedPipelines(manifestPath: string): ReturnType<typeof normal
  */
 export function stageRoster(
   pipelines: Record<string, string[]>,
-  pipelineBindings: Record<string, BindingsMap>,
-  defaults: BindingsMap,
+  pipelineBindings: Record<string, LayeredBindings>,
+  defaults: LayeredBindings,
 ): VerbDef[] {
   for (const type of Object.keys(pipelineBindings)) {
     const problem = pipelineNameError(type);

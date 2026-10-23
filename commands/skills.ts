@@ -75,7 +75,7 @@ import { assertNoTeamMarkerInAllowedTools, findPlaceholders, type TraceEntry } f
 import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { defaultPipeline, effectiveSlotBindings, engineRefOf, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
+import { defaultPipeline, lastWinsBindings, engineRefOf, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -676,7 +676,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const pipelineBindings = manifestPath ? readManifestPipelineBindings(manifestPath) : {};
   let stages: VerbDef[];
   try {
-    stages = stageRoster(pipelines, pipelineBindings, bindings);
+    stages = stageRoster(pipelines, manifestPath ? readManifestPipelineLayered(manifestPath) : {}, manifestPath ? readManifestLayered(manifestPath) : {});
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
@@ -709,7 +709,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
 
 function loadFillsFor(step: StepSource, resolved: Resolved, where: string, pipeline?: string): Record<string, AttachmentSource | null> {
   const overrides = pipeline !== undefined && Object.hasOwn(resolved.pipelineBindings, pipeline) ? resolved.pipelineBindings[pipeline] : undefined;
-  const slotBindings = effectiveSlotBindings(resolved.bindings, overrides, `${step.plugin}:${step.name}`);
+  const slotBindings = lastWinsBindings(resolved.bindings, overrides, `${step.plugin}:${step.name}`);
   const fills: Record<string, AttachmentSource | null> = {};
   for (const slotName of Object.keys(step.slots)) {
     const bindingName = slotBindings[slotName];
@@ -3045,7 +3045,7 @@ function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
     }
   }
   try {
-    return new Set(stageRoster(readManifestPipelines(manifest), readManifestPipelineBindings(manifest), readManifestBindings(manifest)).map((v) => v.name));
+    return new Set(stageRoster(readManifestPipelines(manifest), readManifestPipelineLayered(manifest), readManifestLayered(manifest)).map((v) => v.name));
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
@@ -3737,7 +3737,7 @@ export async function applyBind(opts: {
     const overrides = readManifestPipelineBindings(opts.manifestPath)[unsetPipeline];
     const stillOverridden = overrides?.[opts.engineRef]?.[opts.slotName] !== undefined;
     const shadowedBy = stillOverridden ? readManifestProvenance(readFileSync(opts.manifestPath, "utf8"))[overrideKey] ?? "another layer" : null;
-    const to = effectiveSlotBindings(readManifestBindings(opts.manifestPath), overrides, opts.engineRef)[opts.slotName] || "(unbound)";
+    const to = lastWinsBindings(readManifestBindings(opts.manifestPath), overrides, opts.engineRef)[opts.slotName] || "(unbound)";
     return { ...outcome, shadowedBy, to };
   };
   const writeManifestOnly = (): BindOutcome => {
@@ -3980,7 +3980,7 @@ export async function skillsBind(args: string[]): Promise<void> {
 
     const oldValue = pipeline === null
       ? resolved.bindings[engineRef]?.[slotName] ?? "(unbound)"
-      : effectiveSlotBindings(resolved.bindings, resolved.pipelineBindings[pipeline], engineRef)[slotName] || "(unbound)";
+      : lastWinsBindings(resolved.bindings, resolved.pipelineBindings[pipeline], engineRef)[slotName] || "(unbound)";
     // Before the write, an unset can only predict the default fill: provenance names the winning layer, not a lower one under it.
     const predictedTo = unset ? resolved.bindings[engineRef]?.[slotName] || "(unbound)" : fill ?? "";
     const pipelineField = pipeline === null ? {} : { pipeline };
