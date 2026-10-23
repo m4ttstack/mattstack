@@ -41,7 +41,7 @@ export function toDot(graph: BlockGraph, titles: Map<string, string>): string {
 
 const HEADER_RE = /^(?:strict\s+)?(?:(?:di)?graph|subgraph)\b/;
 
-function splitStatements(body: string): string[] {
+export function splitStatements(body: string): string[] {
   const stmts: string[] = [];
   let cur = "";
   let inQuote = false;

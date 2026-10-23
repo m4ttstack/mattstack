@@ -57,3 +57,41 @@ test("normalizeCompiled is idempotent on a body with a dot fence", () => {
   const md = "## A\n\n```dot\ndigraph g { a -> b; }\n```\n";
   expect(normalizeCompiled(normalizeCompiled(md))).toBe(normalizeCompiled(md));
 });
+
+const dot = (body: string) => `# A\n\n\`\`\`dot\ndigraph g {\n${body}\n}\n\`\`\`\n`;
+const base = `a [label="A" shape=box];\nb [label="B" shape=box];\na -> b [label="go"];`;
+
+test.each([
+  ["a changed edge label", base.replace("go", "stop")],
+  ["a removed edge", base.replace(/a -> b.*/, "")],
+  ["an edge style", base.replace(`[label="go"]`, `[label="go" style=dashed]`)],
+  ["a node shape", base.replace(`"A" shape=box`, `"A" shape=diamond`)],
+  ["a fillcolor", base.replace(`"A" shape=box`, `"A" shape=box fillcolor=red`)],
+  ["a fontcolor", base.replace(`"A" shape=box`, `"A" shape=box fontcolor=white`)],
+  ["a graph attribute", `rankdir=LR;\n${base}`],
+  ["a node default", `node [shape=circle];\n${base}`],
+])("a dot graph with %s differs", (_name, changed) => {
+  expect(residualDiff(dot(base), dot(changed), none)).not.toBe("");
+});
+
+test("blank lines and whitespace inside a fence are compared", () => {
+  const fenced = (body: string) => `# A\n\n\`\`\`sh\n${body}\n\`\`\`\n`;
+  expect(residualDiff(fenced("a\n\n\nb"), fenced("a\n\nb"), none)).not.toBe("");
+  expect(residualDiff(fenced("a\n  \nb"), fenced("a\n\nb"), none)).not.toBe("");
+});
+
+test("fence indentation is compared", () => {
+  expect(residualDiff("# A\n\n  ```sh\n  x\n  ```\n", "# A\n\n```sh\n  x\n```\n", none)).not.toBe("");
+});
+
+test("moved text that vanishes under --allow-move still differs", () => {
+  const before = "## Domain rules\n\nNever skip lint.\n\n### Fast checks\n\nRun tsc.\n";
+  const after = "## Domain rules\n\n### Fast checks\n\nRun tsc.\n";
+  expect(residualDiff(before, after, { allowMovedBlocks: ["Domain rules"] })).toContain("-Never skip lint.");
+});
+
+test("a deeper same-titled heading is not a repeat, a shallower or equal one is", () => {
+  expect(residualDiff("# A\n\n## A\n\ntext\n", "# A\n\ntext\n", none)).not.toBe("");
+  expect(residualDiff("## A\n\n# A\n\ntext\n", "## A\n\ntext\n", none)).toBe("");
+  expect(residualDiff("## A\n\n## A\n\ntext\n", "## A\n\ntext\n", none)).toBe("");
+});

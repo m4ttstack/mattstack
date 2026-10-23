@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as out from "../../lib/ui/out.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
-import { normalizeCompiled } from "./lib/normalize.ts";
+import { fencedLines, normalizeCompiled } from "./lib/normalize.ts";
 
 const USAGE = 'bun scripts/blocks/compiled-diff.ts --verb <name> --before <compiled SKILL.md> --after <compiled SKILL.md> [--allow-move "<heading>"]...';
 const FENCE = /^\s*(`{3,}|~{3,})/;
@@ -96,10 +96,11 @@ function dropMoved(a: string[], b: string[], headings: string[]): [string[], str
 
 function tidy(lines: string[]): string[] {
   const kept: string[] = [];
-  for (const l of lines) {
-    if (l === "" && (kept.length === 0 || kept[kept.length - 1] === "")) continue;
+  const fenced = fencedLines(lines);
+  lines.forEach((l, i) => {
+    if (!fenced[i] && l === "" && (kept.length === 0 || kept[kept.length - 1] === "")) return;
     kept.push(l);
-  }
+  });
   while (kept[kept.length - 1] === "") kept.pop();
   return kept;
 }
