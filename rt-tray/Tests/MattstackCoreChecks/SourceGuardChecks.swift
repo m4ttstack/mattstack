@@ -16,6 +16,22 @@ let sourceGuardChecks: [Check] = [
         }
         c.expect(files.count >= 5)
     },
+    /// A grouped Form draws an unsized switch at mini, while `.small` draws
+    /// larger, so panes drifted apart until every switch named its size.
+    Check("every switch is mini, so switches match across panes") { c in
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources").standardized
+        let files = FileManager.default.enumerator(atPath: sources.path)?.compactMap { $0 as? String }.filter { $0.hasSuffix(".swift") } ?? []
+        var switches = 0
+        for f in files {
+            let lines = try String(contentsOf: sources.appendingPathComponent(f), encoding: .utf8).split(separator: "\n")
+            for (i, line) in lines.enumerated() where line.contains(".toggleStyle(.switch)") {
+                switches += 1
+                if !line.contains(".controlSize(.mini)") { c.fail("\(f):\(i + 1) switch is not .controlSize(.mini)") }
+            }
+        }
+        c.expect(switches >= 7, "expected the settings switches; found \(switches)")
+    },
     Check("BadgePoller never fetches over URLSession.shared") { c in
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../Sources").standardized
