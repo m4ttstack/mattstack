@@ -175,7 +175,11 @@ export function FocusHeader({
       data-testid="focus-header"
     >
       <Stack gap={6}>
-        <Group gap={10} justify="space-between">
+        <Group
+          gap={10}
+          justify="space-between"
+          wrap={inline ? 'wrap' : undefined}
+        >
           <Group
             gap={10}
             className={inline ? classes.inlineTitleRow : undefined}
