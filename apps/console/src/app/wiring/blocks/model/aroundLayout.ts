@@ -4,7 +4,7 @@ import type { GraphNode } from '../../../../server/blocksPayload';
 import type { AroundGraphData } from './around';
 
 export const AROUND = {
-  nodeW: 150,
+  nodeW: 180,
   nodeH: 32,
   columnGap: 30,
   rowGap: 64,

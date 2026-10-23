@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { UnstyledButton } from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 
 import type {
   BlocksPayload,
@@ -40,7 +41,11 @@ function GraphCard({
   if (!graph) return null;
   return (
     <div className={classes.graphCard} data-testid="graph-card">
-      <span>{`${graph.nodes.length} steps · ${graph.edges.length} links`}</span>
+      <span className={classes.graphTitle}>
+        <Icon name="workflow" size={14} />
+        <span className={classes.graphName}>Graph</span>
+        <span>{`${graph.nodes.length} steps · ${graph.edges.length} links`}</span>
+      </span>
       <UnstyledButton
         className={classes.graphLink}
         onClick={() => onViewGraph?.(blockId)}
@@ -65,7 +70,9 @@ export function BlockText({
     const [before, ...rest] = text.split(FENCE);
     const parts: ReactNode[] = [];
     if (before.trim())
-      parts.push(<GateContext key={`${key}-a`} text={before} fill />);
+      parts.push(
+        <GateContext key={`${key}-a`} text={before} fill breaks={false} />
+      );
     if (rest.length > 0) {
       if (level === 'parent') {
         parts.push(
@@ -79,7 +86,9 @@ export function BlockText({
       }
       const after = rest.join('');
       if (after.trim())
-        parts.push(<GateContext key={`${key}-b`} text={after} fill />);
+        parts.push(
+          <GateContext key={`${key}-b`} text={after} fill breaks={false} />
+        );
     }
     return parts;
   };

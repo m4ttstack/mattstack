@@ -122,6 +122,14 @@ describe('BlockView: the skill', () => {
     });
   });
 
+  it("says the skill's summary once, not again as the root's first line", () => {
+    renderView();
+
+    expect(
+      screen.getAllByText('Runs the step, then asks for a decision.')
+    ).toHaveLength(1);
+  });
+
   it('says a stale block link names nothing, and shows the skill', () => {
     renderView({ block: 'mini/gone' });
 
@@ -148,6 +156,7 @@ describe('BlockView: a parent block', () => {
     ).not.toBeInTheDocument();
     const [band] = screen.getAllByTestId('section-band');
     expect(within(band).getAllByTestId('block-row')).toHaveLength(2);
+    expect(within(band).queryByText('Run')).not.toBeInTheDocument();
 
     await userEvent.click(within(crumbs).getByText('mini'));
     expect(patch).toHaveBeenCalledWith({ block: null, select: null });
@@ -195,6 +204,15 @@ describe('BlockView: a single block', () => {
         .map(node => node.textContent)
     ).toEqual(['Run', 'Gate']);
     expect(screen.getAllByText('Around this block')).toHaveLength(1);
+  });
+
+  it("marks a block node with its block's kind glyph", () => {
+    renderView({ block: 'mini/gate' });
+
+    const gate = within(screen.getByTestId('around-graph'))
+      .getAllByTestId('around-block')
+      .find(node => node.textContent === 'Gate')!;
+    expect(gate.querySelector('[data-glyph="gate"]')).not.toBeNull();
   });
 
   it('opens a block from its node in Around this block', () => {

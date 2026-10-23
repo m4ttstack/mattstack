@@ -2,7 +2,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, dotsOf, labelOf, rootOf } from './blockFacts';
+import { childrenOf, dotsOf, isSharedTop, labelOf, rootOf } from './blockFacts';
 import type { Dot, Glyph } from './blockFacts';
 import type { Zoom } from './zoom';
 
@@ -25,12 +25,16 @@ export type SectionBand = {
   rows: FoldedRow[];
 };
 
-function rowOf(block: PayloadBlock, selectedId: string | null): FoldedRow {
+function rowOf(
+  block: PayloadBlock,
+  selectedId: string | null,
+  summary = block.summary
+): FoldedRow {
   return {
     id: block.id,
     glyph: block.kind,
     label: labelOf(block),
-    summary: block.summary,
+    summary,
     dots: dotsOf(block),
     hasProps: block.props.length > 0,
     selected: block.id === selectedId,
@@ -61,7 +65,9 @@ function skillBands(
 ): SectionBand[] {
   const root = rootOf(payload);
   if (!root) return [];
-  const top = childrenOf(payload, root.id);
+  const all = childrenOf(payload, root.id);
+  const top = all.filter(block => !isSharedTop(payload, block));
+  const shared = all.filter(block => isSharedTop(payload, block));
   const folders = top.filter(block => childrenOf(payload, block.id).length > 0);
   const leaves = top.filter(block => !folders.includes(block));
   const bands = folders.map(block =>
@@ -75,6 +81,23 @@ function skillBands(
   );
   if (leaves.length > 0) {
     bands.push(bandOf('notes', 'Notes', 'note', leaves, selectedId));
+  }
+  if (shared.length > 0) {
+    const rows = shared.map(block =>
+      rowOf(
+        block,
+        selectedId,
+        block.summary || (childrenOf(payload, block.id)[0]?.summary ?? '')
+      )
+    );
+    bands.push({
+      id: 'shared',
+      title: 'Shared',
+      glyph: 'shared',
+      blockCount: rows.length,
+      propsCount: rows.filter(row => row.hasProps).length,
+      rows,
+    });
   }
   return bands;
 }

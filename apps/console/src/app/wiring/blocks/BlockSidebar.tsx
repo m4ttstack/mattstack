@@ -63,7 +63,9 @@ function TreeRow({
               data-open={row.open || undefined}
             />
           )}
-          {row.glyph !== 'shared' && <BlockGlyph glyph={row.glyph} size={13} />}
+          {!folder && row.glyph !== 'shared' && (
+            <BlockGlyph glyph={row.glyph} size={13} />
+          )}
         </>
       }
       rightSection={

@@ -95,6 +95,11 @@
   padding: 0;
 }
 
+/* Below this basis the actions wrap under the title instead of squeezing it. */
+.inlineTitleRow {
+  flex: 1 1 320px;
+}
+
 /* Badge always draws a 1px border, so each padding is a pixel short of the
    board's to keep the label where the board puts it. */
 .pill {

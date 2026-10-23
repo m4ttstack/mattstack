@@ -713,6 +713,17 @@ describe('Graph tab: the block view', () => {
     expect(await screen.findByTestId('around-graph')).toBeInTheDocument();
   });
 
+  it('marks a folding row with its chevron and a leaf row with its glyph', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=shepherdr');
+
+    const sidebar = await screen.findByTestId('block-sidebar');
+    const run = await within(sidebar).findByTestId('block-tree-mini/run');
+    const gate = within(sidebar).getByTestId('block-tree-mini/gate');
+    expect(run.querySelector('[data-glyph]')).toBeNull();
+    expect(gate.querySelector('[data-glyph="gate"]')).not.toBeNull();
+  });
+
   it('reads a hand-written skill from its headings, read-only', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=release-notes');

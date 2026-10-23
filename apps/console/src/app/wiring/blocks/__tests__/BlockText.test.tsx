@@ -1,3 +1,5 @@
+import '../../../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -33,6 +35,20 @@ describe('BlockText', () => {
     expect(
       screen.getByText('mattstack:model-tiering', { selector: 'code' })
     ).toBeInTheDocument();
+  });
+
+  it("joins the engine's hard-wrapped lines into one paragraph", () => {
+    const run = byId('mini/run');
+    const wrapped: PayloadBlock = {
+      ...run,
+      segments: [{ ...run.segments[0], text: 'Do the work\nfor the widget.' }],
+    };
+    renderWithProviders(
+      <BlockText block={wrapped} payload={miniPayload} level="block" />
+    );
+    const body = screen.getByTestId('block-text');
+    expect(body.querySelector('br')).toBeNull();
+    expect(body).toHaveTextContent('Do the work for the widget.');
   });
 
   it('renders no box for a block with no markers', () => {

@@ -3,7 +3,7 @@ import type {
   LayerColor,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, labelOf, rootOf } from './blockFacts';
+import { childrenOf, isSharedTop, labelOf, rootOf } from './blockFacts';
 import { sectionsAt } from './sections';
 
 export type Fill = LayerColor | 'both';
@@ -58,6 +58,33 @@ function fillOf(block: PayloadBlock): Fill {
   return 'mattstack';
 }
 
+function sharedTopIds(payload: BlocksPayload): Set<string> {
+  return new Set(
+    payload.blocks
+      .filter(block => isSharedTop(payload, block))
+      .map(block => block.id)
+  );
+}
+
+/** Under a top-level include, at the skill: its square stands for the tree. */
+function insideSharedTop(
+  payload: BlocksPayload
+): (block: PayloadBlock) => boolean {
+  const tops = sharedTopIds(payload);
+  const parentOf = new Map(
+    payload.blocks.map(block => [block.id, block.parentId])
+  );
+  return block => {
+    const seen = new Set<string>();
+    for (let at = parentOf.get(block.id); at; at = parentOf.get(at)) {
+      if (seen.has(at)) return false;
+      seen.add(at);
+      if (tops.has(at)) return true;
+    }
+    return false;
+  };
+}
+
 /** At the skill, a block sits in the band of its top-level ancestor (up the
     `parentId` chain), a top-level leaf in Notes, and the root under the
     skill's name. */
@@ -70,13 +97,17 @@ function skillSectionOf(payload: BlocksPayload): (id: string) => string {
   const parentOf = new Map(
     payload.blocks.map(block => [block.id, block.parentId])
   );
+  const sharedTops = sharedTopIds(payload);
   return id => {
     if (root && id === root.id) return payload.skill;
     const seen = new Set<string>();
     for (let at: string | null | undefined = id; at; at = parentOf.get(at)) {
       if (seen.has(at)) break;
       seen.add(at);
-      if (parentOf.get(at) === root?.id) return bandOf.get(at) ?? 'Notes';
+      if (parentOf.get(at) === root?.id) {
+        if (sharedTops.has(at)) return 'Shared';
+        return bandOf.get(at) ?? 'Notes';
+      }
     }
     return 'Notes';
   };
@@ -88,12 +119,15 @@ export function blockMap(
 ): { squares: Square[]; legend: { fill: Fill; count: number }[] } {
   const sectionOf =
     scope === null ? skillSectionOf(payload) : () => labelOf(scope);
-  const squares = inScope(payload, scope).map(block => ({
-    id: block.id,
-    label: labelOf(block),
-    section: sectionOf(block.id),
-    fill: fillOf(block),
-  }));
+  const hidden = scope === null ? insideSharedTop(payload) : () => false;
+  const squares = inScope(payload, scope)
+    .filter(block => !hidden(block))
+    .map(block => ({
+      id: block.id,
+      label: labelOf(block),
+      section: sectionOf(block.id),
+      fill: fillOf(block),
+    }));
   const legend = FILL_ORDER.map(fill => ({
     fill,
     count: squares.filter(square => square.fill === fill).length,

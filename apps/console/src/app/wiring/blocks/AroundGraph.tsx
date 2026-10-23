@@ -15,8 +15,6 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import {
-  Background,
-  BackgroundVariant,
   EdgeLabelRenderer,
   getSmoothStepPath,
   Handle,
@@ -30,6 +28,7 @@ import {
 } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import { BlockGlyph } from './BlockRow';
 import classes from './blocks.module.css';
 import { aroundBlock } from './model/around';
 import {
@@ -40,14 +39,29 @@ import {
   type AroundEdge,
   type AroundNode,
 } from './model/aroundLayout';
+import type { Glyph } from './model/blockFacts';
 
 const OnSelect = createContext<(blockId: string) => void>(() => {});
+
+type GlyphLookup = (blockId: string) => Glyph | null;
+const noGlyph: GlyphLookup = () => null;
+const GlyphOf = createContext<GlyphLookup>(noGlyph);
 
 const ICON_STROKE = 2;
 const MARKER = { length: 7, halfWidth: 4 };
 const CANVAS_PADDING = 24;
 
-function ShapeIcon({ shape }: { shape: AroundNode['data']['shape'] }) {
+function ShapeIcon({
+  shape,
+  blockId,
+}: {
+  shape: AroundNode['data']['shape'];
+  blockId?: string | null;
+}) {
+  const glyph = useContext(GlyphOf)(blockId ?? '');
+  if (glyph && glyph !== 'note' && glyph !== 'shared') {
+    return <BlockGlyph glyph={glyph} size={12} />;
+  }
   return (
     <Icon
       name={shape === 'diamond' ? 'diamond' : 'circle'}
@@ -89,7 +103,7 @@ function BlockNodeComponent({
         data-testid="around-block"
         onClick={() => blockId && onSelect(blockId)}
       >
-        <ShapeIcon shape={shape} />
+        <ShapeIcon shape={shape} blockId={blockId} />
         <span className={classes.aroundLabel}>{label}</span>
       </UnstyledButton>
       <Handles />
@@ -173,6 +187,8 @@ export interface AroundGraphProps {
   graph: BlocksPayload['graphs'][number];
   /** The block's own node id in `graph`. */
   focus: string;
+  /** A block's kind, for the glyph on its node. */
+  glyphOf?: GlyphLookup;
   onSelect: (blockId: string) => void;
   onViewWholeGraph: () => void;
 }
@@ -186,8 +202,10 @@ function GraphFrame({
   layout,
   rows,
   onSelect,
+  glyphOf,
   testId,
 }: {
+  glyphOf: GlyphLookup;
   label: string;
   action: string;
   onAction: () => void;
@@ -210,36 +228,35 @@ function GraphFrame({
           {action}
         </UnstyledButton>
       </div>
-      <OnSelect.Provider value={onSelect}>
-        <Box className={classes.aroundCanvas} h={height}>
-          <ReactFlow
-            nodes={layout.nodes}
-            edges={layout.edges}
-            nodeTypes={NODE_TYPES}
-            edgeTypes={EDGE_TYPES}
-            fitView
-            fitViewOptions={{ padding: `${CANVAS_PADDING}px`, maxZoom: 1 }}
-            panOnScroll
-            panOnScrollMode={PanOnScrollMode.Vertical}
-            zoomOnScroll={false}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            nodesFocusable={false}
-            edgesFocusable={false}
-            elementsSelectable={false}
-            proOptions={{ hideAttribution: true }}
-            colorMode={scheme}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={22}
-              size={2}
-              color="var(--tk-line-2)"
-              bgColor="var(--tk-bg)"
+      <GlyphOf.Provider value={glyphOf}>
+        <OnSelect.Provider value={onSelect}>
+          <Box className={classes.aroundCanvas} h={height}>
+            <ReactFlow
+              nodes={layout.nodes}
+              edges={layout.edges}
+              nodeTypes={NODE_TYPES}
+              edgeTypes={EDGE_TYPES}
+              fitView
+              // A row wider than the canvas pans rather than shrinking its text.
+              fitViewOptions={{
+                padding: `${CANVAS_PADDING}px`,
+                minZoom: 1,
+                maxZoom: 1,
+              }}
+              panOnScroll
+              panOnScrollMode={PanOnScrollMode.Vertical}
+              zoomOnScroll={false}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              nodesFocusable={false}
+              edgesFocusable={false}
+              elementsSelectable={false}
+              proOptions={{ hideAttribution: true }}
+              colorMode={scheme}
             />
-          </ReactFlow>
-        </Box>
-      </OnSelect.Provider>
+          </Box>
+        </OnSelect.Provider>
+      </GlyphOf.Provider>
       <ul className={classes.aroundKey}>
         <li className={classes.legendRow}>
           <span className={classes.aroundSample} data-kind="block" />
@@ -257,6 +274,7 @@ function GraphFrame({
 export function AroundGraph({
   graph,
   focus,
+  glyphOf = noGlyph,
   onSelect,
   onViewWholeGraph,
 }: AroundGraphProps) {
@@ -277,6 +295,7 @@ export function AroundGraph({
       layout={layout}
       rows={rows}
       onSelect={onSelect}
+      glyphOf={glyphOf}
       testId="around-graph"
     />
   );
@@ -286,6 +305,7 @@ export interface WholeGraphProps {
   graph: BlocksPayload['graphs'][number];
   /** The open block's own node, marked as the focus; null on a parent. */
   highlight: string | null;
+  glyphOf?: GlyphLookup;
   onSelect: (blockId: string) => void;
   onClose: () => void;
 }
@@ -294,6 +314,7 @@ export interface WholeGraphProps {
 export function WholeGraph({
   graph,
   highlight,
+  glyphOf = noGlyph,
   onSelect,
   onClose,
 }: WholeGraphProps) {
@@ -309,6 +330,7 @@ export function WholeGraph({
       layout={layout}
       rows={layout.rows}
       onSelect={onSelect}
+      glyphOf={glyphOf}
       testId="whole-graph"
     />
   );

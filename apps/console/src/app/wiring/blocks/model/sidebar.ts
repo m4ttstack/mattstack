@@ -2,7 +2,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, dotsOf, labelOf, rootOf } from './blockFacts';
+import { childrenOf, dotsOf, isSharedTop, labelOf, rootOf } from './blockFacts';
 import type { Dot, Glyph } from './blockFacts';
 
 export type { Glyph } from './blockFacts';
@@ -64,9 +64,11 @@ export function sidebarRows(
   };
 
   const top = childrenOf(payload, root.id);
-  top.filter(block => block.kind !== 'shared').forEach(block => walk(block, 0));
+  top
+    .filter(block => !isSharedTop(payload, block))
+    .forEach(block => walk(block, 0));
 
-  const shared = top.filter(block => block.kind === 'shared');
+  const shared = top.filter(block => isSharedTop(payload, block));
   if (shared.length > 0) {
     const open =
       unfolded.has('shared') ||

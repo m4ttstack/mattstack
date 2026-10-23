@@ -12,8 +12,11 @@ export function SectionBand({
   band,
   onOpen,
   opensBlock,
+  bare = false,
 }: {
   band: Band;
+  /** The band of the block in view: its rows alone, the header names it. */
+  bare?: boolean;
   onOpen: (blockId: string) => void;
   /** False for a band that gathers loose blocks under a name of its own. */
   opensBlock: boolean;
@@ -30,21 +33,23 @@ export function SectionBand({
       aria-label={band.title}
       data-testid="section-band"
     >
-      <div className={classes.bandHead}>
-        {opensBlock ? (
-          <UnstyledButton
-            className={classes.bandOpen}
-            onClick={() => onOpen(band.id)}
-          >
-            {title}
-          </UnstyledButton>
-        ) : (
-          <span className={classes.bandOpen}>{title}</span>
-        )}
-        <span className={classes.bandMeta}>
-          {`${blocks(band.blockCount)} · ${band.propsCount} with props`}
-        </span>
-      </div>
+      {!bare && (
+        <div className={classes.bandHead}>
+          {opensBlock ? (
+            <UnstyledButton
+              className={classes.bandOpen}
+              onClick={() => onOpen(band.id)}
+            >
+              {title}
+            </UnstyledButton>
+          ) : (
+            <span className={classes.bandOpen}>{title}</span>
+          )}
+          <span className={classes.bandMeta}>
+            {`${blocks(band.blockCount)} · ${band.propsCount} with props`}
+          </span>
+        </div>
+      )}
       <ul className={classes.rows}>
         {band.rows.map(row => (
           <BlockRow key={row.id} row={row} onOpen={onOpen} />

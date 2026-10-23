@@ -38,6 +38,7 @@ import {
   labelledGraph,
   renderedRangeOf,
   sharedRootOf,
+  withoutLead,
 } from './model/blockView';
 import { sectionsAt } from './model/sections';
 import { crumbsOf, zoomOf, type Zoom } from './model/zoom';
@@ -202,15 +203,20 @@ function ZoomBody({
   zoom,
   patch,
   wholeGraph,
+  lead,
 }: {
   payload: BlocksPayload;
   zoom: Zoom;
   patch: Patch;
   wholeGraph: boolean;
+  /** The line the header shows under the title. */
+  lead: string | null;
 }) {
   const open = (id: string) => patch({ block: id, select: null });
   const viewGraph = () => patch({ select: 'graph' });
   const closeGraph = () => patch({ select: null });
+  const glyphOf = (blockId: string) =>
+    payload.blocks.find(candidate => candidate.id === blockId)?.kind ?? null;
   if (zoom.level === 'block') {
     const { block } = zoom;
     const at = graphOfBlock(payload, block);
@@ -224,6 +230,7 @@ function ZoomBody({
             <WholeGraph
               graph={graph}
               highlight={at.node}
+              glyphOf={glyphOf}
               onSelect={open}
               onClose={closeGraph}
             />
@@ -231,6 +238,7 @@ function ZoomBody({
             <AroundGraph
               graph={graph}
               focus={at.node}
+              glyphOf={glyphOf}
               onSelect={open}
               onViewWholeGraph={viewGraph}
             />
@@ -247,7 +255,7 @@ function ZoomBody({
     <>
       {owner && (
         <BlockText
-          block={bodyOf(owner)}
+          block={withoutLead(bodyOf(owner), lead)}
           payload={payload}
           level="parent"
           onViewGraph={viewGraph}
@@ -257,6 +265,7 @@ function ZoomBody({
         <WholeGraph
           graph={labelledGraph(payload, own)}
           highlight={null}
+          glyphOf={glyphOf}
           onSelect={open}
           onClose={closeGraph}
         />
@@ -265,6 +274,7 @@ function ZoomBody({
         <SectionBand
           key={band.id}
           band={band}
+          bare={zoom.level === 'parent' && band.id === zoom.block.id}
           onOpen={open}
           opensBlock={payload.blocks.some(b => b.id === band.id)}
         />
@@ -308,6 +318,7 @@ export function BlockView({
 
   const actions = (
     <Group gap={10}>
+      {block?.path && <FileMenu block={block} />}
       {block && !readOnly && <CopyForClaude payload={payload} block={block} />}
       <SegmentedControl
         size="sm"
@@ -344,7 +355,6 @@ export function BlockView({
             }
             actions={actions}
           />
-          {block?.path && <FileMenu block={block} />}
           {missing !== null && (
             <Text fz={13} c="dimmed" data-testid="block-missing">
               {`${payload.skill} has no block ${missing}, so this is the whole skill.`}
@@ -369,6 +379,7 @@ export function BlockView({
             zoom={zoom}
             patch={patch}
             wholeGraph={url.select === 'graph'}
+            lead={description}
           />
         )}
 

@@ -11,3 +11,41 @@ export const miniPayload: BlocksPayload = JSON.parse(
     'utf8'
   )
 );
+
+/** mini with ship's include shape: a heading block whose one child is the
+    shared tree. */
+export function withInclude(): BlocksPayload {
+  const payload = structuredClone(miniPayload);
+  const notes = payload.blocks.find(b => b.id === 'mini/notes')!;
+  payload.blocks.push(
+    {
+      ...notes,
+      id: 'mini/gate-protocol',
+      title: 'Gate protocol',
+      label: 'Gate protocol',
+      summary: '',
+      props: [],
+    },
+    {
+      ...notes,
+      id: 'gate-protocol',
+      parentId: 'mini/gate-protocol',
+      kind: 'shared',
+      title: 'Gate protocol',
+      label: 'Gate protocol',
+      summary: 'How a gate asks.',
+      props: [],
+    },
+    {
+      ...notes,
+      id: 'gate-protocol/ask',
+      parentId: 'gate-protocol',
+      kind: 'shared',
+      title: 'Ask',
+      label: 'Ask',
+      props: [],
+    }
+  );
+  payload.includes = [{ name: 'gate-protocol', blockId: 'mini/gate-protocol' }];
+  return payload;
+}

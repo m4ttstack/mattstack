@@ -176,7 +176,10 @@ export function FocusHeader({
     >
       <Stack gap={6}>
         <Group gap={10} justify="space-between">
-          <Group gap={10}>
+          <Group
+            gap={10}
+            className={inline ? classes.inlineTitleRow : undefined}
+          >
             <Title order={3} fz={inline ? 24 : 20} lh="normal">
               <Text span inherit c="var(--tk-text-1)" data-parity="title">
                 {title}

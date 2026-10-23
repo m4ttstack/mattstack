@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { miniPayload } from '../__tests__/blocksFixture';
+import { miniPayload, withInclude } from '../__tests__/blocksFixture';
 import { sectionsAt } from './sections';
 import { zoomOf } from './zoom';
 
@@ -8,6 +8,18 @@ const at = (id: string | null) =>
   sectionsAt(miniPayload, zoomOf(miniPayload, id).zoom);
 
 describe('sectionsAt', () => {
+  it('gathers top-level include blocks into a last Shared band, read by their shared tree', () => {
+    const bands = sectionsAt(withInclude(), { level: 'skill' });
+    expect(bands.map(b => [b.id, b.title, b.glyph])).toEqual([
+      ['mini/run', 'Run', 'step'],
+      ['notes', 'Notes', 'note'],
+      ['shared', 'Shared', 'shared'],
+    ]);
+    expect(bands[2]!.rows.map(r => [r.id, r.summary])).toEqual([
+      ['mini/gate-protocol', 'How a gate asks.'],
+    ]);
+  });
+
   it('splits the skill into a band per parent plus Notes for the leaves', () => {
     const bands = at(null);
     expect(bands.map(b => [b.id, b.title, b.blockCount])).toEqual([

@@ -20,6 +20,23 @@ export function bodyOf(block: PayloadBlock): PayloadBlock {
   };
 }
 
+/** The block with its first paragraph dropped when it says `lead`, the line
+    the header already shows under the title. */
+export function withoutLead(
+  block: PayloadBlock,
+  lead: string | null
+): PayloadBlock {
+  const [first, ...rest] = block.segments;
+  if (!lead || !first || first.prop !== null) return block;
+  const [para, ...after] = first.text.replace(/^\s+/, '').split(/\n\s*\n/);
+  if (para.trim() !== lead.trim()) return block;
+  const text = after.join('\n\n');
+  return {
+    ...block,
+    segments: text.trim() === '' ? rest : [{ ...first, text }, ...rest],
+  };
+}
+
 /** The top of the shared tree a shared block sits in; null for a block of
     the skill's own. */
 export function sharedRootOf(

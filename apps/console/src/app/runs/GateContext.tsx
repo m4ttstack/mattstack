@@ -9,6 +9,7 @@ import classes from './GateContext.module.css';
 /** remark-breaks keeps a context written as plain lines (every gate opened
     before contexts were Markdown) from collapsing into one paragraph. */
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const REMARK_NO_BREAKS = [remarkGfm];
 
 /** A fenced block's text: Markdown renders it as `pre > code`, and `code`
     is already the inline kit Code by the time `pre` sees it. */
@@ -54,17 +55,20 @@ const SAFE: Components = {
 
 /** `components` add to the safe defaults, never replace `a` or `img`.
     `fill` lets the text run the width of its column instead of a line
-    length that reads comfortably. */
+    length that reads comfortably. `breaks={false}` reads a newline as a
+    space, for hard-wrapped Markdown sources. */
 export function GateContext({
   text,
   className,
   components,
   fill = false,
+  breaks = true,
 }: {
   text: string;
   className?: string;
   components?: Omit<Components, 'a' | 'img'>;
   fill?: boolean;
+  breaks?: boolean;
 }) {
   return (
     <div
@@ -73,7 +77,7 @@ export function GateContext({
       data-testid="gate-context-body"
     >
       <Markdown
-        remarkPlugins={REMARK_PLUGINS}
+        remarkPlugins={breaks ? REMARK_PLUGINS : REMARK_NO_BREAKS}
         components={{ ...KIT, ...components, ...SAFE }}
       >
         {text}

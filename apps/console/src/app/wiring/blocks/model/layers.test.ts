@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { miniPayload } from '../__tests__/blocksFixture';
+import { miniPayload, withInclude } from '../__tests__/blocksFixture';
 import type {
   BlocksPayload,
   PayloadBlock,
@@ -169,5 +169,14 @@ describe('a shared block, by its parent rather than its id', () => {
       s => s.id === 'note'
     );
     expect(square?.section).toBe('Run');
+  });
+});
+
+describe('a top-level include at the skill', () => {
+  it('is one square in Shared, standing for its shared tree', () => {
+    const shared = blockMap(withInclude(), null).squares.filter(
+      s => s.section === 'Shared'
+    );
+    expect(shared.map(s => s.id)).toEqual(['mini/gate-protocol']);
   });
 });

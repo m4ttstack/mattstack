@@ -143,6 +143,22 @@ describe('sidebarRows', () => {
     });
   });
 
+  it('folds a top-level include block, a heading over a shared tree, into the Shared row', () => {
+    const payload: BlocksPayload = {
+      ...payloadOf(
+        block('s/a', 's'),
+        block('s/inc', 's'),
+        block('inc', 's/inc', { kind: 'shared' })
+      ),
+      includes: [{ name: 'inc', blockId: 's/inc' }],
+    };
+    const rows = sidebarRows(payload, null);
+    expect(rows.map(r => [r.id, r.count])).toEqual([
+      ['s/a', null],
+      ['shared', 1],
+    ]);
+  });
+
   it('keeps a nested shared block under its parent', () => {
     const rows = sidebarRows(
       payloadOf(block('s/a', 's'), block('s/a/x', 's/a', { kind: 'shared' })),
