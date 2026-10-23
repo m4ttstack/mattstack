@@ -11,6 +11,7 @@ import { tryLockTree } from "../../../worktree/locks.ts";
 import { markHandoffDelivered } from "../../../worktree/patch.ts";
 import { legacyWorktreePoolRoots, worktreePoolRoot } from "../../../rt-paths.ts";
 import { branchExistsLocalAsync } from "../../../worktree/git-async.ts";
+import { fsmonitorOffInTree } from "../../../worktree/fsmonitor.ts";
 import { scrubGitEnv } from "../../../../packages/git-core/src/exec.ts";
 
 /**
@@ -56,6 +57,23 @@ describe("reconcile.ts: reconcileRepo", () => {
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rtreconcile-home-")));
     closeStateDb();
     repo = makeRepo();
+  });
+
+  test("an existing pool tree gains core.fsmonitor=false on a pass; the main clone is left alone", async () => {
+    const treePath = join(repo, ".worktrees", "alpha");
+    execSync(`git worktree add -q -b on-deck/alpha ${treePath}`, { cwd: repo, shell: "/bin/zsh" });
+    execSync("git config core.fsmonitor true", { cwd: repo, shell: "/bin/zsh" });
+    saveRegistry(repoName, [{
+      name: "alpha", path: treePath, kind: "ephemeral", state: "on-deck",
+      branch: "on-deck/alpha", createdAt: new Date().toISOString(),
+    }]);
+    expect(fsmonitorOffInTree(treePath)).toBe(false);
+
+    await reconcileRepo({ repoName, repoPath: repo, emit: () => {}, log: fakeLog() });
+
+    expect(fsmonitorOffInTree(treePath)).toBe(true);
+    expect(fsmonitorOffInTree(repo)).toBe(false);
+    expect(execSync("git config --get core.fsmonitor", { cwd: repo, encoding: "utf8" }).trim()).toBe("true");
   });
 
   test("adopts the main clone into an empty registry", async () => {

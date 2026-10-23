@@ -22,6 +22,7 @@ import { scrapTree, type CreateDeps } from "../../worktree/create.ts";
 import { loadWorktreeAppConfig } from "../../worktree/config.ts";
 import { legacyWorktreePoolRoots, worktreePoolRoot } from "../../rt-paths.ts";
 import { patchTree } from "../../worktree/patch.ts";
+import { ensureFsmonitorOffForTrees } from "../../worktree/fsmonitor.ts";
 
 export interface ReconcileDeps {
   repoName: string;
@@ -192,7 +193,10 @@ export async function reconcileRepo(deps: ReconcileDeps): Promise<TreeRecord[]> 
   await releaseStrandedClaims(deps);
   for (let attempt = 1; attempt <= RECONCILE_MAX_ATTEMPTS; attempt++) {
     const result = await reconcilePass(deps, attempt);
-    if (!("conflict" in result)) return result.trees;
+    if (!("conflict" in result)) {
+      await ensureFsmonitorOffForTrees(deps.repoName, deps.repoPath, result.trees, deps.log);
+      return result.trees;
+    }
     deps.log.debug?.(
       { repo: deps.repoName, attempt },
       "reconcile: registry changed mid-pass; retrying against a fresh snapshot",
