@@ -15,16 +15,22 @@ export interface PropBoxProps {
   layerName?: (label: string) => string;
 }
 
+const UNDER = /\/(?:attachments|skills)\/(.+)$/;
+
+/** A prop at its marker: its name, merge and default, then each layer's
+    value under the file it comes from. */
 export function PropBox({
   prop,
   segments,
   layerName = label => label,
 }: PropBoxProps) {
-  const bindingOf = (segment: PayloadSegment, index: number) =>
-    (
-      prop.values.find(value => value.layer === segment.layer) ??
-      prop.values[index]
-    )?.binding;
+  const sourceOf = (segment: PayloadSegment, index: number) => {
+    const value =
+      prop.values.find(candidate => candidate.layer === segment.layer) ??
+      prop.values[index];
+    if (!value) return undefined;
+    return UNDER.exec(value.path)?.[1] ?? value.binding;
+  };
   const fallback = prop.default ? `default ${prop.default}` : '';
 
   return (
@@ -56,10 +62,14 @@ export function PropBox({
                 {layerName(segment.layer)}
               </span>
               <span className={classes.propBinding}>
-                {bindingOf(segment, index)}
+                {sourceOf(segment, index)}
               </span>
             </div>
-            <GateContext text={segment.text} fill />
+            <GateContext
+              text={segment.text}
+              fill
+              className={classes.propValue}
+            />
           </div>
         ))
       )}

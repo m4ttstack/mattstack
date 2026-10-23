@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
-import { miniPayload, withInclude } from '../__tests__/blocksFixture';
+import {
+  miniPayload,
+  shipPayload,
+  withInclude,
+} from '../__tests__/blocksFixture';
 import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { blockMap, blockStrip, linesOf, lineTotals } from './layers';
+import {
+  blockMap,
+  blockStrip,
+  layerLegend,
+  linesOf,
+  lineTotals,
+  propShare,
+} from './layers';
 
 const blockOf = (payload: BlocksPayload, id: string): PayloadBlock =>
   payload.blocks.find(block => block.id === id)!;
@@ -84,12 +95,11 @@ describe('blockMap', () => {
     ]);
   });
 
-  it('scopes to a block and its descendants, sectioned under that block', () => {
+  it("scopes to a block's descendants, sectioned under that block", () => {
     const run = blockOf(miniPayload, 'mini/run');
     expect(
       blockMap(miniPayload, run).squares.map(s => [s.id, s.section])
     ).toEqual([
-      ['mini/run', 'Run'],
       ['mini/run/guard', 'Run'],
       ['mini/run/check', 'Run'],
     ]);
@@ -178,6 +188,46 @@ describe('a top-level include at the skill', () => {
       s => s.section === 'Shared'
     );
     expect(shared.map(s => s.id)).toEqual(['mini/gate-protocol']);
+  });
+
+  it('leaves out the block in view: the skill or the parent the map is of', () => {
+    const ship = (id: string) => shipPayload.blocks.find(b => b.id === id)!;
+    expect(blockMap(shipPayload, null).squares.map(s => s.id)).not.toContain(
+      'ship'
+    );
+    const flow = blockMap(shipPayload, ship('ship/flow')).squares;
+    expect(flow.map(s => s.id)).not.toContain('ship/flow');
+    expect(flow).toHaveLength(21);
+  });
+
+  it('draws an include inside a block as one square, its heading', () => {
+    const run = shipPayload.blocks.find(b => b.id === 'ship/run')!;
+    const ids = blockMap(shipPayload, run).squares.map(s => s.id);
+    expect(ids).toHaveLength(8);
+    expect(ids).toContain('ship/run/run-identity');
+    expect(ids).not.toContain('run-identity');
+  });
+
+  it('keeps a skill root that passes a value of its own', () => {
+    expect(blockMap(miniPayload, null).squares.map(s => s.id)).toContain(
+      'mini'
+    );
+  });
+
+  it('counts a block where both pass a value under each layer', () => {
+    expect(layerLegend(withOrg(), blockMap(withOrg(), null).squares)).toEqual([
+      { fill: 'mattstack', name: 'mattstack only', count: 3 },
+      { fill: 'org', name: 'acme', count: 2 },
+      { fill: 'team', name: 'widgets', count: 2 },
+    ]);
+  });
+
+  it("says what share of the text the layers' values are", () => {
+    expect(propShare(shipPayload, null)).toBe(1);
+    const none = structuredClone(miniPayload);
+    for (const b of none.blocks)
+      b.segments = b.segments.map(s => ({ ...s, color: 'mattstack' }));
+    expect(propShare(none, null)).toBeNull();
   });
 
   it('counts the include once in How much text: its heading, not its tree', () => {

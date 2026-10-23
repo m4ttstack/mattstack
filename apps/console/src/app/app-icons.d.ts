@@ -49,6 +49,7 @@ declare module '@mattstack/app-kit/icons' {
     circleMinus: true;
     flag: true;
     plug: true;
+    play: true;
   }
 }
 export {};

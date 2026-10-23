@@ -602,14 +602,14 @@ describe('Graph tab: the focus header', () => {
     );
   });
 
-  it('calls a standalone verb public', async () => {
+  it('calls a public standalone verb on-demand, as its boards do', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=shepherdr');
     await screen.findByTestId('block-view');
     const header = screen.getByTestId('focus-header');
 
     expect(within(header).getByText('shepherdr')).toBeInTheDocument();
-    expect(within(header).getByText('public verb')).toBeInTheDocument();
+    expect(within(header).getByText('on-demand')).toBeInTheDocument();
   });
 
   it('calls a locked verb internal', async () => {
@@ -722,6 +722,30 @@ describe('Graph tab: the block view', () => {
     const gate = within(sidebar).getByTestId('block-tree-mini/gate');
     expect(run.querySelector('[data-glyph]')).toBeNull();
     expect(gate.querySelector('[data-glyph="gate"]')).not.toBeNull();
+  });
+
+  it("unfolds a section from its chevron without leaving the page it's on", async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=shepherdr');
+
+    const sidebar = await screen.findByTestId('block-sidebar');
+    await within(sidebar).findByTestId('block-tree-mini/run');
+    expect(
+      within(sidebar).queryByTestId('block-tree-mini/run/guard')
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(sidebar).getByRole('button', { name: 'Unfold Run' })
+    );
+    expect(
+      within(sidebar).getByTestId('block-tree-mini/run/guard')
+    ).toBeInTheDocument();
+    expect(params().get('block')).toBeNull();
+    await userEvent.click(
+      within(sidebar).getByRole('button', { name: 'Fold Run' })
+    );
+    expect(
+      within(sidebar).queryByTestId('block-tree-mini/run/guard')
+    ).not.toBeInTheDocument();
   });
 
   it('reads a hand-written skill from its headings, read-only', async () => {

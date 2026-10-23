@@ -9,13 +9,14 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import { FocusHeader, kindOf, statusOf } from '../graph/FocusHeader';
+import { FocusHeader, statusOf } from '../graph/FocusHeader';
 import { workTypeOf, type FocusItem } from '../graph/model/focusModel';
 import { buildTemplateView } from '../graph/model/templateModel';
 import { useGraphFocus } from '../graph/useGraphFocus';
 import { useAnatomy, usePendingChanges } from '../useWiring';
 import classes from './blocks.module.css';
 import { BlockView, type SkillHeader } from './BlockView';
+import { skillKindOf } from './skillKind';
 import { useSkillBlocks } from './useSkillBlocks';
 
 /** The Graph tab's stage for a focused skill or stage: its block view, or
@@ -56,7 +57,7 @@ export function BlockStage({
 
   const header: SkillHeader = {
     title: focused.step !== null ? focused.label : focused.skill,
-    kind: kindOf(focused, pipeline),
+    kind: skillKindOf(focused, pipeline),
     description:
       anatomy?.description ??
       composition?.verbs.find(verb => verb.name === focused.skill)
@@ -66,13 +67,14 @@ export function BlockStage({
     checkError:
       checkQuery.isError && !check ? (checkQuery.error as Error).message : null,
     loading: !board && anatomyQuery.isPending,
+    version: anatomy?.template.version ?? null,
   };
 
   return (
     <Box
       className={classes.page}
       h={height}
-      bg="var(--tk-bg)"
+      bg="var(--tk-card)"
       data-testid="block-stage"
     >
       {skill.state === 'ready' ? (
@@ -104,7 +106,15 @@ export function BlockStage({
         />
       ) : (
         <Stack gap={16} className={classes.layout} data-rail="none">
-          <FocusHeader inline {...header} />
+          <FocusHeader
+            inline
+            title={header.title}
+            kind={header.kind}
+            description={header.description}
+            status={header.status}
+            checkError={header.checkError}
+            loading={header.loading}
+          />
           {skill.state === 'loading' && (
             <Stack gap={8} data-testid="block-view-loading">
               <Skeleton height={18} width="60%" />

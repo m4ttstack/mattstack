@@ -36,6 +36,7 @@ import { aroundBlock } from './model/around';
 import {
   AROUND,
   aroundLayout,
+  LANES,
   wholeLayout,
   type AroundEdge,
   type AroundNode,
@@ -62,12 +63,25 @@ function sideChannelPath(
   sy: number,
   tx: number,
   ty: number,
-  channel: number
-): [string, number, number] {
-  const busY = sy + AROUND.rowGap / 2;
-  const landY = ty - AROUND.rowGap / 2;
-  const path = `M${sx} ${sy}V${busY}H${channel}V${landY}H${tx}V${ty - MARKER.length}`;
-  return [path, (sx + channel) / 2, busY];
+  channel: number,
+  lane: number
+): string {
+  // Each lane bends at its own height, below the drop labels that sit
+  // just under the row.
+  const step = (lane % LANES) * 6;
+  const busY = sy + 22 + step;
+  const landY = ty - 12 - step;
+  return `M${sx} ${sy}V${busY}H${channel}V${landY}H${tx}V${ty - MARKER.length}`;
+}
+
+/** How far left of the nodes the outermost side channel runs. */
+function channelReach(layout: { nodes: AroundNode[]; edges: AroundEdge[] }) {
+  const channels = layout.edges
+    .map(edge => edge.data?.channel)
+    .filter((x): x is number => typeof x === 'number');
+  if (channels.length === 0 || layout.nodes.length === 0) return 0;
+  const left = Math.min(...layout.nodes.map(node => node.position.x));
+  return Math.max(0, left - Math.min(...channels));
 }
 
 /** The canvas is as tall as the layout at the zoom fitView will pick, so a
@@ -183,13 +197,14 @@ function AroundEdgeComponent({
   data,
 }: EdgeProps<AroundEdge>) {
   const channel = data?.channel ?? null;
-  const [path, midX, labelY] =
+  const landX = targetX + (data?.land ?? 0);
+  const [path, midX, midY] =
     channel === null
       ? getSmoothStepPath({
           sourceX,
           sourceY,
           sourcePosition,
-          targetX,
+          targetX: landX,
           targetY: targetY - MARKER.length,
           targetPosition,
           borderRadius: 0,
@@ -198,11 +213,24 @@ function AroundEdgeComponent({
             ? { centerY: targetY - AROUND.rowGap / 2 }
             : {}),
         })
-      : sideChannelPath(sourceX, sourceY, targetX, targetY, channel);
-  // Edges converging on one target share its bend line, so each label sits
-  // over its own source rather than at the line's crowded middle.
-  const labelX = channel === null && targetY > sourceY ? sourceX : midX;
-  const marker = `M${targetX - MARKER.halfWidth} ${targetY - MARKER.length}l${MARKER.halfWidth} ${MARKER.length} ${MARKER.halfWidth}-${MARKER.length}z`;
+      : [
+          sideChannelPath(
+            sourceX,
+            sourceY,
+            landX,
+            targetY,
+            channel,
+            data?.lane ?? 0
+          ),
+          sourceX,
+          sourceY,
+        ];
+  // Edges converging on one target share its bend line, so a downward
+  // edge's label sits on its own drop, just under its source.
+  const down = targetY > sourceY;
+  const labelX = down ? sourceX : midX;
+  const labelY = down ? sourceY + 10 : midY;
+  const marker = `M${landX - MARKER.halfWidth} ${targetY - MARKER.length}l${MARKER.halfWidth} ${MARKER.length} ${MARKER.halfWidth}-${MARKER.length}z`;
   return (
     <>
       <path
@@ -273,8 +301,16 @@ function GraphFrame({
 }) {
   const scheme = useComputedColorScheme('light');
   const { ref, width } = useElementSize();
-  const maxPerRow = perRowAt(width);
-  const layout = useMemo(() => layoutFor(maxPerRow), [layoutFor, maxPerRow]);
+  // A layout whose side channels run left of its nodes is laid out again
+  // with that much less room, so its widest row still fits.
+  const { layout, maxPerRow } = useMemo(() => {
+    const wide = perRowAt(width);
+    const first = layoutFor(wide);
+    const reach = channelReach(first);
+    if (reach === 0) return { layout: first, maxPerRow: wide };
+    const narrow = perRowAt(width - reach);
+    return { layout: layoutFor(narrow), maxPerRow: narrow };
+  }, [layoutFor, width]);
   const height = canvasHeight(layout, width);
 
   return (
@@ -298,7 +334,11 @@ function GraphFrame({
               edgeTypes={EDGE_TYPES}
               fitView
               fitViewOptions={{
-                padding: `${CANVAS_PADDING}px`,
+                padding: {
+                  y: `${CANVAS_PADDING}px`,
+                  right: `${CANVAS_PADDING}px`,
+                  left: `${CANVAS_PADDING + channelReach(layout)}px`,
+                },
                 minZoom: MIN_ZOOM,
                 maxZoom: 1,
               }}

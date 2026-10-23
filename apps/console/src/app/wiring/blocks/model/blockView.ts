@@ -2,7 +2,13 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, insideSharedTop, labelOf } from './blockFacts';
+import {
+  childrenOf,
+  insideSharedTop,
+  isIncludedTree,
+  labelOf,
+} from './blockFacts';
+import { plain } from './headingTree';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -20,20 +26,120 @@ export function bodyOf(block: PayloadBlock): PayloadBlock {
   };
 }
 
-/** The block with its first paragraph dropped when it says `lead`, the line
-    the header already shows under the title. */
+const FENCE_LINE = /^\s*(`{3,}|~{3,})/;
+const NOT_PROSE = /^\s*(#|[-*+]\s|\d+\.\s|>|\||<!--)/;
+
+type Paragraph = { from: number; to: number; plain: string };
+
+/** The prose paragraphs of a text, as line spans: fences, headings, lists,
+    tables, quotes and comments are not prose. */
+function proseParagraphs(lines: string[]): Paragraph[] {
+  const paragraphs: Paragraph[] = [];
+  let fence: string | null = null;
+  let from = -1;
+  const close = (to: number) => {
+    if (from < 0) return;
+    const body = lines.slice(from, to + 1);
+    if (!NOT_PROSE.test(body[0])) {
+      paragraphs.push({ from, to, plain: plain(body.join(' ')) });
+    }
+    from = -1;
+  };
+  lines.forEach((line, index) => {
+    const mark = FENCE_LINE.exec(line)?.[1];
+    if (fence !== null) {
+      if (mark && mark[0] === fence[0]) fence = null;
+      return;
+    }
+    if (mark) {
+      close(index - 1);
+      fence = mark;
+      return;
+    }
+    if (line.trim() === '') close(index - 1);
+    else if (from < 0) from = index;
+  });
+  close(lines.length - 1);
+  return paragraphs;
+}
+
+/** The block's first paragraph of prose, as plain text: the line the header
+    shows under the title. */
+export function leadOf(block: PayloadBlock): string | null {
+  const [first] = block.segments;
+  if (!first || first.prop !== null) return null;
+  return proseParagraphs(first.text.split('\n'))[0]?.plain ?? null;
+}
+
+/** The block with the paragraph that says `lead` dropped, wherever it sits:
+    the header already shows it. */
 export function withoutLead(
   block: PayloadBlock,
   lead: string | null
 ): PayloadBlock {
   const [first, ...rest] = block.segments;
   if (!lead || !first || first.prop !== null) return block;
-  const [para, ...after] = first.text.replace(/^\s+/, '').split(/\n\s*\n/);
-  if (para.trim() !== lead.trim()) return block;
-  const text = after.join('\n\n');
+  const lines = first.text.split('\n');
+  const para = proseParagraphs(lines).find(p => p.plain === plain(lead));
+  if (!para) return block;
+  const text = [...lines.slice(0, para.from), ...lines.slice(para.to + 1)]
+    .join('\n')
+    .replace(/^\s*\n/, '')
+    .replace(/\n{3,}/g, '\n\n');
   return {
     ...block,
     segments: text.trim() === '' ? rest : [{ ...first, text }, ...rest],
+  };
+}
+
+export type ScopeStats = {
+  blocks: number;
+  withProps: number;
+  /** Values the layers pass to the props in scope. */
+  values: number;
+  graphs: number;
+  /** Includes in scope. */
+  shared: number;
+};
+
+/** What the header's counts line says of the skill (`scope` null) or a
+    parent block: the blocks under it, an include's tree counted once. */
+export function scopeStats(
+  payload: BlocksPayload,
+  scope: PayloadBlock | null
+): ScopeStats {
+  const top = scope ?? payload.blocks.find(block => block.parentId === null);
+  if (!top) return { blocks: 0, withProps: 0, values: 0, graphs: 0, shared: 0 };
+  const hidden = insideSharedTop(payload);
+  const under: PayloadBlock[] = [];
+  const seen = new Set<string>([top.id]);
+  const visit = (id: string) => {
+    for (const child of childrenOf(payload, id)) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      if (scope === null && hidden(child)) continue;
+      if (!isIncludedTree(payload, child)) under.push(child);
+      visit(child.id);
+    }
+  };
+  visit(top.id);
+  const inScope = [top, ...under];
+  const ids = new Set(inScope.map(block => block.id));
+  return {
+    blocks: under.length,
+    withProps: under.filter(block => block.props.length > 0).length,
+    values: inScope.reduce(
+      (sum, block) =>
+        sum +
+        block.props.reduce(
+          (n, prop) =>
+            n + prop.values.filter(value => value.color !== 'mattstack').length,
+          0
+        ),
+      0
+    ),
+    graphs: payload.graphs.filter(graph => ids.has(graph.blockId)).length,
+    shared: payload.includes.filter(include => ids.has(include.blockId)).length,
   };
 }
 
@@ -127,6 +233,9 @@ export function labelledGraph(payload: BlocksPayload, graph: Graph): Graph {
 export function blockCount(payload: BlocksPayload): number {
   const hidden = insideSharedTop(payload);
   return payload.blocks.filter(
-    block => block.parentId !== null && !hidden(block)
+    block =>
+      block.parentId !== null &&
+      !hidden(block) &&
+      !isIncludedTree(payload, block)
   ).length;
 }

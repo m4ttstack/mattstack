@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import {
+  Anchor,
   Box,
   Code,
   CopyActionIcon,
@@ -156,7 +157,11 @@ function FileHistory({
   anatomy,
   check,
   file,
-}: Pick<HistoryProps, 'anatomy' | 'check'> & { file: string }) {
+  onOpenSkill,
+}: Pick<HistoryProps, 'anatomy' | 'check'> & {
+  file: string;
+  onOpenSkill?: () => void;
+}) {
   const row = check?.verbs.find(verb => verb.name === anatomy.skill);
   const own = builtFrom(anatomy, row).find(source => source.path === file);
   return (
@@ -171,7 +176,20 @@ function FileHistory({
         </>
       ) : (
         <Text fz={12} lh="normal" c={MUTED} data-testid="history-no-copy">
-          {`No history for this block. Open ${anatomy.skill} for its build history`}
+          {'No history for this block. '}
+          {onOpenSkill ? (
+            <Anchor
+              component="button"
+              type="button"
+              fz={12}
+              onClick={onOpenSkill}
+            >
+              {`Open ${anatomy.skill}`}
+            </Anchor>
+          ) : (
+            `Open ${anatomy.skill}`
+          )}
+          {' for its build history.'}
         </Text>
       )}
     </>
@@ -259,10 +277,13 @@ function SkillHistory({
  */
 export function HistoryTab({
   file,
+  onOpenSkill,
   ...props
 }: HistoryProps & {
   /** The block's own file; null for the skill as a whole. */
   file: string | null;
+  /** Opens the skill itself, whose History covers its build. */
+  onOpenSkill?: () => void;
 }) {
   return (
     <Box data-parity="history" data-testid="block-history">
@@ -272,6 +293,7 @@ export function HistoryTab({
             anatomy={props.anatomy}
             check={props.check}
             file={file}
+            onOpenSkill={onOpenSkill}
           />
         ) : (
           <SkillHistory {...props} />

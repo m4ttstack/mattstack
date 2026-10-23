@@ -6,7 +6,14 @@ import type {
   PayloadBlock,
 } from '../../../server/blocksPayload';
 import classes from './blocks.module.css';
-import { blockMap, blockStrip, layerLabel, lineTotals } from './model/layers';
+import {
+  blockMap,
+  blockStrip,
+  layerLabel,
+  layerLegend,
+  lineTotals,
+  propShare,
+} from './model/layers';
 import type { Fill, Square } from './model/layers';
 import type { Zoom } from './model/zoom';
 
@@ -44,7 +51,7 @@ function BlockMap({
   payload: BlocksPayload;
   scope: PayloadBlock | null;
 }) {
-  const { squares, legend } = blockMap(payload, scope);
+  const { squares } = blockMap(payload, scope);
   const sections = new Map<string, Square[]>();
   for (const square of squares) {
     sections.set(square.section, [
@@ -75,7 +82,7 @@ function BlockMap({
         </div>
       ))}
       <ul className={classes.legend}>
-        {legend.map(entry => (
+        {layerLegend(payload, squares).map(entry => (
           <li
             key={entry.fill}
             className={classes.legendRow}
@@ -86,8 +93,10 @@ function BlockMap({
               data-fill={entry.fill}
               aria-hidden
             />
-            <span>{fillLabel(payload, entry.fill)}</span>
-            <span className={classes.count}>{entry.count}</span>
+            <span className={classes.legendName}>{entry.name}</span>
+            <span className={classes.count}>
+              {`${entry.count} ${entry.count === 1 ? 'block' : 'blocks'}`}
+            </span>
           </li>
         ))}
       </ul>
@@ -107,41 +116,32 @@ function TextBar({
   const summary = totals
     .map(entry => `${entry.label} ${plural(entry.count)}`)
     .join(', ');
+  const share = scope === null ? propShare(payload, null) : null;
   return (
     <Chart title="How much text">
-      <div className={classes.barRow}>
-        <div
-          className={classes.bar}
-          role="img"
-          aria-label={`How much text: ${summary}, ${plural(total)} in all`}
-          data-testid="layers-bar"
-        >
-          {totals.map(entry => (
-            <span
-              key={entry.layer}
-              className={classes.segment}
-              style={{ flexGrow: entry.count }}
-              title={`${entry.label}: ${plural(entry.count)}`}
-              data-layer={entry.layer}
-              data-testid="layers-bar-segment"
-            />
-          ))}
-        </div>
-        <span className={classes.total}>{plural(total)}</span>
-      </div>
-      <ul className={classes.legend}>
+      <span className={classes.total}>{plural(total)}</span>
+      <div
+        className={classes.bar}
+        role="img"
+        aria-label={`How much text: ${summary}, ${plural(total)} in all`}
+        data-testid="layers-bar"
+      >
         {totals.map(entry => (
-          <li key={entry.layer} className={classes.legendRow}>
-            <span
-              className={classes.swatch}
-              data-fill={entry.layer}
-              aria-hidden
-            />
-            <span>{entry.label}</span>
-            <span className={classes.count}>{entry.count}</span>
-          </li>
+          <span
+            key={entry.layer}
+            className={classes.segment}
+            style={{ flexGrow: entry.count }}
+            title={`${entry.label}: ${plural(entry.count)}`}
+            data-layer={entry.layer}
+            data-testid="layers-bar-segment"
+          />
         ))}
-      </ul>
+      </div>
+      {share !== null && (
+        <span className={classes.caption}>
+          {`Props are ${share}% of the text`}
+        </span>
+      )}
     </Chart>
   );
 }

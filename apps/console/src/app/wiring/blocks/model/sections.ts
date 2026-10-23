@@ -2,7 +2,14 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, dotsOf, isSharedTop, labelOf, rootOf } from './blockFacts';
+import {
+  childrenOf,
+  dotsOf,
+  includedTree,
+  isSharedTop,
+  labelOf,
+  rootOf,
+} from './blockFacts';
 import type { Dot, Glyph } from './blockFacts';
 import type { Zoom } from './zoom';
 
@@ -14,12 +21,21 @@ export type FoldedRow = {
   dots: Dot[];
   hasProps: boolean;
   selected: boolean;
+  /** On a Shared row: the include's name and its tree's length. */
+  shared: { name: string | null; lines: number } | null;
 };
+
+/** `entry` marks the band whose graph a run of the skill enters by,
+    `graph` any other band with a graph of its own. */
+export type BandIcon = Glyph | 'entry' | 'graph';
 
 export type SectionBand = {
   id: string;
   title: string;
   glyph: Glyph;
+  icon: BandIcon;
+  /** The band's block's first sentence; null for a band of loose blocks. */
+  intro: string | null;
   blockCount: number;
   propsCount: number;
   rows: FoldedRow[];
@@ -38,6 +54,45 @@ function rowOf(
     dots: dotsOf(block),
     hasProps: block.props.length > 0,
     selected: block.id === selectedId,
+    shared: null,
+  };
+}
+
+function spanOf(block: PayloadBlock): number {
+  const [from, to] = block.lines;
+  return to - from + 1;
+}
+
+/** Every line of a shared tree's files, its top included. */
+function treeLines(payload: BlocksPayload, top: PayloadBlock): number {
+  const seen = new Set<string>();
+  const count = (block: PayloadBlock): number => {
+    if (seen.has(block.id)) return 0;
+    seen.add(block.id);
+    return childrenOf(payload, block.id).reduce(
+      (sum, child) => sum + count(child),
+      spanOf(block)
+    );
+  };
+  return count(top);
+}
+
+function sharedRowOf(
+  payload: BlocksPayload,
+  block: PayloadBlock,
+  selectedId: string | null
+): FoldedRow {
+  const tree = includedTree(payload, block) ?? block;
+  const name =
+    payload.includes.find(include => include.blockId === block.id)?.name ??
+    null;
+  return {
+    ...rowOf(
+      block,
+      selectedId,
+      block.summary || (childrenOf(payload, block.id)[0]?.summary ?? '')
+    ),
+    shared: { name, lines: treeLines(payload, tree) },
   };
 }
 
@@ -46,17 +101,29 @@ function bandOf(
   title: string,
   glyph: Glyph,
   blocks: PayloadBlock[],
-  selectedId: string | null
+  selectedId: string | null,
+  icon: BandIcon = glyph,
+  intro: string | null = null
 ): SectionBand {
   const rows = blocks.map(block => rowOf(block, selectedId));
   return {
     id,
     title,
     glyph,
+    icon,
+    intro,
     blockCount: rows.length,
     propsCount: rows.filter(row => row.hasProps).length,
     rows,
   };
+}
+
+/** The skill's first graph is where a run enters, unless the root draws it. */
+function bandIconOf(payload: BlocksPayload, block: PayloadBlock): BandIcon {
+  if (!payload.graphs.some(graph => graph.blockId === block.id)) {
+    return block.kind;
+  }
+  return payload.graphs[0]?.blockId === block.id ? 'entry' : 'graph';
 }
 
 function skillBands(
@@ -76,24 +143,22 @@ function skillBands(
       labelOf(block),
       block.kind,
       childrenOf(payload, block.id),
-      selectedId
+      selectedId,
+      bandIconOf(payload, block),
+      block.summary || null
     )
   );
   if (leaves.length > 0) {
     bands.push(bandOf('notes', 'Notes', 'note', leaves, selectedId));
   }
   if (shared.length > 0) {
-    const rows = shared.map(block =>
-      rowOf(
-        block,
-        selectedId,
-        block.summary || (childrenOf(payload, block.id)[0]?.summary ?? '')
-      )
-    );
+    const rows = shared.map(block => sharedRowOf(payload, block, selectedId));
     bands.push({
       id: 'shared',
       title: 'Shared',
       glyph: 'shared',
+      icon: 'shared',
+      intro: null,
       blockCount: rows.length,
       propsCount: rows.filter(row => row.hasProps).length,
       rows,

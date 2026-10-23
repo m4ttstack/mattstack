@@ -61,7 +61,7 @@
 .legend {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -78,16 +78,26 @@
 
 .count {
   margin-left: auto;
+  color: var(--tk-text-2);
+  font-size: 11px;
+}
+
+.legendName {
   color: var(--tk-text-1);
   font-family: var(--mantine-font-family-monospace);
   font-size: 12px;
-  font-weight: 500;
+}
+
+.caption {
+  color: var(--tk-text-3);
+  font-size: 11px;
+  line-height: normal;
 }
 
 .section {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: start;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
   gap: 8px;
 }
 
@@ -103,13 +113,13 @@
 
 .squares {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 14px);
-  gap: 4px;
+  grid-template-columns: repeat(auto-fill, 16px);
+  gap: 2px;
 }
 
 .square {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 3px;
 }
 
@@ -121,10 +131,9 @@
 
 .bar {
   display: flex;
-  flex: 1;
   gap: 2px;
-  min-width: 0;
-  height: 12px;
+  width: 100%;
+  height: 10px;
 }
 
 .segment {
@@ -145,11 +154,9 @@
 }
 
 .total {
-  flex-shrink: 0;
-  color: var(--tk-text-1);
-  font-family: var(--mantine-font-family-monospace);
+  color: var(--tk-text-2);
   font-size: 12px;
-  font-weight: 500;
+  line-height: normal;
 }
 
 .strip {
@@ -184,6 +191,12 @@
   min-width: 0;
 }
 
+/* A single block's own page reads its text at body size. */
+.blockText[data-size='lg'] {
+  --gate-context-fz: 16px;
+  --gate-context-lh: 1.6;
+}
+
 .propBox {
   display: flex;
   flex-direction: column;
@@ -203,31 +216,38 @@
 }
 
 .propName {
-  color: var(--tk-text-1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--tk-raised);
+  color: var(--tk-text-2);
   font-family: var(--mantine-font-family-monospace);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.propMeta,
+.propMeta {
+  color: var(--tk-text-2);
+  font-size: 13px;
+  font-weight: 400;
+}
+
 .propBinding {
   color: var(--tk-text-3);
-  font-size: 12px;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
   font-weight: 400;
 }
 
 .propCard {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border-left: 3px solid var(--tk-line-1);
-  border-radius: 4px;
-  background: var(--tk-wash);
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--tk-inset);
 }
 
 .propCard[data-layer='org'] {
-  border-left-color: var(--tk-fill-purple);
   background: color-mix(
     in srgb,
     var(--tk-fill-purple) var(--ui-wash),
@@ -236,7 +256,6 @@
 }
 
 .propCard[data-layer='team'] {
-  border-left-color: var(--tk-fill-cyan);
   background: color-mix(
     in srgb,
     var(--tk-fill-cyan) var(--ui-wash),
@@ -245,9 +264,14 @@
 }
 
 .propLayer {
-  color: var(--tk-text-2);
+  color: var(--tk-text-1);
   font-size: 12px;
   font-weight: 500;
+}
+
+.propValue {
+  --gate-context-fz: 16px;
+  --gate-context-lh: 1.7;
 }
 
 .graphCard {
@@ -255,7 +279,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 12px;
+  padding: 5px 12px;
   border: 1px solid var(--tk-border);
   border-radius: 8px;
   background: var(--tk-card);
@@ -269,6 +293,11 @@
   gap: 8px;
 }
 
+.graphSize {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
 .graphName {
   color: var(--tk-text-1);
   font-weight: 500;
@@ -278,6 +307,57 @@
   color: var(--tk-text-accent);
   font-size: 13px;
   font-weight: 500;
+}
+
+.graphActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.graphSourceLink {
+  color: var(--tk-text-2);
+  font-size: 13px;
+}
+
+.graphSource,
+.brief {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--tk-inset);
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.graphSource {
+  max-height: 320px;
+}
+
+.brief {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.briefAsk {
+  color: var(--tk-text-accent);
+}
+
+.briefCopied {
+  flex-shrink: 0;
+  color: var(--tk-text-ok);
+}
+
+.briefCopied[data-state='failed'] {
+  color: var(--tk-text-warn);
+}
+
+.briefPopover {
+  background: var(--tk-card);
 }
 
 .around {
@@ -303,7 +383,7 @@
   overflow: hidden;
   border: 1px solid var(--tk-border);
   border-radius: 8px;
-  background: var(--tk-raised);
+  background: var(--tk-inset);
 }
 
 /* React Flow turns pointer events off on a node it cannot select or drag;
@@ -333,8 +413,10 @@
   color: var(--tk-text-accent);
 }
 
+/* Filled with the canvas, so it reads as see-through while an edge passing
+   behind it stays off its text. */
 .aroundNode[data-kind='step'] {
-  background-color: transparent;
+  background-color: var(--tk-inset);
   color: var(--tk-text-2);
   cursor: default;
 }
@@ -396,7 +478,7 @@
   transform: translate(var(--label-x), var(--label-y)) translate(-50%, -50%);
   padding: 0 4px;
   border-radius: 4px;
-  background-color: var(--tk-raised);
+  background-color: var(--tk-inset);
   color: var(--tk-text-3);
   font-size: 12px;
   line-height: normal;
@@ -430,7 +512,7 @@
 /* A graph-only node is see-through on the canvas, so its sample takes the
    canvas fill. */
 .aroundSample[data-kind='step'] {
-  background-color: var(--tk-raised);
+  background-color: var(--tk-inset);
 }
 
 /* The block view: a text column and the Layers rail. */
@@ -438,13 +520,15 @@
   overflow-y: auto;
 }
 
+/* The header spans the page; the text column and the Layers rail sit
+   under it. */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   align-items: start;
-  gap: 24px;
-  max-width: 1200px;
-  padding: 20px 24px 48px;
+  gap: 22px 28px;
+  max-width: 1240px;
+  padding: 24px 32px 48px;
 }
 
 .layout[data-rail='none'] {
@@ -468,9 +552,11 @@
 
 .head {
   display: flex;
+  grid-column: 1 / -1;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .head > [data-testid='focus-header'] {
@@ -479,6 +565,64 @@
 
 .crumbs {
   flex-wrap: wrap;
+}
+
+.pathRow {
+  margin-top: 2px;
+}
+
+.blockPath {
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+}
+
+.packLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 2px;
+}
+
+.packChip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--tk-raised);
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.packChip[data-tone='team'] {
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-cyan) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-cyan-small);
+}
+
+.packChip[data-tone='org'] {
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-purple) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-purple-small);
+}
+
+.packWord {
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+}
+
+.packCounts {
+  color: var(--tk-text-2);
+  font-size: 12px;
 }
 
 .rail {
@@ -490,7 +634,7 @@
   padding: 14px 16px;
   border: 1px solid var(--tk-border);
   border-radius: 8px;
-  background: var(--tk-card);
+  background: var(--tk-panel);
 }
 
 .extra {
@@ -526,7 +670,7 @@
 
 .bandTitle {
   color: var(--tk-text-1);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   line-height: normal;
 }
@@ -535,6 +679,56 @@
   color: var(--tk-text-3);
   font-size: 12px;
   line-height: normal;
+}
+
+.bandIntro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+.bandIntro:has(> .bandIntroText) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.bandIntroText {
+  color: var(--tk-text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bandMore {
+  color: var(--tk-text-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.sharedRow {
+  display: grid;
+  grid-template-columns: 12px auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+}
+
+@media (hover: hover) {
+  .sharedRow:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.sharedFacts {
+  overflow: hidden;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rows {
@@ -551,11 +745,11 @@
   border-top: 1px solid var(--tk-border-soft);
 }
 
-:where([data-mantine-color-scheme='light']) .row {
+:where([data-mantine-color-scheme='light']) :is(.row, .sharedRow) {
   --row-hover: var(--mantine-color-gray-1);
 }
 
-:where([data-mantine-color-scheme='dark']) .row {
+:where([data-mantine-color-scheme='dark']) :is(.row, .sharedRow) {
   --row-hover: var(--mantine-color-dark-5);
 }
 
@@ -563,7 +757,7 @@
   display: grid;
   grid-template-columns: 12px 14px minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   padding: 10px 12px;
 }
@@ -641,12 +835,18 @@
   border-radius: 50%;
 }
 
+/* The boards draw a row's dots in the hue's text step, a shade apart from
+   the map's fill squares. */
+.dot {
+  background: currentColor;
+}
+
 .dot[data-layer='org'] {
-  background: var(--tk-fill-purple);
+  color: var(--tk-text-purple);
 }
 
 .dot[data-layer='team'] {
-  background: var(--tk-fill-cyan);
+  color: var(--tk-text-cyan);
 }
 
 /* The block sidebar. */
@@ -668,11 +868,11 @@
 
 .switcher {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  margin: 6px 0 10px;
+  margin: 6px 0 6px;
   padding: 8px 10px;
   border-radius: 6px;
   text-align: left;
@@ -686,21 +886,42 @@
   );
 }
 
+.switcher[data-selected] .switcherName {
+  color: var(--tk-text-accent);
+}
+
 .switcherName {
+  overflow: hidden;
   color: var(--tk-text-1);
   font-size: 15px;
   font-weight: 700;
   line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .switcherMeta {
+  overflow: hidden;
   color: var(--tk-text-3);
   font-size: 12px;
   line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcherText {
+  min-width: 0;
+}
+
+/* Level with the name's line, as the board draws it. */
+.switcherChevron {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--tk-text-2);
 }
 
 .groupLabel {
-  padding: 4px 6px;
+  padding: 2px 6px;
   color: var(--tk-text-3);
   font-size: 10px;
   font-weight: 500;
@@ -708,10 +929,41 @@
   text-transform: uppercase;
 }
 
+.treeItem {
+  position: relative;
+}
+
 .treeRow {
-  padding-block: 5px;
-  padding-inline-start: calc(var(--depth, 0) * 14px + 6px);
+  padding-block: 3px;
+  padding-inline-start: calc(var(--depth, 0) * 16px + 6px);
   border-radius: 6px;
+}
+
+.treeRow[data-selected] :global(.mantine-NavLink-section) {
+  color: var(--tk-text-accent);
+}
+
+.treeChevronSpace {
+  display: inline-block;
+  width: 13px;
+}
+
+/* Laid over the row's left section, where the chevron sits. */
+.treeToggle {
+  display: inline-flex;
+  position: absolute;
+  top: 50%;
+  left: calc(var(--depth, 0) * 16px + 6px);
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+}
+
+.treeToggle:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
 }
 
 .treeChevron {

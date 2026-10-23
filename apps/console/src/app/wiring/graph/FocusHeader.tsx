@@ -125,7 +125,10 @@ export function FocusHeader({
   block = null,
   actions = null,
   inline = false,
+  meta = null,
 }: {
+  /** A line under the description: the block view's pack and counts. */
+  meta?: ReactNode;
   ref?: Ref<HTMLDivElement>;
   title: string;
   /** The skill's kind in words; null on a block, which shows `block`'s chips. */
@@ -205,12 +208,18 @@ export function FocusHeader({
           {actions ?? statusBadge}
         </Group>
         {description ? (
-          <Text fz={13} lh="normal" c={MUTED} data-parity="desc">
+          <Text
+            fz={inline ? 14 : 13}
+            lh={inline ? 1.5 : 'normal'}
+            c={MUTED}
+            data-parity="desc"
+          >
             {description}
           </Text>
         ) : (
           loading && <Skeleton height={16} width={420} />
         )}
+        {meta}
         {checkError !== null && (
           <Alert
             variant="light"

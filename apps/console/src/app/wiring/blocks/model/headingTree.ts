@@ -10,7 +10,7 @@ const SUMMARY_MAX = 160;
 type Heading = { level: number; title: string; line: number };
 
 /** rt's `plain`: markdown's inline marks dropped, whitespace collapsed. */
-function plain(text: string): string {
+export function plain(text: string): string {
   return text
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/`([^`]*)`/g, '$1')

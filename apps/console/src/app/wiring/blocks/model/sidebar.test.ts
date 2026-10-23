@@ -205,4 +205,13 @@ describe('sidebarRows', () => {
       ['s/x', false],
     ]);
   });
+
+  it('folds a row that holds the selection when it is toggled by hand', () => {
+    const rows = sidebarRows(
+      payloadOf(block('s/a', 's'), block('s/a/b', 's/a')),
+      's/a/b',
+      new Set(['s/a'])
+    );
+    expect(rows.map(r => [r.id, r.open])).toEqual([['s/a', false]]);
+  });
 });

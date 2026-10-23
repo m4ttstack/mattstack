@@ -58,13 +58,49 @@ export function BlockRow({
   row,
   onOpen,
   body,
+  usedBy = null,
 }: {
   row: FoldedRow;
   onOpen: (blockId: string) => void;
   /** The block's text, shown under the row when it is expanded. */
   body?: ReactNode;
+  /** On a Shared row, how many skills paste the tree in. */
+  usedBy?: number | null;
 }) {
   const expanded = body !== undefined && body !== null;
+  if (row.shared) {
+    const facts = [
+      ...(row.shared.name ? [row.shared.name] : []),
+      `${row.shared.lines} lines`,
+      ...(usedBy !== null
+        ? [`in ${usedBy} ${usedBy === 1 ? 'skill' : 'skills'}`]
+        : []),
+    ].join(' · ');
+    return (
+      <li className={classes.rowItem}>
+        <UnstyledButton
+          className={classes.sharedRow}
+          data-selected={row.selected || undefined}
+          data-testid="block-row"
+          onClick={() => onOpen(row.id)}
+        >
+          <Icon
+            name="chevronRight"
+            size={12}
+            className={classes.chevron}
+            data-open={expanded || undefined}
+          />
+          <span className={classes.rowLabel}>{row.label}</span>
+          <span className={classes.sharedFacts}>{facts}</span>
+        </UnstyledButton>
+        {expanded && (
+          <div className={classes.rowBody} data-testid="block-row-body">
+            {body}
+          </div>
+        )}
+      </li>
+    );
+  }
   return (
     <li className={classes.rowItem}>
       <UnstyledButton
@@ -79,7 +115,11 @@ export function BlockRow({
           className={classes.chevron}
           data-open={expanded || undefined}
         />
-        <BlockGlyph glyph={row.glyph} />
+        {row.glyph === 'shared' ? (
+          <span aria-hidden />
+        ) : (
+          <BlockGlyph glyph={row.glyph} />
+        )}
         <span className={classes.rowText}>
           <span className={classes.rowLabel}>{row.label}</span>
           {row.summary && !expanded && (

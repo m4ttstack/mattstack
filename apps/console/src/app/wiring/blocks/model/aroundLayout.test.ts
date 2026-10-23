@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { shipShaped } from '../__tests__/aroundFixtures';
-import { miniPayload } from '../__tests__/blocksFixture';
+import { miniPayload, shipPayload } from '../__tests__/blocksFixture';
 import { aroundBlock } from './around';
 import { AROUND, aroundLayout, layerNodes, wholeLayout } from './aroundLayout';
 
@@ -198,6 +198,32 @@ describe('aroundLayout with a row cap', () => {
     expect(routed.some(edge => edge.data?.channel != null)).toBe(true);
   });
 
+  it('gives each side-channelled drop its own channel and its own bend', () => {
+    const capped = aroundLayout(sub, 'fast_checks', 1);
+    const routed = capped.edges.filter(edge => edge.data?.channel != null);
+    expect(routed.length).toBeGreaterThan(1);
+    const channels = routed.map(edge => edge.data!.channel);
+    const lanes = routed.map(edge => edge.data!.lane);
+    expect(new Set(channels).size).toBe(routed.length);
+    expect(new Set(lanes).size).toBe(routed.length);
+  });
+
+  it('lands each edge into a target at its own point, in the order of their sources', () => {
+    const layout = aroundLayout(sub, 'fast_checks');
+    const x = (id: string) =>
+      layout.nodes.find(node => node.id === id)!.position.x;
+    const into = layout.edges
+      .filter(edge => edge.target === 'fast_checks')
+      .sort((a, b) => x(a.source) - x(b.source));
+    expect(into.length).toBeGreaterThan(1);
+    const lands = into.map(edge => edge.data!.land!);
+    expect(new Set(lands).size).toBe(into.length);
+    expect([...lands].sort((a, b) => a - b)).toEqual(lands);
+    for (const land of lands) {
+      expect(Math.abs(land)).toBeLessThan(AROUND.nodeW / 2);
+    }
+  });
+
   it('counts one row per layer with no cap', () => {
     expect(aroundLayout(sub, 'fast_checks').rows).toBe(4);
   });
@@ -205,6 +231,19 @@ describe('aroundLayout with a row cap', () => {
 
 describe('wholeLayout', () => {
   const graph = miniPayload.graphs[0];
+
+  it('keeps every side channel within a few lanes of the nodes, however many drops take one', () => {
+    const flow = shipPayload.graphs.find(g => g.blockId === 'ship/flow')!;
+    const layout = wholeLayout(flow, null, 3);
+    const channels = layout.edges
+      .map(edge => edge.data?.channel)
+      .filter((x): x is number => typeof x === 'number');
+    expect(channels.length).toBeGreaterThan(5);
+    const left = Math.min(...layout.nodes.map(node => node.position.x));
+    expect(left - Math.min(...channels)).toBeLessThanOrEqual(
+      AROUND.columnGap / 2 + 4 * 8
+    );
+  });
 
   it('lays the whole graph out from its entry, one row per step, from the top', () => {
     const layout = wholeLayout(graph, 'ask_gate');

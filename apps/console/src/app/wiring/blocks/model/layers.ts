@@ -6,6 +6,7 @@ import type {
 import {
   childrenOf,
   insideSharedTop,
+  isIncludedTree,
   labelOf,
   layerName,
   rootOf,
@@ -100,8 +101,11 @@ export function blockMap(
   const sectionOf =
     scope === null ? skillSectionOf(payload) : () => labelOf(scope);
   const hidden = scope === null ? insideSharedTop(payload) : () => false;
+  const top = scope ?? rootOf(payload);
   const squares = inScope(payload, scope)
     .filter(block => !hidden(block))
+    .filter(block => block !== top || block.props.length > 0)
+    .filter(block => !isIncludedTree(payload, block))
     .map(block => ({
       id: block.id,
       label: labelOf(block),
@@ -113,6 +117,49 @@ export function blockMap(
     count: squares.filter(square => square.fill === fill).length,
   })).filter(entry => entry.count > 0);
   return { squares, legend };
+}
+
+export type LegendRow = { fill: LayerColor; name: string; count: number };
+
+/** One row per layer the payload names, mattstack's for the blocks no layer
+    adds to; a block both layers add to counts under each. */
+export function layerLegend(
+  payload: BlocksPayload,
+  squares: Square[]
+): LegendRow[] {
+  const count = (fills: Fill[]) =>
+    squares.filter(square => fills.includes(square.fill)).length;
+  const rows: LegendRow[] = [
+    {
+      fill: 'mattstack',
+      name: `${layerLabel(payload, 'mattstack')} only`,
+      count: count(['mattstack']),
+    },
+  ];
+  for (const role of ['org', 'team'] as const) {
+    if (!payload.layers.some(layer => layer.color === role)) continue;
+    rows.push({
+      fill: role,
+      name: layerLabel(payload, role),
+      count: count([role, 'both']),
+    });
+  }
+  return rows;
+}
+
+/** The layers' values as a whole percent of the text, at least 1 when there
+    are any; null when mattstack wrote it all. */
+export function propShare(
+  payload: BlocksPayload,
+  scope: PayloadBlock | null
+): number | null {
+  const totals = lineTotals(payload, scope);
+  const all = totals.reduce((sum, entry) => sum + entry.count, 0);
+  const theirs = totals
+    .filter(entry => entry.layer !== 'mattstack')
+    .reduce((sum, entry) => sum + entry.count, 0);
+  if (all === 0 || theirs === 0) return null;
+  return Math.max(1, Math.round((theirs / all) * 100));
 }
 
 /** Keyed by the segment's role colour, which is the winning value's role,

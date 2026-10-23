@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { miniPayload, withInclude } from '../__tests__/blocksFixture';
+import {
+  miniPayload,
+  shipPayload,
+  withInclude,
+} from '../__tests__/blocksFixture';
 import type {
   BlocksPayload,
   PayloadBlock,
@@ -11,8 +15,11 @@ import {
   graphOfBlock,
   includeNameOf,
   labelledGraph,
+  leadOf,
   renderedRangeOf,
+  scopeStats,
   sharedRootOf,
+  withoutLead,
 } from './blockView';
 
 const byId = (id: string) => miniPayload.blocks.find(block => block.id === id)!;
@@ -110,5 +117,62 @@ describe('graphs', () => {
   it('counts every block under the root', () => {
     expect(blockCount(miniPayload)).toBe(5);
     expect(blockCount(withInclude())).toBe(6);
+  });
+});
+
+describe('leadOf', () => {
+  const ship = (id: string) => shipPayload.blocks.find(b => b.id === id)!;
+
+  it("reads the block's first prose paragraph as plain text", () => {
+    expect(leadOf(bodyOf(ship('ship/flow')))).toBe(
+      "<root> is the worktree root, the absolute path git rev-parse --show-toplevel prints. <default> is the repo's default branch, git symbolic-ref --short refs/remotes/origin/HEAD minus origin/, never guessed."
+    );
+  });
+
+  it('skips a graph that comes first', () => {
+    expect(leadOf(bodyOf(ship('ship/run')))).toMatch(
+      /^An own run is a fresh, resumed or reopened one: .* hands back to the verb that invoked it\.$/
+    );
+  });
+
+  it('is null for a block with no prose of its own', () => {
+    expect(leadOf(block('x', null, { segments: [] }))).toBeNull();
+  });
+
+  it('drops that paragraph from the text, wherever it sits', () => {
+    const run = bodyOf(ship('ship/run'));
+    const rest = withoutLead(run, leadOf(run));
+    expect(rest.segments[0]!.text).toContain('```mermaid');
+    expect(rest.segments[0]!.text).not.toContain('An own run is a fresh');
+    expect(rest.segments[0]!.text).toContain('The flags, rendered');
+  });
+});
+
+describe('scopeStats', () => {
+  it('counts the blocks, the ones with props, the values passed, graphs and shared trees', () => {
+    expect(scopeStats(shipPayload, null)).toMatchObject({
+      blocks: blockCount(shipPayload),
+      graphs: 2,
+      shared: 5,
+    });
+    const flow = scopeStats(
+      shipPayload,
+      shipPayload.blocks.find(b => b.id === 'ship/flow')!
+    );
+    expect(flow).toEqual({
+      blocks: 21,
+      withProps: 13,
+      values: 4,
+      graphs: 1,
+      shared: 0,
+    });
+  });
+
+  it('counts an include inside a block once: its heading, not its tree too', () => {
+    const run = shipPayload.blocks.find(b => b.id === 'ship/run')!;
+    expect(scopeStats(shipPayload, run)).toMatchObject({
+      blocks: 8,
+      shared: 1,
+    });
   });
 });

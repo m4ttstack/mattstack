@@ -2,7 +2,14 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { childrenOf, dotsOf, isSharedTop, labelOf, rootOf } from './blockFacts';
+import {
+  childrenOf,
+  dotsOf,
+  includedTree,
+  isSharedTop,
+  labelOf,
+  rootOf,
+} from './blockFacts';
 import type { Dot, Glyph } from './blockFacts';
 
 export type { Glyph } from './blockFacts';
@@ -34,27 +41,31 @@ function holdsSelection(
 }
 
 /** Depth 0 is the root's children: the skill's name stands for the root.
-    A row opens when it holds the selection or `unfolded` names it; the
-    Shared fold's own id there is `shared`. */
+    A row starts open when it holds the selection; `toggled` names the rows
+    folded or unfolded by hand against that, the Shared fold by `shared`.
+    An include heading is one row for its shared tree. */
 export function sidebarRows(
   payload: BlocksPayload,
-  selectedId: string | null,
-  unfolded: ReadonlySet<string> = new Set()
+  linkedId: string | null,
+  toggled: ReadonlySet<string> = new Set()
 ): SidebarRow[] {
   const root = rootOf(payload);
   if (!root) return [];
+  const linked = payload.blocks.find(block => block.id === linkedId);
+  const selectedId = (linked && includedTree(payload, linked)?.id) ?? linkedId;
   const rows: SidebarRow[] = [];
 
-  const walk = (block: PayloadBlock, depth: number) => {
+  const walk = (heading: PayloadBlock, depth: number) => {
+    const block = includedTree(payload, heading) ?? heading;
     const children = childrenOf(payload, block.id);
     const open =
       children.length > 0 &&
-      (unfolded.has(block.id) || holdsSelection(payload, block, selectedId));
+      holdsSelection(payload, block, selectedId) !== toggled.has(block.id);
     rows.push({
       id: block.id,
       depth,
-      label: labelOf(block),
-      glyph: block.kind,
+      label: labelOf(heading),
+      glyph: heading.kind,
       dots: dotsOf(block),
       count: children.length > 0 ? children.length : null,
       open,
@@ -71,8 +82,8 @@ export function sidebarRows(
   const shared = top.filter(block => isSharedTop(payload, block));
   if (shared.length > 0) {
     const open =
-      unfolded.has('shared') ||
-      shared.some(block => holdsSelection(payload, block, selectedId));
+      shared.some(block => holdsSelection(payload, block, selectedId)) !==
+      toggled.has('shared');
     rows.push({
       id: 'shared',
       depth: 0,

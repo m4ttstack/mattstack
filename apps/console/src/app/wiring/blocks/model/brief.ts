@@ -12,6 +12,15 @@ const FIXED_LINES = [
   'What I want:',
 ];
 
+const UNDER = /\/(?:attachments|skills)\/(.+)$/;
+
+/** The spec's brief names a file by the part under its plugin or pack's
+    attachments (or skills) folder, after `…/`. */
+function shortPath(path: string): string {
+  const under = UNDER.exec(path)?.[1];
+  return under ? `…/${under}` : path;
+}
+
 export function buildBlockContext(input: {
   payload: BlocksPayload;
   block: PayloadBlock;
@@ -24,14 +33,14 @@ export function buildBlockContext(input: {
     `Props: ${prop.name} (${prop.merge}, ${prop.default === null ? 'required' : 'optional'})`,
     ...layers.map(layer => {
       const value = prop.values.find(v => v.layer === layer.label);
-      return `  ${layer.name}: ${value ? value.path : 'nothing passed'}`;
+      return `  ${layer.name}: ${value ? shortPath(value.path) : 'nothing passed'}`;
     }),
   ]);
 
   return [
     `Block: ${block.id}`,
     `  "${block.title ?? block.label}"`,
-    `File: ${block.path}`,
+    `File: ${shortPath(block.path)}`,
     ...propLines,
     org
       ? `Pack: ${payload.pack}, extends ${org.name}`

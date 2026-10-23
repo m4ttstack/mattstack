@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { miniPayload, withInclude } from '../__tests__/blocksFixture';
+import {
+  miniPayload,
+  shipPayload,
+  withInclude,
+} from '../__tests__/blocksFixture';
 import { sectionsAt } from './sections';
 import { zoomOf } from './zoom';
 
@@ -87,5 +91,37 @@ describe('sectionsAt', () => {
       block: payload.blocks.find(b => b.id === 'mini/run')!,
     })[0]!.rows[0]!;
     expect(row.label).toBe('Pre check');
+  });
+
+  it("gives a Shared row its include's name and the tree's line count", () => {
+    const payload = withInclude();
+    const span = (id: string) => {
+      const [from, to] = payload.blocks.find(b => b.id === id)!.lines;
+      return to - from + 1;
+    };
+    const shared = sectionsAt(payload, { level: 'skill' }).at(-1)!;
+    expect(shared.rows[0]!.shared).toEqual({
+      name: 'gate-protocol',
+      lines: span('gate-protocol') + span('gate-protocol/ask'),
+    });
+    expect(at(null)[0]!.rows[0]!.shared).toBeNull();
+  });
+
+  it('marks the band of the entry graph, other graph bands, and the rest by kind', () => {
+    const bands = sectionsAt(shipPayload, { level: 'skill' });
+    expect(bands.map(b => [b.title, b.icon])).toEqual([
+      ['Run', 'entry'],
+      ['Flow', 'graph'],
+      ['Notes', 'note'],
+      ['Shared', 'shared'],
+    ]);
+    expect(at(null).map(b => b.icon)).toEqual(['step', 'note']);
+  });
+
+  it("leads a section band with its block's first sentence", () => {
+    const bands = sectionsAt(shipPayload, { level: 'skill' });
+    const run = shipPayload.blocks.find(b => b.id === 'ship/run')!;
+    expect(bands[0]!.intro).toBe(run.summary);
+    expect(bands.find(b => b.id === 'notes')!.intro).toBeNull();
   });
 });

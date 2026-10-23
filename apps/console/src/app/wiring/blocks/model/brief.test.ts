@@ -52,7 +52,7 @@ describe('buildBlockContext', () => {
       [
         'Block: mini/gate',
         '  "Ask the gate"',
-        `File: ${block.path}`,
+        `File: …/${block.path.split('/attachments/')[1]}`,
         'Props: tiering (replace, optional)',
         '  widgets: nothing passed',
         'Pack: widgets',
@@ -96,7 +96,7 @@ describe('buildBlockContext', () => {
       [
         'Block: mini/run',
         '  "Run"',
-        `File: ${block.path}`,
+        `File: …/${block.path.split('/attachments/')[1]}`,
         'Props: rules (add, required)',
         '  acme-base: nothing passed',
         '  widgets: /w/ship-lint/fast-checks.md',
@@ -107,5 +107,28 @@ describe('buildBlockContext', () => {
         ...FIXED,
       ].join('\n')
     );
+  });
+
+  it('shortens a path to the part under its attachments folder, as the spec draws it', () => {
+    const block: PayloadBlock = {
+      ...find('mini/run'),
+      path: '/home/.mattstack/plugins/mattstack/attachments/pipeline/ship/flow/fast-checks.block.md',
+      props: [
+        prop('rules', {
+          values: [
+            {
+              layer: 'pack',
+              color: 'team',
+              binding: 'widgets:ship-lint/fast-checks',
+              path: '/home/pack/attachments/ship-lint/fast-checks.md',
+              lines: 2,
+            },
+          ],
+        }),
+      ],
+    };
+    const out = buildBlockContext({ payload: basePayload, block });
+    expect(out).toContain('File: …/pipeline/ship/flow/fast-checks.block.md\n');
+    expect(out).toContain('  widgets: …/ship-lint/fast-checks.md\n');
   });
 });

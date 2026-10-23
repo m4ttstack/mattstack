@@ -155,6 +155,70 @@ describe('BlockView: the skill', () => {
     expect(screen.queryAllByTestId('block-row-body')).toHaveLength(0);
   });
 
+  it("says the root's first paragraph under the title, in place of the skill's description", () => {
+    renderView(
+      { focus: 'ship' },
+      {
+        payload: shipPayload,
+        skill: {
+          title: 'ship',
+          kind: 'on-demand',
+          description: 'Pushes the branch and opens the merge request.',
+          status: null,
+          checkError: null,
+          loading: false,
+        },
+      }
+    );
+
+    const header = screen.getByTestId('focus-header');
+    expect(header).toHaveTextContent(
+      "The pipeline's ship stage, reached directly"
+    );
+    expect(
+      screen.queryByText('Pushes the branch and opens the merge request.')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('pack-line')).toHaveTextContent(
+      /widgets extends acme-base extends mattstack ship · \d+ blocks, \d+ with props, \d+ prop values, 2 graphs, 5 shared/
+    );
+  });
+
+  it("leads a band with its block's first sentence, and shows the rest on Show more", async () => {
+    renderView({ focus: 'ship' }, { payload: shipPayload });
+
+    const run = screen
+      .getAllByTestId('section-band')
+      .find(band => band.getAttribute('aria-label') === 'Run')!;
+    expect(within(run).getByTestId('band-intro')).toHaveTextContent(
+      'An own run is a fresh, resumed or reopened one: it records identity and closes at the end.'
+    );
+    expect(within(run).queryByText(/The flags, rendered/)).toBeNull();
+    await userEvent.click(
+      within(run).getByRole('button', { name: 'Show more' })
+    );
+    expect(within(run).getByText(/The flags, rendered/)).toBeInTheDocument();
+    await userEvent.click(
+      within(run).getByRole('button', { name: 'Show less' })
+    );
+    expect(within(run).queryByText(/The flags, rendered/)).toBeNull();
+  });
+
+  it("shows a graph's Mermaid source from its card", async () => {
+    renderView({ focus: 'ship' }, { payload: shipPayload });
+
+    const flow = screen
+      .getAllByTestId('section-band')
+      .find(band => band.getAttribute('aria-label') === 'Flow')!;
+    const card = within(flow).getByTestId('graph-card');
+    expect(within(flow).queryByTestId('graph-source')).toBeNull();
+    await userEvent.click(
+      within(card).getByRole('button', { name: 'Mermaid source' })
+    );
+    expect(within(flow).getByTestId('graph-source')).toHaveTextContent(
+      'flowchart TB'
+    );
+  });
+
   it('says a stale block link names nothing, and shows the skill', () => {
     renderView({ block: 'mini/gone' });
 
@@ -185,6 +249,32 @@ describe('BlockView: a parent block', () => {
 
     await userEvent.click(within(crumbs).getByText('mini'));
     expect(patch).toHaveBeenCalledWith({ block: null, select: null });
+  });
+
+  it('offers Expand all, not Copy for Claude or the file menu', () => {
+    renderView({ focus: 'ship', block: 'ship/flow' }, { payload: shipPayload });
+
+    expect(
+      screen.getByRole('button', { name: 'Expand all' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Copy for Claude' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'File' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('says its first paragraph under the title, and the counts of what is under it', () => {
+    renderView({ focus: 'ship', block: 'ship/flow' }, { payload: shipPayload });
+
+    const header = screen.getByTestId('focus-header');
+    expect(header).toHaveTextContent(
+      '<root> is the worktree root, the absolute path git rev-parse --show-toplevel prints.'
+    );
+    expect(screen.getByTestId('pack-line')).toHaveTextContent(
+      'widgets extends acme-base extends mattstack ship · 21 blocks, 13 with props, 4 prop values, 1 graph'
+    );
   });
 
   it("draws the skill's graph card and opens the whole graph from it", async () => {
@@ -262,12 +352,13 @@ describe('BlockView: a single block', () => {
     expect(patch).toHaveBeenCalledWith({ select: null });
   });
 
-  it('keeps the path and Open file behind the ⋯ menu', async () => {
+  it('shows its path in the skill beside the ⋯ menu, which holds Open file', async () => {
     renderView({ block: 'mini/gate' });
 
-    expect(
-      screen.queryByText('attachments/pipeline/mini/gate.block.md')
-    ).not.toBeInTheDocument();
+    const gateBlock = miniPayload.blocks.find(b => b.id === 'mini/gate')!;
+    expect(screen.getByTestId('block-path')).toHaveTextContent(
+      gateBlock.path.slice(miniPayload.dir.length + 1)
+    );
     await userEvent.click(screen.getByRole('button', { name: 'File' }));
     expect(
       await screen.findByText('attachments/pipeline/mini/gate.block.md')
@@ -432,12 +523,36 @@ describe('BlockView: Used by and History', () => {
     expect(screen.getByTestId('history-heading')).toHaveTextContent('In work');
   });
 
-  it('says plainly that a block file has no history of its own, and where to look', () => {
-    renderView({ block: 'mini/gate' }, { context });
+  it('says plainly that a block file has no history of its own, and links to where to look', async () => {
+    const patch = renderView({ block: 'mini/gate' }, { context });
 
     expect(screen.getByTestId('history-no-copy')).toHaveTextContent(
-      'No history for this block. Open work for its build history'
+      'No history for this block. Open work for its build history.'
     );
+    await userEvent.click(
+      within(screen.getByTestId('history-no-copy')).getByRole('button', {
+        name: 'Open work',
+      })
+    );
+    expect(patch).toHaveBeenCalledWith({ block: null, select: null });
+  });
+
+  it("gives each Shared row its include's name, length and the skills that paste it", () => {
+    renderView({ focus: 'ship' }, { payload: shipPayload, context });
+
+    const band = screen
+      .getAllByTestId('section-band')
+      .find(b => b.getAttribute('aria-label') === 'Shared')!;
+    expect(band).toHaveTextContent('4 blocks · same for everyone');
+    const gate = within(band)
+      .getAllByTestId('block-row')
+      .find(row => row.textContent?.startsWith('Gate protocol'))!;
+    expect(gate).toHaveTextContent(/gate-protocol · \d+ lines · in \d+ skills/);
+    expect(gate.querySelector('[data-glyph]')).toBeNull();
+    const browser = within(band)
+      .getAllByTestId('block-row')
+      .find(row => row.textContent?.startsWith('Browser evidence'))!;
+    expect(browser).toHaveTextContent(/· in 1 skill$/);
   });
 
   it("says why History is missing when the skill's build cannot be read", () => {

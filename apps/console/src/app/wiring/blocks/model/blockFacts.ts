@@ -78,6 +78,50 @@ export function labelOf(block: PayloadBlock): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** rt draws an include as a heading block whose one child is the shared
+    tree; the view reads the two as one, so it opens as that tree. */
+export function includedTree(
+  payload: BlocksPayload,
+  block: PayloadBlock
+): PayloadBlock | null {
+  if (block.kind === 'shared') return null;
+  if (!payload.includes.some(include => include.blockId === block.id)) {
+    return null;
+  }
+  const children = childrenOf(payload, block.id);
+  const [only] = children;
+  return children.length === 1 && only.kind === 'shared' ? only : null;
+}
+
+function includeHeadingOf(
+  payload: BlocksPayload,
+  block: PayloadBlock
+): PayloadBlock | null {
+  const parent = payload.blocks.find(
+    candidate => candidate.id === block.parentId
+  );
+  return parent && includedTree(payload, parent)?.id === block.id
+    ? parent
+    : null;
+}
+
+/** The tree under an include heading: the heading stands for it in a
+    count or a map, so it is not counted again. */
+export function isIncludedTree(
+  payload: BlocksPayload,
+  block: PayloadBlock
+): boolean {
+  return includeHeadingOf(payload, block) !== null;
+}
+
+/** A shared tree goes by the name its include heading gives it here. */
+export function shownLabel(
+  payload: BlocksPayload,
+  block: PayloadBlock
+): string {
+  return labelOf(includeHeadingOf(payload, block) ?? block);
+}
+
 /** The layer's role colour, not its label: `mattstack` draws no dot. */
 export function dotsOf(block: PayloadBlock): Dot[] {
   const colors = new Set(

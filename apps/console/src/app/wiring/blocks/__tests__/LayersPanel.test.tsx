@@ -27,14 +27,14 @@ describe('LayersPanel', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows a legend row per fill with its count', () => {
+  it('shows a legend row per layer with its count of blocks', () => {
     renderWithProviders(
       <LayersPanel payload={miniPayload} zoom={zoomAt(null)} />
     );
     const rows = screen.getAllByTestId('layers-map-legend-row');
     expect(rows.map(row => row.textContent)).toEqual([
-      'mattstack only5',
-      'widgets1',
+      'mattstack only5 blocks',
+      'widgets1 block',
     ]);
   });
 

@@ -10,16 +10,14 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import { kindOf } from '../graph/FocusHeader';
 import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
 import { useGraphFocus } from '../graph/useGraphFocus';
 import { BlockGlyph, LayerDots } from './BlockRow';
 import classes from './blocks.module.css';
 import { blockCount } from './model/blockView';
 import { sidebarRows, type SidebarRow } from './model/sidebar';
+import { switcherMetaOf } from './skillKind';
 import { useSkillBlocks } from './useSkillBlocks';
-
-const blocks = (n: number) => `${n} ${n === 1 ? 'block' : 'blocks'}`;
 
 /** Every skill the switcher can open, in the focus list's groups. */
 function switcherGroups(groups: FocusGroups): [string, FocusItem[]][] {
@@ -34,52 +32,71 @@ function switcherGroups(groups: FocusGroups): [string, FocusItem[]][] {
   return list.filter(([, items]) => items.length > 0);
 }
 
+/** A folder row's chevron folds it in place; the row itself opens the
+    block, so the chevron is a button of its own laid over the row. */
 function TreeRow({
   row,
   onPick,
+  onToggle,
 }: {
   row: SidebarRow;
   onPick: (row: SidebarRow) => void;
+  onToggle: (row: SidebarRow) => void;
 }) {
   const folder = row.count !== null;
+  const style = { '--depth': row.depth } as CSSProperties;
   return (
-    <NavLink
-      component="button"
-      type="button"
-      color="accent"
-      active={row.selected}
-      label={
-        <Text span fz={13} fw={row.selected ? 500 : 400}>
-          {row.label}
-        </Text>
-      }
-      leftSection={
-        <>
-          {folder && (
-            <Icon
-              name="chevronRight"
-              size={12}
-              className={classes.treeChevron}
-              data-open={row.open || undefined}
-            />
-          )}
-          {!folder && row.glyph !== 'shared' && (
-            <BlockGlyph glyph={row.glyph} size={13} />
-          )}
-        </>
-      }
-      rightSection={
-        row.dots.length > 0 ? (
-          <LayerDots dots={row.dots} />
-        ) : folder ? (
-          <span className={classes.treeCount}>{row.count}</span>
-        ) : undefined
-      }
-      classNames={{ root: classes.treeRow }}
-      style={{ '--depth': row.depth } as CSSProperties}
-      data-testid={`block-tree-${row.id}`}
-      onClick={() => onPick(row)}
-    />
+    <div className={classes.treeItem} style={style}>
+      <NavLink
+        component="button"
+        type="button"
+        color="accent"
+        active={row.selected}
+        label={
+          <Text
+            span
+            fz={13}
+            fw={row.selected ? 500 : 400}
+            c={row.selected ? 'var(--tk-text-accent)' : undefined}
+          >
+            {row.label}
+          </Text>
+        }
+        leftSection={
+          folder ? (
+            <span className={classes.treeChevronSpace} />
+          ) : row.glyph !== 'shared' ? (
+            <BlockGlyph glyph={row.glyph} size={row.depth > 0 ? 11 : 13} />
+          ) : undefined
+        }
+        rightSection={
+          row.dots.length > 0 ? (
+            <LayerDots dots={row.dots} />
+          ) : folder ? (
+            <span className={classes.treeCount}>{row.count}</span>
+          ) : undefined
+        }
+        classNames={{ root: classes.treeRow }}
+        data-selected={row.selected || undefined}
+        data-testid={`block-tree-${row.id}`}
+        onClick={() => onPick(row)}
+      />
+      {folder && (
+        <UnstyledButton
+          className={classes.treeToggle}
+          aria-label={`${row.open ? 'Fold' : 'Unfold'} ${row.label}`}
+          aria-expanded={row.open}
+          onClick={() => onToggle(row)}
+        >
+          <Icon
+            name="chevronRight"
+            size={12}
+            className={classes.treeChevron}
+            data-open={row.open || undefined}
+          />
+        </UnstyledButton>
+      )}
+    </div>
   );
 }
 
@@ -92,23 +109,26 @@ export function BlockSidebar({ pack }: { pack: string }) {
   const { url, patch, compositionQuery, groups, focused, pipeline } =
     useGraphFocus(pack);
   const skill = useSkillBlocks(pack, focused, compositionQuery.data);
-  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
+  // Folds made by hand last until the selection moves.
+  const [folds, setFolds] = useState<{
+    at: string | null;
+    toggled: ReadonlySet<string>;
+  }>({ at: url.block, toggled: new Set() });
+  const toggled = folds.at === url.block ? folds.toggled : new Set<string>();
 
+  const toggle = (row: SidebarRow) => {
+    const next = new Set(toggled);
+    if (next.has(row.id)) next.delete(row.id);
+    else next.add(row.id);
+    setFolds({ at: url.block, toggled: next });
+  };
   const pick = (row: SidebarRow) => {
-    if (row.id === 'shared') {
-      setUnfolded(open => {
-        const next = new Set(open);
-        if (next.has('shared')) next.delete('shared');
-        else next.add('shared');
-        return next;
-      });
-      return;
-    }
-    patch({ block: row.id, select: null });
+    if (row.id === 'shared') toggle(row);
+    else patch({ block: row.id, select: null });
   };
 
   const payload = skill.state === 'ready' ? skill.payload : null;
-  const rows = payload ? sidebarRows(payload, url.block, unfolded) : [];
+  const rows = payload ? sidebarRows(payload, url.block, toggled) : [];
 
   return (
     <Stack gap={2} className={classes.sidebar} data-testid="block-sidebar">
@@ -128,17 +148,23 @@ export function BlockSidebar({ pack }: { pack: string }) {
               aria-label={`Switch skill: ${focused.label}`}
               data-testid="skill-switcher"
             >
-              <span>
+              <span className={classes.switcherText}>
                 <Text span display="block" className={classes.switcherName}>
                   {focused.step !== null ? focused.label : focused.skill}
                 </Text>
                 <Text span display="block" className={classes.switcherMeta}>
-                  {payload
-                    ? `${kindOf(focused, pipeline)} · ${blocks(blockCount(payload))}`
-                    : kindOf(focused, pipeline)}
+                  {switcherMetaOf(
+                    focused,
+                    pipeline,
+                    payload ? blockCount(payload) : null
+                  )}
                 </Text>
               </span>
-              <Icon name="chevronsUpDown" size={14} />
+              <Icon
+                name="chevronsUpDown"
+                size={14}
+                className={classes.switcherChevron}
+              />
             </UnstyledButton>
           </Menu.Target>
           <Menu.Dropdown>
@@ -177,7 +203,7 @@ export function BlockSidebar({ pack }: { pack: string }) {
         </Text>
       )}
       {rows.map(row => (
-        <TreeRow key={row.id} row={row} onPick={pick} />
+        <TreeRow key={row.id} row={row} onPick={pick} onToggle={toggle} />
       ))}
       {payload && (
         <ul className={classes.glyphKey} aria-label="Glyphs">

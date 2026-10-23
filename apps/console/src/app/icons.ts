@@ -41,6 +41,7 @@ import {
   Minus,
   PanelRight,
   PanelRightOpen,
+  Play,
   Plug,
   Replace,
   Reply,
@@ -104,4 +105,5 @@ registerIcons({
   circleMinus: lucideWrapperFn(CircleMinus),
   flag: lucideWrapperFn(Flag),
   plug: lucideWrapperFn(Plug),
+  play: lucideWrapperFn(Play),
 });

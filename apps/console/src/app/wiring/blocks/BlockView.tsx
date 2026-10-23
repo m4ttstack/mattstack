@@ -31,17 +31,20 @@ import { BlockText, GraphCard } from './BlockText';
 import { CopyForClaude } from './CopyForClaude';
 import { HistoryTab } from './HistoryTab';
 import { LayersPanel } from './LayersPanel';
-import { labelOf, rootOf } from './model/blockFacts';
+import { labelOf, rootOf, shownLabel } from './model/blockFacts';
 import {
   bodyOf,
   graphOfBlock,
   includeNameOf,
   labelledGraph,
+  leadOf,
   renderedRangeOf,
+  scopeStats,
   sharedRootOf,
   withoutLead,
 } from './model/blockView';
 import { sectionsAt } from './model/sections';
+import { usedBySites } from './model/usedBy';
 import { crumbsOf, zoomOf, type Zoom } from './model/zoom';
 import { SectionBand } from './SectionBand';
 import { UsedBy } from './UsedBy';
@@ -54,6 +57,8 @@ export type SkillHeader = {
   status: HeaderStatus | null;
   checkError: string | null;
   loading: boolean;
+  /** The installed engine's version, when rt's anatomy names it. */
+  version?: string | null;
 };
 
 /** What Used by and History read beyond the payload. */
@@ -86,6 +91,9 @@ const VIEWS = [
   { label: 'Blocks', value: 'template' },
   { label: 'Rendered', value: 'rendered' },
 ];
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n} ${n === 1 ? one : many}`;
 
 function Crumbs({
   payload,
@@ -129,7 +137,7 @@ function FileMenu({ block }: { block: PayloadBlock }) {
   return (
     <Menu position="bottom-start" withinPortal>
       <Menu.Target>
-        <ActionIcon variant="default" size="sm" aria-label="File">
+        <ActionIcon variant="default" size={24} aria-label="File">
           <Icon name="moreHorizontal" size={14} />
         </ActionIcon>
       </Menu.Target>
@@ -148,6 +156,62 @@ function FileMenu({ block }: { block: PayloadBlock }) {
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>
+  );
+}
+
+/** The block's file named from the skill's own folder, as the board does. */
+function pathInSkill(payload: BlocksPayload, block: PayloadBlock): string {
+  const dir = `${payload.dir}/`;
+  return block.path.startsWith(dir)
+    ? block.path.slice(dir.length)
+    : block.relPath;
+}
+
+function Chip({ tone, children }: { tone: string; children: ReactNode }) {
+  return (
+    <span className={classes.packChip} data-tone={tone}>
+      {children}
+    </span>
+  );
+}
+
+/** The pack the skill is read in, the bases it extends and the counts of
+    what is in view. */
+function PackLine({
+  payload,
+  scope,
+  version,
+}: {
+  payload: BlocksPayload;
+  scope: PayloadBlock | null;
+  version: string | null;
+}) {
+  const org = payload.layers.find(layer => layer.color === 'org');
+  const engine = payload.engineRef.split(':').pop() ?? payload.skill;
+  const stats = scopeStats(payload, scope);
+  const counts = [
+    plural(stats.blocks, 'block'),
+    `${stats.withProps} with props`,
+    ...(stats.values > 0 ? [plural(stats.values, 'prop value')] : []),
+    ...(stats.graphs > 0 ? [plural(stats.graphs, 'graph')] : []),
+    ...(stats.shared > 0 ? [`${stats.shared} shared`] : []),
+  ].join(', ');
+  return (
+    <div className={classes.packLine} data-testid="pack-line">
+      <Chip tone="team">{payload.pack}</Chip>{' '}
+      <span className={classes.packWord}>extends</span>{' '}
+      {org && (
+        <>
+          <Chip tone="org">{org.name}</Chip>{' '}
+          <span className={classes.packWord}>extends</span>{' '}
+        </>
+      )}
+      <Chip tone="mattstack">
+        {['mattstack', engine, ...(version ? [version] : [])].join(' ')}
+      </Chip>{' '}
+      <span className={classes.packCounts}>·</span>{' '}
+      <span className={classes.packCounts}>{counts}</span>
+    </div>
   );
 }
 
@@ -206,6 +270,7 @@ function ZoomBody({
   wholeGraph,
   lead,
   expanded,
+  usedByCount,
 }: {
   payload: BlocksPayload;
   zoom: Zoom;
@@ -215,6 +280,8 @@ function ZoomBody({
   expanded: boolean;
   /** The line the header shows under the title. */
   lead: string | null;
+  /** How many skills paste a shared tree in; null when that is unknown. */
+  usedByCount: (name: string) => number | null;
 }) {
   const open = (id: string) => patch({ block: id, select: null });
   const viewGraph = () => patch({ select: 'graph' });
@@ -227,7 +294,12 @@ function ZoomBody({
     const graph = at ? labelledGraph(payload, at.graph) : null;
     return (
       <>
-        <BlockText block={bodyOf(block)} payload={payload} level="block" />
+        <BlockText
+          block={bodyOf(block)}
+          payload={payload}
+          level="block"
+          size="lg"
+        />
         {graph &&
           at &&
           (wholeGraph ? (
@@ -251,7 +323,7 @@ function ZoomBody({
     );
   }
 
-  const rowBody = (id: string) => {
+  const textOf = (id: string) => {
     const found = payload.blocks.find(candidate => candidate.id === id);
     const body = found ? bodyOf(found) : null;
     return body && body.segments.length > 0 ? (
@@ -262,11 +334,12 @@ function ZoomBody({
   const own = owner
     ? payload.graphs.find(graph => graph.blockId === owner.id)
     : undefined;
+  const ownText = owner ? withoutLead(bodyOf(owner), lead) : null;
   return (
     <>
-      {owner && (
+      {ownText && ownText.segments.length > 0 && (
         <BlockText
-          block={withoutLead(bodyOf(owner), lead)}
+          block={ownText}
           payload={payload}
           level="parent"
           onViewGraph={viewGraph}
@@ -297,7 +370,9 @@ function ZoomBody({
               />
             ) : null
           }
-          bodyOf={expanded ? rowBody : undefined}
+          introText={zoom.level === 'skill' ? textOf(band.id) : null}
+          bodyOf={expanded ? textOf : undefined}
+          usedByCount={usedByCount}
         />
       ))}
     </>
@@ -306,8 +381,8 @@ function ZoomBody({
 
 /**
  * One skill as a tree of blocks, at the zoom level the URL's `block` sets:
- * the skill, a parent block or a single block. The header and the Blocks |
- * Rendered toggle sit over the text; the Layers panel sits to the right.
+ * the skill, a parent block or a single block. The header spans the page;
+ * the text sits under it beside the Layers panel.
  */
 export function BlockView({
   pack,
@@ -330,18 +405,36 @@ export function BlockView({
   const shared = block ? sharedRootOf(payload, block) : null;
   const sharedName = shared ? includeNameOf(payload, shared) : null;
 
-  const title = block ? labelOf(block) : (skill?.title ?? payload.skill);
-  const description = block
-    ? block.title && block.title !== labelOf(block)
-      ? block.title
-      : null
-    : (skill?.description ?? root?.summary ?? null);
+  const title = block
+    ? shownLabel(payload, block)
+    : (skill?.title ?? payload.skill);
+  const titled =
+    block?.title && block.title !== labelOf(block) ? block.title : null;
+  const description =
+    zoom.level === 'block'
+      ? titled
+      : zoom.level === 'parent'
+        ? (titled ?? leadOf(bodyOf(zoom.block)))
+        : ((root ? leadOf(bodyOf(root)) : null) ??
+          skill?.description ??
+          root?.summary ??
+          null);
 
   const zoomKey = url.block ?? '';
   const [expandedAt, setExpandedAt] = useState<string | null>(null);
   const expanded = expandedAt === zoomKey;
   const canExpand = zoom.level !== 'block' && !rendered;
 
+  const views = (
+    <SegmentedControl
+      size="sm"
+      data={VIEWS}
+      value={rendered ? 'rendered' : 'template'}
+      onChange={value =>
+        patch({ view: value === 'rendered' ? 'rendered' : null })
+      }
+    />
+  );
   const actions = (
     <Group gap={10}>
       {canExpand && (
@@ -352,18 +445,30 @@ export function BlockView({
           {expanded ? 'Collapse all' : 'Expand all'}
         </UnstyledButton>
       )}
-      {block?.path && <FileMenu block={block} />}
-      {block && !readOnly && <CopyForClaude payload={payload} block={block} />}
-      <SegmentedControl
-        size="sm"
-        data={VIEWS}
-        value={rendered ? 'rendered' : 'template'}
-        onChange={value =>
-          patch({ view: value === 'rendered' ? 'rendered' : null })
-        }
-      />
+      {zoom.level === 'block' && !readOnly ? (
+        <CopyForClaude payload={payload} block={zoom.block} trailing={views} />
+      ) : (
+        views
+      )}
     </Group>
   );
+
+  // rt names only a verb's direct includes, so the skill in view, which
+  // pastes the tree, counts even where its own entry does not list it.
+  const usedByCount = (name: string) =>
+    context
+      ? new Set([
+          payload.skill,
+          ...usedBySites(
+            context.composition,
+            context.groups,
+            name,
+            context.pipeline
+          ).map(site => site.skill),
+        ]).size
+      : null;
+  const status =
+    block || skill?.status?.tone === 'ok' ? null : (skill?.status ?? null);
 
   return (
     <div
@@ -371,36 +476,53 @@ export function BlockView({
       data-rail={readOnly ? 'none' : undefined}
       data-testid="block-view"
     >
-      <div className={classes.main}>
-        <div className={classes.head}>
-          {block && <Crumbs payload={payload} block={block} patch={patch} />}
-          <FocusHeader
-            inline
-            title={title}
-            kind={block ? null : (skill?.kind ?? null)}
-            description={description}
-            loading={!block && (skill?.loading ?? false)}
-            status={block ? null : (skill?.status ?? null)}
-            checkError={block ? null : (skill?.checkError ?? null)}
-            block={
-              block
-                ? { kind: block.kind, hasProps: block.props.length > 0 }
-                : null
-            }
-            actions={actions}
-          />
-          {missing !== null && (
-            <Text fz={13} c="dimmed" data-testid="block-missing">
-              {`${payload.skill} has no block ${missing}, so this is the whole skill.`}
+      <div className={classes.head}>
+        {block && <Crumbs payload={payload} block={block} patch={patch} />}
+        <FocusHeader
+          inline
+          title={title}
+          kind={block ? null : (skill?.kind ?? null)}
+          description={description}
+          loading={!block && (skill?.loading ?? false)}
+          status={status}
+          checkError={block ? null : (skill?.checkError ?? null)}
+          block={
+            block
+              ? { kind: block.kind, hasProps: block.props.length > 0 }
+              : null
+          }
+          actions={actions}
+          meta={
+            zoom.level !== 'block' && !readOnly ? (
+              <PackLine
+                payload={payload}
+                scope={block}
+                version={skill?.version ?? null}
+              />
+            ) : null
+          }
+        />
+        {zoom.level === 'block' && block?.path && (
+          <Group gap={8} className={classes.pathRow}>
+            <Text span className={classes.blockPath} data-testid="block-path">
+              {pathInSkill(payload, block)}
             </Text>
-          )}
-          {readOnly && (
-            <Text fz={13} c="dimmed" data-testid="read-only-note">
-              Hand-written: read from its headings, not built from blocks.
-            </Text>
-          )}
-        </div>
+            <FileMenu block={block} />
+          </Group>
+        )}
+        {missing !== null && (
+          <Text fz={13} c="dimmed" data-testid="block-missing">
+            {`${payload.skill} has no block ${missing}, so this is the whole skill.`}
+          </Text>
+        )}
+        {readOnly && (
+          <Text fz={13} c="dimmed" data-testid="read-only-note">
+            Hand-written: read from its headings, not built from blocks.
+          </Text>
+        )}
+      </div>
 
+      <div className={classes.main}>
         {rendered ? (
           <RenderedText
             pack={pack}
@@ -415,6 +537,7 @@ export function BlockView({
             wholeGraph={url.select === 'graph'}
             lead={description}
             expanded={expanded && canExpand}
+            usedByCount={usedByCount}
           />
         )}
 
@@ -440,6 +563,7 @@ export function BlockView({
                 check={context.check}
                 pipeline={context.pipeline}
                 onOpen={context.onFocus}
+                onOpenSkill={() => patch({ block: null, select: null })}
                 file={block ? block.path : null}
               />
             ) : (
@@ -453,7 +577,7 @@ export function BlockView({
 
       {!readOnly && (
         <aside className={classes.rail}>
-          <Text fz={14} fw={700} lh="normal" c="var(--tk-text-1)">
+          <Text fz={15} fw={700} lh="normal" c="var(--tk-text-1)">
             Layers
           </Text>
           <LayersPanel payload={payload} zoom={zoom} />

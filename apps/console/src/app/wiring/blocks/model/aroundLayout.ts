@@ -22,6 +22,10 @@ export type AroundEdgeData = {
   dashed: boolean;
   /** The x of the side channel a drop takes past a lower row's node. */
   channel?: number | null;
+  /** Which of the side-channelled drops this is, from 0. */
+  lane?: number;
+  /** Where the edge lands on its target's top, from the target's centre. */
+  land?: number;
 };
 export type AroundEdge = Edge<AroundEdgeData, 'around'>;
 
@@ -147,7 +151,70 @@ export function aroundLayout(
     }))
     .filter(edge => layers.get(edge.source) !== layers.get(edge.target));
 
-  return { nodes, edges, rows };
+  return { nodes, edges: landPoints(nodes, fanChannels(nodes, edges)), rows };
+}
+
+/** Most room between two landing points on one target. */
+const LAND_STEP = 20;
+
+/** Edges into one target land side by side across its top, each with its
+    own arrow, in the order their sources sit left to right; a drop down a
+    side channel arrives from the far left. */
+function landPoints(nodes: AroundNode[], edges: AroundEdge[]): AroundEdge[] {
+  const x = (id: string) => nodes.find(node => node.id === id)?.position.x ?? 0;
+  const from = (edge: AroundEdge) =>
+    edge.data?.channel != null
+      ? edge.data.channel - AROUND.nodeW
+      : x(edge.source);
+  const land = new Map<string, number>();
+  const targets = new Set(edges.map(edge => edge.target));
+  for (const target of targets) {
+    const into = edges
+      .filter(edge => edge.target === target)
+      .sort((a, b) => from(a) - from(b));
+    if (into.length < 2) continue;
+    const step = Math.min(
+      LAND_STEP,
+      (AROUND.nodeW - 2 * LAND_STEP) / (into.length - 1)
+    );
+    into.forEach((edge, index) =>
+      land.set(edge.id, (index - (into.length - 1) / 2) * step)
+    );
+  }
+  return edges.map(edge =>
+    land.has(edge.id) && edge.data
+      ? { ...edge, data: { ...edge.data, land: land.get(edge.id) } }
+      : edge
+  );
+}
+
+/** Space between side-channelled drops, so each reads as its own line. */
+const LANE = 8;
+/** Lanes before they repeat, so the channels stay near the nodes. */
+export const LANES = 5;
+
+/** Drops that share a side channel each take their own lane: a channel
+    further out and a bend lower under the source row, the lowest source
+    nearest the rows. */
+function fanChannels(nodes: AroundNode[], edges: AroundEdge[]): AroundEdge[] {
+  const y = (id: string) => nodes.find(node => node.id === id)?.position.y ?? 0;
+  const x = (id: string) => nodes.find(node => node.id === id)?.position.x ?? 0;
+  const routed = edges
+    .filter(edge => edge.data?.channel != null)
+    .sort((a, b) => y(b.source) - y(a.source) || x(a.source) - x(b.source));
+  const lane = new Map(routed.map((edge, index) => [edge.id, index]));
+  return edges.map(edge => {
+    const at = lane.get(edge.id);
+    if (at === undefined || !edge.data) return edge;
+    return {
+      ...edge,
+      data: {
+        ...edge.data,
+        channel: (edge.data.channel ?? 0) - (at % LANES) * LANE,
+        lane: at,
+      },
+    };
+  });
 }
 
 /** A downward edge whose straight drop would pass behind a node on a row
