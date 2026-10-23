@@ -14,6 +14,7 @@ is to choose the sounds, not to play them less or quieter.
 - Each pick can be previewed before it is chosen.
 - New choices beyond the originals: the macOS built-in sounds and the Sober
   Ringtones notification tones.
+- Anyone can add their own sound file through a Finder picker.
 - Nothing changes for anyone who never opens the setting.
 
 ## Non-goals
@@ -36,6 +37,7 @@ is to choose the sounds, not to play them less or quieter.
 | Original | neutral, positive, warning (today's three) | already bundled from `sounds/*.mp3` |
 | Sober Ringtones | `101-notification` .. `104-notification` (4). The call tones are left out | new mp3s under `sounds/sober/`, converted to `.caf` by `rt-tray/build.sh` like the originals |
 | macOS | the 14 sounds in `/System/Library/Sounds` (Glass, Tink, Pop...) | not shipped: listed and played from the system folder at runtime |
+| My sounds | files the user added with "Choose file..." | copied into a mattstack folder on this Mac when added |
 | None | silence for that tier | n/a |
 
 Sober Ringtones are CC BY-SA 4.0 by wize.io
@@ -52,6 +54,10 @@ the `.caf` conversion the build already does.
 - **Default:** each tier's Original. An unset setting behaves exactly as
   today.
 - **Previewing:** a play button beside each picker plays the current choice.
+- **Custom sounds:** each tier's picker ends with "Choose file...". It opens
+  a Finder picker (`NSOpenPanel`) limited to audio files. `~/Library/Sounds`
+  is not scanned (Matt's ruling): a custom sound arrives only through the
+  picker.
 
 ## My calls (Matt to check)
 
@@ -65,7 +71,16 @@ the `.caf` conversion the build already does.
 - **Preview ignores the system mute.** It is an explicit click, and you
   can't choose a sound you can't hear. Real notifications still go through
   `NotificationSound.shouldPlay`.
-- **Picker grouped by source** (Original, Sober Ringtones, macOS), then None.
+- **Picker grouped by source** (Original, Sober Ringtones, macOS, My sounds),
+  then None, then "Choose file...".
+- **A custom file is copied in, not referenced.** Moving or deleting the
+  original then breaks nothing. Once added, a sound joins "My sounds" for
+  all three tiers. The id is `custom/<file name>`, and a repeat name gets a
+  numeric suffix.
+- **A file NSSound can't open is refused** with an inline error under the
+  picker. There is no length cap.
+- **Removing a custom sound** is out of scope for v1: delete it from the
+  folder. A tier pointing at a missing file falls back to Original.
 
 ## Constraints
 
@@ -87,6 +102,8 @@ the `.caf` conversion the build already does.
 - The setting key's name and registry entry.
 - How the tray learns of a change (re-read after its own write is enough,
   since the pane is the only writer).
+- The folder custom sounds are copied into (under `~/.mattstack`, machine
+  local, never in a repo).
 - The bundle layout for the Sober files (`sober-101.caf` or a subfolder) and
   the `build.sh` loop change.
 - Picker control and row layout, within the existing pane style
@@ -101,4 +118,5 @@ the `.caf` conversion the build already does.
 | Cleartones | Best-sounding to some ears, but personal-use only | Can't ship |
 | Sober Ringtones notification tones | Small, minimal, shippable with credit | **Chosen**, with Originals + macOS |
 
-Matt picked from a local audition page of 295 candidates.
+Matt picked from a local audition page of 295 candidates, then added a
+Finder picker for custom files in place of scanning `~/Library/Sounds`.
