@@ -134,7 +134,11 @@ export async function resolveStageDoc(
   if (tokens.length === 0) return null;
   const dirs = await deps.packDirs().catch((): PackDir[] => []);
   const stages = stageNames(input);
-  for (const t of tokens) {
+  const ordered = [
+    ...tokens.filter(t => t.pack !== 'mattstack'),
+    ...tokens.filter(t => t.pack === 'mattstack'),
+  ];
+  for (const t of ordered) {
     if (t.kind !== 'sha') continue;
     const hit = await fromSha(deps, t, stages, dirs);
     if (hit) return hit;

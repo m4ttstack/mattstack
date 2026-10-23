@@ -69,6 +69,10 @@ const org = {
       'mattstack/teams/globex/plugin/attachments/stage-evidence--accessibility/SKILL.md':
         'GLOBEX ACCESSIBILITY EVIDENCE',
     },
+    abc7777: {
+      'plugins/mattstack/attachments/pipeline/stage-plan/SKILL.md':
+        'RAW ENGINE PLAN',
+    },
     fff6666: {
       'mattstack/teams/globex/plugin/attachments/stage-evidence/SKILL.md':
         'GLOBEX EVIDENCE',
@@ -141,6 +145,16 @@ describe('resolveStageDoc', () => {
         pipeline: null,
       })
     ).toMatchObject({ text: 'NEW PLAN', pack: 'acme', sha: 'bbb2222' });
+  });
+
+  it('tries a team pack before a mattstack sha recorded ahead of it', async () => {
+    expect(
+      await resolveStageDoc(deps(), {
+        packCommits: 'mattstack=abc7777,acme=bbb2222',
+        stage: 'plan',
+        pipeline: null,
+      })
+    ).toMatchObject({ text: 'NEW PLAN', pack: 'acme' });
   });
 
   it('is null for a mattstack version token alone, without reading git or files', async () => {
