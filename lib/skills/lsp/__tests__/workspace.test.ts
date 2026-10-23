@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rangeOf } from "../positions.ts";
@@ -213,5 +213,24 @@ describe("Workspace plugin discovery", () => {
     expect(ws.plugins()).toBe(first);
     ws.open(manifest, readFileSync(manifest, "utf8"));
     expect(ws.plugins()).not.toBe(first);
+  });
+
+  test("refresh follows a folder moved on disk, carrying its open documents to the new path", () => {
+    const ws = new Workspace([plugin, pack]);
+    const run = join(mini, "run");
+    const step = join(mini, "step");
+    const edited = `${readFileSync(join(run, "check.block.md"), "utf8")}\nEdited.\n`;
+    ws.open(join(run, "check.block.md"), edited);
+    ws.open(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:mini/step/check": {},\n    "mattstack:mini/gate"'));
+    expect(ws.analysis().byBlockId.has("mattstack:mini/run/check")).toBe(true);
+    const plugins = ws.plugins();
+    renameSync(run, step);
+    ws.refresh([{ from: run, to: step }]);
+    expect(ws.plugins()).not.toBe(plugins);
+    expect(ws.text(join(step, "check.block.md"))).toBe(edited);
+    expect(ws.text(join(run, "check.block.md"))).toBe("");
+    expect(ws.analysis().byBlockId.get("mattstack:mini/step/check")?.block.path).toBe(join(step, "check.block.md"));
+    expect(ws.analysis().byBlockId.has("mattstack:mini/run/check")).toBe(false);
+    expect(allDiagnostics(ws).filter((d) => d.code === "missing-block")).toEqual([]);
   });
 });

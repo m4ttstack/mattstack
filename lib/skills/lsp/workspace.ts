@@ -78,6 +78,25 @@ export class Workspace {
     this.invalidate();
   }
 
+  /**
+   * Files changed on disk under the open documents. A moved path carries its overlay along, and its
+   * last good trees are dropped, since they hold the old paths.
+   */
+  refresh(moves: { from: string; to: string }[] = []): void {
+    const under = (file: string, dir: string) => file === dir || file.startsWith(dir + sep);
+    for (const { from, to } of moves) {
+      for (const [file, text] of [...this.overlay]) {
+        if (!under(file, from)) continue;
+        this.overlay.delete(file);
+        this.overlay.set(to + file.slice(from.length), text);
+      }
+      for (const dir of [...this.lastGood.keys()]) {
+        if (under(dir, from) || under(from, dir)) this.lastGood.delete(dir);
+      }
+    }
+    this.invalidate();
+  }
+
   private invalidate(): void {
     this.cached = null;
     this.cachedPlugins = null;

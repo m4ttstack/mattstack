@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -262,4 +262,54 @@ describe("rt skills lsp", () => {
       }
     }
   }, 60_000);
+
+  test("a block moved on disk is followed through didRenameFiles and watched file changes", async () => {
+    const root = join(tmp, "ws");
+    const plugins = join(root, "plugins/mattstack");
+    cpSync(plugin, plugins, { recursive: true });
+    const mini = join(plugins, "attachments/pipeline/mini");
+    const manifest = join(root, "skills.jsonc");
+    const keyed = (id: string) => `{\n  "version": 2,\n  "bindings": {\n    "mattstack:mini/${id}": { "tiering": "" }\n  }\n}\n`;
+    writeFileSync(manifest, keyed("gate"));
+    const uri = pathToFileURL(manifest).href;
+    const capabilities = { workspace: { workspaceEdit: { resourceOperations: ["rename"] }, didChangeWatchedFiles: { dynamicRegistration: true } } };
+    const client = new Client(["--root", root], home);
+    const diagnosticsFor = async (since: number) => (await client.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri, since)).params.diagnostics;
+    try {
+      client.send({ id: 1, method: "initialize", params: { processId: null, capabilities } });
+      const init = await client.waitFor((m) => m.id === 1);
+      expect(init.result.capabilities.workspace.fileOperations.didRename.filters).toEqual([
+        { pattern: { glob: "**/*.block.md", matches: "file" } },
+        { pattern: { glob: "**/*", matches: "folder" } },
+      ]);
+      client.send({ method: "initialized", params: {} });
+      const registered = await client.waitFor((m) => m.method === "client/registerCapability");
+      client.send({ id: registered.id, result: null });
+      expect(registered.params.registrations[0]).toMatchObject({
+        method: "workspace/didChangeWatchedFiles",
+        registerOptions: { watchers: [{ globPattern: "**/*.block.md" }, { globPattern: "**/skills.jsonc" }, { globPattern: "**/.claude-plugin/plugin.json" }] },
+      });
+
+      let since = client.messages.length;
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "jsonc", version: 1, text: keyed("ask") } } });
+      expect((await diagnosticsFor(since)).map((d: { code: string }) => d.code)).toEqual(["missing-block"]);
+      renameSync(join(mini, "gate.block.md"), join(mini, "ask.block.md"));
+      since = client.messages.length;
+      const files = [{ oldUri: pathToFileURL(join(mini, "gate.block.md")).href, newUri: pathToFileURL(join(mini, "ask.block.md")).href }];
+      client.send({ method: "workspace/didRenameFiles", params: { files } });
+      expect(await diagnosticsFor(since)).toEqual([]);
+
+      since = client.messages.length;
+      client.send({ method: "textDocument/didChange", params: { textDocument: { uri, version: 2 }, contentChanges: [{ text: keyed("later") }] } });
+      expect((await diagnosticsFor(since)).map((d: { code: string }) => d.code)).toEqual(["missing-block"]);
+      const later = join(mini, "later.block.md");
+      writeFileSync(later, '---\nprops:\n  tiering:\n    merge: replace\n    default: ""\n---\n\n# Later\n\n{{props.tiering}}\n');
+      since = client.messages.length;
+      client.send({ method: "workspace/didChangeWatchedFiles", params: { changes: [{ uri: pathToFileURL(later).href, type: 1 }] } });
+      expect(await diagnosticsFor(since)).toEqual([]);
+      expect(await client.stop()).toBe(0);
+    } finally {
+      client.kill();
+    }
+  }, 30_000);
 });

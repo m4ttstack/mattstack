@@ -314,7 +314,7 @@ describe("renameBlock", () => {
     const ws = new Workspace([plugin, pack]);
     ws.open(gate, ws.text(gate).replace('    default: "mattstack:model-tiering"\n', ""));
     expect(renameBlock(ws, held(ws, gate), "ask").warnings).toEqual([
-      "renaming a mattstack block is a breaking change: add `props-change: mini/gate.tiering: block renamed to mini/ask` and `props-change: mini/ask.tiering: block renamed from mini/gate` to the PR body",
+      "renaming a mattstack block is a breaking change: add `props-change: mini/gate.tiering: block renamed to mini/ask` and `props-change: mini/ask.tiering: block renamed from mini/gate` to the PR body, each on its own line",
     ]);
   });
 

@@ -218,7 +218,7 @@ function blockWarnings(held: HeldBlock, newId: string): string[] {
     for (const p of b.props) {
       const removed = `\`props-change: ${b.id}.${p.name}: block renamed to ${renamed}\``;
       const required = !renamesEngine && p.default === null ? ` and \`props-change: ${renamed}.${p.name}: block renamed from ${b.id}\`` : "";
-      out.push(`renaming a mattstack block is a breaking change: add ${removed}${required} to the PR body`);
+      out.push(`renaming a mattstack block is a breaking change: add ${removed}${required} to the PR body${required ? ", each on its own line" : ""}`);
     }
     b.children.forEach(visit);
   };
