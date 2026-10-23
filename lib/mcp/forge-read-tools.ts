@@ -7,7 +7,7 @@ import { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
-import { checkOptional, checkPositiveInts, err, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef } from "./shared.ts";
+import { checkOptional, checkPositiveInts, err, ok, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef } from "./shared.ts";
 
 export interface ForgeReadDeps { command: typeof rtCommand }
 const TIMEOUT_MS = 30_000;
@@ -16,7 +16,7 @@ export function forgeReadToolDefs(deps: ForgeReadDeps = { command: rtCommand }):
   return [
     {
       name: "project_labels",
-      description: `GitLab only. The project's labels (name, description, color); search narrows by name. Use it to check a label's exact spelling before applying it. ${REPO_NAME_RULE}`,
+      description: `GitLab only. The project's labels (name, description, color); search narrows by name. Use it to check a label's exact spelling before applying it. ${REPO_TARGET_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, search: { type: "string" } }, additionalProperties: false },
       shellForms: ["glab label list"],
       async handler(input) {
@@ -55,7 +55,7 @@ export function forgeReadToolDefs(deps: ForgeReadDeps = { command: rtCommand }):
     },
     {
       name: "gitlab_get",
-      description: `GitLab only. One read-only GET against GitLab's REST API, for a fact no other tool returns (an MR's commits or changes, a job's artifacts listing, an issue, a merged MR search). path is relative to the API root and :id stands for the target project, e.g. projects/:id/merge_requests/12/commits; pass query values in query, never in path. Returns {status, body, truncated, nextPage, totalPages}: body is parsed JSON, cut to text at 256 KiB (truncated: true), so page with page and perPage (maximum 100). GitLab decides access and its refusal comes back as its own text. Paths that can return credentials (variables, triggers, deploy_tokens, access_tokens, runners, hooks, secure_files, integrations, services, pipeline_schedules, terraform, application) and the query keys sudo, private_token, access_token, job_token and bearer_token are refused, any token value in a returned body is redacted, and a redirect is never followed (a 3xx answer is refused, naming only the host it points to). Prefer the purpose-built tool when one covers the read. ${REPO_NAME_RULE}`,
+      description: `GitLab only. One read-only GET against GitLab's REST API, for a fact no other tool returns (an MR's commits or changes, a job's artifacts listing, an issue, a merged MR search). path is relative to the API root and :id stands for the target project, e.g. projects/:id/merge_requests/12/commits; pass query values in query, never in path. Returns {status, body, truncated, nextPage, totalPages}: body is parsed JSON, cut to text at 256 KiB (truncated: true), so page with page and perPage (maximum 100). GitLab decides access and its refusal comes back as its own text. Paths that can return credentials (variables, triggers, deploy_tokens, access_tokens, runners, hooks, secure_files, integrations, services, pipeline_schedules, terraform, application) and the query keys sudo, private_token, access_token, job_token and bearer_token are refused, any token value in a returned body is redacted, and a redirect is never followed (a 3xx answer is refused, naming only the host it points to). Prefer the purpose-built tool when one covers the read. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {

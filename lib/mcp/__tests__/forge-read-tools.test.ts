@@ -47,6 +47,12 @@ describe("forge read tools", () => {
     expect(description).not.toContain("which also supplies iid");
   });
 
+  test.each(["project_labels", "gitlab_get"])("%s's description says mrUrl only names the repo and never that it supplies iid", (name) => {
+    const description = fake({}).tool(name).description;
+    expect(description).toContain("mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used)");
+    expect(description).not.toContain("which also supplies iid");
+  });
+
   test("gitlab_get has no method input and passes path, query and paging", async () => {
     const { calls, tool } = fake({ "forge:get": { status: 200, body: [], truncated: false, nextPage: null, totalPages: 1 } });
     const def = tool("gitlab_get");
