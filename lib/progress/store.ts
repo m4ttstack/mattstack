@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, readdirSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { getCurrentBranch } from "../git-ops.ts";
 import { getStateDb } from "../state/db.ts";
 import { deleteKvValue, getKvValue, listKvValues, setKvValue } from "../state/kv-blob.ts";
@@ -43,12 +43,21 @@ export function defaultDeps(): ProgressDeps {
 
 const keyOf = (tree: string, stem: string): string => `${tree}\u0000${stem}`;
 const ledgerDirOf = (tree: string, stem: string): string => join(tree, LEDGER_ROOT, stem);
-const normalizeTree = (tree: string): string => resolve(tree);
+/** A disposed tree no longer resolves, so canonicalize its nearest existing ancestor and keep the rest. */
+function normalizeTree(tree: string): string {
+  const abs = resolve(tree);
+  try {
+    return realpathSync(abs);
+  } catch {
+    const parent = dirname(abs);
+    return parent === abs ? abs : join(normalizeTree(parent), basename(abs));
+  }
+}
 
 function liveStems(tree: string): string[] {
   try {
     return readdirSync(join(tree, LEDGER_ROOT), { withFileTypes: true })
-      .filter((e) => e.isDirectory())
+      .filter((e) => e.isDirectory() && existsSync(join(tree, LEDGER_ROOT, e.name, "progress.md")))
       .map((e) => e.name);
   } catch {
     return [];

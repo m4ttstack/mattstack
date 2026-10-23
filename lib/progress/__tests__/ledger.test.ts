@@ -27,8 +27,11 @@ describe("ledger parser", () => {
     expect(planRefOf("# SDD ledger plan: a.md", "")).toBe("a.md");
     expect(planRefOf("# no plan here", "  \n")).toBe("");
   });
-  test("latest line skips rulings and rewrites Task N", () => {
-    expect(latestLine("# SDD ledger plan: p.md\nTask 7: complete\nRuling: x\nTask 8b: in progress\n")).toBe("T8b in progress");
+  test("latest line rewrites Task N and skips headings, tables and the spec line", () => {
+    expect(latestLine("# SDD ledger plan: p.md\nTask 7: complete\nRuling: x\nTask 8b: in progress\n## next\n| a |\nSpec: s.md\n")).toBe("T8b in progress");
+  });
+  test("latest line keeps a ruling", () => {
+    expect(latestLine("# SDD ledger plan: p.md\nTask 7: complete\nRuling: keep the flag\n")).toBe("Ruling: keep the flag");
   });
   test("latest line is empty when the ledger has only a header", () => {
     expect(latestLine("# SDD ledger plan: p.md\n")).toBe("");

@@ -60,7 +60,7 @@ export function latestLine(ledgerText: string): string {
     .split("\n")
     .slice(1)
     .map((l) => l.trim())
-    .filter((l) => l && !/^(#|\||Ruling|Spec:)/.test(l));
+    .filter((l) => l && !/^(#|\||Spec:)/.test(l));
   const last = lines[lines.length - 1];
   return last === undefined ? "" : last.replace(/^Task\s+(\d+[a-z]?):\s*/, "T$1 ");
 }

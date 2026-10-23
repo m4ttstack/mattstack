@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStateDb } from "../../lib/state/db.ts";
@@ -11,7 +11,7 @@ let clock: number;
 let deps: ProgressDeps;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "rt-progress-cmd-"));
+  dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-progress-cmd-")));
   clock = 1_000_000;
   deps = { db: openStateDb(join(dir, "state.db"), "cli"), now: () => clock, branchOf: () => "a", exists: existsSync };
 });
