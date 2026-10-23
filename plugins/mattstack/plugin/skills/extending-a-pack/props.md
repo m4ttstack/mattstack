@@ -29,7 +29,8 @@ default:
   only, and `flaky-jobs.md` beside it holds the text with no frontmatter.
 
 Flags: `--pipeline <name>` binds for one pipeline's stage copy only; its
-value replaces the pack's top-level value for that prop in that pipeline.
+value replaces every layer's top-level value for that prop in that
+pipeline, the org base's included.
 `--dry-run` prints the change and writes nothing.
 
 To remove a pipeline's override, run the same call with no fill and
@@ -212,5 +213,5 @@ The `rules` blocks, with the section each one is:
 | `shepherdr/what-the-lanes-graph-cannot-show` | What the lanes graph cannot show |
 
 `rt skills blocks --skill <verb> --pack <pack>` (Bash, one-time) prints a
-verb's live tree: every block, its props, and each layer's text. Use it
-when this file and the pack disagree.
+verb's live block tree; with `--json` it adds each block's props and each
+layer's text. Use it when this file and the pack disagree.

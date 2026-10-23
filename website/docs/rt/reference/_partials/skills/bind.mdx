@@ -4,6 +4,8 @@ Each mattstack engine is a tree of blocks, and a block that takes your team's te
 rt skills bind ship ship/flow/domain-fast-checks rules widgets:lint-changed --pack widgets
 ```
 
+The first line of the output names the change. A note naming the pack's own bindings file and the recompile's lines follow it:
+
 ```
 [ok] ship ship/flow/domain-fast-checks.rules  (unbound) -> widgets:lint-changed
 ```
@@ -105,7 +107,7 @@ block "no-such-block" is not in verb "ship"'s engine (blocks with props: ship/fl
 A prop the block does not declare lists the block's props:
 
 ```
-block "stage-plan" declares no prop "no-such-prop" (its props: rules)
+block "ship/flow/domain-fast-checks" declares no prop "no-such-prop" (its props: rules)
 ```
 
 A bind with three arguments, `<verb> <slot> <fill>`, names a slot the engine had before it became a block tree. Bind refuses it, writes nothing, and lists every prop the engine declares, with its merge:
@@ -116,7 +118,7 @@ A bind with three arguments, `<verb> <slot> <fill>`, names a slot the engine had
 
 Pick the block for your rule from that list and bind it with all four arguments. A `pack/skills.jsonc` key that still names such a slot is refused the same way by compile; see [`rt skills compile`](/rt/reference/skills/compile).
 
-A three-argument bind whose middle argument is a prop of the engine's root block, such as `rt skills bind shepherdr tiering widgets:tiering`, is refused too. Bind writes nothing and prints the four-argument form to run, with the root block named:
+Bind also refuses three arguments whose middle one is a prop of the engine's root block, such as `rt skills bind shepherdr tiering widgets:tiering`. It writes nothing and prints the four-argument form to run, with the root block named:
 
 ```
 rt skills bind shepherdr shepherdr tiering widgets:tiering

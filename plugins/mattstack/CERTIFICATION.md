@@ -26,8 +26,8 @@ The written purity rule and per-skill certification checklist for this repo
       (`tests/certify.sh attachments/pipeline/ship`), never a subfolder:
       a subfolder's `index.block.md` has no `name:` or `description:`,
       so certify fails it. Its Mermaid graphs and each
-      block's props are checked when it compiles
-      (`rt skills check --strict`).
+      block's props are checked when `rt skills compile` builds it, or
+      when `rt skills check --strict` compiles it.
 - [ ] desc-test selection micro-test: all scenarios in
       `tests/desc-test-scenarios.json` pass before AND after any
       description edit (`bun run tests/desc-test.ts`).

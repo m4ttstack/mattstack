@@ -23,8 +23,9 @@
       "mattstack:stage-watch-ci"
     ],
     // A specialized pipeline, run by a work-a11y verb in pack/stubs.jsonc
-    // ("pipeline": "accessibility"). Its bindings layer after the top-level
-    // ones for this pipeline only; compile writes the stage copy
+    // ("pipeline": "accessibility"). For each prop its bindings name, the
+    // pipeline's values replace every layer's top-level value, the org
+    // base's included, in this pipeline only; compile writes the stage copy
     // stage-evidence--accessibility for it.
     "accessibility": {
       "stages": [
@@ -36,8 +37,8 @@
         "mattstack:stage-watch-ci"
       ],
       "bindings": {
-        // "" clears every value before it (here the top-level rules below),
-        // so the prop falls back to its default: nothing inlined.
+        // "" leaves no value for the prop in this pipeline, so it falls
+        // back to its default: nothing inlined.
         "mattstack:stage-evidence/domain-rules": { "rules": "" }
       }
     }

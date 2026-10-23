@@ -31,7 +31,7 @@ the cache copy itself.
 
 |             | Team pack (widgets, in the acme org)                                                                                                              | mattstack plugin                                                                                                                                                                                                                                                                                                                                                                               |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source      | `~/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/skills/<name>/` (hand-authored) or `.../plugin/attachments/<fill>/` (fills)                | `plugins/mattstack/plugin/skills/<name>/` in the mattstack monorepo (invocable), `plugins/mattstack/attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `plugins/mattstack/pack/stubs.jsonc` + `plugins/mattstack/pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
+| Source      | `~/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/skills/<name>/` (hand-authored) or `.../plugin/attachments/<fill>/` (fills)                | `plugins/mattstack/plugin/skills/<name>/` in the mattstack monorepo (invocable), `plugins/mattstack/attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `plugins/mattstack/pack/stubs.jsonc` + `plugins/mattstack/pack/skills.jsonc` (the pack's OWN roster and bindings: `shepherdr`, `wrap-up` and the writing styles, compiled to `skills/<verb>/`) |
 | Manifest    | `.../plugin/.claude-plugin/plugin.json`                                                                                                           | `plugins/mattstack/.claude-plugin/plugin.json`                                                                                                                                                                                                                                                                                                                                                 |
 | Marketplace | `name` in the org clone's `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the org clone itself)         | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a git-subdir source: a `file://` URL to the shared monorepo checkout, path `plugins/mattstack`, ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257)                                                                                                            |
 | Update      | `claude plugin update <plugin>@<marketplace>` (derive both, see below)                                                                            | `claude plugin update mattstack@mattstack`                                                                                                                                                                                                                                                                                                                                                     |
@@ -252,8 +252,8 @@ own block with `node:` set (mattstack:process-digraphs).
 `rt skills blocks --skill <verb>` prints a compiled verb's tree, block by
 block. Certify does not read a block tree's graphs: compile checks them,
 and the structure check runs on the compiled `SKILL.md`. The mattstack
-pack's own compile writes only the verbs its roster names (`shepherdr`, the
-writing styles), so compile every engine the way CI does, in a scratch
+pack's own compile writes only the verbs its roster names (`shepherdr`,
+`wrap-up`, the writing styles), so compile every engine the way CI does, in a scratch
 dir: copy `plugins/mattstack` to `<scratch>/ms/plugins/mattstack`, copy
 `plugins/mattstack/tests/graph-roster.jsonc` to
 `<scratch>/pack/pack/stubs.jsonc` and `tests/graph-skills.jsonc` to
@@ -595,8 +595,10 @@ verbs to `<pack>/skills/<verb>/`, internal verbs and stages to
 `<pack>/attachments/<name>/`. Edit the engine (plugins/mattstack in the monorepo) or the fill
 (`<pack>/attachments/<fill>/`), then recompile; the next compile overwrites
 compiled files. The mattstack pack is one such pack: `pack/stubs.jsonc`
-rosters `shepherdr`, bound through `pack/skills.jsonc` (a standalone pack
-with no registered repo compiles against its own manifest).
+rosters `shepherdr`, `wrap-up` and the writing styles. Its
+`pack/skills.jsonc` binds nothing, so each verb runs on its props'
+defaults (a standalone pack with no registered repo compiles against its
+own manifest).
 
 Writing a fill:
 

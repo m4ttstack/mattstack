@@ -99,13 +99,13 @@ bindings in three forms:
 Compile refuses a key naming a block the engine does not have, a prop
 the block does not declare, or a slot the engine declared before it
 became a block tree (its root's `replaced-slots`); the refusal names the
-manifest line and lists the engine's props.
+manifest line and the layer that bound the key, and lists the engine's
+props.
 
-Version 1 carries only wrapper slots, for runtime-native wrappers.
-`rt skills materialize` writes `2` only when the generated file needs one
-of the version 2 forms (a block path, a per-file value, or `layered`), so
-a file whose keys all name a wrapper or an engine's root block stays
-version 1 byte for byte.
+Version 1 carries keys that name a wrapper's slot or an engine's root
+block, and nothing else. `rt skills materialize` writes `2` only when the
+generated file needs one of the version 2 forms (a block path, a per-file
+value, or `layered`), so a version 1 file stays version 1 byte for byte.
 
 ## Validation
 

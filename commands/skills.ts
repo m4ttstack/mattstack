@@ -728,7 +728,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   };
 }
 
-/** Composition and compile share this scan so their include lists cannot drift. */
+/** The `{{include:<name>}}` names written directly in these bodies; an include's own includes are not followed. */
 function includeNames(bodies: string[]): string[] {
   const names: string[] = [];
   for (const body of bodies) {
@@ -3625,7 +3625,6 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
     return null;
   }
   const tree = step.tree;
-  if (!tree) return null;
 
   let blockPath = positionals[1];
   if (!blockPath) {
