@@ -19,7 +19,7 @@ import {
 import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, skillDirFor } from "./placeholders.ts";
 import { effectiveBindings, type LayeredBindings } from "./pipelines.ts";
 import { AttachmentLoadError } from "./sources.ts";
-import type { AttachmentSource, CompiledFile, CompileResult, StepSource, VerbDef } from "./types.ts";
+import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
 
 const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
 
@@ -188,6 +188,12 @@ function withText(tree: BlockTree, rewrite: (text: string) => string): BlockTree
   return { root: copy(tree.root), dir: tree.dir, byId };
 }
 
+/** A tree include as render draws it: its `${CLAUDE_SKILL_DIR}` points where its files vendor, `parts/include-<name>/`. */
+export function includedTree(name: string, inc: AttachmentSource & { tree: BlockTree }, ctx: PlaceholderContext): SourcedTree {
+  const dir = skillDirFor(inc, ctx, `include-${name}`);
+  return { tree: withText(inc.tree, (t) => t.split(SKILL_DIR_TOKEN).join(dir)), plugin: inc.plugin, version: inc.version };
+}
+
 type Placed = { block: Block; tree: BlockTree };
 
 function placedBlocks(trees: BlockTree[]): Placed[] {
@@ -222,9 +228,7 @@ export function compileBlockSkill(
   const engine = stageDir ? withText(step.tree, (t) => t.split(`${SKILL_DIR_TOKEN}/`).join(`${stageDir}/`)) : step.tree;
   const included = new Map<string, SourcedTree>();
   for (const [name, inc] of Object.entries(includes)) {
-    if (!inc.tree) continue;
-    const dir = skillDirFor(inc, ctx, `include-${name}`);
-    included.set(name, { tree: withText(inc.tree, (t) => t.split(SKILL_DIR_TOKEN).join(dir)), plugin: inc.plugin, version: inc.version });
+    if (inc.tree) included.set(name, includedTree(name, { ...inc, tree: inc.tree }, ctx));
   }
   const resolver: IncludeResolver = (name) => included.get(name) ?? null;
   const placed = placedBlocks([engine, ...[...included.values()].map((s) => s.tree)]);

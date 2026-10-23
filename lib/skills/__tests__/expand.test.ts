@@ -319,4 +319,17 @@ describe("block-tree includes", () => {
     expect(skill.skillMd).toContain("mattstack:gp@9.9.9 + mattstack:inner@9.9.9");
     expect(skill.files.map((f) => f.path)).toContain("parts/include-inner/tool.sh");
   });
+
+  test("a tree include's skill-dir paths point at its vendored files, nested includes too", () => {
+    write(join(root, GP, "index.block.md"), "---\n---\n\n# Gate protocol\n\nOpen `${CLAUDE_SKILL_DIR}/ctx.txt`.\n\n{{include:inner}}\n");
+    write(join(root, GP, "ctx.txt"), "x\n");
+    const inner = join("plugins", "mattstack", "attachments", "inner");
+    write(join(root, inner, "index.block.md"), "---\n---\n\n# Inner\n\nRun `${CLAUDE_SKILL_DIR}/tool.sh`.\n");
+    write(join(root, inner, "tool.sh"), "echo\n");
+    launcher("## Gates\n\n{{include:gp}}");
+    const skill = gatesSkill();
+    expect(skill.skillMd).toContain("Open `${CLAUDE_SKILL_DIR}/parts/include-gp/ctx.txt`.");
+    expect(skill.skillMd).toContain("Run `${CLAUDE_SKILL_DIR}/parts/include-inner/tool.sh`.");
+    expect(skill.files.map((f) => f.path)).toEqual(expect.arrayContaining(["parts/include-gp/ctx.txt", "parts/include-inner/tool.sh"]));
+  });
 });

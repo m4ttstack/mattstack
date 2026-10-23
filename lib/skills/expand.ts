@@ -2,9 +2,9 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, resolve, sep } from "path";
 import { skillMdDriftCauses } from "./drift.ts";
 import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
-import { propPartsDir, renderInclude } from "./blocks/render.ts";
+import { propPartsDir, renderInclude, type SourcedTree } from "./blocks/render.ts";
 import { FENCE_RE, walk } from "./blocks/tree.ts";
-import { blockPropValues, includeNamesIn } from "./compile-blocks.ts";
+import { blockPropValues, includedTree, includeNamesIn } from "./compile-blocks.ts";
 import { maskProvenance } from "./provenance.ts";
 import { listFilesUnder, loadAttachment, loadInclude, stripFrontmatter, type PluginRoots } from "./sources.ts";
 import type { AttachmentSource, PlaceholderContext } from "./types.ts";
@@ -198,22 +198,19 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   }
 
   const ctx = includeOnlyContext(includes);
+  const drawn = new Map<string, SourcedTree>();
+  for (const n of names) {
+    const inc = includes[n]!;
+    if (inc.tree) drawn.set(n, includedTree(n, { ...inc, tree: inc.tree }, ctx));
+  }
+  const resolver = (n: string) => drawn.get(n) ?? null;
   const rendered: string[] = [];
   const marked = bodyLines.map((line, i) => {
     const m = /^\{\{include:([^}\s]+)\}\}$/.exec(line.trim());
-    const tree = m ? includes[m[1]!]?.tree : undefined;
-    if (!tree) return line;
-    const inc = includes[m![1]!]!;
+    const src = m ? drawn.get(m[1]!) : undefined;
+    if (!src) return line;
     const at = nearestHeadingAbove(bodyLines, i);
-    const resolver = (n: string) => {
-      const found = includes[n];
-      return found?.tree ? { tree: found.tree, plugin: found.plugin, version: found.version } : null;
-    };
-    const out = renderInclude(
-      { tree, plugin: inc.plugin, version: inc.version },
-      { depth: at.level, includingTitle: at.title },
-      { values, includes: resolver, ctx },
-    );
+    const out = renderInclude(src, { depth: at.level, includingTitle: at.title }, { values, includes: resolver, ctx });
     rendered.push(out.body);
     return TREE_MARK(rendered.length - 1);
   });
