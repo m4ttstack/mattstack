@@ -825,14 +825,14 @@ export const respondPost: GalleryGate = {
   },
 };
 
-/** Bo and Ana each left an armed re-review latch no one has asked about
+/** Renee and Ana each left an armed re-review latch no one has asked about
     yet, so the post sheet offers to ask each once posting finishes. */
 export const respondPostReReview: GalleryGate = {
   mr: {
     ...MRS.flagTargeting,
     reviewerLatches: [
       {
-        reviewer: 'bo',
+        reviewer: 'renee',
         discussionId: '3e8a1f5c7d2b9046e1a3c8f7b5d2e9a04c6f1b83',
         requested: false,
       },

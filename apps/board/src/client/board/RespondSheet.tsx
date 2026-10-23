@@ -969,7 +969,7 @@ function RespondSheetBody({
                 on={reReviewIds.has(l.discussionId)}
                 onChange={on => toggleReReview(l.discussionId, on)}
               >
-                Ask {l.reviewer} for a re-review once posting finishes
+                Ask {people.short(l.reviewer)} for a re-review once posting finishes
               </PostTick>
             ))}
           </section>
@@ -1021,6 +1021,7 @@ function RespondSheetBody({
                       form.resetAll({ keepTexts: true });
                       seedPostable();
                       seedPicks(true);
+                      setReReviewIds(new Set());
                     }
                   }}
                 >
