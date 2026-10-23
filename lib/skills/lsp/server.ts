@@ -123,7 +123,13 @@ export function startServer(opts: { roots: string[] }): void {
   connection.onCompletion(({ textDocument, position }) => {
     const file = pathOf(textDocument.uri);
     if (!ws || !file || !isSkillFile(file)) return [];
-    return completionsAt(ws, file, position).map((c) => ({ label: c.label, kind: ITEM_KIND[c.kind], ...(c.detail === undefined ? {} : { detail: c.detail }) }));
+    return completionsAt(ws, file, position).map((c) => ({
+      label: c.label,
+      kind: ITEM_KIND[c.kind],
+      filterText: c.label,
+      ...(c.detail === undefined ? {} : { detail: c.detail }),
+      ...(c.range === undefined ? {} : { textEdit: { range: c.range, newText: c.insertText ?? c.label } }),
+    }));
   });
 
   documents.listen(connection);

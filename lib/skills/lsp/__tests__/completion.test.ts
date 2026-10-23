@@ -37,6 +37,16 @@ function complete(ws: Workspace, file: string, text: string) {
   return completionsAt(ws, file, pos);
 }
 
+/** The cursor's line once `label`'s edit is applied, as a client applies a textEdit. */
+function accept(ws: Workspace, file: string, items: ReturnType<typeof completionsAt>, label: string): string {
+  const item = items.find((i) => i.label === label);
+  if (!item?.range) throw new Error(`no ranged item ${label}`);
+  const { start, end } = item.range;
+  expect(end.line).toBe(start.line);
+  const row = ws.text(file).split("\n")[start.line]!;
+  return row.slice(0, start.character) + (item.insertText ?? item.label) + row.slice(end.character);
+}
+
 const labels = (items: ReturnType<typeof completionsAt>) => items.map((i) => i.label);
 const appended = (ws: Workspace, file: string, tail: string) => `${ws.text(file).trimEnd()}\n\n${tail}\n`;
 
@@ -110,14 +120,74 @@ describe("completionsAt in a manifest", () => {
     const ws = new Workspace([plugin, pack]);
     const text = ws.text(manifest).replace('"tiering": "" }', '"tiering": "" },\n    "mattstack:mini/|');
     const items = complete(ws, manifest, text);
-    expect(labels(items).sort()).toEqual(["gate", "notes", "run", "run/check", "run/guard"]);
-    expect(items.find((i) => i.label === "gate")).toEqual({ label: "gate", kind: "block", detail: "Gate · gate" });
-    expect(items.find((i) => i.label === "run")?.detail).toBe("Run");
+    expect(labels(items).sort()).toEqual(["mattstack:mini/gate", "mattstack:mini/notes", "mattstack:mini/run", "mattstack:mini/run/check", "mattstack:mini/run/guard"]);
+    expect(items.find((i) => i.label === "mattstack:mini/gate")).toMatchObject({ kind: "block", detail: "Gate · gate" });
+    expect(items.find((i) => i.label === "mattstack:mini/run")?.detail).toBe("Run");
   });
 
   test("a prop position lists that block's props", () => {
     const ws = new Workspace([plugin, pack]);
     const text = ws.text(manifest).replace('"tiering": ""', '"|": ""');
     expect(labels(complete(ws, manifest, text))).toEqual(["tiering"]);
+  });
+});
+
+describe("completionsAt replaces the partial it completes", () => {
+  test("a key past its colon", () => {
+    const ws = new Workspace([plugin, pack]);
+    const items = complete(ws, manifest, ws.text(manifest).replace('"mattstack:mini/gate"', '"mattstack:|"'));
+    expect(accept(ws, manifest, items, "mattstack:mini")).toBe('    "mattstack:mini": { "tiering": "" }');
+  });
+
+  test("a value past its colon", () => {
+    const ws = new Workspace([plugin, pack]);
+    const items = complete(ws, manifest, ws.text(manifest).replace('"widgets:mini-rules/fast"', '"widgets:mi|"'));
+    expect(accept(ws, manifest, items, "widgets:mini-rules/fast")).toBe('    "mattstack:mini": { "rules": "widgets:mini-rules/fast" },');
+  });
+
+  test("a key past a nested slash", () => {
+    const ws = new Workspace([plugin, pack]);
+    const items = complete(ws, manifest, ws.text(manifest).replace('"mattstack:mini/gate"', '"mattstack:mini/run/|"'));
+    expect(accept(ws, manifest, items, "mattstack:mini/run/check")).toBe('    "mattstack:mini/run/check": { "tiering": "" }');
+  });
+
+  test("a props marker past a dash", () => {
+    const ws = new Workspace([plugin, pack]);
+    const withProp = ws.text(gate).replace("props:\n", 'props:\n  run-mode:\n    merge: replace\n    default: ""\n');
+    const items = complete(ws, gate, `${withProp.trimEnd()}\n\n{{props.run-m|\n`);
+    expect(accept(ws, gate, items, "run-mode")).toBe("{{props.run-mode");
+  });
+
+  test("an include past its colon", () => {
+    const ws = new Workspace([plugin, pack]);
+    const items = complete(ws, gate, appended(ws, gate, "{{include:sty|"));
+    expect(accept(ws, gate, items, "style-floor")).toBe("{{include:style-floor");
+  });
+
+  test("right after the contract: trigger it adds the space and quotes", () => {
+    const ws = new Workspace([plugin, pack]);
+    const items = complete(ws, gate, ws.text(gate).replace('contract: "model-tiering@1"', "contract:|"));
+    expect(accept(ws, gate, items, "model-tiering@1")).toBe('    contract: "model-tiering@1"');
+  });
+
+  test("a quoted contract past a dash replaces only the partial", () => {
+    const ws = new Workspace([plugin, pack]);
+    const items = complete(ws, gate, ws.text(gate).replace('contract: "model-tiering@1"', 'contract: "model-ti|"'));
+    expect(accept(ws, gate, items, "model-tiering@1")).toBe('    contract: "model-tiering@1"');
+  });
+
+  test("an unquoted contract partial is quoted", () => {
+    const ws = new Workspace([plugin, pack]);
+    const items = complete(ws, gate, ws.text(gate).replace('contract: "model-tiering@1"', "contract: model-ti|"));
+    expect(accept(ws, gate, items, "model-tiering@1")).toBe('    contract: "model-tiering@1"');
+  });
+});
+
+describe("completionsAt for a contract no fill provides", () => {
+  test("a value lists nothing", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, ws.text(gate).replace('contract: "model-tiering@1"', 'contract: "nobody@1"'));
+    const items = complete(ws, manifest, ws.text(manifest).replace('"tiering": ""', '"tiering": "|"'));
+    expect(items).toEqual([]);
   });
 });

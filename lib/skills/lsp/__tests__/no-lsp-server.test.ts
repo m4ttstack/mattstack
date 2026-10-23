@@ -178,6 +178,11 @@ describe("rt skills lsp", () => {
       client.send({ id: 3, method: "textDocument/completion", params: { textDocument: { uri }, position: { line, character: "{{props.".length } } });
       const completion = await client.waitFor((m) => m.id === 3);
       expect(completion.result.map((c: { label: string }) => c.label)).toEqual(["tiering"]);
+      expect(completion.result[0].filterText).toBe("tiering");
+      expect(completion.result[0].textEdit).toEqual({
+        range: { start: { line, character: "{{props.".length }, end: { line, character: "{{props.".length } },
+        newText: "tiering",
+      });
       expect(await client.stop()).toBe(0);
     } finally {
       client.kill();

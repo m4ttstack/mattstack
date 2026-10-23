@@ -5,15 +5,22 @@ import { walk } from "../blocks/tree.ts";
 import type { Block } from "../blocks/types.ts";
 import { listDirs, stripFrontmatter, VALUE_FILE_RE } from "../sources.ts";
 import { blockIn } from "./lookup.ts";
-import { lineRegions, tokensIn, type Position } from "./positions.ts";
+import { lineRegions, tokensIn, type Position, type Range } from "./positions.ts";
 import type { Workspace } from "./workspace.ts";
 
-export type Completion = { label: string; kind: "prop" | "include" | "contract" | "block" | "value"; detail?: string };
+/** `range` is the partial the item replaces; `insertText` defaults to the label. */
+export type Completion = {
+  label: string;
+  kind: "prop" | "include" | "contract" | "block" | "value";
+  detail?: string;
+  range?: Range;
+  insertText?: string;
+};
 
 const MODULE = "skills-lsp";
 const PROPS_OPEN_RE = /^props\.[a-z0-9-]*$/;
 const INCLUDE_OPEN_RE = /^include:[^}\s]*$/;
-const CONTRACT_RE = /^(\s+)contract:\s*"?[^"]*$/;
+const CONTRACT_RE = /^(\s+)contract:(\s*)("?)([^"]*)$/;
 const YAML_KEY_RE = /^(\s*)[A-Za-z0-9_][\w-]*\s*:/;
 
 export function completionsAt(ws: Workspace, file: string, pos: Position): Completion[] {
@@ -33,23 +40,42 @@ function blockCompletions(ws: Workspace, file: string, pos: Position): Completio
   if (row === undefined) return [];
   const prefix = row.slice(0, pos.character);
   const region = lineRegions(lines)[pos.line];
-  if (region === "frontmatter") return inPropEntry(ws.text(file), file, pos.line, prefix) ? contracts(ws) : [];
+  if (region === "frontmatter") return contractCompletions(ws, file, pos, row);
   if (region !== "body") return [];
   const open = prefix.lastIndexOf("{{");
   if (open < 0 || prefix.indexOf("}}", open) >= 0) return [];
   const inside = prefix.slice(open + 2);
-  if (PROPS_OPEN_RE.test(inside)) return (blockIn(ws, file)?.block.props ?? []).map((p) => ({ label: p.name, kind: "prop", detail: propDetail(p) }));
-  if (INCLUDE_OPEN_RE.test(inside) && prefix.slice(0, open).trim() === "") return includes(ws, file);
+  const after = (word: string): Range => ({ start: { line: pos.line, character: open + 2 + word.length }, end: pos });
+  if (PROPS_OPEN_RE.test(inside)) {
+    const range = after("props.");
+    return (blockIn(ws, file)?.block.props ?? []).map((p) => ({ label: p.name, kind: "prop", detail: propDetail(p), range }));
+  }
+  if (INCLUDE_OPEN_RE.test(inside) && prefix.slice(0, open).trim() === "") {
+    const range = after("include:");
+    return includes(ws, file).map((c) => ({ ...c, range }));
+  }
   return [];
+}
+
+/**
+ * Right after the colon the value needs its own space and quotes, or YAML reads `contract:x` as one
+ * plain scalar; inside an open quote only the partial is replaced.
+ */
+function contractCompletions(ws: Workspace, file: string, pos: Position, row: string): Completion[] {
+  const prefix = row.slice(0, pos.character);
+  const m = CONTRACT_RE.exec(prefix);
+  if (!m || !inPropEntry(ws.text(file), file, pos.line, m[1]!.length)) return [];
+  const [, , space, quote, partial] = m as unknown as [string, string, string, string, string];
+  const range: Range = { start: { line: pos.line, character: pos.character - partial.length }, end: pos };
+  const closed = row[pos.character] === '"';
+  const insert = (v: string) => (quote ? `${v}${closed ? "" : '"'}` : `${space === "" ? " " : ""}"${v}"`);
+  return contracts(ws).map((c) => ({ ...c, range, insertText: insert(c.label) }));
 }
 
 const propDetail = (p: Block["props"][number]) => (p.contract === null ? p.merge : `${p.merge} · ${p.contract}`);
 
 /** A `contract:` line nested under one of the frontmatter `props:` entries. */
-function inPropEntry(text: string, file: string, line: number, prefix: string): boolean {
-  const m = CONTRACT_RE.exec(prefix);
-  if (!m) return false;
-  const indent = m[1]!.length;
+function inPropEntry(text: string, file: string, line: number, indent: number): boolean {
   const lines = text.split("\n");
   const decl = tokensIn(text, file)
     .filter((t) => t.kind === "prop-decl" && t.range.start.line < line && t.range.start.character < indent)
@@ -185,9 +211,15 @@ function manifestCompletions(ws: Workspace, file: string, pos: Position): Comple
   const text = ws.text(file);
   const lines = text.split("\n");
   if (pos.line >= lines.length) return [];
-  const offset = lines.slice(0, pos.line).reduce((n, l) => n + l.length + 1, 0) + Math.min(pos.character, lines[pos.line]!.length);
+  const character = Math.min(pos.character, lines[pos.line]!.length);
+  const offset = lines.slice(0, pos.line).reduce((n, l) => n + l.length + 1, 0) + character;
   const cursor = jsonCursor(text, offset);
   if (!cursor) return [];
+  const range: Range = { start: { line: pos.line, character: character - cursor.partial.length }, end: { line: pos.line, character } };
+  return manifestItems(ws, file, cursor).map((c) => ({ ...c, range }));
+}
+
+function manifestItems(ws: Workspace, file: string, cursor: JsonCursor): Completion[] {
   const { path, role } = cursor;
   const base = path[0] === "bindings" ? 1 : path[0] === "pipelines" && typeof path[1] === "string" && path[2] === "bindings" ? 3 : null;
   if (base === null) return [];
@@ -214,13 +246,12 @@ function bindingKeys(ws: Workspace, partial: string): Completion[] {
   const { tree } = engine[1];
   return walk(tree)
     .filter((b) => b !== tree.root)
-    .map((b) => ({ label: b.id.slice(tree.root.id.length + 1), kind: "block", detail: b.kind === "gate" ? `${b.label} · gate` : b.label }));
+    .map((b) => ({ label: `${ref}${b.id.slice(tree.root.id.length)}`, kind: "block", detail: b.kind === "gate" ? `${b.label} · gate` : b.label }));
 }
 
-/** Fills providing the prop's contract; every fill when it names none or none provides it. */
+/** Fills providing the prop's contract; every fill when the prop names no contract. */
 function values(ws: Workspace, from: string[], contract: string | null): Completion[] {
   const roots = ws.rootsFor(from);
   const fills = Object.entries(roots.byName).flatMap(([name, root]) => fillsOf(ws, name, root.dir));
-  const matching = contract === null ? [] : fills.filter((f) => f.provides === contract);
-  return (matching.length > 0 ? matching : fills).map((f) => ({ label: f.binding, kind: "value", detail: f.provides }));
+  return (contract === null ? fills : fills.filter((f) => f.provides === contract)).map((f) => ({ label: f.binding, kind: "value", detail: f.provides }));
 }
