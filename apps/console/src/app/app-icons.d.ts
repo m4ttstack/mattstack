@@ -6,6 +6,7 @@ declare module '@mattstack/app-kit/icons' {
     fileX: true;
     fileCode: true;
     cpu: true;
+    diamond: true;
     circleDot: true;
     replace: true;
     arrowUpRight: true;
