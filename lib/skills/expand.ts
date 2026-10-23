@@ -2,6 +2,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, resolve, sep } from "path";
 import { skillMdDriftCauses } from "./drift.ts";
 import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
+import { FENCE_RE } from "./blocks/tree.ts";
+import { renderInclude } from "./blocks/render.ts";
 import { maskProvenance } from "./provenance.ts";
 import { listFilesUnder, loadInclude, stripFrontmatter, type PluginRoots } from "./sources.ts";
 import type { AttachmentSource, PlaceholderContext } from "./types.ts";
@@ -95,6 +97,30 @@ function strayBraceLine(text: string): number | null {
   return null;
 }
 
+const ATX_HEADING_RE = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+const TREE_MARK = (i: number) => `\u0000block-include-${i}\u0000`;
+
+/** Heading level and text of the nearest ATX heading above `bodyLines[index]` outside fences, or level 0. */
+function nearestHeadingAbove(bodyLines: string[], index: number): { level: number; title: string | null } {
+  let fence: string | null = null;
+  let found: { level: number; title: string | null } = { level: 0, title: null };
+  for (let i = 0; i < index; i++) {
+    const line = bodyLines[i]!;
+    const f = FENCE_RE.exec(line);
+    if (fence !== null) {
+      if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && f[2] === "") fence = null;
+      continue;
+    }
+    if (f) {
+      fence = f[1]!;
+      continue;
+    }
+    const h = ATX_HEADING_RE.exec(line);
+    if (h) found = { level: h[1]!.length, title: h[2]! };
+  }
+  return found;
+}
+
 function overlaps(a: string, b: string): boolean {
   const x = resolve(a);
   const y = resolve(b);
@@ -152,7 +178,30 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
     }
   }
 
-  const expanded = substituteIncludesOnly(body, includeOnlyContext(includes), where).body;
+  const ctx = includeOnlyContext(includes);
+  const rendered: string[] = [];
+  const marked = bodyLines.map((line, i) => {
+    const m = /^\{\{include:([^}\s]+)\}\}$/.exec(line.trim());
+    const tree = m ? includes[m[1]!]?.tree : undefined;
+    if (!tree) return line;
+    const inc = includes[m![1]!]!;
+    const at = nearestHeadingAbove(bodyLines, i);
+    const resolver = (n: string) => {
+      const found = includes[n] ?? (includes[n] = loadInclude(n, roots));
+      return found.tree ? { tree: found.tree, plugin: found.plugin, version: found.version } : null;
+    };
+    const out = renderInclude(
+      { tree, plugin: inc.plugin, version: inc.version },
+      { depth: at.level, includingTitle: at.title },
+      { values: new Map(), includes: resolver, ctx },
+    );
+    rendered.push(out.body);
+    return TREE_MARK(rendered.length - 1);
+  });
+  let expanded = substituteIncludesOnly(marked.join("\n"), ctx, where).body;
+  rendered.forEach((text, i) => {
+    expanded = expanded.replace(TREE_MARK(i), () => text);
+  });
   assertPathsInside(fm[0], outDir, name, where);
   assertPathsInside(expanded, outDir, name, where);
 

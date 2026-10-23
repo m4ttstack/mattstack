@@ -233,3 +233,54 @@ describe("writeExpanded and checkExpanded", () => {
     ]);
   });
 });
+
+describe("block-tree includes", () => {
+  const GP = join("plugins", "mattstack", "attachments", "gp");
+
+  function gateProtocol(): void {
+    write(join(root, GP, "index.block.md"), "---\n---\n\n# Gate protocol\n\nGate intro.\n");
+    write(join(root, GP, "ask.block.md"), "---\n---\n\n# Ask\n\nAsk it.\n");
+  }
+
+  function launcher(body: string): void {
+    write(join(src, "gates", "SKILL.md"), `---\nname: board:gates\ndescription: g\n---\n\n${body}\n`);
+  }
+
+  const headings = (md: string) => md.split("\n").filter((l) => /^#+ /.test(l));
+  const gatesSkill = () => expandSkills({ srcDir: src, outDir: out, roots: roots() }).find((s) => s.name === "gates")!;
+
+  test("an include repeating the heading above it keeps that heading once and its child one level down", () => {
+    gateProtocol();
+    launcher("# Gates\n\n## Gate protocol\n\n{{include:gp}}");
+    const skill = gatesSkill();
+    expect(headings(skill.skillMd)).toEqual(["# Gates", "## Gate protocol", "### Ask"]);
+    expect(skill.skillMd).toContain("Gate intro.");
+    expect(skill.skillMd).toContain(`${EXPAND_HEADER}`);
+    expect(skill.skillMd).toContain('  compiled: "mattstack:gp@9.9.9"');
+    expect(skill.skillMd).not.toContain("{{");
+  });
+
+  test("under a different heading the root renders one level down and its child below it", () => {
+    gateProtocol();
+    launcher("# Top\n\n## Gates\n\n{{include:gp}}");
+    expect(headings(gatesSkill().skillMd)).toEqual(["# Top", "## Gates", "### Gate protocol", "#### Ask"]);
+  });
+
+  test("a heading inside a code fence is not the nearest heading", () => {
+    gateProtocol();
+    launcher("## Gates\n\n```\n# Gate protocol\n```\n\n{{include:gp}}");
+    expect(headings(gatesSkill().skillMd).filter((h) => h !== "# Gate protocol")).toEqual(["## Gates", "### Gate protocol", "#### Ask"]);
+  });
+
+  test("with no heading above, the root renders at level 1", () => {
+    gateProtocol();
+    launcher("Intro.\n\n{{include:gp}}");
+    expect(headings(gatesSkill().skillMd)).toEqual(["# Gate protocol", "## Ask"]);
+  });
+
+  test("a diagnostic from the include surfaces as the thrown error", () => {
+    write(join(root, GP, "index.block.md"), "---\n---\n\n# Gate protocol\n\n{{include:gp}}\n");
+    launcher("## Gates\n\n{{include:gp}}");
+    expect(() => gatesSkill()).toThrow(/would include itself/);
+  });
+});
