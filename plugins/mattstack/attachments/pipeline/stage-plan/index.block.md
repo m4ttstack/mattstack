@@ -28,7 +28,7 @@ flowchart TB
     stop_code_before_triage[STOP: no code, no file, no implementer dispatch before the printed block]:::stop
     pick_tier
     print_triage_block
-    gate_plan["Gate plan (table below)"]
+    gate_plan
     plan_answer{plan answer?}
     run_decision_strategy[/"run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}"/]
     run_field_set_approach[/"run_field_set {key: approach, value: <the recorded tier>, stage: plan}"/]

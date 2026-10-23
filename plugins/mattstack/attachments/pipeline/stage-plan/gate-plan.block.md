@@ -1,12 +1,12 @@
 ---
-order: 1
+node: gate_plan
 props:
   rules:
     merge: add
     default: ""
 ---
 
-# Gate `plan`
+# Gate plan (table below)
 
 Walk gate-protocol's Runs integration with kind `plan`, `runDb` and
 `stage: "plan"`; the gate tools record the answers. One sentence above the
@@ -27,10 +27,3 @@ Hold passes their words (or `held`) as `reason` and the gate result's
 `decidedBy`.
 
 {{props.rules}}
-
-## Hand the Go back answer to the orchestrator
-
-End the stage handing back `{to, note, decidedBy}`: `to` is the gate's
-`to` answer (the one earlier stage when `to` was not shown), `note` their
-words, `decidedBy` the gate result's `decidedBy`. Write nothing else: the
-orchestrator applies it with `run_resolve`.
