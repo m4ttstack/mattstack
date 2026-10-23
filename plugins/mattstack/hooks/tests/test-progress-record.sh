@@ -69,5 +69,25 @@ reset
 check "cwd outside git exits 0" "exit=0 out=" "$(run s5 "$SANDBOX/plain")"
 check "cwd outside git made no calls" "0" "$(calls)"
 
+reset
+OTHER="$SANDBOX/other"; mkdir -p "$OTHER"; git init -q "$OTHER"; mkdir -p "$OTHER/.superpowers/sdd"
+out="$(printf '{"session_id":"s6","cwd":"%s","tool_input":{"cwd":"%s"}}' "$REPO" "$OTHER" \
+  | env -i HOME="$SANDBOX/home" TMPDIR="$SANDBOX/tmp" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_STUB_CALLS="$CALLS" sh "$HOOK" 2>&1)"
+check "top-level cwd wins over a nested one: out" "" "$out"
+check "top-level cwd wins over a nested one: argv" "progress record --tree $REPO" "$(cat "$CALLS")"
+
+reset
+out="$(printf '{"session_id":"a/b","cwd":"%s"}' "$REPO" \
+  | env -i HOME="$SANDBOX/home" TMPDIR="$SANDBOX/tmp" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_STUB_CALLS="$CALLS" sh "$HOOK" 2>&1)"
+check "slash in session id is sanitized: out" "" "$out"
+check "slash in session id is sanitized: calls" "1" "$(calls)"
+
+reset
+mkdir -p "$SANDBOX/ro"; chmod 500 "$SANDBOX/ro"
+out="$(printf '{"session_id":"s7","cwd":"%s"}' "$REPO" \
+  | env -i HOME="$SANDBOX/home" TMPDIR="$SANDBOX/ro" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_STUB_CALLS="$CALLS" sh "$HOOK" 2>&1; echo "exit=$?")"
+chmod 700 "$SANDBOX/ro"
+check "unwritable TMPDIR stays silent" "exit=0" "$out"
+
 [ "$fails" -eq 0 ] && echo "all progress-record tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))

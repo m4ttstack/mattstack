@@ -7,8 +7,9 @@ set -u
 : "${HOME:=}"
 
 INPUT="$(cat 2>/dev/null)" || exit 0
-field() { printf '%s' "$INPUT" | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1; }
-SESSION="$(field session_id)"
+# First match wins: the top-level keys precede tool_input, which can nest its own "cwd".
+field() { printf '%s' "$INPUT" | grep -o '"'"$1"'"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 | sed 's/^[^:]*:[[:space:]]*"\(.*\)"$/\1/'; }
+SESSION="$(field session_id | tr -d '/')"
 CWD="$(field cwd)"
 [ -n "$CWD" ] || exit 0
 
@@ -26,6 +27,6 @@ RT="$(command -v rt 2>/dev/null || true)"
 [ -n "$RT" ] && [ -x "$RT" ] || RT="$HOME/.local/bin/rt"
 [ -x "$RT" ] || exit 0
 
-echo "$NOW" > "$STAMP" 2>/dev/null
+{ echo "$NOW" > "$STAMP"; } 2>/dev/null
 "$RT" progress record --tree "$ROOT" >/dev/null 2>&1
 exit 0
