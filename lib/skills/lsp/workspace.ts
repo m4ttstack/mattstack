@@ -7,7 +7,8 @@ import type { Block, BlockTree } from "../blocks/types.ts";
 import { collectBlockPropValues, type PropBindings } from "../compile-blocks.ts";
 import { layeredFromManifest } from "../manifest-merge.ts";
 import type { LayeredBindings } from "../pipelines.ts";
-import { loadAttachment, type PluginRoots } from "../sources.ts";
+import { loadAttachment, loadInclude, type PluginRoots } from "../sources.ts";
+import { renderDiagnostics, type IncludeLookup } from "./render-check.ts";
 
 export type ManifestBindings = { layered: LayeredBindings; pipelineLayered: Record<string, LayeredBindings> };
 
@@ -187,19 +188,37 @@ export class Workspace {
       }
     }
 
-    const roots = pluginRoots(plugins);
-    const load = (binding: string, prop: string) => loadAttachment(binding, prop, roots);
-    for (const bindings of bindingRuns(manifests, (p) => this.text(p))) {
-      for (const { tree, engine } of loaded) {
-        const sourced: SourcedTree = { tree, plugin: engine.plugin.name, version: engine.plugin.version };
+    const engineOf = new Map<BlockTree, Engine>(loaded.map(({ tree, engine }) => [tree, engine]));
+    const sourced = (tree: BlockTree, engine: Engine): SourcedTree => ({ tree, plugin: engine.plugin.name, version: engine.plugin.version });
+    for (const { tree, engine } of loaded) {
+      const roots = pluginRoots(plugins, [engine.plugin]);
+      for (const bindings of bindingRuns(manifests, (p) => this.text(p))) {
+        const pack = bindings.manifest ? this.pluginOf(bindings.manifest.path, plugins) : null;
+        const runRoots = pack ? pluginRoots(plugins, [pack, engine.plugin]) : roots;
+        const load = (binding: string, prop: string) => loadAttachment(binding, prop, runRoots);
         try {
-          const { diagnostics: found } = collectBlockPropValues([sourced], bindings, load, new Set<string>());
-          for (const d of found) report(d, engine.plugin.dir);
+          const { diagnostics: found } = collectBlockPropValues([sourced(tree, engine)], bindings, load, new Set<string>());
+          for (const d of found) if (!heldElsewhere(d, bindings, loaded)) report(d, engine.plugin.dir);
         } catch (err) {
           const file = bindings.manifest?.path ?? tree.root.path;
           report({ file, line: 1, col: 1, code: "bad-value", message: errorText(err) }, null);
         }
       }
+      const includeRoot = roots.byName.mattstack?.dir ?? null;
+      const lookup: IncludeLookup = {
+        tree: (name) => {
+          const hit = includeRoot === null ? undefined : loaded.find((l) => l.engine.dir === join(includeRoot, "attachments", name));
+          return hit ? sourced(hit.tree, hit.engine) : null;
+        },
+        flat: (name) => {
+          try {
+            return loadInclude(name, roots);
+          } catch {
+            return null;
+          }
+        },
+      };
+      for (const d of renderDiagnostics(sourced(tree, engine), lookup, (t) => (engineOf.get(t.tree) ?? engine).plugin.dir)) report(d, null);
     }
 
     const byBlockId = new Map<string, { tree: BlockTree; block: Block }>();
@@ -233,10 +252,32 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function pluginRoots(plugins: Plugin[]): PluginRoots {
+/**
+ * Several open plugins may share a name, so `own` (the manifest's pack, then the engine's plugin, last wins)
+ * resolve their names to themselves; any other name resolves to the first plugin found.
+ */
+function pluginRoots(plugins: Plugin[], own: Plugin[]): PluginRoots {
   const byName: PluginRoots["byName"] = {};
   for (const p of plugins) byName[p.name] ??= { dir: p.dir, version: p.version };
+  for (const p of own) byName[p.name] = { dir: p.dir, version: p.version };
   return { byName, list: [] };
+}
+
+const BINDING_KEY_RE = /^binding "([^"]+)"/;
+const UNKNOWN_PROP_RE = /declares no prop "([^"]+)"$/;
+
+/** A manifest key is only wrong when no open tree under its `<plugin>:<root id>` holds the block or declares the prop. */
+function heldElsewhere(d: BlockDiagnostic, bindings: PropBindings, loaded: { tree: BlockTree; engine: Engine }[]): boolean {
+  if ((d.code !== "missing-block" && d.code !== "unknown-prop") || d.file !== bindings.manifest?.path) return false;
+  const key = BINDING_KEY_RE.exec(d.message)?.[1];
+  if (key === undefined) return false;
+  const prop = d.code === "unknown-prop" ? UNKNOWN_PROP_RE.exec(d.message)?.[1] : undefined;
+  return loaded.some(({ tree, engine }) => {
+    const prefix = `${engine.plugin.name}:${tree.root.id}`;
+    if (key !== prefix && !key.startsWith(`${prefix}/`)) return false;
+    const block = tree.byId.get(`${tree.root.id}${key.slice(prefix.length)}`);
+    return block !== undefined && (prop === undefined || block.props.some((p) => p.name === prop));
+  });
 }
 
 /** Defaults alone, then each manifest's top level and each of its pipeline sections. */

@@ -142,4 +142,63 @@ describe("Workspace", () => {
       expect(() => ws.analysis()).not.toThrow();
     }
   });
+
+  test("a marker that does not sit alone on its line is bad-marker at the marker", () => {
+    const ws = new Workspace([plugin, pack]);
+    const gate = join(mini, "gate.block.md");
+    const text = ws.text(gate).replace("{{props.tiering}}", "Use {{props.tiering}} here.");
+    ws.open(gate, text);
+    const ds = ws.analysis().diagnostics.get(gate) ?? [];
+    expect(ds.map((d) => d.code)).toEqual(["bad-marker"]);
+    expect(covered(text, ds[0]!)).toBe("{{props.tiering}}");
+  });
+
+  test("an include no plugin holds and an unknown placeholder are reported where they sit", () => {
+    const ws = new Workspace([plugin, pack]);
+    const gate = join(mini, "gate.block.md");
+    const text = `${ws.text(gate).trimEnd()}\n\n{{include:no-such-include}}\n\nSee {{nope.placeholder}}\n`;
+    ws.open(gate, text);
+    const ds = ws.analysis().diagnostics.get(gate) ?? [];
+    expect(ds.map((d) => [d.code, covered(text, d)])).toEqual([
+      ["bad-value", "{{include:no-such-include}}"],
+      ["bad-value", "{{nope.placeholder}}"],
+    ]);
+  });
+});
+
+describe("Workspace with two plugins of the same name", () => {
+  let other: string;
+  let otherMini: string;
+
+  beforeEach(() => {
+    other = join(tmp, "mattstack-copy");
+    cpSync(join(FIXTURES, "plugins/mattstack"), other, { recursive: true });
+    otherMini = join(other, "attachments/pipeline/mini");
+    cpSync(join(other, "attachments/style-floor"), join(other, "attachments/copy-floor"), { recursive: true });
+    const notes = join(otherMini, "notes.block.md");
+    writeFileSync(notes, readFileSync(notes, "utf8").replace("mattstack:style-floor", "mattstack:copy-floor"));
+  });
+
+  test("each copy resolves fills in its own plugin", () => {
+    const ws = new Workspace([plugin, other, pack]);
+    expect(allDiagnostics(ws)).toEqual([]);
+  });
+
+  test("a key the other copy lacks the block for is not missing-block", () => {
+    rmSync(join(otherMini, "gate.block.md"));
+    const ws = new Workspace([plugin, other, pack]);
+    expect(ws.analysis().diagnostics.get(manifest)).toEqual([]);
+  });
+
+  test("a prop the other copy's block does not declare is not unknown-prop", () => {
+    writeFileSync(join(otherMini, "gate.block.md"), "---\nnode: ask_gate\nkind: gate\n---\n\n# Ask the gate\n\nAsk the human.\n");
+    const ws = new Workspace([plugin, other, pack]);
+    expect(allDiagnostics(ws)).toEqual([]);
+  });
+
+  test("a key neither copy holds is still missing-block", () => {
+    const ws = new Workspace([plugin, other, pack]);
+    ws.open(manifest, nopeManifest());
+    expect(allDiagnostics(ws).map((d) => d.code)).toEqual(["missing-block"]);
+  });
 });
