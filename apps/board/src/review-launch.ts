@@ -322,6 +322,8 @@ export async function launchRespondAsk(
     ...FRESH_RUN_PANE,
     boardTabId: '',
     noPack: !ctx.pack,
+    person: null,
+    responseRound: null,
     pendingReReview: [],
   });
   try {
