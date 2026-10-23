@@ -84,20 +84,30 @@ One record per (tree, plan stem):
 | `done`, `total` | finished tasks and the plan's `Task N` heading count |
 | `latest` | the ledger's latest meaningful line |
 | `firstSeen`, `lastSeen` | epoch ms |
+| `finishedAt` | epoch ms, set by `record` when it sees the ledger directory gone while the tree is still on `branch`; null until then |
 
 Two verbs (names are my call; the builder may rename to fit the command tree):
 
 - `rt progress record --tree <root>`: scans `<root>/.superpowers/sdd/*/progress.md`,
   parses each with the same rules the script uses today, and upserts its record.
   Silent on success, `--json` for tests. Cheap when there is no `.superpowers/sdd`.
-- `rt progress list [--tree <root>] [--plan <path-or-stem>] --json`: returns
-  records plus a derived `state` computed at read time, never stored:
+  For every existing record of that tree whose ledger directory is now gone:
+  if the tree's current branch equals the record's `branch`, it sets
+  `finishedAt` (SDD deletes the workspace only after a clean final review).
+  Done is therefore stored at the moment it is observed, and survives the tree
+  later moving to another branch or being disposed.
+- `rt progress list [--tree <root>] [--plan <path>] [--refresh] --json`:
+  `--refresh` runs `record` for the named tree first, so the caller gets
+  fresh live counts from the same parser in one call. Each record carries a
+  `state`:
+  - `done`: `finishedAt` is set. Reports `done = total`.
   - `running`: the ledger directory exists.
-  - `done`: the tree still exists and the ledger directory is gone (SDD only
-    deletes it after a clean final review), or the ledger has a `FINAL` line.
-    `done` reports `done = total`.
-  - `tree-gone`: the tree itself is gone. Reported with the last counts, never
-    as done.
+  - `tree-gone`: no `finishedAt`, and the tree is gone or now on a different
+    branch (a pool tree disposed and re-provisioned at the same path). Shown
+    with the last counts, never as done.
+
+No `FINAL`-line rule: superpowers SDD 7.0.1 never writes one. The statusline's
+`^FINAL` check is a leftover and is dropped with the rest of its state code.
 
 Retention: a record not seen for 30 days is dropped on the next `record`.
 My call; adjust freely.
@@ -132,12 +142,16 @@ Renamed from `herd_progress.py`, in `plugin/skills/work-progress/scripts/`.
   ledger is gone gets its counts from `rt progress list --tree <job tree>`.
 - `--plan <path>` (repeatable), with optional `--title <text>`: one row per
   plan, in the order given.
-  - Live ledger at `<plan's tree>/.superpowers/sdd/<stem>/progress.md`: read
-    it directly (fresh to the second).
-  - No ledger: ask `rt progress list --plan <path>`. `done` → done row with
-    `total/total`. `tree-gone` → its own status with the last counts. No
-    record → not started, `0/<plan task count>`.
-  - rt too old for the verb: no ledger reads as `not started or finished (rt
+  - Optional `--tree <root>` names the tree that runs the plans when it is not
+    the tree holding the plan file (a herd worker running a plan committed on
+    main). Default: the plan file's own tree. Records match on tree plus plan
+    stem; no cross-tree stem matching.
+  - Counts come from one `rt progress list --tree <root> --refresh --json`
+    call per tree, so the script never parses ledgers itself. `done` → done
+    row with `total/total`. `tree-gone` → its own status with the last counts.
+    No record → not started, `0/<plan task count>`.
+  - rt too old for the verb: fall back to today's in-script ledger parse for
+    live plans, and show a plan with no ledger as `not started or finished (rt
     has no record)`. No guessing.
 - Neither flag: exit non-zero with a one-line reason telling the agent to name
   a herd or plans.
@@ -182,11 +196,18 @@ Rewritten through `superpowers:writing-skills` (RED baseline, GREEN) and
 ### 5. Matt's statusline
 
 `~/.claude/statusline-command.sh` keeps reading the live ledger itself (cheap,
-every render). Its finished-plan memory in `~/.claude/statusline-state/` is
-replaced by `rt progress list --tree <root> --json` when no live ledger is
-found, so a plan rt calls done shows ✅ there too. The state folder is removed.
-This file is outside the repo; the change is made and verified on Matt's
-machine alongside the PR.
+every render), with its task regex updated to the same lettered sub-task rule.
+Its finished-plan memory in `~/.claude/statusline-state/` is replaced by
+`rt progress list --tree <root> --json`, called only when no live ledger is
+found AND `<root>/.superpowers/sdd` exists (SDD removes only the plan's own
+folder), so trees that never ran SDD pay no bun start-up. A plan rt calls done
+shows ✅ for a day, as today. The state folder and the `^FINAL` check are
+removed.
+
+Matt chose this edit (the "share one record" option named it). The
+implementer edits the file on Matt's machine as a plan task: copy the current
+file to the session scratchpad first, then verify by rendering the statusline
+in a tree with a live ledger, a finished plan and no SDD at all.
 
 ### 6. Rename touchpoints
 
@@ -212,6 +233,17 @@ DMed to lawson to carry over at merge.
 - Targeted tests only locally: the new store and verbs, the hook script,
   `sources.test.ts`, the script against fixture trees. `certify.sh` and
   `rt skills check --strict` for the plugin.
+
+## Calls I made after the builder check
+
+- Tree reuse: done is stored when observed (`finishedAt`, same branch), and a
+  tree that is gone or on another branch without it reads `tree-gone`.
+- One parser: rt parses ledgers for the script (`--refresh`); the statusline
+  keeps a live bash parse with the same lettered rule, since it renders every
+  turn.
+- Cross-tree plans: an explicit `--tree`, no stem matching across trees.
+- Statusline cost: rt is called only when `.superpowers/sdd` exists.
+- `FINAL` lines are not a signal.
 
 ## Left to the builder
 
