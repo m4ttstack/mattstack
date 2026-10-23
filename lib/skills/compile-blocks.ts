@@ -109,6 +109,18 @@ export function blockPropValues(
   load: (binding: string, prop: string) => AttachmentSource,
   internalRoster: Set<string>,
 ): BlockValues {
+  const { values, diagnostics } = collectBlockPropValues(trees, bindings, load, internalRoster);
+  if (diagnostics.length > 0) throw new BlockError(diagnostics);
+  return values;
+}
+
+/** blockPropValues without the throw: every problem comes back in `diagnostics`. */
+export function collectBlockPropValues(
+  trees: SourcedTree[],
+  bindings: PropBindings,
+  load: (binding: string, prop: string) => AttachmentSource,
+  internalRoster: Set<string>,
+): { values: BlockValues; diagnostics: BlockDiagnostic[] } {
   const sites = new ManifestSites(bindings);
   const diagnostics: BlockDiagnostic[] = [];
   const values: BlockValues = new Map();
@@ -168,8 +180,7 @@ export function blockPropValues(
     }
   }
 
-  if (diagnostics.length > 0) throw new BlockError(diagnostics);
-  return values;
+  return { values, diagnostics };
 }
 
 /** The slot names an engine declared before it became a block tree, from its root's `replaced-slots`. */

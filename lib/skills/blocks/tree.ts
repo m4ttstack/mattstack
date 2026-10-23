@@ -217,11 +217,12 @@ function loadBlock(
   depth: number,
   diagnostics: BlockDiagnostic[],
   byId: Map<string, Block>,
+  readFile: (p: string) => string,
 ): Block | null {
   const idTail = id.slice(id.lastIndexOf("/") + 1);
   let parsed;
   try {
-    parsed = parseBlockFile(readFileSync(file, "utf8"), relPath, idTail);
+    parsed = parseBlockFile(readFile(file), relPath, idTail);
   } catch (err) {
     if (!(err instanceof BlockError)) throw err;
     diagnostics.push(...err.diagnostics);
@@ -257,6 +258,7 @@ function loadBlock(
         depth + 1,
         diagnostics,
         byId,
+        readFile,
       );
       if (loaded && block) block.children.push(loaded);
     }
@@ -274,7 +276,13 @@ function loadBlock(
   return block;
 }
 
-export function loadBlockTree(dir: string, opts: { idPrefix: string; relRoot: string }): BlockTree {
+export type CollectedTree = { tree: BlockTree | null; diagnostics: BlockDiagnostic[] };
+
+/** Like loadBlockTree but never throws a BlockError: a root that fails to load gives `tree: null`. */
+export function collectBlockTree(
+  dir: string,
+  opts: { idPrefix: string; relRoot: string; readFile?: (p: string) => string },
+): CollectedTree {
   const diagnostics: BlockDiagnostic[] = [];
   const byId = new Map<string, Block>();
   const root = loadBlock(
@@ -286,7 +294,13 @@ export function loadBlockTree(dir: string, opts: { idPrefix: string; relRoot: st
     0,
     diagnostics,
     byId,
+    opts.readFile ?? ((p) => readFileSync(p, "utf8")),
   );
-  if (diagnostics.length > 0 || root === null) throw new BlockError(diagnostics);
-  return { root, dir, byId };
+  return { tree: root === null ? null : { root, dir, byId }, diagnostics };
+}
+
+export function loadBlockTree(dir: string, opts: { idPrefix: string; relRoot: string }): BlockTree {
+  const { tree, diagnostics } = collectBlockTree(dir, opts);
+  if (diagnostics.length > 0 || tree === null) throw new BlockError(diagnostics);
+  return tree;
 }
