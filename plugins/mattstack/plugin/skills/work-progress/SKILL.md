@@ -21,11 +21,12 @@ there is nothing to measure: say so in one line.
 | --- | --- |
 | A shepherd, asked about the herd | `--herd <herd id>`; the `herd_list` tool names the active herds when you do not know the id |
 | An agent on one plan | `--plan <plan path>` |
-| An agent on an epic (several plans) | one `--plan` per plan, in order, grouped as your own context says (one spec's plans, a numbered family, everything on the branch), and `--title <epic name>` |
+| An agent on an epic (several plans) | one `--plan` per plan, in order, grouped as your own context says (one spec's plans, a numbered family, everything on the branch), and `--title "<epic name>"` |
 
-Add `--tree <root>` when the plans run in another tree than the one holding
-the plan files (a herd worker running a plan committed on main). Without it
-the script reads the plan file's own tree.
+The script reads every plan's progress from one tree: by default the tree
+holding the first plan file. Add `--tree <root>` when the plans run in
+another tree (a herd worker running a plan committed on main). Plans that
+run in different trees need separate calls, one per tree.
 
 ## The reply
 
@@ -33,7 +34,7 @@ the script reads the plan file's own tree.
 
    ```bash
    python3 <base dir>/scripts/work_progress.py --herd <herd id>
-   python3 <base dir>/scripts/work_progress.py --plan <plan 1> --plan <plan 2> --title <epic name>
+   python3 <base dir>/scripts/work_progress.py --plan <plan 1> --plan <plan 2> --title "<epic name>"
    ```
 
    The command starts with `python3`, with no env prefix. Always pass
@@ -84,7 +85,7 @@ Plan rows (the overall bar counts tasks across the plans):
 | done | rt recorded it finished | no |
 | not started | rt has no record of it | no |
 | *quiet* | its ledger untouched 30+ minutes | yes: propose checking the session running it |
-| tree gone | the tree that ran it is gone or on another branch; the last counts stay | yes |
+| tree gone | the tree that ran it is gone or on another branch | yes: say the counts are the last seen and its finish was never recorded |
 | unknown | rt is too old to keep plan records, and no ledger is live | yes: say it is not started or finished, and that you cannot tell which |
 
 Task counts are the worker's own ledger or draft, not a verified result:
