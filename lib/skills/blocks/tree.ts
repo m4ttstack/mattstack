@@ -39,7 +39,7 @@ function orphansUnder(dir: string, relDir: string, out: BlockDiagnostic[]): void
         file: `${relDir}/${entry.name}`,
         line: 1,
         col: 1,
-        message: `this folder needs an ${INDEX} to be a block; without one its files are vendored as plain files`,
+        message: `this folder needs an ${INDEX} to be a block; until it has one, its block files are not compiled`,
         code: "orphan-block",
       });
     }

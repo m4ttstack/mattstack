@@ -137,6 +137,7 @@ test("dot-files and symlinks are skipped", () => {
 test("a block file in a folder without an index is an orphan", () => {
   const tmp = tmpTree({ "index.block.md": "---\n---\n# A\n", "sub/step.block.md": "---\n---\n# S\n" });
   expect(() => loadBlockTree(tmp, a)).toThrow(/a\/sub\/step\.block\.md:1:1: .*index\.block\.md/);
+  expect(() => loadBlockTree(tmp, a)).toThrow("this folder needs an index.block.md to be a block; until it has one, its block files are not compiled");
 });
 
 test("a failing folder block still reports its children's diagnostics", () => {
