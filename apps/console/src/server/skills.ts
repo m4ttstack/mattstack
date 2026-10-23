@@ -315,19 +315,9 @@ interface SkillsAnatomyTarget {
   lines: number | null;
 }
 /** Line ranges are 1-based and inclusive. A prop part's `name` is
-    `<block id>.<prop>`; an add prop has one part per value. rt emits block,
-    include, prop and section parts; the design fixture still carries the
-    text, verb.path and variable parts the pipeline map draws its stage links
-    from. */
+    `<block id>.<prop>`; an add prop has one part per value. */
 interface SkillsAnatomyPart {
-  kind:
-    | 'text'
-    | 'block'
-    | 'include'
-    | 'prop'
-    | 'section'
-    | 'verb.path'
-    | 'variable';
+  kind: 'text' | 'block' | 'include' | 'prop' | 'section';
   name: string | null;
   templateLines: [number, number] | null;
   renderedLines: [number, number] | null;

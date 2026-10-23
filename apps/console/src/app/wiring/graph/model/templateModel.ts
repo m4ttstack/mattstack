@@ -160,6 +160,11 @@ export type TemplateView = {
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
+/** An anatomy part, or a placeholder rt names only in composition: a step
+    link (`verb.path`) or a run variable, which anatomy carries no part for. */
+type RowSource = Omit<AnatomyPart, 'kind'> & {
+  kind: AnatomyPart['kind'] | 'verb.path' | 'variable';
+};
 type BindingChange = SkillsChanges['bindings'][number];
 type DriftCause = SkillsAnatomy['staleBecause'][number];
 type CheckRow = SkillsCheck['verbs'][number];
@@ -241,7 +246,7 @@ export function withoutSections(anatomy: SkillsAnatomy): SkillsAnatomy {
 
 /** Whether rt placed a section inside a prop's rendered range; a stale file
     may not place it at all, and then rt's order is all there is. */
-function holds(prop: AnatomyPart, section: AnatomyPart): boolean {
+function holds(prop: RowSource, section: RowSource): boolean {
   const outer = prop.renderedLines;
   const inner = section.renderedLines;
   if (!inner) return true;
@@ -249,7 +254,7 @@ function holds(prop: AnatomyPart, section: AnatomyPart): boolean {
 }
 
 /** A fill can paste one section twice; the second takes its place as `@n`. */
-function sectionCard(part: AnatomyPart, card: InputCard): SectionCard {
+function sectionCard(part: RowSource, card: InputCard): SectionCard {
   const name = part.name ?? '';
   const base = partKey(part);
   const repeats = card.sections.filter(
@@ -263,7 +268,7 @@ function sectionCard(part: AnatomyPart, card: InputCard): SectionCard {
   };
 }
 
-export function partKey(part: AnatomyPart): string {
+export function partKey(part: RowSource): string {
   return `${part.kind}:${part.name ?? ''}`;
 }
 
@@ -293,7 +298,7 @@ export function pastedLines(
 
 /** What an output part is called: an include by its name, a prop by the fill
     that fills it. */
-export function partLabel(part: AnatomyPart): string {
+export function partLabel(part: RowSource): string {
   if (part.kind === 'prop' && part.source) return suffixOf(part.source.ref);
   return part.name ?? part.kind;
 }
@@ -309,7 +314,7 @@ function textLabel(lines: number, noun: TextNoun): string {
 
 /** The placeholder as the template writes it: a prop by its own name, which
     its block's text names. */
-function codeOf(part: AnatomyPart): string {
+function codeOf(part: RowSource): string {
   if (part.kind === 'variable') return `{{${part.name}}}`;
   if (part.kind === 'prop')
     return `{{props.${splitPropKey(part.name ?? '').name}}}`;
@@ -321,6 +326,89 @@ function codeOf(part: AnatomyPart): string {
 function propTitle(key: string, root: string): string {
   const { block, name } = splitPropKey(key);
   return `${block === root ? name : key} prop`;
+}
+
+/** The placeholders rt fills per run, as their template writes them. */
+const VARIABLE_KINDS = new Set(['stage.fields', 'run-start.flags']);
+
+/**
+ * The step links and run variables a skill's template names, from its
+ * composition target. A `{{pipeline.table}}` reaches it already expanded to
+ * one `verb.path` per stage the pipeline runs.
+ */
+function placeholderSources(
+  composition: Pick<SkillsComposition, 'targets'>,
+  skill: string
+): RowSource[] {
+  const targets = composition.targets ?? [];
+  const placeholders =
+    targets.find(target => target.name === skill)?.placeholders ?? [];
+  return placeholders.flatMap((placeholder): RowSource[] => {
+    const at = {
+      templateLines: [placeholder.line, placeholder.line] as LineRange,
+      renderedLines: null,
+      mode: null,
+      source: null,
+      changed: false,
+    };
+    if (placeholder.kind === 'verb.path' && placeholder.arg) {
+      const linked = targets.find(target => target.name === placeholder.arg);
+      return [
+        {
+          ...at,
+          kind: 'verb.path',
+          name: placeholder.arg,
+          target: {
+            skill: placeholder.arg,
+            path: linked?.artifactPath ?? `${placeholder.arg}/SKILL.md`,
+            lines: null,
+          },
+        },
+      ];
+    }
+    if (VARIABLE_KINDS.has(placeholder.kind)) {
+      return [
+        {
+          ...at,
+          kind: 'variable',
+          name: placeholder.arg
+            ? `${placeholder.kind}:${placeholder.arg}`
+            : placeholder.kind,
+          target: null,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
+/**
+ * The anatomy parts with the composition-only placeholders among them. Where
+ * anatomy traces template lines, each placeholder goes before the first part
+ * at or past its line; rt's own anatomy places parts by rendered line only, which
+ * a template line cannot be ordered against, so there they lead.
+ */
+function rowSourcesOf(
+  anatomy: SkillsAnatomy,
+  composition: Pick<SkillsComposition, 'targets'>
+): RowSource[] {
+  const extra = placeholderSources(composition, anatomy.skill).sort(
+    (a, b) => a.templateLines![0] - b.templateLines![0]
+  );
+  if (!anatomy.parts.some(part => part.templateLines))
+    return [...extra, ...anatomy.parts];
+  const out: RowSource[] = [];
+  for (const part of anatomy.parts) {
+    const start = part.kind === 'section' ? null : part.templateLines?.[0];
+    while (
+      start != null &&
+      extra.length > 0 &&
+      extra[0]!.templateLines![0] <= start
+    )
+      out.push(extra.shift()!);
+    out.push(part);
+  }
+  return [...out, ...extra];
 }
 
 function variableTitle(name: string): string {
@@ -420,7 +508,7 @@ function propFactsOf(
     else the prop's first. */
 function partFacts(
   declared: DeclaredFacts | undefined,
-  part: AnatomyPart
+  part: RowSource
 ): PropFacts | undefined {
   if (!declared) return undefined;
   const value =
@@ -436,7 +524,7 @@ function partFacts(
 }
 
 function propState(
-  part: AnatomyPart,
+  part: RowSource,
   facts: PropFacts | undefined,
   pending: boolean
 ): RowState {
@@ -469,14 +557,16 @@ function usageCounts(composition: SkillsComposition) {
 
 export function textNounOf(
   anatomy: SkillsAnatomy,
-  composition?: Pick<SkillsComposition, 'verbs'>
+  composition?: Pick<SkillsComposition, 'verbs' | 'targets'>
 ): TextNoun {
   if (anatomy.kind === 'stage') return 'step';
   const verb = composition?.verbs.find(v => v.name === anatomy.skill);
   if (
     anatomy.skill === ORCHESTRATOR_VERB ||
     (verb !== undefined && leadsAPipeline(verb)) ||
-    anatomy.parts.some(part => part.kind === 'verb.path')
+    composition?.targets
+      ?.find(target => target.name === anatomy.skill)
+      ?.placeholders.some(placeholder => placeholder.kind === 'verb.path')
   )
     return 'orchestrator';
   return 'verb';
@@ -545,8 +635,8 @@ export function buildTemplateView(input: {
     return cardId;
   };
 
-  let prop: { part: AnatomyPart; card: InputCard } | null = null;
-  for (const part of anatomy.parts) {
+  let prop: { part: RowSource; card: InputCard } | null = null;
+  for (const part of rowSourcesOf(anatomy, composition)) {
     if (part.kind === 'section') {
       if (prop && holds(prop.part, part))
         prop.card.sections.push(sectionCard(part, prop.card));
@@ -691,7 +781,7 @@ export function selectedPartId(
 }
 
 function cardFace(
-  part: AnatomyPart,
+  part: RowSource,
   state: RowState,
   facts: PropFacts | undefined,
   pack: string,
@@ -936,7 +1026,7 @@ const LINK_STATUS_WORDS: Record<SkillStatus, string | null> = {
 };
 
 function linkCard(
-  part: AnatomyPart,
+  part: RowSource,
   cardId: string,
   skill: string,
   rowId: string,
@@ -945,8 +1035,7 @@ function linkCard(
   copyLabel: string | null
 ): LinkCard {
   const lines = part.target?.lines ?? null;
-  const status: SkillStatus =
-    row?.status ?? (lines === null ? 'never-compiled' : 'unknown');
+  const status: SkillStatus = row?.status ?? 'unknown';
   const reason = status === 'stale' ? staleReason(row?.staleBecause) : null;
   const subtitle = [
     step === null ? null : `step ${step}`,

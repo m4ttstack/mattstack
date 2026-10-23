@@ -128,28 +128,20 @@ describe('the work template', () => {
     expect(
       view.links.map(link => [link.title, link.subtitle, link.status])
     ).toEqual([
-      ['stage-provision/SKILL.md', 'step 1 · rendered · 777 lines', 'in-sync'],
-      ['stage-plan/SKILL.md', 'step 2 · rendered · 780 lines', 'in-sync'],
-      ['stage-gates/SKILL.md', 'step 3 · rendered · 212 lines', 'in-sync'],
+      ['stage-provision/SKILL.md', 'step 1 · rendered', 'in-sync'],
+      ['stage-plan/SKILL.md', 'step 2 · rendered', 'in-sync'],
+      ['stage-gates/SKILL.md', 'step 3 · rendered', 'in-sync'],
       [
         'stage-evidence/SKILL.md',
-        'step 4 · stale: its template changed · 1152 lines',
+        'step 4 · stale: its template changed',
         'stale',
       ],
-      ['stage-implement/SKILL.md', 'step 5 · rendered · 91 lines', 'in-sync'],
-      [
-        'stage-self-review/SKILL.md',
-        'step 6 · rendered · 105 lines',
-        'in-sync',
-      ],
-      [
-        'stage-ship/SKILL.md',
-        'step 7 · stale: its template changed · 1091 lines',
-        'stale',
-      ],
+      ['stage-implement/SKILL.md', 'step 5 · rendered', 'in-sync'],
+      ['stage-self-review/SKILL.md', 'step 6 · rendered', 'in-sync'],
+      ['stage-ship/SKILL.md', 'step 7 · stale: its template changed', 'stale'],
       [
         'stage-watch-ci/SKILL.md',
-        'step 8 · stale: its template changed · 1116 lines',
+        'step 8 · stale: its template changed',
         'stale',
       ],
     ]);
@@ -183,9 +175,7 @@ describe('the work template', () => {
         changes: undefined,
         step: null,
       });
-      expect(view.links[2]!.subtitle).toBe(
-        `step 3 · stale: ${words} · 212 lines`
-      );
+      expect(view.links[2]!.subtitle).toBe(`step 3 · stale: ${words}`);
     }
   });
 
@@ -923,6 +913,7 @@ describe('engines without a template trace', () => {
   it('gutters the rows of a legacy engine by their rendered lines', () => {
     const legacy: SkillsAnatomy = {
       ...anatomyPlan,
+      skill: 'standup',
       parts: [
         {
           kind: 'text',
@@ -1043,14 +1034,14 @@ describe('link cards follow the focused pipeline', () => {
       workType: 'bugfix',
     });
     expect(view.links.map(link => link.subtitle)).toEqual([
-      'step 1 · rendered · 777 lines',
-      'rendered · 780 lines',
-      'rendered · 212 lines',
-      'stale: its template changed · 1152 lines',
-      'step 2 · rendered · 91 lines',
-      'rendered · 105 lines',
-      'step 3 · stale: its template changed · 1091 lines',
-      'stale: its template changed · 1116 lines',
+      'step 1 · rendered',
+      'rendered',
+      'rendered',
+      'stale: its template changed',
+      'step 2 · rendered',
+      'rendered',
+      'step 3 · stale: its template changed',
+      'stale: its template changed',
     ]);
   });
 
@@ -1063,28 +1054,35 @@ describe('link cards follow the focused pipeline', () => {
       step: null,
     });
     expect(view.links[7]!.subtitle).toBe(
-      'step 8 · stale: its template changed · 1116 lines'
+      'step 8 · stale: its template changed'
     );
   });
 
   it('gives a link to a verb that is not a stage no step number', () => {
     const view = buildTemplateView({
-      anatomy: withPart(anatomyWork, 'stage-gates', {
-        name: 'review',
-        target: {
-          skill: 'review',
-          path: '/fixture/packs/acme/skills/review/SKILL.md',
-          lines: 900,
-        },
-      }),
-      composition,
+      anatomy: anatomyWork,
+      composition: {
+        ...composition,
+        targets: composition.targets!.map(target =>
+          target.name === 'work'
+            ? {
+                ...target,
+                placeholders: target.placeholders.map(p =>
+                  p.kind === 'verb.path' && p.arg === 'stage-gates'
+                    ? { ...p, arg: 'review' }
+                    : p
+                ),
+              }
+            : target
+        ),
+      },
       check,
       changes: undefined,
       step: null,
     });
     expect(view.links[2]).toMatchObject({
       title: 'review/SKILL.md',
-      subtitle: 'stale: its template changed · 900 lines',
+      subtitle: 'stale: its template changed',
     });
   });
 });
@@ -1113,11 +1111,38 @@ describe('a specialized pipeline', () => {
 
   it('reads a verb that runs a pipeline as an orchestrator, even with no step links', () => {
     const bare = {
-      ...anatomyA11y,
-      parts: anatomyA11y.parts.filter(part => part.kind !== 'verb.path'),
+      ...composition,
+      targets: composition.targets!.map(target => ({
+        ...target,
+        placeholders: target.placeholders.filter(p => p.kind !== 'verb.path'),
+      })),
     };
-    expect(textNounOf(bare, composition)).toBe('orchestrator');
-    expect(textNounOf({ ...bare, skill: 'standup' }, composition)).toBe('verb');
+    expect(textNounOf(anatomyA11y, bare)).toBe('orchestrator');
+    expect(textNounOf({ ...anatomyA11y, skill: 'standup' }, bare)).toBe('verb');
+  });
+
+  it('reads a verb whose template links steps as an orchestrator', () => {
+    const linking = {
+      ...composition,
+      targets: composition.targets!.map(target =>
+        target.name === 'standup'
+          ? {
+              ...target,
+              placeholders: [
+                {
+                  kind: 'verb.path',
+                  arg: 'stage-plan',
+                  file: 'attachments/pipeline/work/SKILL.md',
+                  line: 300,
+                },
+              ],
+            }
+          : target
+      ),
+    };
+    expect(textNounOf({ ...anatomyA11y, skill: 'standup' }, linking)).toBe(
+      'orchestrator'
+    );
   });
 
   it("numbers a stage copy's link by its engine's place", () => {
@@ -1291,7 +1316,7 @@ describe('when check has not measured a skill', () => {
     });
     expect(view.links[0]).toMatchObject({
       status: 'unknown',
-      subtitle: 'step 1 · 777 lines',
+      subtitle: 'step 1',
     });
   });
 
@@ -1320,6 +1345,7 @@ describe('placeholders sharing a template line', () => {
   });
   const twoOnOneLine: SkillsAnatomy = {
     ...anatomyPlan,
+    skill: 'standup',
     rendered: { ...anatomyPlan.rendered, lines: 12 },
     parts: [
       {
@@ -1461,13 +1487,30 @@ describe('card ids', () => {
         ...anatomyWork,
         parts: [
           ...anatomyWork.parts,
-          onLine300(part('verb.path', 'stage-plan')),
           onLine300(part('include', 'gate-protocol')),
           onLine300(part('include', 'gate-protocol')),
           onLine300(part('include', 'gate-protocol')),
         ],
       },
-      composition,
+      composition: {
+        ...composition,
+        targets: composition.targets!.map(target =>
+          target.name === 'work'
+            ? {
+                ...target,
+                placeholders: [
+                  ...target.placeholders,
+                  {
+                    kind: 'verb.path',
+                    arg: 'stage-plan',
+                    file: 'attachments/pipeline/work/SKILL.md',
+                    line: 300,
+                  },
+                ],
+              }
+            : target
+        ),
+      },
       check,
       changes: changesClean,
       step: null,
@@ -1676,5 +1719,39 @@ describe('a block tree as rt reads it', () => {
       title: 'ship/flow.rules prop',
       state: 'required-unbound',
     });
+  });
+
+  it("links a pipeline's steps from its composition placeholders, ahead of rendered rows", () => {
+    const work = buildTemplateView({
+      anatomy: {
+        ...anatomyWork,
+        parts: [marked('block', 'work', [1, 824])],
+      },
+      composition,
+      check,
+      changes: undefined,
+      step: null,
+    });
+    expect(work.links.map(link => link.skill)).toEqual([
+      'stage-provision',
+      'stage-plan',
+      'stage-gates',
+      'stage-evidence',
+      'stage-implement',
+      'stage-self-review',
+      'stage-ship',
+      'stage-watch-ci',
+    ]);
+    expect(rowsOf(work.rows).slice(0, 2)).toEqual([
+      ['L29', '{{verb.path:stage-provision}}'],
+      ['L30', '{{verb.path:stage-plan}}'],
+    ]);
+    expect(rowsOf(work.rows).at(-1)).toEqual([
+      'rendered L1-824',
+      '824 lines of orchestrator text',
+    ]);
+    expect(work.inputs.map(card => card.id)).toEqual([
+      'variable:run-start.flags:work',
+    ]);
   });
 });

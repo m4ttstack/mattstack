@@ -409,6 +409,7 @@ describe('engines and builds', () => {
     expect(
       screen.getAllByTestId('row-gutter').map(gutter => gutter.textContent)
     ).toEqual([
+      'L16',
       'rendered L12-48',
       'rendered L49-197',
       'rendered L303-749',

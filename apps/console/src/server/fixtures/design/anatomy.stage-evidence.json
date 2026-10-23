@@ -30,16 +30,6 @@
       "changed": false
     },
     {
-      "kind": "variable",
-      "name": "stage.fields",
-      "templateLines": [14, 14],
-      "renderedLines": [14, 22],
-      "mode": null,
-      "source": null,
-      "target": null,
-      "changed": false
-    },
-    {
       "kind": "text",
       "name": null,
       "templateLines": [15, 267],

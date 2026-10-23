@@ -344,17 +344,26 @@ describe('every layout', () => {
 
 describe('a template that links one skill twice', () => {
   const view = buildTemplateView({
-    anatomy: (() => {
-      const anatomy = designFixture('anatomy.work');
-      const plan = anatomy.parts.find(
-        part => part.kind === 'verb.path' && part.name === 'stage-plan'
-      )!;
-      return {
-        ...anatomy,
-        parts: [...anatomy.parts, { ...plan, templateLines: [300, 300] }],
-      };
-    })(),
-    composition,
+    anatomy: designFixture('anatomy.work'),
+    composition: {
+      ...composition,
+      targets: composition.targets!.map(target =>
+        target.name === 'work'
+          ? {
+              ...target,
+              placeholders: [
+                ...target.placeholders,
+                {
+                  kind: 'verb.path',
+                  arg: 'stage-plan',
+                  file: 'attachments/pipeline/work/SKILL.md',
+                  line: 300,
+                },
+              ],
+            }
+          : target
+      ),
+    },
     check,
     changes,
     step: null,
@@ -385,9 +394,10 @@ describe('cards on rows closer together than a card', () => {
   const plan = designFixture('anatomy.stage-plan');
   const part = (name: string) => plan.parts.find(p => p.name === name)!;
   type Part = (typeof plan.parts)[number];
-  const viewOf = (parts: Part[]) =>
+  /** `standup`'s template names no step link or run variable. */
+  const viewOf = (parts: Part[], skill = 'standup') =>
     buildTemplateView({
-      anatomy: { ...plan, parts },
+      anatomy: { ...plan, skill, parts },
       composition,
       check,
       changes,
@@ -438,13 +448,15 @@ describe('cards on rows closer together than a card', () => {
   });
 
   it('does not overlap a legacy engine whose parts come back to back', () => {
-    const view = viewOf([
-      rendered(plan.parts[0]!, 1, 3),
-      rendered(part('execution-strategy'), 4, 10),
-      rendered(part('gate-protocol'), 11, 20),
-      rendered(part('stage.fields'), 21, 21),
-      rendered(part('wrap-up-form'), 22, 30),
-    ]);
+    const view = viewOf(
+      [
+        rendered(plan.parts[0]!, 1, 3),
+        rendered(part('execution-strategy'), 4, 10),
+        rendered(part('gate-protocol'), 11, 20),
+        rendered(part('wrap-up-form'), 22, 30),
+      ],
+      'stage-plan'
+    );
     const { nodes, height } = layoutTemplate(view);
     const ys = ofType(nodes, 'input').map(node => node.position.y);
     expect(ys).toHaveLength(4);
@@ -453,7 +465,7 @@ describe('cards on rows closer together than a card', () => {
   });
 
   it('leaves a card centred when there is room', () => {
-    const spread = viewOf(plan.parts);
+    const spread = viewOf(plan.parts, 'stage-plan');
     const ys = stackOf(spread);
     expect(ys).toEqual([184, 240, 296, 352, 408].map(fromBoard));
   });

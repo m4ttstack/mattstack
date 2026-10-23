@@ -138,25 +138,27 @@ describe('fixture payloads agree with their files', () => {
     }
   });
 
-  it('the plan-stage parts tile its rendered file without overlap', () => {
+  it('the plan-stage parts tile its rendered file without overlap, but for the run fields rt fills', () => {
     const placed = anatomyPlan.parts
       .map(p => p.renderedLines)
       .filter((r): r is number[] => r !== null);
+    const gaps: number[][] = [];
     let next = 1;
     for (const [a, b] of placed) {
-      expect(a).toBe(next);
+      if (a! > next) gaps.push([next, a! - 1]);
+      expect(a).toBeGreaterThanOrEqual(next);
       next = b! + 1;
     }
+    expect(gaps).toEqual([[16, 24]]);
     expect(next - 1).toBe(anatomyPlan.rendered.lines);
   });
 
-  it("work's step links name the stages' rendered sizes", () => {
-    const plan = anatomyWork.parts.find(p => p.name === 'stage-plan');
-    expect(plan?.target).toEqual({
-      skill: 'stage-plan',
-      path: anatomyPlan.rendered.path,
-      lines: anatomyPlan.rendered.lines,
-    });
+  it("work's step links are one verb.path per stage its pipeline runs", () => {
+    expect(
+      target('work')
+        .placeholders.filter(p => p.kind === 'verb.path')
+        .map(p => p.arg)
+    ).toEqual(composition.pipelines.feature.map(ref => ref.split(':')[1]));
   });
 
   it('the unsynced composition differs from the clean one by its one pending binding', () => {
