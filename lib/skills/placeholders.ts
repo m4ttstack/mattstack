@@ -6,7 +6,7 @@ import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, St
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
 
-const PLACEHOLDER_RE = /\{\{([a-z][a-z0-9.-]*)(?::([^}\s]+))?\}\}/g;
+export const PLACEHOLDER_RE = /\{\{([a-z][a-z0-9.-]*)(?::([^}\s]+))?\}\}/g;
 
 export function findPlaceholders(body: string): Placeholder[] {
   const out: Placeholder[] = [];

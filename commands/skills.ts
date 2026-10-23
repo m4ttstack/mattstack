@@ -54,7 +54,7 @@ import { fieldContractErrors, routeFieldContract, type CompiledDoc } from "../li
 import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
-import { blockPropValues, compileBlockSkill, includeNamesIn, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
+import { blockPropValues, compileBlockSkill, includeSitesIn, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
 import { BlockError, formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
 import { walk } from "../lib/skills/blocks/tree.ts";
@@ -769,20 +769,20 @@ function stepText(step: StepSource): string {
 }
 
 /** Block text names includes, and an include tree's text names more, so the walk follows tree includes until none is new. */
-function loadBlockIncludes(tree: BlockTree, resolved: Resolved, where: string): Record<string, AttachmentSource> {
+function loadBlockIncludes(tree: BlockTree, resolved: Resolved): Record<string, AttachmentSource> {
   const loaded: Record<string, AttachmentSource> = {};
-  const queue = includeNamesIn(tree);
+  const queue = includeSitesIn(tree);
   while (queue.length > 0) {
-    const name = queue.shift()!;
+    const { name, ...at } = queue.shift()!;
     if (Object.hasOwn(loaded, name)) continue;
     try {
       loaded[name] = loadInclude(name, resolved.pluginRoots);
     } catch (err) {
-      if (err instanceof BlockError) throw new SkillsUsageError(err.message);
-      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+      if (err instanceof BlockError) throw err;
+      throw new BlockError([{ ...at, code: "fill-missing", message: (err as Error).message }]);
     }
     const inner = loaded[name]!.tree;
-    if (inner) queue.push(...includeNamesIn(inner));
+    if (inner) queue.push(...includeSitesIn(inner));
   }
   return loaded;
 }
@@ -853,7 +853,7 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
       rules.push(...step.allowedTools);
       if (step.tree) {
         const where = `stage "${entry.name}"`;
-        const values = loadPropValuesFor(step, resolved, where, type, loadBlockIncludes(step.tree, resolved, where));
+        const values = loadPropValuesFor(step, resolved, where, type, loadBlockIncludes(step.tree, resolved));
         for (const props of values.values()) {
           for (const value of props.values()) {
             for (const { fill } of value.sources) {
@@ -944,7 +944,7 @@ function compileVerb(
 
   try {
     if (step.tree) {
-      const includes = loadBlockIncludes(step.tree, resolved, where);
+      const includes = loadBlockIncludes(step.tree, resolved);
       const values = loadPropValuesFor(step, resolved, where, isStage ? verb.pipeline : undefined, includes);
       loadValueIncludes(values, includes, resolved, where);
       const result = compileBlockSkill(verb, { ...step, tree: step.tree }, values, resolved.invocable, opts(includes));

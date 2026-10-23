@@ -1,4 +1,4 @@
-import { fillReference, inlineFillText, spanOf, substituteLine, type Used } from "../placeholders.ts";
+import { fillReference, inlineFillText, PLACEHOLDER_RE, spanOf, substituteLine, type Used } from "../placeholders.ts";
 import type { PlaceholderContext } from "../types.ts";
 import { BlockError, type BlockDiagnostic } from "./diagnostics.ts";
 import { toDot } from "./dot.ts";
@@ -70,6 +70,13 @@ function propText(b: Block, name: string, src: SourcedTree, st: State): string {
         ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference("Prop", name, fill)}`
         : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used.packPaths))
     .join("\n\n");
+}
+
+/** substituteLine's message names the placeholder it refused, by its text or by its quoted argument. */
+function failingPlaceholderCol(line: string, message: string): number {
+  const found = [...line.matchAll(PLACEHOLDER_RE)];
+  const hit = found.find((m) => message.includes(m[0])) ?? found.find((m) => m[2] !== undefined && message.includes(`"${m[2]}"`)) ?? found[0];
+  return (hit?.index ?? Math.max(0, line.indexOf("{{"))) + 1;
 }
 
 /** The last `#` heading line in rendered text, outside code fences, or null. */
@@ -179,7 +186,13 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
         text = "#".repeat(level) + h[2]!;
         nearest = { title: h[2]!.trim(), level };
       }
-      rendered = substituteLine(text, fileLine - 1, st.ctx, b.relPath, st.used);
+      try {
+        rendered = substituteLine(text, fileLine - 1, st.ctx, b.relPath, st.used);
+      } catch (err) {
+        const message = (err as Error).message.replace(`${b.relPath}: `, "");
+        st.diagnostics.push({ file: b.relPath, line: fileLine, col: failingPlaceholderCol(text, message), message, code: "bad-value" });
+        rendered = "";
+      }
     }
 
     if (rendered.startsWith(SEAM_START)) resume = true;

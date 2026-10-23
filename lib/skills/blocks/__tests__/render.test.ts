@@ -312,6 +312,17 @@ test("a headless child after its parent's own sub-heading is text-after-include 
   expect(d!.message).toContain('"## Detail"');
 });
 
+test("a leftover slot or an unknown placeholder in a block is bad-value at its {{, keeping the message", () => {
+  const tree = plainTree({ "index.block.md": "---\n---\n\n# host\n\n{{slot:rules}}\n" });
+  expect(diagnosticsOf(() => render(tree))).toEqual([
+    { file: "a/index.block.md", line: 6, col: 1, code: "bad-value", message: 'slot "rules" is not declared by this engine' },
+  ]);
+  const other = plainTree({ "index.block.md": "---\n---\n\n# Other\n\nSee {{bogus}} here.\n" });
+  expect(diagnosticsOf(() => render(other))).toEqual([
+    { file: "a/index.block.md", line: 6, col: 5, code: "bad-value", message: "unknown placeholder {{bogus}} at line 6" },
+  ]);
+});
+
 test("a heading-less include may sit before more text", () => {
   const host = plainTree({
     "index.block.md": "---\n---\n\n# host\n",

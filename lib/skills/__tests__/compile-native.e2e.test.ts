@@ -726,6 +726,15 @@ describe("block-tree engines end to end", () => {
     expect(errors.join("\n")).toContain('skills.jsonc:14:5: binding "mattstack:mnii/gate" names a block of mattstack:mnii, which no compiled verb loads');
   });
 
+  test("a typo'd include in a block refuses compile at the marker's file, line and column", async () => {
+    const { ms, args } = await buildBlocks();
+    const run = join(ms, "plugins", "mattstack", "attachments", "pipeline", "mini", "run", "index.block.md");
+    writeFileSync(run, `${readFileSync(run, "utf8")}\n  {{include:nope}}\n`);
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(args));
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain('attachments/pipeline/mini/run/index.block.md:9:3: loadInclude: include "nope" not found at ');
+  });
+
   test("check reports a block key naming no loaded tree", async () => {
     const { manifest, args } = await buildBlocks();
     writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:gate-protocl/ask"'));

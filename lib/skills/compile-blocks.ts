@@ -185,15 +185,23 @@ export function unclaimedBlockKeys(bindings: PropBindings, claimed: Set<string>)
   return diagnostics;
 }
 
-/** The include names a tree's own text places; render resolves each to a tree or a flat attachment. */
-export function includeNamesIn(tree: BlockTree): string[] {
-  const names: string[] = [];
+export type IncludeSite = { name: string; file: string; line: number; col: number };
+
+/** Each include name a tree's own text places, at its first marker; render resolves each to a tree or a flat attachment. */
+export function includeSitesIn(tree: BlockTree): IncludeSite[] {
+  const sites: IncludeSite[] = [];
   for (const block of walk(tree)) {
+    const lines = block.text.split("\n");
     for (const p of findPlaceholders(block.text)) {
-      if (p.kind === "include" && p.arg && !names.includes(p.arg)) names.push(p.arg);
+      if (p.kind !== "include" || !p.arg || sites.some((s) => s.name === p.arg)) continue;
+      sites.push({ name: p.arg, file: block.relPath, line: block.textStartLine + p.line - 1, col: lines[p.line - 1]!.indexOf(p.raw) + 1 });
     }
   }
-  return names;
+  return sites;
+}
+
+export function includeNamesIn(tree: BlockTree): string[] {
+  return includeSitesIn(tree).map((s) => s.name);
 }
 
 /** A copy of the tree whose block text has been rewritten line for line, so seams and marker lines still hold. */
