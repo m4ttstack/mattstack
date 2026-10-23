@@ -7,7 +7,9 @@ title: Packs
 
 A pack is your team's plugin: the verbs your team types (`/<team>:work`), the bindings that route each pipeline stage to your rules, and the rules themselves. Nobody writes it by hand. Two skills do the work: `mattstack:creating-a-pack` and `mattstack:extending-a-pack`. The examples here use an org called `acme` and its team `widgets`.
 
-A team does not fork the plugin. Its pack compiles a `work` verb from the plugin's engines with every domain slot unbound, so the generic pipeline runs on day one, and rules arrive later one at a time.
+A team does not fork the plugin. Its pack compiles a `work` verb from the plugin's engines with nothing bound, so the generic pipeline runs on day one, and rules arrive later one at a time.
+
+Each engine is a tree of blocks: an `index.block.md` root and one `*.block.md` file per section. A section is a step of the flow, the domain rules, or another part of the verb. A block that takes your team's text declares a prop, and a pack fills a prop by binding a fill to it. A fill is a small skill in your team's words. [`rt skills blocks`](/rt/reference/skills/blocks) shows a verb's blocks and their props.
 
 ## Before you start
 
@@ -52,12 +54,18 @@ The skill sorts the ask into one of five places:
 | The ask is about | Where it lands |
 | --- | --- |
 | A rule that holds even outside a pipeline (branch names, forbidden ops, where things live) | `skills/context/SKILL.md`, a public skill in the pack |
-| Something one stage or verb should do differently | A fill bound to that stage's slot |
+| Something one stage or verb should do differently | A fill bound to a prop on one of that engine's blocks: the step's block for a rule at one step, `domain-rules` for the whole stage |
 | A new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | A roster entry in `pack/stubs.jsonc` |
 | The wording of an existing verb | Its `description` in `pack/stubs.jsonc` |
 | One kind of work (accessibility, a bug fix) that runs its own stages or fills | A specialized pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb that runs it |
 
-For the lint example, you see a failing run first, with nothing running lint. Then a small fill skill written in your team's words is bound to the ship stage, `tests/certify.sh` and `rt skills check` pass, and the same task runs again with lint blocking the push. Publishing goes through `mattstack:editing-skills`: bump the pack version, commit, push, `rt skills sync --pack widgets`, `/reload-plugins`. A rule is undone the same way: remove the binding and the fill, bump, publish.
+For the lint example, you see a failing run first, with nothing running lint. Then a small fill skill written in your team's words is bound to the fast-checks step of the ship stage:
+
+```bash
+rt skills bind stage-ship stage-ship/domain-fast-checks rules widgets:lint-changed --pack widgets
+```
+
+A pack that also has a `ship` verb binds the same fill to that verb's own block, `ship/flow/domain-fast-checks`. `tests/certify.sh` and `rt skills check` pass, and the same task runs again with lint blocking the push. Publishing goes through `mattstack:editing-skills`: bump the pack version, commit, push, `rt skills sync --pack widgets`, `/reload-plugins`. A rule is undone the same way: remove the binding and the fill, bump, publish.
 
 ## Add a specialized pipeline
 
@@ -81,11 +89,11 @@ The pack starts with one pipeline, `feature`, and `/widgets:work` runs it. To gi
    ```
 
 4. Puts the verb on the pack's surface with `rt skills surface set work-a11y --public`, which also compiles the pack, then checks it.
-5. Binds each fill that differs for that pipeline with `rt skills bind <stage> <slot> <fill> --pipeline accessibility`. Every stage it does not override runs the default fills. Where a pipeline's fills differ, compile writes a stage copy such as `attachments/stage-evidence--accessibility/`.
+5. Binds each fill that differs for that pipeline with `rt skills bind <stage> <block> <prop> <fill> --pipeline accessibility`. Every stage it does not override runs the default fills. Where a pipeline's fills differ, compile writes a stage copy such as `attachments/stage-evidence--accessibility/`.
 
 `/widgets:work-a11y` then runs accessibility work, and its runs record the pipeline `accessibility`. Each verb resumes only runs of its own pipeline.
 
-To put a pipeline's slot back on the default fill, ask the same skill to undo the override. It runs `rt skills bind <stage> <slot> --pipeline accessibility --unset`, checks the pack and publishes. The recompile removes the stage copy once that stage matches the default again. [`rt skills bind`](/rt/reference/skills/bind) has the details and refusals.
+To put a pipeline's prop back on the default fill, ask the same skill to undo the override. It runs `rt skills bind <stage> <block> <prop> --pipeline accessibility --unset`, checks the pack and publishes. The recompile removes the stage copy once that stage matches the default again. [`rt skills bind`](/rt/reference/skills/bind) has the details and refusals.
 
 ## Add browser evidence
 
@@ -115,18 +123,18 @@ The run keeps each evidence board with its captures. Before anything is uploaded
 - Do not edit a repo's generated `skills.jsonc` under `~/.mattstack/repos/`: `rt skills materialize` regenerates it, and `pack/skills.jsonc` is the source.
 - Do not edit a pack in a git worktree or another copy of the org repo. Make every pack edit, with its commit and push, in the org clone, on the branch it has checked out. Materialize reads a pack's fragment only from the org clone. `rt skills sync` refuses a `.worktrees/` or `.claude/worktrees/` folder under the pack.
 - Do not copy another team's pack: its fills carry that team's rules.
-- Do not write a fill "to have something there": an unbound slot renders as nothing, which is the correct state until a rule exists.
+- Do not write a fill "to have something there": a `rules` prop with nothing bound renders as nothing, which is the correct state until a rule exists.
 
 ## Fills the whole org shares
 
-A rule every team follows goes in the org's base pack, a folder the org admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo. A team pack uses it with `"extends": "acme-base"` in its `pack/skills.jsonc`, and its own fills override the base's slot by slot. Bindings follow the base at once on every machine; compiled fills follow at the team owner's next `rt skills compile`. The base is never installed, so a base fill reaches a team's verbs by being compiled in. There is one exception. A fill that only `board:*` slots bind is copied into the team pack as well. The board opens a fill by `<plugin>:<name>` while it runs, and compile never inlines a board slot. Materialize then points those board bindings at `<team plugin>:<name>`.
+A rule every team follows goes in the org's base pack, a folder the org admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo. A team pack uses it with `"extends": "acme-base"` in its `pack/skills.jsonc`, and its own fills join the base's prop by prop. On a prop that merges with `add`, the team's fill follows the base's; on one that merges with `replace`, the team's fill replaces it. Bindings follow the base at once on every machine; compiled fills follow at the team owner's next `rt skills compile`. The base is never installed, so a base fill reaches a team's verbs by being compiled in. There is one exception. A fill that only `board:*` bindings name is copied into the team pack as well. The board opens a fill by `<plugin>:<name>` while it runs, and compile never inlines a board binding. Materialize then points those board bindings at `<team plugin>:<name>`.
 
 ## Files the whole org shares
 
 A fill is text compiled into a verb. A file a skill opens while it runs (a reference, a checklist, a script) has to sit inside the installed team pack, and the base is never installed. So when a team pack extends a base, `rt skills compile` copies the base's attachments into the team pack:
 
-- **What is copied:** every attachment folder in the base that has a `SKILL.md` and is not a fill. A fill's `SKILL.md` carries `metadata.provides`, and compile inlines it instead. When only `board:*` slots bind a fill, compile copies it too. An attachment can sit one group deep, as in `attachments/<group>/<name>/`.
-- **A board fill the base cannot deliver is refused:** compile stops when the base binds a `board:*` slot to a fill it has no `attachments/<name>/` for, or keeps that fill one group deep, since the board finds `attachments/<name>` only.
+- **What is copied:** every attachment folder in the base that has a `SKILL.md` and is not a fill. A fill's `SKILL.md` carries `metadata.provides`, and compile inlines it instead. When only `board:*` bindings name a fill, compile copies it too. An attachment can sit one group deep, as in `attachments/<group>/<name>/`.
+- **A board fill the base cannot deliver is refused:** compile stops when the base binds a `board:*` key to a fill it has no `attachments/<name>/` for, or keeps that fill one group deep, since the board finds `attachments/<name>` only.
 - **Where it lands:** the same path under the team pack's `attachments/`. Each copied folder gets a `compiled.json` naming the base, its version and the files compile wrote. That file marks the folder as compile's output: the next successful compile rewrites it, and `rt skills check` reports it as drift when it no longer matches the base.
 - **Placeholders:** in a copied `.md` file, `{{pack.name}}` becomes the team pack's plugin name, so a base attachment names a team verb as `{{pack.name}}:ship`. `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` resolve in the team pack, and `{{team.*}}` markers take the team's values (see [Team values in shared fills](#team-values-in-shared-fills)). Any other `{{...}}` text, and every file that is not `.md`, is copied as it is.
 - **The team's own folder wins:** compile leaves the team pack's own `attachments/<name>/` alone and copies nothing for that name. A folder is the team's own when it has no `compiled.json` that compile wrote. A data file of that name in another shape does not count. To override a base attachment, delete the copied folder and write your own in its place.
