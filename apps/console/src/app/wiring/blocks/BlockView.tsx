@@ -189,13 +189,13 @@ function PackLine({
   const org = payload.layers.find(layer => layer.color === 'org');
   const engine = payload.engineRef.split(':').pop() ?? payload.skill;
   const stats = scopeStats(payload, scope);
-  const counts = [
+  const [first, ...rest] = [
     plural(stats.blocks, 'block'),
     `${stats.withProps} with props`,
     ...(stats.values > 0 ? [plural(stats.values, 'prop value')] : []),
     ...(stats.graphs > 0 ? [plural(stats.graphs, 'graph')] : []),
     ...(stats.shared > 0 ? [`${stats.shared} shared`] : []),
-  ].join(', ');
+  ];
   return (
     <div className={classes.packLine} data-testid="pack-line">
       <Chip tone="team">{payload.pack}</Chip>{' '}
@@ -206,10 +206,19 @@ function PackLine({
           <span className={classes.packWord}>extends</span>{' '}
         </>
       )}
-      <Chip tone="mattstack">
-        {['mattstack', engine, ...(version ? [version] : [])].join(' ')}
-      </Chip>{' '}
-      <span className={classes.packCounts}>{`· ${counts}`}</span>
+      {/* The dot travels with the chip before it and the count after it,
+          so a wrap never leaves it at either end of a line. */}
+      <span className={classes.packHeld} data-testid="pack-line-held">
+        <Chip tone="mattstack">
+          {['mattstack', engine, ...(version ? [version] : [])].join(' ')}
+        </Chip>{' '}
+        <span className={classes.packCounts}>
+          {`· ${first}${rest.length > 0 ? ',' : ''}`}
+        </span>
+      </span>{' '}
+      {rest.length > 0 && (
+        <span className={classes.packCounts}>{rest.join(', ')}</span>
+      )}
     </div>
   );
 }
@@ -308,6 +317,7 @@ function ZoomBody({
           (wholeGraph ? (
             <WholeGraph
               graph={graph}
+              skill={payload.skill}
               highlight={at.node}
               glyphOf={glyphOf}
               onSelect={open}
@@ -316,6 +326,7 @@ function ZoomBody({
           ) : (
             <AroundGraph
               graph={graph}
+              skill={payload.skill}
               focus={at.node}
               glyphOf={glyphOf}
               onSelect={open}
@@ -354,6 +365,7 @@ function ZoomBody({
       {wholeGraph && own && (
         <WholeGraph
           graph={labelledGraph(payload, own)}
+          skill={payload.skill}
           highlight={null}
           glyphOf={glyphOf}
           onSelect={open}

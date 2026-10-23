@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { shipShaped } from '../__tests__/aroundFixtures';
 import { miniPayload, shipPayload } from '../__tests__/blocksFixture';
 import { aroundBlock } from './around';
-import { AROUND, aroundLayout, layerNodes, wholeLayout } from './aroundLayout';
+import {
+  AROUND,
+  aroundLayout,
+  layerNodes,
+  wholeLayout,
+  type AroundNode,
+} from './aroundLayout';
 
 const sub = aroundBlock(shipShaped, 'fast_checks');
 
@@ -170,7 +176,7 @@ describe('aroundLayout with a row cap', () => {
     const capped = aroundLayout(sub, 'fast_checks', 2);
     const centre = (id: string) => {
       const node = capped.nodes.find(candidate => candidate.id === id)!;
-      return { x: node.position.x + AROUND.nodeW / 2, y: node.position.y };
+      return { x: node.position.x + node.width! / 2, y: node.position.y };
     };
     const routed = capped.edges.filter(edge => edge.target === 'fast_checks');
     expect(routed.length).toBeGreaterThan(0);
@@ -182,8 +188,8 @@ describe('aroundLayout with a row cap', () => {
       );
       const blocked = between.some(
         node =>
-          Math.abs(node.position.x + AROUND.nodeW / 2 - from.x) <
-          AROUND.nodeW / 2 + AROUND.columnGap / 2
+          Math.abs(node.position.x + node.width! / 2 - from.x) <
+          node.width! / 2 + AROUND.columnGap / 2
       );
       if (blocked) {
         const channel = edge.data?.channel;
@@ -273,5 +279,89 @@ describe('wholeLayout', () => {
       edges: [],
       rows: 0,
     });
+  });
+});
+
+describe('aroundLayout sizes nodes to their labels', () => {
+  // About 7px a character at 13px, the estimate the layout falls back to.
+  const measure = (label: string) => label.length * 7;
+  const width = (layout: ReturnType<typeof aroundLayout>, id: string) =>
+    layout.nodes.find(node => node.id === id)!.width!;
+
+  it('grows a node from 150 to fit its label, and caps it at 240', () => {
+    const long = {
+      nodes: [
+        ...sub.nodes,
+        {
+          ...sub.nodes[0],
+          id: 'wordy',
+          label: 'A question whose label runs on well past any sensible width?',
+        },
+      ],
+      edges: [
+        ...sub.edges,
+        { ...sub.edges[0], from: 'wordy', to: 'fast_checks' },
+      ],
+    };
+    const layout = aroundLayout(long, 'fast_checks', Infinity, { measure });
+    expect(width(layout, 'commit_named')).toBe(AROUND.nodeW);
+    expect(width(layout, 'rebase_status')).toBeGreaterThan(AROUND.nodeW);
+    expect(width(layout, 'wordy')).toBe(AROUND.maxNodeW);
+  });
+
+  it('keeps nodes on one row from overlapping, whatever their widths', () => {
+    const layout = aroundLayout(sub, 'fast_checks', 2, { measure });
+    const rows = new Map<number, AroundNode[]>();
+    for (const node of layout.nodes) {
+      rows.set(node.position.y, [...(rows.get(node.position.y) ?? []), node]);
+    }
+    for (const row of rows.values()) {
+      const sorted = [...row].sort((a, b) => a.position.x - b.position.x);
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1]!;
+        expect(sorted[i]!.position.x).toBeGreaterThanOrEqual(
+          prev.position.x + prev.width! + AROUND.columnGap
+        );
+      }
+    }
+  });
+
+  it("drops a graph-only label's parenthetical naming the skill in view, keeping the whole label as its title", () => {
+    const named = {
+      nodes: sub.nodes.map(node =>
+        node.id === 'checks_pass'
+          ? { ...node, label: 'Checks pass (ship)?' }
+          : node.id === 'rebase_status'
+            ? { ...node, label: 'Nothing to push (ship re-capture)?' }
+            : node
+      ),
+      edges: sub.edges,
+    };
+    const layout = aroundLayout(named, 'fast_checks', Infinity, {
+      skill: 'ship',
+    });
+    const data = (id: string) =>
+      layout.nodes.find(node => node.id === id)!.data;
+    expect(data('checks_pass')).toMatchObject({
+      label: 'Checks pass?',
+      title: 'Checks pass (ship)?',
+    });
+    expect(data('rebase_status').label).toBe(
+      'Nothing to push (ship re-capture)?'
+    );
+  });
+
+  it('fits as many nodes on a row as the room holds', () => {
+    const topRow = (room: number) =>
+      aroundLayout(sub, 'fast_checks', Infinity, {
+        measure,
+        room,
+      }).nodes.filter(node => node.position.y === 0).length;
+    // The four in-neighbours: three at 150 and Rebase status? at 160.
+    expect(topRow(Infinity)).toBe(4);
+    expect(topRow(700)).toBe(4);
+    expect(topRow(690)).toBe(3);
+    expect(topRow(330)).toBe(2);
+    expect(topRow(100)).toBe(1);
   });
 });

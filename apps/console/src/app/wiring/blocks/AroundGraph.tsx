@@ -51,10 +51,29 @@ const GlyphOf = createContext<GlyphLookup>(noGlyph);
 
 const ICON_STROKE = 2;
 const MARKER = { length: 7, halfWidth: 4 };
-const CANVAS_PADDING = 16;
-/** Rows wrap to fit at full size, so the canvas draws the boards' 13px
-    labels; it never zooms out past this, where they read 11px. */
+const CANVAS_PADDING = 12;
+/** Rows wrap to fit at this zoom, so the board's row of four still fits
+    beside a scrollbar; a canvas with room to spare draws at full size. */
+const FIT_ZOOM = 0.95;
+/** The canvas never zooms out past this, where 13px labels read 11px. */
 const MIN_ZOOM = 0.85;
+
+let labelContext: CanvasRenderingContext2D | null | undefined;
+
+/** A node label's width as the canvas draws it, at its 13px; null where
+    the browser gives no 2D canvas (tests), so the layout estimates. */
+function measureLabel(label: string): number | null {
+  if (labelContext === undefined) {
+    labelContext = document.createElement('canvas').getContext('2d');
+    if (labelContext) {
+      const family = getComputedStyle(document.body).fontFamily;
+      labelContext.font = `400 13px ${family}`;
+    }
+  }
+  return labelContext ? labelContext.measureText(label).width : null;
+}
+
+const measure = (label: string) => measureLabel(label) ?? label.length * 7;
 
 /** Down to the row gap under the source, across to the channel, down past
     the rows between, and across to land on the target from above. */
@@ -92,20 +111,21 @@ function canvasHeight(
 ): number {
   const { rows } = layout;
   const tall = rows * AROUND.nodeH + (rows - 1) * AROUND.rowGap;
-  const xs = layout.nodes.map(node => node.position.x);
-  const wide =
-    xs.length > 0 ? Math.max(...xs) - Math.min(...xs) + AROUND.nodeW : 0;
+  const lefts = layout.nodes.map(node => node.position.x);
+  const rights = layout.nodes.map(
+    node => node.position.x + (node.width ?? AROUND.nodeW)
+  );
+  const wide = lefts.length > 0 ? Math.max(...rights) - Math.min(...lefts) : 0;
   const fit = width > 0 && wide > 0 ? (width - 2 * CANVAS_PADDING) / wide : 1;
   const zoom = Math.min(1, Math.max(MIN_ZOOM, fit));
   return Math.ceil(tall * zoom) + 2 * CANVAS_PADDING;
 }
 
-/** How many nodes fit across a canvas `width` wide at the smallest zoom;
-    unbounded until the canvas has been measured. */
-function perRowAt(width: number): number {
+/** The room a row of nodes has across a canvas `width` wide, at the zoom
+    rows wrap to fit; unbounded until the canvas has been measured. */
+export function roomAt(width: number): number {
   if (width <= 0) return Number.POSITIVE_INFINITY;
-  const room = width - 2 * CANVAS_PADDING + AROUND.columnGap;
-  return Math.max(1, Math.floor(room / (AROUND.nodeW + AROUND.columnGap)));
+  return (width - 2 * CANVAS_PADDING) / FIT_ZOOM;
 }
 
 function ShapeIcon({
@@ -148,20 +168,22 @@ function Handles() {
 }
 
 function BlockNodeComponent({
-  data: { label, shape, blockId, focus },
+  width,
+  data: { label, title, shape, blockId, focus },
 }: NodeProps<AroundNode>) {
   const onSelect = useContext(OnSelect);
   return (
     <div className={classes.aroundShell}>
       <UnstyledButton
         className={classes.aroundNode}
+        style={{ width }}
         data-kind="block"
         data-focus={focus ? 'true' : undefined}
         data-testid="around-block"
         onClick={() => blockId && onSelect(blockId)}
       >
         <ShapeIcon shape={shape} blockId={blockId} />
-        <span className={classes.aroundLabel} title={label}>
+        <span className={classes.aroundLabel} title={title}>
           {label}
         </span>
       </UnstyledButton>
@@ -171,17 +193,19 @@ function BlockNodeComponent({
 }
 
 function GraphOnlyNodeComponent({
-  data: { label, shape },
+  width,
+  data: { label, title, shape },
 }: NodeProps<AroundNode>) {
   return (
     <div className={classes.aroundShell}>
       <div
         className={classes.aroundNode}
+        style={{ width }}
         data-kind="step"
         data-testid="around-step"
       >
         <ShapeIcon shape={shape} />
-        <span className={classes.aroundLabel} title={label}>
+        <span className={classes.aroundLabel} title={title}>
           {label}
         </span>
       </div>
@@ -273,6 +297,8 @@ export interface AroundGraphProps {
   graph: BlocksPayload['graphs'][number];
   /** The block's own node id in `graph`. */
   focus: string;
+  /** The skill in view, which graph-only labels need not repeat. */
+  skill?: string;
   /** A block's kind, for the glyph on its node. */
   glyphOf?: GlyphLookup;
   onSelect: (blockId: string) => void;
@@ -294,8 +320,8 @@ function GraphFrame({
   label: string;
   action: string;
   onAction: () => void;
-  /** The layout with no row wider than `maxPerRow` nodes. */
-  layoutFor: (maxPerRow: number) => {
+  /** The layout with no row wider than `room` px. */
+  layoutFor: (room: number) => {
     nodes: AroundNode[];
     edges: AroundEdge[];
     rows: number;
@@ -307,13 +333,13 @@ function GraphFrame({
   const { ref, width } = useElementSize();
   // A layout whose side channels run left of its nodes is laid out again
   // with that much less room, so its widest row still fits.
-  const { layout, maxPerRow } = useMemo(() => {
-    const wide = perRowAt(width);
+  const { layout, room } = useMemo(() => {
+    const wide = roomAt(width);
     const first = layoutFor(wide);
     const reach = channelReach(first);
-    if (reach === 0) return { layout: first, maxPerRow: wide };
-    const narrow = perRowAt(width - reach);
-    return { layout: layoutFor(narrow), maxPerRow: narrow };
+    if (reach === 0) return { layout: first, room: wide };
+    const narrow = roomAt(width - reach);
+    return { layout: layoutFor(narrow), room: narrow };
   }, [layoutFor, width]);
   const height = canvasHeight(layout, width);
 
@@ -331,7 +357,7 @@ function GraphFrame({
         <OnSelect.Provider value={onSelect}>
           <Box ref={ref} className={classes.aroundCanvas} h={height}>
             <ReactFlow
-              key={maxPerRow}
+              key={room}
               nodes={layout.nodes}
               edges={layout.edges}
               nodeTypes={NODE_TYPES}
@@ -378,14 +404,19 @@ function GraphFrame({
 export function AroundGraph({
   graph,
   focus,
+  skill,
   glyphOf = noGlyph,
   onSelect,
   onViewWholeGraph,
 }: AroundGraphProps) {
   const layoutFor = useCallback(
-    (maxPerRow: number) =>
-      aroundLayout(aroundBlock(graph, focus), focus, maxPerRow),
-    [graph, focus]
+    (room: number) =>
+      aroundLayout(aroundBlock(graph, focus), focus, Infinity, {
+        room,
+        measure,
+        skill,
+      }),
+    [graph, focus, skill]
   );
 
   return (
@@ -403,6 +434,8 @@ export function AroundGraph({
 
 export interface WholeGraphProps {
   graph: BlocksPayload['graphs'][number];
+  /** The skill in view, which graph-only labels need not repeat. */
+  skill?: string;
   /** The open block's own node, marked as the focus; null on a parent. */
   highlight: string | null;
   glyphOf?: GlyphLookup;
@@ -414,13 +447,15 @@ export interface WholeGraphProps {
 export function WholeGraph({
   graph,
   highlight,
+  skill,
   glyphOf = noGlyph,
   onSelect,
   onClose,
 }: WholeGraphProps) {
   const layoutFor = useCallback(
-    (maxPerRow: number) => wholeLayout(graph, highlight, maxPerRow),
-    [graph, highlight]
+    (room: number) =>
+      wholeLayout(graph, highlight, Infinity, { room, measure, skill }),
+    [graph, highlight, skill]
   );
   return (
     <GraphFrame

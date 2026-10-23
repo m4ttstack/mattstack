@@ -398,7 +398,8 @@
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  width: 150px;
+  min-width: 150px;
+  max-width: 240px;
   height: 32px;
   padding: 0 10px;
   border: 1px solid var(--tk-border);
@@ -619,6 +620,13 @@
     transparent
   );
   color: var(--tk-text-purple-small);
+}
+
+.packHeld {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .packWord {

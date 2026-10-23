@@ -4,7 +4,7 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AroundGraph } from '../AroundGraph';
+import { AroundGraph, roomAt } from '../AroundGraph';
 import { shipShaped } from './aroundFixtures';
 
 function renderAround() {
@@ -85,5 +85,16 @@ describe('AroundGraph', () => {
     click(screen.getByRole('button', { name: 'View whole graph' }));
 
     expect(onViewWholeGraph).toHaveBeenCalledOnce();
+  });
+});
+
+describe('roomAt', () => {
+  it("leaves the board's row of four room beside a scrollbar, at 1440 and at 900", () => {
+    // The board's row: three nodes at 150, one at 160, three 30px gaps.
+    const boardRow = 3 * 150 + 160 + 3 * 30;
+    expect(roomAt(730)).toBeGreaterThanOrEqual(boardRow);
+    expect(roomAt(715)).toBeGreaterThanOrEqual(boardRow);
+    expect(roomAt(554)).toBeLessThan(boardRow);
+    expect(roomAt(0)).toBe(Number.POSITIVE_INFINITY);
   });
 });

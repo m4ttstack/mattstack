@@ -277,6 +277,13 @@ describe('BlockView: a parent block', () => {
     );
   });
 
+  it('keeps the counts dot with the engine chip and the first count, so a wrap never strands it', () => {
+    renderView({ focus: 'ship', block: 'ship/flow' }, { payload: shipPayload });
+
+    const held = screen.getByTestId('pack-line-held');
+    expect(held).toHaveTextContent(/^mattstack ship · 21 blocks,$/);
+  });
+
   it("draws the skill's graph card and opens the whole graph from it", async () => {
     const patch = renderView();
 
