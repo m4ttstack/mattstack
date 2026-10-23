@@ -1,17 +1,22 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { stripJsonc } from "../../jsonc.ts";
 import { normalizePipelines } from "../pipelines.ts";
 import { packPathResolves } from "../placeholders.ts";
-import { listDirs, readSurface, readVerbRoster, stageRoster } from "../sources.ts";
+import { listDirs, readSurface, readVerbRoster, stageRoster, stripFrontmatter } from "../sources.ts";
 import type { Side } from "../types.ts";
 import { blockIn } from "./lookup.ts";
 import type { ManifestBindings, Plugin, Workspace } from "./workspace.ts";
 
-/** A plugin that compiles verbs: the pack its engines' pack.path and verb.path markers resolve against. */
-export type Pack = { plugin: Plugin; verbSides: Record<string, Side>; engines: Set<string> };
+/**
+ * A plugin that compiles verbs: the pack its engines' pack.path and verb.path markers resolve against.
+ * `compiled` holds output folders of verbs the workspace has no entry for (a stage named only in a
+ * manifest outside the workspace), with the side they sit on now, which compile may not keep.
+ */
+export type Pack = { plugin: Plugin; verbSides: Record<string, Side>; engines: Set<string>; compiled: Map<string, Side> };
 
-export type PathTarget = { rel: string; file: string; exists: boolean };
+/** `compiled`: the target is compile output, which pack.path cannot name and a recompile replaces. */
+export type PathTarget = { rel: string; file: string; exists: boolean; compiled: boolean };
 
 const SIDES = ["attachments", "skills"] as const;
 
@@ -66,12 +71,36 @@ export function readPack(plugin: Plugin, manifests: { text: string; bindings: Ma
       continue;
     }
   }
-  return { plugin, verbSides, engines };
+  return { plugin, verbSides, engines, compiled: compiledFolders(plugin.dir, verbSides) };
 }
 
-/** The options compile hands `handPathDiagnostics` for this pack. */
+/** Compile writes `metadata.compiled` into every SKILL.md it emits (`buildFrontmatter`), so the marker names its output. */
+function compiledFolders(dir: string, verbSides: Record<string, Side>): Map<string, Side> {
+  const out = new Map<string, Side>();
+  for (const side of SIDES) {
+    for (const name of listDirs(join(dir, side))) {
+      if (Object.hasOwn(verbSides, name) || out.has(name)) continue;
+      try {
+        const { frontmatter } = stripFrontmatter(readFileSync(join(dir, side, name, "SKILL.md"), "utf8"));
+        const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object" ? (frontmatter.metadata as Record<string, unknown>) : {};
+        if (typeof metadata.compiled === "string") out.set(name, side);
+      } catch {
+        continue;
+      }
+    }
+  }
+  return out;
+}
+
+const isCompiled = (pack: Pack, name: string) => Object.hasOwn(pack.verbSides, name) || pack.compiled.has(name);
+
+/**
+ * The options compile hands `handPathDiagnostics` for this pack. An output folder of unknown side counts as
+ * a verb for pack.path, which then refuses it, but is no verb.path fix, since its side may be wrong.
+ */
 export function fixView(pack: Pack): { verbs: ReadonlySet<string>; packSource: (arg: string) => boolean } {
-  const view = { verbSides: pack.verbSides, packRoot: pack.plugin.dir };
+  const verbSides = { ...pack.verbSides, ...Object.fromEntries(pack.compiled) };
+  const view = { verbSides, packRoot: pack.plugin.dir };
   return { verbs: new Set(Object.keys(pack.verbSides)), packSource: (arg) => packPathResolves(view, arg) };
 }
 
@@ -91,27 +120,32 @@ export function packTarget(pack: Pack, attachment: string, file: string): PathTa
   const side = SIDES.find((s) => isDirectory(join(pack.plugin.dir, s, attachment))) ?? "attachments";
   const rel = `${side}/${attachment}/${file}`;
   const path = join(pack.plugin.dir, side, attachment, ...file.split("/"));
-  return { rel, file: path, exists: !(attachment in pack.verbSides) && isFile(path) };
+  const compiled = isCompiled(pack, attachment);
+  return { rel, file: path, exists: !compiled && isFile(path), compiled };
 }
 
-/** A compiled verb's SKILL.md, on the side compile writes it to; null for a name the pack does not compile. */
+/**
+ * A compiled verb's SKILL.md, on the side compile writes it to. An output folder of unknown side comes back
+ * `compiled`, where it sits now; null for a name the pack does not compile.
+ */
 export function verbTarget(pack: Pack, verb: string): PathTarget | null {
-  if (!Object.hasOwn(pack.verbSides, verb)) return null;
-  const side = pack.verbSides[verb]!;
+  const known = Object.hasOwn(pack.verbSides, verb);
+  const side = known ? pack.verbSides[verb]! : pack.compiled.get(verb);
+  if (side === undefined) return null;
   const rel = `${side}/${verb}/SKILL.md`;
   const path = join(pack.plugin.dir, side, verb, "SKILL.md");
-  return { rel, file: path, exists: isFile(path) };
+  return { rel, file: path, exists: isFile(path), compiled: !known };
 }
 
 /** The folders pack.path may name: source under attachments/ and skills/, never a compiled verb's output. */
 export function unitNames(pack: Pack): string[] {
   const names = new Set(SIDES.flatMap((s) => listDirs(join(pack.plugin.dir, s))));
-  return [...names].filter((n) => !Object.hasOwn(pack.verbSides, n)).sort();
+  return [...names].filter((n) => !isCompiled(pack, n)).sort();
 }
 
 /** Every file under a folder pack.path may name, relative to it. */
 export function unitFiles(pack: Pack, unit: string): string[] {
-  if (Object.hasOwn(pack.verbSides, unit)) return [];
+  if (isCompiled(pack, unit)) return [];
   const side = SIDES.find((s) => isDirectory(join(pack.plugin.dir, s, unit)));
   if (!side) return [];
   const root = join(pack.plugin.dir, side, unit);

@@ -105,6 +105,14 @@ describe("definitionAt on a skill path", () => {
     expect(define(ws, gate, "{{pack.path:", 4).map((r) => r.uri)).toEqual([uri(join(pack, "attachments/mini-rules/fast.md"))]);
   });
 
+  test("a compiled output folder's file has no definition", () => {
+    mkdirSync(join(pack, "attachments/stage-x"), { recursive: true });
+    writeFileSync(join(pack, "attachments/stage-x/SKILL.md"), '---\nname: "stage-x"\nmetadata:\n  compiled: "mattstack@1.0.0"\n---\n');
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:stage-x/SKILL.md}}\n`);
+    expect(define(ws, gate, "{{pack.path:", 4)).toEqual([]);
+  });
+
   test("a missing target has no definition", () => {
     const ws = new Workspace([plugin, pack]);
     ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:mini-rules/gone.md}}\n`);

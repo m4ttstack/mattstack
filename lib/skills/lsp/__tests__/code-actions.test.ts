@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -33,7 +33,13 @@ function withLine(ws: Workspace, line: string) {
   return publishable(ws, gate).filter((d) => d.code === "hand-typed-path");
 }
 
-const covered = (ws: Workspace, r: Range) => ws.text(gate).split("\n")[r.start.line]!.slice(r.start.character, r.end.character);
+/** What compile leaves for a stage named only in a manifest outside the pack: an output folder marked compiled. */
+function withStageOutput(): void {
+  mkdirSync(join(pack, "attachments/stage-x"), { recursive: true });
+  writeFileSync(join(pack, "attachments/stage-x/SKILL.md"), '---\nname: "stage-x"\ndescription: ""\nmetadata:\n  compiled: "mattstack@1.0.0"\n---\n\nBody.\n');
+}
+
+const covered =(ws: Workspace, r: Range) => ws.text(gate).split("\n")[r.start.line]!.slice(r.start.character, r.end.character);
 
 function applied(ws: Workspace, edit: { changes: Record<string, { range: Range; newText: string }[]> }): string {
   const edits = edit.changes[pathToFileURL(gate).href] ?? [];
@@ -79,6 +85,14 @@ describe("hand-typed paths in the editor", () => {
   test("with no pack open the verbs are unknown, so the path gets no fix", () => {
     const ws = new Workspace([plugin]);
     const [d] = withLine(ws, "See ../mini/SKILL.md for the rest.");
+    expect(d).toBeDefined();
+    expect(codeActionsAt(ws, gate, d!.range)).toEqual([]);
+  });
+
+  test("a stage's output folder, named by no manifest in the pack, gets no pack.path or verb.path fix", () => {
+    withStageOutput();
+    const ws = new Workspace([plugin, pack]);
+    const [d] = withLine(ws, "See ../stage-x/SKILL.md now.");
     expect(d).toBeDefined();
     expect(codeActionsAt(ws, gate, d!.range)).toEqual([]);
   });

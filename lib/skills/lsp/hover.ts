@@ -55,7 +55,7 @@ function skillPathHover(ws: Workspace, file: string, token: SkillPathToken): str
     .map((pack) => {
       const target = token.kind === "pack-path" ? packTarget(pack, token.attachment, token.file) : verbTarget(pack, token.verb);
       const line = target
-        ? `\`${target.rel}\` · ${target.exists ? "exists" : "does not exist"}`
+        ? `\`${target.rel}\` · ${target.compiled ? "compiled output, not pack source" : target.exists ? "exists" : "does not exist"}`
         : token.kind === "pack-path"
           ? "takes <attachment>/<file>"
           : `\`${token.verb}\` is not a compiled verb of ${pack.plugin.name}`;

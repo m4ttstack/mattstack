@@ -213,8 +213,9 @@ export function willRenameEdits(ws: Workspace, moves: { from: string; to: string
 }
 
 /**
- * The pack.path and verb.path markers naming `from` rewritten to name `to`, in every file a compile of
- * `from`'s pack reads. A move that leaves the pack's attachments/ and skills/ has nothing to rename to.
+ * The pack.path markers naming `from` rewritten to name `to`, in every file a compile of `from`'s pack
+ * reads. A move that leaves the pack's attachments/ and skills/ has nothing to rename to. verb.path is
+ * never rewritten: a verb's name comes from stubs.jsonc, and a recompile regenerates its moved folder.
  */
 function pathMoveEdits(ws: Workspace, from: string, to: string): Map<string, TextEdit[]> {
   const out = new Map<string, TextEdit[]>();
@@ -224,9 +225,8 @@ function pathMoveEdits(ws: Workspace, from: string, to: string): Map<string, Tex
   const oldArg = packArg(pack, from);
   const newArg = packArg(pack, to);
   if (oldArg === null || newArg === null || oldArg === newArg) return out;
-  const isVerb = !oldArg.includes("/") && !newArg.includes("/") && Object.hasOwn(pack.verbSides, oldArg);
   const rewrite = (t: SkillPathToken): string | null => {
-    if (t.kind === "verb-path") return isVerb && t.verb === oldArg ? `{{verb.path:${newArg}}}` : null;
+    if (t.kind === "verb-path") return null;
     const arg = `${t.attachment}/${t.file}`;
     if (t.file === "" || (arg !== oldArg && !arg.startsWith(`${oldArg}/`))) return null;
     const moved = `${newArg}${arg.slice(oldArg.length)}`;

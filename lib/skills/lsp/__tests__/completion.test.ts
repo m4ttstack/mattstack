@@ -213,6 +213,14 @@ describe("completionsAt for skill paths", () => {
     expect(labels(complete(ws, gate, appended(ws, gate, "{{verb.path:|")))).toEqual(["mini"]);
   });
 
+  test("a compiled output folder is no pack.path folder", () => {
+    mkdirSync(join(pack, "attachments/stage-x"), { recursive: true });
+    writeFileSync(join(pack, "attachments/stage-x/SKILL.md"), '---\nname: "stage-x"\nmetadata:\n  compiled: "mattstack@1.0.0"\n---\n');
+    const ws = new Workspace([plugin, pack]);
+    expect(labels(complete(ws, gate, appended(ws, gate, "{{pack.path:|")))).not.toContain("stage-x");
+    expect(complete(ws, gate, appended(ws, gate, "{{pack.path:stage-x/|"))).toEqual([]);
+  });
+
   test("with no pack open nothing is listed", () => {
     const ws = new Workspace([plugin]);
     expect(complete(ws, gate, appended(ws, gate, "{{pack.path:|"))).toEqual([]);

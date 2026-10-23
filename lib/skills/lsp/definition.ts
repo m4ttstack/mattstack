@@ -53,7 +53,7 @@ function targetOf(ws: Workspace, file: string, token: Token): Target | null {
     case "pack-path":
     case "verb-path": {
       const targets = packsFor(ws, file).map((pack) => (token.kind === "pack-path" ? packTarget(pack, token.attachment, token.file) : verbTarget(pack, token.verb)));
-      const hit = targets.find((t) => t?.exists);
+      const hit = targets.find((t) => t?.exists && !t.compiled);
       return hit ? { file: hit.file, line: 0 } : null;
     }
     default:

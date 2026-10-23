@@ -400,11 +400,10 @@ describe("willRenameEdits", () => {
     expect(applied(ws, edit)[gate]).toContain("Read {{pack.path:mini-rules/quick.md}}, then run {{pack.path:mini-rules/lint.sh}}.");
   });
 
-  test("renaming a compiled verb's folder rewrites verb.path", () => {
+  test("moving a compiled verb's output folder leaves verb.path alone: the name comes from stubs.jsonc", () => {
     writeFileSync(gate, `${readFileSync(gate, "utf8").trimEnd()}\n\nSee {{verb.path:mini}}.\n`);
     const ws = new Workspace([plugin, pack]);
-    const edit = willRenameEdits(ws, [{ from: join(pack, "attachments/mini"), to: join(pack, "attachments/tiny") }]);
-    expect(applied(ws, edit)[gate]).toContain("See {{verb.path:tiny}}.");
+    expect(willRenameEdits(ws, [{ from: join(pack, "attachments/mini"), to: join(pack, "attachments/tiny") }]).changes).toEqual({});
   });
 
   test("a move out of the pack's attachments rewrites nothing", () => {

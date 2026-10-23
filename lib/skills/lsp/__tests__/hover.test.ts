@@ -154,6 +154,14 @@ describe("hoverAt on a skill path", () => {
     expect(linesOf(hover(ws, gate, "{{pack.path:", 4)?.contents)).toEqual(["**pack.path** · widgets", "`attachments/mini-rules/gone.md` · does not exist"]);
   });
 
+  test("pack.path into a compiled output folder says it is compiled output", () => {
+    mkdirSync(join(pack, "attachments/stage-x"), { recursive: true });
+    writeFileSync(join(pack, "attachments/stage-x/SKILL.md"), '---\nname: "stage-x"\nmetadata:\n  compiled: "mattstack@1.0.0"\n---\n');
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:stage-x/SKILL.md}}\n`);
+    expect(linesOf(hover(ws, gate, "{{pack.path:", 4)?.contents)).toEqual(["**pack.path** · widgets", "`attachments/stage-x/SKILL.md` · compiled output, not pack source"]);
+  });
+
   test("verb.path names the compiled verb's SKILL.md", () => {
     const ws = new Workspace([plugin, pack]);
     ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{verb.path:mini}}\n`);
