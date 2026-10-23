@@ -6,6 +6,7 @@ import { aroundBlock } from './around';
 import {
   AROUND,
   aroundLayout,
+  DROP_CLEAR,
   layerNodes,
   wholeLayout,
   type AroundNode,
@@ -189,7 +190,7 @@ describe('aroundLayout with a row cap', () => {
       const blocked = between.some(
         node =>
           Math.abs(node.position.x + node.width! / 2 - from.x) <
-          node.width! / 2 + AROUND.columnGap / 2
+          node.width! / 2 + DROP_CLEAR
       );
       if (blocked) {
         const channel = edge.data?.channel;
@@ -332,7 +333,7 @@ describe('aroundLayout sizes nodes to their labels', () => {
         node.id === 'checks_pass'
           ? { ...node, label: 'Checks pass (ship)?' }
           : node.id === 'rebase_status'
-            ? { ...node, label: 'Nothing to push (ship re-capture)?' }
+            ? { ...node, label: 'Done (ship again)?' }
             : node
       ),
       edges: sub.edges,
@@ -346,9 +347,70 @@ describe('aroundLayout sizes nodes to their labels', () => {
       label: 'Checks pass?',
       title: 'Checks pass (ship)?',
     });
-    expect(data('rebase_status').label).toBe(
-      'Nothing to push (ship re-capture)?'
+    expect(data('rebase_status').label).toBe('Done (ship again)?');
+    expect(data('rebase_status').title).toBeUndefined();
+    expect(data('commit_named').title).toBeUndefined();
+  });
+
+  it('titles a node whose label runs past the cap', () => {
+    const long = 'A question whose label runs on well past any sensible width?';
+    const layout = aroundLayout(
+      {
+        nodes: sub.nodes.map(node =>
+          node.id === 'checks_pass' ? { ...node, label: long } : node
+        ),
+        edges: sub.edges,
+      },
+      'fast_checks',
+      Infinity,
+      { measure }
     );
+    expect(
+      layout.nodes.find(node => node.id === 'checks_pass')!.data.title
+    ).toBe(long);
+  });
+
+  it('seats a wrapped row of wider nodes in gaps clear of every drop above, so no drop takes a side channel', () => {
+    const into = [
+      'dirty answer?',
+      'Commit named',
+      'Stash them',
+      'Fix test-first',
+      'Rebase status?',
+      'Continue result?',
+    ];
+    // The canvas's widths: the four at 150, the two wider ones at 160.
+    const sized = (label: string) => (label.length >= 14 ? 100 : 80);
+    const graph = {
+      nodes: [
+        ...into.map((label, i) => ({ ...sub.nodes[0], id: `n${i}`, label })),
+        { ...sub.nodes[0], id: 'focus', label: 'Fast checks' },
+      ],
+      edges: into.map((_, i) => ({
+        ...sub.edges[0],
+        from: `n${i}`,
+        to: 'focus',
+      })),
+    };
+    const layout = aroundLayout(graph, 'focus', Infinity, {
+      measure: sized,
+      room: 700,
+    });
+    const top = layout.nodes.filter(node => node.position.y === 0);
+    const wrapped = layout.nodes.filter(
+      node => node.position.y === AROUND.nodeH + AROUND.rowGap
+    );
+    expect(top).toHaveLength(4);
+    expect(wrapped.map(node => node.width)).toEqual([160, 160]);
+    for (const lower of wrapped) {
+      for (const upper of top) {
+        const drop = upper.position.x + upper.width! / 2;
+        const left = lower.position.x;
+        const right = lower.position.x + lower.width!;
+        expect(drop <= left - 10 || drop >= right + 10).toBe(true);
+      }
+    }
+    expect(layout.edges.every(edge => edge.data?.channel == null)).toBe(true);
   });
 
   it('fits as many nodes on a row as the room holds', () => {

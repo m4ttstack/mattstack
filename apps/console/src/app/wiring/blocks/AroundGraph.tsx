@@ -5,7 +5,9 @@ import {
   memo,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useState,
   type CSSProperties,
 } from 'react';
 import {
@@ -74,6 +76,26 @@ function measureLabel(label: string): number | null {
 }
 
 const measure = (label: string) => measureLabel(label) ?? label.length * 7;
+
+/** True once the page's web fonts have loaded, so labels measure in the font
+    they draw in rather than its fallback. */
+function useFontsLoaded(): boolean {
+  const fonts = typeof document === 'undefined' ? undefined : document.fonts;
+  const [loaded, setLoaded] = useState(
+    !fonts?.ready || fonts.status === 'loaded'
+  );
+  useEffect(() => {
+    if (loaded || !fonts?.ready) return;
+    let live = true;
+    void fonts.ready.then(() => {
+      if (live) setLoaded(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [fonts, loaded]);
+  return loaded;
+}
 
 /** Down to the row gap under the source, across to the channel, down past
     the rows between, and across to land on the target from above. */
@@ -331,8 +353,10 @@ function GraphFrame({
 }) {
   const scheme = useComputedColorScheme('light');
   const { ref, width } = useElementSize();
+  const fontsLoaded = useFontsLoaded();
   // A layout whose side channels run left of its nodes is laid out again
-  // with that much less room, so its widest row still fits.
+  // with that much less room, so its widest row still fits. It lays out
+  // again once the fonts load, since the labels then measure differently.
   const { layout, room } = useMemo(() => {
     const wide = roomAt(width);
     const first = layoutFor(wide);
@@ -340,7 +364,9 @@ function GraphFrame({
     if (reach === 0) return { layout: first, room: wide };
     const narrow = roomAt(width - reach);
     return { layout: layoutFor(narrow), room: narrow };
-  }, [layoutFor, width]);
+    // fontsLoaded only re-runs the layout; measure reads the fonts itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutFor, width, fontsLoaded]);
   const height = canvasHeight(layout, width);
 
   return (

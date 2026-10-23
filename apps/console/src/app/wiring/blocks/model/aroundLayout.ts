@@ -31,8 +31,8 @@ export type LayoutOptions = {
 
 export type AroundNodeData = {
   label: string;
-  /** The label as the graph writes it. */
-  title: string;
+  /** The label as the graph writes it, where the node shows less of it. */
+  title?: string;
   shape: GraphNode['shape'];
   blockId: string | null;
   focus: boolean;
@@ -136,6 +136,20 @@ function fitting(widths: number[], room: number): number {
   return count;
 }
 
+/** How close a drop from the row above may pass a lower node's edge. */
+export const DROP_CLEAR = 10;
+
+/** Whether no drop at `drops` passes within DROP_CLEAR of these nodes. */
+function clearOfDrops(
+  centres: number[],
+  widths: number[],
+  drops: number[]
+): boolean {
+  return centres.every((centre, i) =>
+    drops.every(drop => Math.abs(drop - centre) >= widths[i] / 2 + DROP_CLEAR)
+  );
+}
+
 /** Whether nodes at these centres keep a column gap apart and inside room. */
 function clear(centres: number[], widths: number[], room: number): boolean {
   for (let i = 1; i < centres.length; i++) {
@@ -176,10 +190,12 @@ export function aroundLayout(
       ];
     })
   );
+  const capped = new Set<string>();
   const widthOf = new Map(
     sub.nodes.map(node => {
       const text = measure(labelOf.get(node.id) ?? node.id);
       const w = Math.ceil((text + LABEL_CHROME) / 10) * 10;
+      if (w > AROUND.maxNodeW) capped.add(node.id);
       return [node.id, Math.min(AROUND.maxNodeW, Math.max(AROUND.nodeW, w))];
     })
   );
@@ -197,12 +213,29 @@ export function aroundLayout(
     const grid = packed(ids.slice(0, full).map(w));
     const gaps = grid.slice(1).map((c, i) => (grid[i] + c) / 2);
     for (let start = 0, wrap = 0; start < ids.length; wrap += 1) {
-      const slots = wrap % 2 === 0 || gaps.length === 0 ? grid : gaps;
+      const inGaps = wrap % 2 === 1 && gaps.length > 0;
+      const slots = inGaps ? gaps : grid;
       let chunk = ids.slice(start, start + slots.length);
+      const widths = chunk.map(w);
       const from = Math.floor((slots.length - chunk.length) / 2);
-      let centres = chunk.map((_, index) => slots[from + index]);
-      if (!clear(centres, chunk.map(w), room)) {
-        chunk = chunk.slice(0, fitting(chunk.map(w), room));
+      // A row in the gaps seats its nodes in neighbouring gaps, or failing
+      // that spread across them, wherever every drop above passes clear.
+      const seatings = [chunk.map((_, index) => slots[from + index])];
+      if (inGaps && chunk.length > 1 && chunk.length < slots.length) {
+        const last = slots.length - 1;
+        seatings.push(
+          chunk.map(
+            (_, index) => slots[Math.round((index * last) / (chunk.length - 1))]
+          )
+        );
+      }
+      const drops = inGaps ? grid : [];
+      let centres = seatings.find(
+        seating =>
+          clear(seating, widths, room) && clearOfDrops(seating, widths, drops)
+      );
+      if (!centres) {
+        chunk = chunk.slice(0, fitting(widths, room));
         centres = packed(chunk.map(w));
       }
       chunk.forEach((id, index) =>
@@ -224,7 +257,10 @@ export function aroundLayout(
       height: AROUND.nodeH,
       data: {
         label: labelOf.get(node.id) ?? node.id,
-        title: node.label ?? node.id,
+        ...(labelOf.get(node.id) !== (node.label ?? node.id) ||
+        capped.has(node.id)
+          ? { title: node.label ?? node.id }
+          : {}),
         shape: node.shape,
         blockId: node.blockId,
         focus: node.id === focus,
@@ -335,8 +371,7 @@ function channelOf(
   );
   const blocked = between.some(
     node =>
-      Math.abs(node.position.x + half(node) - dropX) <
-      half(node) + AROUND.columnGap / 2
+      Math.abs(node.position.x + half(node) - dropX) < half(node) + DROP_CLEAR
   );
   if (!blocked) return null;
   const span = nodes.filter(
