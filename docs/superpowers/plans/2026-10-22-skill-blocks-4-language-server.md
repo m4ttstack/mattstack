@@ -227,6 +227,54 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 
 ---
 
+> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them.
+
+### Task 12: Hand-typed paths fail compile
+
+A compiled source that reaches into another skill or attachment by a hand-typed path breaks silently when the target moves. `{{pack.path:<attachment>/<file>}}` (checked to exist at compile) and `{{verb.path:<verb>}}` (a compiled verb or stage) already say the same thing safely (`lib/skills/placeholders.ts`, `packPath` and `verbPath`).
+
+**Files:**
+- Create: `lib/skills/hand-paths.ts` (`handPathDiagnostics(text: string, file: string, opts: { startLine?: number; verbs: ReadonlySet<string> }): BlockDiagnostic[]`)
+- Modify: `lib/skills/blocks/diagnostics.ts` (`BlockDiagnostic` gains optional `fix?: { length: number; text: string }`, the span from line:col to replace and its replacement), the compile path so the check runs on every engine `*.block.md` body, include and fill a compile reads (follow where `compileBlockSkill` and the fill/include loaders read text), `commands/skills.ts` (`rt skills check` gains the hand-authored lint), `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` (its `../../attachments/{{team.gates-fill}}/SKILL.md` example teaches the old way; teach `{{pack.path:…}}` instead; load superpowers:writing-skills and mattstack:editing-skills first), `website/docs/skills/` (the page that documents `{{pack.path}}` and `{{verb.path}}`: say a hand-typed cross-skill path is a compile error and how to fix it)
+- Test: `lib/skills/__tests__/hand-paths.test.ts`, a compile test that a fixture fill with a hand-typed path fails with the code, and a `rt skills check` test for the lint
+
+**The rule (code `hand-typed-path`, error):**
+- A path that leaves the skill's own folder into `attachments/` or `skills/` is refused: through `../` (one or more), `${CLAUDE_SKILL_DIR}/../` or `$CLAUDE_SKILL_DIR/../`, or `${CLAUDE_PLUGIN_ROOT}/` (braced or not), in prose, code spans and fenced code alike.
+- Allowed: a path inside the skill's own folder (`${CLAUDE_SKILL_DIR}/parts/x.sh`, `./x.md`, `x.md`), and any path inside `{{pack.path:…}}` / `{{verb.path:…}}`.
+- The diagnostic sits on the path's first character, spans the whole path, and carries `fix`: `{{pack.path:<attachment>/<file>}}` for a target under `attachments/<attachment>/` or a source skill under `skills/<name>/`, `{{verb.path:<verb>}}` for `…/<verb>/SKILL.md` when `<verb>` is a compiled verb or stage of the pack. A path that holds a placeholder (`{{team.x}}`) or names nothing either form can express gets the error with no `fix`. The message names the replacement when there is one.
+- The rule reads compile's input, never its output: `{{stage.dir}}` and the vendoring rewrite emit `${CLAUDE_SKILL_DIR}/../../attachments/…` on purpose.
+
+**Hand-authored skills (code `broken-skill-path`):** `rt skills check` reads each plugin's skills that compile does not produce (in mattstack, `plugins/mattstack/plugin/skills/*/SKILL.md`) and reports every cross-skill relative path that does not resolve to a file from the skill's folder. A path holding a `{{…}}` placeholder or a `<name>` stand-in is a doc example and is skipped. The five paths in creating-a-pack, editing-skills and extending-a-pack today must resolve, or this task fixes them.
+
+- [ ] **Step 1: Write the failing tests** (`../../attachments/capture-evidence/SKILL.md` in a fill → `hand-typed-path` with fix `{{pack.path:capture-evidence/SKILL.md}}` and the exact range; `${CLAUDE_SKILL_DIR}/../../attachments/x/y.md` → fix `{{pack.path:x/y.md}}`; `../ship/SKILL.md` naming a compiled verb → fix `{{verb.path:ship}}`; `${CLAUDE_SKILL_DIR}/parts/a.sh` and `{{pack.path:x/y.md}}` → nothing; a path with `{{team.x}}` → error, no fix; compile of a fixture pack with such a fill fails with the code; `rt skills check` reports a hand-authored skill's path to a missing file, and is clean on `plugins/mattstack` under an isolated HOME)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement; every existing compile and check test stays green (a fixture that breaks the rule moves onto a placeholder)**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: hand-typed cross-skill paths fail compile`**
+
+---
+
+### Task 13: The editor handles skill paths
+
+**Files:**
+- Modify: `lib/skills/lsp/workspace.ts` (run `handPathDiagnostics` on every open or on-disk compiled source it analyses; Task 2's reach), `lib/skills/lsp/positions.ts` (tokens `pack-path { attachment, file }` and `verb-path { verb }` for `{{pack.path:…}}` and `{{verb.path:…}}`), `hover.ts`, `definition.ts`, `completion.ts`, `rename.ts`, `server.ts`
+- Create: `lib/skills/lsp/code-actions.ts`
+- Test: `lib/skills/lsp/__tests__/code-actions.test.ts` and new cases in the hover, definition, completion and rename tests
+
+**Interfaces:**
+- `codeActionsAt(ws, file, range): { title: string; edit: WorkspaceEdit; diagnostic: Diagnostic }[]`: one quick fix per `hand-typed-path` diagnostic with a `fix`, titled `Use {{pack.path:<a>/<f>}}` (or `{{verb.path:<v>}}`), replacing exactly the diagnostic's span. `codeActionProvider` with kind `quickfix`.
+- Completion: after `{{pack.path:` the pack's attachment and source-skill names, then after `/` the files in that folder; after `{{verb.path:` the pack's compiled verbs and stages.
+- Hover on a pack-path or verb-path token: the path it renders to and whether the target exists. Definition: opens the target file.
+- Renaming or moving a target updates the placeholders that name it: Task 8's block rename rewrites `{{pack.path:<old>/…}}` and `{{verb.path:<old>}}` that name the moved folder, and a `workspace/willRenameFiles` handler returns the same edits for a file or folder moved in the editor.
+
+- [ ] **Step 1: Write the failing tests** (a hand-typed path publishes `hand-typed-path`; its code action rewrites the span into the placeholder; completion after `{{pack.path:` lists `mini-rules` in the fixture pack, then its files after `mini-rules/`; hover on `{{pack.path:mini-rules/fast.md}}` names the resolved path; definition opens `attachments/mini-rules/fast.md`; moving `mini-rules` to `quick-rules` rewrites the placeholder)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement and register `textDocument/codeAction` and `workspace/willRenameFiles`**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `lsp: fix, complete and follow skill paths`**
+
+---
+
 ### Task 9: The VS Code extension
 
 **Files:**

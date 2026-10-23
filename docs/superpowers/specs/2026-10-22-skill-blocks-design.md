@@ -441,6 +441,14 @@ compile's own parser and checks so the two never disagree.
   `rt-context.vsix`, and setup installs it into every editor it installs
   `rt-context` into, on a fresh install and on every update, so existing
   users get it without a step of their own.
+- **Skill paths:** a compiled source that reaches into another skill or
+  attachment by a hand-typed path (`../`, `${CLAUDE_SKILL_DIR}/../`,
+  `${CLAUDE_PLUGIN_ROOT}/`) is a compile error, `hand-typed-path`, whose
+  diagnostic names the `{{pack.path:…}}` or `{{verb.path:…}}` to use. Hand-authored
+  plugin skills, which compile never reads, get a `rt skills check` lint
+  that each such path resolves. The server shows the error with a quick
+  fix, completes and hovers both placeholders, opens their targets, and
+  rewrites them when a target is renamed or moved.
 - **Not in scope:** renaming contracts, and other editors (Zed).
 
 ## Console
