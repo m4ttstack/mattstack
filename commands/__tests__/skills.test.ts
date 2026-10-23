@@ -3725,18 +3725,18 @@ describe("skillsComposition --json", () => {
       const ms = join(root, "mattstack-home");
       cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
       const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
-      writeFile(manifest, editManifest(`//   accessibility/mattstack:stage-evidence domain <- team\n${readFileSync(manifest, "utf8")}`));
+      writeFile(manifest, editManifest(`//   accessibility/mattstack:stage-evidence/domain-rules rules <- team\n${readFileSync(manifest, "utf8")}`));
       return ["--pack-dir", join(root, "pack"), "--mattstack-dir", ms, "--manifest", manifest];
     }
 
     test("the evidence binder slot carries the accessibility override, work-a11y its pipeline, and the copy target its engine and pipeline", async () => {
       const payload = await compositionJson(pipelinesFlags());
 
-      const evidence = payload.binders.find((b: { ref: string }) => b.ref === "mattstack:stage-evidence");
+      const evidence = payload.binders.find((b: { ref: string }) => b.ref === "mattstack:stage-evidence/domain-rules");
       expect(evidence.kind).toBe("stage");
       expect(evidence.slots).toHaveLength(1);
       expect(evidence.slots[0]).toMatchObject({
-        name: "domain",
+        name: "rules",
         boundTo: "acme:evidence-a",
         overrides: [{ pipeline: "accessibility", boundTo: "acme:evidence-b", layer: "team" }],
       });
@@ -3757,14 +3757,14 @@ describe("skillsComposition --json", () => {
     });
 
     test("a ref bound only by a pipeline override still gets a binder, with an empty default", async () => {
-      const payload = await compositionJson(pipelinesFlags((t) => t.replace(`"bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } }\n}`, `"bindings": {}\n}`)));
+      const payload = await compositionJson(pipelinesFlags((t) => t.replace(`"bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-a" } }\n}`, `"bindings": {}\n}`)));
 
-      const evidence = payload.binders.find((b: { ref: string }) => b.ref === "mattstack:stage-evidence");
+      const evidence = payload.binders.find((b: { ref: string }) => b.ref === "mattstack:stage-evidence/domain-rules");
       expect(evidence).toEqual({
-        ref: "mattstack:stage-evidence",
+        ref: "mattstack:stage-evidence/domain-rules",
         verb: null,
         kind: "stage",
-        slots: [{ name: "domain", boundTo: "", layer: null, overrides: [{ pipeline: "accessibility", boundTo: "acme:evidence-b", layer: "team" }] }],
+        slots: [{ name: "rules", boundTo: "", layer: null, overrides: [{ pipeline: "accessibility", boundTo: "acme:evidence-b", layer: "team" }] }],
       });
     });
   });

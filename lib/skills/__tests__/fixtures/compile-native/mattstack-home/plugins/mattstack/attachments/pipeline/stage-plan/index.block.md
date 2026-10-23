@@ -2,13 +2,16 @@
 name: stage-plan
 description: "stage-plan"
 type: pipeline-step
-slots:
-  domain: { contract: "plan-domain@1", required: false }
 metadata:
   stage: plan
   stage-consumes: ticket
   stage-produces: approach
+replaced-slots: [domain]
+props:
+  rules:
+    merge: add
+    default: ""
 ---
 
 {{stage.fields}}
-{{slot:domain}}
+{{props.rules}}

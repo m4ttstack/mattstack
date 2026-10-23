@@ -269,16 +269,16 @@ export function packDescription(pack: string): string {
 }
 
 const SEED_BINDINGS: Record<string, Record<string, string>> = {
-  "mattstack:work": { tiering: "mattstack:model-tiering" },
-  "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
+  "mattstack:work/sub-agent-tiering": { tiering: "mattstack:model-tiering" },
+  "mattstack:stage-watch-ci/forge": { forge: "mattstack:ci-forge-gitlab" },
 };
 
-/** The seed's bindings minus every slot `base` sets: a pack's layer sits over its base's at materialize, so a seeded default would replace the base's choice. */
+/** The seed's bindings minus every prop `base` sets: a pack's layer sits over its base's at materialize, so a seeded default would replace the base's choice. */
 function seedBindingsOver(base: Fragment | undefined): Record<string, Record<string, string>> {
   const out: Record<string, Record<string, string>> = {};
-  for (const [engineRef, slots] of Object.entries(SEED_BINDINGS)) {
-    const kept = Object.entries(slots).filter(([slot]) => !(base?.bindings?.[engineRef] && Object.hasOwn(base.bindings[engineRef], slot)));
-    if (kept.length > 0) out[engineRef] = Object.fromEntries(kept);
+  for (const [key, props] of Object.entries(SEED_BINDINGS)) {
+    const kept = Object.entries(props).filter(([prop]) => !(base?.bindings?.[key] && Object.hasOwn(base.bindings[key], prop)));
+    if (kept.length > 0) out[key] = Object.fromEntries(kept);
   }
   return out;
 }
@@ -290,7 +290,7 @@ export function renderPackFiles(opts: { pack: string; workDescription: string; e
   const baseHasFeature = Object.hasOwn(normalizePipelines(baseFragment?.pipelines).stages, "feature");
   const bindings = seedBindingsOver(baseFragment);
   const manifest = {
-    version: 1,
+    version: 2,
     ...(extendsBase ? { extends: extendsBase } : {}),
     skills: { enabled: ["mattstack:work", "mattstack:model-tiering"] },
     ...(baseHasFeature ? {} : { pipelines: { feature: PIPELINE_STAGES.map((s) => `mattstack:${s}`) } }),
@@ -313,7 +313,7 @@ export function renderPackFiles(opts: { pack: string; workDescription: string; e
     "pack/skills.jsonc":
       `// ${pack} bindings fragment. rt skills materialize layers it under mattstack's\n` +
       "// defaults and over any base pack into the per-pack file at\n" +
-      `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain slot is\n` +
+      `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain prop is\n` +
       "// optional; bind one with rt skills bind (see mattstack:extending-a-pack).\n" +
       `${pipelineNote} To give a kind of work its own\n` +
       "// stages or fills, add a specialized pipeline with mattstack:extending-a-pack.\n" +
@@ -326,7 +326,7 @@ function renderPackMd(pack: string): string {
     `# ${pack} pack`,
     "",
     "Scaffolded by `rt skills init`. The roster (`pack/stubs.jsonc`) names one",
-    "verb, `work`, compiled from the mattstack engine with every domain slot",
+    "verb, `work`, compiled from the mattstack engine with every domain prop",
     "unbound, so `/" + pack + ":work` runs the generic pipeline until the team",
     "adds rules. The verb's description is a placeholder seeded from the",
     "engine; rewrite it in your team's words.",

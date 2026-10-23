@@ -2481,7 +2481,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       composition: {
-        description: "Report the pack's full binding composition -- verbs, slots, fills, and every binder in the manifest (roster and stages both)",
+        description: "Report the pack's full binding composition -- verbs, props, fills, and every binder in the manifest (roster and stages both)",
         module: "./commands/skills.ts",
         fn: "skillsComposition",
         args: [
@@ -2535,7 +2535,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       bind: {
-        description: "Bind a fill to a slot: check it fits, save it in the pack's bindings, regenerate the pack's bindings file and recompile",
+        description: "Bind a fill to a block's prop: check it fits, save it in the pack's bindings, regenerate the pack's bindings file and recompile",
         module: "./commands/skills.ts",
         fn: "skillsBind",
         agentSafe: true,
@@ -2544,13 +2544,14 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: "picker",
         args: [
           { name: "Verb", type: "text", placeholder: "watch-ci", hint: "Roster verb or pipeline stage" },
-          { name: "Slot", type: "text", placeholder: "domain", hint: "Slot declared on the verb's step" },
-          { name: "Fill", type: "text", placeholder: "acme:watch-ci-domain-v2", hint: "<plugin>:<skill> binding string; must provide the slot's declared contract" },
+          { name: "Block", type: "text", placeholder: "watch-ci/domain-rules", hint: "Block id in the verb's engine, as rt skills blocks lists it" },
+          { name: "Prop", type: "text", placeholder: "rules", hint: "Prop the block declares" },
+          { name: "Fill", type: "text", placeholder: "acme:watch-ci-domain-v2", hint: "<plugin>:<skill> or <plugin>:<skill>/<file>; must provide the prop's contract when it has one" },
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
           { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Pipeline", flag: "--pipeline", type: "text", placeholder: "accessibility", hint: "Bind the fill for this pipeline only; omit to bind the default every pipeline uses" },
-          { name: "Unset", flag: "--unset", type: "boolean", default: false, hint: "Remove this pack's override for the pipeline, so the slot falls back to the default; needs --pipeline and no fill" },
+          { name: "Unset", flag: "--unset", type: "boolean", default: false, hint: "Remove this pack's override for the pipeline, so the prop falls back to the default; needs --pipeline and no fill" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would change without writing" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as JSON instead of a plain summary line" },
         ],

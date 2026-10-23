@@ -29,8 +29,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:stage-implement version=1.0.0 path=attachments/pipeline/stage-implement/SKILL.md lines=11-11 -->
-
+<!-- part: block:stage-implement source=mattstack:stage-implement version=1.0.0 path=attachments/pipeline/stage-implement/index.block.md lines=11-11 -->
 You consume \`approach\`. You must produce \`commits\`.
 "
 ,
@@ -44,10 +43,9 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:stage-plan version=1.0.0 path=attachments/pipeline/stage-plan/SKILL.md lines=13-14 -->
-
+<!-- part: block:stage-plan source=mattstack:stage-plan version=1.0.0 path=attachments/pipeline/stage-plan/index.block.md lines=16-17 -->
 You consume \`ticket\`. You must produce \`approach\`.
-<!-- part: slot:domain binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md lines=8-10 -->
+<!-- part: prop:stage-plan.rules binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md lines=8-10 -->
 policy text
 
 <!-- part: include:gitlab-note source=mattstack:gitlab-note version=1.0.0 path=attachments/gitlab-note/SKILL.md lines=6-8 -->
@@ -71,8 +69,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:stage-ship version=1.0.0 path=attachments/pipeline/stage-ship/SKILL.md lines=11-11 -->
-
+<!-- part: block:stage-ship source=mattstack:stage-ship version=1.0.0 path=attachments/pipeline/stage-ship/index.block.md lines=11-11 -->
 You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 "
 ,
@@ -138,8 +135,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:work version=1.0.0 path=attachments/pipeline/work/SKILL.md lines=7-11 -->
-
+<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=7-11 -->
 The work type is \`feature\`. Continue.
 
 \`\`\`json
@@ -183,6 +179,7 @@ The work type is \`feature\`. Continue.
 }
 \`\`\`
 
+<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=11-11 -->
 Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
 {
   "feature": "--repo my-repo --work-type feature --pipeline feature --mattstack-sha 1.0.0 --mattstack-dirty 0 --pack-sha acme=0.1.0"

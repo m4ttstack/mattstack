@@ -67,9 +67,7 @@ test("parseDot expands brace groups, keeps edge style and node fontcolor, and sk
 });
 
 test("parseDot reads stage-evidence's brace-group edges", () => {
-  const text = readFileSync(join(import.meta.dir, "..", "..", "__tests__", "fixtures", "slot-engines", "stage-evidence", "SKILL.md"), "utf8");
-  const start = text.indexOf("digraph evidence {");
-  const g = parseDot(text.slice(start, text.indexOf("\n}\n", start) + 3));
+  const g = parseDot(readFileSync(join(import.meta.dir, "..", "..", "__tests__", "fixtures", "blocks", "stage-evidence-flow.dot"), "utf8"));
   expect(g.edges.length).toBe(91);
   for (const from of ["record_outcome", "attach_outcome"]) {
     expect(g.edges).toContainEqual({ from, to: "run_hold", label: "Record held, or Attach held" });

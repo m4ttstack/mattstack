@@ -154,6 +154,18 @@ describe("blockPropValues", () => {
     ]);
   });
 
+  test("a v1 binding to a slot the engine replaced is old-slot-binding, naming the engine and listing its props", () => {
+    const mattstack = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack");
+    const roots: PluginRoots = { byName: { mattstack: { dir: mattstack, version: "1.0.0" } }, list: [] };
+    const step = loadStepSource("ship", roots);
+    const text = '{\n  "bindings": {\n    "mattstack:ship": { "domain": "w:x" }\n  }\n}\n';
+    const [d, ...rest] = diagnosticsOf(() => valuesFor(step, roots, bindingsOf(text)));
+    expect(rest).toEqual([]);
+    expect(d).toMatchObject({ file: MANIFEST, line: 3, col: 25, code: "old-slot-binding" });
+    expect(d!.message).toStartWith('"mattstack:ship" no longer has slot "domain"; its props are: ');
+    expect(d!.message).toContain("ship/flow/domain-fast-checks.rules (add)");
+  });
+
   test("a value that loads nothing is fill-missing at that layer's value, naming the binding key", () => {
     const { roots } = setup();
     const step = loadStepSource("mini", roots);

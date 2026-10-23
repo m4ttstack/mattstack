@@ -1,6 +1,4 @@
 import { spyOn } from "bun:test";
-import { cpSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
 import * as out from "../../ui/out.ts";
 import { captureOut, type CapturedOut } from "../../ui/__tests__/capture-out.ts";
 
@@ -48,25 +46,5 @@ export async function runExpectingCleanExit(fn: () => Promise<void>): Promise<{ 
   } finally {
     exitSpy.mockRestore();
     own?.restore();
-  }
-}
-
-const SLOT_ENGINES = join(import.meta.dir, "fixtures", "slot-engines");
-
-/**
- * Swaps the real stage-evidence, stage-watch-ci and work engines under a copied
- * `attachments` dir for their slot-engine SKILL.md, for cases that still bind
- * their v1 `domain`, `forge` and `tiering` slots. Scripts and tests beside them stay.
- */
-export function useSlotEngines(attachments: string): void {
-  for (const engine of readdirSync(SLOT_ENGINES)) {
-    const dir = join(attachments, "pipeline", engine);
-    const entries = (readdirSync(dir, { recursive: true }) as string[]).sort().reverse();
-    for (const rel of entries) {
-      const path = join(dir, rel);
-      if (rel.endsWith(".block.md")) rmSync(path);
-      else if (statSync(path).isDirectory() && readdirSync(path).length === 0) rmSync(path, { recursive: true });
-    }
-    cpSync(join(SLOT_ENGINES, engine, "SKILL.md"), join(dir, "SKILL.md"));
   }
 }

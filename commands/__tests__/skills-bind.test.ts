@@ -1,6 +1,6 @@
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { captureSkills, runExpectingCleanExit, useSlotEngines } from "../../lib/skills/__tests__/helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -20,8 +20,8 @@ import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 
 /**
  * pickBindArgs opens a separate runPick session per omitted positional
- * (verb, then slot, then fill) -- installFakePick replays its whole script
- * against every session, so answering three distinct prompts needs one
+ * (verb, then block, then prop, then fill) -- installFakePick replays its whole
+ * script against every session, so answering four distinct prompts needs one
  * result dispensed per session instead, in call order.
  */
 function installFakePickSequence(results: Array<Omit<PickResult, "t">>) {
@@ -66,17 +66,36 @@ function writeStubs(packDir: string, verbs: Record<string, { engine: string; des
   writeFile(join(packDir, "pack", "stubs.jsonc"), JSON.stringify({ verbs }));
 }
 
-const WATCH_CI_SKILL_MD = `---
+const WATCH_CI_INDEX = `---
 name: watch-ci
 description: "Watch CI"
 type: pipeline-step
-slots:
-  domain:
-    contract: "watch-ci-domain@1"
+replaced-slots: [domain]
 ---
+
+# watch-ci
 
 Watch CI.
 `;
+
+const WATCH_CI_DOMAIN_RULES = `---
+props:
+  rules:
+    merge: add
+    default: ""
+    contract: "watch-ci-domain@1"
+---
+
+# Domain rules
+
+{{props.rules}}
+`;
+
+/** watch-ci's engine: a root block and a `domain-rules` block whose `rules` prop takes the watch-ci domain. */
+function writeWatchCi(engineDir: string): void {
+  writeFile(join(engineDir, "index.block.md"), WATCH_CI_INDEX);
+  writeFile(join(engineDir, "domain-rules.block.md"), WATCH_CI_DOMAIN_RULES);
+}
 
 function fillSkillMd(name: string, provides: string): string {
   return `---\nname: ${name}\ndescription: "Fill ${name}"\nmetadata:\n  provides: "${provides}"\n---\n\nFill ${name}.\n`;
@@ -84,8 +103,8 @@ function fillSkillMd(name: string, provides: string): string {
 
 function manifestText(domainBinding: string | null): string {
   const bindingsBody = domainBinding
-    ? `    /* block comment about watch-ci */\n    "mattstack:watch-ci": {\n      "domain": "${domainBinding}"\n    }`
-    : `    /* block comment about watch-ci */\n    "mattstack:watch-ci": {}`;
+    ? `    /* block comment about watch-ci */\n    "mattstack:watch-ci/domain-rules": {\n      "rules": "${domainBinding}"\n    }`
+    : `    /* block comment about watch-ci */\n    "mattstack:watch-ci/domain-rules": {}`;
   return [
     "// skills.jsonc -- provenance header",
     "{",
@@ -99,29 +118,33 @@ function manifestText(domainBinding: string | null): string {
 }
 
 /**
- * Mirrors lib/skills/__tests__/fixtures/compile-native's real stage-plan
- * engine: a slotted pipeline-step whose stage-consumes ("ticket") is
- * satisfiable from PIPELINE_SEED, so a single-stage pipeline chain validates.
+ * Mirrors lib/skills/__tests__/fixtures/compile-native's stage-plan engine:
+ * a pipeline-step whose root block holds the `rules` prop and whose
+ * stage-consumes ("ticket") is satisfiable from PIPELINE_SEED, so a
+ * single-stage pipeline chain validates.
  */
-const STAGE_PLAN_SKILL_MD = `---
+const STAGE_PLAN_INDEX = `---
 name: stage-plan
 description: "stage-plan"
 type: pipeline-step
-slots:
-  domain: { contract: "plan-domain@1", required: false }
 metadata:
   stage: plan
   stage-consumes: ticket
   stage-produces: approach
+props:
+  rules:
+    merge: add
+    default: ""
+    contract: "plan-domain@1"
 ---
 
 {{stage.fields}}
-{{slot:domain}}
+{{props.rules}}
 `;
 
 /**
  * A pack with one roster verb (so fullRoster.length > 0 and resolve() honors
- * --manifest) plus a pipeline stage with its own slot, bindable by name
+ * --manifest) plus a pipeline stage with its own prop, bindable by name
  * alongside the roster verb.
  */
 function makeStageFixture(): { packDir: string; mattstackDir: string; manifestPath: string } {
@@ -130,8 +153,8 @@ function makeStageFixture(): { packDir: string; mattstackDir: string; manifestPa
 
   const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-bind-stage-mattstack-")));
   writeFile(join(mattstackDir, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
-  writeFile(join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"), WATCH_CI_SKILL_MD);
-  writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), STAGE_PLAN_SKILL_MD);
+  writeWatchCi(join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci"));
+  writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "index.block.md"), STAGE_PLAN_INDEX);
 
   writeFile(join(mattstackDir, "plugins", "acme", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
   writeFile(join(mattstackDir, "plugins", "acme", "skills", "plan-policy", "SKILL.md"), fillSkillMd("plan-policy", "plan-domain@1"));
@@ -143,7 +166,7 @@ function makeStageFixture(): { packDir: string; mattstackDir: string; manifestPa
   return { packDir, mattstackDir, manifestPath };
 }
 
-const ORCHESTRATOR_SKILL_MD = `---
+const ORCHESTRATOR_INDEX = `---
 name: work
 description: "Run the work pipeline"
 type: pipeline-step
@@ -167,9 +190,9 @@ Fill plan-policy.
 `;
 
 /**
- * A public orchestrator verb ({{pipeline.stages}}) plus the slotted stage-plan
- * stage: an orchestrator's compiled allowed-tools unions every stage's bound
- * fills' allowed-tools (stageAllowedToolsFor), so binding the stage's slot
+ * A public orchestrator verb ({{pipeline.stages}}) plus the stage-plan stage
+ * and its `rules` prop: an orchestrator's compiled allowed-tools unions every
+ * stage's bound fills' allowed-tools (stageAllowedToolsFor), so binding the stage's prop
  * changes an input the orchestrator's own compiled output bakes in.
  */
 function makeOrchestratorStageFixture(): { packDir: string; mattstackDir: string; manifestPath: string } {
@@ -179,8 +202,8 @@ function makeOrchestratorStageFixture(): { packDir: string; mattstackDir: string
 
   const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-bind-orch-mattstack-")));
   writeFile(join(mattstackDir, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
-  writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "work", "SKILL.md"), ORCHESTRATOR_SKILL_MD);
-  writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"), STAGE_PLAN_SKILL_MD);
+  writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "work", "index.block.md"), ORCHESTRATOR_INDEX);
+  writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "index.block.md"), STAGE_PLAN_INDEX);
 
   writeFile(join(mattstackDir, "plugins", "acme", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
   writeFile(join(mattstackDir, "plugins", "acme", "skills", "plan-policy", "SKILL.md"), PLAN_POLICY_WITH_TOOL_SKILL_MD);
@@ -193,15 +216,15 @@ function makeOrchestratorStageFixture(): { packDir: string; mattstackDir: string
 }
 
 /**
- * Trivial one-slot pipeline-step engine ("watch-ci", slot "domain" ->
- * contract "watch-ci-domain@1") plus a fixture mattstack root carrying two
- * providing fills (v1, initially bound; v2, the bind target) and one fill
- * whose provides deliberately mismatches the slot's contract.
+ * Trivial pipeline-step engine ("watch-ci", block "watch-ci/domain-rules",
+ * prop "rules" -> contract "watch-ci-domain@1") plus a fixture mattstack root
+ * carrying two providing fills (v1, initially bound; v2, the bind target) and
+ * one fill whose provides deliberately mismatches the prop's contract.
  */
 function makeEngineFixture(domainBinding: string | null = "acme:watch-ci-domain-v1"): { mattstackDir: string; manifestPath: string } {
   const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-bind-mattstack-")));
   writeFile(join(mattstackDir, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
-  writeFile(join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"), WATCH_CI_SKILL_MD);
+  writeWatchCi(join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci"));
 
   writeFile(join(mattstackDir, "plugins", "acme", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
   writeFile(join(mattstackDir, "plugins", "acme", "skills", "watch-ci-domain-v1", "SKILL.md"), fillSkillMd("watch-ci-domain-v1", "watch-ci-domain@1"));
@@ -228,18 +251,18 @@ afterEach(() => {
 });
 
 describe("skillsBind", () => {
-  test("valid bind changes bindings.<engineRef>.<slot> and recompiles", async () => {
+  test("valid bind changes bindings.<engineRef>/<block path>.<prop> and recompiles", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
     const { mattstackDir, manifestPath } = makeEngineFixture();
 
     await skillsBind([
-      "watch-ci", "domain", "acme:watch-ci-domain-v2",
+      "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
     const bindings = readManifestBindings(manifestPath);
-    expect(bindings["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
+    expect(bindings["mattstack:watch-ci/domain-rules"]?.rules).toBe("acme:watch-ci-domain-v2");
 
     const skillMd = readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8");
     expect(skillMd).toContain("acme:watch-ci-domain-v2");
@@ -251,7 +274,7 @@ describe("skillsBind", () => {
     const { mattstackDir, manifestPath } = makeEngineFixture();
 
     await skillsBind([
-      "watch-ci", "domain", "acme:watch-ci-domain-v2", "--json",
+      "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2", "--json",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
@@ -260,7 +283,8 @@ describe("skillsBind", () => {
     expect(payload).toEqual({
       ok: true,
       verb: "watch-ci",
-      slot: "domain",
+      block: "watch-ci/domain-rules",
+      prop: "rules",
       from: "acme:watch-ci-domain-v1",
       to: "acme:watch-ci-domain-v2",
       fragmentUpdated: null,
@@ -269,7 +293,7 @@ describe("skillsBind", () => {
     });
 
     const bindings = readManifestBindings(manifestPath);
-    expect(bindings["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
+    expect(bindings["mattstack:watch-ci/domain-rules"]?.rules).toBe("acme:watch-ci-domain-v2");
     const skillMd = readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8");
     expect(skillMd).toContain("acme:watch-ci-domain-v2");
   });
@@ -280,7 +304,7 @@ describe("skillsBind", () => {
     const { mattstackDir, manifestPath } = makeEngineFixture();
 
     await skillsBind([
-      "watch-ci", "domain", "acme:watch-ci-domain-v2",
+      "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
@@ -298,7 +322,7 @@ describe("skillsBind", () => {
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsBind([
-        "no-such-verb", "domain", "acme:watch-ci-domain-v2",
+        "no-such-verb", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
         "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
       ]),
     );
@@ -337,7 +361,7 @@ describe("skillsBind", () => {
         const fragmentPath = join(packDir, "pack", "skills.jsonc");
         writeFile(fragmentPath, `{\n  "base": true,\n  "bindings": {}\n}\n`);
         const stale = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "acme-base", "skills.jsonc");
-        if (variant === "a stale bindings file") writeFile(stale, `{ "bindings": { "mattstack:watch-ci": { "domain": "acme:watch-ci-domain-v1" } } }`);
+        if (variant === "a stale bindings file") writeFile(stale, `{ "bindings": { "mattstack:watch-ci/domain-rules": { "rules": "acme:watch-ci-domain-v1" } } }`);
         const staleBefore = variant === "a stale bindings file" ? readFileSync(stale, "utf8") : null;
         const { mattstackDir } = makeEngineFixture();
         const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(mattstackDir));
@@ -346,7 +370,7 @@ describe("skillsBind", () => {
         try {
           result = await runExpectingCleanExit(() =>
             skillsBind([
-              "watch-ci", "domain", "acme:watch-ci-domain-v2",
+              "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
               "--pack", "acme-base", "--pack-dir", packDir,
               ...(mode === "--json" ? ["--json"] : []),
             ]),
@@ -358,7 +382,7 @@ describe("skillsBind", () => {
         expect(result.exitCode).toBeUndefined();
         expect(process.exitCode ?? 0).toBe(0);
         expect(result.errors).toEqual([]);
-        expect(readManifestBindings(fragmentPath)["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
+        expect(readManifestBindings(fragmentPath)["mattstack:watch-ci/domain-rules"]?.rules).toBe("acme:watch-ci-domain-v2");
         expect(JSON.parse(stripJsonc(readFileSync(fragmentPath, "utf8"))).base).toBe(true);
         expect(existsSync(join(packDir, "skills"))).toBe(false);
         if (staleBefore !== null) expect(readFileSync(stale, "utf8")).toBe(staleBefore);
@@ -389,7 +413,7 @@ describe("skillsBind", () => {
       const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(mattstackDir));
       try {
         await skillsBind([
-          "watch-ci", "domain", "acme:watch-ci-domain-v2", "--json",
+          "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2", "--json",
           "--pack", "acme-base", "--pack-dir", packDir, "--manifest", manifest,
         ]);
       } finally {
@@ -416,7 +440,7 @@ describe("skillsBind", () => {
 
       const { exitCode, errors } = await runExpectingCleanExit(() =>
         skillsBind([
-          "watch-ci", "domain", "acme:watch-ci-domain-v2",
+          "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
           "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
         ]),
       );
@@ -434,19 +458,19 @@ describe("skillsBind", () => {
 
       const { exitCode, errors } = await runExpectingCleanExit(() =>
         skillsBind([
-          "watch-ci", "domain", "acme:watch-ci-domain-v2",
+          "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
           "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
         ]),
       );
 
       expect(exitCode).toBe(1);
-      expect(errors[0]).toBe("acme-base is a base pack with no verbs of its own, so rt cannot check the slot");
+      expect(errors[0]).toBe("acme-base is a base pack with no verbs of its own, so rt cannot check the prop");
       expect(errors.join("\n")).toContain(fragmentPath);
       expect(readFileSync(fragmentPath, "utf8")).toBe(JSON.stringify({ base: true }));
     });
   });
 
-  test("unknown slot: clean error naming the real slots, exit 1, writes nothing", async () => {
+  test("unknown block: clean error naming the blocks with props, exit 1, writes nothing", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
     const { mattstackDir, manifestPath } = makeEngineFixture();
@@ -454,20 +478,20 @@ describe("skillsBind", () => {
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsBind([
-        "watch-ci", "no-such-slot", "acme:watch-ci-domain-v2",
+        "watch-ci", "no-such-block", "rules", "acme:watch-ci-domain-v2",
         "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
       ]),
     );
 
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).not.toContain("rt skills:");
-    expect(errors[0]).toContain("no-such-slot");
-    expect(errors[0]).toContain("domain");
+    expect(errors[0]).toContain("no-such-block");
+    expect(errors[0]).toContain("watch-ci/domain-rules");
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 
-  test("fill whose provides does not match the slot's contract: clean error, exit 1, writes nothing", async () => {
+  test("a v1 <verb> <slot> <fill> bind names the engine and lists its props, writes nothing", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
     const { mattstackDir, manifestPath } = makeEngineFixture();
@@ -475,7 +499,25 @@ describe("skillsBind", () => {
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsBind([
-        "watch-ci", "domain", "acme:watch-ci-domain-wrong",
+        "watch-ci", "domain", "acme:watch-ci-domain-v2",
+        "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+      ]),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toBe('"mattstack:watch-ci" no longer has slot "domain"; its props are: watch-ci/domain-rules.rules (add)');
+    expect(readFileSync(manifestPath, "utf8")).toBe(before);
+  });
+
+  test("fill whose provides does not match the prop's contract: clean error, exit 1, writes nothing", async () => {
+    const packDir = makePackDir();
+    writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+    const { mattstackDir, manifestPath } = makeEngineFixture();
+    const before = readFileSync(manifestPath, "utf8");
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsBind([
+        "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-wrong",
         "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
       ]),
     );
@@ -495,7 +537,7 @@ describe("skillsBind", () => {
     const before = readFileSync(manifestPath, "utf8");
 
     await skillsBind([
-      "watch-ci", "domain", "acme:watch-ci-domain-v2", "--dry-run",
+      "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2", "--dry-run",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
@@ -504,30 +546,31 @@ describe("skillsBind", () => {
     expect(io.lines().some((l) => l.includes("acme:watch-ci-domain-v1") && l.includes("acme:watch-ci-domain-v2"))).toBe(true);
   });
 
-  test("binding a previously-unbound slot (new key) works", async () => {
+  test("binding a previously-unbound prop (new key) works", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
     const { mattstackDir, manifestPath } = makeEngineFixture(null);
 
     await skillsBind([
-      "watch-ci", "domain", "acme:watch-ci-domain-v2",
+      "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
     const bindings = readManifestBindings(manifestPath);
-    expect(bindings["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
+    expect(bindings["mattstack:watch-ci/domain-rules"]?.rules).toBe("acme:watch-ci-domain-v2");
     const written = readFileSync(manifestPath, "utf8");
     expect(written).toContain("/* block comment about watch-ci */");
   });
 
-  test("all three positionals omitted on a tty: chained verb/slot/fill pickers resolve the same bind as typing them", async () => {
+  test("all four positionals omitted on a tty: chained verb/block/prop/fill pickers resolve the same bind as typing them", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
     const { mattstackDir, manifestPath } = makeEngineFixture();
 
     const seq = installFakePickSequence([
       { action: "select", value: "watch-ci", query: "" },
-      { action: "select", value: "domain", query: "" },
+      { action: "select", value: "watch-ci/domain-rules", query: "" },
+      { action: "select", value: "rules", query: "" },
       { action: "select", value: "acme:watch-ci-domain-v2", query: "" },
     ]);
 
@@ -542,53 +585,52 @@ describe("skillsBind", () => {
       seq.restore();
     }
 
-    expect(seq.calls).toHaveLength(3);
+    expect(seq.calls).toHaveLength(4);
     const bindings = readManifestBindings(manifestPath);
-    expect(bindings["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
+    expect(bindings["mattstack:watch-ci/domain-rules"]?.rules).toBe("acme:watch-ci-domain-v2");
   });
 });
 
 describe("skillsBind: pipeline stages", () => {
-  test("binds a stage's slot under bindings[\"mattstack:<stage>\"]", async () => {
+  test("binds a stage's root prop under bindings[\"mattstack:<stage>\"]", async () => {
     const { packDir, mattstackDir, manifestPath } = makeStageFixture();
 
     await skillsBind([
-      "stage-plan", "domain", "acme:plan-policy",
+      "stage-plan", "stage-plan", "rules", "acme:plan-policy",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
     const bindings = readManifestBindings(manifestPath);
-    expect(bindings["mattstack:stage-plan"]?.domain).toBe("acme:plan-policy");
+    expect(bindings["mattstack:stage-plan"]?.rules).toBe("acme:plan-policy");
   });
 
-  test("--dry-run on a stage prints <stage>.<slot>: (unbound) -> <fill> and writes nothing", async () => {
+  test("--dry-run on a stage prints <stage> <block>.<prop>: (unbound) -> <fill> and writes nothing", async () => {
     const { packDir, mattstackDir, manifestPath } = makeStageFixture();
     const before = readFileSync(manifestPath, "utf8");
 
     await skillsBind([
-      "stage-plan", "domain", "acme:plan-policy", "--dry-run",
+      "stage-plan", "stage-plan", "rules", "acme:plan-policy", "--dry-run",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
-    expect(io.lines()).toContain("[not yet] stage-plan.domain  (unbound) -> acme:plan-policy");
+    expect(io.lines()).toContain("[not yet] stage-plan stage-plan.rules  (unbound) -> acme:plan-policy");
   });
 
-  test("a slot the stage does not declare still errors with the known-slots list", async () => {
+  test("a prop the block does not declare errors with the block's props", async () => {
     const { packDir, mattstackDir, manifestPath } = makeStageFixture();
     const before = readFileSync(manifestPath, "utf8");
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsBind([
-        "stage-plan", "no-such-slot", "acme:plan-policy",
+        "stage-plan", "stage-plan", "no-such-prop", "acme:plan-policy",
         "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
       ]),
     );
 
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).not.toContain("rt skills:");
-    expect(errors[0]).toContain("no-such-slot");
-    expect(errors[0]).toContain("domain");
+    expect(errors[0]).toBe('block "stage-plan" declares no prop "no-such-prop" (its props: rules)');
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
   });
 
@@ -597,7 +639,7 @@ describe("skillsBind: pipeline stages", () => {
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsBind([
-        "no-such-name", "domain", "acme:plan-policy",
+        "no-such-name", "stage-plan", "rules", "acme:plan-policy",
         "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
       ]),
     );
@@ -621,16 +663,16 @@ describe("skillsBind: pipeline stages", () => {
     );
 
     await skillsBind([
-      "stage-plan", "domain", "acme:watch-ci-domain-v1", "--dry-run",
+      "stage-plan", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v1", "--dry-run",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
     // watch-ci's engine (not stage-plan's) is the one loaded when a name collides:
-    // its slot is "domain" with contract "watch-ci-domain@1", satisfied by this fill.
-    expect(io.lines()).toContain("[not yet] stage-plan.domain  (unbound) -> acme:watch-ci-domain-v1");
+    // its block holds "rules" with contract "watch-ci-domain@1", satisfied by this fill.
+    expect(io.lines()).toContain("[not yet] stage-plan watch-ci/domain-rules.rules  (unbound) -> acme:watch-ci-domain-v1");
   });
 
-  test("binding a stage's slot recompiles the whole pack, updating the orchestrator's baked-in allowed-tools", async () => {
+  test("binding a stage's prop recompiles the whole pack, updating the orchestrator's baked-in allowed-tools", async () => {
     const { packDir, mattstackDir, manifestPath } = makeOrchestratorStageFixture();
     await skillsCompile(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
 
@@ -638,7 +680,7 @@ describe("skillsBind: pipeline stages", () => {
     expect(readFileSync(orchestratorPath, "utf8")).not.toContain("plan-policy-tool");
 
     await skillsBind([
-      "stage-plan", "domain", "acme:plan-policy",
+      "stage-plan", "stage-plan", "rules", "acme:plan-policy",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
@@ -656,7 +698,7 @@ describe("skillsBind: pipeline stages", () => {
     const mtimeBefore = statSync(orchestratorPath).mtimeMs;
 
     await skillsBind([
-      "stage-plan", "domain", "acme:plan-policy", "--dry-run",
+      "stage-plan", "stage-plan", "rules", "acme:plan-policy", "--dry-run",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
@@ -664,7 +706,7 @@ describe("skillsBind: pipeline stages", () => {
     expect(statSync(orchestratorPath).mtimeMs).toBe(mtimeBefore);
   });
 
-  test("rebinding a stage slot twice prints old -> new and the manifest ends with the second binding", async () => {
+  test("rebinding a stage prop twice prints old -> new and the manifest ends with the second binding", async () => {
     const { packDir, mattstackDir, manifestPath } = makeStageFixture();
     writeFile(
       join(mattstackDir, "plugins", "acme", "skills", "plan-policy-v2", "SKILL.md"),
@@ -672,17 +714,17 @@ describe("skillsBind: pipeline stages", () => {
     );
 
     await skillsBind([
-      "stage-plan", "domain", "acme:plan-policy",
+      "stage-plan", "stage-plan", "rules", "acme:plan-policy",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
     await skillsBind([
-      "stage-plan", "domain", "acme:plan-policy-v2",
+      "stage-plan", "stage-plan", "rules", "acme:plan-policy-v2",
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
-    expect(io.lines()).toContain("[ok] stage-plan.domain  acme:plan-policy -> acme:plan-policy-v2");
+    expect(io.lines()).toContain("[ok] stage-plan stage-plan.rules  acme:plan-policy -> acme:plan-policy-v2");
     const bindings = readManifestBindings(manifestPath);
-    expect(bindings["mattstack:stage-plan"]?.domain).toBe("acme:plan-policy-v2");
+    expect(bindings["mattstack:stage-plan"]?.rules).toBe("acme:plan-policy-v2");
   });
 });
 
@@ -703,11 +745,11 @@ describe("bind writes the team pack fragment", () => {
   test("the fragment gains the binding, comments kept, and the manifest gets it too", async () => {
     const { pack, ms, manifest } = fixtureWithFragment(`// acme fragment\n{\n  "version": 1,\n  "bindings": {}\n}\n`);
     const fragmentPath = join(pack, "pack", "skills.jsonc");
-    await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
+    await skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
     const fragment = readFileSync(fragmentPath, "utf8");
     expect(fragment).toContain("// acme fragment");
-    expect(JSON.parse(stripJsonc(fragment)).bindings).toEqual({ "mattstack:stage-plan": { domain: "acme:plan-policy" } });
-    expect(readManifestBindings(manifest)["mattstack:stage-plan"]).toEqual({ domain: "acme:plan-policy" });
+    expect(JSON.parse(stripJsonc(fragment)).bindings).toEqual({ "mattstack:stage-plan": { rules: "acme:plan-policy" } });
+    expect(readManifestBindings(manifest)["mattstack:stage-plan"]).toEqual({ rules: "acme:plan-policy" });
     // The summary suffix is the only observable proof the fragment write ran.
     expect(io.lines().some((l) => l.includes(`bindings file: ${fragmentPath}`))).toBe(true);
   });
@@ -715,7 +757,7 @@ describe("bind writes the team pack fragment", () => {
   test("a standalone pack whose fragment is the manifest is written once", async () => {
     const { pack, ms } = fixtureWithFragment(`{\n  "version": 1,\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": {}\n}\n`);
     const own = join(pack, "pack", "skills.jsonc");
-    await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", own]);
+    await skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", own]);
     const text = readFileSync(own, "utf8");
     expect(text.match(/acme:plan-policy/g)?.length).toBe(1);
     // A second write onto the same text is idempotent, so the count above alone
@@ -725,10 +767,10 @@ describe("bind writes the team pack fragment", () => {
 
   test("a fragment with no top-level bindings key gains one", async () => {
     const { pack, ms, manifest } = fixtureWithFragment(`// acme fragment\n{\n  "version": 1\n}\n`);
-    await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
+    await skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
     const fragment = readFileSync(join(pack, "pack", "skills.jsonc"), "utf8");
     expect(fragment).toContain("// acme fragment");
-    expect(JSON.parse(stripJsonc(fragment)).bindings).toEqual({ "mattstack:stage-plan": { domain: "acme:plan-policy" } });
+    expect(JSON.parse(stripJsonc(fragment)).bindings).toEqual({ "mattstack:stage-plan": { rules: "acme:plan-policy" } });
   });
 
   test("a fragment symlinked outside the pack is skipped, with a warning, and the outside file is untouched", async () => {
@@ -741,14 +783,14 @@ describe("bind writes the team pack fragment", () => {
     symlinkSync(outsidePath, fragmentPath);
 
     io.clear();
-    await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
+    await skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
     const errors = io.errLines();
 
     expect(readFileSync(outsidePath, "utf8")).toBe(outsideBefore);
     const warning = errors.find((l) => l.includes(fragmentPath));
     expect(warning).toBeDefined();
     expect(warning).toContain("outside the pack");
-    expect(readManifestBindings(manifest)["mattstack:stage-plan"]).toEqual({ domain: "acme:plan-policy" });
+    expect(readManifestBindings(manifest)["mattstack:stage-plan"]).toEqual({ rules: "acme:plan-policy" });
   });
 
   test("a bind note under --json keeps stdout to one envelope", async () => {
@@ -760,7 +802,7 @@ describe("bind writes the team pack fragment", () => {
     symlinkSync(outsidePath, fragmentPath);
     io.clear();
 
-    await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--json", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
+    await skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--json", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
 
     expect(io.lines()).toHaveLength(1);
     expect(typeof JSON.parse(io.lines()[0]!).ok).toBe("boolean");
@@ -790,7 +832,7 @@ describe("bind writes the team pack fragment", () => {
       const pack = join(root, "pack");
       writeFile(join(pack, "pack", "skills.jsonc"), `{\n  "bindings": {}\n}\n`);
       const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
-      const shadowed = `//   mattstack:stage-plan domain <- override\n{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": { "mattstack:stage-plan": { "domain": "me:plan-policy" } }\n}\n`;
+      const shadowed = `//   mattstack:stage-plan rules <- override\n{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": { "mattstack:stage-plan": { "rules": "me:plan-policy" } }\n}\n`;
       writeFile(manifest, `{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": {}\n}\n`);
       const spies = [
         spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home"))),
@@ -803,17 +845,17 @@ describe("bind writes the team pack fragment", () => {
       ];
       io.clear();
       try {
-        await runExpectingCleanExit(() => skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]));
+        await runExpectingCleanExit(() => skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]));
       } finally {
         for (const spy of spies) spy.mockRestore();
       }
 
-      const warning = `[warning] stage-plan.domain is still decided by the override layer  your change is saved, but that layer wins`;
+      const warning = `[warning] stage-plan stage-plan.rules is still decided by the override layer  your change is saved, but that layer wins`;
       expect(io.errLines()).toContain(warning);
       expect(io.lines().some((l) => l.includes("still decided by"))).toBe(false);
       if (mode === "--json") {
         expect(io.lines()).toHaveLength(1);
-        expect(JSON.parse(io.lines()[0]!)).toMatchObject({ verb: "stage-plan", slot: "domain", shadowedBy: "override" });
+        expect(JSON.parse(io.lines()[0]!)).toMatchObject({ verb: "stage-plan", block: "stage-plan", prop: "rules", shadowedBy: "override" });
       }
     });
   });
@@ -826,7 +868,7 @@ describe("bind writes the team pack fragment", () => {
     mkdirSync(fragmentPath);
 
     await expect(
-      skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]),
+      skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]),
     ).rejects.toThrow();
 
     expect(readFileSync(manifest, "utf8")).toBe(manifestBefore);
@@ -842,16 +884,16 @@ describe("applyBind", () => {
     writeFile(manifestPath, "{}");
     let regenerated = 0;
     const result = await applyBind({
-      manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", pipeline: null, fixtureMode: false,
+      manifestPath, packDir, key: "mattstack:watch-ci/domain-rules", prop: "rules", fill: "widgets:ci", pipeline: null, fixtureMode: false,
       materialize: async () => {
         regenerated++;
-        writeFile(manifestPath, `//   mattstack:watch-ci domain <- override\n{ "bindings": { "mattstack:watch-ci": { "domain": "me:ci" } } }`);
+        writeFile(manifestPath, `//   mattstack:watch-ci/domain-rules rules <- override\n{ "bindings": { "mattstack:watch-ci/domain-rules": { "rules": "me:ci" } } }`);
         return { ok: true };
       },
     });
     expect(regenerated).toBe(1);
     expect(result.fragmentUpdated).toBe(join(packDir, "pack", "skills.jsonc"));
-    expect(JSON.parse(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+    expect(JSON.parse(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).bindings["mattstack:watch-ci/domain-rules"].rules).toBe("widgets:ci");
     expect(result.shadowedBy).toBe("override");
     expect(result.regenerated).toBe(true);
     expect("regenerateDetail" in result).toBe(false);
@@ -880,14 +922,14 @@ describe("applyBind", () => {
       const fragmentPath = join(packDir, "pack", "skills.jsonc");
       writeFile(fragmentPath, `{\n  "bindings": {}\n}\n`);
       const manifestPath = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
-      writeFile(manifestPath, `//   mattstack:watch-ci domain <- default\n{ "bindings": { "mattstack:watch-ci": { "domain": "mattstack:ci" } } }`);
+      writeFile(manifestPath, `//   mattstack:watch-ci/domain-rules rules <- default\n{ "bindings": { "mattstack:watch-ci/domain-rules": { "rules": "mattstack:ci" } } }`);
 
       const result = await applyBind({
-        manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", pipeline: null, fixtureMode: false,
+        manifestPath, packDir, key: "mattstack:watch-ci/domain-rules", prop: "rules", fill: "widgets:ci", pipeline: null, fixtureMode: false,
         materialize: () => regeneratePackFile(manifestPath),
       });
 
-      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:watch-ci/domain-rules"].rules).toBe("widgets:ci");
       expect(result.fragmentUpdated).toBe(fragmentPath);
       expect(result.shadowedBy).toBeNull();
       expect(result.regenerated).toBe(false);
@@ -909,7 +951,7 @@ describe("applyBind", () => {
       const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home")));
       io.clear();
       try {
-        await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]);
+        await skillsBind(["stage-plan", "stage-plan", "rules", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]);
       } finally {
         rootsSpy.mockRestore();
       }
@@ -917,7 +959,7 @@ describe("applyBind", () => {
 
       expect(existsSync(join(pack, "skills"))).toBe(false);
       expect(process.exitCode).toBe(1);
-      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:stage-plan"].domain).toBe("acme:plan-policy");
+      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:stage-plan"].rules).toBe("acme:plan-policy");
       if (mode === "--json") {
         expect(io.lines()).toHaveLength(1);
         const payload = JSON.parse(io.lines()[0]!);
@@ -937,7 +979,7 @@ describe("applyBind", () => {
       mkdirSync(process.env.HOME, { recursive: true });
       process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
       const stages = ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"];
-      const withOverride = { pipelines: { feature: { stages, bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy" } } } }, bindings: {} };
+      const withOverride = { pipelines: { feature: { stages, bindings: { "mattstack:stage-plan": { rules: "acme:plan-policy" } } } }, bindings: {} };
       const pack = join(root, "pack");
       const fragmentPath = join(pack, "pack", "skills.jsonc");
       writeFile(fragmentPath, JSON.stringify(withOverride, null, 2));
@@ -946,7 +988,7 @@ describe("applyBind", () => {
       const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home")));
       io.clear();
       try {
-        await skillsBind(["stage-plan", "domain", "--pipeline", "feature", "--unset", "--pack-dir", pack, "--manifest", manifest]);
+        await skillsBind(["stage-plan", "stage-plan", "rules", "--pipeline", "feature", "--unset", "--pack-dir", pack, "--manifest", manifest]);
       } finally {
         rootsSpy.mockRestore();
       }
@@ -988,7 +1030,7 @@ describe("applyBind", () => {
       writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }));
       writeFile(join(orgDir, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets", "acme/gadgets"] }));
       writeFile(join(orgDir, "teams", "widgets", "settings.team.jsonc"), "{}");
-      writeFile(join(orgDir, "teams", "widgets", "plugin", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
+      writeFile(join(orgDir, "teams", "widgets", "plugin", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci/domain-rules": { rules: "widgets:ci" } } }));
       for (const name of registered) {
         const dir = join(root, "src", name);
         execFileSync("git", ["init", "-q", dir]);
@@ -1009,7 +1051,7 @@ describe("applyBind", () => {
 
       expect(await regeneratePackFile(widgets)).toEqual({ ok: true });
 
-      expect(readManifestBindings(widgets)["mattstack:watch-ci"]?.domain).toBe("widgets:ci");
+      expect(readManifestBindings(widgets)["mattstack:watch-ci/domain-rules"]?.rules).toBe("widgets:ci");
       expect(readFileSync(gadgets, "utf8")).toBe(untouched);
       expect(existsSync(gadgetsLegacy)).toBe(true);
       expect(existsSync(`${gadgetsLegacy}.migrated`)).toBe(false);
@@ -1040,9 +1082,9 @@ describe("applyBind", () => {
     writeFile(join(packDir, "pack", "skills.jsonc"), `// acme fragment\n{ "bindings": {} }`);
     const manifestPath = join(root, "skills.jsonc");
     writeFile(manifestPath, `{ "bindings": {} }`);
-    const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", pipeline: null, fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
+    const result = await applyBind({ manifestPath, packDir, key: "mattstack:watch-ci/domain-rules", prop: "rules", fill: "widgets:ci", pipeline: null, fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
     expect(result).toEqual({ fragmentUpdated: join(packDir, "pack", "skills.jsonc"), shadowedBy: null });
-    expect(JSON.parse(readFileSync(manifestPath, "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+    expect(JSON.parse(readFileSync(manifestPath, "utf8")).bindings["mattstack:watch-ci/domain-rules"].rules).toBe("widgets:ci");
     expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toContain("// acme fragment");
   });
 
@@ -1050,7 +1092,7 @@ describe("applyBind", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
     const manifestPath = join(root, "skills.jsonc");
     writeFile(manifestPath, `{ "bindings": {} }`);
-    const result = await applyBind({ manifestPath, packDir: join(root, "pack"), engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", pipeline: null, fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
+    const result = await applyBind({ manifestPath, packDir: join(root, "pack"), key: "mattstack:watch-ci/domain-rules", prop: "rules", fill: "widgets:ci", pipeline: null, fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
     expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
   });
 
@@ -1059,26 +1101,26 @@ describe("applyBind", () => {
     const packDir = join(root, "mattstack");
     const manifestPath = join(packDir, "pack", "skills.jsonc");
     writeFile(manifestPath, `{ "bindings": {} }`);
-    const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:shepherdr", slotName: "tiering", fill: "mattstack:model-tiering", pipeline: null, fixtureMode: false, materialize: async () => { throw new Error("must not run"); } });
+    const result = await applyBind({ manifestPath, packDir, key: "mattstack:shepherdr", prop: "tiering", fill: "mattstack:model-tiering", pipeline: null, fixtureMode: false, materialize: async () => { throw new Error("must not run"); } });
     expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
   });
 });
 
 describe("bindBlocks", () => {
-  const bind = { verb: "stage-plan", slot: "domain", from: "(unbound)", to: "acme:plan-policy", dryRun: false, fragmentUpdated: null, basePack: null };
+  const bind = { verb: "stage-plan", target: "stage-plan.rules", from: "(unbound)", to: "acme:plan-policy", dryRun: false, fragmentUpdated: null, basePack: null };
 
-  test("a bind is one line: the slot, then what it was and what it is", () => {
-    expect(renderPlain(bindBlocks(bind))).toBe("[ok] stage-plan.domain  (unbound) -> acme:plan-policy\n");
+  test("a bind is one line: the block and prop, then what it was and what it is", () => {
+    expect(renderPlain(bindBlocks(bind))).toBe("[ok] stage-plan stage-plan.rules  (unbound) -> acme:plan-policy\n");
   });
 
   test("a dry run is pending", () => {
-    expect(renderPlain(bindBlocks({ ...bind, dryRun: true }))).toBe("[not yet] stage-plan.domain  (unbound) -> acme:plan-policy\n");
+    expect(renderPlain(bindBlocks({ ...bind, dryRun: true }))).toBe("[not yet] stage-plan stage-plan.rules  (unbound) -> acme:plan-policy\n");
   });
 
   test("the pack's own bindings file and a base pack each add a note", () => {
     expect(renderPlain(bindBlocks({ ...bind, fragmentUpdated: "/z/packs/acme/pack/skills.jsonc", basePack: "acme-base" }))).toBe(
       [
-        "[ok] stage-plan.domain  (unbound) -> acme:plan-policy",
+        "[ok] stage-plan stage-plan.rules  (unbound) -> acme:plan-policy",
         "  note: Also saved in the pack's own bindings file: /z/packs/acme/pack/skills.jsonc",
         "  note: acme-base is a base pack. Packs that extend it pick this up once it is published and their bindings are rebuilt.",
         "",
@@ -1089,18 +1131,18 @@ describe("bindBlocks", () => {
   test("an unset notes that the override was removed", () => {
     expect(renderPlain(bindBlocks({ ...bind, verb: "accessibility: stage-plan", from: "acme:b", unset: { pipeline: "accessibility", stillOverriddenBy: null } }))).toBe(
       [
-        "[ok] accessibility: stage-plan.domain  acme:b -> acme:plan-policy",
-        "  note: Removed the accessibility override, so this slot falls back to the default.",
+        "[ok] accessibility: stage-plan stage-plan.rules  acme:b -> acme:plan-policy",
+        "  note: Removed the accessibility override, so this prop falls back to the default.",
         "",
       ].join("\n"),
     );
-    expect(renderPlain(bindBlocks({ ...bind, dryRun: true, unset: { pipeline: "accessibility", stillOverriddenBy: null } }))).toBe("[not yet] stage-plan.domain  (unbound) -> acme:plan-policy\n");
+    expect(renderPlain(bindBlocks({ ...bind, dryRun: true, unset: { pipeline: "accessibility", stillOverriddenBy: null } }))).toBe("[not yet] stage-plan stage-plan.rules  (unbound) -> acme:plan-policy\n");
   });
 
   test("an unset whose bindings file was not rebuilt claims no fallback", () => {
     expect(renderPlain(bindBlocks({ ...bind, from: "acme:b", unset: { pipeline: "accessibility", stillOverriddenBy: null, rebuilt: false } }))).toBe(
       [
-        "[ok] stage-plan.domain  acme:b -> acme:plan-policy",
+        "[ok] stage-plan stage-plan.rules  acme:b -> acme:plan-policy",
         "  note: Removed this pack's accessibility override.",
         "",
       ].join("\n"),
@@ -1109,10 +1151,10 @@ describe("bindBlocks", () => {
 
   test("the shadow warning is a note on stderr, never stdout", () => {
     io.clear();
-    ui.note(...shadowWarning("watch-ci", "domain", "override", "/h/packs/acme/skills.jsonc"));
+    ui.note(...shadowWarning("watch-ci", "watch-ci/domain-rules.rules", "override", "/h/packs/acme/skills.jsonc"));
     expect(io.stdout()).toBe("");
     expect(io.errLines()).toEqual([
-      "[warning] watch-ci.domain is still decided by the override layer  your change is saved, but that layer wins",
+      "[warning] watch-ci watch-ci/domain-rules.rules is still decided by the override layer  your change is saved, but that layer wins",
       "  note: The winning value is in /h/packs/acme/skills.jsonc",
     ]);
   });
@@ -1139,13 +1181,13 @@ describe("pack role refusals", () => {
       const fragmentPath = join(packDir, "pack", "skills.jsonc");
       writeFile(fragmentPath, manifestText("acme:watch-ci-domain-v1"));
       const fragmentBefore = readFileSync(fragmentPath, "utf8");
-      const result = await runExpectingCleanExit(() => skillsBind(["watch-ci", "domain", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json]));
+      const result = await runExpectingCleanExit(() => skillsBind(["watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json]));
       expect(result.exitCode).toBe(2);
-      if (json.length) expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, verb: "watch-ci", slot: "domain", from: "acme:watch-ci-domain-v1", to: "acme:watch-ci-domain-v2", fragmentUpdated: null, shadowedBy: null, compileErrors: [refusal] });
+      if (json.length) expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, verb: "watch-ci", block: "watch-ci/domain-rules", prop: "rules", from: "acme:watch-ci-domain-v1", to: "acme:watch-ci-domain-v2", fragmentUpdated: null, shadowedBy: null, compileErrors: [refusal] });
       else expect(io.stderr()).toStartWith(`[refused] ${title}`);
       expect(readFileSync(manifestPath, "utf8")).toBe(before);
       expect(readFileSync(fragmentPath, "utf8")).toBe(fragmentBefore);
-      expect((await runExpectingCleanExit(() => skillsBind(["watch-ci", "domain", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, "--dry-run", ...json]))).exitCode).toBeUndefined();
+      expect((await runExpectingCleanExit(() => skillsBind(["watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, "--dry-run", ...json]))).exitCode).toBeUndefined();
       expect(readFileSync(manifestPath, "utf8")).toBe(before);
       expect(readFileSync(fragmentPath, "utf8")).toBe(fragmentBefore);
 
@@ -1174,7 +1216,7 @@ describe("a Mac with two org clones", () => {
       const fragmentPath = join(packDir, "pack", "skills.jsonc");
       writeFile(fragmentPath, manifestText("acme:watch-ci-domain-v1"));
       const fragmentBefore = readFileSync(fragmentPath, "utf8");
-      const result = await runExpectingCleanExit(() => skillsBind(["watch-ci", "domain", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json]));
+      const result = await runExpectingCleanExit(() => skillsBind(["watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json]));
       expect(result.exitCode).toBe(2);
       if (json.length) expect(JSON.parse(io.lines().at(-1)!).compileErrors).toEqual([refusal]);
       else expect(io.stderr()).toStartWith(`[refused] ${title}\n  why: rt works with one org per Mac, and this Mac uses acme`);
@@ -1205,7 +1247,6 @@ function pipelinesFixture(fragment: string | null) {
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
-  useSlotEngines(join(ms, "plugins", "mattstack", "attachments"));
   cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "skills", "model-tiering"), { recursive: true });
   writeFile(join(pack, "attachments", "b", "SKILL.md"), fillSkillMd("b", "evidence-domain@1"));
   const fragmentPath = join(pack, "pack", "skills.jsonc");
@@ -1220,39 +1261,39 @@ describe("skillsBind --pipeline", () => {
   test("--pipeline writes the override", async () => {
     const { pack, manifest, fragmentPath, args } = pipelinesFixture(PLAIN_LIST_FRAGMENT);
 
-    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...args]));
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility", ...args]));
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
 
     const fragment = readFileSync(fragmentPath, "utf8");
     expect(fragment).toContain("// acme fragment");
     const parsed = JSON.parse(stripJsonc(fragment));
-    expect(parsed.pipelines.accessibility).toEqual({ stages: PIPELINE_STAGES, bindings: { "mattstack:stage-evidence": { domain: "acme:b" } } });
+    expect(parsed.pipelines.accessibility).toEqual({ stages: PIPELINE_STAGES, bindings: { "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } } });
     expect(parsed.pipelines.feature).toEqual(PIPELINE_STAGES);
     expect(parsed.bindings).toEqual({});
 
-    expect(sources.readManifestPipelineBindings(manifest).accessibility?.["mattstack:stage-evidence"]).toEqual({ domain: "acme:b" });
-    expect(readManifestBindings(manifest)["mattstack:stage-evidence"]).toEqual({ domain: "acme:evidence-a" });
+    expect(sources.readManifestPipelineBindings(manifest).accessibility?.["mattstack:stage-evidence/domain-rules"]).toEqual({ rules: "acme:b" });
+    expect(readManifestBindings(manifest)["mattstack:stage-evidence/domain-rules"]).toEqual({ rules: "acme:evidence-a" });
     expect(readFileSync(join(pack, "attachments", "stage-evidence--accessibility", "SKILL.md"), "utf8")).toContain("Fill b.");
-    expect(io.lines()).toContain("[ok] accessibility: stage-evidence.domain  acme:evidence-b -> acme:b");
+    expect(io.lines()).toContain("[ok] accessibility: stage-evidence stage-evidence/domain-rules.rules  acme:evidence-b -> acme:b");
   });
 
   test("--pipeline writes the override: a fragment without the pipeline gains only its bindings", async () => {
     const { fragmentPath, args } = pipelinesFixture(`// acme fragment\n{\n  "bindings": {}\n}\n`);
 
-    await skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...args]);
+    await skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility", ...args]);
 
     const parsed = JSON.parse(stripJsonc(readFileSync(fragmentPath, "utf8")));
-    expect(parsed.pipelines).toEqual({ accessibility: { bindings: { "mattstack:stage-evidence": { domain: "acme:b" } } } });
+    expect(parsed.pipelines).toEqual({ accessibility: { bindings: { "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } } } });
     expect(parsed.bindings).toEqual({});
   });
 
   test("--unset after binding into a fragment without the pipeline restores the fragment", async () => {
     const original = `// acme fragment\n{\n  "bindings": {}\n}\n`;
     const { fragmentPath, args } = pipelinesFixture(original);
-    await skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...args]);
+    await skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility", ...args]);
 
-    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "--pipeline", "accessibility", "--unset", ...args]));
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "--pipeline", "accessibility", "--unset", ...args]));
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
 
@@ -1282,23 +1323,23 @@ describe("skillsBind --pipeline", () => {
     }
 
     test("--pipeline writes the same fragment and manifest as the bare name", async () => {
-      const r = await bindBoth((stage) => [stage, "domain", "acme:b", "--pipeline", "accessibility"]);
-      expect(JSON.parse(stripJsonc(r.fragment)).pipelines.accessibility.bindings).toEqual({ "mattstack:stage-evidence": { domain: "acme:b" } });
+      const r = await bindBoth((stage) => [stage, "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility"]);
+      expect(JSON.parse(stripJsonc(r.fragment)).pipelines.accessibility.bindings).toEqual({ "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } });
       expect(r.copy).toBe(true);
-      expect(r.lines).toContain("[ok] accessibility: stage-evidence.domain  acme:evidence-b -> acme:b");
+      expect(r.lines).toContain("[ok] accessibility: stage-evidence stage-evidence/domain-rules.rules  acme:evidence-b -> acme:b");
     }, 30_000);
 
     test("without --pipeline writes the same fragment and manifest as the bare name", async () => {
-      const r = await bindBoth((stage) => [stage, "domain", "acme:b"]);
-      expect(JSON.parse(stripJsonc(r.fragment)).bindings).toEqual({ "mattstack:stage-evidence": { domain: "acme:b" } });
-      expect(r.lines).toContain("[ok] stage-evidence.domain  acme:evidence-a -> acme:b");
+      const r = await bindBoth((stage) => [stage, "stage-evidence/domain-rules", "rules", "acme:b"]);
+      expect(JSON.parse(stripJsonc(r.fragment)).bindings).toEqual({ "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } });
+      expect(r.lines).toContain("[ok] stage-evidence stage-evidence/domain-rules.rules  acme:evidence-a -> acme:b");
     }, 30_000);
 
     test("--unset removes the override the bare name set", async () => {
       const r = await bindBoth(
-        (stage) => [stage, "domain", "--pipeline", "accessibility", "--unset"],
+        (stage) => [stage, "stage-evidence/domain-rules", "rules", "--pipeline", "accessibility", "--unset"],
         async (f) => {
-          await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...f.args]));
+          await runExpectingCleanExit(() => skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility", ...f.args]));
         },
       );
       expect(JSON.parse(stripJsonc(r.fragment)).pipelines.accessibility).toEqual(PIPELINE_STAGES);
@@ -1310,9 +1351,9 @@ describe("skillsBind --pipeline", () => {
     const { manifest, fragmentPath, args } = pipelinesFixture(PLAIN_LIST_FRAGMENT);
     const before = [readFileSync(manifest, "utf8"), readFileSync(fragmentPath, "utf8")];
 
-    await skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", "--dry-run", ...args]);
+    await skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility", "--dry-run", ...args]);
 
-    expect(io.lines()).toContain("[not yet] accessibility: stage-evidence.domain  acme:evidence-b -> acme:b");
+    expect(io.lines()).toContain("[not yet] accessibility: stage-evidence stage-evidence/domain-rules.rules  acme:evidence-b -> acme:b");
     expect([readFileSync(manifest, "utf8"), readFileSync(fragmentPath, "utf8")]).toEqual(before);
   });
 
@@ -1329,17 +1370,17 @@ describe("skillsBind --pipeline", () => {
     }
 
     test("an undeclared pipeline", async () => {
-      const errors = await refused((args) => ["stage-evidence", "domain", "acme:b", "--pipeline", "nope", ...args]);
+      const errors = await refused((args) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "nope", ...args]);
       expect(errors[0]).toContain(`pipeline "nope" is not declared in this pack's manifest`);
     });
 
     test("a stage the pipeline does not list", async () => {
       const errors = await refused(
-        (args) => ["stage-x", "domain", "acme:b", "--pipeline", "accessibility", ...args],
+        (args) => ["stage-x", "stage-x", "rules", "acme:b", "--pipeline", "accessibility", ...args],
         ({ ms, manifest }) => {
           writeFile(
-            join(ms, "plugins", "mattstack", "attachments", "pipeline", "stage-x", "SKILL.md"),
-            `---\nname: stage-x\ndescription: "stage-x"\ntype: pipeline-step\nslots:\n  domain: { contract: "evidence-domain@1", required: false }\nmetadata:\n  stage: x\n  stage-consumes: ticket\n  stage-produces: x\n---\n\n{{slot:domain}}\n`,
+            join(ms, "plugins", "mattstack", "attachments", "pipeline", "stage-x", "index.block.md"),
+            `---\nname: stage-x\ndescription: "stage-x"\ntype: pipeline-step\nmetadata:\n  stage: x\n  stage-consumes: ticket\n  stage-produces: x\nprops:\n  rules:\n    merge: add\n    default: ""\n    contract: "evidence-domain@1"\n---\n\n{{props.rules}}\n`,
           );
           const parsed = JSON.parse(stripJsonc(readFileSync(manifest, "utf8")));
           parsed.pipelines.feature.push("mattstack:stage-x");
@@ -1351,7 +1392,7 @@ describe("skillsBind --pipeline", () => {
 
     test("a declared plain-list pipeline whose name an override cannot carry", async () => {
       const errors = await refused(
-        (args) => ["stage-evidence", "domain", "acme:b", "--pipeline", "Feature", ...args],
+        (args) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "Feature", ...args],
         ({ manifest }) => {
           const parsed = JSON.parse(stripJsonc(readFileSync(manifest, "utf8")));
           parsed.pipelines.Feature = PIPELINE_STAGES;
@@ -1363,7 +1404,7 @@ describe("skillsBind --pipeline", () => {
 
     test("a declared plain-list pipeline whose name holds --", async () => {
       const errors = await refused(
-        (args) => ["stage-evidence", "domain", "acme:b", "--pipeline", "a--b", ...args],
+        (args) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "a--b", ...args],
         ({ manifest }) => {
           const parsed = JSON.parse(stripJsonc(readFileSync(manifest, "utf8")));
           parsed.pipelines["a--b"] = PIPELINE_STAGES;
@@ -1374,7 +1415,7 @@ describe("skillsBind --pipeline", () => {
     });
 
     test("a copy name as the verb", async () => {
-      const errors = await refused((args) => ["stage-evidence--accessibility", "domain", "acme:b", ...args]);
+      const errors = await refused((args) => ["stage-evidence--accessibility", "stage-evidence/domain-rules", "rules", "acme:b", ...args]);
       expect(errors[0]).toContain("stage-evidence--accessibility is a compiled copy; bind stage-evidence --pipeline accessibility instead");
     });
 
@@ -1384,65 +1425,66 @@ describe("skillsBind --pipeline", () => {
     });
 
     test("a stage under the wrong plugin prefix", async () => {
-      const errors = await refused((args) => ["acme:stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", ...args]);
+      const errors = await refused((args) => ["acme:stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility", ...args]);
       expect(errors[0]).toContain(`"acme:stage-evidence" names plugin acme, but stage-evidence comes from mattstack; bind stage-evidence or mattstack:stage-evidence`);
     });
 
     test("a roster verb with a plugin prefix", async () => {
-      const errors = await refused((args) => ["mattstack:work-a11y", "tiering", "mattstack:model-tiering", ...args]);
+      const errors = await refused((args) => ["mattstack:work-a11y", "work/sub-agent-tiering", "tiering", "mattstack:model-tiering", ...args]);
       expect(errors[0]).toContain(`"mattstack:work-a11y": a roster verb takes no plugin prefix; bind work-a11y`);
     });
 
     test("--unset without --pipeline", async () => {
-      const errors = await refused((args) => ["stage-evidence", "domain", "--unset", ...args]);
+      const errors = await refused((args) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "--unset", ...args]);
       expect(errors[0]).toContain("--unset removes a pipeline override; name the pipeline with --pipeline");
     });
 
     test("--unset with a fill", async () => {
-      const errors = await refused((args) => ["stage-evidence", "domain", "acme:b", "--pipeline", "accessibility", "--unset", ...args]);
+      const errors = await refused((args) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", "accessibility", "--unset", ...args]);
       expect(errors[0]).toContain("--unset takes no fill");
     });
 
     test("--unset where the pipeline has no override", async () => {
-      const errors = await refused((args) => ["stage-evidence", "domain", "--pipeline", "feature", "--unset", ...args]);
-      expect(errors[0]).toContain("feature has no override for stage-evidence.domain");
+      const errors = await refused((args) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "--pipeline", "feature", "--unset", ...args]);
+      expect(errors[0]).toContain("feature has no override for stage-evidence stage-evidence/domain-rules.rules");
     });
 
     test("--unset an override another layer sets", async () => {
       const errors = await refused(
-        (args) => ["stage-evidence", "domain", "--pipeline", "accessibility", "--unset", ...args],
+        (args) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "--pipeline", "accessibility", "--unset", ...args],
         ({ manifest }) => {
-          writeFile(manifest, `//   accessibility/mattstack:stage-evidence domain <- base:acme-base\n${readFileSync(manifest, "utf8")}`);
+          writeFile(manifest, `//   accessibility/mattstack:stage-evidence/domain-rules rules <- base:acme-base\n${readFileSync(manifest, "utf8")}`);
         },
       );
-      expect(errors[0]).toContain("accessibility's override for stage-evidence.domain comes from base:acme-base; remove it there");
+      expect(errors[0]).toContain("accessibility's override for stage-evidence stage-evidence/domain-rules.rules comes from base:acme-base; remove it there");
     });
   });
 
-  test("binding a work verb's own slot recompiles every verb on its engine", async () => {
+  test("binding a work verb's own prop recompiles every verb on its engine", async () => {
     const { pack, args } = pipelinesFixture(PLAIN_LIST_FRAGMENT);
     await runExpectingCleanExit(() => skillsCompile(args));
 
-    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["work-a11y", "tiering", "mattstack:model-tiering", ...args]));
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["work-a11y", "work/sub-agent-tiering", "tiering", "mattstack:model-tiering", ...args]));
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
 
     for (const verb of ["work", "work-a11y"]) {
-      expect(readFileSync(join(pack, "skills", verb, "SKILL.md"), "utf8")).toContain("Slot tiering is bound to `mattstack:model-tiering`");
+      expect(readFileSync(join(pack, "skills", verb, "SKILL.md"), "utf8")).toContain("Prop tiering is bound to `mattstack:model-tiering`");
     }
   }, 30_000);
 
   test("the usage line names --pipeline", async () => {
     const { exitCode, errors } = await runExpectingCleanExit(() => skillsBind(["stage-evidence"]));
     expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("rt skills bind <verb> <slot> <fill> [--pipeline <name>]");
+    expect(errors.join("\n")).toContain("rt skills bind <verb> <block> <prop> <fill> [--pipeline <name>]");
   });
 
   test("the picker never lists copy names", async () => {
     const { manifest, args } = pipelinesFixture(PLAIN_LIST_FRAGMENT);
     const seq = installFakePickSequence([
       { action: "select", value: "stage-evidence", query: "" },
-      { action: "select", value: "domain", query: "" },
+      { action: "select", value: "stage-evidence/domain-rules", query: "" },
+      { action: "select", value: "rules", query: "" },
       { action: "select", value: "acme:b", query: "" },
     ]);
     const previousIsTTY = process.stdin.isTTY;
@@ -1457,16 +1499,16 @@ describe("skillsBind --pipeline", () => {
     const verbRows = JSON.stringify(seq.calls[0]!.rows);
     expect(verbRows).toContain('"stage-evidence"');
     expect(verbRows).not.toContain("--accessibility");
-    expect(sources.readManifestPipelineBindings(manifest).accessibility?.["mattstack:stage-evidence"]).toEqual({ domain: "acme:b" });
+    expect(sources.readManifestPipelineBindings(manifest).accessibility?.["mattstack:stage-evidence/domain-rules"]).toEqual({ rules: "acme:b" });
   });
 });
 
 describe("skillsBind --unset", () => {
   const COPY_DIR = "stage-evidence--accessibility";
-  const unsetArgv = (args: string[], ...extra: string[]) => ["stage-evidence", "domain", "--pipeline", "accessibility", "--unset", ...extra, ...args];
+  const unsetArgv = (args: string[], ...extra: string[]) => ["stage-evidence", "stage-evidence/domain-rules", "rules", "--pipeline", "accessibility", "--unset", ...extra, ...args];
 
   async function bindOverride(f: ReturnType<typeof pipelinesFixture>, pipeline = "accessibility"): Promise<void> {
-    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "acme:b", "--pipeline", pipeline, ...f.args]));
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "acme:b", "--pipeline", pipeline, ...f.args]));
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
     io.clear();
@@ -1486,17 +1528,17 @@ describe("skillsBind --unset", () => {
     expect(JSON.parse(stripJsonc(fragment)).pipelines.accessibility).toEqual(PIPELINE_STAGES);
     expect(existsSync(join(f.pack, "attachments", COPY_DIR))).toBe(false);
     expect((await checkPack({ packDir: f.pack, mattstackDir: f.ms, manifest: f.manifest })).drift).toBe(false);
-    expect(io.lines()).toContain("[ok] accessibility: stage-evidence.domain  acme:b -> acme:evidence-a");
+    expect(io.lines()).toContain("[ok] accessibility: stage-evidence stage-evidence/domain-rules.rules  acme:b -> acme:evidence-a");
   }, 30_000);
 
   test("unset in fixture mode drops the provenance line", async () => {
     const f = pipelinesFixture(PLAIN_LIST_FRAGMENT);
-    writeFile(f.manifest, `//   accessibility/mattstack:stage-evidence domain <- pack\n${readFileSync(f.manifest, "utf8")}`);
+    writeFile(f.manifest, `//   accessibility/mattstack:stage-evidence/domain-rules rules <- pack\n${readFileSync(f.manifest, "utf8")}`);
 
     await runExpectingCleanExit(() => skillsBind(unsetArgv(f.args)));
 
     const manifest = readFileSync(f.manifest, "utf8");
-    expect(manifest).not.toContain("accessibility/mattstack:stage-evidence domain");
+    expect(manifest).not.toContain("accessibility/mattstack:stage-evidence/domain-rules rules");
     expect(manifest).toContain("// acme bindings");
     expect(sources.readManifestPipelineBindings(f.manifest).accessibility).toBeUndefined();
   }, 30_000);
@@ -1505,11 +1547,11 @@ describe("skillsBind --unset", () => {
     const f = pipelinesFixture(`// acme fragment\n{\n  "pipelines": { "feature": ${JSON.stringify(PIPELINE_STAGES)} },\n  "bindings": {}\n}\n`);
     writeFile(join(f.pack, "pack", "stubs.jsonc"), JSON.stringify({ verbs: { work: { engine: "work", description: "Run a unit of work" } } }));
     writeFile(join(f.pack, "pack", "surface.jsonc"), JSON.stringify({ public: ["work"] }));
-    writeFile(f.manifest, `// acme bindings\n${JSON.stringify({ pipelines: { feature: PIPELINE_STAGES }, bindings: { "mattstack:stage-evidence": { domain: "acme:evidence-a" } } }, null, 2)}\n`);
+    writeFile(f.manifest, `// acme bindings\n${JSON.stringify({ pipelines: { feature: PIPELINE_STAGES }, bindings: { "mattstack:stage-evidence/domain-rules": { rules: "acme:evidence-a" } } }, null, 2)}\n`);
     await bindOverride(f, "feature");
     expect(existsSync(join(f.pack, "attachments", "stage-evidence--feature"))).toBe(true);
 
-    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "domain", "--pipeline", "feature", "--unset", ...f.args]));
+    const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "stage-evidence/domain-rules", "rules", "--pipeline", "feature", "--unset", ...f.args]));
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
 
@@ -1524,7 +1566,7 @@ describe("skillsBind --unset", () => {
     await skillsBind(unsetArgv(f.args, "--json"));
 
     expect(JSON.parse(io.stdout())).toMatchObject({
-      ok: true, verb: "stage-evidence", slot: "domain", pipeline: "accessibility", from: "acme:evidence-b", to: "acme:evidence-a", unset: true,
+      ok: true, verb: "stage-evidence", block: "stage-evidence/domain-rules", prop: "rules", pipeline: "accessibility", from: "acme:evidence-b", to: "acme:evidence-a", unset: true,
     });
   }, 30_000);
 
@@ -1534,7 +1576,7 @@ describe("skillsBind --unset", () => {
 
     await skillsBind(unsetArgv(f.args, "--dry-run"));
 
-    expect(io.lines()).toContain("[not yet] accessibility: stage-evidence.domain  acme:evidence-b -> acme:evidence-a");
+    expect(io.lines()).toContain("[not yet] accessibility: stage-evidence stage-evidence/domain-rules.rules  acme:evidence-b -> acme:evidence-a");
     expect([readFileSync(f.manifest, "utf8"), readFileSync(f.fragmentPath, "utf8")]).toEqual(before);
     expect(existsSync(join(f.pack, "attachments", "stage-evidence"))).toBe(false);
   });
@@ -1542,7 +1584,7 @@ describe("skillsBind --unset", () => {
   test("the unset usage line names --pipeline and --unset", async () => {
     const { exitCode, errors } = await runExpectingCleanExit(() => skillsBind(["stage-evidence", "--pipeline", "accessibility", "--unset"]));
     expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("rt skills bind <verb> <slot> --pipeline <name> --unset");
+    expect(errors.join("\n")).toContain("rt skills bind <verb> <block> <prop> --pipeline <name> --unset");
   });
 
   test("byte-identical after unset", async () => {
@@ -1573,12 +1615,12 @@ describe("applyBind --pipeline", () => {
   test("shadowedBy reads the pipeline override's provenance", async () => {
     const { packDir, manifestPath } = teamPack(`{\n  "pipelines": { "accessibility": ["mattstack:stage-evidence"] }\n}\n`);
     const result = await applyBind({
-      manifestPath, packDir, engineRef: "mattstack:stage-evidence", slotName: "domain", fill: "acme:b", pipeline: "accessibility", fixtureMode: false,
+      manifestPath, packDir, key: "mattstack:stage-evidence/domain-rules", prop: "rules", fill: "acme:b", pipeline: "accessibility", fixtureMode: false,
       materialize: async () => {
         writeFile(manifestPath, [
-          "//   mattstack:stage-evidence domain <- team",
-          "//   accessibility/mattstack:stage-evidence domain <- override",
-          `{ "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence": { "domain": "me:evidence" } } } }, "bindings": { "mattstack:stage-evidence": { "domain": "acme:b" } } }`,
+          "//   mattstack:stage-evidence/domain-rules rules <- team",
+          "//   accessibility/mattstack:stage-evidence/domain-rules rules <- override",
+          `{ "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "me:evidence" } } } }, "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:b" } } }`,
         ].join("\n"));
         return { ok: true };
       },
@@ -1586,19 +1628,19 @@ describe("applyBind --pipeline", () => {
     expect(result.shadowedBy).toBe("override");
     expect(JSON.parse(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).pipelines.accessibility).toEqual({
       stages: ["mattstack:stage-evidence"],
-      bindings: { "mattstack:stage-evidence": { domain: "acme:b" } },
+      bindings: { "mattstack:stage-evidence/domain-rules": { rules: "acme:b" } },
     });
   });
 
   test("a pipeline override that landed is not shadowed, whatever the default says", async () => {
     const { packDir, manifestPath } = teamPack(`{}`);
     const result = await applyBind({
-      manifestPath, packDir, engineRef: "mattstack:stage-evidence", slotName: "domain", fill: "acme:b", pipeline: "accessibility", fixtureMode: false,
+      manifestPath, packDir, key: "mattstack:stage-evidence/domain-rules", prop: "rules", fill: "acme:b", pipeline: "accessibility", fixtureMode: false,
       materialize: async () => {
         writeFile(manifestPath, [
-          "//   mattstack:stage-evidence domain <- override",
-          "//   accessibility/mattstack:stage-evidence domain <- team",
-          `{ "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence": { "domain": "acme:b" } } } }, "bindings": { "mattstack:stage-evidence": { "domain": "me:evidence" } } }`,
+          "//   mattstack:stage-evidence/domain-rules rules <- override",
+          "//   accessibility/mattstack:stage-evidence/domain-rules rules <- team",
+          `{ "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:b" } } } }, "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "me:evidence" } } }`,
         ].join("\n"));
         return { ok: true };
       },
@@ -1608,15 +1650,15 @@ describe("applyBind --pipeline", () => {
 
   test("a lower layer's override still applies after unset", async () => {
     const { packDir, manifestPath } = teamPack(
-      `{\n  "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence": { "domain": "acme:b" } } } }\n}\n`,
+      `{\n  "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:b" } } } }\n}\n`,
     );
     const result = await applyBind({
-      manifestPath, packDir, engineRef: "mattstack:stage-evidence", slotName: "domain", fill: "", pipeline: "accessibility", unset: true, fixtureMode: false,
+      manifestPath, packDir, key: "mattstack:stage-evidence/domain-rules", prop: "rules", fill: "", pipeline: "accessibility", unset: true, fixtureMode: false,
       materialize: async () => {
         writeFile(manifestPath, [
-          "//   mattstack:stage-evidence domain <- pack",
-          "//   accessibility/mattstack:stage-evidence domain <- base:acme-base",
-          `{ "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence": { "domain": "acme:base-evidence" } } } }, "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } } }`,
+          "//   mattstack:stage-evidence/domain-rules rules <- pack",
+          "//   accessibility/mattstack:stage-evidence/domain-rules rules <- base:acme-base",
+          `{ "pipelines": { "accessibility": { "stages": ["mattstack:stage-evidence"], "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:base-evidence" } } } }, "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-a" } } }`,
         ].join("\n"));
         return { ok: true };
       },
@@ -1626,10 +1668,10 @@ describe("applyBind --pipeline", () => {
     expect(result.to).toBe("acme:base-evidence");
     expect(result.shadowedBy).toBe("base:acme-base");
     expect(renderPlain(bindBlocks({
-      verb: "accessibility: stage-evidence", slot: "domain", from: "acme:b", to: result.to!, dryRun: false, fragmentUpdated: null, basePack: null,
+      verb: "accessibility: stage-evidence", target: "stage-evidence/domain-rules.rules", from: "acme:b", to: result.to!, dryRun: false, fragmentUpdated: null, basePack: null,
       unset: { pipeline: "accessibility", stillOverriddenBy: result.shadowedBy },
     }))).toBe([
-      "[ok] accessibility: stage-evidence.domain  acme:b -> acme:base-evidence",
+      "[ok] accessibility: stage-evidence stage-evidence/domain-rules.rules  acme:b -> acme:base-evidence",
       "  note: Removed this pack's accessibility override, but base:acme-base's override still applies.",
       "",
     ].join("\n"));

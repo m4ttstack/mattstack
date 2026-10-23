@@ -16,17 +16,17 @@ function isEmptyObject(text: string, path: (string | number)[]): boolean {
 export function removePipelineOverride(
   text: string,
   pipeline: string,
-  engineRef: string,
-  slot: string,
+  key: string,
+  prop: string,
 ): string {
   const base = ["pipelines", pipeline];
-  const slotPath = [...base, "bindings", engineRef, slot];
+  const propPath = [...base, "bindings", key, prop];
   const root = parseTree(text);
-  if (!root || !findNodeAtLocation(root, slotPath)) return text;
+  if (!root || !findNodeAtLocation(root, propPath)) return text;
 
-  let out = remove(text, slotPath);
+  let out = remove(text, propPath);
   for (const path of [
-    [...base, "bindings", engineRef],
+    [...base, "bindings", key],
     [...base, "bindings"],
     base,
     ["pipelines"],

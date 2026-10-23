@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { checkPack, skillsAnatomy, skillsBind, skillsCheck, skillsCompile, skillsComposition } from "../../../commands/skills.ts";
 import { childEnv } from "../../subprocess.ts";
-import { captureSkills, runExpectingCleanExit, useSlotEngines } from "./helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
 const PIPELINES_FIX = join(import.meta.dir, "fixtures", "compile-pipelines");
@@ -51,18 +51,18 @@ describe("compile-native end to end", () => {
       expect(md).not.toContain("resolve-pipeline");
       expect(md).not.toContain("{{");
     }
-    expect(work).toContain("<!-- part: step source=mattstack:work");
+    expect(work).toContain("<!-- part: block:work source=mattstack:work");
     expect(work).toMatch(/--mattstack-sha \S+ --mattstack-dirty [01]/);
     // build() copies the fixture to a temp dir with no git history, so the baked value is the pack's plugin.json version.
     expect(work).toContain("--pack-sha acme=0.1.0");
     for (const [name, body] of stages) {
-      expect(body).toContain(`<!-- part: step source=mattstack:${name}`);
+      expect(body).toContain(`<!-- part: block:${name} source=mattstack:${name}`);
     }
 
     const plan = stages.find(([name]) => name === "stage-plan")![1];
     // The fill comes from the pack under compilation, at the pack's own version --
     // never from an installed copy of a previous release.
-    expect(plan).toContain("<!-- part: slot:domain binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md");
+    expect(plan).toContain("<!-- part: prop:stage-plan.rules binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md");
     expect(plan).toContain("<!-- part: include:gitlab-note");
     expect(plan).toContain("note body");
     expect(existsSync(join(pack, "skills", "work", "scripts", "resolve-pipeline.sh"))).toBe(false);
@@ -248,7 +248,7 @@ function buildWithRosterVerbs(): { pack: string; ms: string; manifest: string } 
   writeFileSync(join(pack, "pack", "surface.jsonc"), JSON.stringify({ public: ["work", "checkout"] }));
   for (const [name, source] of [["receive-review", RECEIVE_REVIEW_ENGINE], ["checkout", CHECKOUT_ENGINE]] as const) {
     mkdirSync(join(ms, "plugins", "mattstack", "attachments", name), { recursive: true });
-    writeFileSync(join(ms, "plugins", "mattstack", "attachments", name, "SKILL.md"), source);
+    writeFileSync(join(ms, "plugins", "mattstack", "attachments", name, "index.block.md"), source);
   }
   return { pack, ms, manifest };
 }
@@ -316,7 +316,7 @@ describe("pack.path end to end", () => {
     writeFileSync(join(pack, "attachments", "evidence", "scripts", "capture.sh"), "#!/bin/sh\n");
     const policyPath = join(pack, "attachments", "plan-policy", "SKILL.md");
     writeFileSync(policyPath, readFileSync(policyPath, "utf8").replace("policy text", "policy text\n\nCapture with {{pack.path:evidence/scripts/capture.sh}}."));
-    const checkoutPath = join(ms, "plugins", "mattstack", "attachments", "checkout", "SKILL.md");
+    const checkoutPath = join(ms, "plugins", "mattstack", "attachments", "checkout", "index.block.md");
     writeFileSync(checkoutPath, CHECKOUT_ENGINE.replace("then {{verb.path:work}}.", "then {{verb.path:work}}, then {{pack.path:evidence/scripts/capture.sh}}."));
 
     const { logs, errors, exitCode } = await compileCapturingLogs(pack, ms, manifest);
@@ -338,7 +338,6 @@ function buildPipelines(): { pack: string; ms: string; manifest: string; args: s
   const pack = join(root, "pack");
   const ms = join(root, "mattstack-home");
   cpSync(REAL_ATTACHMENTS, join(ms, "plugins", "mattstack", "attachments"), { recursive: true });
-  useSlotEngines(join(ms, "plugins", "mattstack", "attachments"));
   cpSync(REAL_MODEL_TIERING, join(ms, "plugins", "mattstack", "skills", "model-tiering"), { recursive: true });
   const manifest = join(ms, "repos", "my-repo", "skills.jsonc");
   return { pack, ms, manifest, args: ["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest] };
@@ -434,7 +433,7 @@ describe("compile-pipelines", () => {
     expect(existsSync(join(pack, "attachments", COPY))).toBe(true);
 
     writeFileSync(manifest, readFileSync(manifest, "utf8").replace(
-      ',\n      "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-b" } }',
+      ',\n      "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-b" } }',
       "",
     ));
 
@@ -481,13 +480,13 @@ describe("compile-pipelines", () => {
       "mattstack:stage-ship",
       "mattstack:stage-watch-ci",
     ];
-    const forge = { "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" } };
+    const forge = { "mattstack:stage-watch-ci/forge": { forge: "mattstack:ci-forge-gitlab" } };
     writeFileSync(manifest, JSON.stringify({
       pipelines: {
         feature: { stages, bindings: forge },
-        accessibility: { stages, bindings: { ...forge, "mattstack:stage-evidence": { domain: "acme:evidence-b" } } },
+        accessibility: { stages, bindings: { ...forge, "mattstack:stage-evidence/domain-rules": { rules: "acme:evidence-b" } } },
       },
-      bindings: { "mattstack:stage-evidence": { domain: "acme:evidence-a" } },
+      bindings: { "mattstack:stage-evidence/domain-rules": { rules: "acme:evidence-a" } },
     }, null, 2));
 
     const { errors, exitCode } = await compileCapturingLogs(pack, ms, manifest);
@@ -499,8 +498,8 @@ describe("compile-pipelines", () => {
     expect(stage).not.toContain("{{");
     for (const pipeline of ["feature", "accessibility"]) {
       const copy = readFileSync(join(pack, "attachments", `stage-watch-ci--${pipeline}`, "SKILL.md"), "utf8");
-      expect(copy).toContain("slot:forge binding=mattstack:ci-forge-gitlab");
-      expect(copy).toContain(`\${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci--${pipeline}/parts/forge/scripts/ci-forge.sh`);
+      expect(copy).toContain("prop:stage-watch-ci/forge.forge binding=mattstack:ci-forge-gitlab");
+      expect(copy).toContain(`\${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci--${pipeline}/parts/forge/forge/scripts/ci-forge.sh`);
     }
   }, 30_000);
 
@@ -515,7 +514,7 @@ describe("compile-pipelines", () => {
 
     const io = captureSkills();
     try {
-      const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["work", "tiering", "mattstack:model-tiering", ...args]));
+      const { errors, exitCode } = await runExpectingCleanExit(() => skillsBind(["work", "work/sub-agent-tiering", "tiering", "mattstack:model-tiering", ...args]));
       expect(errors).toEqual([]);
       expect(exitCode).toBeUndefined();
     } finally {
@@ -582,15 +581,15 @@ describe("compile-pipelines", () => {
 
 function dropAccessibilityOverride(manifest: string): void {
   writeFileSync(manifest, readFileSync(manifest, "utf8").replace(
-    ',\n      "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-b" } }',
+    ',\n      "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-b" } }',
     "",
   ));
 }
 
 function bindWorkTiering(manifest: string): void {
   writeFileSync(manifest, readFileSync(manifest, "utf8").replace(
-    '"bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } }',
-    '"bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" }, "mattstack:work": { "tiering": "mattstack:model-tiering" } }',
+    '"bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-a" } }',
+    '"bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-a" }, "mattstack:work/sub-agent-tiering": { "tiering": "mattstack:model-tiering" } }',
   ));
 }
 
@@ -693,7 +692,7 @@ describe("block-tree engines end to end", () => {
   test("a SKILL.md left beside the block tree refuses compile and leaves the compiled skill alone", async () => {
     const { pack, ms, args } = await buildBlocks();
     const before = readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8");
-    writeFileSync(join(ms, "plugins", "mattstack", "attachments", "pipeline", "mini", "SKILL.md"), "---\nname: mini\ntype: pipeline-step\n---\n\n{{slot:x}}\n");
+    writeFileSync(join(ms, "plugins", "mattstack", "attachments", "pipeline", "mini", "SKILL.md"), "---\nname: mini\ntype: pipeline-step\n---\n\nOld text.\n");
     const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(args));
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).toContain("attachments/pipeline/mini/SKILL.md:1:1: the block tree in index.block.md replaces this SKILL.md; delete it");
@@ -781,7 +780,7 @@ async function workBinderVerb(args: string[]): Promise<string | null> {
   try {
     await skillsComposition([...args, "--json"]);
     const { binders } = JSON.parse(io.stdout()) as { binders: { ref: string; verb: string | null }[] };
-    return binders.find((b) => b.ref === "mattstack:work")?.verb ?? null;
+    return binders.find((b) => b.ref === "mattstack:work/sub-agent-tiering")?.verb ?? null;
   } finally {
     io.restore();
   }

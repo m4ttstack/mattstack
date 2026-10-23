@@ -353,12 +353,12 @@ describe("renderPackFiles", () => {
   });
   test("bindings fragment carries enabled skills, the eight-stage pipeline, and only the two generic bindings", () => {
     const manifest = JSON.parse(stripJsonc(files["pack/skills.jsonc"]!));
-    expect(manifest.version).toBe(1);
+    expect(manifest.version).toBe(2);
     expect(manifest.skills).toEqual({ enabled: ["mattstack:work", "mattstack:model-tiering"] });
     expect(manifest.pipelines.feature).toEqual(PIPELINE_STAGES.map((s) => `mattstack:${s}`));
     expect(manifest.bindings).toEqual({
-      "mattstack:work": { tiering: "mattstack:model-tiering" },
-      "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
+      "mattstack:work/sub-agent-tiering": { tiering: "mattstack:model-tiering" },
+      "mattstack:stage-watch-ci/forge": { forge: "mattstack:ci-forge-gitlab" },
     });
   });
   test("seeded fragment explains pipelines", () => {
@@ -677,19 +677,19 @@ describe("renderPackFiles extends", () => {
     const base = {
       base: true,
       pipelines: { feature: ["mattstack:stage-plan", "acme-base:stage-audit"] },
-      bindings: { "mattstack:stage-watch-ci": { forge: "acme-base:ci-forge" } },
+      bindings: { "mattstack:stage-watch-ci/forge": { forge: "acme-base:ci-forge" } },
     };
     const fragment = JSON.parse(stripJsonc(renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base", baseFragment: base })["pack/skills.jsonc"]!));
     expect(fragment.extends).toBe("acme-base");
     expect(fragment.pipelines).toBeUndefined();
-    expect(fragment.bindings).toEqual({ "mattstack:work": { tiering: "mattstack:model-tiering" } });
+    expect(fragment.bindings).toEqual({ "mattstack:work/sub-agent-tiering": { tiering: "mattstack:model-tiering" } });
   });
 
   test("a base that sets no feature stages leaves the seed's own", () => {
     const base = { base: true, pipelines: { feature: { bindings: { "mattstack:stage-ship": { policy: "acme-base:squash" } } } } };
     const fragment = JSON.parse(stripJsonc(renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base", baseFragment: base })["pack/skills.jsonc"]!));
     expect(fragment.pipelines.feature).toEqual(PIPELINE_STAGES.map((s) => `mattstack:${s}`));
-    expect(fragment.bindings["mattstack:stage-watch-ci"]).toEqual({ forge: "mattstack:ci-forge-gitlab" });
+    expect(fragment.bindings["mattstack:stage-watch-ci/forge"]).toEqual({ forge: "mattstack:ci-forge-gitlab" });
   });
 });
 

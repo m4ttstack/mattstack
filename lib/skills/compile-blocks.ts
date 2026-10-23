@@ -127,6 +127,10 @@ export function blockPropValues(
         }
         for (const prop of Object.keys(props)) {
           if (block.props.some((p) => p.name === prop)) continue;
+          if (block === tree.root && replacedSlots(tree).includes(prop)) {
+            diagnostics.push({ ...keyAt(prop), code: "old-slot-binding", message: oldSlotBindingMessage(key, prop, tree) });
+            continue;
+          }
           diagnostics.push({ ...keyAt(prop), code: "unknown-prop", message: `binding "${key}": block "${id}" declares no prop "${prop}"` });
         }
       }
@@ -164,6 +168,18 @@ export function blockPropValues(
 
   if (diagnostics.length > 0) throw new BlockError(diagnostics);
   return values;
+}
+
+/** The slot names an engine declared before it became a block tree, from its root's `replaced-slots`. */
+export function replacedSlots(tree: BlockTree): string[] {
+  const raw = tree.root.frontmatter["replaced-slots"];
+  return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === "string") : [];
+}
+
+/** One old slot maps to many props, so the message lists every prop the engine's blocks declare. */
+export function oldSlotBindingMessage(engineRef: string, slot: string, tree: BlockTree): string {
+  const props = walk(tree).flatMap((b) => b.props.map((p) => `${b.id}.${p.name} (${p.merge})`));
+  return `"${engineRef}" no longer has slot "${slot}"; its props are: ${props.join(", ")}`;
 }
 
 /**
