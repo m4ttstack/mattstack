@@ -3,7 +3,7 @@ import type {
   LayerColor,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { labelOf, rootOf } from './blockFacts';
+import { childrenOf, labelOf, rootOf } from './blockFacts';
 import { sectionsAt } from './sections';
 
 export type Fill = LayerColor | 'both';
@@ -28,11 +28,20 @@ export function linesOf(text: string): number {
   return text.replace(/\n$/, '').split('\n').length;
 }
 
+/** By `parentId`, never by id prefix: a shared block keeps its own id under
+    whichever block includes it. */
 function inScope(payload: BlocksPayload, scope: PayloadBlock | null) {
   if (scope === null) return payload.blocks;
-  return payload.blocks.filter(
-    block => block.id === scope.id || block.id.startsWith(`${scope.id}/`)
-  );
+  const ids = new Set([scope.id]);
+  const queue = [scope.id];
+  for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+    for (const child of childrenOf(payload, id)) {
+      if (ids.has(child.id)) continue;
+      ids.add(child.id);
+      queue.push(child.id);
+    }
+  }
+  return payload.blocks.filter(block => ids.has(block.id));
 }
 
 export function layerLabel(payload: BlocksPayload, role: LayerColor): string {
@@ -49,20 +58,25 @@ function fillOf(block: PayloadBlock): Fill {
   return 'mattstack';
 }
 
-/** At the skill, a block sits in the band of its top-level ancestor, a
-    top-level leaf in Notes, and the root under the skill's name. */
+/** At the skill, a block sits in the band of its top-level ancestor (up the
+    `parentId` chain), a top-level leaf in Notes, and the root under the
+    skill's name. */
 function skillSectionOf(payload: BlocksPayload): (id: string) => string {
   const root = rootOf(payload);
   const bandOf = new Map<string, string>();
   for (const band of sectionsAt(payload, { level: 'skill' })) {
     if (band.id !== 'notes') bandOf.set(band.id, band.title);
-    for (const row of band.rows) bandOf.set(row.id, band.title);
   }
+  const parentOf = new Map(
+    payload.blocks.map(block => [block.id, block.parentId])
+  );
   return id => {
     if (root && id === root.id) return payload.skill;
-    for (let at = id; at.includes('/'); at = at.slice(0, at.lastIndexOf('/'))) {
-      const title = bandOf.get(at);
-      if (title !== undefined) return title;
+    const seen = new Set<string>();
+    for (let at: string | null | undefined = id; at; at = parentOf.get(at)) {
+      if (seen.has(at)) break;
+      seen.add(at);
+      if (parentOf.get(at) === root?.id) return bandOf.get(at) ?? 'Notes';
     }
     return 'Notes';
   };

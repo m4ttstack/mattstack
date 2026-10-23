@@ -135,3 +135,39 @@ describe('blockStrip', () => {
     ]);
   });
 });
+
+/** rt keeps a shared block's own id and gives it the includer as parent. */
+function withShared(): BlocksPayload {
+  const payload = structuredClone(miniPayload);
+  const guard = blockOf(payload, 'mini/run/guard');
+  payload.blocks.push({
+    ...structuredClone(guard),
+    id: 'note',
+    parentId: 'mini/run',
+    kind: 'shared',
+    label: 'Note',
+    segments: [
+      { layer: 'pack', color: 'team', prop: null, text: 'one\ntwo\nthree' },
+    ],
+  });
+  return payload;
+}
+
+describe('a shared block, by its parent rather than its id', () => {
+  it('is in scope of its includer, counted from segments', () => {
+    const payload = withShared();
+    const run = blockOf(payload, 'mini/run');
+    expect(blockMap(payload, run).squares.map(s => s.id)).toContain('note');
+    expect(lineTotals(payload, run)).toEqual([
+      { layer: 'mattstack', label: 'default', count: 7 },
+      { layer: 'team', label: 'pack', count: 3 },
+    ]);
+  });
+
+  it("sits in its includer's section at the skill", () => {
+    const square = blockMap(withShared(), null).squares.find(
+      s => s.id === 'note'
+    );
+    expect(square?.section).toBe('Run');
+  });
+});
