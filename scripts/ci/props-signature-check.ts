@@ -42,52 +42,69 @@ function git(args: string[]) {
   return Bun.spawnSync(["git", ...args], { env: childEnv() });
 }
 
-if (import.meta.main) {
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** The tag's trees unpack into `tmp`; returns the exit code, so the caller removes `tmp` on every path. */
+function compareAgainstTag(tag: string, tmp: string): number {
+  const listed = git(["ls-tree", "--name-only", tag, `${PLUGIN}/`]);
+  const present = new Set(listed.stdout.toString().split("\n").filter(Boolean));
+  const paths = ROOTS.map((r) => `${PLUGIN}/${r}`).filter((p) => present.has(p));
+  if (paths.length > 0) {
+    const tar = join(tmp, "tree.tar");
+    const archive = git(["archive", "--format=tar", "-o", tar, tag, "--", ...paths]);
+    if (archive.exitCode !== 0) {
+      console.error(`git archive ${tag} failed: ${archive.stderr.toString().trim()}`);
+      return 2;
+    }
+    const untar = Bun.spawnSync(["tar", "-xf", tar, "-C", tmp], { env: childEnv() });
+    if (untar.exitCode !== 0) {
+      console.error(`Unpacking ${tag}'s plugin trees failed: ${untar.stderr.toString().trim()}`);
+      return 2;
+    }
+  }
+  // A released tree today's loader refuses has no signature to compare against, and no PR can change the tag.
+  let before;
+  try {
+    before = signatureOf(blockTreesIn(join(tmp, PLUGIN)));
+  } catch (err) {
+    console.log(`Props signature check skipped: ${tag}'s block trees do not load today: ${errorText(err)}`);
+    return 0;
+  }
+  let after;
+  try {
+    after = signatureOf(blockTreesIn(PLUGIN));
+  } catch (err) {
+    console.error(`A block tree failed to load, so its props cannot be compared: ${errorText(err)}`);
+    return 2;
+  }
+  const errors = checkPropsSignature({ changes: breakingChanges(before, after), prBody: process.env.PR_BODY ?? "" });
+  for (const e of errors) console.error(e);
+  if (errors.length === 0) console.log(`Props signature matches ${tag}, or every change is waived.`);
+  return errors.length ? 1 : 0;
+}
+
+function main(): number {
   const event = process.env.GITHUB_EVENT_NAME;
   if (event !== undefined && event !== "pull_request") {
     console.log(`Props signature check skipped: the ${event} event has no PR body to read waivers from.`);
-    process.exit(0);
+    return 0;
   }
   const i = process.argv.indexOf("--base");
   const base = (i === -1 ? undefined : process.argv[i + 1]) ?? "HEAD^1";
   const describe = git(["describe", "--tags", "--abbrev=0", "--match", "v*", base]);
   if (describe.exitCode !== 0) {
     console.log(`Props signature check skipped: no v* release tag is reachable from ${base}.`);
-    process.exit(0);
+    return 0;
   }
   const tag = describe.stdout.toString().trim();
-  const listed = git(["ls-tree", "--name-only", tag, `${PLUGIN}/`]);
-  const present = new Set(listed.stdout.toString().split("\n").filter(Boolean));
-  const paths = ROOTS.map((r) => `${PLUGIN}/${r}`).filter((p) => present.has(p));
   const tmp = mkdtempSync(join(tmpdir(), "props-signature-"));
-  let errors: string[];
   try {
-    if (paths.length > 0) {
-      const tar = join(tmp, "tree.tar");
-      const archive = git(["archive", "--format=tar", "-o", tar, tag, "--", ...paths]);
-      if (archive.exitCode !== 0) {
-        console.error(`git archive ${tag} failed: ${archive.stderr.toString().trim()}`);
-        process.exit(2);
-      }
-      const untar = Bun.spawnSync(["tar", "-xf", tar, "-C", tmp], { env: childEnv() });
-      if (untar.exitCode !== 0) {
-        console.error(`Unpacking ${tag}'s plugin trees failed: ${untar.stderr.toString().trim()}`);
-        process.exit(2);
-      }
-    }
-    let before, after;
-    try {
-      before = signatureOf(blockTreesIn(join(tmp, PLUGIN)));
-      after = signatureOf(blockTreesIn(PLUGIN));
-    } catch (err) {
-      console.error(`A block tree failed to load, so its props cannot be compared: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(2);
-    }
-    errors = checkPropsSignature({ changes: breakingChanges(before, after), prBody: process.env.PR_BODY ?? "" });
+    return compareAgainstTag(tag, tmp);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
-  for (const e of errors) console.error(e);
-  if (errors.length === 0) console.log(`Props signature matches ${tag}, or every change is waived.`);
-  process.exit(errors.length ? 1 : 0);
 }
+
+if (import.meta.main) process.exit(main());

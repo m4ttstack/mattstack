@@ -292,7 +292,9 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          git fetch --tags --force --unshallow origin
+          # A re-run or a deeper checkout is already complete, and --unshallow refuses a complete repository.
+          # shellcheck disable=SC2046
+          git fetch --tags --force $( [ "$(git rev-parse --is-shallow-repository)" = true ] && echo --unshallow ) origin
           bun scripts/ci/props-signature-check.ts --base HEAD^1
       - name: Install graphviz
         run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz

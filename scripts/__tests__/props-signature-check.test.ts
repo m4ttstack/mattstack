@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { blockTreesIn } from "../ci/props-signature-check.ts";
@@ -100,6 +100,38 @@ test("no reachable v* tag skips", () => {
   const r = run(cwd, "");
   expect(r.code).toBe(0);
   expect(r.stdout).toContain("skipped");
+});
+
+function runIn(cwd: string, tmp: string) {
+  const env: Record<string, string | undefined> = { ...process.env, PR_BODY: "", GITHUB_EVENT_NAME: "pull_request", TMPDIR: tmp };
+  const r = Bun.spawnSync(["bun", SCRIPT, "--base", "HEAD^1"], { cwd, env });
+  return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+}
+
+const orphaned = { [`${P}/index.block.md`]: engine(""), [`${P}/stray/loose.block.md`]: child("") };
+
+test("a tag whose tree today's loader refuses skips with a note naming the tag, and removes its temp dir", () => {
+  const cwd = repo(orphaned, { [`${P}/stray/index.block.md`]: "---\n---\n# Stray\n" });
+  const tmp = mkdtempSync(join(tmpdir(), "props-signature-tmp-"));
+  const r = runIn(cwd, tmp);
+  expect(r.code).toBe(0);
+  expect(r.stdout).toContain("Props signature check skipped: v1.0.0's block trees do not load today");
+  expect(r.stdout).toContain("loose.block.md");
+  expect(readdirSync(tmp)).toEqual([]);
+});
+
+test("a head tree that fails to load still fails the check, and removes its temp dir", () => {
+  const cwd = repo(released, { [`${P}/stray/loose.block.md`]: child("") });
+  const tmp = mkdtempSync(join(tmpdir(), "props-signature-tmp-"));
+  const r = runIn(cwd, tmp);
+  expect(r.code).toBe(2);
+  expect(r.stderr).toContain("A block tree failed to load");
+  expect(readdirSync(tmp)).toEqual([]);
+});
+
+test("the CI step unshallows only a shallow checkout", () => {
+  const yml = readFileSync(join(import.meta.dir, "..", "..", ".github", "workflows", "checks.yml"), "utf8");
+  expect(yml).toContain('git fetch --tags --force $( [ "$(git rev-parse --is-shallow-repository)" = true ] && echo --unshallow ) origin');
 });
 
 test("an event that is not a pull request skips", () => {
