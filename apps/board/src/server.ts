@@ -3426,9 +3426,12 @@ const httpServer = Bun.serve({
                     mr.reviewerLatches ?? [],
                     state.person
                   );
-                  if (accepted.length > 0)
+                  // Re-read after the cache await: the patch must carry the
+                  // status as it is now, not as it was before the await.
+                  const current = readRespondStates().get(mrUrl);
+                  if (current && accepted.length > 0)
                     writeRespondState(respondFilePath(mrUrl), {
-                      status: state.status,
+                      status: current.status,
                       pendingReReview: accepted,
                     });
                   break;
