@@ -185,6 +185,7 @@ import {
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
+import { settleReReview } from './latch/rereview.ts';
 import { acceptedReReview, parseReReview } from './latch/rereview.ts';
 import { applyReviewLatch } from './latch/review-step.ts';
 import {
@@ -4913,6 +4914,35 @@ async function handleAgentSignal(
     } catch (err) {
       console.error(
         `latch step failed for ${signal.mrUrl}: ${err instanceof Error ? err.message : err}`
+      );
+    }
+  }
+  // A picked re-review resolves its latch discussions once respond is done.
+  // Best-effort: a failure here must never fail the agent's status write.
+  if (signal.kind === 'respond' && gitlabToken) {
+    try {
+      const state = readRespondStates().get(signal.mrUrl);
+      if (state?.pendingReReview?.length) {
+        await settleReReview(
+          signal.status,
+          state.pendingReReview,
+          id =>
+            latchGateway(config.gitlabHost, gitlabToken).resolveDiscussion(
+              projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
+              signal.iid,
+              id
+            ),
+          () =>
+            writeRespondState(respondFilePath(signal.mrUrl), {
+              status: state.status,
+              pendingReReview: [],
+            }),
+          msg => console.error(msg)
+        );
+      }
+    } catch (err) {
+      console.error(
+        `re-review settle failed for ${signal.mrUrl}: ${err instanceof Error ? err.message : err}`
       );
     }
   }

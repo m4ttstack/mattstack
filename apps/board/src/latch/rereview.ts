@@ -29,3 +29,30 @@ export function acceptedReReview(
   );
   return ids.filter(id => allowed.has(id));
 }
+
+/** Settles a picked re-review once respond reports a terminal status: `done`
+    resolves each picked discussion (a failed resolve is logged, never
+    thrown), `error` only drops the pick, anything else leaves it for the
+    next signal. */
+export async function settleReReview(
+  status: string,
+  pending: string[],
+  resolve: (discussionId: string) => Promise<void>,
+  clear: () => void,
+  log: (msg: string) => void
+): Promise<void> {
+  if (pending.length === 0) return;
+  if (status !== 'done' && status !== 'error') return;
+  if (status === 'done') {
+    for (const id of new Set(pending)) {
+      try {
+        await resolve(id);
+      } catch (err) {
+        log(
+          `re-review resolve failed for ${id}: ${err instanceof Error ? err.message : err}`
+        );
+      }
+    }
+  }
+  clear();
+}
