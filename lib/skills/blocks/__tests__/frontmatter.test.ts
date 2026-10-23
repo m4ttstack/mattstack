@@ -35,6 +35,24 @@ test("bad scalar fields report bad-value at the field", () => {
   expect(() => parseBlockFile("---\nkind: step\n---\n# T\n", "t.block.md", "t")).toThrow(/t\.block\.md:2:7: .*kind/);
   expect(() => parseBlockFile("---\nprops:\n  x: { merge: add, default: 3 }\n---\n# T\n", "t.block.md", "t")).toThrow(/t\.block\.md:3:29:.*default/);
 });
+test("a frontmatter that is present but not a map is bad-frontmatter at line 2", () => {
+  for (const raw of ["---\nnode domain_fast_checks\n---\n# T\n", "---\n- node\n---\n# T\n"]) {
+    try {
+      parseBlockFile(raw, "t.block.md", "t");
+      throw new Error("expected a BlockError");
+    } catch (e) {
+      expect((e as BlockError).diagnostics).toEqual([expect.objectContaining({ file: "t.block.md", line: 2, col: 1, code: "bad-frontmatter" })]);
+    }
+  }
+});
+test("a placeholder in a title is bad-value at the title's {{", () => {
+  try {
+    parseBlockFile("---\n---\n\n# Eng for {{team.name}}\n\nBody.\n", "t.block.md", "t");
+    throw new Error("expected a BlockError");
+  } catch (e) {
+    expect((e as BlockError).diagnostics).toEqual([expect.objectContaining({ file: "t.block.md", line: 4, col: 11, code: "bad-value" })]);
+  }
+});
 test("other frontmatter keys pass through and kind gate parses", () => {
   const b = parseBlockFile("---\nkind: gate\norder: 2\nreplaced-slots: [a]\n---\n# T\n", "t.block.md", "t");
   expect(b.kind).toBe("gate");

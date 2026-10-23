@@ -46,8 +46,11 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
   if (diagnostics.length > 0) throw new BlockError(diagnostics);
 
   const parsed = doc.toJS();
-  const frontmatter: Record<string, unknown> =
-    parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  const isRecord = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
+  if (parsed !== null && parsed !== undefined && !isRecord) {
+    throw new BlockError([{ file, line: 2, col: 1, message: "frontmatter must be a map of `field: value` lines", code: "bad-frontmatter" }]);
+  }
+  const frontmatter: Record<string, unknown> = isRecord ? (parsed as Record<string, unknown>) : {};
 
   const valueNode = (map: unknown, key: string): Node | null => {
     if (!isMap(map)) return null;
@@ -159,6 +162,8 @@ export function parseBlockFile(raw: string, file: string, idTail: string): Parse
   if (lines[0]?.startsWith("#")) {
     title = lines[0].replace(/^#+\s*/, "").trim();
     textStart = 1;
+    const brace = rest.split("\n")[bodyStartLine - 1 - countLines(fmBlock)]!.indexOf("{{");
+    if (brace !== -1) bad(bodyStartLine, brace + 1, "a title cannot carry a placeholder; move it into the block's text");
   }
   const text = lines.slice(textStart).join("\n").trim();
 
