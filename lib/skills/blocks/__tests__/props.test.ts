@@ -53,6 +53,37 @@ test("a contract mismatch names the binding", () => {
   expect(() => resolveProp(spec({ contract: "model-tiering@1" }), [{ layer: "pack", value: "w:x" }], load, at("f.block.md"))).toThrow(/w:x .*provides "ship-domain@1".*"model-tiering@1"/);
 });
 
+const diagnosticsOf = (fn: () => unknown) => {
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof BlockError) return err.diagnostics;
+    throw err;
+  }
+  throw new Error("expected a BlockError");
+};
+const manifestAt = (layer: string, value: string) => ({ file: "skills.jsonc", line: layer === "pack" ? 9 : 7, col: value === "" ? 20 : 30 });
+
+test("a contract mismatch sits at the binding's manifest value; a default's stays at the declaration", () => {
+  const where = { ...at("f.block.md"), valueAt: manifestAt };
+  expect(diagnosticsOf(() => resolveProp(spec({ contract: "model-tiering@1" }), [{ layer: "pack", value: "w:x" }], load, where))).toEqual([
+    expect.objectContaining({ file: "skills.jsonc", line: 9, col: 30, code: "contract-mismatch" }),
+  ]);
+  expect(diagnosticsOf(() => resolveProp(spec({ default: "mattstack:rules", contract: "other@1" }), [], load, where))).toEqual([
+    expect.objectContaining({ file: "f.block.md", line: 4, col: 3, code: "contract-mismatch" }),
+  ]);
+});
+
+test("a required prop a layer cleared sits at that layer's empty value; one nobody binds stays at the declaration", () => {
+  const where = { ...at("f.block.md"), valueAt: manifestAt };
+  expect(diagnosticsOf(() => resolveProp(spec({}), [{ layer: "base:b", value: "b:one" }, { layer: "pack", value: "" }], load, where))).toEqual([
+    expect.objectContaining({ file: "skills.jsonc", line: 9, col: 20, code: "required-prop" }),
+  ]);
+  expect(diagnosticsOf(() => resolveProp(spec({}), [], load, where))).toEqual([
+    expect.objectContaining({ file: "f.block.md", line: 4, col: 3, code: "required-prop" }),
+  ]);
+});
+
 test("a plugin:skill default loads like a value and is contract-checked", () => {
   const v = resolveProp(spec({ default: "mattstack:rules", contract: "ship-domain@1" }), [], load, at("f"));
   expect(v.fromDefault).toBe(true);

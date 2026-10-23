@@ -152,7 +152,7 @@ export function blockPropValues(
           }
         };
         try {
-          props.set(spec.name, resolveProp(spec, layers, loadAt, { file: block.relPath, internalRoster }));
+          props.set(spec.name, resolveProp(spec, layers, loadAt, { file: block.relPath, internalRoster, valueAt: where }));
         } catch (err) {
           if (!(err instanceof BlockError)) throw err;
           diagnostics.push(...err.diagnostics);

@@ -12,11 +12,14 @@ export type PropValue = {
   fromDefault: boolean;
 };
 
+type Pos = { file: string; line: number; col: number };
+
+/** `valueAt` places a diagnostic at the layer value a person edits; without it every diagnostic sits at the declaration. */
 export function resolveProp(
   spec: PropSpec,
   layers: LayerValue[],
   load: (binding: string, layer: string) => AttachmentSource,
-  where: { file: string; internalRoster: Set<string> },
+  where: { file: string; internalRoster: Set<string>; valueAt?: (layer: string, value: string) => Pos },
 ): PropValue {
   let kept: LayerValue[] = [];
   let clearedBy: string | null = null;
@@ -30,19 +33,16 @@ export function resolveProp(
     }
   }
 
-  const at = (code: string, message: string): BlockDiagnostic => ({
-    file: where.file,
-    line: spec.declaredAt.line,
-    col: spec.declaredAt.col,
-    message,
-    code,
-  });
+  const declaration: Pos = { file: where.file, ...spec.declaredAt };
+  const at = (code: string, message: string, pos: Pos = declaration): BlockDiagnostic => ({ ...pos, message, code });
+  const valuePos = (layer: string, value: string): Pos => (layer === "default" || !where.valueAt ? declaration : where.valueAt(layer, value));
 
   let fromDefault = false;
   if (kept.length === 0) {
     if (spec.default === null) {
       const why = clearedBy !== null ? `it was cleared by ${clearedBy}` : "no layer passes a value";
-      throw new BlockError([at("required-prop", `prop "${spec.name}" is required and has no default; ${why}`)]);
+      const pos = clearedBy !== null ? valuePos(clearedBy, "") : declaration;
+      throw new BlockError([at("required-prop", `prop "${spec.name}" is required and has no default; ${why}`, pos)]);
     }
     fromDefault = true;
     if (spec.default === "") return { spec, sources: [], fromDefault };
@@ -62,6 +62,7 @@ export function resolveProp(
         at(
           "contract-mismatch",
           `prop "${spec.name}": ${s.fill.binding} (from ${s.layer}) provides "${s.fill.provides}", but the prop's contract is "${spec.contract}"`,
+          valuePos(s.layer, s.fill.binding),
         ),
       );
     if (mismatches.length > 0) throw new BlockError(mismatches);

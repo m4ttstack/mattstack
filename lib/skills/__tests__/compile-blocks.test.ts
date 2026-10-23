@@ -203,6 +203,15 @@ describe("blockPropValues", () => {
     ]);
   });
 
+  test("a binding whose value breaks the prop's contract is contract-mismatch at the manifest value", () => {
+    const { roots } = setup();
+    const step = loadStepSource("mini", roots);
+    const text = readFileSync(MANIFEST, "utf8").replace('"mattstack:mini/gate": { "tiering": "" }', '"mattstack:mini/gate": { "tiering": "widgets:mini-rules/fast" }');
+    expect(diagnosticsOf(() => valuesFor(step, roots, bindingsOf(text)))).toEqual([
+      expect.objectContaining({ file: MANIFEST, line: 14, col: 41, code: "contract-mismatch" }),
+    ]);
+  });
+
   test("every block gets its values, defaults included", () => {
     const { roots } = setup();
     const step = loadStepSource("mini", roots);
