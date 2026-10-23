@@ -103,3 +103,20 @@ describe("hand-typed paths in the editor", () => {
     expect(codeActionsAt(ws, gate, { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } })).toEqual([]);
   });
 });
+
+describe("a bound fill's unsaved buffer", () => {
+  test("the diagnostic and its quick fix follow edits that have not been saved", () => {
+    const ws = new Workspace([plugin, pack]);
+    const fill = join(pack, "attachments/mini-rules/fast.md");
+    const base = `${ws.text(fill).trimEnd()}\nRead ${HAND} first.\n`;
+    const lineOf = (text: string) => text.split("\n").findIndex((l) => l.includes(HAND));
+    for (const text of [base, `A new first line.\n${base}`]) {
+      ws.open(fill, text);
+      const [d] = publishable(ws, fill).filter((x) => x.code === "hand-typed-path");
+      expect(d).toBeDefined();
+      expect(d!.range.start.line).toBe(lineOf(text));
+      const [action] = codeActionsAt(ws, fill, d!.range);
+      expect(action!.edit.changes[pathToFileURL(fill).href]![0]!.range).toEqual(d!.range);
+    }
+  });
+});

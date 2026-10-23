@@ -282,7 +282,7 @@ export class Workspace {
       for (const bindings of bindingRuns(manifests, (p) => this.text(p))) {
         const pack = bindings.manifest ? this.pluginOf(bindings.manifest.path, plugins) : null;
         const runRoots = pack ? pluginRoots(plugins, [pack, engine.plugin]) : roots;
-        const load = (binding: string, prop: string) => loadAttachment(binding, prop, runRoots);
+        const load = (binding: string, prop: string) => loadAttachment(binding, prop, runRoots, (p) => this.text(p));
         const runPack = pack && compiling.find((p) => p.plugin === pack);
         const views: (Pack | null)[] = bindings.manifest === null && compiling.length > 0 ? compiling : [runPack ?? null];
         try {

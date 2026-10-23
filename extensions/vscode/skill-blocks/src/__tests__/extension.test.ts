@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { createLifecycle } from '../lifecycle';
 import { DOCUMENT_PATTERNS, serverCommand, serverOptions } from '../server';
 
 const pkgDir = join(import.meta.dir, '..', '..');
@@ -38,6 +39,64 @@ describe('serverOptions', () => {
     expect(opts.command).toBe('/opt/rt');
     expect(opts.args).toEqual(['skills', 'lsp']);
     expect(opts.transport).toBe(0);
+  });
+});
+
+describe('createLifecycle', () => {
+  function stub(opts: { startFails?: boolean } = {}) {
+    const calls: string[] = [];
+    let running = false;
+    return {
+      calls,
+      client: {
+        async start() {
+          calls.push('start');
+          if (opts.startFails) throw new Error('spawn rt ENOENT');
+          running = true;
+        },
+        async stop() {
+          calls.push('stop');
+          if (!running) throw new Error("Client is not running and can't be stopped. It's current state is: startFailed");
+          running = false;
+        },
+        isRunning: () => running,
+      },
+    };
+  }
+
+  test('a failed start is logged, not thrown', async () => {
+    const logs: string[] = [];
+    const bad = stub({ startFails: true });
+    await createLifecycle(() => bad.client, (m) => logs.push(m)).start();
+    expect(logs).toHaveLength(1);
+  });
+
+  test('restart after a failed start skips stop and reaches start', async () => {
+    const clients = [stub({ startFails: true }), stub()];
+    const lifecycle = createLifecycle(() => clients.shift()!.client, () => {});
+    await lifecycle.start();
+    const good = clients[0]!;
+    await lifecycle.restart();
+    expect(good.calls).toEqual(['start']);
+  });
+
+  test('restart stops a running client before starting the next', async () => {
+    const first = stub();
+    const second = stub();
+    const queue = [first, second];
+    const lifecycle = createLifecycle(() => queue.shift()!.client, () => {});
+    await lifecycle.start();
+    await lifecycle.restart();
+    expect(first.calls).toEqual(['start', 'stop']);
+    expect(second.calls).toEqual(['start']);
+  });
+
+  test('stop on a failed client does not throw', async () => {
+    const bad = stub({ startFails: true });
+    const lifecycle = createLifecycle(() => bad.client, () => {});
+    await lifecycle.start();
+    await lifecycle.stop();
+    expect(bad.calls).toEqual(['start']);
   });
 });
 

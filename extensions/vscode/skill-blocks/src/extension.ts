@@ -1,9 +1,8 @@
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
+import { createLifecycle } from './lifecycle';
 import { DOCUMENT_PATTERNS, serverCommand, serverOptions } from './server';
-
-let client: LanguageClient | undefined;
 
 function createClient(): LanguageClient {
   const setting = vscode.workspace.getConfiguration('skillBlocks').get<string>('rtPath', 'rt');
@@ -16,27 +15,21 @@ function createClient(): LanguageClient {
   );
 }
 
-async function start(): Promise<void> {
-  client = createClient();
-  await client.start();
-}
-
-async function stop(): Promise<void> {
-  const running = client;
-  client = undefined;
-  await running?.stop();
-}
+let server = createLifecycle(createClient, () => {});
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const output = vscode.window.createOutputChannel('Skill Blocks');
+  server = createLifecycle(createClient, (message) => output.appendLine(message));
   context.subscriptions.push(
-    vscode.commands.registerCommand('skillBlocks.restartServer', async () => {
-      await stop();
-      await start();
+    output,
+    vscode.commands.registerCommand('skillBlocks.restartServer', () => server.restart()),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('skillBlocks.rtPath')) void server.restart();
     }),
   );
-  await start();
+  await server.start();
 }
 
 export function deactivate(): Promise<void> {
-  return stop();
+  return server.stop();
 }

@@ -413,7 +413,7 @@ function blockStepSource(engineName: string, dir: string, mattstack: { dir: stri
 
 export const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-export function loadAttachment(binding: string, prop: string, roots: PluginRoots): AttachmentSource {
+export function loadAttachment(binding: string, prop: string, roots: PluginRoots, readFile: (path: string) => string = (path) => readFileSync(path, "utf8")): AttachmentSource {
   const [plugin, skillPart] = binding.split(":");
   const [skillName, fileName, ...rest] = (skillPart ?? "").split("/");
   if (!plugin || !skillName || rest.length > 0 || (fileName !== undefined && !VALUE_FILE_RE.test(fileName))) {
@@ -476,7 +476,7 @@ export function loadAttachment(binding: string, prop: string, roots: PluginRoots
   }
 
   const skillMdPath = join(foundDir, "SKILL.md");
-  const raw = readFileSync(skillMdPath, "utf8");
+  const raw = readFile(skillMdPath);
   const { body, frontmatter, bodyStartLine, bodyIndent } = stripFrontmatter(raw);
   const frontmatterHit = firstTeamMarker(raw.match(FRONTMATTER_RE)?.[0] ?? "");
 
@@ -510,7 +510,7 @@ export function loadAttachment(binding: string, prop: string, roots: PluginRoots
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
       throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}": no file at ${filePath}`, "fill-missing");
     }
-    const text = readFileSync(filePath, "utf8");
+    const text = readFile(filePath);
     if (/^---\r?\n/.test(text)) {
       throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}": a per-file value carries no frontmatter (${filePath})`, "bad-value");
     }
