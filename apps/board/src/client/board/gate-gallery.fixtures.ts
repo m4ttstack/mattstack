@@ -825,6 +825,30 @@ export const respondPost: GalleryGate = {
   },
 };
 
+/** Bo and Ana each left an armed re-review latch no one has asked about
+    yet, so the post sheet offers to ask each once posting finishes. */
+export const respondPostReReview: GalleryGate = {
+  mr: {
+    ...MRS.flagTargeting,
+    reviewerLatches: [
+      {
+        reviewer: 'bo',
+        discussionId: '3e8a1f5c7d2b9046e1a3c8f7b5d2e9a04c6f1b83',
+        requested: false,
+      },
+      {
+        reviewer: 'ana',
+        discussionId: '9c4b7e2a1f6d8035b2e9c1a7f4d3b8e65a0c2d19',
+        requested: false,
+      },
+    ],
+  } as BoardMRWithReview,
+  gate: {
+    ...respondPost.gate,
+    gateId: 'gallery-respond-post-re-review',
+  },
+};
+
 const FOLD_THREADS = {
   t1: 'bffa170656db21b8a757f57689c443622712f170',
   t2: 'b74efcaec28e6fcc0fe484ec4558666967df10cb',
