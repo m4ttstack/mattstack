@@ -1,0 +1,4 @@
+1. `plugins/mattstack/attachments/pipeline/stage-ship/SKILL.md`
+2. `sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh plugins/mattstack/attachments/pipeline/stage-ship` renders and structure-checks the graph in that folder's `SKILL.md`; it takes the folder, never the file alone.
+3. `rt_verb {args: ["skills", "bind", "stage-ship", "<slot>", "widgets:a11y-checks", "--pipeline", "accessibility", "--pack", "widgets"]}`, where `<slot>` is the slot name of the "fast checks" step, which the scenario doesn't give.
+4. `plugins/mattstack/attachments/pipeline/stage-ship/`

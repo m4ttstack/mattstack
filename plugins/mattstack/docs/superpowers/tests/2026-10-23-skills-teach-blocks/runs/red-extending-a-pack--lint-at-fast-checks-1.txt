@@ -1,0 +1,3 @@
+1. `rt_verb {args: ["skills", "bind", "mattstack:stage-ship", "domain", "widgets:lint-changed", "--pack", "widgets"]}`, then `rt_verb {args: ["skills", "bind", "ship", "domain", "widgets:lint-changed", "--pack", "widgets"]}`
+2. First call writes `"mattstack:stage-ship": { "domain": "widgets:lint-changed" }`; second call writes `"ship": { "domain": "widgets:lint-changed" }`, both under `bindings` in `pack/skills.jsonc`.
+3. The lint rule lands under the compiled ship's fast-check section, headed `## Fast check`.

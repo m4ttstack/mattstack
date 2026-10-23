@@ -1,0 +1,9 @@
+1. File: `plugins/mattstack/attachments/pipeline/stage-ship/index.block.md`, whose graph is a Graphviz `dot` digraph. Node line, declared once, in the order the process meets it (after `commit_named_files`, before `domain_fast_checks`): `check_changelog [label="Check the changelog" shape=box];`
+
+2. The prose goes in a child file beside the index, `plugins/mattstack/attachments/pipeline/stage-ship/check-changelog.block.md`. Its title line is `### Check the changelog`, which must match the node label exactly. I'm guessing the filename. This skill doesn't define the block-file frontmatter, so I'd copy the frontmatter of an existing sibling `*.block.md` rather than invent one.
+
+3. Replace the edge `commit_named_files -> domain_fast_checks;` with two edges. If the old edge had a label, keep it on the first:
+   `commit_named_files -> check_changelog;`
+   `check_changelog -> domain_fast_checks;`
+
+4. `python3 check-dot.py --short-ids plugins/mattstack/attachments/pipeline/stage-ship/index.block.md`. This is the structure check, and it runs on the `index.block.md` that holds the graph. `bash render.sh` on the same file also has to pass.

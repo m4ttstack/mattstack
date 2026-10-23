@@ -1,0 +1,7 @@
+1. Add it to `plugins/mattstack/attachments/pipeline/stage-ship/index.block.md`, whose graph is Mermaid (`flowchart TB`, compiled to dot); the node is declared by its bare id on its own line: `check_changelog`
+
+2. Put the guidance in a new sibling block, `plugins/mattstack/attachments/pipeline/stage-ship/check-changelog.block.md`, with frontmatter `node: check_changelog` and the title line `# Check the changelog`.
+
+3. Remove `commit_named_files --> domain_fast_checks` and add `commit_named_files --> check_changelog` and `check_changelog --> domain_fast_checks`.
+
+4. `python3 check-dot.py --short-ids SKILL.md`, run on the compiled `SKILL.md`, since certify does not read block-tree graphs. Run `bash render.sh SKILL.md` on that file as well.

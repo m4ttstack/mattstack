@@ -1,0 +1,5 @@
+1. The fill `widgets:lint-changed` carries a single section keyed to the text of the fast-check node in the ship stage's graph. That section holds the rule (run `bun run widgets:lint --changed`) and adds no move the graph marks STOP. The pack's binding names this fill on the ship stage only, so no other stage receives it.
+
+2. `{"ship": ["widgets:lint-changed"]}` is my best guess at the shape. The `bindings` schema isn't in this skill text, so I couldn't confirm the key names, and `mattstack:extending-a-pack` has the authoritative form.
+
+3. `mattstack:extending-a-pack`, as one round for this one rule. It writes the fill through `superpowers:writing-skills`.
