@@ -2331,7 +2331,7 @@ GitLab only. The project's labels (name, description, color); search narrows by 
 ### pipeline_list
 
 <!-- mcp-lint: allow -->
-GitLab only. Pipelines newest first, each with id, status, ref, sha, source, webUrl and createdAt: for a branch (ref), a commit (sha), or an MR (iid, which lists that MR's own pipelines; iid cannot be combined with ref or sha). Works for a branch with no MR. limit defaults to 20, maximum 100. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. Pipelines newest first, each with id, status, ref, sha, source, webUrl and createdAt: for a branch (ref), a commit (sha), or an MR (iid, which lists that MR's own pipelines; iid cannot be combined with ref or sha). Works for a branch with no MR. limit defaults to 20, maximum 100. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt). mrUrl only names the repo; its iid is not used, so mrUrl combines with ref or sha, and an MR's pipelines need iid. Given both repoName and mrUrl, they must agree.
 
 ```json
 {
