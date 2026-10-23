@@ -1995,7 +1995,7 @@ GitLab only. The MR's discussion threads, fetched from GitLab on every call. Nam
       "enum": [
         "unresolved-human"
       ],
-      "description": "unresolved-human keeps unresolved threads started by a person, drops system notes, and adds dropped counts."
+      "description": "unresolved-human keeps unresolved threads started by a person, drops system notes and mattstack re-review latch threads, and adds dropped counts."
     }
   },
   "additionalProperties": false
