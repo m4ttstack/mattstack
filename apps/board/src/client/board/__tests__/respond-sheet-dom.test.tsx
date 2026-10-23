@@ -1844,10 +1844,7 @@ const reReviewTicks = () => [
 ];
 
 test('a post sheet offers an unticked re-review ask for each unrequested latch', async () => {
-  await render(
-    postGate(),
-    named(withLatches([boLatch]), ['bo', 'Bo Tanaka'])
-  );
+  await render(postGate(), named(withLatches([boLatch]), ['bo', 'Bo Tanaka']));
   const ticks = reReviewTicks();
   expect(ticks).toHaveLength(1);
   expect(ticks[0]!.checked).toBe(false);

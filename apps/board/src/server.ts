@@ -4952,7 +4952,10 @@ async function handleAgentSignal(
           signal.status,
           pending,
           async id => {
-            await latchGateway(config.gitlabHost, gitlabToken).resolveDiscussion(
+            await latchGateway(
+              config.gitlabHost,
+              gitlabToken
+            ).resolveDiscussion(
               projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
               signal.iid,
               id
