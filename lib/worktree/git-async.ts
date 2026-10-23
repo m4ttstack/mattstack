@@ -16,6 +16,8 @@ export interface GitResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /** Killed at its deadline: stdout and stderr are empty, so the output alone cannot explain the failure. */
+  timedOut?: boolean;
 }
 
 export interface WorktreeEntry {
@@ -63,7 +65,9 @@ export async function runGit(
     signal: opts.signal,
     env: opts.env ? { ...childEnv(), ...opts.env } : undefined,
   });
-  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
+  const out: GitResult = { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
+  if (result.timedOut) out.timedOut = true;
+  return out;
 }
 
 /** Run a git command and report only whether it succeeded (exitCode === 0). */
