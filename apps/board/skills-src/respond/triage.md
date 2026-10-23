@@ -28,7 +28,7 @@ digraph respond_triage_and_gate_1 {
     "STOP: MR reads go through mr_view (respond)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_view call once already (respond)?" [shape=diamond];
     "Fix what the mr_view error names (respond)" [shape=box];
-    "mr_threads {mrUrl, refresh: true} (fetch)" [shape=plaintext];
+    "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [shape=plaintext];
     "mr_threads result (fetch)?" [shape=diamond];
     "STOP: threads are read with mr_threads" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the fetch mr_threads call once already?" [shape=diamond];
@@ -71,8 +71,8 @@ digraph respond_triage_and_gate_1 {
     "Trigger: a resumed triage escalation (from Launch and resume)" -> "Which triage call refused (resumed)?";
     "Which triage call refused (resumed)?" -> "Delegate adjudication to the domain skill" [label="a domain skill resolved on this resume: it adjudicates afresh"];
     "Which triage call refused (resumed)?" -> "mr_view {mrUrl} (respond source branch)" [label="mr_view iterate at round 1"];
-    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="mr_view take (the branch from its note), or a hand back or round-2 iterate (no branch)"];
-    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="fetch mr_threads iterate at round 1"];
+    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="mr_view take (the branch from its note), or a hand back or round-2 iterate (no branch)"];
+    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="fetch mr_threads iterate at round 1"];
     "Which triage call refused (resumed)?" -> "Adjudicate each unresolved thread" [label="fetch mr_threads take: the threads from its note"];
     "Delegate adjudication to the domain skill" -> "Domain adjudication result?";
     "Domain adjudication result?" -> "Drop verdict rows outside the --person's feedback" [label="a verdict table handed back"];
@@ -81,21 +81,21 @@ digraph respond_triage_and_gate_1 {
     "Backstop entered on a revise round?" -> "Unresolved human threads = 0?" [label="no: the domain skill's first table"];
     "Domain adjudication result?" -> "Triage error: continue at the error write" [label="failed"];
     "mr_view {mrUrl} (respond source branch)" -> "mr_view result (respond)?";
-    "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="ok: keep sourceBranch"];
+    "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="ok: keep sourceBranch"];
     "mr_view result (respond)?" -> "Fixed the mr_view call once already (respond)?" [label="tool error"];
     "mr_view result (respond)?" -> "STOP: MR reads go through mr_view (respond)" [label="tempted to read the MR with the GitLab CLI"];
     "STOP: MR reads go through mr_view (respond)" -> "Fixed the mr_view call once already (respond)?";
     "Fixed the mr_view call once already (respond)?" -> "Fix what the mr_view error names (respond)" [label="no"];
     "Fixed the mr_view call once already (respond)?" -> "respond off-script gate: mr_view refused" [label="yes"];
     "Fix what the mr_view error names (respond)" -> "mr_view {mrUrl} (respond source branch)";
-    "mr_threads {mrUrl, refresh: true} (fetch)" -> "mr_threads result (fetch)?";
+    "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" -> "mr_threads result (fetch)?";
     "mr_threads result (fetch)?" -> "Adjudicate each unresolved thread" [label="ok"];
     "mr_threads result (fetch)?" -> "Fixed the fetch mr_threads call once already?" [label="tool error"];
     "mr_threads result (fetch)?" -> "STOP: threads are read with mr_threads" [label="tempted to read them with the GitLab CLI"];
     "STOP: threads are read with mr_threads" -> "Fixed the fetch mr_threads call once already?";
     "Fixed the fetch mr_threads call once already?" -> "Fix what the fetch mr_threads error names" [label="no"];
     "Fixed the fetch mr_threads call once already?" -> "respond off-script gate: mr_threads refused (fetch)" [label="yes"];
-    "Fix what the fetch mr_threads error names" -> "mr_threads {mrUrl, refresh: true} (fetch)";
+    "Fix what the fetch mr_threads error names" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)";
     "Adjudicate each unresolved thread" -> "Unresolved human threads = 0?";
     "Unresolved human threads = 0?" -> "No unresolved threads: continue at the done write" [label="yes: no unresolved threads, 0 and 0"];
     "Unresolved human threads = 0?" -> "Write the verdict table and drafts to --report" [label="no"];
@@ -126,14 +126,14 @@ digraph respond_triage_and_gate_1 {
     "Gate 1 step outcome?" -> "Ask Gate 1 as native forms (degraded)" [label="the wait keeps failing"];
     "Ask Gate 1 as native forms (degraded)" -> "Gate 1 answered: continue at Implement the plan";
     "respond off-script gate: mr_view refused" -> "Off-script outcome (mr_view, respond)?";
-    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="take: the human names the source branch"];
+    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="take: the human names the source branch"];
     "Off-script outcome (mr_view, respond)?" -> "Off-script rounds = 2 (mr_view, respond)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (mr_view, respond)?" -> "Held at a triage off-script gate: continue at Held" [label="hold"];
-    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="hand back: source branch unknown, fixed threads held"];
+    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="hand back: source branch unknown, fixed threads held"];
     "Off-script outcome (mr_view, respond)?" -> "Triage gate gone: continue at Respond gate gone" [label="gate gone"];
-    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="gate unavailable: source branch unknown, fixed threads held"];
+    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="gate unavailable: source branch unknown, fixed threads held"];
     "Off-script rounds = 2 (mr_view, respond)?" -> "mr_view {mrUrl} (respond source branch)" [label="no: read again"];
-    "Off-script rounds = 2 (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="yes: source branch unknown, fixed threads held"];
+    "Off-script rounds = 2 (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="yes: source branch unknown, fixed threads held"];
     "respond off-script gate: mr_threads refused (fetch)" -> "Off-script outcome (fetch mr_threads)?";
     "Off-script outcome (fetch mr_threads)?" -> "Adjudicate each unresolved thread" [label="take: the human supplies the threads"];
     "Off-script outcome (fetch mr_threads)?" -> "Off-script rounds = 2 (fetch mr_threads)?" [label="iterate: the cause is fixed"];
@@ -141,7 +141,7 @@ digraph respond_triage_and_gate_1 {
     "Off-script outcome (fetch mr_threads)?" -> "Triage error: continue at the error write" [label="hand back"];
     "Off-script outcome (fetch mr_threads)?" -> "Triage gate gone: continue at Respond gate gone" [label="gate gone"];
     "Off-script outcome (fetch mr_threads)?" -> "Triage error: continue at the error write" [label="gate unavailable"];
-    "Off-script rounds = 2 (fetch mr_threads)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="no: read again"];
+    "Off-script rounds = 2 (fetch mr_threads)?" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)" [label="no: read again"];
     "Off-script rounds = 2 (fetch mr_threads)?" -> "Triage error: continue at the error write" [label="yes: the refusals are the reason"];
 }
 ```
@@ -213,7 +213,8 @@ the MR with the GitLab CLI.
 
 `mr_threads` refused its input on the fetch. Correct what the error names
 (`mrUrl` the MR's https URL, `.../-/merge_requests/<iid>`, whose project
-is registered with rt; `refresh` a boolean) and read again, once. An
+is registered with rt; `refresh` a boolean; `filter` the string
+`unresolved-human`) and read again, once. An
 error that names no input (the daemon down, a GitLab fetch failure) has
 nothing to correct: read again unchanged, once, and the off-script gate
 follows. An error is never a reason to read the threads with the GitLab
@@ -222,9 +223,10 @@ CLI or the API.
 ### Adjudicate each unresolved thread
 
 The generic path, in the loaded voice. The MR record `mr_view` returned
-gives the title and description for context. From the `mr_threads`
-result keep the unresolved threads a human opened: no resolved threads,
-no system notes, no bot threads.
+gives the title and description for context. The `mr_threads` result
+holds only the unresolved threads a human opened: the `unresolved-human`
+filter already dropped resolved threads, system notes, bot threads and
+mattstack's own re-review latch threads, and `dropped` counts each kind.
 
 With `--person <username>`, keep only that person's feedback:
 

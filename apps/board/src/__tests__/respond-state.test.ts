@@ -46,6 +46,22 @@ describe('writeRespondState boardTabId', () => {
   });
 });
 
+describe('writeRespondState pendingReReview', () => {
+  test('survives a later write and is cleared by an empty array', () => {
+    const p = respondFilePath(URL_A);
+    writeRespondState(
+      p,
+      { mrUrl: URL_A, iid: 4821, status: 'queued', pendingReReview: ['d1'] },
+      1000,
+      db
+    );
+    writeRespondState(p, { status: 'done' }, 2000, db);
+    expect(readRespondStates(db).get(URL_A)?.pendingReReview).toEqual(['d1']);
+    writeRespondState(p, { status: 'queued', pendingReReview: [] }, 3000, db);
+    expect(readRespondStates(db).get(URL_A)?.pendingReReview).toEqual([]);
+  });
+});
+
 describe('writeRespondState counts', () => {
   test('round-trips posted and threads', () => {
     const p = respondFilePath(URL_A);

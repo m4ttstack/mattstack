@@ -1808,3 +1808,110 @@ test('the plan dock, the post dock and the lost panel each reserve their height 
     restore();
   }
 });
+
+const withLatches = (
+  latches: Array<{
+    reviewer: string;
+    discussionId: string;
+    requested: boolean;
+  }>,
+  person?: string
+) =>
+  ({
+    ...MR,
+    reviewerLatches: latches,
+    ...(person
+      ? { respond: { status: 'drafting', person, responseRound: 1 } }
+      : {}),
+  }) as unknown as BoardMRWithReview;
+
+const named = (mr: BoardMRWithReview, ...pairs: Array<[string, string]>) =>
+  ({
+    ...mr,
+    respondTargets: pairs.map(([username, name]) => ({
+      username,
+      name,
+      openThreads: 1,
+      openComments: 0,
+    })),
+  }) as unknown as BoardMRWithReview;
+
+const boLatch = { reviewer: 'bo', discussionId: 'd-bo', requested: false };
+const reReviewTicks = () => [
+  ...document.body.querySelectorAll<HTMLInputElement>(
+    '[data-section="re-review"] input[type="checkbox"]'
+  ),
+];
+
+test('a post sheet offers an unticked re-review ask for each unrequested latch', async () => {
+  await render(postGate(), named(withLatches([boLatch]), ['bo', 'Bo Tanaka']));
+  const ticks = reReviewTicks();
+  expect(ticks).toHaveLength(1);
+  expect(ticks[0]!.checked).toBe(false);
+  expect(ticks[0]!.closest('label')!.textContent).toBe(
+    'Ask Bo for a re-review once posting finishes'
+  );
+  expect($('[data-section="re-review"] h3')!.textContent).toBe('Re-review');
+});
+
+test('a ticked re-review ask rides the answer as the latch thread id', async () => {
+  await render(postGate(), withLatches([boLatch]));
+  await click(reReviewTicks()[0]!);
+  await pick('r1');
+  await pick('leave-open');
+  await clickSubmit();
+  expect(answer()).toEqual({
+    gateId: 'g-post',
+    answers: { replies: ['r1'], disposition: 'leave-open' },
+    reReview: ['d-bo'],
+  });
+});
+
+test('an unticked re-review ask sends no reReview key', async () => {
+  await render(postGate(), withLatches([boLatch]));
+  await pick('r1');
+  await pick('leave-open');
+  await clickSubmit();
+  expect(answer()).toEqual({
+    gateId: 'g-post',
+    answers: { replies: ['r1'], disposition: 'leave-open' },
+  });
+});
+
+test('a requested latch and a plan gate offer no re-review ask', async () => {
+  await render(postGate(), withLatches([{ ...boLatch, requested: true }]));
+  expect($('[data-section="re-review"]')).toBeNull();
+  await render(planGate(), withLatches([boLatch]));
+  expect($('[data-section="re-review"]')).toBeNull();
+});
+
+test("a run answering one person offers only that person's latch", async () => {
+  await render(
+    postGate(),
+    named(
+      withLatches(
+        [boLatch, { reviewer: 'ana', discussionId: 'd-ana', requested: false }],
+        'ANA'
+      ),
+      ['ana', 'Ana Ruiz']
+    )
+  );
+  expect(reReviewTicks().map(t => t.closest('label')!.textContent)).toEqual([
+    'Ask Ana for a re-review once posting finishes',
+  ]);
+});
+
+test('the dock reset clears the re-review ticks', async () => {
+  await render(postGate(), withLatches([boLatch]));
+  await click(reReviewTicks()[0]!);
+  expect(reReviewTicks()[0]!.checked).toBe(true);
+  await click($('.tui-sheet-reset')!);
+  expect(reReviewTicks()[0]!.checked).toBe(false);
+  await pick('r1');
+  await pick('leave-open');
+  await clickSubmit();
+  expect(answer()).toEqual({
+    gateId: 'g-post',
+    answers: { replies: ['r1'], disposition: 'leave-open' },
+  });
+});

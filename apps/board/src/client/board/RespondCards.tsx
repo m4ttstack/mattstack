@@ -253,38 +253,69 @@ function PostResolveChoice({
   return (
     <div className="tui-post-controls">
       {ticks.map(t => (
-        <label
-          className="tui-post-tick"
-          data-checked={t.on || undefined}
-          data-quiet={(t.value === 'resolve' && !posting && !t.on) || undefined}
-          title={t.hint}
+        <PostTick
           key={t.value}
+          on={t.on}
+          quiet={t.value === 'resolve' && !posting && !t.on}
+          hint={t.hint}
+          value={t.value}
+          ariaLabel={`${pick.label}: ${t.value}`}
+          onChange={on => form.toggleMulti(pick.name, t.option, on)}
         >
-          <span className="tui-check">
-            <input
-              type="checkbox"
-              className="tui-gate-choice-input"
-              data-type="checkbox"
-              data-checked={t.on ? '' : undefined}
-              value={t.value}
-              aria-label={`${pick.label}: ${t.value}`}
-              aria-description={t.hint}
-              checked={t.on}
-              onChange={e =>
-                form.toggleMulti(pick.name, t.option, e.currentTarget.checked)
-              }
-            />
-            <span className="tui-check-tick" aria-hidden="true" />
-          </span>
           {t.text}
-        </label>
+        </PostTick>
       ))}
     </div>
   );
 }
 
+/** The post sheet's card checkbox: a kit tick beside its label. */
+function PostTick({
+  on,
+  quiet,
+  hint,
+  value,
+  ariaLabel,
+  onChange,
+  children,
+}: {
+  on: boolean;
+  quiet?: boolean;
+  hint?: string;
+  value?: string;
+  ariaLabel?: string;
+  onChange: (on: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <label
+      className="tui-post-tick"
+      data-checked={on || undefined}
+      data-quiet={quiet || undefined}
+      title={hint}
+    >
+      <span className="tui-check">
+        <input
+          type="checkbox"
+          className="tui-gate-choice-input"
+          data-type="checkbox"
+          data-checked={on ? '' : undefined}
+          value={value}
+          aria-label={ariaLabel}
+          aria-description={hint}
+          checked={on}
+          onChange={e => onChange(e.currentTarget.checked)}
+        />
+        <span className="tui-check-tick" aria-hidden="true" />
+      </span>
+      {children}
+    </label>
+  );
+}
+
 export {
   PostResolveChoice,
+  PostTick,
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,

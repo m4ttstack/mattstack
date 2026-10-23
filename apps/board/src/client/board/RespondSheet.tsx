@@ -44,6 +44,7 @@ import {
 } from './respond-post.ts';
 import {
   PostResolveChoice,
+  PostTick,
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
@@ -468,6 +469,9 @@ function RespondSheetBody({
   const setReason = (text: string) =>
     form.setNote(CODE_CHANGES_QUESTION_ID, text);
   const [revising, setRevising] = useState(() => reason.trim() !== '');
+  // Board-only: the ticks ride beside the answer, never inside it, so the
+  // gate's own answer stays what the pane expects.
+  const [reReviewIds, setReReviewIds] = useState<Set<string>>(() => new Set());
   const questionCtx = useMemo(
     () => new Map(gate.questions.map(q => [q.id, parseGateCtx(q.context)])),
     [gate.questions]
@@ -754,9 +758,27 @@ function RespondSheetBody({
           : [`post ${repliesPicked + withStep}`, dockPick]
               .filter(Boolean)
               .join(' · ');
+  const runPerson = mr?.respond?.person?.toLowerCase();
+  const latches = plan
+    ? []
+    : (mr?.reviewerLatches ?? []).filter(
+        l =>
+          !l.requested && (!runPerson || l.reviewer.toLowerCase() === runPerson)
+      );
+  const reReview = latches
+    .filter(l => reReviewIds.has(l.discussionId))
+    .map(l => l.discussionId);
+  const submitPayload = payload && { ...payload, reReview };
+  const toggleReReview = (id: string, on: boolean) =>
+    setReReviewIds(prev => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   const canSubmit = !form.lost && !form.busy && payload !== null;
   useSheetKeys({
-    onSubmit: canSubmit ? () => void form.submit(payload) : undefined,
+    onSubmit: canSubmit ? () => void form.submit(submitPayload) : undefined,
   });
 
   return (
@@ -934,6 +956,25 @@ function RespondSheetBody({
               );
             })}
         </div>
+        {latches.length > 0 && (
+          <section
+            className="tui-respond-rereview"
+            data-section="re-review"
+            aria-label="Re-review"
+          >
+            <h3 className="tui-respond-rereview-heading">Re-review</h3>
+            {latches.map(l => (
+              <PostTick
+                key={l.discussionId}
+                on={reReviewIds.has(l.discussionId)}
+                onChange={on => toggleReReview(l.discussionId, on)}
+              >
+                Ask {people.short(l.reviewer)} for a re-review once posting
+                finishes
+              </PostTick>
+            ))}
+          </section>
+        )}
       </section>
       <aside className="tui-sheet-rail">
         {form.lost ? (
@@ -981,6 +1022,7 @@ function RespondSheetBody({
                       form.resetAll({ keepTexts: true });
                       seedPostable();
                       seedPicks(true);
+                      setReReviewIds(new Set());
                     }
                   }}
                 >
@@ -1027,7 +1069,7 @@ function RespondSheetBody({
                 size="lg"
                 className="tui-sheet-submit"
                 disabled={!canSubmit}
-                onClick={() => void form.submit(payload)}
+                onClick={() => void form.submit(submitPayload)}
               >
                 {submitLabel}
                 {!form.busy && <KeyCap keys={SUBMIT_KEYS} onFill />}

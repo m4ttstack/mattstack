@@ -538,6 +538,41 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     expect(readRespondStates(db).get(URL_A)?.boardTabId).toBe('');
   });
 
+  test("a peer ask clears the last run's stale re-review pick", async () => {
+    writeRespondState(
+      respondFilePath(URL_A),
+      {
+        mrUrl: URL_A,
+        iid: IID,
+        status: 'error',
+        pendingReReview: ['d1'],
+      },
+      1000,
+      db
+    );
+    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
+    expect(readRespondStates(db).get(URL_A)?.pendingReReview).toEqual([]);
+  });
+
+  test("a peer ask clears the last run's person and round", async () => {
+    writeRespondState(
+      respondFilePath(URL_A),
+      {
+        mrUrl: URL_A,
+        iid: IID,
+        status: 'done',
+        person: 'renee',
+        responseRound: 2,
+      },
+      1000,
+      db
+    );
+    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
+    const row = readRespondStates(db).get(URL_A);
+    expect(row?.person).toBeUndefined();
+    expect(row?.responseRound).toBeUndefined();
+  });
+
   test("the launching row carries none of the last run's pane", async () => {
     writeRespondState(
       respondFilePath(URL_A),

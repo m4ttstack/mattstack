@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { LATCH_MARKER, LATCH_MARKER_SPENT } from "../../../packages/rt-client/src/index.ts";
 import { filterHumanThreads, isBotUsername, mrReadToolDefs, tailTrace, type MrReadDeps } from "../mr-read-tools.ts";
 
 const pr = (iid: number, state: string, draft = false) => ({
@@ -289,7 +290,30 @@ describe("filterHumanThreads", () => {
     const out = filterHumanThreads(discussions);
     expect(out.discussions.map((d) => d.id)).toEqual(["plain", "open"]);
     expect(out.discussions[1]!.notes.map((n) => n.author.username)).toEqual(["carol", "dave"]);
-    expect(out.dropped).toEqual({ resolved: 1, system: 1, bot: 1 });
+    expect(out.dropped).toEqual({ resolved: 1, system: 1, bot: 1, latch: 0 });
+  });
+
+  test("drops an armed latch and counts it", () => {
+    const out = filterHumanThreads([disc("l", false, [{ ...note("carol"), body: `${LATCH_MARKER}\n\nhi` }])] as any);
+    expect(out.discussions).toEqual([]);
+    expect(out.dropped.latch).toBe(1);
+  });
+
+  test("drops a spent latch", () => {
+    const out = filterHumanThreads([disc("l", false, [{ ...note("carol"), body: `${LATCH_MARKER_SPENT}\n\nhi` }])] as any);
+    expect(out.discussions).toEqual([]);
+    expect(out.dropped.latch).toBe(1);
+  });
+
+  test("keeps a comment that quotes the marker below its first line", () => {
+    const out = filterHumanThreads([disc("q", false, [{ ...note("carol"), body: `see\n${LATCH_MARKER}` }])] as any);
+    expect(out.discussions.map((d) => d.id)).toEqual(["q"]);
+    expect(out.dropped.latch).toBe(0);
+  });
+
+  test("a resolved latch counts as resolved, not latch", () => {
+    const out = filterHumanThreads([disc("r", true, [{ ...note("carol"), body: LATCH_MARKER }])] as any);
+    expect(out.dropped).toEqual({ resolved: 1, system: 0, bot: 0, latch: 0 });
   });
 
   test("mr_threads filter unresolved-human returns the filtered threads and dropped", async () => {
@@ -297,7 +321,7 @@ describe("filterHumanThreads", () => {
     const res = await tool(deps, "mr_threads").handler({ repoName: ID, iid: 2, filter: "unresolved-human" }, {} as NodeJS.ProcessEnv);
     expect(res.ok).toBe(true);
     expect((res.body as any).discussions.map((d: any) => d.id)).toEqual(["plain", "open"]);
-    expect((res.body as any).dropped).toEqual({ resolved: 1, system: 1, bot: 1 });
+    expect((res.body as any).dropped).toEqual({ resolved: 1, system: 1, bot: 1, latch: 0 });
   });
 
   test("mr_threads rejects any other filter", async () => {

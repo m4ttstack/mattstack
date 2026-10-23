@@ -190,7 +190,7 @@ function useGateForm(
   };
 
   const submit = async (
-    payload: { answers: GateAnswers } | null,
+    payload: { answers: GateAnswers; reReview?: string[] } | null,
     transformAnswers?: (answers: GateAnswers) => GateAnswers
   ) => {
     if (!payload || busy) return;
@@ -204,7 +204,11 @@ function useGateForm(
       const res = await fetch('/gate/answer', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ gateId: gate.gateId, answers }),
+        body: JSON.stringify({
+          gateId: gate.gateId,
+          answers,
+          ...(payload.reReview?.length ? { reReview: payload.reReview } : {}),
+        }),
       });
       const outcome = resolveAnswerOutcome(
         res.status,
