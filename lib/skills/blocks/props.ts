@@ -15,7 +15,7 @@ export type PropValue = {
 export function resolveProp(
   spec: PropSpec,
   layers: LayerValue[],
-  load: (binding: string) => AttachmentSource,
+  load: (binding: string, layer: string) => AttachmentSource,
   where: { file: string; internalRoster: Set<string> },
 ): PropValue {
   let kept: LayerValue[] = [];
@@ -50,8 +50,8 @@ export function resolveProp(
   }
 
   const sources = kept.map(({ layer, value }) => {
-    const fill = load(value);
-    const mode: "inline" | "reference" = fill.file !== null || isInlined(fill, where.internalRoster) ? "inline" : "reference";
+    const fill = load(value, layer);
+    const mode: "inline" | "reference" = isInlined(fill, where.internalRoster) ? "inline" : "reference";
     return { layer, fill, mode };
   });
 

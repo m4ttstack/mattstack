@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSy
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import {
+  AttachmentLoadError,
   buildPluginRoots,
   installedVersionFor,
   invocableRoster,
@@ -1014,5 +1015,98 @@ describe("org base pack roots", () => {
     writeFileSync(join(base, "skills", "watch", "SKILL.md"), "---\nname: watch\nmetadata:\n  provides: forge\n---\nbody\n");
     const roots: PluginRoots = { byName: { "acme-base": { dir: base, version: "org" } }, list: [], folderOnly: new Set(["acme-base"]) };
     expect(() => loadAttachment("acme-base:watch", "forge", roots)).toThrow(/move it under attachments\//);
+  });
+});
+
+describe("block-tree loaders", () => {
+  const BLOCKS_MATTSTACK = join(import.meta.dir, "fixtures", "blocks", "plugins", "mattstack");
+
+  function blockRoots(): { dir: string; roots: PluginRoots } {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-blocks-")));
+    cpSync(BLOCKS_MATTSTACK, dir, { recursive: true });
+    return { dir, roots: { byName: { mattstack: { dir, version: "1.0.0" } }, list: [] } };
+  }
+
+  test("loadStepSource reads an engine folder holding index.block.md as a tree", () => {
+    const { dir, roots } = blockRoots();
+    writeFile(join(dir, "attachments", "pipeline", "mini", "scripts", "go.sh"), "echo go\n");
+
+    const step = loadStepSource("mini", roots);
+
+    expect(step.tree?.root.id).toBe("mini");
+    expect(step.tree?.byId.has("mini/run/check")).toBe(true);
+    expect(step.body).toBe("");
+    expect(step.slots).toEqual({});
+    expect(step.description).toBe("A small pipeline step used to test block trees");
+    expect(step.srcPath).toBe(join("attachments", "pipeline", "mini", "index.block.md"));
+    expect(step.bodyStartLine).toBe(11);
+    expect(step.stepFiles).toEqual(["scripts/go.sh"]);
+  });
+
+  test("loadStepSource refuses a block root that is not typed pipeline-step", () => {
+    const { dir, roots } = blockRoots();
+    const index = join(dir, "attachments", "pipeline", "mini", "index.block.md");
+    writeFileSync(index, readFileSync(index, "utf8").replace("type: pipeline-step\n", ""));
+
+    expect(() => loadStepSource("mini", roots)).toThrow(`loadStepSource: "${index}" is not typed "type: pipeline-step"`);
+  });
+
+  test("loadInclude reads attachments/<name>/index.block.md as a tree whose block files are not vendored", () => {
+    const { dir, roots } = blockRoots();
+    writeFile(join(dir, "attachments", "gate-protocol", "index.block.md"), "---\n---\n\n# Gate protocol\n\nAsk once.\n");
+    writeFile(join(dir, "attachments", "gate-protocol", "late.block.md"), "---\n---\n\n# Late\n\nLate text.\n");
+    writeFile(join(dir, "attachments", "gate-protocol", "scripts", "gate.sh"), "echo gate\n");
+
+    const inc = loadInclude("gate-protocol", roots);
+
+    expect(inc.tree?.root.id).toBe("gate-protocol");
+    expect(inc.tree?.root.relPath).toBe("attachments/gate-protocol/index.block.md");
+    expect(inc.body).toBe("");
+    expect(inc.binding).toBe("mattstack:gate-protocol");
+    expect(inc.extraFiles).toEqual(["scripts/gate.sh"]);
+  });
+
+  test("a flat include keeps no tree", () => {
+    const { roots } = blockRoots();
+    expect(loadInclude("style-floor", roots).tree).toBeUndefined();
+  });
+});
+
+describe("AttachmentLoadError", () => {
+  const LINT_SKILL_MD = `---\nname: lint\ndescription: "lint rules"\nmetadata:\n  provides: ship-domain@1\n---\n`;
+
+  function thrown(fn: () => unknown): { code: string; message: string } {
+    try {
+      fn();
+    } catch (err) {
+      expect(err).toBeInstanceOf(AttachmentLoadError);
+      return { code: (err as AttachmentLoadError).code, message: (err as Error).message };
+    }
+    throw new Error("expected a throw");
+  }
+
+  function roots(skillMd = LINT_SKILL_MD): PluginRoots {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-loaderr-")));
+    writeFile(join(dir, "attachments", "lint", "SKILL.md"), skillMd);
+    writeFile(join(dir, "attachments", "lint", "fast.md"), "the fast rules\n");
+    writeFile(join(dir, "attachments", "bare", "SKILL.md"), "---\nname: bare\n---\n\nbody\n");
+    return { byName: { w: { dir, version: "0.1.0" } }, list: [] };
+  }
+
+  test("a value that is not there is fill-missing", () => {
+    expect(thrown(() => loadAttachment("w:nope", "rules", roots())).code).toBe("fill-missing");
+    expect(thrown(() => loadAttachment("w:lint/slow", "rules", roots())).code).toBe("fill-missing");
+    expect(thrown(() => loadAttachment("x:lint", "rules", roots())).code).toBe("fill-missing");
+  });
+
+  test("a malformed or unusable value is bad-value, with today's messages", () => {
+    expect(thrown(() => loadAttachment("w:lint/a/b", "rules", roots()))).toEqual({
+      code: "bad-value",
+      message: 'loadAttachment: slot "rules": binding "w:lint/a/b" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"',
+    });
+    expect(thrown(() => loadAttachment("w:lint/fast", "rules", roots(`${LINT_SKILL_MD}\ntext\n`))).code).toBe("bad-value");
+    const bare = thrown(() => loadAttachment("w:bare", "rules", roots()));
+    expect(bare.code).toBe("bad-value");
+    expect(bare.message).toMatch(/has no metadata\.provides$/);
   });
 });

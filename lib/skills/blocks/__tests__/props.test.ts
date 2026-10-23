@@ -68,6 +68,17 @@ test("a registered public whole-skill value is a reference; a per-file value is 
   expect(resolveProp(spec({ contract: "model-tiering@1" }), [{ layer: "pack", value: "w:t/tiers" }], perFile, at("f")).sources[0]!.mode).toBe("inline");
 });
 
+test("load is told which layer passed each value, the default included", () => {
+  const seen: string[] = [];
+  const spy = (b: string, layer: string) => {
+    seen.push(`${layer}=${b}`);
+    return load(b);
+  };
+  resolveProp(spec({}), [{ layer: "base:b", value: "b:one" }, { layer: "pack", value: "w:two" }], spy, at("f"));
+  resolveProp(spec({ default: "mattstack:rules" }), [], spy, at("f"));
+  expect(seen).toEqual(["base:b=b:one", "pack=w:two", "default=mattstack:rules"]);
+});
+
 test("a registered skill on the internal roster is inlined", () => {
   const pub = (b: string) => ({ ...fill(b), registered: true });
   const v = resolveProp(spec({}), [{ layer: "pack", value: "w:x" }], pub, { file: "f", internalRoster: new Set(["w:x"]) });

@@ -207,12 +207,12 @@ type BoundSlot = { slotName: string; fill: AttachmentSource };
 /**
  * Registered-and-public is the only case that stays a reference instead of
  * being vendored into the compiled body -- everything else (unregistered
- * attachments, and registered-but-still-internal fills mid surface
- * transition) inlines. Exported so callers outside the compiler (composition
+ * attachments, registered-but-still-internal fills mid surface transition,
+ * and a per-file value, which names no invocable skill) inlines. Exported so callers outside the compiler (composition
  * reporting) can't drift from this rule by re-deriving it.
  */
 export function isInlined(fill: AttachmentSource, internalRoster: Set<string>): boolean {
-  return !fill.registered || internalRoster.has(fill.binding);
+  return fill.file !== null || !fill.registered || internalRoster.has(fill.binding);
 }
 
 function rewriteSkillDirRefs(text: string, slotName: string): string {
@@ -640,5 +640,5 @@ export function compileSkill(
     ...lintInternalRoster(verb.description, internalRoster, "description"),
   ];
 
-  return { files, warnings, errors };
+  return { files, warnings, errors, diagnostics: [] };
 }

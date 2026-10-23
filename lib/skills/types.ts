@@ -1,3 +1,5 @@
+import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
+import type { BlockTree } from "./blocks/types.ts";
 import type { TeamContext } from "./team-params.ts";
 
 export type Side = "skills" | "attachments";
@@ -17,6 +19,8 @@ export type StepSource = {
   stepFiles: string[]; // non-SKILL.md files relative to dir (scripts/, references/, ...), vendored path-preserving
   stageMeta: { stage: string; consumes: string[]; produces: string[] } | null;
   description: string;
+  /** Set when the engine folder holds `index.block.md`; `body` is "" then. */
+  tree?: BlockTree;
 };
 
 export type AttachmentSource = {
@@ -34,6 +38,8 @@ export type AttachmentSource = {
   file: string | null; // "fast.md" for a "plugin:skill/fast" value, relative to dir; null = the SKILL.md body
   /** The first team marker in the file's frontmatter, kept because the body handed to compile has none of it. */
   frontmatterTeamMarker?: { raw: string; line: number };
+  /** Set for an include whose folder holds `index.block.md`; `body` is "" then. */
+  tree?: BlockTree;
 };
 
 /** `pipeline` is the pipeline a work verb runs, or the one a stage copy compiles for. */
@@ -41,7 +47,7 @@ export type VerbDef = { name: string; engine: string; description: string; pipel
 
 export type CompiledFile = { path: string; content: string } | { path: string; copyFrom: string };
 
-export type CompileResult = { files: CompiledFile[]; warnings: string[]; errors: string[] };
+export type CompileResult = { files: CompiledFile[]; warnings: string[]; errors: string[]; diagnostics: BlockDiagnostic[] };
 
 /** `name` is the compiled target, a stage copy's own name for a copy; `engine` is the stage it compiles. */
 export type StageEntry = {

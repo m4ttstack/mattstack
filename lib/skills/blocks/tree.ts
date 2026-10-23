@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
 import { join } from "node:path";
 import { BlockError, type BlockDiagnostic } from "./diagnostics.ts";
 import { parseBlockFile } from "./frontmatter.ts";
@@ -25,8 +25,13 @@ export function walk(tree: BlockTree): Block[] {
 
 type Child = { stem: string; file: string; dir: string | null };
 
+/** readdir order differs between filesystems, and diagnostics must come out the same on every one. */
+function sortedEntries(dir: string): Dirent[] {
+  return readdirSync(dir, { withFileTypes: true }).sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+}
+
 function orphansUnder(dir: string, relDir: string, out: BlockDiagnostic[]): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of sortedEntries(dir)) {
     if (entry.name.startsWith(".")) continue;
     if (entry.isDirectory()) orphansUnder(join(dir, entry.name), `${relDir}/${entry.name}`, out);
     else if (entry.isFile() && entry.name.endsWith(SUFFIX)) {
@@ -43,7 +48,7 @@ function orphansUnder(dir: string, relDir: string, out: BlockDiagnostic[]): void
 
 function childrenOf(dir: string, relDir: string, diagnostics: BlockDiagnostic[]): Child[] {
   const out: Child[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of sortedEntries(dir)) {
     if (entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
     if (entry.name.startsWith("+")) {

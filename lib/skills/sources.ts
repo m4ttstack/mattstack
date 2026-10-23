@@ -8,6 +8,8 @@ import { stripJsonc } from "../jsonc.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
+import { isBlockTree, loadBlockTree } from "./blocks/tree.ts";
+import type { BlockTree } from "./blocks/types.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import { firstTeamMarker } from "./team-params.ts";
 import { layeredFromManifest } from "./manifest-merge.ts";
@@ -16,6 +18,16 @@ import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+
+/** `fill-missing`: the value names nothing on disk; `bad-value`: it names something compile cannot use. */
+export class AttachmentLoadError extends Error {
+  constructor(
+    message: string,
+    readonly code: "fill-missing" | "bad-value",
+  ) {
+    super(message);
+  }
+}
 
 /** Single definition lives in lib/jsonc.ts — a line-filter fork here previously missed block comments, trailing commas, and inline `//` after content. */
 export { stripJsonc };
@@ -318,7 +330,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
   for (const group of listDirs(skillsDir)) {
     const candidate = join(skillsDir, group, engineName, "SKILL.md");
     searched.push(candidate);
-    if (existsSync(candidate)) {
+    if (holdsEngine(candidate)) {
       foundDir = join(skillsDir, group, engineName);
       break;
     }
@@ -331,7 +343,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
   if (!foundDir) {
     const flatCandidate = join(attachmentsDir, engineName, "SKILL.md");
     searched.push(flatCandidate);
-    if (existsSync(flatCandidate)) {
+    if (holdsEngine(flatCandidate)) {
       foundDir = join(attachmentsDir, engineName);
     }
   }
@@ -340,7 +352,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
     for (const group of listDirs(attachmentsDir)) {
       const candidate = join(attachmentsDir, group, engineName, "SKILL.md");
       searched.push(candidate);
-      if (existsSync(candidate)) {
+      if (holdsEngine(candidate)) {
         foundDir = join(attachmentsDir, group, engineName);
         break;
       }
@@ -352,6 +364,8 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
       `loadStepSource: engine "${engineName}" not found under ${skillsDir}/* or ${attachmentsDir}/*; searched:\n${searched.join("\n")}`,
     );
   }
+
+  if (isBlockTree(foundDir)) return blockStepSource(engineName, foundDir, mattstack);
 
   const skillMdPath = join(foundDir, "SKILL.md");
   const { body, frontmatter, bodyStartLine } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
@@ -376,19 +390,57 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
   };
 }
 
+/** A block engine's folder holds `index.block.md` where a slot engine's holds `SKILL.md`. */
+function holdsEngine(skillMdPath: string): boolean {
+  return existsSync(skillMdPath) || isBlockTree(dirname(skillMdPath));
+}
+
+/** Every `*.block.md` is compiled into the body, so none of them is vendored. */
+function nonBlockFiles(dir: string, exclude: Set<string>): string[] {
+  return listFilesUnder(dir, exclude).filter((rel) => !rel.endsWith(".block.md"));
+}
+
+function loadTree(dir: string, idPrefix: string, pluginDir: string): BlockTree {
+  return loadBlockTree(dir, { idPrefix, relRoot: relative(pluginDir, dir).split(sep).join("/") });
+}
+
+function blockStepSource(engineName: string, dir: string, mattstack: { dir: string; version: string }): StepSource {
+  const tree = loadTree(dir, engineName, mattstack.dir);
+  const root = tree.root;
+  if (root.frontmatter.type !== "pipeline-step") {
+    throw new Error(`loadStepSource: "${root.path}" is not typed "type: pipeline-step"`);
+  }
+  return {
+    name: engineName,
+    plugin: "mattstack",
+    version: mattstack.version,
+    dir,
+    srcPath: relative(mattstack.dir, root.path),
+    bodyStartLine: root.bodyStartLine,
+    body: "",
+    slots: {},
+    allowedTools: parseAllowedTools(root.frontmatter["allowed-tools"]),
+    stepFiles: nonBlockFiles(dir, new Set()),
+    stageMeta: readStageMeta(root.frontmatter),
+    description: typeof root.frontmatter.description === "string" ? root.frontmatter.description : "",
+    tree,
+  };
+}
+
 export const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export function loadAttachment(binding: string, slot: string, roots: PluginRoots): AttachmentSource {
   const [plugin, skillPart] = binding.split(":");
   const [skillName, fileName, ...rest] = (skillPart ?? "").split("/");
   if (!plugin || !skillName || rest.length > 0 || (fileName !== undefined && !VALUE_FILE_RE.test(fileName))) {
-    throw new Error(`loadAttachment: slot "${slot}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`);
+    throw new AttachmentLoadError(`loadAttachment: slot "${slot}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`, "bad-value");
   }
 
   const pluginRoot = roots.byName[plugin];
   if (!pluginRoot) {
-    throw new Error(
+    throw new AttachmentLoadError(
       `loadAttachment: slot "${slot}": no plugin root registered for "${plugin}" (binding "${binding}")`,
+      "fill-missing",
     );
   }
 
@@ -426,14 +478,16 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   }
 
   if (!foundDir) {
-    throw new Error(
+    throw new AttachmentLoadError(
       `loadAttachment: slot "${slot}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
+      "fill-missing",
     );
   }
 
   if (registered && roots.folderOnly?.has(plugin)) {
-    throw new Error(
+    throw new AttachmentLoadError(
       `loadAttachment: slot "${slot}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
+      "bad-value",
     );
   }
 
@@ -447,7 +501,7 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
     : {};
   const provides = typeof metadata.provides === "string" ? metadata.provides : "";
   if (!provides) {
-    throw new Error(`loadAttachment: slot "${slot}": "${skillMdPath}" has no metadata.provides`);
+    throw new AttachmentLoadError(`loadAttachment: slot "${slot}": "${skillMdPath}" has no metadata.provides`, "bad-value");
   }
 
   // A frontmatter-only SKILL.md marks a per-file-value skill: each top-level
@@ -462,14 +516,15 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   let value = { srcPath: relative(pluginRoot.dir, skillMdPath), bodyStartLine, body, file: null as string | null };
   if (fileName !== undefined) {
     if (body !== "") {
-      throw new Error(
+      throw new AttachmentLoadError(
         `loadAttachment: slot "${slot}": ${binding}: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only`,
+        "bad-value",
       );
     }
     const file = `${fileName}.md`;
     const filePath = join(foundDir, file);
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-      throw new Error(`loadAttachment: slot "${slot}": binding "${binding}": no file at ${filePath}`);
+      throw new AttachmentLoadError(`loadAttachment: slot "${slot}": binding "${binding}": no file at ${filePath}`, "fill-missing");
     }
     const text = readFileSync(filePath, "utf8");
     const lead = text.length - text.trimStart().length;
@@ -512,6 +567,7 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
   const mattstack = roots.byName.mattstack;
   if (!mattstack) throw new Error(`loadInclude: no "mattstack" plugin root registered`);
   const dir = join(mattstack.dir, "attachments", name);
+  if (isBlockTree(dir)) return blockInclude(name, dir, mattstack);
   const skillMdPath = join(dir, "SKILL.md");
   if (!existsSync(skillMdPath)) throw new Error(`loadInclude: include "${name}" not found at ${skillMdPath}`);
 
@@ -539,6 +595,31 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
     extraFiles: listFilesUnder(dir, new Set(["SKILL.md"])),
     registered: false,
     file: null,
+  };
+}
+
+/** A block include renders through its tree, so its blocks may carry props and includes; slots stay refused. */
+function blockInclude(name: string, dir: string, mattstack: { dir: string; version: string }): AttachmentSource {
+  const tree = loadTree(dir, name, mattstack.dir);
+  const fm = tree.root.frontmatter;
+  const metadata = fm.metadata && typeof fm.metadata === "object" ? (fm.metadata as Record<string, unknown>) : {};
+  if (fm.slots || metadata.slots) {
+    throw new Error(`loadInclude: include "${name}" declares slots; an include target must be slotless`);
+  }
+  return {
+    binding: `mattstack:${name}`,
+    plugin: "mattstack",
+    version: mattstack.version,
+    dir,
+    srcPath: relative(mattstack.dir, tree.root.path),
+    bodyStartLine: tree.root.bodyStartLine,
+    body: "",
+    provides: typeof metadata.provides === "string" ? metadata.provides : "",
+    allowedTools: parseAllowedTools(fm["allowed-tools"]),
+    extraFiles: nonBlockFiles(dir, new Set()),
+    registered: false,
+    file: null,
+    tree,
   };
 }
 
