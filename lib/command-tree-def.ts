@@ -2515,6 +2515,15 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      lsp: {
+        description: "Check skill block files and their bindings as you edit them, for your editor",
+        module: "./commands/skills-lsp.ts",
+        fn: "skillsLsp",
+        args: [
+          { name: "Root", flag: "--root", type: "text", placeholder: "/path/to/plugin", hint: "Folder to look in (repeatable); omit to use the editor's workspace folders" },
+          { name: "Stdio", flag: "--stdio", type: "boolean", default: false, hint: "Accepted for editors that pass it; the server always talks over stdin and stdout" },
+        ],
+      },
       changes: {
         description: "List this pack's changes that are not synced yet",
         module: "./commands/skills.ts",
