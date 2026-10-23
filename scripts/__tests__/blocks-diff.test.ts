@@ -74,6 +74,13 @@ test.each([
   expect(residualDiff(dot(base), dot(changed), none)).not.toBe("");
 });
 
+test("rankdir=TB compares equal to no rankdir, any other rankdir does not", () => {
+  expect(residualDiff(dot(base), dot(`rankdir=TB;\n${base}`), none)).toBe("");
+  expect(residualDiff(dot(`rankdir = TB;\n${base}`), dot(base), none)).toBe("");
+  expect(residualDiff(dot(base), dot(`rankdir=LR;\n${base}`), none)).not.toBe("");
+  expect(residualDiff(dot(`rankdir=TB;\n${base}`), dot(`rankdir=LR;\n${base}`), none)).not.toBe("");
+});
+
 test("blank lines and whitespace inside a fence are compared", () => {
   const fenced = (body: string) => `# A\n\n\`\`\`sh\n${body}\n\`\`\`\n`;
   expect(residualDiff(fenced("a\n\n\nb"), fenced("a\n\nb"), none)).not.toBe("");

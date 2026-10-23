@@ -18,6 +18,8 @@ function canonicalDot(source: string): string[] {
   const edgeLines = edges.map((e) => `${e.from}|${e.to}|${e.label ?? ""}|${e.style ?? ""}`).sort();
   const graphLines = splitStatements(source)
     .filter((s) => !/^(?:strict\s+)?(?:di)?graph\b/.test(s) && GRAPH_LEVEL.test(s))
+    // TB is Graphviz's default rankdir, and toDot writes it on every graph.
+    .filter((s) => !/^rankdir\s*=\s*"?TB"?$/.test(s))
     .map((s) => `graph|${s.replace(/\s+/g, " ")}`)
     .sort();
   return [...nodeLines, ...edgeLines, ...graphLines];
