@@ -185,7 +185,7 @@ import {
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
-import { settleReReview } from './latch/rereview.ts';
+import { isStaleSignal, settleReReview } from './latch/rereview.ts';
 import { acceptedReReview, parseReReview } from './latch/rereview.ts';
 import { applyReviewLatch } from './latch/review-step.ts';
 import {
@@ -4917,26 +4917,35 @@ async function handleAgentSignal(
       );
     }
   }
+  // The status CLI writes the state file before it emits, so a live signal
+  // always has updatedAt <= emittedAt. A newer write means a later transition
+  // or launch superseded this event: the tab on file is not this event's to
+  // close, nor its pick this event's to settle. Read once, before settling
+  // moves the stamp.
+  const stale = isStaleSignal(resolveSignalUpdatedAt(signal), emittedAt);
   // A picked re-review resolves its latch discussions once respond is done.
   // Best-effort: a failure here must never fail the agent's status write.
-  if (signal.kind === 'respond' && gitlabToken) {
+  if (signal.kind === 'respond' && gitlabToken && !stale) {
     try {
-      const state = readRespondStates().get(signal.mrUrl);
-      if (state?.pendingReReview?.length) {
+      const pending = readRespondStates().get(signal.mrUrl)?.pendingReReview;
+      if (pending?.length) {
         await settleReReview(
           signal.status,
-          state.pendingReReview,
+          pending,
           id =>
             latchGateway(config.gitlabHost, gitlabToken).resolveDiscussion(
               projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
               signal.iid,
               id
             ),
-          () =>
-            writeRespondState(respondFilePath(signal.mrUrl), {
-              status: state.status,
-              pendingReReview: [],
-            }),
+          () => {
+            const current = readRespondStates().get(signal.mrUrl);
+            if (current)
+              writeRespondState(respondFilePath(signal.mrUrl), {
+                status: current.status,
+                pendingReReview: [],
+              });
+          },
           msg => console.error(msg)
         );
       }
@@ -4950,12 +4959,7 @@ async function handleAgentSignal(
   // never closes, so a failing pane stays open for forensics. Must run
   // above the emoji early-return below: most `done` signals have no
   // emoji and would never reach a close placed after it.
-  // The status CLI writes the state file before it emits, so a live signal
-  // always has updatedAt <= emittedAt. A newer write means a later transition
-  // or launch superseded this event: the tab on file is not this event's to
-  // close, nor its status this event's to overwrite with `done`.
-  const stateUpdatedAt = resolveSignalUpdatedAt(signal);
-  if (!(stateUpdatedAt !== undefined && stateUpdatedAt > emittedAt)) {
+  if (!stale) {
     closeOnDone(
       signal,
       resolveSignalTabId,

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   acceptedReReview,
+  isStaleSignal,
   parseReReview,
   settleReReview,
 } from '../latch/rereview.ts';
@@ -42,6 +43,21 @@ describe('parseReReview', () => {
     expect(parseReReview({ reReview: ['d1', 4] })).toEqual([]);
     expect(parseReReview({ reReview: [''] })).toEqual([]);
     expect(parseReReview(null)).toEqual([]);
+  });
+});
+
+describe('isStaleSignal', () => {
+  test('a state written after emission is stale', () => {
+    expect(isStaleSignal(200, 100)).toBe(true);
+  });
+
+  test('a state at or before emission is live', () => {
+    expect(isStaleSignal(100, 100)).toBe(false);
+    expect(isStaleSignal(50, 100)).toBe(false);
+  });
+
+  test('no recorded stamp is live', () => {
+    expect(isStaleSignal(undefined, 100)).toBe(false);
   });
 });
 

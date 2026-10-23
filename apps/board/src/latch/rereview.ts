@@ -30,6 +30,15 @@ export function acceptedReReview(
   return ids.filter(id => allowed.has(id));
 }
 
+/** True when the state file was written after the event was emitted, so a
+    later transition or launch owns it and this event must not act on it. */
+export function isStaleSignal(
+  stateUpdatedAt: number | undefined,
+  emittedAt: number
+): boolean {
+  return stateUpdatedAt !== undefined && stateUpdatedAt > emittedAt;
+}
+
 /** Settles a picked re-review once respond reports a terminal status: `done`
     resolves each picked discussion (a failed resolve is logged, never
     thrown), `error` only drops the pick, anything else leaves it for the
