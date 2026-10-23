@@ -3,7 +3,9 @@
 #
 # Fixture trees live in a mktemp dir. `rt` is a stub that serves `progress
 # list`, `herd status`, `herd gates` and `runs` from fixture files, and exits 2
-# on `progress` when RT_STUB_OLD is set (an rt without the verb). HOME is
+# on `progress` when RT_STUB_OLD is set (an rt without the verb). RT_STUB_ERR
+# makes `progress list` reply {"ok":false,...} and RT_STUB_CRASH makes it die
+# the way rt's dispatch seam reports an unexpected error. HOME is
 # sandboxed so nothing reads the real ~/.mattstack.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,6 +22,8 @@ echo "$*" >> "$RT_STUB_CALLS"
 case "$1 $2" in
   "progress list")
     if [ -n "${RT_STUB_OLD:-}" ]; then echo "usage: rt progress ..." >&2; exit 2; fi
+    if [ -n "${RT_STUB_ERR:-}" ]; then echo '{"ok":false,"error":"state db is locked"}'; exit 2; fi
+    if [ -n "${RT_STUB_CRASH:-}" ]; then printf 'rt hit an unexpected error\n  boom\n' >&2; exit 1; fi
     # A plain read serves plans.json; --refresh serves plans.refresh.json when the case has one.
     case " $* " in
       *" --refresh "*) if [ -f "$RT_STUB_FX/plans.refresh.json" ]; then cat "$RT_STUB_FX/plans.refresh.json"; exit 0; fi ;;
@@ -67,6 +71,7 @@ run() { # args... -> stdout+stderr, then "exit=<code>"
   local out code
   out="$(env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:$(dirname "$PY"):/usr/bin:/bin" \
     RT_STUB_CALLS="$SANDBOX/calls" RT_STUB_FX="$FX" ${RT_STUB_OLD:+RT_STUB_OLD=1} \
+    ${RT_STUB_ERR:+RT_STUB_ERR=1} ${RT_STUB_CRASH:+RT_STUB_CRASH=1} \
     "$PY" "$SCRIPT" "$@" 2>&1)"
   code=$?
   printf '%s\nexit=%s' "$out" "$code"
@@ -116,6 +121,18 @@ has "old rt falls back: live plan reads 7/9" "7/9" "$(rowof two "$old")"
 has "old rt falls back: no ledger reads unknown" "| one | unknown |" "$(rowof one "$old")"
 has "old rt falls back: unknown row explains itself" "not started or finished (rt has no record)" "$(rowof one "$old")"
 has "old rt falls back: exit 0" "exit=0" "$old"
+
+errored="$(RT_STUB_ERR=1 run "${PLANS[@]}" --title epic)"
+has "rt error reply is not read as an old rt" "| one | unknown |" "$(rowof one "$errored")"
+has "rt error reply shows in the now cell" "rt error: state db is locked |" "$(rowof one "$errored")"
+crashed="$(RT_STUB_CRASH=1 run "${PLANS[@]}" --title epic)"
+has "rt crash keeps status unknown" "| one | unknown |" "$(rowof one "$crashed")"
+has "rt crash is not read as an old rt" "rt error: rt hit an unexpected error |" "$(rowof one "$crashed")"
+
+ln -s "$TREE" "$SANDBOX/widgets-alias"
+rm -f "$SANDBOX/calls"
+run "${PLANS[@]}" --tree "$SANDBOX/widgets-alias" >/dev/null
+has "a symlinked --tree reads rt under its real path" "progress list --tree $TREE --refresh --json" "$(cat "$SANDBOX/calls")"
 
 # Lettered sub-tasks: Task 3 is done only when every part the ledger mentions is complete.
 cat > "$LEDGER/progress.md" <<'LED'
@@ -178,6 +195,22 @@ JSON
 herd="$(run --herd h1)"
 has "herd ignores a record older than the job" "| alpha | done | ✓ | ✓ | ✓ | ✓ | · | reported |" "$(rowof alpha "$herd")"
 
+# A merged job's tree is disposed, but rt kept its done record under that path.
+GONETREE="$SANDBOX/gone/jobtree"
+cat > "$FX/herd-status.json" <<JSON
+{"herd":{"id":"h1","shepherdName":"shep","createdAt":1000},"unread":0,
+"jobs":[{"name":"alpha","status":"done","lastReport":{"at":5000},"worktree":"$GONETREE","tree":"$GONETREE","branch":"job-x","createdAt":1000,"updatedAt":9000}]}
+JSON
+cat > "$FX/plans.json" <<JSON
+{"ok":true,"plans":[
+{"tree":"$GONETREE","branch":"job-x","plan":"docs/plans/p.md","stem":"p","done":5,"total":5,"latest":"Task 5: complete","firstSeen":1500,"lastSeen":2000,"finishedAt":2000,"state":"done"}
+]}
+JSON
+rm -f "$SANDBOX/calls"
+herd="$(run --herd h1)"
+has "disposed job tree still reads its done record" "\`██████████\` 5/5" "$(rowof alpha "$herd")"
+has "disposed job tree is still asked about" "progress list --tree $GONETREE --refresh --json" "$(cat "$SANDBOX/calls")"
+
 # Herd mode counts lettered sub-tasks with the same rule as plan mode.
 BETATREE="$SANDBOX/betatree"
 mkdir -p "$BETATREE/docs/plans" "$BETATREE/.superpowers/sdd/p"
@@ -193,9 +226,13 @@ echo '{"ok":true,"plans":[]}' > "$FX/plans.json"
   echo "Task 4a: complete"; echo "Task 4b: dispatched"; } > "$BETATREE/.superpowers/sdd/p/progress.md"
 herd="$(run --herd h1)"
 has "herd split task with an open part is not done" "3/5" "$(rowof beta "$herd")"
+has "herd now rewrites a lettered task" "| T4b dispatched |" "$(rowof beta "$herd")"
 echo "Task 4b: complete" >> "$BETATREE/.superpowers/sdd/p/progress.md"
 herd="$(run --herd h1)"
 has "herd split task is done once every part is" "4/5" "$(rowof beta "$herd")"
+echo "Ruling: keep the flag" >> "$BETATREE/.superpowers/sdd/p/progress.md"
+herd="$(run --herd h1)"
+has "herd now keeps a ruling" "| Ruling: keep the flag |" "$(rowof beta "$herd")"
 
 [ "$fails" -eq 0 ] && echo "all work-progress tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))

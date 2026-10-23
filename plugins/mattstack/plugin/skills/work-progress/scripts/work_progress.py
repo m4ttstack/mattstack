@@ -75,14 +75,19 @@ def cell(text):
     return text if len(text) <= NOW_MAX else text[: NOW_MAX - 3].rstrip() + "..."
 
 
-def job_roots(job):
+def job_trees(job):
     """The job's worktree, plus the tree a worker made for itself when it was
-    spawned into a shared checkout (tree is null there)."""
+    spawned into a shared checkout (tree is null there). A merged job's tree
+    is disposed, so these may no longer exist."""
     base = job["worktree"]
     roots = [base]
     if not job.get("tree"):
         roots += [os.path.join(base, ".worktrees", job["name"]), os.path.join(base, ".claude", "worktrees", job["name"])]
-    return [r for r in roots if os.path.isdir(r)]
+    return [os.path.realpath(r) for r in roots]
+
+
+def job_roots(job):
+    return [r for r in job_trees(job) if os.path.isdir(r)]
 
 
 def newest_ledger(roots, since):
@@ -114,10 +119,7 @@ def plan_file(root, ledger):
 def ledger_progress(root, ledger):
     text = read(ledger)
     total = len(set(re.findall(r"(?m)^#+\s*Task\s+(\d+)\b", read(plan_file(root, ledger)))))
-    done = done_tasks(text)
-    lines = [l.strip() for l in text.splitlines()[1:] if l.strip() and not re.match(r"(#|\||Ruling|Spec:)", l.strip())]
-    now = re.sub(r"^Task\s+(\d+):\s*", r"T\1 ", lines[-1]) if lines else ""
-    return done, total, now
+    return done_tasks(text), total, ledger_now(text)
 
 
 def brief_text(herd_id, job_name):
@@ -226,14 +228,40 @@ def gate_text(g):
 RECORDS = {}
 
 
+def list_records(tree, refresh):
+    """(plans, error). plans is None when rt cannot answer; error is None only
+    when rt is missing or lacks `progress list`, which exits non-zero with
+    plain text instead of JSON."""
+    args = ["rt", "progress", "list", "--tree", tree, *(["--refresh"] if refresh else []), "--json"]
+    try:
+        out = subprocess.run(args, capture_output=True, text=True)  # mcp-lint: allow
+    except FileNotFoundError:
+        return None, None
+    text = out.stderr.strip() or out.stdout.strip()
+    try:
+        reply = json.loads(out.stdout)
+    except json.JSONDecodeError:
+        reply = None
+    if isinstance(reply, dict) and reply.get("ok") and isinstance(reply.get("plans"), list):
+        return reply["plans"], None
+    if isinstance(reply, dict) and reply.get("ok") is False:
+        return None, str(reply.get("error") or "no error message")
+    crashed = "unexpected error" in (out.stderr + out.stdout)
+    if reply is None and out.returncode != 0 and not crashed:
+        return None, None
+    return None, text or f"exit {out.returncode}"
+
+
 def tree_records(tree, refresh=False):
-    """rt's plan records for one tree, or None when rt cannot answer (an rt
-    without `progress list` exits non-zero or prints usage text)."""
     key = (tree, refresh)
     if key not in RECORDS:
-        out = rt_json(["progress", "list", "--tree", tree, *(["--refresh"] if refresh else [])], required=False)
-        RECORDS[key] = out.get("plans") if out.get("ok") else None
-    return RECORDS[key]
+        RECORDS[key] = list_records(tree, refresh)
+    return RECORDS[key][0]
+
+
+def tree_error(tree, refresh=False):
+    tree_records(tree, refresh)
+    return RECORDS[(tree, refresh)][1]
 
 
 def kept_record(roots, created_ms):
@@ -264,7 +292,7 @@ def row(job, herd_id, gates, runs, now_s):
     run = run_for(job, runs, herd_id, roots) if domain else None
     found = None if run else newest_ledger(roots, since)
     done, total, now = ledger_progress(found[0], found[2]) if found else (0, 0, "")
-    kept = None if run or found or meth not in LEDGER_METHODS else kept_record(roots, job["createdAt"])
+    kept = None if run or found or meth not in LEDGER_METHODS else kept_record(job_trees(job), job["createdAt"])
     if kept:
         done, total, now = kept["done"], kept["total"], kept["latest"]
     known = True
@@ -360,8 +388,8 @@ def done_tasks(text):
 
 
 def ledger_now(text):
-    """The ledger's last meaningful line. Ruling lines stay, since a ruling is
-    often what the work is waiting on."""
+    """The ledger's last meaningful line, by rt's rule (latestLine). Ruling
+    lines stay, since a ruling is often what the work is waiting on."""
     lines = [l.strip() for l in text.splitlines()[1:] if l.strip() and not re.match(r"(#|\||Spec:)", l.strip())]
     return re.sub(r"^Task\s+(\d+[a-z]?):\s*", r"T\1 ", lines[-1]) if lines else ""
 
@@ -394,7 +422,7 @@ def git_toplevel(directory):
     return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else directory
 
 
-def plan_row(path, tree, records, now_s):
+def plan_row(path, tree, records, error, now_s):
     """One plan's table line, plus its done and total task counts and whether
     its ledger has gone quiet."""
     stem = plan_stem(path)
@@ -423,7 +451,7 @@ def plan_row(path, tree, records, now_s):
         review = "▸" if total and done >= total else ""
     elif records is None:
         status, done, total = "unknown", 0, planned
-        now = "not started or finished (rt has no record)"
+        now = f"rt error: {error.splitlines()[0]}" if error else "not started or finished (rt has no record)"
     else:
         status, done, total, now = "not started", 0, planned, "not started"
 
@@ -435,10 +463,11 @@ def plan_row(path, tree, records, now_s):
 
 def plan_main(plans, tree, title):
     paths = [os.path.abspath(p) for p in plans]
-    tree = os.path.abspath(tree) if tree else git_toplevel(os.path.dirname(paths[0]))
+    tree = os.path.realpath(tree) if tree else os.path.realpath(git_toplevel(os.path.dirname(paths[0])))
     records = tree_records(tree, refresh=True)
+    error = tree_error(tree, refresh=True)
     now_s = time.time()
-    results = [plan_row(p, tree, records, now_s) for p in paths]
+    results = [plan_row(p, tree, records, error, now_s) for p in paths]
     done = sum(r[1] for r in results)
     total = sum(r[2] for r in results)
     quiet = sum(1 for r in results if r[3])
