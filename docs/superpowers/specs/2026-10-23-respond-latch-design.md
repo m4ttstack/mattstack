@@ -63,6 +63,12 @@ trigger the re-review by resolving the latch.
 - The latch is not in the respond-plan question list at all.
 - Respond-post asks a binary yes/no per open latch: trigger a re-review by
   resolving it. Yes is recommended.
+- The board wrapper's own posting path (no domain skill bound) moves onto
+  `respond_post_execute`, so the latch ordering lives in code on every path;
+  the wrapper stops calling `git_push`, `mr_reply_thread` and
+  `mr_resolve_thread` per thread itself.
+- An MR whose only open thread is a latch runs no round: the read says none,
+  and the board's "request re-review" row action covers that case.
 - The question is part of respond-post. When a round offers no reply for
   respond-post (everything skipped, or only plain `reply` rows), respond-post
   still opens when an armed latch is open, with the latch question and
@@ -127,6 +133,27 @@ root note's first line is the armed or the spent marker, exactly as
 reply cards: a card headed "Re-review" naming the reviewer, with the yes/no
 choice. `gate-ctx.ts` parses the new shape. A gallery story covers a post
 gate with replies plus a latch, and one with the latch alone.
+
+## Calls made by Claude (Matt to check)
+
+- **One question per reviewer, not per latch.** Copies the board's
+  `reviewerLatches` rule (`apps/board/src/latch/discussions.ts`): each
+  reviewer's newest armed latch, skipping a latch the MR's author posted.
+  `mr_threads`' `latches` list is grouped the same way and keeps every
+  thread id per reviewer, so a yes resolves all of that reviewer's armed
+  latches.
+- **A `--person` run asks only about that person's latch.** A board-launched
+  respond scoped to one reviewer never offers another reviewer's re-review;
+  an unscoped run asks about every reviewer with an armed latch. The wrapper's
+  refit drops latch questions outside the person with the thread questions.
+- **The slot contract bumps `mr-respond@3` to `@4`.** `@4` adds the latch
+  question and the "respond-post opens for a latch alone" rule. The wrapper
+  accepts `@3` and `@4` until both packs have re-synced; a `@3` pack simply
+  never offers the latch.
+- **The respond-plan latch line shows in the board's decision-context card**,
+  as one read-only row ("Re-review latch from <reviewer> is open"), which
+  adds an optional `latches` field to rt's `plan@1` validator.
+- **Already-resolved latches are never asked about.**
 
 ## Constraints
 
