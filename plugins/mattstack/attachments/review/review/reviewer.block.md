@@ -1,5 +1,5 @@
 ---
-order: 9
+order: 10
 props:
   reviewer:
     merge: replace
@@ -12,5 +12,3 @@ props:
 {{props.reviewer}}
 
 {{include:review-dispatch-body-after}}
-
-{{include:review-core-body-tail}}

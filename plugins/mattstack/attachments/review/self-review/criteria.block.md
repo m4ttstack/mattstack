@@ -12,5 +12,3 @@ props:
 {{props.criteria}}
 
 {{include:review-core-body-after}}
-
-{{include:review-dispatch-body}}

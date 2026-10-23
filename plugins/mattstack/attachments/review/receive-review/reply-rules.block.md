@@ -1,5 +1,5 @@
 ---
-order: 9
+order: 10
 props:
   reply-rules:
     merge: replace

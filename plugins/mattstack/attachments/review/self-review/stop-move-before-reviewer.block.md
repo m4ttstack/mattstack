@@ -1,5 +1,5 @@
 ---
-order: 7
+order: 8
 ---
 
 # If a rule below asks for a STOP move

@@ -12,5 +12,3 @@ props:
 {{props.reviewer}}
 
 {{include:review-dispatch-body-after}}
-
-{{include:writing-style-lookup}}
