@@ -68,7 +68,7 @@ digraph publish_skill {
     skill_change [label="Trigger: a skill change to make, or a change that is not live" shape=ellipse];
     edit_to_make [label="Is there an edit to make?" shape=diamond];
     baseline_red [label="Baseline a fresh agent (RED)" shape=box];
-    edit_skill_md [label="Edit or create SKILL.md in the source path" shape=box];
+    edit_skill_md [label="Edit or create the skill in its source path" shape=box];
     compiles_into_verb [label="The edit compiles into a pack verb?" shape=diamond];
     compile_sources [label="Compile the checkout's sources on Bash" shape=box];
     verify_green [label="Verify with a fresh agent (GREEN)" shape=box];
@@ -239,9 +239,36 @@ a team pack's may use either form (mattstack:process-digraphs, Node
 vocabulary). For parameterized wrapper skills also read
 `${CLAUDE_SKILL_DIR}/../../../attachments/parameterized-skills/SKILL.md`.
 
-### Edit or create SKILL.md in the source path
+### Edit or create the skill in its source path
 
-The source path for each estate is in the table above. Compiled output
+The source path for each estate is in the table above. A hand-authored
+skill or fill is its `SKILL.md`. A mattstack engine or include is a block
+tree: an `index.block.md` root and one `*.block.md` file per section, so
+the text to change sits in the block file whose `# ` title is that
+section's heading (stage-ship's fast-checks step is
+`attachments/pipeline/stage-ship/domain-fast-checks.block.md`). Its graph
+is Mermaid in the block that carries it, and a judgment node's prose is its
+own block with `node:` set (mattstack:process-digraphs).
+`rt skills blocks --skill <verb>` prints a compiled verb's tree, block by
+block. Certify does not read a block tree's graphs: compile checks them,
+and the structure check runs on the compiled `SKILL.md`. The mattstack
+pack's own compile writes only the verbs its roster names (`shepherdr`, the
+writing styles), so compile every engine the way CI does, in a scratch
+dir: copy `plugins/mattstack` to `<scratch>/ms/plugins/mattstack`, copy
+`plugins/mattstack/tests/graph-roster.jsonc` to
+`<scratch>/pack/pack/stubs.jsonc` and `tests/graph-skills.jsonc` to
+`<scratch>/pack/pack/skills.jsonc`, then on Bash:
+
+`rt skills compile --pack-dir <scratch>/pack --mattstack-dir <scratch>/ms` <!-- mcp-lint: allow -->
+
+A door lands at `<scratch>/pack/skills/<verb>/SKILL.md`, a stage at
+`<scratch>/pack/attachments/<stage>/SKILL.md`; check the edited one with
+`python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py --short-ids <that SKILL.md>`.
+A new graph-bearing engine goes on `graph-roster.jsonc` (or is reached
+through `work` or an engine on it): CI compiles and checks every one, and
+fails on a graph none of them compiles.
+
+Compiled output
 (`<pack>/skills/<verb>/` and the compiled internal verbs and stages under
 `<pack>/attachments/`, each carrying `compiled:` metadata) and cache copies
 are never edited: the next compile or update overwrites them. Edit the
@@ -250,8 +277,10 @@ engine, include or fill instead. A stage copy
 `stage-evidence--accessibility`) is compiled output too: compile writes it
 for a pipeline whose fills differ from the default and removes it when they
 match again. Change one through its fill or a
-`rt_verb {args: ["skills", "bind", "<stage>", "<slot>", "<pack>:<fill>", "--pipeline", "<name>", "--pack", "<pack>"]}`,
-naming the stage, never the copy.
+`rt_verb {args: ["skills", "bind", "<stage>", "<block>", "<prop>", "<pack>:<fill>", "--pipeline", "<name>", "--pack", "<pack>"]}`,
+naming the stage, never the copy. A step's rules sit in its block's
+`rules` prop (`stage-ship` `domain-fast-checks` `rules`);
+`mattstack:extending-a-pack`'s `props.md` lists every block and prop.
 
 ### Compile the checkout's sources on Bash
 
@@ -558,9 +587,10 @@ every case.
 ## When a pack compiles verbs from a shared engine
 
 A pack that runs `rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}` does not hand-author its
-verbs. The compiler fills the `{{placeholder}}` markers in the mattstack
-engines (`work`, `stage-*`, `review`, `self-review`, `receive-review`,
-`ship`, `watch-ci`, `shepherdr`) with the pack's fills and writes public
+verbs. The compiler renders the mattstack engines' block trees (`work`,
+`stage-*`, `review`, `self-review`, `receive-review`, `ship`, `watch-ci`,
+`shepherdr`), inlining the pack's bound fills at each block's
+`{{props.<name>}}` marker, and writes public
 verbs to `<pack>/skills/<verb>/`, internal verbs and stages to
 `<pack>/attachments/<name>/`. Edit the engine (plugins/mattstack in the monorepo) or the fill
 (`<pack>/attachments/<fill>/`), then recompile; the next compile overwrites
@@ -571,7 +601,8 @@ with no registered repo compiles against its own manifest).
 Writing a fill:
 
 - A file beside the fill is referenced as `${CLAUDE_SKILL_DIR}/<file>`; the
-  compiler vendors it under the verb's `parts/<slot>/` and rewrites the
+  compiler vendors it under the verb's `parts/<prop>/` (a root block's
+  prop) or `parts/<block path>/<prop>/` and rewrites the
   token. A bare `<file>` ships verbatim and points nowhere.
 - A mattstack attachment's rules are inlined with `{{include:<name>}}`
   alone on its own line (it gets its own seam marker). A sibling verb is
@@ -583,8 +614,8 @@ Writing a fill:
   placeholder-shaped belongs in a fill.
 - The bare Bash `rt skills check --pack <pack>` names what moved on each stale line <!-- mcp-lint: allow -->
   (source, fill, include, vendored, frontmatter, structure); through
-  `rt_verb`, a stale check returns only `failed (exit 1)` and a tail. A stage's slot
-  binds with `rt_verb {args: ["skills", "bind", "<stage>", "<slot>", "<plugin:fill>", "--pack", "<pack>"]}`,
+  `rt_verb`, a stale check returns only `failed (exit 1)` and a tail. A stage's prop
+  binds with `rt_verb {args: ["skills", "bind", "<stage>", "<block>", "<prop>", "<plugin:fill>", "--pack", "<pack>"]}`,
   and `rt_verb {args: ["skills", "surface", "set", "<stage>", "--public", "--pack", "<pack>"]}`
   works before the stage's first compile.
 
@@ -616,7 +647,7 @@ when the skill includes something; the body gets the compiler's seam
 markers; files beside the source vendor at the same path. CI runs
 `--check --strict`, which fails on drift and on the mcp lint. Nothing in
 the output dir is edited by hand: expand regenerates or removes every dir
-it wrote, and stops on any dir it did not. No slots, no roster, no
+it wrote, and stops on any dir it did not. No bindings, no roster, no
 manifest: a skill with blanks to fill is a pack verb and goes through
 `compile` instead.
 
