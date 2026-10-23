@@ -14,13 +14,14 @@ Clear and scannable, for teams that like formal write-ups. Every point is
 labelled so a reader can triage without reading the whole thing. Load this
 before the first draft and write in it from the first word.
 
-<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.32.21 path=attachments/writing-style-floor/SKILL.md lines=6-59 -->
+<!-- part: block:writing-style-floor source=mattstack:writing-style-floor version=0.32.21 path=attachments/writing-style-floor/index.block.md lines=6-10 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
 review summary, replies on their own PR, PR descriptions, commit messages.
 The preset sets the voice; these set the floor.
 
+<!-- part: block:writing-style-floor/never source=mattstack:writing-style-floor version=0.32.21 path=attachments/writing-style-floor/never.block.md lines=5-20 -->
 ### Never
 
 - **Em or en dashes.** Rephrase, or use parentheses, a colon, or an ellipsis
@@ -38,6 +39,7 @@ The preset sets the voice; these set the floor.
   noticed:", "Took a look", "I just wanted to". Start with the claim.
 - **Invented precision.** "most" beats "~96%" unless the number was measured.
 
+<!-- part: block:writing-style-floor/always source=mattstack:writing-style-floor version=0.32.21 path=attachments/writing-style-floor/always.block.md lines=5-35 -->
 ### Always
 
 - **Compress before posting.** The first draft is a rough cut. Before posting

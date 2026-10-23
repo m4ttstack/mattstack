@@ -3,7 +3,7 @@ name: writing-style-lookup
 description: "The one writing-style lookup every drafting skill carries: which skill sets the voice of prose posted under the operator's name. Not for direct invocation; engines include it."
 ---
 
-## Writing style
+# Writing style
 
 Before drafting, call `mcp__plugin_mattstack_mattstack__rt_verb` with
 `{"args": ["skills", "writing-style", "show"]}` and load the skill its

@@ -10,7 +10,9 @@ const FIX = join(import.meta.dir, "fixtures", "browser-target");
 const REPO_PLUGIN = resolve(import.meta.dir, "..", "..", "..", "plugins", "mattstack");
 const VERBS = ["stage-evidence", "stage-ship", "ship"] as const;
 const REVIEW_VERBS = ["review", "self-review", "receive-review"] as const;
-const INCLUDE_MARKER = "<!-- part: include:browser-evidence";
+// The include is a block tree: its root seam marks where it is inlined, and every one of its blocks carries a seam of its own.
+const INCLUDE_MARKER = "<!-- part: block:browser-evidence source=";
+const INCLUDE_BLOCK = /^<!-- part: block:browser-evidence[ /]/;
 const PART_MARKER = "<!-- part: ";
 const TARGET_HEADING = /^## Browser target$/m;
 
@@ -44,11 +46,10 @@ function count(haystack: string, needle: string): number {
 }
 
 // One part runs from its marker to the next marker, or to the end of the text.
-function withoutPart(text: string, marker: string): string {
-  const start = text.indexOf(marker);
-  if (start === -1) throw new Error(`withoutPart: no ${marker} in the compiled text`);
-  const next = text.indexOf(PART_MARKER, start + marker.length);
-  return text.slice(0, start) + (next === -1 ? "" : text.slice(next));
+function withoutInclude(text: string): string {
+  if (!text.includes(INCLUDE_MARKER)) throw new Error(`withoutInclude: no ${INCLUDE_MARKER} in the compiled text`);
+  const [head, ...parts] = text.split(PART_MARKER);
+  return head + parts.map((p) => PART_MARKER + p).filter((p) => !INCLUDE_BLOCK.test(p)).join("");
 }
 
 describe("browser target compile", () => {
@@ -130,7 +131,7 @@ describe("browser target compile", () => {
     });
 
     test("outside the include, stage-evidence never reaches the browser driver", () => {
-      const rest = withoutPart(compiled.verbs["stage-evidence"], INCLUDE_MARKER);
+      const rest = withoutInclude(compiled.verbs["stage-evidence"]);
       expect(rest).not.toContain(INCLUDE_MARKER);
       expect(rest).not.toContain("fast-browser:browser-driver");
       expect(rest).not.toMatch(TARGET_HEADING);
@@ -142,7 +143,7 @@ describe("browser target compile", () => {
         const body = compiled.verbs[verb];
         expect(count(body, INCLUDE_MARKER)).toBe(1);
         expect(body).not.toMatch(TARGET_HEADING);
-        const rest = withoutPart(body, INCLUDE_MARKER);
+        const rest = withoutInclude(body);
         expect(rest).not.toContain("fast-browser:browser-driver");
         expect(rest).toContain("node scripts/shot.mjs");
       }
