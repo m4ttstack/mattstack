@@ -19,7 +19,8 @@ The written purity rule and per-skill certification checklist for this repo
 
 - [ ] `tests/certify.sh <skill-dir>` exits 0 (purity greps, no-ticket-id
       ban, frontmatter grammar, depth cap, vendored-resolver identity,
-      stage declaration).
+      stage declaration). A block-tree skill is certified from its root
+      `index.block.md`; its Mermaid graphs are checked when it compiles.
 - [ ] desc-test selection micro-test: all scenarios in
       `tests/desc-test-scenarios.json` pass before AND after any
       description edit (`bun run tests/desc-test.ts`).

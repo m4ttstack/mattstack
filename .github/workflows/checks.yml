@@ -325,8 +325,13 @@ jobs:
         working-directory: plugins/mattstack
         run: |
           set -e
+          sh tests/test-certify.sh
           for d in skills/*/ plugin/skills/*/ attachments/*/ attachments/*/*/; do
-            [ -f "${d}SKILL.md" ] || continue
+            # A block tree is certified once, from its root; a child folder's index.block.md carries no name or description.
+            if [ -f "${d}SKILL.md" ]; then :
+            elif [ -f "${d}index.block.md" ] && [ ! -f "${d}../index.block.md" ]; then :
+            else continue
+            fi
             sh tests/certify.sh "$d"
           done
       - name: skills check (compile drift and strict mcp lint)
