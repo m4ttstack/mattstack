@@ -5,6 +5,7 @@ import { walk } from "../blocks/tree.ts";
 import { loadInclude } from "../sources.ts";
 import { blockIn, lineRange, loadFill } from "./lookup.ts";
 import { lineRegions, tokenAt, tokensIn, type Position, type Range, type Token } from "./positions.ts";
+import { packsFor, packTarget, verbTarget } from "./skill-paths.ts";
 import type { Workspace } from "./workspace.ts";
 
 export type Location = { uri: string; range: Range };
@@ -48,6 +49,12 @@ function targetOf(ws: Workspace, file: string, token: Token): Target | null {
       const held = ws.analysis().byBlockId.get(token.key);
       const fill = loadFill(ws, token.value, token.prop, held ? [file, held.block.path] : [file]);
       return fill ? { file: join(fill.dir, fill.file ?? "SKILL.md"), line: 0 } : null;
+    }
+    case "pack-path":
+    case "verb-path": {
+      const targets = packsFor(ws, file).map((pack) => (token.kind === "pack-path" ? packTarget(pack, token.attachment, token.file) : verbTarget(pack, token.verb)));
+      const hit = targets.find((t) => t?.exists);
+      return hit ? { file: hit.file, line: 0 } : null;
     }
     default:
       return null;

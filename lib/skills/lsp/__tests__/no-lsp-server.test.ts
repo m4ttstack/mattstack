@@ -278,10 +278,14 @@ describe("rt skills lsp", () => {
     try {
       client.send({ id: 1, method: "initialize", params: { processId: null, capabilities } });
       const init = await client.waitFor((m) => m.id === 1);
-      expect(init.result.capabilities.workspace.fileOperations.didRename.filters).toEqual([
+      const filters = [
         { pattern: { glob: "**/*.block.md", matches: "file" } },
         { pattern: { glob: "**/*", matches: "folder" } },
-      ]);
+        { pattern: { glob: "**/attachments/**", matches: "file" } },
+        { pattern: { glob: "**/skills/**", matches: "file" } },
+      ];
+      expect(init.result.capabilities.workspace.fileOperations.didRename.filters).toEqual(filters);
+      expect(init.result.capabilities.workspace.fileOperations.willRename.filters).toEqual(filters);
       client.send({ method: "initialized", params: {} });
       const registered = await client.waitFor((m) => m.method === "client/registerCapability");
       client.send({ id: registered.id, result: null });
@@ -307,6 +311,43 @@ describe("rt skills lsp", () => {
       since = client.messages.length;
       client.send({ method: "workspace/didChangeWatchedFiles", params: { changes: [{ uri: pathToFileURL(later).href, type: 1 }] } });
       expect(await diagnosticsFor(since)).toEqual([]);
+      expect(await client.stop()).toBe(0);
+    } finally {
+      client.kill();
+    }
+  }, 30_000);
+
+  test("a hand-typed path's quick fix and a moved attachment's edits answer over the wire", async () => {
+    const pack = join(tmp, "widgets");
+    cpSync(join(FIXTURES, "pack"), pack, { recursive: true });
+    const client = new Client(["--root", plugin, "--root", pack], home);
+    try {
+      client.send({ id: 1, method: "initialize", params: { processId: null, capabilities: {} } });
+      const init = await client.waitFor((m) => m.id === 1);
+      expect(init.result.capabilities.codeActionProvider).toEqual({ codeActionKinds: ["quickfix"] });
+      client.send({ method: "initialized", params: {} });
+      const uri = pathToFileURL(gate).href;
+      const text = `${readFileSync(gate, "utf8")}\nRead ../../attachments/mini-rules/fast.md first.\n`;
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text } } });
+      const published = await client.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri && m.params.diagnostics.length > 0);
+      const [diagnostic] = published.params.diagnostics;
+      expect(diagnostic.code).toBe("hand-typed-path");
+      client.send({ id: 2, method: "textDocument/codeAction", params: { textDocument: { uri }, range: diagnostic.range, context: { diagnostics: [diagnostic] } } });
+      const actions = await client.waitFor((m) => m.id === 2);
+      expect(actions.result).toEqual([
+        {
+          title: "Use {{pack.path:mini-rules/fast.md}}",
+          kind: "quickfix",
+          diagnostics: [diagnostic],
+          isPreferred: true,
+          edit: { changes: { [uri]: [{ range: diagnostic.range, newText: "{{pack.path:mini-rules/fast.md}}" }] } },
+        },
+      ]);
+      client.send({ method: "textDocument/didChange", params: { textDocument: { uri, version: 2 }, contentChanges: [{ text: `${readFileSync(gate, "utf8")}\nRead {{pack.path:mini-rules/fast.md}} first.\n` }] } });
+      const files = [{ oldUri: pathToFileURL(join(pack, "attachments/mini-rules")).href, newUri: pathToFileURL(join(pack, "attachments/quick-rules")).href }];
+      client.send({ id: 3, method: "workspace/willRenameFiles", params: { files } });
+      const will = await client.waitFor((m) => m.id === 3);
+      expect(will.result.changes[uri]).toEqual([{ range: expect.any(Object), newText: "{{pack.path:quick-rules/fast.md}}" }]);
       expect(await client.stop()).toBe(0);
     } finally {
       client.kill();

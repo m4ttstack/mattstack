@@ -6,7 +6,8 @@ import type { Block, PropSpec } from "../blocks/types.ts";
 import { loadInclude, stripFrontmatter } from "../sources.ts";
 import type { AttachmentSource } from "../types.ts";
 import { blockIn, loadFill } from "./lookup.ts";
-import { tokenAt, type Position, type Range, type Token } from "./positions.ts";
+import { tokenAt, type Position, type Range, type SkillPathToken, type Token } from "./positions.ts";
+import { packsFor, packTarget, verbTarget } from "./skill-paths.ts";
 import type { Workspace } from "./workspace.ts";
 
 export type Hover = { contents: string; range: Range };
@@ -37,9 +38,30 @@ function hoverText(ws: Workspace, file: string, token: Token): string | null {
       return bindingValueHover(ws, file, token.key, token.prop, token.value);
     case "include":
       return includeHover(ws, file, token.name);
+    case "pack-path":
+    case "verb-path":
+      return skillPathHover(ws, file, token);
     default:
       return null;
   }
+}
+
+/** The target from its pack's root, per pack compiling the file: the rendered form depends on the output file. */
+function skillPathHover(ws: Workspace, file: string, token: SkillPathToken): string | null {
+  const packs = packsFor(ws, file);
+  if (packs.length === 0) return null;
+  const marker = token.kind === "pack-path" ? "pack.path" : "verb.path";
+  return packs
+    .map((pack) => {
+      const target = token.kind === "pack-path" ? packTarget(pack, token.attachment, token.file) : verbTarget(pack, token.verb);
+      const line = target
+        ? `\`${target.rel}\` · ${target.exists ? "exists" : "does not exist"}`
+        : token.kind === "pack-path"
+          ? "takes <attachment>/<file>"
+          : `\`${token.verb}\` is not a compiled verb of ${pack.plugin.name}`;
+      return `**${marker}** · ${pack.plugin.name}\n\n${line}`;
+    })
+    .join("\n\n");
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;

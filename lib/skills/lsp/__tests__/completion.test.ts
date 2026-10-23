@@ -191,3 +191,30 @@ describe("completionsAt for a contract no fill provides", () => {
     expect(items).toEqual([]);
   });
 });
+
+describe("completionsAt for skill paths", () => {
+  test("after {{pack.path: it lists the pack's attachments, then a folder's files after its slash", () => {
+    const ws = new Workspace([plugin, pack]);
+    const names = complete(ws, gate, appended(ws, gate, "{{pack.path:|"));
+    expect(labels(names)).toContain("mini-rules");
+    expect(accept(ws, gate, names, "mini-rules")).toBe("{{pack.path:mini-rules");
+    const files = complete(ws, gate, appended(ws, gate, "Run {{pack.path:mini-rules/f|"));
+    expect(labels(files)).toEqual(["SKILL.md", "fast.md", "lint.sh"]);
+    expect(accept(ws, gate, files, "fast.md")).toBe("Run {{pack.path:mini-rules/fast.md");
+  });
+
+  test("pack.path completes inside a bash fence, where shell commands name it", () => {
+    const ws = new Workspace([plugin, pack]);
+    expect(labels(complete(ws, gate, appended(ws, gate, "```bash\nbash {{pack.path:mini-rules/|\n```")))).toContain("lint.sh");
+  });
+
+  test("after {{verb.path: it lists the pack's compiled verbs", () => {
+    const ws = new Workspace([plugin, pack]);
+    expect(labels(complete(ws, gate, appended(ws, gate, "{{verb.path:|")))).toEqual(["mini"]);
+  });
+
+  test("with no pack open nothing is listed", () => {
+    const ws = new Workspace([plugin]);
+    expect(complete(ws, gate, appended(ws, gate, "{{pack.path:|"))).toEqual([]);
+  });
+});

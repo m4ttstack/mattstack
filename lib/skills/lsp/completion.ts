@@ -6,12 +6,13 @@ import type { Block } from "../blocks/types.ts";
 import { listDirs, stripFrontmatter, VALUE_FILE_RE } from "../sources.ts";
 import { blockIn } from "./lookup.ts";
 import { lineRegions, tokensIn, type Position, type Range } from "./positions.ts";
+import { packsFor, unitFiles, unitNames } from "./skill-paths.ts";
 import type { Workspace } from "./workspace.ts";
 
 /** `range` is the partial the item replaces; `insertText` defaults to the label. */
 export type Completion = {
   label: string;
-  kind: "prop" | "include" | "contract" | "block" | "value";
+  kind: "prop" | "include" | "contract" | "block" | "value" | "folder" | "file" | "verb";
   detail?: string;
   range?: Range;
   insertText?: string;
@@ -20,6 +21,7 @@ export type Completion = {
 const MODULE = "skills-lsp";
 const PROPS_OPEN_RE = /^props\.[a-z0-9-]*$/;
 const INCLUDE_OPEN_RE = /^include:[^}\s]*$/;
+const SKILL_PATH_OPEN_RE = /^(pack|verb)\.path:([^}\s]*)$/;
 const CONTRACT_RE = /^(\s+)contract:(\s*)("?)([^"]*)$/;
 const YAML_KEY_RE = /^(\s*)[A-Za-z0-9_][\w-]*\s*:/;
 
@@ -41,11 +43,17 @@ function blockCompletions(ws: Workspace, file: string, pos: Position): Completio
   const prefix = row.slice(0, pos.character);
   const region = lineRegions(lines)[pos.line];
   if (region === "frontmatter") return contractCompletions(ws, file, pos, row);
-  if (region !== "body") return [];
+  if (region !== "body" && region !== "code") return [];
   const open = prefix.lastIndexOf("{{");
   if (open < 0 || prefix.indexOf("}}", open) >= 0) return [];
   const inside = prefix.slice(open + 2);
   const after = (word: string): Range => ({ start: { line: pos.line, character: open + 2 + word.length }, end: pos });
+  const path = SKILL_PATH_OPEN_RE.exec(inside);
+  if (path) {
+    const argStart = open + 2 + `${path[1]}.path:`.length;
+    return skillPathCompletions(ws, file, path[1] as "pack" | "verb", path[2]!, (skip) => ({ start: { line: pos.line, character: argStart + skip }, end: pos }));
+  }
+  if (region !== "body") return [];
   if (PROPS_OPEN_RE.test(inside)) {
     const range = after("props.");
     return (blockIn(ws, file)?.block.props ?? []).map((p) => ({ label: p.name, kind: "prop", detail: propDetail(p), range }));
@@ -55,6 +63,27 @@ function blockCompletions(ws: Workspace, file: string, pos: Position): Completio
     return includes(ws, file).map((c) => ({ ...c, range }));
   }
   return [];
+}
+
+/**
+ * Shell commands in fences name pack files, so these complete in code fences too. `rangeAt(n)` replaces
+ * the argument from its `n`th character to the cursor.
+ */
+function skillPathCompletions(ws: Workspace, file: string, kind: "pack" | "verb", partial: string, rangeAt: (skip: number) => Range): Completion[] {
+  const packs = packsFor(ws, file);
+  const unique = (items: Completion[]) => items.filter((c, i) => items.findIndex((o) => o.label === c.label) === i);
+  if (kind === "verb") {
+    const range = rangeAt(0);
+    return unique(packs.flatMap((p) => Object.keys(p.verbSides).sort().map((v): Completion => ({ label: v, kind: "verb", detail: `${p.verbSides[v]}/${v}/SKILL.md`, range }))));
+  }
+  const slash = partial.indexOf("/");
+  if (slash < 0) {
+    const range = rangeAt(0);
+    return unique(packs.flatMap((p) => unitNames(p).map((n): Completion => ({ label: n, kind: "folder", detail: p.plugin.name, range }))));
+  }
+  const unit = partial.slice(0, slash);
+  const range = rangeAt(slash + 1);
+  return unique(packs.flatMap((p) => unitFiles(p, unit).map((f): Completion => ({ label: f, kind: "file", detail: `${unit}/${f}`, range }))));
 }
 
 /**

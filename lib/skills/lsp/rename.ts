@@ -4,7 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { logCliEvent } from "../../cli-logger.ts";
 import type { Block, BlockTree } from "../blocks/types.ts";
 import { blockIn, type HeldBlock } from "./lookup.ts";
-import { tokenAt, type Position, type Range, type Token } from "./positions.ts";
+import { skillPathTokens, tokenAt, type Position, type Range, type SkillPathToken, type Token } from "./positions.ts";
+import { fillFiles, packArg, packsFor } from "./skill-paths.ts";
 import { blockReferences, heldFromManifest, includeTree, propReferences, type Reference } from "./references.ts";
 import type { Workspace } from "./workspace.ts";
 
@@ -188,9 +189,59 @@ export function renameBlock(ws: Workspace, held: HeldBlock, toTail: string): Wor
       push(byUri, ref.uri, { range: ref.range, newText: `{{include:${toTail}}}` });
     }
   }
+  for (const [uri, edits] of pathMoveEdits(ws, from, to)) edits.forEach((edit) => push(byUri, uri, edit));
   const documentChanges: WorkspaceEdit["documentChanges"] = [...byUri].map(([uri, edits]) => ({ textDocument: { uri, version: null }, edits }));
   documentChanges.push({ kind: "rename", oldUri: pathToFileURL(from).href, newUri: pathToFileURL(to).href });
   return { changes: {}, documentChanges, warnings: isMattstack(block) ? blockWarnings(held, newId) : [] };
+}
+
+/**
+ * The edits for files or folders the editor is about to move: the client applies them before the move, so
+ * they target the old uris. Never throws; a failure returns no edits.
+ */
+export function willRenameEdits(ws: Workspace, moves: { from: string; to: string }[]): WorkspaceEdit {
+  const byUri = new Map<string, TextEdit[]>();
+  try {
+    for (const { from, to } of moves) {
+      for (const [uri, edits] of pathMoveEdits(ws, from, to)) edits.forEach((edit) => push(byUri, uri, edit));
+    }
+  } catch (err) {
+    logCliEvent("error", MODULE, "will rename failed", { error: errorText(err) });
+    return { changes: {}, warnings: [] };
+  }
+  return { changes: Object.fromEntries(byUri), warnings: [] };
+}
+
+/**
+ * The pack.path and verb.path markers naming `from` rewritten to name `to`, in every file a compile of
+ * `from`'s pack reads. A move that leaves the pack's attachments/ and skills/ has nothing to rename to.
+ */
+function pathMoveEdits(ws: Workspace, from: string, to: string): Map<string, TextEdit[]> {
+  const out = new Map<string, TextEdit[]>();
+  const plugin = ws.pluginAt(from);
+  const pack = plugin && ws.analysis().packs.find((p) => p.plugin.dir === plugin.dir);
+  if (!pack || ws.pluginAt(to)?.dir !== pack.plugin.dir) return out;
+  const oldArg = packArg(pack, from);
+  const newArg = packArg(pack, to);
+  if (oldArg === null || newArg === null || oldArg === newArg) return out;
+  const isVerb = !oldArg.includes("/") && !newArg.includes("/") && Object.hasOwn(pack.verbSides, oldArg);
+  const rewrite = (t: SkillPathToken): string | null => {
+    if (t.kind === "verb-path") return isVerb && t.verb === oldArg ? `{{verb.path:${newArg}}}` : null;
+    const arg = `${t.attachment}/${t.file}`;
+    if (t.file === "" || (arg !== oldArg && !arg.startsWith(`${oldArg}/`))) return null;
+    const moved = `${newArg}${arg.slice(oldArg.length)}`;
+    return moved.indexOf("/") > 0 ? `{{pack.path:${moved}}}` : null;
+  };
+  const files = new Set([...ws.blockFiles(), ...fillFiles(pack)]);
+  for (const file of files) {
+    if (!packsFor(ws, file).includes(pack)) continue;
+    const edits = skillPathTokens(ws.text(file), file).flatMap((t) => {
+      const newText = rewrite(t);
+      return newText === null ? [] : [{ range: t.range, newText }];
+    });
+    if (edits.length > 0) out.set(pathToFileURL(file).href, edits);
+  }
+  return out;
 }
 
 function push(byUri: Map<string, TextEdit[]>, uri: string, edit: TextEdit): void {

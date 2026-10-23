@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { blockIn, type HeldBlock } from "../lookup.ts";
 import type { Position } from "../positions.ts";
-import { prepareRename, RenameRefused, renameAt, renameBlock, renameProp, type WorkspaceEdit } from "../rename.ts";
+import { prepareRename, RenameRefused, renameAt, renameBlock, renameProp, willRenameEdits, type WorkspaceEdit } from "../rename.ts";
 import { Workspace } from "../workspace.ts";
 
 const FIXTURES = join(import.meta.dir, "../../__tests__/fixtures/blocks");
@@ -366,5 +366,49 @@ describe("renameAt on a block", () => {
   test("a client without file renames is refused", () => {
     const ws = new Workspace([plugin, pack]);
     expect(refusal(() => renameAt(ws, manifest, at(ws.text(manifest), `"${GATE}"`, 3), "ask"))).toBe(NO_FILE_RENAMES);
+  });
+
+  test("an include root in a pack also rewrites the pack.path placeholders naming its folder", () => {
+    const guide = join(pack, "attachments/guide");
+    mkdirSync(guide, { recursive: true });
+    writeFileSync(join(guide, "index.block.md"), "---\n---\n\n# Guide\n\nRead the tour.\n");
+    writeFileSync(join(guide, "tour.md"), "The tour.\n");
+    writeFileSync(gate, `${readFileSync(gate, "utf8").trimEnd()}\n\nRead {{pack.path:guide/tour.md}} and {{pack.path:mini-rules/fast.md}}.\n`);
+    const ws = new Workspace([plugin, pack]);
+    const { texts, moves } = appliedDocs(ws, renameBlock(ws, held(ws, join(guide, "index.block.md")), "manual"));
+    expect(moves).toEqual([[guide, join(pack, "attachments/manual")]]);
+    expect(texts[gate]).toContain("Read {{pack.path:manual/tour.md}} and {{pack.path:mini-rules/fast.md}}.");
+  });
+});
+
+describe("willRenameEdits", () => {
+  const withPlaceholder = () => {
+    writeFileSync(gate, `${readFileSync(gate, "utf8").trimEnd()}\n\nRead {{pack.path:mini-rules/fast.md}}, then run {{pack.path:mini-rules/lint.sh}}.\n`);
+    return new Workspace([plugin, pack]);
+  };
+
+  test("moving mini-rules to quick-rules rewrites the placeholders that name it, on the old uri", () => {
+    const ws = withPlaceholder();
+    const edit = willRenameEdits(ws, [{ from: join(pack, "attachments/mini-rules"), to: join(pack, "attachments/quick-rules") }]);
+    expect(Object.keys(edit.changes)).toEqual([pathToFileURL(gate).href]);
+    expect(applied(ws, edit)[gate]).toContain("Read {{pack.path:quick-rules/fast.md}}, then run {{pack.path:quick-rules/lint.sh}}.");
+  });
+
+  test("moving a file inside an attachment rewrites the file part", () => {
+    const ws = withPlaceholder();
+    const edit = willRenameEdits(ws, [{ from: join(pack, "attachments/mini-rules/fast.md"), to: join(pack, "attachments/mini-rules/quick.md") }]);
+    expect(applied(ws, edit)[gate]).toContain("Read {{pack.path:mini-rules/quick.md}}, then run {{pack.path:mini-rules/lint.sh}}.");
+  });
+
+  test("renaming a compiled verb's folder rewrites verb.path", () => {
+    writeFileSync(gate, `${readFileSync(gate, "utf8").trimEnd()}\n\nSee {{verb.path:mini}}.\n`);
+    const ws = new Workspace([plugin, pack]);
+    const edit = willRenameEdits(ws, [{ from: join(pack, "attachments/mini"), to: join(pack, "attachments/tiny") }]);
+    expect(applied(ws, edit)[gate]).toContain("See {{verb.path:tiny}}.");
+  });
+
+  test("a move out of the pack's attachments rewrites nothing", () => {
+    const ws = withPlaceholder();
+    expect(willRenameEdits(ws, [{ from: join(pack, "attachments/mini-rules"), to: join(tmp, "elsewhere") }]).changes).toEqual({});
   });
 });

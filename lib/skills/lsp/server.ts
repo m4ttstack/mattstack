@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
+  CodeActionKind,
   CompletionItemKind,
   createConnection,
   DidChangeWatchedFilesNotification,
@@ -15,12 +16,13 @@ import {
   type InitializeResult,
 } from "vscode-languageserver/node";
 import { logCliEvent } from "../../cli-logger.ts";
+import { codeActionsAt } from "./code-actions.ts";
 import { completionsAt, type Completion } from "./completion.ts";
 import { definitionAt } from "./definition.ts";
 import { publishable } from "./diagnostics.ts";
 import { hoverAt } from "./hover.ts";
 import { referencesAt, toLocations } from "./references.ts";
-import { prepareRename, RenameRefused, renameAt } from "./rename.ts";
+import { prepareRename, RenameRefused, renameAt, willRenameEdits } from "./rename.ts";
 import { Workspace } from "./workspace.ts";
 
 export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }];
@@ -47,10 +49,12 @@ export function rootsFrom(given: string[], params: Pick<InitializeParams, "works
   return uris.map(pathOf).filter((p): p is string => p !== null);
 }
 
-/** A folder block moves as its folder, which no `*.block.md` glob matches. */
+/** A folder block moves as its folder, which no `*.block.md` glob matches; a file pack.path names may be any file. */
 const RENAME_FILTERS = [
   { pattern: { glob: "**/*.block.md", matches: "file" as const } },
   { pattern: { glob: "**/*", matches: "folder" as const } },
+  { pattern: { glob: "**/attachments/**", matches: "file" as const } },
+  { pattern: { glob: "**/skills/**", matches: "file" as const } },
 ];
 
 const WATCHED_GLOBS = ["**/*.block.md", "**/skills.jsonc", "**/.claude-plugin/plugin.json"];
@@ -63,6 +67,9 @@ const ITEM_KIND: Record<Completion["kind"], CompletionItemKind> = {
   contract: CompletionItemKind.Interface,
   block: CompletionItemKind.Class,
   value: CompletionItemKind.Value,
+  folder: CompletionItemKind.Folder,
+  file: CompletionItemKind.File,
+  verb: CompletionItemKind.Function,
 };
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -116,7 +123,8 @@ export function startServer(opts: { roots: string[] }): void {
         referencesProvider: true,
         renameProvider: { prepareProvider: true },
         completionProvider: { triggerCharacters: COMPLETION_TRIGGERS },
-        workspace: { fileOperations: { didRename: { filters: RENAME_FILTERS } } },
+        codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] },
+        workspace: { fileOperations: { didRename: { filters: RENAME_FILTERS }, willRename: { filters: RENAME_FILTERS } } },
       },
       serverInfo: { name: "rt skills lsp" },
     };
@@ -130,13 +138,28 @@ export function startServer(opts: { roots: string[] }): void {
     });
   });
 
-  connection.workspace.onDidRenameFiles(({ files }) => {
-    const moves = files.flatMap(({ oldUri, newUri }) => {
+  const movesOf = (files: { oldUri: string; newUri: string }[]) =>
+    files.flatMap(({ oldUri, newUri }) => {
       const from = pathOf(oldUri);
       const to = pathOf(newUri);
       return from && to ? [{ from, to }] : [];
     });
-    publishAll((current) => current.refresh(moves));
+
+  connection.workspace.onDidRenameFiles(({ files }) => {
+    publishAll((current) => current.refresh(movesOf(files)));
+  });
+
+  connection.workspace.onWillRenameFiles(({ files }) => {
+    if (!ws) return null;
+    const { changes } = willRenameEdits(ws, movesOf(files));
+    return Object.keys(changes).length > 0 ? { changes } : null;
+  });
+
+  connection.onCodeAction(({ textDocument, range, context }) => {
+    const file = pathOf(textDocument.uri);
+    if (!ws || !file) return [];
+    if (context.only && !context.only.some((kind) => CodeActionKind.QuickFix.startsWith(kind))) return [];
+    return codeActionsAt(ws, file, range).map(({ title, edit, diagnostic }) => ({ title, kind: CodeActionKind.QuickFix, diagnostics: [diagnostic], isPreferred: true, edit }));
   });
 
   connection.onDidChangeWatchedFiles(() => publishAll((current) => current.refresh()));

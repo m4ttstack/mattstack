@@ -138,3 +138,25 @@ describe("hoverAt on an include", () => {
     expect(h?.contents).toContain("2 blocks");
   });
 });
+
+describe("hoverAt on a skill path", () => {
+  test("pack.path names its target from the pack's root and says it exists", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\nRead {{pack.path:mini-rules/fast.md}} first.\n`);
+    const h = hover(ws, gate, "{{pack.path:mini-rules/fast.md}}", 4);
+    expect(linesOf(h?.contents)).toEqual(["**pack.path** · widgets", "`attachments/mini-rules/fast.md` · exists"]);
+    expect(covered(ws, gate, h!)).toBe("{{pack.path:mini-rules/fast.md}}");
+  });
+
+  test("a missing pack.path target says so", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:mini-rules/gone.md}}\n`);
+    expect(linesOf(hover(ws, gate, "{{pack.path:", 4)?.contents)).toEqual(["**pack.path** · widgets", "`attachments/mini-rules/gone.md` · does not exist"]);
+  });
+
+  test("verb.path names the compiled verb's SKILL.md", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{verb.path:mini}}\n`);
+    expect(linesOf(hover(ws, gate, "{{verb.path:", 4)?.contents)).toEqual(["**verb.path** · widgets", "`attachments/mini/SKILL.md` · does not exist"]);
+  });
+});

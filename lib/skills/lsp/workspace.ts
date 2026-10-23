@@ -4,11 +4,14 @@ import { BlockError, type BlockDiagnostic } from "../blocks/diagnostics.ts";
 import type { SourcedTree } from "../blocks/render.ts";
 import { collectBlockTree, walk } from "../blocks/tree.ts";
 import type { Block, BlockTree } from "../blocks/types.ts";
-import { collectBlockPropValues, type PropBindings } from "../compile-blocks.ts";
+import { collectBlockPropValues, includeNamesIn, type BlockValues, type PropBindings } from "../compile-blocks.ts";
+import { handPathDiagnostics } from "../hand-paths.ts";
 import { layeredFromManifest } from "../manifest-merge.ts";
 import type { LayeredBindings } from "../pipelines.ts";
 import { loadAttachment, loadInclude, type PluginRoots } from "../sources.ts";
+import type { AttachmentSource } from "../types.ts";
 import { renderDiagnostics, type IncludeLookup } from "./render-check.ts";
+import { fixView, readPack, type Pack } from "./skill-paths.ts";
 
 export type ManifestBindings = { layered: LayeredBindings; pipelineLayered: Record<string, LayeredBindings> };
 
@@ -17,7 +20,13 @@ export type Analysis = {
   manifests: Map<string /* path */, ManifestBindings | null>;
   diagnostics: Map<string /* file */, BlockDiagnostic[]>;
   byBlockId: Map<string /* <plugin>:<block id> */, { tree: BlockTree; block: Block }>;
+  packs: Pack[];
+  /** The packs compiling each tree, directly or through an engine that includes it. */
+  enginePacks: Map<string /* engine dir */, Pack[]>;
 };
+
+/** One compiled source text; a null view is a compile whose pack the workspace cannot see. */
+type PathInput = { text: string; file: string; startLine: number; indent: number; noFix: boolean; views: Set<Pack | null> };
 
 export type Plugin = { dir: string; name: string; version: string };
 type Engine = { dir: string; plugin: Plugin };
@@ -251,17 +260,40 @@ export class Workspace {
       }
     }
 
+    const packs = plugins.flatMap((plugin) => {
+      const own = [...manifests].flatMap(([path, bindings]) => (bindings && this.pluginOf(path, plugins) === plugin ? [{ text: this.text(path), bindings }] : []));
+      const pack = readPack(plugin, own);
+      return pack ? [pack] : [];
+    });
+    const enginePacks = new Map<string, Pack[]>();
+    const inputs = new Map<string, PathInput>();
+    const input = (file: string, text: string, startLine: number, indent: number, noFix: boolean): PathInput => {
+      const key = JSON.stringify([file, startLine]);
+      let hit = inputs.get(key);
+      if (!hit) inputs.set(key, (hit = { text, file, startLine, indent, noFix, views: new Set() }));
+      return hit;
+    };
+
     const engineOf = new Map<BlockTree, Engine>(loaded.map(({ tree, engine }) => [tree, engine]));
     const sourced = (tree: BlockTree, engine: Engine): SourcedTree => ({ tree, plugin: engine.plugin.name, version: engine.plugin.version });
     for (const { tree, engine } of loaded) {
       const roots = pluginRoots(plugins, [engine.plugin]);
+      const compiling = packs.filter((p) => p.engines.has(tree.root.id));
       for (const bindings of bindingRuns(manifests, (p) => this.text(p))) {
         const pack = bindings.manifest ? this.pluginOf(bindings.manifest.path, plugins) : null;
         const runRoots = pack ? pluginRoots(plugins, [pack, engine.plugin]) : roots;
         const load = (binding: string, prop: string) => loadAttachment(binding, prop, runRoots);
+        const runPack = pack && compiling.find((p) => p.plugin === pack);
+        const views: (Pack | null)[] = bindings.manifest === null && compiling.length > 0 ? compiling : [runPack ?? null];
         try {
-          const { diagnostics: found } = collectBlockPropValues([sourced(tree, engine)], bindings, load, new Set<string>());
+          const { values, diagnostics: found } = collectBlockPropValues([sourced(tree, engine)], bindings, load, new Set<string>());
           for (const d of found) if (!heldElsewhere(d, bindings, loaded)) report(d, engine.plugin.dir);
+          for (const fill of inlineFills(values)) {
+            const dir = runRoots.byName[fill.plugin]?.dir;
+            if (dir === undefined) continue;
+            const at = input(resolve(dir, fill.srcPath), fill.body, fill.bodyStartLine, fill.bodyIndent ?? 0, false);
+            views.forEach((v) => at.views.add(v));
+          }
         } catch (err) {
           const file = bindings.manifest?.path ?? tree.root.path;
           report({ file, line: 1, col: 1, code: "bad-value", message: errorText(err) }, null);
@@ -282,13 +314,28 @@ export class Workspace {
         },
       };
       for (const d of renderDiagnostics(sourced(tree, engine), lookup, (t) => (engineOf.get(t.tree) ?? engine).plugin.dir)) report(d, null);
+
+      const drawn = drawnFrom(tree, lookup);
+      for (const t of drawn.trees) {
+        const known = enginePacks.get(t.dir) ?? [];
+        enginePacks.set(t.dir, [...known, ...compiling.filter((p) => !known.includes(p))]);
+        for (const block of walk(t)) {
+          const at = input(block.path, block.text, block.textStartLine, block.textIndent, false);
+          compiling.forEach((p) => at.views.add(p));
+        }
+      }
+      for (const inc of drawn.flat) {
+        const dir = roots.byName[inc.plugin]?.dir;
+        if (dir !== undefined) input(resolve(dir, inc.srcPath), inc.body, inc.bodyStartLine, inc.bodyIndent ?? 0, true);
+      }
     }
+    for (const d of [...inputs.values()].flatMap(handPathsOf)) report(d, null);
 
     const byBlockId = new Map<string, { tree: BlockTree; block: Block }>();
     for (const { tree, engine } of loaded) {
       for (const block of walk(tree)) byBlockId.set(`${engine.plugin.name}:${block.id}`, { tree, block });
     }
-    return { trees, manifests, diagnostics, byBlockId };
+    return { trees, manifests, diagnostics, byBlockId, packs, enginePacks };
   }
 
   /** A clean load replaces the last good tree; a failed or partial one reports and keeps it. */
@@ -355,4 +402,47 @@ function bindingRuns(manifests: Map<string, ManifestBindings | null>, text: (p: 
     }
   }
   return runs;
+}
+
+/** A fill bound by reference is a skill of its own, which compile does not read. */
+function inlineFills(values: BlockValues): AttachmentSource[] {
+  return [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources.filter((s) => s.mode === "inline").map((s) => s.fill)));
+}
+
+/** The tree with its tree includes, followed until none is new, and the flat includes they name. */
+function drawnFrom(tree: BlockTree, lookup: IncludeLookup): { trees: BlockTree[]; flat: AttachmentSource[] } {
+  const trees = [tree];
+  const flat = new Map<string, AttachmentSource>();
+  const seen = new Set<string>();
+  for (let i = 0; i < trees.length; i++) {
+    for (const name of includeNamesIn(trees[i]!)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const hit = lookup.tree(name);
+      if (hit) {
+        if (!trees.includes(hit.tree)) trees.push(hit.tree);
+        continue;
+      }
+      const inc = lookup.flat(name);
+      if (inc && !inc.tree) flat.set(name, inc);
+    }
+  }
+  return { trees, flat: [...flat.values()] };
+}
+
+/**
+ * Compile's hand-typed path check over one source. A fix is kept only when every compile reading the
+ * source would offer the same one; an unseen pack's verbs are unknown, so a fix there could be wrong.
+ */
+function handPathsOf(src: PathInput): BlockDiagnostic[] {
+  const where = { startLine: src.startLine, indent: src.indent };
+  const bare = handPathDiagnostics(src.text, src.file, { ...where, verbs: new Set(), noFix: true });
+  const views = [...src.views];
+  if (src.noFix || views.length === 0 || views.includes(null)) return bare;
+  const each = views.map((pack) => handPathDiagnostics(src.text, src.file, { ...where, ...fixView(pack!) }));
+  return bare.map((d, i) => {
+    const offered = each.map((ds) => ds[i]);
+    const first = offered[0];
+    return first?.fix && offered.every((o) => o?.fix?.text === first.fix!.text) ? first : d;
+  });
 }

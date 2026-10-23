@@ -97,3 +97,17 @@ describe("definitionAt", () => {
     expect(define(ws, manifest, '"mattstack:mini/nope"', 3)).toEqual([]);
   });
 });
+
+describe("definitionAt on a skill path", () => {
+  test("pack.path opens its target file", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\nRead {{pack.path:mini-rules/fast.md}} first.\n`);
+    expect(define(ws, gate, "{{pack.path:", 4).map((r) => r.uri)).toEqual([uri(join(pack, "attachments/mini-rules/fast.md"))]);
+  });
+
+  test("a missing target has no definition", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:mini-rules/gone.md}}\n`);
+    expect(define(ws, gate, "{{pack.path:", 4)).toEqual([]);
+  });
+});

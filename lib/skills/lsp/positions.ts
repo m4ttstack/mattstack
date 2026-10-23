@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { jsoncSites, type JsoncPos } from "../../jsonc.ts";
 import type { BlockDiagnostic } from "../blocks/diagnostics.ts";
 import { FENCE_RE } from "../blocks/tree.ts";
+import { findHandPaths } from "../hand-paths.ts";
 
 export type Position = { line: number; character: number };
 export type Range = { start: Position; end: Position };
@@ -13,9 +14,14 @@ export type Token =
   | { kind: "node-decl"; node: string; range: Range }
   | { kind: "binding-key"; engineRef: string; blockPath: string | null; range: Range }
   | { kind: "binding-prop"; key: string; prop: string; range: Range }
-  | { kind: "binding-value"; key: string; prop: string; value: string; range: Range };
+  | { kind: "binding-value"; key: string; prop: string; value: string; range: Range }
+  | { kind: "pack-path"; attachment: string; file: string; range: Range }
+  | { kind: "verb-path"; verb: string; range: Range };
+
+export type SkillPathToken = Extract<Token, { kind: "pack-path" | "verb-path" }>;
 
 const MARKER_RE = /\{\{props\.([a-z][a-z0-9-]*)\}\}/g;
+const SKILL_PATH_RE = /\{\{(pack|verb)\.path:([^}\s]*)\}\}/g;
 const INCLUDE_LINE_RE = /^\{\{include:([^}\s]+)\}\}$/;
 const FRONTMATTER_FENCE_RE = /^---\s*$/;
 const YAML_KEY_RE = /^(\s*)([A-Za-z0-9_][\w-]*)\s*:/;
@@ -49,6 +55,10 @@ export function rangeOf(d: BlockDiagnostic, text: string): Range {
   const line = d.line - 1;
   const character = d.col - 1;
   const row = text.split("\n")[line] ?? "";
+  if (d.code === "hand-typed-path") {
+    const length = d.fix?.length ?? findHandPaths(row).find((p) => p.col === d.col)?.path.length;
+    if (length !== undefined) return span(line, character, character + length);
+  }
   const token = tokensIn(text, d.file).find((t) => t.range.start.line === line && t.range.start.character === character);
   if (token) return { start: token.range.start, end: token.range.end };
   return span(line, character, character + lexemeLength(row.slice(character)));
@@ -120,12 +130,38 @@ function blockTokens(text: string): Token[] {
 
 /** Plan 1 substitutes props markers inside non-mermaid fences too, and reads an include only as a whole line. */
 function markerTokens(row: string, line: number, tokens: Token[]): void {
+  pathTokens(row, line, tokens);
   for (const m of row.matchAll(MARKER_RE)) tokens.push({ kind: "marker", prop: m[1]!, range: span(line, m.index, m.index + m[0].length) });
   const trimmed = row.trim();
   const include = INCLUDE_LINE_RE.exec(trimmed);
   if (!include) return;
   const start = row.indexOf(trimmed);
   tokens.push({ kind: "include", name: include[1]!, range: span(line, start, start + trimmed.length) });
+}
+
+function pathTokens(row: string, line: number, tokens: Token[]): void {
+  for (const m of row.matchAll(SKILL_PATH_RE)) {
+    const range = span(line, m.index, m.index + m[0].length);
+    const arg = m[2]!;
+    if (m[1] === "verb") {
+      tokens.push({ kind: "verb-path", verb: arg, range });
+      continue;
+    }
+    const slash = arg.indexOf("/");
+    tokens.push({ kind: "pack-path", attachment: slash < 0 ? arg : arg.slice(0, slash), file: slash < 0 ? "" : arg.slice(slash + 1), range });
+  }
+}
+
+/** The pack.path and verb.path markers in a block file's body, or on every line of a fill, all of which compile in. */
+export function skillPathTokens(text: string, file: string): SkillPathToken[] {
+  const all = file.endsWith(".block.md")
+    ? tokensIn(text, file)
+    : text.split("\n").flatMap((row, line) => {
+        const found: Token[] = [];
+        pathTokens(row, line, found);
+        return found;
+      });
+  return all.filter((t): t is SkillPathToken => t.kind === "pack-path" || t.kind === "verb-path");
 }
 
 function frontmatterTokens(lines: string[], offset: number, tokens: Token[]): void {
