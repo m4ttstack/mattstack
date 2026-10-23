@@ -154,6 +154,10 @@ export const RespondPostRichPreview: Story = {
     await userEvent.click(tabs[2]!);
   },
 };
+export const RespondPostReReview = face(
+  'respond-post with a re-review latch',
+  G.respondPostReReview
+);
 export const RespondPostLongReplies = face(
   'Respond: post, long replies, no fixes',
   G.respondPostLongReplies
