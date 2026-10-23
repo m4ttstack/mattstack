@@ -169,15 +169,19 @@ export function blockPropValues(
 /**
  * A key `<plugin>:<tree>/<block path>` whose tree no compiled verb loaded
  * names nothing; `claimed` holds every loaded tree's `<plugin>:<root id>`,
- * and `blockPropValues` checks the keys under those.
+ * and `blockPropValues` checks the keys under those. Only a key the pack's
+ * own layers bound is checked: a default or base key may serve an engine
+ * this pack never compiles, and the pack cannot edit it.
  */
 export function unclaimedBlockKeys(bindings: PropBindings, claimed: Set<string>): BlockDiagnostic[] {
   const sites = new ManifestSites(bindings);
   const diagnostics: BlockDiagnostic[] = [];
+  const packOwned = (props: Record<string, LayerValue[]>) =>
+    Object.values(props).some((values) => values.some((v) => v.layer === "pack" || v.layer === "override"));
   for (const { base, layered } of sectionsOf(bindings)) {
-    for (const key of Object.keys(layered)) {
+    for (const [key, props] of Object.entries(layered)) {
       const slash = key.indexOf("/");
-      if (slash < 0 || claimed.has(key.slice(0, slash))) continue;
+      if (slash < 0 || claimed.has(key.slice(0, slash)) || !packOwned(props)) continue;
       const pos = sites.keyIn(base, key) ?? sites.key(key);
       diagnostics.push({ ...pos, code: "missing-block", message: `binding "${key}" names a block of ${key.slice(0, slash)}, which no compiled verb loads` });
     }

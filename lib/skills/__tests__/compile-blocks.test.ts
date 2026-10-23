@@ -203,6 +203,29 @@ describe("blockPropValues", () => {
     ]);
   });
 
+  test("an unclaimed key only the default or a base layer bound is not this pack's to fix", () => {
+    const text =
+      "// provenance (binding <- layer):\n" +
+      "//   mattstack:stage-x/flow a <- default\n" +
+      "//   mattstack:stage-y/flow a <- base:acme-base\n" +
+      "//   mattstack:stage-z/flow a <- override\n" +
+      '{\n  "bindings": {\n' +
+      '    "mattstack:stage-x/flow": { "a": "" },\n' +
+      '    "mattstack:stage-y/flow": { "a": "" },\n' +
+      '    "mattstack:stage-z/flow": { "a": "" },\n' +
+      '    "mattstack:gate-protocl/ask": { "a": "" },\n' +
+      '    "mattstack:stage-w/flow": { "a": "" }\n' +
+      "  },\n" +
+      '  "layered": { "mattstack:stage-w/flow": { "a": [{ "layer": "base:acme-base", "value": "" }, { "layer": "pack", "value": "" }] } }\n' +
+      "}\n";
+    const b: PropBindings = { layered: layeredFromManifest(text).layered, manifest: { path: MANIFEST, text } };
+    expect(unclaimedBlockKeys(b, new Set(["mattstack:mini"])).map((d) => d.message)).toEqual([
+      'binding "mattstack:stage-z/flow" names a block of mattstack:stage-z, which no compiled verb loads',
+      'binding "mattstack:gate-protocl/ask" names a block of mattstack:gate-protocl, which no compiled verb loads',
+      'binding "mattstack:stage-w/flow" names a block of mattstack:stage-w, which no compiled verb loads',
+    ]);
+  });
+
   test("a binding whose value breaks the prop's contract is contract-mismatch at the manifest value", () => {
     const { roots } = setup();
     const step = loadStepSource("mini", roots);
