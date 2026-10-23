@@ -1,0 +1,8 @@
+// widgets bindings
+{
+  "version": 2,
+  "bindings": {
+    "mattstack:mini": { "rules": "widgets:mini-rules/fast" },
+    "mattstack:mini/gate": { "tiering": "" }
+  }
+}

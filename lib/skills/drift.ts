@@ -44,8 +44,10 @@ export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause
 
 export type PartExtent = { key: string; version: string | null; start: number; end: number; text: string };
 
-const EXTENT_RE = /^<!-- part: (slot:\S+|include:\S+|section:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
+const EXTENT_RE = /^<!-- part: (slot:\S+|include:\S+|section:\S+|block:\S+|prop:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
 const MARKER_VERSION_RE = /^(<!-- part: .*?\bversion=)\S+/gm;
+/** The one line `fillReference` renders for a prop bound by reference; its seam's `lines=` spans the skill it names. */
+const PROP_REFERENCE_RE = /^Prop \S+ is bound to `/;
 
 /**
  * An include part is its marker plus exactly its `lines=` count: include bodies
@@ -66,10 +68,12 @@ export function partExtents(md: string): PartExtent[] {
   const out: PartExtent[] = [];
   for (let i = 0; i < lines.length; i++) {
     const marker = markerAt(i);
-    if (!marker) continue;
+    if (!marker || marker.key.startsWith("block:")) continue;
     let first = i + 1;
     let last: number;
-    if (!marker.key.startsWith("slot:")) {
+    if (marker.key.startsWith("prop:") && PROP_REFERENCE_RE.test(lines[first] ?? "")) {
+      last = first;
+    } else if (!marker.key.startsWith("slot:") && !marker.key.startsWith("prop:")) {
       last = i + marker.count;
     } else {
       if (lines[first]?.trim() === "") first++;
@@ -82,13 +86,48 @@ export function partExtents(md: string): PartExtent[] {
     last = Math.min(lines.length - 1, last);
     out.push({ key: marker.key, version: marker.version, start: i, end: last, text: lines.slice(first, last + 1).join("\n") });
   }
+  out.push(...blockExtents(lines, markerAt, out));
+  return out.sort((x, y) => x.start - y.start);
+}
+
+/**
+ * A block's text is not copied line for line (headings re-level, a graph
+ * becomes dot, values and includes land inside it), so its part runs from its
+ * seam to the next block's. The renderer repeats a block's seam after a
+ * substitution, so repeats fold into the one part; the parts nested in it are
+ * their own, and only the block's own lines are its text.
+ */
+function blockExtents(lines: string[], markerAt: (i: number) => { key: string; version: string } | null, nested: PartExtent[]): PartExtent[] {
+  const seams = lines.flatMap((_, i) => {
+    const m = markerAt(i);
+    return m && m.key.startsWith("block:") ? [{ i, key: m.key, version: m.version }] : [];
+  });
+  const inNested = (i: number) => nested.some((x) => x.start <= i && i <= x.end);
+  const out: PartExtent[] = [];
+  seams.forEach((s, n) => {
+    if (n > 0 && seams[n - 1]!.key === s.key) return;
+    const next = seams.slice(n + 1).find((t) => t.key !== s.key);
+    let end = (next?.i ?? lines.length) - 1;
+    while (end > s.i && lines[end]!.trim() === "") end--;
+    const own: string[] = [];
+    for (let i = s.i + 1; i <= end; i++) {
+      if (!inNested(i) && markerAt(i)?.key !== s.key) own.push(lines[i]!);
+    }
+    out.push({ key: s.key, version: s.version, start: s.i, end, text: own.join("\n").trimEnd() });
+  });
   return out;
 }
 
+/** A key can own several extents (a block split by an include, an add prop's values), so its texts compare joined. */
 export function changedPartKeys(onDisk: string, fresh: string): Set<string> {
   const bare = (text: string) => text.replace(MARKER_VERSION_RE, "$1");
-  const before = new Map(partExtents(onDisk).map((p) => [p.key, bare(p.text)]));
+  const texts = (md: string) => {
+    const out = new Map<string, string[]>();
+    for (const p of partExtents(md)) out.set(p.key, [...(out.get(p.key) ?? []), bare(p.text)]);
+    return new Map([...out].map(([key, parts]) => [key, parts.join("\n")]));
+  };
+  const before = texts(onDisk);
   const changed = new Set<string>();
-  for (const p of partExtents(fresh)) if (before.get(p.key) !== bare(p.text)) changed.add(p.key);
+  for (const [key, text] of texts(fresh)) if (before.get(key) !== text) changed.add(key);
   return changed;
 }

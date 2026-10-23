@@ -54,10 +54,10 @@ export function headingLevel(depth: number): number {
  * under `parts/<block path>/<prop>`, and included blocks' under `parts/+<id>/<prop>`;
  * tree.ts refuses a `+` name, so no block path can reach the include namespace.
  */
-function partsName(b: Block, prop: string, src: SourcedTree, st: State): string {
-  if (src.tree !== st.engine) return `+${b.id}/${prop}`;
-  if (b === src.tree.root) return prop;
-  return `${b.id.slice(src.tree.root.id.length + 1)}/${prop}`;
+export function propPartsDir(b: Block, prop: string, tree: BlockTree, engine: BlockTree | null): string {
+  if (tree !== engine) return `+${b.id}/${prop}`;
+  if (b === tree.root) return prop;
+  return `${b.id.slice(tree.root.id.length + 1)}/${prop}`;
 }
 
 function propText(b: Block, name: string, src: SourcedTree, st: State): string {
@@ -68,7 +68,7 @@ function propText(b: Block, name: string, src: SourcedTree, st: State): string {
     .map(({ fill, mode }) =>
       mode === "reference"
         ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference("Prop", name, fill)}`
-        : inlineFillText(key, partsName(b, name, src, st), fill, st.ctx, st.used.packPaths))
+        : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used.packPaths))
     .join("\n\n");
 }
 

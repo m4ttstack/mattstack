@@ -219,7 +219,7 @@ function rewriteSkillDirRefs(text: string, slotName: string): string {
   return text.split(CLAUDE_SKILL_DIR_TOKEN).join(`${CLAUDE_SKILL_DIR_TOKEN}/parts/${slotName}`);
 }
 
-function dedupePreserveOrder(entries: string[]): string[] {
+export function dedupePreserveOrder(entries: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of entries) {
@@ -270,7 +270,7 @@ function resolveBoundSlots(
 }
 
 /** Union'd stage rules carry `${CLAUDE_SKILL_DIR}` from the stage that declared them; the orchestrator has no single stage dir, so it needs the leading-wildcard form instead. */
-function toWildcardRule(rule: string): string {
+export function toWildcardRule(rule: string): string {
   const prefix = `${CLAUDE_SKILL_DIR_TOKEN}/`;
   const at = rule.indexOf(prefix);
   if (at < 0) return rule;
@@ -294,7 +294,7 @@ function buildAllowedTools(
   return dedupePreserveOrder(entries);
 }
 
-function buildFrontmatter(verb: VerbDef, allowedTools: string[], compiledParts: string[]): string {
+export function buildFrontmatter(verb: VerbDef, allowedTools: string[], compiledParts: string[]): string {
   const lines: string[] = ["---"];
   lines.push(`name: ${yamlQuote(verb.name)}`);
   lines.push(`description: ${yamlQuote(verb.description)}`);
@@ -331,7 +331,7 @@ function firstBraceLine(body: string): number | null {
   return null;
 }
 
-function assertNoStrayBraces(body: string, engineName: string): void {
+export function assertNoStrayBraces(body: string, engineName: string): void {
   const line = firstBraceLine(body);
   if (line !== null) {
     throw new Error(
@@ -408,7 +408,7 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
 }
 
 /** A fill's other files are copied as written, so a team marker in one that base text would carry ships unresolved. */
-function assertNoTeamMarkerInVendoredFile(fill: AttachmentSource, entry: string, team: TeamContext | null): void {
+export function assertNoTeamMarkerInVendoredFile(fill: AttachmentSource, entry: string, team: TeamContext | null): void {
   if (team && !team.basePlugins.has(fill.plugin)) return;
   const abs = `${fill.dir}/${entry}`;
   if (!existsSync(abs)) return;
@@ -464,7 +464,7 @@ function stripCompilerComments(body: string): string {
  * at run time (the pack is what ships), while one that stays inside may name a
  * sibling compiled target, so it only warns.
  */
-function lintReferences(
+export function lintReferences(
   body: string,
   roster: Set<string>,
   files: CompiledFile[],
@@ -520,7 +520,7 @@ function lintReferences(
   return warnings;
 }
 
-function lintInternalRoster(text: string, internalRoster: Set<string>, where: string): string[] {
+export function lintInternalRoster(text: string, internalRoster: Set<string>, where: string): string[] {
   const errors: string[] = [];
   const lintableText = stripCompilerComments(text);
 
@@ -539,56 +539,40 @@ function lintInternalRoster(text: string, internalRoster: Set<string>, where: st
   return errors;
 }
 
-export function compileSkill(
-  verb: VerbDef,
+export type CompileSkillOpts = {
+  internalRoster?: Set<string>;
+  includes?: Record<string, AttachmentSource>;
+  pipelines?: Record<string, StageEntry[]>;
+  repoKey?: string;
+  mattstackSha?: string;
+  mattstackDirty?: 0 | 1;
+  packSha?: string;
+  stageDir?: string | null;
+  stageAllowedTools?: string[];
+  emittedSiblingDirs?: string[];
+  packRoot?: string;
+  compiledDir?: string;
+  emittedTargetDirs?: string[];
+  /** How the caller names this target in errors -- `stage "x"` for a pipeline stage. */
+  where?: string;
+  verbSides?: Record<string, Side>;
+  side?: Side;
+  plannedAttachments?: PlannedAttachments;
+  pipeline?: string | null;
+  team?: TeamContext | null;
+  trace?: (entry: TraceEntry) => void;
+};
+
+/** Slot and block compiles hand placeholders the same context; only the slot fields differ. */
+export function placeholderContext(
   step: StepSource,
-  fills: Record<string, AttachmentSource | null>,
-  roster: Set<string>,
-  opts: {
-    internalRoster?: Set<string>;
-    includes?: Record<string, AttachmentSource>;
-    pipelines?: Record<string, StageEntry[]>;
-    repoKey?: string;
-    mattstackSha?: string;
-    mattstackDirty?: 0 | 1;
-    packSha?: string;
-    stageDir?: string | null;
-    stageAllowedTools?: string[];
-    emittedSiblingDirs?: string[];
-    packRoot?: string;
-    compiledDir?: string;
-    emittedTargetDirs?: string[];
-    /** How the caller names this target in errors -- `stage "x"` for a pipeline stage. */
-    where?: string;
-    verbSides?: Record<string, Side>;
-    side?: Side;
-    plannedAttachments?: PlannedAttachments;
-    pipeline?: string | null;
-    team?: TeamContext | null;
-    trace?: (entry: TraceEntry) => void;
-  } = {},
-): CompileResult {
-  const internalRoster = opts.internalRoster ?? new Set<string>();
-  const where = opts.where ?? `verb "${verb.name}"`;
-  const boundSlots = resolveBoundSlots(where, step, fills);
-
-  const compiledParts = [
-    `${step.plugin}@${step.version}`,
-    ...boundSlots.map(({ fill }) => `${fill.binding}@${fill.version}`),
-  ];
-  const compiledFrom = compiledParts.join(" + ");
-
-  const slotMode: Record<string, "inline" | "reference"> = {};
-  for (const { slotName, fill } of boundSlots) {
-    slotMode[slotName] = isInlined(fill, internalRoster) ? "inline" : "reference";
-  }
-  const partsPrefix = opts.stageDir ? `${opts.stageDir}/parts` : `${CLAUDE_SKILL_DIR_TOKEN}/parts`;
-
-  const ctx: PlaceholderContext = {
-    fills,
-    slotMode,
-    partsPrefix,
-    includes: opts.includes ?? {},
+  slots: { fills: Record<string, AttachmentSource | null>; slotMode: Record<string, "inline" | "reference">; includes: Record<string, AttachmentSource> },
+  compiledFrom: string,
+  opts: CompileSkillOpts,
+): PlaceholderContext {
+  return {
+    ...slots,
+    partsPrefix: opts.stageDir ? `${opts.stageDir}/parts` : `${CLAUDE_SKILL_DIR_TOKEN}/parts`,
     pipelines: opts.pipelines ?? {},
     repoKey: opts.repoKey ?? "",
     mattstackSha: opts.mattstackSha ?? "",
@@ -604,6 +588,30 @@ export function compileSkill(
     pipeline: opts.pipeline ?? null,
     team: opts.team ?? null,
   };
+}
+
+export function compileSkill(
+  verb: VerbDef,
+  step: StepSource,
+  fills: Record<string, AttachmentSource | null>,
+  roster: Set<string>,
+  opts: CompileSkillOpts = {},
+): CompileResult {
+  const internalRoster = opts.internalRoster ?? new Set<string>();
+  const where = opts.where ?? `verb "${verb.name}"`;
+  const boundSlots = resolveBoundSlots(where, step, fills);
+
+  const compiledParts = [
+    `${step.plugin}@${step.version}`,
+    ...boundSlots.map(({ fill }) => `${fill.binding}@${fill.version}`),
+  ];
+  const compiledFrom = compiledParts.join(" + ");
+
+  const slotMode: Record<string, "inline" | "reference"> = {};
+  for (const { slotName, fill } of boundSlots) {
+    slotMode[slotName] = isInlined(fill, internalRoster) ? "inline" : "reference";
+  }
+  const ctx = placeholderContext(step, { fills, slotMode, includes: opts.includes ?? {} }, compiledFrom, opts);
 
   const allowedTools = buildAllowedTools(step, boundSlots, opts.stageAllowedTools ?? [], ctx);
   const { body, notes, packPaths } = buildBody(step, boundSlots, {

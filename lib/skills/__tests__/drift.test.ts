@@ -113,6 +113,52 @@ describe("partExtents on compiled shapes", () => {
   });
 });
 
+describe("partExtents on a block-compiled body", () => {
+  const seam = (id: string, path: string, lines: string) => `<!-- part: block:${id} source=mattstack:mini version=1.0.0 path=${path} lines=${lines} -->`;
+  const md = (rules = ["Follow the rules.", "Run lint first."], gate = "Ask Matt.") => [
+    "---", "name: mini", "---", "",
+    seam("mini", "a/index.block.md", "11-24"), "# mini", "", "Runs the step.", "",
+    "<!-- part: prop:mini.rules binding=widgets:mini-rules/fast version=0.1.0 path=attachments/mini-rules/fast.md lines=1-2 -->",
+    ...rules,
+    seam("mini", "a/index.block.md", "24-24"), "Root text after the prop.",
+    "",
+    seam("mini/gate", "a/gate.block.md", "11-15"), "## Ask the gate", "", gate, "",
+    "<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering version=1.0.0 path=skills/model-tiering/SKILL.md lines=8-30 -->",
+    "Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.",
+    "",
+    "<!-- part: include:note source=mattstack:note version=1.0.0 path=attachments/note/SKILL.md lines=7-7 -->", "note body",
+  ].join("\n") + "\n";
+
+  test("a block's repeated seams are one part holding only its own text; props and includes are their own parts", () => {
+    const extents = partExtents(md());
+    expect(extents.map((e) => [e.key, e.version, e.start, e.end])).toEqual([
+      ["block:mini", "1.0.0", 4, 13],
+      ["prop:mini.rules", "0.1.0", 9, 11],
+      ["block:mini/gate", "1.0.0", 15, 24],
+      ["prop:mini/gate.tiering", "1.0.0", 20, 21],
+      ["include:note", "1.0.0", 23, 24],
+    ]);
+    expect(extents[0]!.text).toBe("# mini\n\nRuns the step.\n\nRoot text after the prop.");
+    expect(extents[1]!.text).toBe("Follow the rules.\nRun lint first.");
+    expect(extents[2]!.text).toBe("## Ask the gate\n\nAsk Matt.");
+    expect(extents[3]!.text).toBe("Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.");
+  });
+
+  test("a value edit changes only its prop; a block edit only its block", () => {
+    expect([...changedPartKeys(md(), md(["Follow the rules.", "Run lint twice."]))]).toEqual(["prop:mini.rules"]);
+    expect([...changedPartKeys(md(), md(undefined, "Ask Matt twice."))]).toEqual(["block:mini/gate"]);
+  });
+
+  test("two values of one add prop compare as one part", () => {
+    const two = (second: string) => [
+      "<!-- part: prop:mini.rules binding=acme:base-rules version=1 path=a.md lines=1-1 -->", "base rules", "",
+      "<!-- part: prop:mini.rules binding=widgets:rules version=1 path=b.md lines=1-1 -->", second,
+    ].join("\n");
+    expect([...changedPartKeys(two("team rules"), two("team rules"))]).toEqual([]);
+    expect([...changedPartKeys(two("team rules"), two("team rules v2"))]).toEqual(["prop:mini.rules"]);
+  });
+});
+
 describe("partExtents with a section nested in a slot", () => {
   const withSection = (body: string[]) => [
     "<!-- part: slot:ci binding=acme-base:ci version=1 path=b lines=1-3 -->",
