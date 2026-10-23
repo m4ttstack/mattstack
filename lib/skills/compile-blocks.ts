@@ -25,11 +25,16 @@ const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
 
 export type BlockValues = Map<string /* block id */, Map<string /* prop */, PropValue>>;
 
-/** `pipelineLayered` is the pipeline's own section, read after the top level the way `effectiveBindings` reads it. */
+/**
+ * `pipelineLayered` is the pipeline's own section, read after the top level
+ * the way `effectiveBindings` reads it. `pipelineSections` is every pipeline's
+ * section, checked for keys naming no block even where no stage copy compiles it.
+ */
 export type PropBindings = {
   layered: LayeredBindings;
   pipelineLayered?: LayeredBindings;
   pipeline?: string;
+  pipelineSections?: Record<string, LayeredBindings>;
   manifest: { path: string; text: string } | null;
 };
 
@@ -59,10 +64,14 @@ class ManifestSites {
 
   key(key: string, prop?: string): Pos {
     for (const base of this.sections().reverse()) {
-      const pos = this.at([...base, "bindings", key, ...(prop === undefined ? [] : [prop])], "key");
+      const pos = this.keyIn(base, key, prop);
       if (pos) return pos;
     }
     return this.fallback();
+  }
+
+  keyIn(base: (string | number)[], key: string, prop?: string): Pos | null {
+    return this.at([...base, "bindings", key, ...(prop === undefined ? [] : [prop])], "key");
   }
 
   /** One position per layer value, in the order `effectiveBindings` lists them. */
@@ -79,8 +88,11 @@ class ManifestSites {
   }
 }
 
-function keysOf(b: PropBindings): string[] {
-  return dedupePreserveOrder([...Object.keys(b.layered), ...Object.keys(b.pipelineLayered ?? {})]);
+/** The top level, then every pipeline section, each with where its keys sit in the manifest. */
+function sectionsOf(b: PropBindings): { base: (string | number)[]; layered: LayeredBindings }[] {
+  const pipelines = { ...b.pipelineSections };
+  if (b.pipeline !== undefined && b.pipelineLayered) pipelines[b.pipeline] = b.pipelineLayered;
+  return [{ base: [], layered: b.layered }, ...Object.entries(pipelines).map(([type, layered]) => ({ base: ["pipelines", type], layered }))];
 }
 
 /**
@@ -99,22 +111,24 @@ export function blockPropValues(
   const sites = new ManifestSites(bindings);
   const diagnostics: BlockDiagnostic[] = [];
   const values: BlockValues = new Map();
-  const keys = keysOf(bindings);
+  const sections = sectionsOf(bindings);
 
   for (const { tree, plugin } of trees) {
     const prefix = `${plugin}:${tree.root.id}`;
-    for (const key of keys) {
-      if (key !== prefix && !key.startsWith(`${prefix}/`)) continue;
-      const id = `${tree.root.id}${key.slice(prefix.length)}`;
-      const block = tree.byId.get(id);
-      if (!block) {
-        diagnostics.push({ ...sites.key(key), code: "missing-block", message: `binding "${key}": ${prefix} has no block "${id}"` });
-        continue;
-      }
-      const props = effectiveBindings(bindings.layered, bindings.pipelineLayered, key);
-      for (const prop of Object.keys(props)) {
-        if (block.props.some((p) => p.name === prop)) continue;
-        diagnostics.push({ ...sites.key(key, prop), code: "unknown-prop", message: `binding "${key}": block "${id}" declares no prop "${prop}"` });
+    for (const { base, layered } of sections) {
+      for (const [key, props] of Object.entries(layered)) {
+        if (key !== prefix && !key.startsWith(`${prefix}/`)) continue;
+        const id = `${tree.root.id}${key.slice(prefix.length)}`;
+        const block = tree.byId.get(id);
+        const keyAt = (prop?: string) => sites.keyIn(base, key, prop) ?? sites.key(key, prop);
+        if (!block) {
+          diagnostics.push({ ...keyAt(), code: "missing-block", message: `binding "${key}": ${prefix} has no block "${id}"` });
+          continue;
+        }
+        for (const prop of Object.keys(props)) {
+          if (block.props.some((p) => p.name === prop)) continue;
+          diagnostics.push({ ...keyAt(prop), code: "unknown-prop", message: `binding "${key}": block "${id}" declares no prop "${prop}"` });
+        }
       }
     }
 

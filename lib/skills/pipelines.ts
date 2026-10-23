@@ -62,6 +62,12 @@ export function effectiveBindings(defaults: LayeredBindings, overrides: LayeredB
   return out;
 }
 
+/** The stage a binding key belongs to: a block engine's keys add `/<block path>` to the engine ref a pipeline lists. */
+export function engineRefOf(key: string): string {
+  const slash = key.indexOf("/");
+  return slash < 0 ? key : key.slice(0, slash);
+}
+
 /** A block engine's blocks bind under `<engineRef>/<block path>`, so each of those keys can differ too; a slot engine has only `engineRef`. */
 export function fillsDiffer(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): boolean {
   const ownsKey = (key: string) => key === engineRef || key.startsWith(`${engineRef}/`);

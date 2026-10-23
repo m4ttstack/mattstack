@@ -686,6 +686,30 @@ describe("block-tree engines end to end", () => {
     expect(readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8")).toBe(before);
   });
 
+  /** Runs mini as the feature pipeline's one stage too, with `bindings` as that pipeline's own section. */
+  function asStage(pack: string, ms: string, manifest: string, bindings: string): void {
+    const index = join(ms, "plugins", "mattstack", "attachments", "pipeline", "mini", "index.block.md");
+    writeFileSync(index, readFileSync(index, "utf8").replace("type: pipeline-step\n", "type: pipeline-step\nmetadata:\n  stage: mini\n  stage-consumes: ticket\n  stage-produces: mr\n"));
+    writeFileSync(join(pack, "pack", "stubs.jsonc"), '{"verbs":{"widget-run":{"engine":"mini","description":"Run the mini widget step"}}}\n');
+    writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"pipelines": {}', `"pipelines": { "feature": { "stages": ["mattstack:mini"], "bindings": ${bindings} } }`));
+  }
+
+  test("a pipeline's block binding compiles into that pipeline's stage copy only", async () => {
+    const { pack, ms, manifest, args } = await buildBlocks();
+    asStage(pack, ms, manifest, '{ "mattstack:mini": { "rules": "" } }');
+    await skillsCompile(args);
+    expect(readFileSync(join(pack, "attachments", "mini", "SKILL.md"), "utf8")).toContain("Follow the fast widget rules.");
+    expect(readFileSync(join(pack, "attachments", "mini--feature", "SKILL.md"), "utf8")).not.toContain("Follow the fast widget rules.");
+  });
+
+  test("a typo block key in a pipeline section refuses compile though no stage copy uses it", async () => {
+    const { pack, ms, manifest, args } = await buildBlocks();
+    asStage(pack, ms, manifest, '{ "mattstack:mini/gaet": { "tiering": "" } }');
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsCompile(args));
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toMatch(/skills\.jsonc:11:\d+: binding "mattstack:mini\/gaet": mattstack:mini has no block "mini\/gaet"/);
+  });
+
   test("a binding to a block the engine lacks refuses compile at the manifest line", async () => {
     const { manifest, args } = await buildBlocks();
     writeFileSync(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:mini/nope"'));

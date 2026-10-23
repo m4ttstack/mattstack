@@ -117,6 +117,16 @@ describe("mergeLayers", () => {
     expect(() => mergeLayers(layers)).toThrow(FragmentError);
     expect(() => mergeLayers(layers)).toThrow('pipeline "a" binds s2 but does not list it');
   });
+
+  test("a block-path key belongs to the engine the pipeline lists", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["mattstack:mini"] } } } },
+      { label: "pack", fragment: { pipelines: { a: { bindings: { "mattstack:mini/gate": { tiering: "" } } } } } },
+    ]);
+    expect(merged.pipelineBindings.a?.["mattstack:mini/gate"]).toEqual({ tiering: "" });
+    expect(merged.dropped).toEqual([]);
+    expect(() => mergeLayers([{ label: "pack", fragment: { pipelines: { a: { stages: ["mattstack:mini"], bindings: { "mattstack:mini/gate": { tiering: "" } } } } } }])).not.toThrow();
+  });
 });
 
 describe("mergeLayers layered bindings", () => {

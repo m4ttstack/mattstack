@@ -1056,6 +1056,13 @@ describe("block-tree loaders", () => {
     expect(step.stepFiles).toEqual(["scripts/go.sh"]);
   });
 
+  test("only the root SKILL.md is kept from vendoring; one in a plain sub-folder ships", () => {
+    const { dir, roots } = blockRoots();
+    writeFile(join(dir, "attachments", "pipeline", "mini", "references", "SKILL.md"), "a reference page\n");
+
+    expect(loadStepSource("mini", roots).stepFiles).toEqual(["references/SKILL.md"]);
+  });
+
   test("loadStepSource refuses a block root that is not typed pipeline-step", () => {
     const { dir, roots } = blockRoots();
     const index = join(dir, "attachments", "pipeline", "mini", "index.block.md");

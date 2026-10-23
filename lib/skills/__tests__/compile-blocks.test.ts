@@ -182,6 +182,17 @@ describe("blockPropValues", () => {
     ]);
   });
 
+  test("a typo key in a pipeline section is checked even when no stage copy compiles that section", () => {
+    const { roots } = setup();
+    const step = loadStepSource("mini", roots);
+    const text = '{\n  "bindings": {},\n  "pipelines": { "feature": {\n    "stages": ["mattstack:mini"],\n    "bindings": {\n      "mattstack:mini/gaet": { "tiering": "" },\n      "mattstack:mini/gate": { "tiring": "" }\n    }\n  } }\n}\n';
+    const b: PropBindings = { layered: {}, pipelineSections: layeredFromManifest(text).pipelineLayered, manifest: { path: MANIFEST, text } };
+    expect(diagnosticsOf(() => valuesFor(step, roots, b))).toEqual([
+      { file: MANIFEST, line: 6, col: 7, code: "missing-block", message: 'binding "mattstack:mini/gaet": mattstack:mini has no block "mini/gaet"' },
+      { file: MANIFEST, line: 7, col: 32, code: "unknown-prop", message: 'binding "mattstack:mini/gate": block "mini/gate" declares no prop "tiring"' },
+    ]);
+  });
+
   test("every block gets its values, defaults included", () => {
     const { roots } = setup();
     const step = loadStepSource("mini", roots);

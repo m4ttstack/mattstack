@@ -74,7 +74,7 @@ import { assertNoTeamMarkerInAllowedTools, findPlaceholders, type TraceEntry } f
 import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { defaultPipeline, effectiveSlotBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
+import { defaultPipeline, effectiveSlotBindings, engineRefOf, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -805,7 +805,7 @@ function loadPropValuesFor(
   includes: Record<string, AttachmentSource> = {},
 ): BlockValues {
   const path = resolved.manifestPath;
-  const pipelineLayered = path && pipeline !== undefined ? readManifestPipelineLayered(path) : {};
+  const pipelineLayered = path ? readManifestPipelineLayered(path) : {};
   const trees = [
     { tree: step.tree!, plugin: step.plugin, version: step.version },
     ...Object.values(includes).flatMap((inc) => (inc.tree ? [{ tree: inc.tree, plugin: inc.plugin, version: inc.version }] : [])),
@@ -816,6 +816,7 @@ function loadPropValuesFor(
       {
         layered: path ? readManifestLayered(path) : {},
         manifest: path ? { path, text: readFileSync(path, "utf8") } : null,
+        pipelineSections: pipelineLayered,
         ...(pipeline !== undefined && Object.hasOwn(pipelineLayered, pipeline) ? { pipeline, pipelineLayered: pipelineLayered[pipeline] } : {}),
       },
       (binding, prop) => loadAttachment(binding, prop, resolved.pluginRoots),
@@ -1090,7 +1091,7 @@ function pipelineErrors(resolved: Resolved): string[] {
       continue;
     }
     for (const ref of Object.keys(refs)) {
-      if (!stages.includes(ref)) errors.push(`pipeline "${type}" binds ${ref} but does not list it`);
+      if (!stages.includes(engineRefOf(ref))) errors.push(`pipeline "${type}" binds ${ref} but does not list it`);
     }
   }
   const shaped = new Set<string>();

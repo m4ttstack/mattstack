@@ -1,5 +1,5 @@
 import type { LayerValue } from "./blocks/props.ts";
-import { normalizePipelines, pipelineBindingKey, pipelineNameError, type BindingsMap, type LayeredBindings, type PipelineValue } from "./pipelines.ts";
+import { engineRefOf, normalizePipelines, pipelineBindingKey, pipelineNameError, type BindingsMap, type LayeredBindings, type PipelineValue } from "./pipelines.ts";
 import { stripJsonc } from "../jsonc.ts";
 
 export type Fragment = {
@@ -152,9 +152,9 @@ function settlePipelineBindings(out: MergedManifest, stagesLayerRefs: Record<str
     if (!stages) throw new FragmentError(`pipeline "${type}" has bindings but no layer gives it stages`);
     const refs = out.pipelineBindings[type]!;
     for (const engineRef of Object.keys(refs)) {
-      if (stages.includes(engineRef)) continue;
+      if (stages.includes(engineRefOf(engineRef))) continue;
       if (stagesLayerRefs[type]!.has(engineRef)) throw new FragmentError(`pipeline "${type}" binds ${engineRef} but does not list it`);
-      const reason = everListed[type]!.has(engineRef) ? "removed" : "unlisted";
+      const reason = everListed[type]!.has(engineRefOf(engineRef)) ? "removed" : "unlisted";
       for (const slot of Object.keys(refs[engineRef]!)) {
         const key = pipelineBindingKey(type, engineRef, slot);
         out.dropped.push({ key, layer: out.provenance[key]!, reason });
