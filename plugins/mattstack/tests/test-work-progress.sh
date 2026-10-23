@@ -20,6 +20,10 @@ echo "$*" >> "$RT_STUB_CALLS"
 case "$1 $2" in
   "progress list")
     if [ -n "${RT_STUB_OLD:-}" ]; then echo "usage: rt progress ..." >&2; exit 2; fi
+    # A plain read serves plans.json; --refresh serves plans.refresh.json when the case has one.
+    case " $* " in
+      *" --refresh "*) if [ -f "$RT_STUB_FX/plans.refresh.json" ]; then cat "$RT_STUB_FX/plans.refresh.json"; exit 0; fi ;;
+    esac
     cat "$RT_STUB_FX/plans.json" ;;
   "herd status") cat "$RT_STUB_FX/herd-status.json" ;;
   "herd gates") echo '{"gates":[]}' ;;
@@ -149,7 +153,22 @@ JSON
 rm -f "$SANDBOX/calls"
 herd="$(run --herd h1)"
 has "herd job with no ledger takes counts from the rt record" "\`██████████\` 5/5" "$(rowof alpha "$herd")"
-has "herd record read names the job tree" "progress list --tree $JOBTREE --json" "$(cat "$SANDBOX/calls")"
+has "herd record read names the job tree" "progress list --tree $JOBTREE --refresh --json" "$(cat "$SANDBOX/calls")"
+
+# The finish is stored only when rt records, so the herd read must ask rt to refresh.
+cat > "$FX/plans.json" <<JSON
+{"ok":true,"plans":[
+{"tree":"$JOBTREE","branch":"job-x","plan":"docs/plans/p.md","stem":"p","done":7,"total":9,"latest":"Task 7: complete","firstSeen":1500,"lastSeen":2000,"finishedAt":null,"state":"tree-gone"}
+]}
+JSON
+cat > "$FX/plans.refresh.json" <<JSON
+{"ok":true,"plans":[
+{"tree":"$JOBTREE","branch":"job-x","plan":"docs/plans/p.md","stem":"p","done":9,"total":9,"latest":"Task 9: complete","firstSeen":1500,"lastSeen":2000,"finishedAt":3000,"state":"done"}
+]}
+JSON
+herd="$(run --herd h1)"
+has "herd read refreshes so a finished job reads total/total" "\`██████████\` 9/9" "$(rowof alpha "$herd")"
+rm -f "$FX/plans.refresh.json"
 
 cat > "$FX/plans.json" <<JSON
 {"ok":true,"plans":[

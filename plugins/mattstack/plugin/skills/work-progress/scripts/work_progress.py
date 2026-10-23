@@ -239,10 +239,11 @@ def tree_records(tree, refresh=False):
 def kept_record(roots, created_ms):
     """A ledger-method job whose ledger is gone: the freshest record rt kept for
     its tree, but only one seen during the job's own lifetime, since pool trees
-    are reused."""
+    are reused. rt stores a plan's finish only when it records, and the hook
+    records at most once a minute, so this read asks rt to refresh first."""
     best = None
     for root in roots:
-        for rec in tree_records(root) or []:
+        for rec in tree_records(root, refresh=True) or []:
             seen = max(rec.get("lastSeen") or 0, rec.get("finishedAt") or 0)
             if rec.get("state") in {"done", "tree-gone"} and seen >= created_ms and (best is None or seen > best[0]):
                 best = (seen, rec)
