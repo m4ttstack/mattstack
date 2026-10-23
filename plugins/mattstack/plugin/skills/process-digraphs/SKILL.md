@@ -68,8 +68,9 @@ tests") is a `box`.
 
 1. **Map plus sections.** Keep node text short. Every judgment `box` has its
    own `### <exact node text>` section, the text being its label, with the
-   guidance (what to look for, domain rules, examples). Never pack guidance
-   into a node label.
+   guidance (what to look for, domain rules, examples); in a block tree that
+   section is the node's own block (see Graphs in a block tree). Never pack
+   guidance into a node label.
 2. **Coarse is fine.** "Review the MR" can be one box pointing at its
    section. Split a node only where agents actually drift; never turn
    judgment into a checklist of diamonds ("naming ok? tests ok?").
@@ -161,14 +162,73 @@ the answer with the gate before anything else happens.
 
 One graph, one section per judgment step, and the tool calls are the nodes.
 
+## Graphs in a block tree
+
+A mattstack engine or include is a block tree (an `index.block.md` root and
+one `*.block.md` file per section), and its graphs are Mermaid, written in
+the block that carries them. Compile turns each into the `dot` digraph above,
+so the Node vocabulary and the rules hold unchanged. A hand-authored
+`SKILL.md` keeps its ```` ```dot ```` block.
+
+````markdown
+```mermaid
+flowchart TB
+%% name: hotfix_push
+    trigger([Trigger: fast tests green])
+    git_push[/"git_push {tree, setUpstream: true}"/]
+    push_refused{git_push refused the tree?}
+    offscript_gate
+    stop_shell_push[STOP: push only with git_push]:::stop
+    held(((Held: the turn ends naming the gate)))
+    mr_open(((MR open))):::done
+
+    trigger --> git_push
+    git_push --> push_refused
+    push_refused -->|tempted to push from the shell| stop_shell_push
+```
+````
+
+| Shape | Mermaid |
+| --- | --- |
+| `ellipse` | `id([Trigger: ...])` |
+| `box` | `id[text]`, or the bare `id` of a judgment node |
+| `plaintext` | `id[/"exact call"/]` |
+| `diamond` | `id{question?}` |
+| STOP | `stop_id[STOP: ...]:::stop` |
+| `doublecircle` | `id(((outcome)))`; the success one `:::done` |
+
+The fence opens with `flowchart TB`; a `%% name: <graph>` line names the
+compiled digraph. Edges are `a --> b`, labelled `a -->|label| b`.
+
+A judgment node is declared by its bare id, and its section is a block of
+its own beside the block that holds the graph: frontmatter `node: <id>`,
+and a `# <node text>` title, which is the node's label. Its place in the
+compiled skill follows the graph, so it takes no `order`. For
+`offscript_gate` above, `offscript-gate.block.md`:
+
+```markdown
+---
+node: offscript_gate
+---
+
+# Open the off-script gate: push refused
+
+Quote the refusal and offer four answers: ...
+```
+
+Compile refuses a `node:` the graph does not declare, a node block with no
+title, and two blocks bound to one node. Certify does not read a block
+tree's graphs: run `check-dot.py --short-ids` on the compiled `SKILL.md`.
+
 ## Recipe
 
 1. Write the process as prose: states, decisions, loops, failure paths.
 2. Draw the map: shape per node, a labelled out-edge for every outcome, a
    budget on every loop, outward steps as their own `plaintext` nodes.
-3. Write one `### <node text>` section per judgment box.
+3. Write one `### <node text>` section per judgment box (in a block tree,
+   one block per judgment node, `node:` set).
 4. Check it. Both must pass, and certify runs both on every skill with a dot
-   block:
+   block. For a block tree, run them on the compiled `SKILL.md`:
    - `bash render.sh <SKILL.md>` renders every block and fails on a parse
      error, any Graphviz warning, an indented fence, or no block at all.
    - `python3 check-dot.py <SKILL.md>` fails on an unlabelled decision edge,
