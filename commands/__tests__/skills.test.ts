@@ -461,7 +461,7 @@ describe("skillsCompile", () => {
     expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toBe("PLANTED\n");
   });
 
-  test("an engine body reading outside the pack root by a hand-typed path: clean error, exit 1, nothing written", async () => {
+  test("an engine body reading outside the pack root: clean one-line error, exit 1, nothing written", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     const manifestPath = makeManifest();
@@ -484,9 +484,10 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("../../../elsewhere/SKILL.md");
     // The engine's own file and line, not a coordinate in an artifact this run
     // refuses to write.
-    expect(errors.join("\n")).toContain("skills/pipeline/watch-ci/index.block.md:18:7: hand-typed path ../../../elsewhere/SKILL.md breaks when its target moves");
+    expect(errors.join("\n")).toContain("at skills/pipeline/watch-ci/index.block.md:18 resolves outside the pack root");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 

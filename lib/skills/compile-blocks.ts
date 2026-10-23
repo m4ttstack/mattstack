@@ -385,13 +385,13 @@ function handPathsIn(
     const key = `${inc.plugin}:${inc.srcPath}`;
     if (inc.tree || seen.has(key)) continue;
     seen.add(key);
-    out.push(...handPathDiagnostics(inc.body, inc.srcPath, { startLine: inc.bodyStartLine, ...view, noFix: true }));
+    out.push(...handPathDiagnostics(inc.body, inc.srcPath, { startLine: inc.bodyStartLine, indent: inc.bodyIndent, ...view, noFix: true }));
   }
   for (const fill of fills) {
     const key = `${fill.plugin}:${fill.srcPath}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(...handPathDiagnostics(fill.body, fill.srcPath, { startLine: fill.bodyStartLine, ...view }));
+    out.push(...handPathDiagnostics(fill.body, fill.srcPath, { startLine: fill.bodyStartLine, indent: fill.bodyIndent, ...view }));
   }
   return out;
 }

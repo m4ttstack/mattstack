@@ -599,10 +599,11 @@ describe("compileBlockSkill with placeholders", () => {
     expect(r.warnings).toEqual([]);
   });
 
-  test("an escaping read inside a fill is refused against the fill's own file", () => {
+  test("an escaping read inside a fill that reaches no other skill is left to the output lint, at the fill's own file", () => {
     const escapingFill: AttachmentSource = { ...domainFill, body: "read `../../../outside.md` first" };
-    const r = compile(verb, stageStep, { domain: escapingFill }, new Set(), { packRoot: "/pack", compiledDir: "/pack/attachments/stage-watch-ci" });
-    expect(handTyped(r)).toEqual(["attachments/watch-ci-domain/SKILL.md:8"]);
+    expect(() =>
+      compile(verb, stageStep, { domain: escapingFill }, new Set(), { packRoot: "/pack", compiledDir: "/pack/attachments/stage-watch-ci" }),
+    ).toThrow('"../../../outside.md" at attachments/watch-ci-domain/SKILL.md:8 resolves outside the pack root');
   });
 
   test("an escaping read a fill renders is linted against the fill's own file", () => {
@@ -612,9 +613,10 @@ describe("compileBlockSkill with placeholders", () => {
     ).toThrow('"../../../outside.md" at attachments/watch-ci-domain/SKILL.md:8 resolves outside the pack root');
   });
 
-  test("an escaping ${CLAUDE_SKILL_DIR} path is refused in the input and linted in the output", () => {
-    const r = compile(verb, bare("read ${CLAUDE_SKILL_DIR}/../../../secrets.md"), {}, new Set(), { packRoot: "/pack", compiledDir: "/pack/skills/work" });
-    expect(handTyped(r)).toHaveLength(1);
+  test("an escaping ${CLAUDE_SKILL_DIR} path is the same lint error, from compile or the compiled body", () => {
+    expect(() =>
+      compile(verb, bare("read ${CLAUDE_SKILL_DIR}/../../../secrets.md"), {}, new Set(), { packRoot: "/pack", compiledDir: "/pack/skills/work" }),
+    ).toThrow("resolves outside the pack root");
     expect(() =>
       lintCompiled("${CLAUDE_SKILL_DIR}/../../../secrets.md", { text: `read ${STAND_IN}` }, { packRoot: "/pack", compiledDir: "/pack/skills/work" }),
     ).toThrow("resolves outside the pack root");

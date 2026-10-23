@@ -153,6 +153,18 @@ describe("compileBlockSkill", () => {
     }]);
   });
 
+  test("a hand-typed path on a fill's indented first line is placed at its real column", () => {
+    const { result } = compileMini({
+      packRoot: true,
+      prep: ({ widgets }) => {
+        mkdirSync(join(widgets, "attachments", "capture-evidence"), { recursive: true });
+        writeFileSync(join(widgets, "attachments", "capture-evidence", "SKILL.md"), "evidence\n");
+        writeFileSync(join(widgets, "attachments", "mini-rules", "fast.md"), "\n   Read ../../attachments/capture-evidence/SKILL.md first.\n");
+      },
+    });
+    expect(result.diagnostics).toMatchObject([{ file: "attachments/mini-rules/fast.md", line: 2, col: 9, code: "hand-typed-path" }]);
+  });
+
   test("an engine block naming a compiled verb by a hand-typed path fails with a verb.path fix", () => {
     const { result } = compileMini({
       verbSides: { ship: "skills" },

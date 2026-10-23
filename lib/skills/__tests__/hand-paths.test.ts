@@ -46,9 +46,11 @@ describe("handPathDiagnostics", () => {
     expect(d!.message).toContain("write {{verb.path:ship}} instead");
   });
 
-  test("a sibling folder's SKILL.md the pack holds no source for is a verb, even off this roster", () => {
+  test("a sibling folder's SKILL.md that is neither a compiled verb nor pack source gets no fix", () => {
     const [d] = handPathDiagnostics("Follow `../map-open-mrs/SKILL.md` for the table.", FILE, { verbs: VERBS, packSource: () => false });
-    expect(d!.fix).toEqual({ length: "../map-open-mrs/SKILL.md".length, text: "{{verb.path:map-open-mrs}}" });
+    expect(d).toMatchObject({ code: "hand-typed-path" });
+    expect(d!.fix).toBeUndefined();
+    expect(d!.message).toContain("{{verb.path:<verb>}}");
   });
 
   test("a sibling folder the pack holds as source gets pack.path, not verb.path", () => {
@@ -82,6 +84,7 @@ describe("handPathDiagnostics", () => {
       "The `...` stand-in in .../plugin/attachments/x is prose, and so is a bare `../`.",
       'PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"; cd ${CLAUDE_SKILL_DIR}/../../ && pwd',
       'FORGE=$(dirname "$STAGE")/../forge/ci-forge.sh',
+      "Read ${CLAUDE_SKILL_DIR}/../../pack/params.jsonc and ../../website/docs/x.md.",
     ].join("\n");
     expect(handPathDiagnostics(text, FILE, { verbs: VERBS })).toEqual([]);
   });

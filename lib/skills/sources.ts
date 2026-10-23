@@ -36,9 +36,14 @@ export class NotABlockTreeError extends Error {}
 /** Single definition lives in lib/jsonc.ts — a line-filter fork here previously missed block comments, trailing commas, and inline `//` after content. */
 export { stripJsonc };
 
+/** The width of the trimmed lead after its last newline: the first body line's indent. */
+function firstLineIndent(lead: string): number {
+  return lead.length - (lead.lastIndexOf("\n") + 1);
+}
+
 export function stripFrontmatter(
   md: string,
-): { body: string; frontmatter: Record<string, unknown>; bodyStartLine: number } {
+): { body: string; frontmatter: Record<string, unknown>; bodyStartLine: number; bodyIndent: number } {
   const match = md.match(FRONTMATTER_RE);
   const fmBlock = match?.[0] ?? "";
   const rest = match ? md.slice(match[0].length) : md;
@@ -53,7 +58,7 @@ export function stripFrontmatter(
   const countLines = (s: string) => (s.match(/\n/g) ?? []).length;
   const bodyStartLine = countLines(fmBlock) + countLines(rest.slice(0, lead)) + 1;
 
-  return { body, frontmatter, bodyStartLine };
+  return { body, frontmatter, bodyStartLine, bodyIndent: firstLineIndent(rest.slice(0, lead)) };
 }
 
 export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
@@ -472,7 +477,7 @@ export function loadAttachment(binding: string, prop: string, roots: PluginRoots
 
   const skillMdPath = join(foundDir, "SKILL.md");
   const raw = readFileSync(skillMdPath, "utf8");
-  const { body, frontmatter, bodyStartLine } = stripFrontmatter(raw);
+  const { body, frontmatter, bodyStartLine, bodyIndent } = stripFrontmatter(raw);
   const frontmatterHit = firstTeamMarker(raw.match(FRONTMATTER_RE)?.[0] ?? "");
 
   const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object"
@@ -492,7 +497,7 @@ export function loadAttachment(binding: string, prop: string, roots: PluginRoots
     }
   }
 
-  let value = { srcPath: relative(pluginRoot.dir, skillMdPath), bodyStartLine, body, file: null as string | null };
+  let value = { srcPath: relative(pluginRoot.dir, skillMdPath), bodyStartLine, bodyIndent, body, file: null as string | null };
   if (fileName !== undefined) {
     if (body !== "") {
       throw new AttachmentLoadError(
@@ -513,6 +518,7 @@ export function loadAttachment(binding: string, prop: string, roots: PluginRoots
     value = {
       srcPath: relative(pluginRoot.dir, filePath),
       bodyStartLine: (text.slice(0, lead).match(/\n/g) ?? []).length + 1,
+      bodyIndent: firstLineIndent(text.slice(0, lead)),
       body: text.trim(),
       file,
     };
@@ -526,6 +532,7 @@ export function loadAttachment(binding: string, prop: string, roots: PluginRoots
     dir: foundDir,
     srcPath: value.srcPath,
     bodyStartLine: value.bodyStartLine,
+    bodyIndent: value.bodyIndent,
     body: value.body,
     provides,
     allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),
@@ -553,7 +560,7 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
   const skillMdPath = join(dir, "SKILL.md");
   if (!existsSync(skillMdPath)) throw new Error(`loadInclude: include "${name}" not found at ${skillMdPath}`);
 
-  const { body, frontmatter, bodyStartLine } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
+  const { body, frontmatter, bodyStartLine, bodyIndent } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
   const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object"
     ? (frontmatter.metadata as Record<string, unknown>)
     : {};
@@ -568,6 +575,7 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
     dir,
     srcPath: relative(mattstack.dir, skillMdPath),
     bodyStartLine,
+    bodyIndent,
     body,
     provides: typeof metadata.provides === "string" ? metadata.provides : "",
     allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),

@@ -25,6 +25,7 @@ export type AttachmentSource = {
   dir: string;
   srcPath: string; // source SKILL.md path, relative to its PLUGIN root
   bodyStartLine: number; // 1-indexed line in that file where the body begins
+  bodyIndent?: number; // spaces trimmed off the body's first line, which a col on that line adds back
   body: string;
   provides: string; // frontmatter metadata.provides, e.g. "watch-ci-domain@1"
   allowedTools: string[];

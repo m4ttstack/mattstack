@@ -48,9 +48,8 @@ function isPlaceholderLike(path: string): boolean {
 type FixView = { verbs: ReadonlySet<string>; packSource?: (arg: string) => boolean };
 
 /**
- * A compiled verb, or a sibling folder's SKILL.md that names no pack source,
- * takes verb.path; pack.path only for a target the pack holds as source. With
- * no way to tell, no fix: a wrong one is worse than none.
+ * verb.path only for a compiled verb, pack.path only for a target the pack
+ * holds as source: anything else would fail compile, so it gets no fix.
  */
 function replacementFor(p: HandPath, view: FixView): string | null {
   if (isPlaceholderLike(p.path)) return null;
@@ -65,13 +64,18 @@ function replacementFor(p: HandPath, view: FixView): string | null {
   const file = fileSegs.join("/");
   const verbFix = p.anchor === "relative" ? `{{verb.path:${name}}}` : `${SKILL_DIR}/{{verb.path:${name}}}`;
   if (view.verbs.has(name)) return file === "SKILL.md" ? verbFix : null;
-  if (view.packSource?.(`${name}/${file}`)) return `{{pack.path:${name}/${file}}}`;
-  return sibling && segs.length === 2 && file === "SKILL.md" ? verbFix : null;
+  return view.packSource?.(`${name}/${file}`) ? `{{pack.path:${name}/${file}}}` : null;
+}
+
+/** Into attachments/ or skills/, or one level up into a sibling skill's folder; other escapes are the output lint's. */
+function reachesAnotherSkill(p: HandPath): boolean {
+  const segs = p.rest.split("/");
+  if (segs[0] === "attachments" || segs[0] === "skills") return true;
+  return p.anchor !== "plugin-root" && p.ups === 1 && segs.length >= 2;
 }
 
 /**
- * Compile's rule over its own input text. A plugin-root path counts only into
- * attachments/ or skills/; the stage-dir and vendoring rewrites emit
+ * Compile's rule over its own input text. The stage-dir and vendoring rewrites emit
  * `${CLAUDE_SKILL_DIR}/../../attachments/...` into the output on purpose, so
  * this must never run on compiled text.
  */
@@ -81,7 +85,7 @@ export function handPathDiagnostics(
   opts: { startLine?: number; indent?: number; verbs: ReadonlySet<string>; packSource?: (arg: string) => boolean; noFix?: boolean },
 ): BlockDiagnostic[] {
   return findHandPaths(text, opts)
-    .filter((p) => p.anchor !== "plugin-root" || /^(attachments|skills)\//.test(p.rest))
+    .filter(reachesAnotherSkill)
     .map((p) => {
       const fix = opts.noFix ? null : replacementFor(p, opts);
       const message = fix
