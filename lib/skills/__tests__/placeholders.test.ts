@@ -500,6 +500,18 @@ describe("a heading above an unbound slot", () => {
     expect(substitute("a\n{{slot:domain}}\nb", unbound(), "x").body).toBe("a\n\nb");
   });
 
+  test("unbound slots between blank lines leave exactly one blank line between their neighbours", () => {
+    const both = ctx({ fills: { domain: null, extra: null } });
+    expect(substitute("a\n\n{{slot:domain}}\n\nb", both, "x").body).toBe("a\n\nb");
+    expect(substitute("a\n\n{{slot:domain}}\n\n{{slot:extra}}\n\nb", both, "x").body).toBe("a\n\nb");
+    expect(substitute("a\n{{slot:domain}}\n{{slot:extra}}\n\nb", both, "x").body).toBe("a\n\nb");
+  });
+
+  test("blank lines away from an unbound slot are untouched, code fences included", () => {
+    const body = "a\n\n\nb\n\n```\none\n\n\ntwo\n```\n\n{{slot:domain}}\n\nc";
+    expect(substitute(body, unbound(), "x").body).toBe("a\n\n\nb\n\n```\none\n\n\ntwo\n```\n\nc");
+  });
+
   test("stays above a bound slot, another placeholder, or prose", () => {
     expect(substitute("## Reviewer\n{{slot:domain}}", ctx(), "x").body).toContain("## Reviewer\n<!-- part: slot:domain");
     expect(substitute("## Provenance\n{{compiled-from}}", unbound(), "x").body).toBe("## Provenance\nmattstack@1.0.0 + acme:plan-policy@0.4.0");
@@ -537,6 +549,18 @@ describe("substitute trace", () => {
       [2, 0, 0, 1],
       [3, 0, 0, 0],
       [4, 0, 1, 0],
+    ]);
+  });
+
+  test("blank lines an unbound slot collapses render nothing and are still traced", () => {
+    const entries: TraceEntry[] = [];
+    substitute("a\n\n{{slot:domain}}\n\nb", ctx({ fills: { domain: null } }), "stage-plan", (e) => entries.push(e));
+    expect(entries.map((e) => [e.templateIndex, e.outStart, e.outCount, e.placeholders.length])).toEqual([
+      [0, 0, 1, 0],
+      [1, 1, 1, 0],
+      [2, 2, 0, 1],
+      [3, 2, 0, 0],
+      [4, 2, 1, 0],
     ]);
   });
 

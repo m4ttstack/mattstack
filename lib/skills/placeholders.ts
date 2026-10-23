@@ -435,6 +435,8 @@ export function substitute(
   const out: string[] = [];
   let inFence = false;
   let outLines = 0;
+  let collapseBlanks = false;
+  const endsBlank = () => out.length === 0 || out[out.length - 1]!.split("\n").pop()!.trim() === "";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -451,6 +453,16 @@ export function substitute(
       }
     }
     const rendered = substituteLine(line, i, ctx, where, used);
+    const slot = line.trim().match(SLOT_LINE_RE)?.[1];
+    const unboundSlot = !inFence && slot !== undefined && ctx.fills[slot] === null;
+    const blank = rendered.trim() === "";
+    // An unbound slot renders as a blank line, so its blank neighbours would otherwise stack into a run.
+    if ((unboundSlot || collapseBlanks) && blank && endsBlank()) {
+      trace?.({ templateIndex: i, outStart: outLines, outCount: 0, placeholders: placeholdersIn(line, ctx, where) });
+      collapseBlanks = true;
+      continue;
+    }
+    collapseBlanks = blank && (unboundSlot || collapseBlanks);
     const outCount = rendered.split("\n").length;
     trace?.({ templateIndex: i, outStart: outLines, outCount, placeholders: placeholdersIn(line, ctx, where) });
     outLines += outCount;
