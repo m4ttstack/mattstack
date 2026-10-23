@@ -1,0 +1,145 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { rangeOf } from "../positions.ts";
+import { Workspace } from "../workspace.ts";
+
+const FIXTURES = join(import.meta.dir, "../../__tests__/fixtures/blocks");
+
+let tmp: string;
+let plugin: string;
+let pack: string;
+let mini: string;
+let manifest: string;
+
+beforeEach(() => {
+  tmp = mkdtempSync(join(tmpdir(), "lsp-workspace-"));
+  plugin = join(tmp, "mattstack");
+  pack = join(tmp, "widgets");
+  cpSync(join(FIXTURES, "plugins/mattstack"), plugin, { recursive: true });
+  cpSync(join(FIXTURES, "pack"), pack, { recursive: true });
+  mini = join(plugin, "attachments/pipeline/mini");
+  manifest = join(pack, "pack/skills.jsonc");
+});
+
+afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+
+const nopeManifest = () => readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:mini/nope"');
+const allDiagnostics = (ws: Workspace) => [...ws.analysis().diagnostics.values()].flat();
+const covered = (text: string, d: Parameters<typeof rangeOf>[0]) => {
+  const range = rangeOf(d, text);
+  return text.split("\n")[range.start.line]!.slice(range.start.character, range.end.character);
+};
+
+describe("Workspace", () => {
+  test("the mini plugin root and the blocks pack analyse clean", () => {
+    const ws = new Workspace([plugin, pack]);
+    const a = ws.analysis();
+    expect(allDiagnostics(ws)).toEqual([]);
+    expect(ws.engineDirs()).toContain(mini);
+    expect(a.trees.get(mini)?.byId.has("mini/gate")).toBe(true);
+    expect(a.byBlockId.get("mattstack:mini/run")?.block.title).toBe("Run the step");
+    expect(a.manifests.get(manifest)?.layered["mattstack:mini"]?.rules).toEqual([{ layer: "pack", value: "widgets:mini-rules/fast" }]);
+  });
+
+  test("a block edited to a bad merge reports only that file and the last good tree stays", () => {
+    const ws = new Workspace([plugin, pack]);
+    const good = ws.analysis().trees.get(mini);
+    const gate = join(mini, "gate.block.md");
+    ws.open(gate, ws.text(gate));
+    ws.change(gate, ws.text(gate).replace("merge: replace", "merge: sideways"));
+    const a = ws.analysis();
+    expect(a.diagnostics.get(gate)?.[0]).toMatchObject({ code: "bad-value", line: 5, col: 3 });
+    expect([...a.diagnostics.entries()].filter(([f, ds]) => f !== gate && ds.length > 0)).toEqual([]);
+    expect(a.trees.get(mini)).toBe(good);
+  });
+
+  test("a root that stops parsing keeps the last good tree and reports the parse error", () => {
+    const ws = new Workspace([plugin, pack]);
+    const good = ws.analysis().trees.get(mini);
+    const index = join(mini, "index.block.md");
+    ws.open(index, ws.text(index));
+    ws.change(index, ws.text(index).replace("type: pipeline-step", "type: [pipeline-step"));
+    const a = ws.analysis();
+    expect(a.diagnostics.get(index)?.[0]?.code).toBe("bad-frontmatter");
+    expect(a.trees.get(mini)).toBe(good);
+    ws.close(index);
+    expect(ws.analysis().diagnostics.get(index) ?? []).toEqual([]);
+  });
+
+  test("before any good load a tree is null", () => {
+    writeFileSync(join(mini, "index.block.md"), "---\ntype: [pipeline-step\n---\n\n# mini\n");
+    const ws = new Workspace([plugin]);
+    expect(ws.analysis().trees.get(mini)).toBeNull();
+    expect(ws.analysis().diagnostics.get(join(mini, "index.block.md"))?.[0]?.code).toBe("bad-frontmatter");
+  });
+
+  test("a binding to a block the open engine lacks is missing-block at the key", () => {
+    const ws = new Workspace([plugin, pack]);
+    const text = nopeManifest();
+    ws.open(manifest, text);
+    const ds = ws.analysis().diagnostics.get(manifest) ?? [];
+    expect(ds.map((d) => d.code)).toEqual(["missing-block"]);
+    expect(covered(text, ds[0]!)).toBe('"mattstack:mini/nope"');
+  });
+
+  test("the same key is clean once the plugin root holds the block", () => {
+    writeFileSync(join(mini, "nope.block.md"), '---\nprops:\n  tiering:\n    merge: replace\n    default: ""\n---\n\n# Nope\n\nText.\n');
+    const ws = new Workspace([plugin, pack]);
+    ws.open(manifest, nopeManifest());
+    expect(allDiagnostics(ws)).toEqual([]);
+  });
+
+  test("with only the pack open, a key under an engine no root holds is not reported", () => {
+    const ws = new Workspace([pack]);
+    ws.open(manifest, nopeManifest());
+    expect(allDiagnostics(ws)).toEqual([]);
+  });
+
+  test("a prop the block does not declare is unknown-prop at the prop key", () => {
+    const ws = new Workspace([plugin, pack]);
+    const text = readFileSync(manifest, "utf8").replace('{ "tiering": "" }', '{ "speed": "" }');
+    ws.open(manifest, text);
+    const ds = ws.analysis().diagnostics.get(manifest) ?? [];
+    expect(ds.map((d) => d.code)).toEqual(["unknown-prop"]);
+    expect(covered(text, ds[0]!)).toBe('"speed"');
+  });
+
+  test("a binding whose skill is not found is fill-missing at the value", () => {
+    const ws = new Workspace([plugin, pack]);
+    const text = readFileSync(manifest, "utf8").replace("widgets:mini-rules/fast", "widgets:no-such-skill");
+    ws.open(manifest, text);
+    const ds = ws.analysis().diagnostics.get(manifest) ?? [];
+    expect(ds.map((d) => d.code)).toEqual(["fill-missing"]);
+    expect(covered(text, ds[0]!)).toBe('"widgets:no-such-skill"');
+  });
+
+  test("a manifest that does not parse is null with a diagnostic", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(manifest, '{ "bindings": { "mattstack:mini": ');
+    const a = ws.analysis();
+    expect(a.manifests.get(manifest)).toBeNull();
+    expect(a.diagnostics.get(manifest)?.length).toBe(1);
+  });
+
+  test("text reads the overlay, then disk", () => {
+    const ws = new Workspace([plugin]);
+    const gate = join(mini, "gate.block.md");
+    expect(ws.text(gate)).toBe(readFileSync(gate, "utf8"));
+    ws.open(gate, "edited");
+    expect(ws.text(gate)).toBe("edited");
+    ws.close(gate);
+    expect(ws.text(gate)).toBe(readFileSync(gate, "utf8"));
+  });
+
+  test("garbage in any open file never throws", () => {
+    const ws = new Workspace([plugin, pack]);
+    for (const text of ["", "---", "---\n---\n{{props.", "\u0000\u0001", "---\nprops: [\n---\n", "[]", "null", '{"bindings": []}']) {
+      ws.open(join(mini, "index.block.md"), text);
+      ws.open(join(mini, "gate.block.md"), text);
+      ws.open(manifest, text);
+      expect(() => ws.analysis()).not.toThrow();
+    }
+  });
+});
