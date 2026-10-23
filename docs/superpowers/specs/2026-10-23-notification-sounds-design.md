@@ -66,8 +66,9 @@ the `.caf` conversion the build already does.
 - **Stored per Mac,** as an rt setting with machine scope. The problem lives
   in the room the Mac is in, and another Mac can choose differently. The value
   is one object, `{neutral, positive, warning}`. Each entry is a sound id such
-  as `original/warning`, `sober/102`, `macos/Glass` or `none`. The builder
-  picks the key name under the settings registry's conventions.
+  as `original` (that tier's own tone), `sober/102`, `macos/Glass`,
+  `custom/Doorbell.m4a` or `none`. The key is
+  `rt.notify.sounds`.
 - **Preview ignores the system mute.** It is an explicit click, and you
   can't choose a sound you can't hear. Real notifications still go through
   `NotificationSound.shouldPlay`.
