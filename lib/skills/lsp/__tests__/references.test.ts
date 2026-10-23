@@ -127,6 +127,24 @@ describe("two open copies of a plugin", () => {
       expect(blockReferences(ws, held(ws, file))[0]!.uri).toBe(pathToFileURL(file).href);
     }
   });
+
+  test("references from the manifest follow the copy the manifest sees, never every copy", () => {
+    const a = join(tmp, "a/mattstack");
+    const b = join(tmp, "b/mattstack");
+    cpSync(plugin, a, { recursive: true });
+    cpSync(plugin, b, { recursive: true });
+    const ws = new Workspace([join(tmp, "a"), join(tmp, "b"), pack]);
+    const seenGate = ws.rootsFor([manifest]).byName.mattstack!.dir;
+    expect(seenGate).toBe(a);
+    const fromProp = seen(ws, referencesAt(ws, manifest, at(ws.text(manifest), '"tiering"', 2)));
+    expect(fromProp.map((r) => [r.kind, r.file])).toEqual([
+      ["decl", join(a, "attachments/pipeline/mini/gate.block.md")],
+      ["marker", join(a, "attachments/pipeline/mini/gate.block.md")],
+      ["binding", manifest],
+    ]);
+    const fromKey = seen(ws, referencesAt(ws, manifest, at(ws.text(manifest), `"${GATE}"`, 3)));
+    expect(fromKey[0]).toMatchObject({ kind: "file", file: join(a, "attachments/pipeline/mini/gate.block.md") });
+  });
 });
 
 describe("blockReferences", () => {
@@ -191,6 +209,17 @@ describe("blockReferences", () => {
     expect(seen(ws, blockReferences(ws, held(ws, join(gp, "index.block.md")))).filter((r) => r.kind === "include")).toEqual([
       { kind: "include", file: brokenIndex, text: "{{include:gp}}" },
     ]);
+  });
+
+  test("an include in a block file under no plugin root is not listed", () => {
+    const gp = join(plugin, "attachments/gp");
+    mkdirSync(gp, { recursive: true });
+    writeFileSync(join(gp, "index.block.md"), "---\n---\n\n# Gate protocol\n\nAsk before acting.\n");
+    const loose = join(tmp, "loose");
+    mkdirSync(loose, { recursive: true });
+    writeFileSync(join(loose, "stray.block.md"), "---\n---\n\n# Stray\n\n{{include:gp}}\n");
+    const ws = new Workspace([plugin, pack, loose]);
+    expect(seen(ws, blockReferences(ws, held(ws, join(gp, "index.block.md")))).map((r) => r.kind)).toEqual(["file"]);
   });
 
   test("prose and an unknown key have no references", () => {

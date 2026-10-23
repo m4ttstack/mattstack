@@ -46,6 +46,7 @@ export function blockReferences(ws: Workspace, held: HeldBlock): Reference[] {
   }
   if (held.block === held.tree.root) {
     for (const file of ws.blockFiles()) {
+      if (!ws.pluginAt(file)) continue;
       for (const t of tokensIn(ws.text(file), file)) {
         if (t.kind === "include" && includeDir(ws, file, t.name) === held.tree.dir) refs.push({ uri: uriOf(file), range: t.range, kind: "include" });
       }
@@ -78,11 +79,11 @@ function referencesOf(ws: Workspace, file: string, token: Token): Reference[] {
     }
     case "binding-prop":
     case "binding-value": {
-      const held = byKey(ws, token.key);
+      const held = heldFromManifest(ws, file, token.key);
       return held ? propReferences(ws, held, token.prop) : [];
     }
     case "binding-key": {
-      const held = byKey(ws, keyOf(token));
+      const held = heldFromManifest(ws, file, keyOf(token));
       return held ? blockReferences(ws, held) : [];
     }
     case "include": {
@@ -95,10 +96,19 @@ function referencesOf(ws: Workspace, file: string, token: Token): Reference[] {
   }
 }
 
-/** A manifest key names whichever open copy `byBlockId` holds. */
-function byKey(ws: Workspace, key: string): HeldBlock | null {
-  const held = ws.analysis().byBlockId.get(key);
-  return held ? { key, ...held } : null;
+/** The block a manifest's `<plugin>:<block id>` key names in the copy of that plugin the manifest resolves through. */
+export function heldFromManifest(ws: Workspace, manifest: string, key: string): HeldBlock | null {
+  const colon = key.indexOf(":");
+  if (colon < 0) return null;
+  const plugin = ws.rootsFor([manifest]).byName[key.slice(0, colon)];
+  if (!plugin) return null;
+  const id = key.slice(colon + 1);
+  for (const [dir, tree] of ws.analysis().trees) {
+    if (!tree || ws.pluginAt(dir)?.dir !== plugin.dir) continue;
+    const block = tree.byId.get(id);
+    if (block) return { key, tree, block };
+  }
+  return null;
 }
 
 /** Where an include in `file` resolves, as definition resolves it: the mattstack plugin those files see. */
