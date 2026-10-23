@@ -7,6 +7,7 @@ import { completionsAt, type Completion } from "./completion.ts";
 import { definitionAt } from "./definition.ts";
 import { publishable } from "./diagnostics.ts";
 import { hoverAt } from "./hover.ts";
+import { referencesAt, toLocations } from "./references.ts";
 import { Workspace } from "./workspace.ts";
 
 export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }];
@@ -87,6 +88,7 @@ export function startServer(opts: { roots: string[] }): void {
         textDocumentSync: TextDocumentSyncKind.Incremental,
         hoverProvider: true,
         definitionProvider: true,
+        referencesProvider: true,
         completionProvider: { triggerCharacters: COMPLETION_TRIGGERS },
       },
       serverInfo: { name: "rt skills lsp" },
@@ -118,6 +120,12 @@ export function startServer(opts: { roots: string[] }): void {
     const file = pathOf(textDocument.uri);
     if (!ws || !file || !isSkillFile(file)) return [];
     return definitionAt(ws, file, position);
+  });
+
+  connection.onReferences(({ textDocument, position, context }) => {
+    const file = pathOf(textDocument.uri);
+    if (!ws || !file || !isSkillFile(file)) return [];
+    return toLocations(referencesAt(ws, file, position), context.includeDeclaration);
   });
 
   connection.onCompletion(({ textDocument, position }) => {

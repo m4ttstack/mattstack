@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { logCliEvent } from "../../cli-logger.ts";
 import { walk } from "../blocks/tree.ts";
 import { loadInclude } from "../sources.ts";
-import { blockIn, loadFill } from "./lookup.ts";
+import { blockIn, lineRange, loadFill } from "./lookup.ts";
 import { lineRegions, tokenAt, tokensIn, type Position, type Range, type Token } from "./positions.ts";
 import type { Workspace } from "./workspace.ts";
 
@@ -99,10 +99,4 @@ function titleLine(text: string): number {
   if (title >= 0) return title;
   const body = regions.indexOf("body");
   return body < 0 ? 0 : body;
-}
-
-function lineRange(text: string, line: number): Range {
-  const row = text.split("\n")[line] ?? "";
-  const start = row.length - row.trimStart().length;
-  return { start: { line, character: start }, end: { line, character: row.trimEnd().length } };
 }
