@@ -2,13 +2,9 @@
 // zone declares this repo, so rt skills materialize never writes a per-pack
 // bindings file for it; rt skills compile reads a standalone pack's
 // pack/skills.jsonc directly. Schema: plugin/schemas/skills-manifest.schema.json
+// It binds nothing: shepherdr's tiering, strategy and accounts fills are its
+// props' defaults (attachments/orchestration/shepherdr/index.block.md).
 {
-  "version": 1,
-  "bindings": {
-    "mattstack:shepherdr": {
-      "tiering": "mattstack:model-tiering",
-      "strategy": "mattstack:execution-strategy",
-      "accounts": "mattstack:cswap-accounts"
-    }
-  }
+  "version": 2,
+  "bindings": {}
 }
