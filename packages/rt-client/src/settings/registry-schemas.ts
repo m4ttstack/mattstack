@@ -12,6 +12,8 @@ const snapshot = { enabled: z.boolean(), debounceSec: z.number(), pushDelaySec: 
 
 const stringMap = z.record(z.string(), z.string());
 
+const soundId = z.string().regex(/^(original|none|sober\/10[1-4]|macos\/[^/]+|custom\/[^/]+)$/);
+
 const role = z.looseObject({
   pool: z.array(z.union([z.number(), z.looseObject({ from: z.number(), to: z.number() })])).optional(),
   fixedPort: z.number().optional(),
@@ -153,6 +155,11 @@ export const SCHEMAS = {
       .optional(),
     hint: z.string().meta({ title: "Hint", description: "Appended to every usage notification" }).optional(),
   }),
+  "rt.notify.sounds": z.looseObject({
+    neutral: soundId.meta({ title: "Neutral", description: "Comments, rebases, mentions" }),
+    positive: soundId.meta({ title: "Positive", description: "Passed, approved, merged" }),
+    warning: soundId.meta({ title: "Warning", description: "Failed, conflicts, errors" }),
+  }).partial(),
   "rt.cron": z.looseObject({ triggers: z.array(cronTrigger).optional() }),
   "rt.repoTracking": z.record(z.string(), trackingEntry),
   "rt.runaway": z.looseObject({ cpuThreshold: z.number().optional(), sustainMs: z.number().optional(), graceMs: z.number().optional() }),
