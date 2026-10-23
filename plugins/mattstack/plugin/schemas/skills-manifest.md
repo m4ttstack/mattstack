@@ -34,18 +34,40 @@ fragment, then the user's overrides. Later layers win per slot.
 
 | key | type | consumed by |
 |---|---|---|
-| `version` | const `1` | everyone; the only required key |
+| `version` | `1` or `2` (see Versions) | everyone; the only required key |
 | `extends` | bare base pack name (`"acme-base"`) | `rt skills materialize` and `rt skills compile`; fragment only (`pack/skills.jsonc`), never in a generated file. Names a folder under the org's `mattstack/org/packs/`; the base pack's bindings layer under this pack's, one level, overridden slot by slot |
 | `base` | boolean | `rt skills materialize`; fragment only. `true` marks the org's base pack at `mattstack/org/packs/<name>/`: it never claims a repo, gets no bindings file of its own, and is never installed, so its fills (under `attachments/`) are inlined by each team's compile, except a fill only `board:*` slots bind, which compile copies into the team pack (at `plugin/attachments/<name>/`) for the board to open. Materialize reads it from the org folder, so its bindings reach every Mac at once; compiled fills follow at the team owner's next compile |
 | `skills.enabled` | array of skill names | documentation in phase 1 |
 | `pipelines` | pipeline name -> its stages: a plain list of stage-skill names, or `{ "stages": [...], "bindings": { <wrapper> -> { slot -> inner skill } } }` whose `bindings` override the top-level ones per slot for that pipeline only. A pipeline binding value may be `""`, which unbinds that slot for that pipeline only; the schema's top-level `bindings` keep the skill-name pattern. A pipeline a work verb runs starts with `stage-provision`, ends with `stage-watch-ci`, and includes `stage-implement` and `stage-ship`; any other pipeline takes any order the chain check accepts. A pipeline with overrides, or one a work verb names, matches `^[a-z][a-z0-9-]*$`, and must not contain `--`, the separator of `<stage>--<pipeline>` copies. Plain lists nothing names are exempt, and the schema allows `--` only in that plain-list form | `rt skills compile` (stage roster, and a `<stage>--<pipeline>` stage copy where a pipeline's fills differ); not resolved at run time |
-| `bindings` | wrapper name -> { slot -> inner skill name } | `resolve-args.sh` (phase 1) |
+| `bindings` | wrapper name -> { slot -> inner skill name }; in version 2 also `<engine ref>/<block path>` -> { prop -> value } | `resolve-args.sh` (phase 1); `rt skills compile` for block keys and props |
+| `layered` | version 2, generated file only: `<engine ref>[/<block path>]` -> { prop -> [ { `layer`, `value` }, ... ] } | `rt skills compile`; holds every layer's value, in layer order, for a prop more than one layer bound |
 
 Skill names are `name` or `prefix:name` (`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`).
 For lookup, the resolver tries the literal directory
 `<skills-dir>/<name>/SKILL.md` first (prefixed symlink installs), then
 treats `prefix:name` as plugin `prefix` + skill `name` against the
 enabled plugins in `claude plugin list --json`.
+
+## Versions
+
+Version 1 is today's slot manifest. Version 2 adds three forms for
+block-tree engines:
+
+- A block-path key: `"mattstack:ship/flow/fast-checks": { "rules": ... }`
+  binds the props of one block of the `ship` engine. A key with no path
+  binds the engine's root block, or a slot engine's slots as before.
+- A per-file value: `plugin:skill/file` names `<skill dir>/<file>.md`,
+  whose skill's `SKILL.md` is frontmatter only. A prop value is
+  `plugin:skill`, `plugin:skill/file`, or `""` to clear the layers below it.
+- `layered`, at the top level and in a pipeline's object form: each prop
+  several layers bound, as every layer's value in layer order. A prop one
+  layer bound appears only in `bindings`, its layer in the provenance
+  comment.
+
+A pack fragment that uses a block-path key or a per-file value says
+`"version": 2`. `rt skills materialize` writes `2` only when the generated
+file needs one of these forms, so a slot-only manifest stays version 1
+byte for byte.
 
 ## Validation
 
@@ -54,8 +76,9 @@ python dependency is assumed). The runnable gate is jq-structural:
 
 ```bash
 sed 's|^[[:space:]]*//.*$||' .mattstack/skills.jsonc | jq -e '
-  (.version == 1)
+  (.version == 1 or .version == 2)
   and ((.bindings // {}) | all(type == "object" and all(type == "string")))
+  and ((.layered // {}) | all(type == "object" and all(type == "array")))
   and ((.pipelines // {}) | all(type == "array" or (type == "object" and ((.stages // []) | type == "array") and ((.bindings // {}) | type == "object"))))
   and (((.skills // {}).enabled // []) | all(type == "string"))
 ' > /dev/null
