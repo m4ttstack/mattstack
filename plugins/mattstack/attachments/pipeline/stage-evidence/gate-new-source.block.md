@@ -1,5 +1,6 @@
 ---
 node: gate_new_source
+kind: gate
 ---
 
 # Off-script gate: a new data source

@@ -1,5 +1,6 @@
 ---
 node: gate_mark_ready
+kind: gate
 ---
 
 # ship gate mark-ready

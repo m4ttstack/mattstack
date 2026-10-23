@@ -1,5 +1,6 @@
 ---
 node: gate_off_script_script
+kind: gate
 ---
 
 # Open the review off-script gate: a review script refused

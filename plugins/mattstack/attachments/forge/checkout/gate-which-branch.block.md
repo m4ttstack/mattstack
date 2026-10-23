@@ -1,5 +1,6 @@
 ---
 node: gate_which_branch
+kind: gate
 ---
 
 # Gate clarify: which branch

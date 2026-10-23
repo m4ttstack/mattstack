@@ -1,5 +1,6 @@
 ---
 node: gate_resume_choice
+kind: gate
 ---
 
 # Gate review clarify: Resume / Start fresh / Hold

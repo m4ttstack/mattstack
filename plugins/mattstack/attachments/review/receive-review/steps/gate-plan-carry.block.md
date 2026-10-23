@@ -1,5 +1,6 @@
 ---
 node: gate_plan_carry
+kind: gate
 ---
 
 # Gate respond-plan: carry the opened gate through gate-protocol

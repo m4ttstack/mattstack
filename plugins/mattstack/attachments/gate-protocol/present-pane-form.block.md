@@ -1,5 +1,6 @@
 ---
 node: present_pane_form
+kind: gate
 ---
 
 # Present the in-pane gate form

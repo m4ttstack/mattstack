@@ -1,5 +1,6 @@
 ---
 node: present_form_no_registry
+kind: gate
 ---
 
 # Present the gate form with no registry

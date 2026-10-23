@@ -1,5 +1,6 @@
 ---
 node: gate_stage_failed
+kind: gate
 ---
 
 # Gate <stage>-failed:<attempt>

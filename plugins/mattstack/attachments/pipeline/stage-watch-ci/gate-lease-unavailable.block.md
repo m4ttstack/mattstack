@@ -1,5 +1,6 @@
 ---
 node: gate_lease_unavailable
+kind: gate
 ---
 
 # Off-script gate: lease_unavailable

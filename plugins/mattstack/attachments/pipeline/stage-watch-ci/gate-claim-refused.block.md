@@ -1,5 +1,6 @@
 ---
 node: gate_claim_refused
+kind: gate
 ---
 
 # Off-script gate: ci_lease_claim refused (GitHub)

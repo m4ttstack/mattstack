@@ -1,5 +1,6 @@
 ---
 node: open_off_script_gate
+kind: gate
 ---
 
 # Open the self-review off-script gate: a fill asks for a move this graph forbids

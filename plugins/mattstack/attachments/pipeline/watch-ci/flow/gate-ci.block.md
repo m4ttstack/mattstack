@@ -1,5 +1,6 @@
 ---
 node: gate_ci
+kind: gate
 ---
 
 # watch-ci gate ci

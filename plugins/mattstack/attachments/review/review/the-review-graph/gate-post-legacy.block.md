@@ -1,5 +1,6 @@
 ---
 node: gate_post_legacy
+kind: gate
 ---
 
 # Gate review-post, legacy: tiers, outcome and next

@@ -1,5 +1,6 @@
 ---
 order: 2
+kind: gate
 props:
   rules:
     merge: add

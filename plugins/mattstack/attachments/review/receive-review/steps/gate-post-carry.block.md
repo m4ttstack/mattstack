@@ -1,5 +1,6 @@
 ---
 node: gate_post_carry
+kind: gate
 ---
 
 # Gate respond-post: carry the opened gate through gate-protocol

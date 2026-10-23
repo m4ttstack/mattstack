@@ -1,5 +1,6 @@
 ---
 node: gate_off_script_execute
+kind: gate
 ---
 
 # Off-script gate: respond_post_execute refused

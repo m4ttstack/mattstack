@@ -1,5 +1,6 @@
 ---
 node: ask_integration_strategy
+kind: gate
 ---
 
 # Ask the integration job's strategy and model

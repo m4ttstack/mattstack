@@ -1,5 +1,6 @@
 ---
 node: gate_off_script_plan_fit
+kind: gate
 ---
 
 # Off-script gate: the respond-plan open will not fit

@@ -1,5 +1,6 @@
 ---
 node: gate_merge_lane
+kind: gate
 ---
 
 # Gate: merge this lane?

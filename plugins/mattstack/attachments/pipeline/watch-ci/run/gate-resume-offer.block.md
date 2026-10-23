@@ -1,5 +1,6 @@
 ---
 node: gate_resume_offer
+kind: gate
 ---
 
 # watch-ci gate clarify: the Resume offer

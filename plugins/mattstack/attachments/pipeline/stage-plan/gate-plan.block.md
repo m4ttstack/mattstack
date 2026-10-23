@@ -1,5 +1,6 @@
 ---
 node: gate_plan
+kind: gate
 props:
   rules:
     merge: add

@@ -1,5 +1,6 @@
 ---
 order: 9
+kind: gate
 ---
 
 # Gate evidence-redaction (below)

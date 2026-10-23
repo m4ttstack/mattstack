@@ -1,5 +1,6 @@
 ---
 node: gate_watch_refused
+kind: gate
 ---
 
 # watch-ci off-script gate: ci_watch refused

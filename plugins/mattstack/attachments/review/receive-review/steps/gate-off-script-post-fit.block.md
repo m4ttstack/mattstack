@@ -1,5 +1,6 @@
 ---
 node: gate_off_script_post_fit
+kind: gate
 ---
 
 # Off-script gate: the respond-post open will not fit

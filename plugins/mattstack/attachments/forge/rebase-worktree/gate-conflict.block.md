@@ -1,5 +1,6 @@
 ---
 node: gate_conflict
+kind: gate
 ---
 
 # Gate conflict:rebase-worktree:<attempt>

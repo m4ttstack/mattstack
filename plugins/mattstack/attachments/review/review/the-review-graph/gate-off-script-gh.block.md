@@ -1,5 +1,6 @@
 ---
 node: gate_off_script_gh
+kind: gate
 ---
 
 # Open the review off-script gate: gh pr review refused

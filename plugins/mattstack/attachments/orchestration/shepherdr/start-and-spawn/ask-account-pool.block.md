@@ -1,5 +1,6 @@
 ---
 node: ask_account_pool
+kind: gate
 ---
 
 # Ask the account pool question

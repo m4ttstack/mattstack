@@ -1,5 +1,6 @@
 ---
 order: 7
+kind: gate
 ---
 
 # Ask the developer to sign in

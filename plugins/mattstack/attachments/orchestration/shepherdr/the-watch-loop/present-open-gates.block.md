@@ -1,5 +1,6 @@
 ---
 node: present_open_gates
+kind: gate
 ---
 
 # Present the open gates

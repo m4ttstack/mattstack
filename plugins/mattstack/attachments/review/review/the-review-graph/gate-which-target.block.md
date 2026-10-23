@@ -1,5 +1,6 @@
 ---
 node: gate_which_target
+kind: gate
 ---
 
 # Gate review clarify: which target?

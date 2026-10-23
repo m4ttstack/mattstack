@@ -1,5 +1,6 @@
 ---
 node: ask_strategy_model
+kind: gate
 props:
   rules:
     merge: add

@@ -1,5 +1,6 @@
 ---
 node: gate_which_forge
+kind: gate
 ---
 
 # Gate clarify: which forge?

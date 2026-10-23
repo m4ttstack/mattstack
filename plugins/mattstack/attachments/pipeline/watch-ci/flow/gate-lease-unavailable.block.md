@@ -1,5 +1,6 @@
 ---
 node: gate_lease_unavailable
+kind: gate
 ---
 
 # watch-ci off-script gate: lease_unavailable

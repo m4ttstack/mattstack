@@ -1,5 +1,6 @@
 ---
 node: gate_resume_offer
+kind: gate
 ---
 
 # ship gate clarify: the Resume offer

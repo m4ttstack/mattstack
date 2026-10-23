@@ -1,5 +1,6 @@
 ---
 node: gate_requirements_source
+kind: gate
 ---
 
 # Gate self-review clarify: which requirements source?

@@ -359,7 +359,7 @@ keep it out of the user's checkout, and the delegator rules then do not
 apply. Apply a bound domain part's single-worker exception if it names one.
 A later job for a live herd is never this case.
 
-<!-- part: block:shepherdr/start-and-spawn/ask-strategy-model source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/ask-strategy-model.block.md lines=9-35 -->
+<!-- part: block:shepherdr/start-and-spawn/ask-strategy-model source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/ask-strategy-model.block.md lines=10-36 -->
 ### Ask the strategy and model per job
 
 Strategy predicts the work shape, and the shape predicts the tier: one
@@ -386,7 +386,7 @@ the strategy (its method skill is the brief's Method); the recommendation
 starts at the floor, the pin is a fixed half, and a spawn below the floor
 is wrong.
 
-<!-- part: block:shepherdr/start-and-spawn/ask-account-pool source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/ask-account-pool.block.md lines=5-8 -->
+<!-- part: block:shepherdr/start-and-spawn/ask-account-pool source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/ask-account-pool.block.md lines=6-9 -->
 ### Ask the account pool question
 
 Ask it once per herd, after the models are chosen: per-model pools
@@ -425,7 +425,7 @@ worker's skill chain.
 Never copy the template or the strategies file elsewhere to get past a
 refusal; the retry budget hands a stubborn one to the off-script gate.
 
-<!-- part: block:shepherdr/start-and-spawn/shepherd-off-script source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/shepherd-off-script.block.md lines=5-23 -->
+<!-- part: block:shepherdr/start-and-spawn/shepherd-off-script source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/shepherd-off-script.block.md lines=6-24 -->
 ### Shepherd off-script gate: ask the user
 
 Every unresolved refusal and spent budget, in all three graphs, lands
@@ -708,7 +708,7 @@ pane or scrollback. Your room posts
 deliver as `@here` and wake every worker, so a question for one worker is a
 DM.
 
-<!-- part: block:shepherdr/the-watch-loop/present-open-gates source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/present-open-gates.block.md lines=5-26 -->
+<!-- part: block:shepherdr/the-watch-loop/present-open-gates source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/present-open-gates.block.md lines=6-27 -->
 ### Present the open gates
 
 Present up to 4 open gates in one AskUserQuestion call. Options are the
@@ -754,7 +754,7 @@ pick is the `account` on `herd_respawn`. Announce the respawn.
 Single-account mode, or an expired login with no pool (only the user's
 `/login` fixes it). Name the job, its pane and the verdict.
 
-<!-- part: block:shepherdr/the-watch-loop/ask-attend-respawn source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/ask-attend-respawn.block.md lines=5-9 -->
+<!-- part: block:shepherdr/the-watch-loop/ask-attend-respawn source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/ask-attend-respawn.block.md lines=6-10 -->
 ### Ask: attend or respawn
 
 A dialog the watchdog could not clear parks the job (`stuck-at-modal`).
@@ -776,7 +776,7 @@ them (the diagnosis reason, or the parked dialog).
 The pane died with the job live. Tell the user both; never respawn
 silently.
 
-<!-- part: block:shepherdr/the-watch-loop/ask-finish-kill-hold source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/ask-finish-kill-hold.block.md lines=5-9 -->
+<!-- part: block:shepherdr/the-watch-loop/ask-finish-kill-hold source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/ask-finish-kill-hold.block.md lines=6-10 -->
 ### Ask: let them finish, kill and respawn, or hold
 
 One sentence naming the running agents, then the bare three options:
@@ -946,7 +946,7 @@ are routinely stale. Measure first
 (`rt_verb {args: ["endpoint", "lookup", "<role>", "--path", "<the job's worktree>"]}`,
 `curl`, `lsof`, a CI status call), or attribute it: "the worker reports X".
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/ask-integration-strategy source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/ask-integration-strategy.block.md lines=5-10 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/ask-integration-strategy source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/ask-integration-strategy.block.md lines=6-11 -->
 ### Ask the integration job's strategy and model
 
 One AskUserQuestion like every job's: the tier table's integration row is
@@ -954,7 +954,7 @@ the recommendation, the strategy half from the strategy table. With the
 Accounts section non-empty, keep the herd's pool answer and pass the
 per-spawn pick as `account`.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/gate-merge-lane source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-merge-lane.block.md lines=5-9 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/gate-merge-lane source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-merge-lane.block.md lines=6-10 -->
 ### Gate: merge this lane?
 
 Only when a bound domain part gives the shepherd the merge. One sentence
@@ -982,7 +982,7 @@ Reformat `herd_status {herd}`, flagging failures and the latest
 | api tests | w3:p1 | 2 | direct-tdd | done | A1-A4 done, 12 tests, suite green |
 ```
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/gate-wrap-up-form source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-wrap-up-form.block.md lines=5-16 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/gate-wrap-up-form source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-wrap-up-form.block.md lines=6-17 -->
 ### Gate wrap-up: the form contract
 
 One form, per the wrap-up form contract below:

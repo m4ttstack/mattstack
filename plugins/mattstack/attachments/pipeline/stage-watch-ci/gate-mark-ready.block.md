@@ -1,5 +1,6 @@
 ---
 node: gate_mark_ready
+kind: gate
 ---
 
 # Gate mark-ready

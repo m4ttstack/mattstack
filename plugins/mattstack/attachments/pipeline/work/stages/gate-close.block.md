@@ -1,5 +1,6 @@
 ---
 node: gate_close
+kind: gate
 ---
 
 # Gate close
