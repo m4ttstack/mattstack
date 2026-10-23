@@ -1,6 +1,6 @@
 ---
 name: cswap-accounts
-description: "cswap provider for the account-pool@1 contract: given a herd's model mix and the accounts already assigned this run, names where to launch the next worker. Reached through a wrapper's accounts slot; not for direct invocation."
+description: "cswap provider for the account-pool@1 contract: given a herd's model mix and the accounts already assigned this run, names where to launch the next worker. Reached through shepherdr's accounts prop, whose default it is; not for direct invocation."
 disable-model-invocation: true
 allowed-tools:
   - Bash(*/scripts/pick-account.py:*)

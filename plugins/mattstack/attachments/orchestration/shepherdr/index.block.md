@@ -50,7 +50,8 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 ## Domain rules
 
-`domain` is optional. A bound domain part's rules win over this engine's
+Domain rules are optional: a pack binds them to the `rules` prop, here or
+on a step's own block. A bound domain part's rules win over this engine's
 default only at the **Domain hook** paragraphs below: intake, the model
 floor and strategy pin, provisioning (the `Domain provisions the tree?`
 branch), the Method copy, conventions, what follows a job's report, and

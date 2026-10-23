@@ -1,6 +1,6 @@
 ---
 name: ci-forge-gitlab
-description: "Forge adapter: GitLab implementation of ci-forge@1 for the watch-ci stage's forge slot. Reached only through a slot binding; not for direct invocation."
+description: "Forge adapter: GitLab implementation of ci-forge@1 for the forge prop of watch-ci and stage-watch-ci. Reached only through a binding to that prop; not for direct invocation."
 disable-model-invocation: true
 metadata:
   provides: "ci-forge@1"
