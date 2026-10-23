@@ -7,8 +7,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/SKILL.md lines=7-67 -->
-
+<!-- part: block:writing-style-structured source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/index.block.md lines=7-13 -->
 # Structured
 
 Clear and scannable, for teams that like formal write-ups. Every point is
@@ -71,6 +70,7 @@ The preset sets the voice; these set the floor.
   notes. It never recaps a finding, lists strengths, or reports what you ran.
   A finding with no line to anchor to is its own top-level comment.
 
+<!-- part: block:writing-style-structured/voice source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/voice.block.md lines=5-15 -->
 ## Voice
 
 - **Sentence case**, complete but short sentences.
@@ -83,6 +83,7 @@ The preset sets the voice; these set the floor.
 Compression target: every line earns its label. Cut any line a reader could
 skip without missing the ask.
 
+<!-- part: block:writing-style-structured/review-findings source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/review-findings.block.md lines=5-22 -->
 ## Review findings
 
 Open with a bolded Conventional Comments label, never a code span, then
@@ -102,11 +103,13 @@ const pageCount = Math.ceil(total / pageSize);
 Use only the lines that carry something: a `nitpick` is the label and one
 line. A process ask is one line.
 
+<!-- part: block:writing-style-structured/review-summary source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/review-summary.block.md lines=5-8 -->
 ## Review summary
 
 One line: `No blockers. Inline notes on paging and tests.` Only a blocker
 joins it: `One blocker inline (page count).`
 
+<!-- part: block:writing-style-structured/replies-on-your-own-pr source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/replies-on-your-own-pr.block.md lines=5-11 -->
 ## Replies on your own PR
 
 One or two sentences, plain and direct. No thanks opener. State the outcome
@@ -115,10 +118,12 @@ first.
 - `Changed to Record<Status, string>.`
 - `Skipping the lock: the job runs on one worker, and a lock adds a round trip per write.`
 
+<!-- part: block:writing-style-structured/pr-descriptions source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/pr-descriptions.block.md lines=5-7 -->
 ## PR descriptions
 
 Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting.
 
+<!-- part: block:writing-style-structured/commit-messages source=mattstack:writing-style-structured version=0.32.21 path=attachments/writing-style/writing-style-structured/commit-messages.block.md lines=5-9 -->
 ## Commit messages
 
 - Subject: imperative, sentence case, under 72 characters, with the ticket

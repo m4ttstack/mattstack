@@ -7,8 +7,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/SKILL.md lines=7-72 -->
-
+<!-- part: block:writing-style-conversational source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/index.block.md lines=7-12 -->
 # Conversational
 
 Short, friendly, and plain, like talking to a teammate across a desk. Load
@@ -70,6 +69,7 @@ The preset sets the voice; these set the floor.
   notes. It never recaps a finding, lists strengths, or reports what you ran.
   A finding with no line to anchor to is its own top-level comment.
 
+<!-- part: block:writing-style-conversational/voice source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/voice.block.md lines=5-17 -->
 ## Voice
 
 - **Sentence case** everywhere, with contractions.
@@ -84,6 +84,7 @@ The preset sets the voice; these set the floor.
 Compression target: would this read naturally if you said it out loud to the
 author? Cut anything you would not say.
 
+<!-- part: block:writing-style-conversational/review-findings source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/review-findings.block.md lines=5-24 -->
 ## Review findings
 
 Open with a bolded Conventional Comments label, never a code span
@@ -105,11 +106,13 @@ const pageCount = Math.ceil(total / pageSize);
 A process ask is one line that leads with the approval if there is one:
 `**suggestion:** Looks good! Could you add a test for the empty-list case?`
 
+<!-- part: block:writing-style-conversational/review-summary source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/review-summary.block.md lines=5-8 -->
 ## Review summary
 
 One line: `Looks good to me, no blockers. Left a few comments inline.` Only a
 blocker joins it.
 
+<!-- part: block:writing-style-conversational/replies-on-your-own-pr source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/replies-on-your-own-pr.block.md lines=5-13 -->
 ## Replies on your own PR
 
 One to three short sentences. No sign-offs; thank someone only if they
@@ -120,10 +123,12 @@ matters.
 - `Good call, switched to Record<Status, string>.`
 - `I'd skip the lock for now. The job runs on one worker, and a lock adds a round trip per write.`
 
+<!-- part: block:writing-style-conversational/pr-descriptions source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/pr-descriptions.block.md lines=5-7 -->
 ## PR descriptions
 
 Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting.
 
+<!-- part: block:writing-style-conversational/commit-messages source=mattstack:writing-style-conversational version=0.32.21 path=attachments/writing-style/writing-style-conversational/commit-messages.block.md lines=5-9 -->
 ## Commit messages
 
 - Subject: imperative, sentence case, under 72 characters, with the ticket

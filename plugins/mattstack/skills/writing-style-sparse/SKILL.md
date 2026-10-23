@@ -7,8 +7,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/SKILL.md lines=7-108 -->
-
+<!-- part: block:writing-style-sparse source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/index.block.md lines=7-13 -->
 # Sparse
 
 Terse and conversational. The reader is a colleague who can follow a chain
@@ -71,6 +70,7 @@ The preset sets the voice; these set the floor.
   notes. It never recaps a finding, lists strengths, or reports what you ran.
   A finding with no line to anchor to is its own top-level comment.
 
+<!-- part: block:writing-style-sparse/voice source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/voice.block.md lines=5-21 -->
 ## Voice
 
 - **Lowercase for technical content**: findings, assertions, code talk.
@@ -89,6 +89,7 @@ Compression target: shorter and more conversational. Ask "would a busy
 teammate send this as written, or trim it first?" If there is any doubt,
 trim.
 
+<!-- part: block:writing-style-sparse/review-findings source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/review-findings.block.md lines=5-49 -->
 ## Review findings
 
 Open with a bolded Conventional Comments label, never a code span:
@@ -135,12 +136,14 @@ A brief, specific credit is fine folded in after the worry, never as the
 opener: `**thought (non-blocking):** only worry here: nothing tests the
 fallback. the version's pinned now, nice catch.`. A bare compliment is not.
 
+<!-- part: block:writing-style-sparse/review-summary source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/review-summary.block.md lines=5-9 -->
 ## Review summary
 
 One line, sentence case: `Looks solid to me, no blockers. Left a few inline
 notes.` or `Left a few comments!` Only a blocker may join it: `Left one
 blocker inline.`
 
+<!-- part: block:writing-style-sparse/replies-on-your-own-pr source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/replies-on-your-own-pr.block.md lines=5-17 -->
 ## Replies on your own PR
 
 Very short. No sign-offs, no thanks unless they thanked first. Soften even
@@ -155,11 +158,13 @@ blank-line paragraphs.
 - `i don't think we need a lock here. the job runs on one worker, and a lock adds a round trip per write.`
 - `👍`
 
+<!-- part: block:writing-style-sparse/pr-descriptions source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/pr-descriptions.block.md lines=5-8 -->
 ## PR descriptions
 
 Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting. It carries the
 length target, the structure, and the anti-patterns.
 
+<!-- part: block:writing-style-sparse/commit-messages source=mattstack:writing-style-sparse version=0.32.21 path=attachments/writing-style/writing-style-sparse/commit-messages.block.md lines=5-9 -->
 ## Commit messages
 
 - Subject: lowercase, imperative, under 72 characters, prefixed with the

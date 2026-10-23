@@ -1033,8 +1033,8 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.32.21 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
-# Wrap-up
+<!-- part: block:wrap-up-form source=mattstack:wrap-up-form version=0.32.21 path=attachments/wrap-up-form/index.block.md lines=7-33 -->
+### Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
 for the answers before doing more work.

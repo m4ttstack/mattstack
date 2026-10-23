@@ -7,8 +7,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:wrap-up-form version=0.32.21 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
-
+<!-- part: block:wrap-up-form source=mattstack:wrap-up-form version=0.32.21 path=attachments/wrap-up-form/index.block.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
