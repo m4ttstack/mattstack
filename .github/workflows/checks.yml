@@ -321,6 +321,17 @@ jobs:
           { grep -rl --null -E "$DOT" --include='*.md' . || [ $? -eq 1 ]; } \
             | { grep -zvE '^(\./)?(skills|plugin/skills|attachments)/' || [ $? -eq 1 ]; } \
             | sort -z | xargs -0 -r python3 "$CHECK"
+      # Engine graphs are split across block files, so only compiled output holds a whole graph.
+      - name: Compiled skills and attachments pass check-dot (warnings fail)
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/mattstack"
+          cp -R plugins/mattstack "$RUNNER_TEMP/pack"
+          bun cli.ts skills compile --pack-dir "$RUNNER_TEMP/pack" --mattstack-dir "$RUNNER_TEMP/mattstack"
+          DOT='^[[:space:]]*```dot[[:space:]]*$'
+          # The checker fails a file with no graph, and compiled stages and wrap-ups have none. grep exits 1 on no match.
+          { grep -rl --null -E "$DOT" --include=SKILL.md "$RUNNER_TEMP/pack/skills" "$RUNNER_TEMP/pack/plugin/skills" "$RUNNER_TEMP/pack/attachments" || [ $? -eq 1 ]; } \
+            | sort -z | xargs -0 -r python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py --short-ids
       - name: Certify every skill and attachment dir
         working-directory: plugins/mattstack
         run: |
