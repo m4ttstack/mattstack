@@ -1,6 +1,7 @@
 ---
 node: gate_evidence_boards
 kind: gate
+label: Evidence boards
 ---
 
 # Gate evidence-boards (below)

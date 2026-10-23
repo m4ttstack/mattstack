@@ -1,5 +1,6 @@
 ---
 node: stacked_after_ship
+label: Ship already pushed
 ---
 
 # Ship already pushed this attempt (position is watch-ci)?

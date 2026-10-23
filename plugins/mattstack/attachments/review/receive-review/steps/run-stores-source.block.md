@@ -1,5 +1,6 @@
 ---
 node: run_stores_source
+label: Stored plan source
 ---
 
 # The run stores a respond-plan source for the handed plan?

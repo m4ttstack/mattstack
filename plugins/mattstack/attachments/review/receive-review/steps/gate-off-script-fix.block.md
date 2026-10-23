@@ -1,6 +1,7 @@
 ---
 node: gate_off_script_fix
 kind: gate
+label: Fix did not converge
 ---
 
 # Off-script gate: the thread's fix did not converge

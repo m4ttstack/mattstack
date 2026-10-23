@@ -1,6 +1,7 @@
 ---
 node: gate_fix_and_next
 kind: gate
+label: Fix and next
 ---
 
 # Gate self-review: fix and next, after the draft

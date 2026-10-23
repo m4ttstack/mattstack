@@ -1,6 +1,7 @@
 ---
 node: gate_retry_refused
 kind: gate
+label: Retry refused
 ---
 
 # Off-script gate: mr_retry refused

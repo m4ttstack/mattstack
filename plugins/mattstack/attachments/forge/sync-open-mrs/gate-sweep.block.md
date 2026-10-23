@@ -1,6 +1,7 @@
 ---
 node: gate_sweep
 kind: gate
+label: Sweep gate
 ---
 
 # Gate sweep

@@ -1,5 +1,6 @@
 ---
 node: keep_unresolved_human
+label: Keep human threads
 ---
 
 # Keep only unresolved human threads (GitHub)

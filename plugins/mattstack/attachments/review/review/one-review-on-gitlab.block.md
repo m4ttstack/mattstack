@@ -1,5 +1,6 @@
 ---
 order: 16
+label: One review on GitLab
 ---
 
 # On GitLab that one review is `mr_review_submit`

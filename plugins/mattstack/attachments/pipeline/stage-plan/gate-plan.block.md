@@ -1,6 +1,7 @@
 ---
 node: gate_plan
 kind: gate
+label: Plan gate
 props:
   rules:
     merge: add

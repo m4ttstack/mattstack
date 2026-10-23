@@ -1,5 +1,6 @@
 ---
 order: 1
+label: Check it out
 ---
 
 # 1. Check it out

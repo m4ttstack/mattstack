@@ -1,6 +1,7 @@
 ---
 node: gate_post_carry
 kind: gate
+label: Respond post
 ---
 
 # Gate respond-post: carry the opened gate through gate-protocol

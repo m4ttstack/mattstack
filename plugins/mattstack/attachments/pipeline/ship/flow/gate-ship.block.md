@@ -1,6 +1,7 @@
 ---
 node: gate_ship
 kind: gate
+label: Ship gate
 props:
   rules:
     merge: add

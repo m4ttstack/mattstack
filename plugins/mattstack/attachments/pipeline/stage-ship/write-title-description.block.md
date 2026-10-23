@@ -1,5 +1,6 @@
 ---
 node: write_title_description
+label: Write title
 props:
   rules:
     merge: add

@@ -1,5 +1,6 @@
 ---
 node: reopened_recapture
+label: Reopened for recapture
 ---
 
 # Reopened for a re-capture (ship)?

@@ -1,6 +1,7 @@
 ---
 node: gate_post_carry
 kind: gate
+label: Review post
 ---
 
 # Gate review-post: carry the opened gate through gate-protocol

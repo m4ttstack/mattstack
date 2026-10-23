@@ -1,6 +1,7 @@
 ---
 node: ask_finish_kill_hold
 kind: gate
+label: Finish, kill or hold
 ---
 
 # Ask: let them finish, kill and respawn, or hold

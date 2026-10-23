@@ -1,6 +1,7 @@
 ---
 node: gate_ci
 kind: gate
+label: CI gate
 ---
 
 # Gate ci

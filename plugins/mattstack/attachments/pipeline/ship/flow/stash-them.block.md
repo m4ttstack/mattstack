@@ -1,5 +1,6 @@
 ---
 node: stash_them
+label: Stash changes
 ---
 
 # Stash them (ship)

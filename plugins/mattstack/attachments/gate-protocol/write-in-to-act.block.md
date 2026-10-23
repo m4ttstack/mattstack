@@ -1,5 +1,6 @@
 ---
 node: write_in_to_act
+label: Write-in to act on
 ---
 
 # A write-in to act on (actOnWriteIn)?

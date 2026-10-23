@@ -1,5 +1,6 @@
 ---
 node: mr_create
+label: Create MR
 props:
   rules:
     merge: add

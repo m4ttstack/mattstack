@@ -1,6 +1,7 @@
 ---
 node: gate_off_script_pending
 kind: gate
+label: Pending comments
 ---
 
 # Open the review off-script gate: pending comments on the MR

@@ -1,6 +1,7 @@
 ---
 node: gate_evidence_waiver
 kind: gate
+label: Evidence waiver
 ---
 
 # Gate evidence-waiver (below)

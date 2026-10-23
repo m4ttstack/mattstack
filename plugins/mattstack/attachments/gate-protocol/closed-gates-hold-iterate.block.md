@@ -1,5 +1,6 @@
 ---
 order: 6
+label: Closed gates
 ---
 
 # Closed gates, Hold / Iterate

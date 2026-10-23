@@ -1,6 +1,7 @@
 ---
 node: gate_off_script_gh
 kind: gate
+label: GitHub review refused
 ---
 
 # Open the review off-script gate: gh pr review refused

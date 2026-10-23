@@ -1,6 +1,7 @@
 ---
 node: gate_push_refused
 kind: gate
+label: Push refused
 ---
 
 # Off-script gate: git_push refused

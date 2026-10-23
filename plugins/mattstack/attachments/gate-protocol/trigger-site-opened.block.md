@@ -1,5 +1,6 @@
 ---
 node: trigger_site_opened
+label: Site opened its gate
 ---
 
 # Trigger: a site opened its gate with gate_open

@@ -1,5 +1,6 @@
 ---
 node: needs_force_lease
+label: Needs force-with-lease
 ---
 
 # Push needs force-with-lease?

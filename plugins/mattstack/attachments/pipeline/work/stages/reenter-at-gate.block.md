@@ -1,5 +1,6 @@
 ---
 node: reenter_at_gate
+label: Re-enter at gate
 ---
 
 # Re-enter the stage at that gate's site

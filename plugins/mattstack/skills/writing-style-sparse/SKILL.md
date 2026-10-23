@@ -145,7 +145,7 @@ One line, sentence case: `Looks solid to me, no blockers. Left a few inline
 notes.` or `Left a few comments!` Only a blocker may join it: `Left one
 blocker inline.`
 
-<!-- part: block:writing-style-sparse/replies-on-your-own-pr source=mattstack:writing-style-sparse version=0.32.23 path=attachments/writing-style/writing-style-sparse/replies-on-your-own-pr.block.md lines=5-17 -->
+<!-- part: block:writing-style-sparse/replies-on-your-own-pr source=mattstack:writing-style-sparse version=0.32.23 path=attachments/writing-style/writing-style-sparse/replies-on-your-own-pr.block.md lines=6-18 -->
 ## Replies on your own PR
 
 Very short. No sign-offs, no thanks unless they thanked first. Soften even
@@ -160,7 +160,7 @@ blank-line paragraphs.
 - `i don't think we need a lock here. the job runs on one worker, and a lock adds a round trip per write.`
 - `👍`
 
-<!-- part: block:writing-style-sparse/pr-descriptions source=mattstack:writing-style-sparse version=0.32.23 path=attachments/writing-style/writing-style-sparse/pr-descriptions.block.md lines=5-8 -->
+<!-- part: block:writing-style-sparse/pr-descriptions source=mattstack:writing-style-sparse version=0.32.23 path=attachments/writing-style/writing-style-sparse/pr-descriptions.block.md lines=6-9 -->
 ## PR descriptions
 
 Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting. It carries the

@@ -1,5 +1,6 @@
 ---
 node: head_unchanged
+label: Head unchanged
 ---
 
 # Head still the old head?

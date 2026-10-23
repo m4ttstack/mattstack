@@ -1,6 +1,7 @@
 ---
 node: gate_off_script_submit
 kind: gate
+label: Submit refused
 ---
 
 # Open the review off-script gate: mr_review_submit refused

@@ -1,6 +1,7 @@
 ---
 node: gate_push_refused
 kind: gate
+label: Push refused
 ---
 
 # watch-ci off-script gate: git_push refused

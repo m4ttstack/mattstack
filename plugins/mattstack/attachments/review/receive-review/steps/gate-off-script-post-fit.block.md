@@ -1,6 +1,7 @@
 ---
 node: gate_off_script_post_fit
 kind: gate
+label: Post will not fit
 ---
 
 # Off-script gate: the respond-post open will not fit

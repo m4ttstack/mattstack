@@ -1,6 +1,7 @@
 ---
 order: 2
 kind: gate
+label: Provision gate
 props:
   rules:
     merge: add

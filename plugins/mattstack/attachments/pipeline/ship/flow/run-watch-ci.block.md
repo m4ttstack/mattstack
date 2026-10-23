@@ -1,5 +1,6 @@
 ---
 node: run_watch_ci
+label: Watch CI
 props:
   rules:
     merge: add

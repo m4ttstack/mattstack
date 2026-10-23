@@ -1,6 +1,7 @@
 ---
 node: gate_off_script
 kind: gate
+label: Off-script gate
 ---
 
 # Off-script gate

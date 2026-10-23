@@ -111,7 +111,7 @@ line. A process ask is one line.
 One line: `No blockers. Inline notes on paging and tests.` Only a blocker
 joins it: `One blocker inline (page count).`
 
-<!-- part: block:writing-style-structured/replies-on-your-own-pr source=mattstack:writing-style-structured version=0.32.23 path=attachments/writing-style/writing-style-structured/replies-on-your-own-pr.block.md lines=5-11 -->
+<!-- part: block:writing-style-structured/replies-on-your-own-pr source=mattstack:writing-style-structured version=0.32.23 path=attachments/writing-style/writing-style-structured/replies-on-your-own-pr.block.md lines=6-12 -->
 ## Replies on your own PR
 
 One or two sentences, plain and direct. No thanks opener. State the outcome
@@ -120,7 +120,7 @@ first.
 - `Changed to Record<Status, string>.`
 - `Skipping the lock: the job runs on one worker, and a lock adds a round trip per write.`
 
-<!-- part: block:writing-style-structured/pr-descriptions source=mattstack:writing-style-structured version=0.32.23 path=attachments/writing-style/writing-style-structured/pr-descriptions.block.md lines=5-7 -->
+<!-- part: block:writing-style-structured/pr-descriptions source=mattstack:writing-style-structured version=0.32.23 path=attachments/writing-style/writing-style-structured/pr-descriptions.block.md lines=6-8 -->
 ## PR descriptions
 
 Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting.

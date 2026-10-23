@@ -1,5 +1,6 @@
 ---
 node: read_handed_threads_gh
+label: Read handed threads
 ---
 
 # Read the handed plan's threads on GitHub with gh

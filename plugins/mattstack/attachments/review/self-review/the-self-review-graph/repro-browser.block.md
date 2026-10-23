@@ -1,5 +1,6 @@
 ---
 node: repro_browser
+label: Repro takes screenshot
 ---
 
 # Self-review repro takes a browser screenshot?

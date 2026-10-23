@@ -1,5 +1,6 @@
 ---
 order: 4
+label: Replies on your own PR
 ---
 
 # Replies on your own PR

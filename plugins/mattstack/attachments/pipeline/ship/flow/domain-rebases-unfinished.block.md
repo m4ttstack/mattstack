@@ -1,5 +1,6 @@
 ---
 node: domain_rebases_unfinished
+label: Rebases unfinished
 props:
   rules:
     merge: add

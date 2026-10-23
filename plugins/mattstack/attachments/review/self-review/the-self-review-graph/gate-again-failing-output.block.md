@@ -1,6 +1,7 @@
 ---
 node: gate_again_failing_output
 kind: gate
+label: Failing output
 ---
 
 # Gate self-review again: quote the failing output

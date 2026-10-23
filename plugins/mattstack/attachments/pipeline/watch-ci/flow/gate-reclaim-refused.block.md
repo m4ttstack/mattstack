@@ -1,6 +1,7 @@
 ---
 node: gate_reclaim_refused
 kind: gate
+label: Retry claim refused
 ---
 
 # watch-ci off-script gate: GitHub retry claim refused

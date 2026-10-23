@@ -1,6 +1,7 @@
 ---
 node: gate_off_script_forge
 kind: gate
+label: Forge refused
 ---
 
 # Off-script gate: the forge refused a reply or resolve

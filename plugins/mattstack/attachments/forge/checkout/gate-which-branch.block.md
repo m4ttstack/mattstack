@@ -1,6 +1,7 @@
 ---
 node: gate_which_branch
 kind: gate
+label: Which branch
 ---
 
 # Gate clarify: which branch

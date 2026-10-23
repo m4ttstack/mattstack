@@ -1,6 +1,7 @@
 ---
 order: 9
 kind: gate
+label: Evidence redaction
 ---
 
 # Gate evidence-redaction (below)

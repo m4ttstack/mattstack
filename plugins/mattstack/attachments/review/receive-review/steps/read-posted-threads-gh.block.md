@@ -1,5 +1,6 @@
 ---
 node: read_posted_threads_gh
+label: Read posted threads
 ---
 
 # Posted already on GitHub: read every thread with gh

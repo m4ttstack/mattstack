@@ -1,5 +1,6 @@
 ---
 node: record_ticket_before
+label: Record ticket BEFORE
 props:
   rules:
     merge: add

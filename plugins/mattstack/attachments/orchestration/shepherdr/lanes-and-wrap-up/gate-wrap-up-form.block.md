@@ -1,6 +1,7 @@
 ---
 node: gate_wrap_up_form
 kind: gate
+label: Wrap-up form
 ---
 
 # Gate wrap-up: the form contract

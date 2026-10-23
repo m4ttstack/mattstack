@@ -1,6 +1,7 @@
 ---
 order: 2
 kind: gate
+label: Evidence attach
 props:
   rules:
     merge: add

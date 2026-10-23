@@ -1,6 +1,7 @@
 ---
 node: gate_resume_or_fresh
 kind: gate
+label: Resume or start fresh
 ---
 
 # Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold

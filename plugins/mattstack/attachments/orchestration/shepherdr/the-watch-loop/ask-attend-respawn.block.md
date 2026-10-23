@@ -1,6 +1,7 @@
 ---
 node: ask_attend_respawn
 kind: gate
+label: Attend or respawn
 ---
 
 # Ask: attend or respawn

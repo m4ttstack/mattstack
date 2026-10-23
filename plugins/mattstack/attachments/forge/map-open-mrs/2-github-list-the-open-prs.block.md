@@ -1,5 +1,6 @@
 ---
 order: 2
+label: GitHub list PRs
 ---
 
 # 2. GitHub: list the open PRs

@@ -1,5 +1,6 @@
 ---
 node: run_field_set_board_note
+label: Set board note
 ---
 
 # run_field_set {runDb, key: board-<the frame's iid>, value: <one-line note>, stage}

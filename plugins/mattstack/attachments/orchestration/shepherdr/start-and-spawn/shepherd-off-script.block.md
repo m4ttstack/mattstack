@@ -1,6 +1,7 @@
 ---
 node: shepherd_off_script
 kind: gate
+label: Off-script gate
 ---
 
 # Shepherd off-script gate: ask the user

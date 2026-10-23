@@ -1,5 +1,6 @@
 ---
 order: 3
+label: GitHub join worktrees
 ---
 
 # 3. GitHub: list local worktrees and join

@@ -1,6 +1,7 @@
 ---
 node: gate_upload_refused
 kind: gate
+label: Upload refused
 ---
 
 # Off-script gate: upload refused

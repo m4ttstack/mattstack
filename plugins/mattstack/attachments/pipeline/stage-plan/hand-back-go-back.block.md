@@ -1,5 +1,6 @@
 ---
 node: hand_back_go_back
+label: Hand back Go back
 ---
 
 # Hand the Go back answer to the orchestrator

@@ -1,6 +1,7 @@
 ---
 node: gate_which_forge
 kind: gate
+label: Which forge
 ---
 
 # watch-ci gate clarify: which forge?

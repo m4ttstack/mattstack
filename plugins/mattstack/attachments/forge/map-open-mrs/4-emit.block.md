@@ -1,5 +1,6 @@
 ---
 order: 4
+label: Emit
 ---
 
 # 4. Emit

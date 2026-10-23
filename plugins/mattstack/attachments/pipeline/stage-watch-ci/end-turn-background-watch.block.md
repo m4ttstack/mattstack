@@ -1,5 +1,6 @@
 ---
 node: end_turn_background_watch
+label: End turn and wait
 ---
 
 # End the turn: ci_watch runs in the background

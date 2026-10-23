@@ -1,5 +1,6 @@
 ---
 node: git_log_board_shas
+label: Board SHAs
 ---
 
 # git log --format=%h <branch-point>..HEAD (after the board move)

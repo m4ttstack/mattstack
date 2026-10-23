@@ -1,5 +1,6 @@
 ---
 node: copy_json_to_scratch
+label: Copy JSON to scratch
 ---
 
 # Copy the report json into the review scratch dir

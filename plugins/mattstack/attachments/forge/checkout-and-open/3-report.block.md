@@ -1,5 +1,6 @@
 ---
 order: 3
+label: Report
 ---
 
 # 3. Report

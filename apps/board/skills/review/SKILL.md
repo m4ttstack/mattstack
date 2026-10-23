@@ -2259,7 +2259,7 @@ not your own.
   question; a longer list splits into `<id>-1`, `<id>-2`, ... read as one
   union.
 
-<!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/trigger-site-opened.block.md lines=5-9 -->
+<!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/trigger-site-opened.block.md lines=6-10 -->
 ### Trigger: a site opened its gate with gate_open
 
 A site opening a structured gate calls `gate_open` itself and enters here.
@@ -2285,7 +2285,7 @@ with no run, count in context. A second refusal fails the stage or ends the
 verb, quoting it verbatim; never off-script, which opens through `gate_ask`
 too.
 
-<!-- part: block:gate-protocol/present-form-no-registry source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/present-form-no-registry.block.md lines=6-9 -->
+<!-- part: block:gate-protocol/present-form-no-registry source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/present-form-no-registry.block.md lines=7-10 -->
 ### Present the gate form with no registry
 
 Form-only, with no other gate call: the answer is the decision (no CAS),
@@ -2347,7 +2347,7 @@ words in hand lose to it. `open` with words: map them and let
 marker stand). A daemon-unreachable refusal takes the daemon-down branch,
 quoting it.
 
-<!-- part: block:gate-protocol/write-in-to-act source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/write-in-to-act.block.md lines=5-11 -->
+<!-- part: block:gate-protocol/write-in-to-act source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/write-in-to-act.block.md lines=6-12 -->
 ### A write-in to act on (actOnWriteIn)?
 
 Read `actOnWriteIn` off the tool result: it is the deliberate-pick rule. A
@@ -2408,7 +2408,7 @@ Take: make exactly that move once, then continue from the node it led to.
 Hand back: under a run, `run_stage {action: fail}` with the why as reason;
 with no run, end the verb quoting it.
 
-<!-- part: block:gate-protocol/structured-context-gate-ctx-1 source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/structured-context-gate-ctx-1.block.md lines=5-12 -->
+<!-- part: block:gate-protocol/structured-context-gate-ctx-1 source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/structured-context-gate-ctx-1.block.md lines=6-13 -->
 ### Structured context (gate-ctx@1)
 
 A site that opens a structured gate builds its source per
@@ -2428,7 +2428,7 @@ rides `text`, which the in-pane form never sends. The verb's act step
 decides what either changes. A `writeIn: true` question may instead take
 `{"writeIn": "<their words>"}` alone.
 
-<!-- part: block:gate-protocol/closed-gates-hold-iterate source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/closed-gates-hold-iterate.block.md lines=5-8 -->
+<!-- part: block:gate-protocol/closed-gates-hold-iterate source=mattstack:gate-protocol version=0.32.23 path=attachments/gate-protocol/closed-gates-hold-iterate.block.md lines=6-9 -->
 ### Closed gates, Hold / Iterate
 
 `closed` ends that path per the verb's policy. The verb handles Hold and

@@ -1,5 +1,6 @@
 ---
 node: domain_runs_ci
+label: Domain runs CI
 props:
   rules:
     merge: add

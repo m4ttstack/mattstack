@@ -1,5 +1,6 @@
 ---
 order: 4
+label: Structured context
 ---
 
 # Structured context (gate-ctx@1)

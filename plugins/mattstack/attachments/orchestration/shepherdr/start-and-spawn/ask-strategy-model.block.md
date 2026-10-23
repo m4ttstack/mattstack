@@ -1,6 +1,7 @@
 ---
 node: ask_strategy_model
 kind: gate
+label: Strategy and model
 props:
   rules:
     merge: add

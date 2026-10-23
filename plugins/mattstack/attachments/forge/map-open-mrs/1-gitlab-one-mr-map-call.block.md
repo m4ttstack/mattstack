@@ -1,5 +1,6 @@
 ---
 order: 1
+label: GitLab map call
 ---
 
 # 1. GitLab: one `mr_map` call

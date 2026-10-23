@@ -1,5 +1,6 @@
 ---
 node: domain_steps_before_gate
+label: Steps before gate
 props:
   rules:
     merge: add

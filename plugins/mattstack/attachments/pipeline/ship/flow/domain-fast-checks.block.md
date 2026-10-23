@@ -1,5 +1,6 @@
 ---
 node: domain_fast_checks
+label: Fast checks
 props:
   rules:
     merge: add

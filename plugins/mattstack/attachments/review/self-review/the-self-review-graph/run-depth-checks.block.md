@@ -1,5 +1,6 @@
 ---
 node: run_depth_checks
+label: Depth checks
 ---
 
 # Run the checks the self-review depth names

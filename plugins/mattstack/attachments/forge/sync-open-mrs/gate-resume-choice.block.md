@@ -1,6 +1,7 @@
 ---
 node: gate_resume_choice
 kind: gate
+label: Resume or start fresh
 ---
 
 # Gate clarify: resume or start fresh

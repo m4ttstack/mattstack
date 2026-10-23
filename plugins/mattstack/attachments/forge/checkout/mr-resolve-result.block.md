@@ -1,5 +1,6 @@
 ---
 node: mr_resolve_result
+label: MR resolve result
 ---
 
 # mr_resolve_branch result?

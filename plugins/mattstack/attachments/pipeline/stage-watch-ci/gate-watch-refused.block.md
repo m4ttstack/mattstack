@@ -1,6 +1,7 @@
 ---
 node: gate_watch_refused
 kind: gate
+label: Watch refused
 ---
 
 # Off-script gate: ci_watch refused

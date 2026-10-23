@@ -114,7 +114,7 @@ A process ask is one line that leads with the approval if there is one:
 One line: `Looks good to me, no blockers. Left a few comments inline.` Only a
 blocker joins it.
 
-<!-- part: block:writing-style-conversational/replies-on-your-own-pr source=mattstack:writing-style-conversational version=0.32.23 path=attachments/writing-style/writing-style-conversational/replies-on-your-own-pr.block.md lines=5-13 -->
+<!-- part: block:writing-style-conversational/replies-on-your-own-pr source=mattstack:writing-style-conversational version=0.32.23 path=attachments/writing-style/writing-style-conversational/replies-on-your-own-pr.block.md lines=6-14 -->
 ## Replies on your own PR
 
 One to three short sentences. No sign-offs; thank someone only if they
@@ -125,7 +125,7 @@ matters.
 - `Good call, switched to Record<Status, string>.`
 - `I'd skip the lock for now. The job runs on one worker, and a lock adds a round trip per write.`
 
-<!-- part: block:writing-style-conversational/pr-descriptions source=mattstack:writing-style-conversational version=0.32.23 path=attachments/writing-style/writing-style-conversational/pr-descriptions.block.md lines=5-7 -->
+<!-- part: block:writing-style-conversational/pr-descriptions source=mattstack:writing-style-conversational version=0.32.23 path=attachments/writing-style/writing-style-conversational/pr-descriptions.block.md lines=6-8 -->
 ## PR descriptions
 
 Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting.

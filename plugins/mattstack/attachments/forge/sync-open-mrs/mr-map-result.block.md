@@ -1,5 +1,6 @@
 ---
 node: mr_map_result
+label: MR map result
 ---
 
 # mr_map result?

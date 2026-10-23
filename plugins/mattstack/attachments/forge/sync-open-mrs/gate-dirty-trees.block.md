@@ -1,6 +1,7 @@
 ---
 node: gate_dirty_trees
 kind: gate
+label: Dirty trees
 ---
 
 # Gate clarify: dirty trees

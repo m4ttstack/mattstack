@@ -1,6 +1,7 @@
 ---
 node: gate_push
 kind: gate
+label: Push gate
 ---
 
 # Gate push

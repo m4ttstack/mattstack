@@ -1,5 +1,6 @@
 ---
 node: capture_browser
+label: Browser capture
 ---
 
 # Capture with the browser (browser-evidence)

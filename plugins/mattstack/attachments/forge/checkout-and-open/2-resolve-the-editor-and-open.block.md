@@ -1,5 +1,6 @@
 ---
 order: 2
+label: Resolve editor and open
 ---
 
 # 2. Resolve the editor and open

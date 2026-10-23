@@ -1,5 +1,6 @@
 ---
 node: capture_before_case
+label: Case BEFORE capture
 props:
   rules:
     merge: add
