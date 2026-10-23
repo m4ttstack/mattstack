@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
@@ -25,12 +25,13 @@ import { referencesAt, toLocations } from "./references.ts";
 import { prepareRename, RenameRefused, renameAt, willRenameEdits } from "./rename.ts";
 import { Workspace } from "./workspace.ts";
 
-export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }];
+export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }, { pattern: "**/attachments/**/*.md" }, { pattern: "**/skills/**/*.md" }];
 
 const MODULE = "skills-lsp";
 
 export function isSkillFile(file: string): boolean {
-  return file.endsWith(".block.md") || basename(file) === "skills.jsonc";
+  if (file.endsWith(".block.md") || basename(file) === "skills.jsonc") return true;
+  return file.endsWith(".md") && (file.includes(`${sep}attachments${sep}`) || file.includes(`${sep}skills${sep}`));
 }
 
 function pathOf(uri: string): string | null {

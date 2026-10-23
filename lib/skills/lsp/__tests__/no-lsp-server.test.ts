@@ -317,6 +317,32 @@ describe("rt skills lsp", () => {
     }
   }, 30_000);
 
+  test("a fill markdown file under attachments/ gets diagnostics and a quick fix", async () => {
+    const pack = join(tmp, "widgets");
+    cpSync(join(FIXTURES, "pack"), pack, { recursive: true });
+    const fill = join(pack, "attachments/mini-rules/fast.md");
+    const text = `${readFileSync(fill, "utf8")}\nRead ../../attachments/mini-rules/lint.sh first.\n`;
+    writeFileSync(fill, text);
+    const client = new Client(["--root", plugin, "--root", pack], home);
+    try {
+      client.send({ id: 1, method: "initialize", params: { processId: null, capabilities: {} } });
+      await client.waitFor((m) => m.id === 1);
+      client.send({ method: "initialized", params: {} });
+      const uri = pathToFileURL(fill).href;
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text } } });
+      const published = await client.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri && m.params.diagnostics.length > 0);
+      const [diagnostic] = published.params.diagnostics;
+      expect(diagnostic.code).toBe("hand-typed-path");
+      client.send({ id: 2, method: "textDocument/codeAction", params: { textDocument: { uri }, range: diagnostic.range, context: { diagnostics: [diagnostic] } } });
+      const actions = await client.waitFor((m) => m.id === 2);
+      expect(actions.result).toHaveLength(1);
+      expect(actions.result[0].kind).toBe("quickfix");
+      expect(await client.stop()).toBe(0);
+    } finally {
+      client.kill();
+    }
+  }, 30_000);
+
   test("a hand-typed path's quick fix and a moved attachment's edits answer over the wire", async () => {
     const pack = join(tmp, "widgets");
     cpSync(join(FIXTURES, "pack"), pack, { recursive: true });

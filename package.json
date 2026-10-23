@@ -8,7 +8,8 @@
       "packages/*",
       "packages/tui-kit/workshop",
       "apps/*",
-      "extensions/vscode/rt-context"
+      "extensions/vscode/rt-context",
+      "extensions/vscode/skill-blocks"
     ],
     "catalog": {
       "react": "^19.2.7",
