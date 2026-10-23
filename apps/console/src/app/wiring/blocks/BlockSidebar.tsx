@@ -66,13 +66,17 @@ function TreeRow({
           folder ? (
             <span className={classes.treeChevronSpace} />
           ) : row.glyph !== 'shared' ? (
-            <BlockGlyph glyph={row.glyph} size={row.depth > 0 ? 11 : 13} />
+            <BlockGlyph
+              glyph={row.glyph}
+              size={row.depth > 0 ? 11 : 13}
+              selected={row.selected}
+            />
           ) : undefined
         }
         rightSection={
           row.dots.length > 0 ? (
             <LayerDots dots={row.dots} />
-          ) : folder ? (
+          ) : folder && !row.open ? (
             <span className={classes.treeCount}>{row.count}</span>
           ) : undefined
         }
@@ -93,6 +97,7 @@ function TreeRow({
             size={12}
             className={classes.treeChevron}
             data-open={row.open || undefined}
+            data-selected={row.selected || undefined}
           />
         </UnstyledButton>
       )}

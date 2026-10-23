@@ -21,7 +21,7 @@
  * | `pipeline-base-override` | `acme-base` sets the accessibility evidence override |
  * | `stale-copy`       | check reports a stale stage copy and a dropped override |
  * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
- * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it |
+ * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it; `ship`'s anatomy is rt's own |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -632,7 +632,11 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       ],
     }),
   },
-  blocks: { subject: 'mini', composition: withMini },
+  blocks: {
+    subject: 'mini',
+    composition: withMini,
+    anatomy: { ship: { file: 'anatomy.ship.json' } },
+  },
   'team-sections': {
     subject: 'stage-plan',
     anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainHoldsSections } },

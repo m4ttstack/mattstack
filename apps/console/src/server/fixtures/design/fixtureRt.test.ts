@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { parseGitLog } from '../../gitLog';
 import { mountSkills } from '../../skills';
+import anatomyShip from './anatomy.ship.json';
 import anatomyPlan from './anatomy.stage-plan.json';
 import anatomyPlanUnsynced from './anatomy.stage-plan.unsynced.json';
 import anatomyWork from './anatomy.work.json';
@@ -757,6 +758,15 @@ describe('the skills routes on the fixture', () => {
       '/api/skills/anatomy?pack=acme&skill=stage-plan'
     );
     expect(await anatomy.json()).toEqual(anatomyPlan);
+  });
+
+  it("blocks scenario: serves ship's anatomy, so its engine's version shows", async () => {
+    const app = mount('blocks');
+    const res = await app.request('/api/skills/anatomy?pack=acme&skill=ship');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(anatomyShip);
+    expect(anatomyShip.template).toMatchObject({ ref: 'mattstack:ship' });
+    expect(anatomyShip.status).toBe('in-sync');
   });
 
   it('answers blocks in every scenario, so a focused skill never 502s', async () => {

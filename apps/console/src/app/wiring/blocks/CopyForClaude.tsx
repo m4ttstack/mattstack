@@ -65,7 +65,7 @@ export function CopyForClaude({
               data-state={state}
               aria-hidden
             />
-            <Text fz={14} fw={500} c="var(--tk-text-1)">
+            <Text fz={13} fw={500} c="var(--tk-text-1)">
               {state === 'copied'
                 ? 'Copied. Paste it into Claude'
                 : 'Could not copy. Select the text below and copy it by hand'}

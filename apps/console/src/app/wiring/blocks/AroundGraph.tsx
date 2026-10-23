@@ -51,9 +51,9 @@ const GlyphOf = createContext<GlyphLookup>(noGlyph);
 
 const ICON_STROKE = 2;
 const MARKER = { length: 7, halfWidth: 4 };
-const CANVAS_PADDING = 24;
-/** Rows wrap to fit at this zoom, and the canvas never zooms out past it:
-    13px node labels stay at 11px and 12px edge labels at 10px. */
+const CANVAS_PADDING = 16;
+/** Rows wrap to fit at full size, so the canvas draws the boards' 13px
+    labels; it never zooms out past this, where they read 11px. */
 const MIN_ZOOM = 0.85;
 
 /** Down to the row gap under the source, across to the channel, down past
@@ -104,7 +104,7 @@ function canvasHeight(
     unbounded until the canvas has been measured. */
 function perRowAt(width: number): number {
   if (width <= 0) return Number.POSITIVE_INFINITY;
-  const room = width / MIN_ZOOM - 2 * CANVAS_PADDING + AROUND.columnGap;
+  const room = width - 2 * CANVAS_PADDING + AROUND.columnGap;
   return Math.max(1, Math.floor(room / (AROUND.nodeW + AROUND.columnGap)));
 }
 
@@ -161,7 +161,9 @@ function BlockNodeComponent({
         onClick={() => blockId && onSelect(blockId)}
       >
         <ShapeIcon shape={shape} blockId={blockId} />
-        <span className={classes.aroundLabel}>{label}</span>
+        <span className={classes.aroundLabel} title={label}>
+          {label}
+        </span>
       </UnstyledButton>
       <Handles />
     </div>
@@ -179,7 +181,9 @@ function GraphOnlyNodeComponent({
         data-testid="around-step"
       >
         <ShapeIcon shape={shape} />
-        <span className={classes.aroundLabel}>{label}</span>
+        <span className={classes.aroundLabel} title={label}>
+          {label}
+        </span>
       </div>
       <Handles />
     </div>

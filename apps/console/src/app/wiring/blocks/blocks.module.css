@@ -398,7 +398,7 @@
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  width: 180px;
+  width: 150px;
   height: 32px;
   padding: 0 10px;
   border: 1px solid var(--tk-border);
@@ -547,6 +547,13 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
+}
+
+.parentBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -819,8 +826,10 @@
 
 .rowMarks {
   display: inline-flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
+  width: 44px;
   margin-top: 3px;
 }
 
@@ -939,7 +948,7 @@
   border-radius: 6px;
 }
 
-.treeRow[data-selected] :global(.mantine-NavLink-section) {
+.glyph[data-selected] {
   color: var(--tk-text-accent);
 }
 
@@ -969,6 +978,10 @@
 .treeChevron {
   color: var(--tk-text-3);
   transition: transform 150ms ease;
+}
+
+.treeChevron[data-selected] {
+  color: var(--tk-text-accent);
 }
 
 .treeChevron[data-open] {

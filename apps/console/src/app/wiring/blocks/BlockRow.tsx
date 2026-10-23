@@ -17,9 +17,12 @@ const GLYPH_ICON: Record<Glyph, IconName> = {
 export function BlockGlyph({
   glyph,
   size = 13,
+  selected = false,
 }: {
   glyph: Glyph;
   size?: number;
+  /** Drawn in the selection's accent, as its row's label is. */
+  selected?: boolean;
 }) {
   return (
     <Icon
@@ -28,6 +31,7 @@ export function BlockGlyph({
       className={classes.glyph}
       aria-label={glyph}
       data-glyph={glyph}
+      data-selected={selected || undefined}
     />
   );
 }

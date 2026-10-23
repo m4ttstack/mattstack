@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   ActionIcon,
@@ -209,8 +209,7 @@ function PackLine({
       <Chip tone="mattstack">
         {['mattstack', engine, ...(version ? [version] : [])].join(' ')}
       </Chip>{' '}
-      <span className={classes.packCounts}>·</span>{' '}
-      <span className={classes.packCounts}>{counts}</span>
+      <span className={classes.packCounts}>{`· ${counts}`}</span>
     </div>
   );
 }
@@ -259,6 +258,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </section>
   );
+}
+
+function ParentBody({ children }: { children: ReactNode }) {
+  return <div className={classes.parentBody}>{children}</div>;
 }
 
 /** The block's text, then its graph (whole, small or as a card) and the
@@ -335,8 +338,11 @@ function ZoomBody({
     ? payload.graphs.find(graph => graph.blockId === owner.id)
     : undefined;
   const ownText = owner ? withoutLead(bodyOf(owner), lead) : null;
+  // A parent's graph card sits close over its children's list, as the
+  // board sets it; the skill's bands keep the column's wider gap.
+  const Wrap = zoom.level === 'parent' ? ParentBody : Fragment;
   return (
-    <>
+    <Wrap>
       {ownText && ownText.segments.length > 0 && (
         <BlockText
           block={ownText}
@@ -375,7 +381,7 @@ function ZoomBody({
           usedByCount={usedByCount}
         />
       ))}
-    </>
+    </Wrap>
   );
 }
 

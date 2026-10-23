@@ -739,6 +739,9 @@ describe('Graph tab: the block view', () => {
     expect(
       within(sidebar).getByTestId('block-tree-mini/run/guard')
     ).toBeInTheDocument();
+    expect(
+      within(sidebar).getByTestId('block-tree-mini/run')
+    ).toHaveTextContent(/^Run$/);
     expect(params().get('block')).toBeNull();
     await userEvent.click(
       within(sidebar).getByRole('button', { name: 'Fold Run' })

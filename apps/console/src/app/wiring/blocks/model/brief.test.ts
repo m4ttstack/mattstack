@@ -98,11 +98,11 @@ describe('buildBlockContext', () => {
         '  "Run"',
         `File: …/${block.path.split('/attachments/')[1]}`,
         'Props: rules (add, required)',
-        '  acme-base: nothing passed',
         '  widgets: /w/ship-lint/fast-checks.md',
-        'Props: tiering (replace, optional)',
         '  acme-base: nothing passed',
+        'Props: tiering (replace, optional)',
         '  widgets: nothing passed',
+        '  acme-base: nothing passed',
         'Pack: widgets, extends acme-base',
         ...FIXED,
       ].join('\n')

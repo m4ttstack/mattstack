@@ -26,7 +26,11 @@ export function buildBlockContext(input: {
   block: PayloadBlock;
 }): string {
   const { payload, block } = input;
-  const layers = payload.layers.filter(layer => layer.color !== 'mattstack');
+  // The spec's brief names the team's value before the org base's.
+  const layers = [
+    ...payload.layers.filter(layer => layer.color === 'team'),
+    ...payload.layers.filter(layer => layer.color === 'org'),
+  ];
   const org = payload.layers.find(layer => layer.color === 'org');
 
   const propLines = block.props.flatMap(prop => [
