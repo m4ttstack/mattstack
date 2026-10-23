@@ -13,8 +13,8 @@ export type WiringUrl = {
   select: string | null;
   drawerTab: DrawerTab;
   view: WiringView | null;
-  rebind: boolean;
   attention: boolean;
+  block: string | null;
 };
 
 const TABS: readonly WiringTab[] = ['graph', 'surface', 'health'];
@@ -33,8 +33,8 @@ const KEYS = [
   'select',
   'drawerTab',
   'view',
-  'rebind',
   'attention',
+  'block',
 ] as const;
 
 function oneOf<T extends string>(
@@ -69,16 +69,19 @@ export function parseWiringUrl(search: string): WiringUrl {
     select: text('select'),
     drawerTab: oneOf(DRAWER_TABS, params.get('drawerTab'), DEFAULT_DRAWER_TAB),
     view: oneOf(VIEWS, params.get('view'), null),
-    rebind: params.get('rebind') === '1',
     attention: params.get('attention') === '1',
+    block: text('block'),
   };
 }
 
-/** `:` and `@` stay literal: refs read as `pipeline:feature` and steps as
-    `stage-plan@accessibility` in a shared link, and both are legal in a
-    query string. */
+/** `:`, `@` and `/` stay literal: refs read as `pipeline:feature`, steps as
+    `stage-plan@accessibility` and blocks as `mini/run` in a shared link, and
+    all three are legal in a query string. */
 function encodeValue(value: string): string {
-  return encodeURIComponent(value).replace(/%3A/g, ':').replace(/%40/g, '@');
+  return encodeURIComponent(value)
+    .replace(/%3A/g, ':')
+    .replace(/%40/g, '@')
+    .replace(/%2F/g, '/');
 }
 
 /**
@@ -96,15 +99,15 @@ export function formatWiringUrl(state: WiringUrl): string {
       state.drawerTab === DEFAULT_DRAWER_TAB ? null : state.drawerTab,
     ],
     ['view', state.view],
-    ['rebind', state.rebind ? '1' : null],
     ['attention', state.attention ? '1' : null],
+    ['block', state.block],
   ];
   return pairs
     .flatMap(([key, value]) => (value ? [`${key}=${encodeValue(value)}`] : []))
     .join('&');
 }
 
-const TEXT_KEYS = ['pack', 'focus', 'select'] as const;
+const TEXT_KEYS = ['pack', 'focus', 'select', 'block'] as const;
 
 /** An omitted key keeps its value; an empty string is no value, the same as
     `null`, so `focus: ''` is neither written to the URL nor a refocus. */
@@ -138,7 +141,7 @@ function pushes(current: WiringUrl, next: WiringUrl): boolean {
  * The Graph tab's state, read from and written to the query string.
  *
  * Changes cascade down one chain: a new `pack` drops `focus`, a new `focus`
- * drops `select`, a new `select` drops `rebind` and `view`. A value set in
+ * drops `select`, a new `select` drops `view`. A value set in
  * the same patch always wins over the drop, so a deep link patches the whole
  * chain in one call. Query keys this hook does not own are kept.
  */
@@ -162,7 +165,6 @@ export function useWiringUrl(): [
     const focusChanged = packChanged || next.focus !== current.focus;
     if (focusChanged && change.select === undefined) next.select = null;
     if (focusChanged || next.select !== current.select) {
-      if (change.rebind === undefined) next.rebind = false;
       if (change.view === undefined) next.view = null;
     }
 
