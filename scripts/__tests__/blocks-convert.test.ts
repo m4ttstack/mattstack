@@ -248,3 +248,125 @@ test("the CLI refuses a --target heading no section has", () => {
   expect(r.exitCode).toBe(2);
   expect(r.stderr.toString()).toContain("No such step");
 });
+
+const ROOT_GRAPH = `---
+name: rgraph
+slots:
+  criteria: { contract: criteria@1, required: false }
+---
+
+# rgraph
+
+\`\`\`dot
+digraph rgraph {
+    read_diff [label="Read the diff" shape=box];
+    post_findings [label="Post the findings" shape=box];
+    read_diff -> post_findings;
+}
+\`\`\`
+
+## Criteria
+
+{{slot:criteria}}
+
+## Steps
+
+### Read the diff
+
+Read it all.
+
+### Post the findings
+
+Post them.
+
+## Reply rules
+
+Reply briefly.
+`;
+
+test("a ## under a root graph with no node section after it becomes its own ordered block, even before any node block", () => {
+  const { files } = splitSkill(ROOT_GRAPH, { engine: "rgraph", slots: { criteria: { prop: "criteria", merge: "replace" } } });
+  expect(Object.keys(files).sort()).toEqual(["criteria.block.md", "index.block.md", "reply-rules.block.md", "steps.block.md"]);
+  expect(frontmatter(files["index.block.md"]!).props).toBeUndefined();
+  expect(frontmatter(files["criteria.block.md"]!)).toEqual({ order: 1, props: { criteria: { merge: "replace", default: "", contract: "criteria@1" } } });
+  loadBlockTree(writeTree(files), { idPrefix: "rgraph", relRoot: "rgraph" });
+});
+
+test("a section holding node-matching sections one level too deep says so in a note", () => {
+  const { notes } = splitSkill(ROOT_GRAPH, { engine: "rgraph", slots: { criteria: { prop: "criteria", merge: "replace" } } });
+  const note = notes.find((n) => n.includes('"Steps"'));
+  expect(note).toContain("holds 2 sections matching nodes of the graph");
+  expect(note).not.toContain("ties to no node");
+});
+
+test("a body with no # title becomes one headless index.block.md that loads", () => {
+  const raw = "---\nname: frag\n---\n\nLead text.\n\n## Part one\n\nOne.\n\n### Deeper\n\nTwo.\n";
+  const { files, notes } = splitSkill(raw, { engine: "frag", slots: {} });
+  expect(files).toEqual({ "index.block.md": "---\nname: frag\n---\n\nLead text.\n\n## Part one\n\nOne.\n\n### Deeper\n\nTwo.\n" });
+  expect(notes.some((n) => n.includes("headless"))).toBe(true);
+  const tree = loadBlockTree(writeTree(files), { idPrefix: "frag", relRoot: "frag" });
+  expect(tree.root.title).toBeNull();
+});
+
+test("--write on a tree that does not load writes nothing, keeps SKILL.md and exits non-zero", () => {
+  const skill = writeTree({ "SKILL.md": "---\nname: bad\n---\n\n# bad\n\n## Part\n\nA stray {{props.oops}} marker.\n" });
+  const r = Bun.spawnSync(["bun", SCRIPT, skill, "--write"], { env: childEnv(), stdout: "pipe", stderr: "pipe" });
+  expect(r.exitCode).toBe(1);
+  expect(r.stderr.toString()).toContain("does not load");
+  expect(existsSync(join(skill, "SKILL.md"))).toBe(true);
+  expect(existsSync(join(skill, "index.block.md"))).toBe(false);
+});
+
+test("a section slugged index does not overwrite its parent's index.block.md", () => {
+  const raw = "# idx\n\nRoot text.\n\n## Index\n\nThe index section.\n";
+  const { files, notes } = splitSkill(raw, { engine: "idx", slots: {} });
+  expect(Object.keys(files).sort()).toEqual(["index-2.block.md", "index.block.md"]);
+  expect(files["index.block.md"]).toContain("Root text.");
+  expect(notes.some((n) => n.includes("idx/index-2"))).toBe(true);
+});
+
+test("two add slots targeting one block keep both markers", () => {
+  const raw = `---
+name: two
+slots:
+  domain: { contract: d@1, required: false }
+  extra: { contract: e@1, required: false }
+---
+
+# two
+
+## Flow
+
+\`\`\`dot
+digraph two {
+    step_one [label="Do the step" shape=box];
+}
+\`\`\`
+
+### Do the step
+
+Step text.
+
+## Domain rules
+
+{{slot:domain}}
+
+## Extra rules
+
+{{slot:extra}}
+`;
+  const slots: SlotMap = {
+    domain: { prop: "rules", merge: "add", targets: ["two/flow/step-one"] },
+    extra: { prop: "extra", merge: "add", targets: ["two/flow/step-one"] },
+  };
+  const { files } = splitSkill(raw, { engine: "two", slots });
+  expect(files["flow/step-one.block.md"]).toContain("Step text.\n\n{{props.rules}}\n\n{{props.extra}}\n");
+  loadBlockTree(writeTree(files), { idPrefix: "two", relRoot: "two" });
+});
+
+test("a dot fence left inside an inlined sub-heading is named in a note", () => {
+  const raw = '# side\n\n## Part\n\nText.\n\n### Picture\n\n```dot\ndigraph pic {\n    a [label="A" shape=box];\n}\n```\n';
+  const { files, notes } = splitSkill(raw, { engine: "side", slots: {} });
+  expect(files["part.block.md"]).toContain("```dot");
+  expect(notes.some((n) => n.startsWith("side/part: a dot graph stays a dot fence"))).toBe(true);
+});

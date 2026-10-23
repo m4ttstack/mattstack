@@ -8,14 +8,16 @@ export type SlotMap = Record<string, { prop: string; merge: "add" | "replace"; t
 /** `bindings` is mattstack's own `skills.jsonc` binding per slot for this engine; a replace prop takes it as its default. */
 export type SplitOptions = { engine: string; slots: SlotMap; bindings?: Record<string, string> };
 
-type Section = { level: number; heading: string; lead: string[]; children: Section[] };
+/** `heading` is null only for a headless root: a body with no `# ` title line. */
+type Section = { level: number; heading: string | null; lead: string[]; children: Section[] };
+type Headed = Section & { heading: string };
 
 type Planned = {
   id: string;
   stem: string;
-  title: string;
+  title: string | null;
   /** Today's heading text, which a target may name when the title was rewritten. */
-  heading: string;
+  heading: string | null;
   node: string | null;
   order: number | null;
   own: string[];
@@ -66,8 +68,9 @@ function parseSections(lines: string[]): Section {
     } else stack[stack.length - 1]!.lead.push(line);
   }
   const top = root.children.filter((c) => c.level === 1);
+  if (top.length === 0) return { level: 1, heading: null, lead: root.lead, children: root.children };
   if (top.length !== 1 || root.children.length !== 1 || root.lead.some((l) => l.trim() !== "")) {
-    throw new Error("the skill body must open with one `# <title>` line that every other section sits under");
+    throw new Error("the skill body must open with one `# <title>` line that every other section sits under, or have no `# ` line at all");
   }
   return top[0]!;
 }
@@ -92,7 +95,7 @@ function joinChunks(chunks: string[][]): string[] {
 }
 
 /** A section written inline under a block, its heading at `level` relative to the block's title. */
-function inline(sec: Section, level: number): string[] {
+function inline(sec: Headed, level: number): string[] {
   const shift = level - sec.level;
   const walk = (s: Section): string[][] => [
     [`${"#".repeat(Math.min(6, s.level + shift))} ${s.heading}`, "", ...trimBlank(s.lead)],
@@ -139,18 +142,26 @@ class Planner {
     return this.block(root, this.engine, this.engine, null, null, root.heading);
   }
 
-  private block(sec: Section, id: string, stem: string, node: string | null, order: number | null, title: string): Planned {
+  private block(sec: Section, id: string, stem: string, node: string | null, order: number | null, title: string | null): Planned {
     const p: Planned = { id, stem, title, heading: sec.heading, node, order, own: [], folded: [], added: [], props: new Map(), children: [] };
     const lead = [...sec.lead];
     const fences = dotFences(lead);
     const graph = fences[0] ? parseDot(fences[0].source) : null;
-    for (const extra of fences.slice(1)) {
-      this.notes.push(`${id}: a second dot graph (line ${extra.start + 1} of the section) stays a dot fence; a block holds one graph, so split it by hand`);
+
+    if (sec.heading === null) {
+      const sections = sec.children as Headed[];
+      p.own = joinChunks([lead, ...sections.map((c) => inline(c, c.level))]);
+      if (sections.length > 0) {
+        this.notes.push(`${id}: the body has no # title, so it is one headless block; its ${sections.length} top-level sections stay in its text as written, since a headless block cannot have children`);
+      }
+      if (graph) this.notes.push(`${id}: a headless block's dot graph stays a dot fence; give the block a title to convert it`);
+      return p;
     }
 
     const ownChunks: string[][] = [];
     const used = new Set<string>();
-    const stems = new Set<string>();
+    // index.block.md is the parent's own file, so no child may take the stem.
+    const stems = new Set<string>(["index"]);
     const stemFor = (want: string): string => {
       let s = want;
       for (let n = 2; stems.has(s); n++) s = `${want}-${n}`;
@@ -160,7 +171,7 @@ class Planner {
     };
     let lastNode: Planned | null = null;
     let nextOrder = 1;
-    const nodeOf = (heading: string, note = false): { id: string; label: string } | null => {
+    const nodeOf = (heading: string | null, note = false): { id: string; label: string } | null => {
       if (!graph) return null;
       const free = graph.nodes.filter((n) => !used.has(n.id));
       const exact = free.filter((n) => n.label === heading);
@@ -174,7 +185,14 @@ class Planner {
       return null;
     };
 
-    sec.children.forEach((c, i) => {
+    const nested = (c: Section): Section[] => c.children.flatMap((d) => [...(nodeOf(d.heading) ? [d] : []), ...nested(d)]);
+    const misplaced = (c: Section): string => {
+      const found = nested(c).length;
+      return found === 0 ? "" : `; it holds ${found} sections matching nodes of the graph one level too deep, so move the graph or the sections by hand`;
+    };
+
+    const children = sec.children as Headed[];
+    children.forEach((c, i) => {
       const hit = nodeOf(c.heading, true);
       if (hit) {
         used.add(hit.id);
@@ -191,17 +209,19 @@ class Planner {
         } else ownChunks.push(inline(c, 1 + c.level - sec.level));
         return;
       }
-      const nodeFollows = sec.children.slice(i + 1).some((later) => nodeOf(later.heading) !== null);
+      const nodeFollows = children.slice(i + 1).some((later) => nodeOf(later.heading) !== null);
       const prev = lastNode as Planned | null;
-      if (prev === null) {
-        ownChunks.push(inline(c, 1 + c.level - sec.level));
-        this.notes.push(`${id}: "${c.heading}" ties to no node and comes before every node section, so it stays in ${id}'s own text`);
-      } else if (c.level === 2 && !nodeFollows) {
+      if (c.level === 2 && !nodeFollows) {
         const s = stemFor(slug(c.heading));
         p.children.push(this.block(c, `${id}/${s}`, s, null, nextOrder++, c.heading));
+        const why = misplaced(c);
+        if (why) this.notes.push(`${id}/${s}: "${c.heading}" became its own block${why}`);
+      } else if (prev === null) {
+        ownChunks.push(inline(c, 1 + c.level - sec.level));
+        this.notes.push(`${id}: "${c.heading}" comes before every node section, so it stays in ${id}'s own text${misplaced(c) || "; it ties to no node"}`);
       } else {
         prev.folded = joinChunks([prev.folded, inline(c, 2)]);
-        this.notes.push(`${prev.id}: folded "${c.heading}", which ties to no node, in as a sub-heading`);
+        this.notes.push(`${prev.id}: folded "${c.heading}" in as a sub-heading${misplaced(c) || "; it ties to no node"}`);
       }
     });
 
@@ -212,6 +232,9 @@ class Planner {
       lead.splice(f.start, f.end - f.start + 1, "```mermaid", ...mermaid.split("\n"), "```");
     }
     p.own = joinChunks([lead, ...ownChunks]);
+    if (dotFences(p.own).length > 0) {
+      this.notes.push(`${id}: a dot graph stays a dot fence (only the first graph in a section's own text converts, and a block holds one); convert or move it by hand`);
+    }
     if (node !== null && p.own.some((l) => INCLUDE_LINE_RE.test(l.trim()))) {
       this.notes.push(`${id}: an {{include:...}} line sits in this node block's text; check it belongs to the step and not to its parent`);
     }
@@ -261,8 +284,8 @@ export function blockIdsByTitle(raw: string, opts: { engine: string }): Map<stri
     if (!ids.includes(id)) out.set(k, [...ids, id]);
   };
   for (const b of walkPlanned(planFor(raw, opts.engine).tree)) {
-    add(b.title, b.id);
-    add(b.heading, b.id);
+    if (b.title !== null) add(b.title, b.id);
+    if (b.heading !== null) add(b.heading, b.id);
   }
   return out;
 }
@@ -283,7 +306,7 @@ function blockFile(b: Planned, fmLines: string[]): string {
   if (b.node !== null) fm.push(`node: ${b.node}`);
   if (b.order !== null) fm.push(`order: ${b.order}`);
   if (b.props.size > 0) fm.push("props:", ...[...b.props.values()].flat());
-  const body = joinChunks([[`# ${b.title}`], b.own, b.added, b.folded]);
+  const body = joinChunks([b.title === null ? [] : [`# ${b.title}`], b.own, b.added, b.folded]);
   return [...(fm.length > 0 ? ["---", ...fm, "---", ""] : []), ...body, ""].join("\n");
 }
 
@@ -329,7 +352,7 @@ export function splitSkill(raw: string, opts: SplitOptions): { files: Record<str
       if (!b) throw new Error(`slot ${name}: target block ${target} is not in the split; the ids are ${blocks.map((x) => x.id).join(", ")}`);
       if (b.props.has(map.prop)) continue;
       b.props.set(map.prop, propSpec(map.prop, map.merge, declared[name], opts.bindings?.[name]));
-      b.added = [`{{props.${map.prop}}}`];
+      b.added = joinChunks([b.added, [`{{props.${map.prop}}}`]]);
     }
   }
 

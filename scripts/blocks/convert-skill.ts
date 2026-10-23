@@ -7,12 +7,15 @@
  * Without --out or --write it is a dry run that lists the files and notes.
  * --out <dir> writes the tree there. --write writes it into the skill dir
  * and deletes the SKILL.md, which compile refuses beside an index.block.md.
+ * The tree is loaded in a scratch dir first: one that does not load writes
+ * nothing, deletes nothing and exits 1.
  * Every slot the frontmatter declares maps by default as the plan does
  * (domain -> rules:add, any other slot -> a prop of its own name, replace);
  * --slot overrides one. --target names a step by today's section heading,
  * and the slot's prop is added to that step's block too.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseDocument } from "yaml";
 import { BlockError, formatDiagnostic } from "../../lib/skills/blocks/diagnostics.ts";
@@ -104,25 +107,33 @@ function main(): void {
     out.section(`${engine}: ${files.length} blocks`, dest ?? "dry run", out.verbatim(files)),
     out.section("Notes", undefined, result.notes.length > 0 ? out.verbatim(result.notes) : out.paragraph("No judgment calls.")),
   );
-  if (dest === null) {
-    out.print(out.line("off", "Nothing was written", "Pass --out <dir> to see the tree, or --write to convert in place"));
-    return;
-  }
-  for (const rel of files) {
-    mkdirSync(dirname(join(dest, rel)), { recursive: true });
-    writeFileSync(join(dest, rel), result.files[rel]!);
-  }
-  if (opts.write) rmSync(skillMd);
+  const writeTo = (dir: string) => {
+    for (const rel of files) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), result.files[rel]!);
+    }
+  };
+  const scratch = mkdtempSync(join(tmpdir(), "convert-skill-"));
   try {
-    loadBlockTree(dest, { idPrefix: engine, relRoot: engine });
-    out.print(out.line("done", `Wrote ${files.length} block files to ${dest}`, "the tree loads with no diagnostics"));
+    writeTo(scratch);
+    loadBlockTree(scratch, { idPrefix: engine, relRoot: engine });
   } catch (err) {
     if (!(err instanceof BlockError)) throw err;
-    out.print(
-      out.line("needs-you", `Wrote ${files.length} block files to ${dest}, and the tree does not load yet`, "fix these by hand"),
-      out.verbatim(err.diagnostics.map(formatDiagnostic)),
+    out.fail(
+      { title: `The ${engine} tree does not load, so nothing was written`, why: "fix the SKILL.md or the converter, then run again" },
+      out.verbatim(err.diagnostics.map(formatDiagnostic), "loadBlockTree diagnostics"),
     );
+    process.exit(1);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
+  if (dest === null) {
+    out.print(out.line("off", "Nothing was written", "the tree loads; pass --out <dir> to see it, or --write to convert in place"));
+    return;
+  }
+  writeTo(dest);
+  if (opts.write) rmSync(skillMd);
+  out.print(out.line("done", `Wrote ${files.length} block files to ${dest}`, "the tree loads with no diagnostics"));
 }
 
 main();
