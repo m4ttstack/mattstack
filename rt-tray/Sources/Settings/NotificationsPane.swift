@@ -137,7 +137,7 @@ struct NotificationsPaneForm: View {
         return SoundPopUp(entries: entries, selection: picks[tier], accessibilityLabel: "\(tier.title) sound") { id in
             id == Self.chooseFileTag ? onChooseFile(tier) : onPick(tier, id)
         }
-        .frame(width: 190)
+        .fixedSize()
         .accessibilityIdentifier(AXID.settingsSoundPicker(tier.key))
     }
 }
