@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Render a herd's progress as one markdown table.
+"""Render a herd, a plan or several plans as one markdown view.
 
-Usage: python3 herd_progress.py [--herd <id>]
+Usage: python3 work_progress.py --herd <id>
+       python3 work_progress.py --plan <path> [--plan <path> ...] [--tree <root>] [--title <text>]
 
-Reads the herd from rt (the same data herd_status and herd_gates return), the
+Plan mode takes each plan's counts from `rt progress list --tree <root>
+--refresh --json`, one call for the tree, and falls back to parsing the live
+SDD ledger itself when rt is too old for that verb.
+
+Herd mode reads the herd from rt (the same data herd_status and herd_gates return), the
 pipeline runs the herd spawned, and from each job's worktree its SDD ledger,
 plan headings and report draft. Where progress lives depends on the job's
 method: an SDD ledger (superpowers, from-spec, from-plan), the brief's item
@@ -21,7 +26,9 @@ import sys
 import time
 
 BAR_CELLS = 10
+OVERALL_CELLS = 20
 NOW_MAX = 64
+QUIET_S = 1800
 LIVE = {"spawning", "active", "at-gate", "at-milestone", "stuck-at-modal"}
 LEDGER_METHODS = {"superpowers": ("spec", "plan"), "from-spec": ("plan",), "from-plan": ()}
 INLINE_METHODS = {"trivial", "direct-tdd"}
@@ -216,6 +223,32 @@ def gate_text(g):
     return f"{kind}: {label}"
 
 
+RECORDS = {}
+
+
+def tree_records(tree, refresh=False):
+    """rt's plan records for one tree, or None when rt cannot answer (an rt
+    without `progress list` exits non-zero or prints usage text)."""
+    key = (tree, refresh)
+    if key not in RECORDS:
+        out = rt_json(["progress", "list", "--tree", tree, *(["--refresh"] if refresh else [])], required=False)
+        RECORDS[key] = out.get("plans") if out.get("ok") else None
+    return RECORDS[key]
+
+
+def kept_record(roots, created_ms):
+    """A ledger-method job whose ledger is gone: the freshest record rt kept for
+    its tree, but only one seen during the job's own lifetime, since pool trees
+    are reused."""
+    best = None
+    for root in roots:
+        for rec in tree_records(root) or []:
+            seen = max(rec.get("lastSeen") or 0, rec.get("finishedAt") or 0)
+            if rec.get("state") in {"done", "tree-gone"} and seen >= created_ms and (best is None or seen > best[0]):
+                best = (seen, rec)
+    return best[1] if best else None
+
+
 def row(job, herd_id, gates, runs, now_s):
     since = job["createdAt"] / 1000
     roots = job_roots(job)
@@ -230,6 +263,9 @@ def row(job, herd_id, gates, runs, now_s):
     run = run_for(job, runs, herd_id, roots) if domain else None
     found = None if run else newest_ledger(roots, since)
     done, total, now = ledger_progress(found[0], found[2]) if found else (0, 0, "")
+    kept = None if run or found or meth not in LEDGER_METHODS else kept_record(roots, job["createdAt"])
+    if kept:
+        done, total, now = kept["done"], kept["total"], kept["latest"]
     known = True
     if meth in INLINE_METHODS and not run:
         done, total = inline_progress(brief, draft)
@@ -250,7 +286,7 @@ def row(job, herd_id, gates, runs, now_s):
             if p not in phases:
                 cols[p] = "·"
             else:
-                written = re.search(rf"(?m)^\s*-?\s*{p}:", draft) or (p == "plan" and found)
+                written = re.search(rf"(?m)^\s*-?\s*{p}:", draft) or (p == "plan" and (found or kept))
                 cols[p] = "✓" if reported or written else ""
         started = found or (meth in INLINE_METHODS and live)
         cols["exec"] = "✓" if reported or (known and total and done >= total) else ("▸" if started else "")
@@ -289,7 +325,7 @@ def row(job, herd_id, gates, runs, now_s):
     elif live:
         spawning = job["status"] == "spawning" and not (run or found)
         rank, status = 3, "spawning" if spawning else "running"
-        if found and now_s - found[1] > 1800:
+        if found and now_s - found[1] > QUIET_S:
             now = f"ledger quiet {age(now_s - found[1])}; {now}"
     elif reported:
         rank, status, now = 4, "done", "reported"
@@ -303,10 +339,138 @@ def row(job, herd_id, gates, runs, now_s):
     return rank, job["createdAt"], line
 
 
-def main():
-    args = sys.argv[1:]
-    herd_args = args[args.index("--herd"): args.index("--herd") + 2] if "--herd" in args else []
-    status = rt_json(["herd", "status", *herd_args])
+def done_tasks(text):
+    """Task N is done on a `Task N: complete` line, or when every lettered part
+    of N the ledger mentions has a `Task N<letter>: complete` line (rt's rule)."""
+    explicit, mentioned, complete = set(), {}, {}
+    for line in text.splitlines():
+        m = re.match(r"Task\s+(\d+)([a-z]?):\s*(complete\b)?", line)
+        if not m:
+            continue
+        n, letter, finished = m.groups()
+        if not letter:
+            if finished:
+                explicit.add(n)
+            continue
+        mentioned.setdefault(n, set()).add(letter)
+        if finished:
+            complete.setdefault(n, set()).add(letter)
+    return len(explicit | {n for n, parts in mentioned.items() if complete.get(n) == parts})
+
+
+def ledger_now(text):
+    """The ledger's last meaningful line. Ruling lines stay, since a ruling is
+    often what the work is waiting on."""
+    lines = [l.strip() for l in text.splitlines()[1:] if l.strip() and not re.match(r"(#|\||Spec:)", l.strip())]
+    return re.sub(r"^Task\s+(\d+[a-z]?):\s*", r"T\1 ", lines[-1]) if lines else ""
+
+
+def plan_stem(path):
+    base = os.path.basename(path)
+    return base[:-3] if base.endswith(".md") else base
+
+
+def undated(stem):
+    return re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)
+
+
+def spec_mark(tree, path, text):
+    for line in text.splitlines()[:40]:
+        ref = re.search(r"([\w./~-]+\.md)", line) if re.search(r"(?i)\bspec\b", line) else None
+        if ref:
+            ref = os.path.expanduser(ref.group(1))
+            candidates = [ref] if os.path.isabs(ref) else [os.path.join(tree, ref), os.path.join(os.path.dirname(path), ref)]
+            if any(os.path.isfile(c) for c in candidates):
+                return "✓"
+    return "·"
+
+
+def git_toplevel(directory):
+    try:
+        out = subprocess.run(["git", "-C", directory, "rev-parse", "--show-toplevel"], capture_output=True, text=True)  # mcp-lint: allow
+    except FileNotFoundError:
+        return directory
+    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else directory
+
+
+def plan_row(path, tree, records, now_s):
+    """One plan's table line, plus its done and total task counts and whether
+    its ledger has gone quiet."""
+    stem = plan_stem(path)
+    text = read(path)
+    planned = len(set(re.findall(r"(?m)^#+\s*Task\s+(\d+)\b", text)))
+    ledger = os.path.join(tree, ".superpowers", "sdd", stem, "progress.md")
+    live = os.path.isfile(ledger)
+    rec = next((r for r in records or [] if r.get("stem") == stem), None)
+    exec_, review, quiet = "", "", False
+
+    if rec and rec["state"] == "done":
+        status, exec_, review, now = "done", "✓", "✓", "finished"
+        done = total = rec["total"] or planned
+    elif rec and rec["state"] == "tree-gone":
+        status, exec_, review, now = "tree gone", "·", "·", rec["latest"]
+        done, total = rec["done"], rec["total"]
+    elif rec or live:
+        done, total, now = (rec["done"], rec["total"], rec["latest"]) if rec else (done_tasks(read(ledger)), planned, "")
+        if live:
+            now = ledger_now(read(ledger)) or now
+            quiet = now_s - mtime(ledger) > QUIET_S
+        status = "*quiet*" if quiet else "running"
+        if quiet:
+            now = f"ledger quiet {age(now_s - mtime(ledger))}; {now}"
+        exec_ = "▸"
+        review = "▸" if total and done >= total else ""
+    elif records is None:
+        status, done, total = "unknown", 0, planned
+        now = "not started or finished (rt has no record)"
+    else:
+        status, done, total, now = "not started", 0, planned, "not started"
+
+    spec = spec_mark(tree, path, text)
+    mark = "✓" if os.path.isfile(path) else "·"
+    tasks = bar(done, total, status != "unknown")
+    return f"| {undated(stem)} | {status} | {spec} | {mark} | {exec_} | {review} | {tasks} | {cell(now)} |", done, total, quiet
+
+
+def plan_main(plans, tree, title):
+    paths = [os.path.abspath(p) for p in plans]
+    tree = os.path.abspath(tree) if tree else git_toplevel(os.path.dirname(paths[0]))
+    records = tree_records(tree, refresh=True)
+    now_s = time.time()
+    results = [plan_row(p, tree, records, now_s) for p in paths]
+    done = sum(r[1] for r in results)
+    total = sum(r[2] for r in results)
+    quiet = sum(1 for r in results if r[3])
+    branch = tree_branch(tree) or next((r.get("branch") for r in records or [] if r.get("branch")), "") or "unknown"
+    title = title or undated(plan_stem(paths[0]))
+    filled = round(OVERALL_CELLS * done / total) if total else 0
+    pct = round(100 * done / total) if total else 0
+    stuck = f"{quiet} quiet" if quiet else "nothing stuck"
+    print(f"**{title}** · branch {branch} · worktree {os.path.basename(tree)} · {done} of {total} tasks done · {stuck}")
+    print()
+    print(f"Overall `{'█' * filled}{'░' * (OVERALL_CELLS - filled)}` {pct}%")
+    print()
+    print("| plan | status | spec | plan | exec | review | tasks | now |")
+    print("|---|---|:-:|:-:|:-:|:-:|---|---|")
+    for line, *_ in results:
+        print(line)
+
+
+def parse_args(args):
+    opts = {"--herd": None, "--tree": None, "--title": None, "--plan": []}
+    for i in range(0, len(args), 2):
+        flag = args[i]
+        if flag not in opts or i + 1 >= len(args):
+            sys.exit(f"work_progress: {'missing value for' if flag in opts else 'unknown argument'} {flag}")
+        if flag == "--plan":
+            opts[flag].append(args[i + 1])
+        else:
+            opts[flag] = args[i + 1]
+    return opts
+
+
+def herd_main(herd_arg):
+    status = rt_json(["herd", "status", "--herd", herd_arg])
     herd_id = status["herd"]["id"]
     gates = rt_json(["herd", "gates", "--herd", herd_id]).get("gates", [])
     runs = rt_json(["runs"], required=False).get("runs", [])
@@ -330,6 +494,18 @@ def main():
     print("|---|---|:-:|:-:|:-:|:-:|---|---|")
     for _, _, line in rows:
         print(line)
+
+
+def main():
+    opts = parse_args(sys.argv[1:])
+    if opts["--herd"] and opts["--plan"]:
+        sys.exit("work_progress: name a herd or plans, not both")
+    if opts["--herd"]:
+        herd_main(opts["--herd"])
+    elif opts["--plan"]:
+        plan_main(opts["--plan"], opts["--tree"], opts["--title"])
+    else:
+        sys.exit("work_progress: name a herd (--herd <id>) or the plans to show (--plan <path> ...)")
 
 
 if __name__ == "__main__":
