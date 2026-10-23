@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { materializeRepo, type MaterializeFs } from "../materialize.ts";
-import { readManifestProvenance } from "../manifest-merge.ts";
+import { layeredFromManifest, readManifestProvenance } from "../manifest-merge.ts";
 import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
 
 const realFs: MaterializeFs = {
@@ -390,6 +390,23 @@ describe("materializeRepo org base pack", () => {
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs[0]!.ok).toBe(true);
     expect(body(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc")).bindings["board:triage"]!.domain).toBe("widgets:triage-rules");
+  });
+
+  test("a retargeted board fill is retargeted in the layered section too, so the manifest agrees with itself", () => {
+    const { root, engine } = makeWorld();
+    write(join(engine, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "board:triage": { domain: "mattstack:generic-triage" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } }));
+    org(root, "acme", {
+      projects: ["acme/widgets"],
+      teams: { widgets: { pack: { extends: "acme-base" } } },
+      base: { "acme-base": { base: true, bindings: { "board:triage": { domain: "acme-base:triage-rules" } } } },
+    });
+    write(join(teamFolder(root, "acme", "widgets"), "plugin", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs[0]!.ok).toBe(true);
+    const text = readFileSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"), "utf8");
+    expect(body(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc")).bindings["board:triage"]!.domain).toBe("widgets:triage-rules");
+    expect(layeredFromManifest(text).layered["board:triage"]!.domain!.map((v) => v.value)).toEqual(["mattstack:generic-triage", "widgets:triage-rules"]);
   });
 
   test("a board-only base fill with no plugin.json beside the pack is a per-pack error naming the file", () => {

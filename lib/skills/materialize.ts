@@ -99,7 +99,7 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
         const pluginJson = join(zonePackDir(zone), ".claude-plugin", "plugin.json");
         const plugin = packPluginName(deps.fs, pluginJson);
         if (!plugin) return { pack, zone: zone.slug, ok: false, detail: `${pack} carries board fills from ${baseName}, but ${pluginJson} names no plugin for the board to find them under` };
-        retargetBoardFills(merged.bindings, baseName, fills, plugin);
+        retargetBoardFills(merged, baseName, fills, plugin);
       }
     }
 
