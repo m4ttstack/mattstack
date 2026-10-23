@@ -4,167 +4,78 @@
 
 The board posts a re-review latch on an MR when a review lands with a
 `comment` outcome: one resolvable thread whose first line is
-`<!-- mattstack:board re-review-latch v1 -->`. The author resolves it when
-the feedback is addressed, and the reviewer's board launches a re-review on
-its next triage pass (`apps/board/docs/agent-actions.md`, "Latch handling").
+`<!-- mattstack:board re-review-latch v1 -->`. Resolving it makes the
+reviewer's board re-review on its next triage pass. Today respond triages
+that thread like any reviewer comment (Reply, Fix, Skip), which looks bad:
+it is mattstack's own convention.
 
-The respond flow (receive-review in the mattstack plugin, its board wrapper,
-and the compiled team packs) does not know the latch. `mr_threads` returns it
-as an ordinary unresolved human thread, so respond-plan triages it with
-Reply, Fix and Skip, and the adjudicator has to work out from the prose that
-it should be left alone. It is mattstack's own convention handled as a
-stranger's comment.
+Matt wants two things:
 
-Matt's direction: the latch is never actionable at respond-plan. Respond-post,
-which comes after fixes and replies are done, asks one yes/no question:
-trigger the re-review by resolving the latch.
-
-## Goals
-
-- Respond recognises the latch in code, never from the agent reading prose.
-- Respond-plan shows no Reply, Fix or Skip for a latch.
-- Respond-post carries a yes/no "trigger a re-review" question per open
-  latch, recommended yes.
-- A yes resolves the latch after the push and the replies have landed.
+1. Triage ignores latch threads.
+2. When a respond-post gate opens on an MR with an open latch, the board
+   offers its own option to trigger a re-review once the agent has finished
+   posting.
 
 ## Non-goals
 
-- No change to how the board posts, rearms or spends a latch.
-- No change to the board's "request re-review" row action.
-- GitHub: `respond_post_execute` refuses GitHub today and the board only
-  posts latches on GitLab. Nothing here changes either.
-
-## Anti-goals
-
-- A third gate. The question lives inside respond-post, never a gate of its
-  own.
-- A latch resolved while a fix push or a reply is still held: the reviewer
-  would re-review an MR that does not yet carry the work.
-- Respond deciding what a latch is from the body text in skill prose.
+- No change to the respond skills, the gate shapes, `respond_post_execute`
+  or the respond slot contract. The agent never sees the option.
+- No change to how the board posts, rearms or spends a latch, or to the
+  "request re-review" row action.
 
 ## Approaches
 
-1. **The thread tool knows the latch (picked).** `mr_threads` recognises the
-   marker, tags latch threads and keeps them out of the `unresolved-human`
-   list. Respond-post's source gains a latch question, the board's respond
-   sheet renders it, and `respond_post_execute` resolves the latch last.
-   Touches rt's MCP tool, receive-review, the post-execute checks and the
-   board sheet, plus a pack re-sync. Cannot drift: code decides.
-2. **The skill knows the latch.** Receive-review's text tells the agent to drop
-   any thread carrying the marker and add the question itself;
-   `respond_post_execute` still learns to resolve it. Smaller, but rests on
-   the agent reading the marker right every time, which is the failure Matt
-   just hit.
-3. **The board hides the latch.** Ruled out: the skill builds the gates, the
-   board only renders them.
-
-## Decided
-
-- The latch is not in the respond-plan question list at all.
-- Respond-post asks a binary yes/no per open latch: trigger a re-review by
-  resolving it. Yes is recommended.
-- The board wrapper's own posting path (no domain skill bound) moves onto
-  `respond_post_execute`, so the latch ordering lives in code on every path;
-  the wrapper stops calling `git_push`, `mr_reply_thread` and
-  `mr_resolve_thread` per thread itself.
-- An MR whose only open thread is a latch runs no round: the read says none,
-  and the board's "request re-review" row action covers that case.
-- The question is part of respond-post. When a round offers no reply for
-  respond-post (everything skipped, or only plain `reply` rows), respond-post
-  still opens when an armed latch is open, with the latch question and
-  `next` alone. That is the existing second gate opening, not a new one.
+- **Picked: the thread tool drops latches; the board owns the option.**
+  `mr_threads` filters latches out of `unresolved-human`, so every triage
+  path (board wrapper and team packs) stops seeing them. The board adds a
+  control to its respond-post sheet, keeps the pick server side, and
+  resolves the latch itself when the run finishes, with the same resolve
+  the row action uses.
+- **Dropped: the agent's pipeline carries the question.** It needs a new gate
+  shape and the latch rule written into both posting paths (the shared
+  posting tool and the board wrapper's own path), which is far more work for
+  the same result.
 
 ## Design
 
-### Recognising a latch
+### 1. Triage ignores latches (rt)
 
-The marker and `latchKindOf` move out of `apps/board/src/latch/markers.ts`
-into one module both the board and rt's MCP tools import; the board's
-`markers.ts` re-exports or imports from it. A latch is a discussion whose
-root note's first line is the armed or the spent marker, exactly as
-`latchKindOf` reads it today.
-
-### `mr_threads`
-
-- With `filter: "unresolved-human"`, an armed latch is dropped from
-  `discussions` and returned in a new top-level `latches` list:
-  `{threadId, reviewer, resolved}` per armed latch, where `reviewer` is the
-  root note author's username. A spent latch is dropped and counted in
-  `dropped` (a new `latch` count beside `resolved`, `system`, `bot`).
-- Without the filter, every discussion still comes back as today, plus the
-  same `latches` list, so the resume path that reads resolved threads sees it
-  too.
+- The marker constants and `latchKindOf` move from
+  `apps/board/src/latch/markers.ts` into `packages/rt-client`, so rt and the
+  board read one source; the board's `markers.ts` imports them.
+- `filterHumanThreads` (`lib/mcp/mr-read-tools.ts`) drops any discussion
+  whose root note is an armed or spent latch and counts it in a new
+  `dropped.latch`. The unfiltered `mr_threads` read is unchanged.
 - The tool description and the generated `mcp-tools/reference.md` say so.
 
-### Receive-review (plugin attachment)
+### 2. The board-only re-review option
 
-- The thread read keeps `latches` from `mr_threads` beside the human threads.
-  An MR with no unresolved human threads but an armed latch still says "none"
-  at the read: there is nothing to triage, and no round runs for a latch alone.
-- Respond-plan's context names each armed latch read-only (`reviewer`), so the
-  developer can see one is open. No question, no verb.
-- Respond-post's source gains one question per armed latch, after the thread
-  questions and before `next`:
-  `{"id": "latch-<n>", "label": "Re-review", "multi": false,
-    "context": {"gate-ctx": "latch@1", "thread": "<threadId>", "reviewer": "<username>"},
-    "options": [{"value": "rereview:<threadId>", "label": "yes", "recommended": true,
-                 "description": "resolve <reviewer>'s latch so their board re-reviews"},
-                {"value": "keep:<threadId>", "label": "no",
-                 "description": "leave the latch open"}]}`
-- The respond-post decision records the pick as `latches: {<threadId>: true|false}`
-  beside `threads`.
-- The board wrapper (`apps/board/skills-src/respond`) follows the same
-  shape; `skills:expand:board` regenerates `apps/board/skills`.
-
-### `respond_post_execute`
-
-- Reads `latch@1` questions from the stored respond-post source and the
-  `latches` entries from the decision, and refuses one that names a thread its
-  source never asked about, or a source question the decision leaves out.
-- Resolves each `true` latch after every push, reply and thread resolve in the
-  pass, and only when that pass held nothing. A latch skipped because
-  something was held is itself reported in `held` with kind `latch`, so the
-  resume pass resolves it once the rest lands.
-- A latch already resolved counts in `alreadyResolved`, as threads do.
-
-### Board respond sheet
-
-`RespondSheet.tsx` renders a `latch@1` question in the main column after the
-reply cards: a card headed "Re-review" naming the reviewer, with the yes/no
-choice. `gate-ctx.ts` parses the new shape. A gallery story covers a post
-gate with replies plus a latch, and one with the latch alone.
+- **When it shows:** the respond-post sheet is open, the MR's
+  `reviewerLatches` has a reviewer whose latch is not already requested, and
+  the gate is answered from the board. One checkbox per such reviewer:
+  "Ask <reviewer> for a re-review once posting finishes".
+- **Answering:** the sheet sends the gate answer exactly as today and posts
+  the ticked reviewers to a board route that stores them on the MR's
+  respond state (`pendingReReview: string[]` of discussion ids). Nothing
+  reaches the agent.
+- **Firing:** when the respond run reports `done` with no `held`, the board
+  resolves each stored latch through `latch/gateway.ts`, then clears the
+  field. On `error`, or `done` with anything held, it clears the field
+  without resolving, so the row's "request re-review" action is the way
+  back.
+- **Rounds with no post sheet:** no option that round; the row action covers
+  it.
 
 ## Calls made by Claude (Matt to check)
 
-- **One question per reviewer, not per latch.** Copies the board's
-  `reviewerLatches` rule (`apps/board/src/latch/discussions.ts`): each
-  reviewer's newest armed latch, skipping a latch the MR's author posted.
-  `mr_threads`' `latches` list is grouped the same way and keeps every
-  thread id per reviewer, so a yes resolves all of that reviewer's armed
-  latches.
-- **A `--person` run asks only about that person's latch.** A board-launched
-  respond scoped to one reviewer never offers another reviewer's re-review;
-  an unscoped run asks about every reviewer with an armed latch. The wrapper's
-  refit drops latch questions outside the person with the thread questions.
-- **The slot contract bumps `mr-respond@3` to `@4`.** `@4` adds the latch
-  question and the "respond-post opens for a latch alone" rule. The wrapper
-  accepts `@3` and `@4` until both packs have re-synced; a `@3` pack simply
-  never offers the latch.
-- **The respond-plan latch line shows in the board's decision-context card**,
-  as one read-only row ("Re-review latch from <reviewer> is open"), which
-  adds an optional `latches` field to rt's `plan@1` validator.
-- **Already-resolved latches are never asked about.**
+- Checkboxes start unticked: it triggers someone else's work, so it is never
+  done by default.
+- In a respond run scoped to one person, only that person's latch is
+  offered.
+- A gate answered outside the board (the console) gets no option.
 
 ## Constraints
 
-- Plugin edits bump `.claude-plugin/plugin.json`; MCP changes regenerate the
-  tool reference; a gate-protocol edit needs `skills:expand:board`.
-- After merge, the claimview and ingestion-platform packs re-sync against the
-  new plugin version, coordinated in #mattstack.
-- No em or en dashes in skill or UI text.
-
-## Left to the builder
-
-- Where the shared marker module lives (rt-client, glance, or a small new
-  shared file), as long as there is one source.
-- The exact card copy, within Matt's yes/no framing.
+- No em or en dashes in UI text.
+- Light and dark checks of the sheet in Storybook, with a gallery story for a
+  respond-post gate on an MR with a latch.
