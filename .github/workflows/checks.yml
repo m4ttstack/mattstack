@@ -293,6 +293,7 @@ jobs:
         working-directory: plugins/mattstack
         run: |
           bash hooks/tests/test-pipeline-gate-stop.sh
+          bash hooks/tests/test-progress-record.sh
           sh tests/test-gate-stop-hook.sh
           bash hooks/tests/test-agent-effort-guard.sh
           bash hooks/tests/test-agent-effort-note.sh
