@@ -1,0 +1,173 @@
+.layers {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chartTitle {
+  margin: 0;
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.swatch {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.swatch[data-fill='mattstack'],
+.segment[data-layer='mattstack'],
+.square[data-fill='mattstack'],
+.stripBar[data-layer='mattstack'] {
+  background: var(--tk-line-1);
+}
+
+.swatch[data-fill='org'],
+.segment[data-layer='org'],
+.square[data-fill='org'],
+.stripBar[data-layer='org'] {
+  background: var(--tk-fill-purple);
+}
+
+.swatch[data-fill='team'],
+.segment[data-layer='team'],
+.square[data-fill='team'],
+.stripBar[data-layer='team'] {
+  background: var(--tk-fill-cyan);
+}
+
+.swatch[data-fill='both'],
+.square[data-fill='both'] {
+  background: linear-gradient(
+    135deg,
+    var(--tk-fill-purple) 50%,
+    var(--tk-fill-cyan) 50%
+  );
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-text-2);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.count {
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sectionTitle {
+  color: var(--tk-text-3);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.squares {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 14px);
+  gap: 4px;
+}
+
+.square {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  height: 12px;
+}
+
+.segment {
+  min-width: 4px;
+  height: 100%;
+}
+
+.segment:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.segment:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.segment:only-child {
+  border-radius: 4px;
+}
+
+.total {
+  flex-shrink: 0;
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stripRow {
+  display: grid;
+  grid-template-columns: 6px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--tk-text-2);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.stripBar {
+  align-self: stretch;
+  min-height: min(calc(var(--strip-lines, 1) * 3px + 8px), 96px);
+  border-radius: 3px;
+}
