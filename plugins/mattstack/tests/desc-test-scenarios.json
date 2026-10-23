@@ -73,10 +73,22 @@
   },
   {
     "task": "/progress: where is the herd at? show me each job's tasks as progress bars",
-    "expect": "herd-progress"
+    "expect": "work-progress"
   },
   {
     "task": "I'm shepherding a herd of agents; give me a status view of every job and how far through its plan it is",
-    "expect": "herd-progress"
+    "expect": "work-progress"
+  },
+  {
+    "task": "Where is the skill-blocks epic at?",
+    "expect": "work-progress"
+  },
+  {
+    "task": "Show me progress on this plan",
+    "expect": "work-progress"
+  },
+  {
+    "task": "I'm executing this plan with subagent-driven development; where is my plan at?",
+    "expect": "work-progress"
   }
 ]

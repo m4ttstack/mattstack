@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.32.25 + mattstack:model-tiering@0.32.25 + mattstack:execution-strategy@0.32.25 + mattstack:cswap-accounts@0.32.25"
+  compiled: "mattstack@0.32.26 + mattstack:model-tiering@0.32.26 + mattstack:execution-strategy@0.32.26 + mattstack:cswap-accounts@0.32.26"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.32.25 path=attachments/orchestration/shepherdr/SKILL.md lines=13-862 -->
+<!-- part: step source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/SKILL.md lines=13-862 -->
 
 # shepherdr
 
@@ -27,13 +27,13 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-Slot tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.25) -- invoke that skill when this flow needs it.
+Slot tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.26) -- invoke that skill when this flow needs it.
 
 ## Strategy
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.32.25 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.32.26 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -143,7 +143,7 @@ When nothing is inlined above, every engine default stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.32.25 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.32.26 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -759,7 +759,7 @@ briefs** / **Hold**. No restated heading, no per-option descriptions.
 - **Diagnosis and nudges.** `herd_diagnose {herd, job}` has the daemon read the pane and returns a verdict and budgets, never pane text. An `UNCONSUMED` gate in `herd_status`, or the watchdog's "answered Nm ago and unconsumed" line, is the arrival for a nudge; the nudge keys on the UNCONSUMED arrival's gate, never `lastGate.consumed`, which reads null for a gate the daemon does not track. `herd_nudge` sends a DM, then a typed line only into an idle pane with no form open, else `needsHuman`. No tool presses keys, and neither do you. A hidden (`bg:`) pane reaches the user only through `herd_attend {job, herd}`.
 - **The disposable reviewer.** Its spawn is `herd_spawn {tree}` into the job's own tree (a guest if another job holds it; the tree stays the host's); the result's `reviewerRound` echoes the ticked budget. Its brief reads the artifact, DMs findings, and reports a verdict; the daemon closes its pane. You never read the artifact. With the Accounts section non-empty it takes a per-spawn pick.
 - **A bare pane form.** A worker pane showing a structured question with no gate behind it (`herd_gates` returns nothing for it) is the banned bare pane-local form, unreachable from every channel. Flag it to the user; never answer it yourself. Covered panes deny it at source through the launch-injected gate-fork hook, so seeing one means the pane is uncovered or its daemon was unreachable.
-- **Progress.** When the user asks for progress, and after a job's report while other jobs still run, show the view from mattstack:herd-progress.
+- **Progress.** When the user asks for progress, and after a job's report while other jobs still run, show the view from mattstack:work-progress.
 
 **Budgets.** The daemon counts; you decide. A `... spent?` diamond reads
 `{used, cap, spent}` in this decision, before its move; a user's answer in
@@ -994,7 +994,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.32.25 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.32.26 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
