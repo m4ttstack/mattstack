@@ -565,35 +565,19 @@ describe('fixtureRt runRt', () => {
     expect((await fixtureRt('clean').runRt(pack('composition'))).code).toBe(0);
   });
 
-  it('accepts a bind', async () => {
-    const result = await fixtureRt('clean').runRt([
-      'skills',
-      'bind',
-      'stage-plan',
-      'domain',
-      'acme:plan-policy-strict',
-      '--pack',
-      'acme',
-    ]);
-    expect(result.code).toBe(0);
-  });
-
-  it('accepts a pipeline bind', async () => {
-    const result = await fixtureRt('clean').runRt([
-      'skills',
-      'bind',
-      'stage-evidence',
-      'domain',
-      'acme:evidence-policy',
-      '--pipeline',
-      'accessibility',
-      '--pack',
-      'acme',
-    ]);
-    expect(result.code).toBe(0);
-  });
-
   it.each([
+    [
+      [
+        'skills',
+        'bind',
+        'stage-plan',
+        'stage-plan',
+        'domain',
+        'acme:plan-policy-strict',
+        '--pack',
+        'acme',
+      ],
+    ],
     [['skills', 'surface', 'list', '--pack', 'acme', '--json']],
     [['skills', 'composition', '--pack', 'globex', '--json']],
     [['skills', 'composition', '--pack', 'acme']],

@@ -86,22 +86,21 @@ The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
   canvas (`TemplateCanvas.tsx`) in `PageShell.Content`, which sets its own `bg` and a dotted
   `Background`: the template's rows in the middle, the files that fill its placeholders on one
   side, and the steps it links to or its compiled output on the other. Selecting a row or card
-  opens the compiled-skill drawer (`drawer/SkillDrawer.tsx`, with Text, Used by and History tabs),
-  and a slot's Bind or Change opens the rebind panel (`drawer/RebindPanel.tsx`). A binding or
+  selects it in the URL. The console reads bindings and never writes them. A binding or
   surface change that is not synced yet shows the unsynced banner (`UnsyncedBanner.tsx`), docked
   in PageShell's `topNotch`, with Sync and Discard.
 - **Template model** (`graph/model/*`). Pure functions from rt's payloads (composition, check,
   anatomy, changes) to what the tab draws: `focusModel` (the focus list), `templateModel` (rows,
-  input cards, link cards, output card), `drawerContent` (what the drawer shows for a selection),
-  `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
+  input cards, link cards, output card), `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
   places the nodes. A change to what the tab shows starts in the model and its tests.
-- **Writes** (bind, surface, sync, discard) confirm through `modals.confirm` and report through
+- **Writes** (surface, sync, discard) confirm through `modals.confirm` and report through
   `notifications`, and one write per pack runs at a time. The banner's Sync and Discard send the
   `signature` of the `changes` read their confirm listed; the server refuses a commit-pending sync
   or a discard without one, and rt refuses either once the pack no longer matches it.
 - **Org base packs.** rt tags a fill, slot, binder slot or anatomy source from an org base pack with `origin: "base"`, `base` and `baseVersion` (a team-pack copy carrying `compiled.json` included), names the pack's base in composition's `extends`, and marks surface rows with `base`. Every view reads the owner through `ownerOf` (`owner.ts`), never by comparing plugin names or reading rt's `org` version token. History, diff and dirty files name a base path as `base:<name>/<path in the base>`. The design fixture's `org-base` and `org-base-drift` scenarios draw all of it.
 - **Surface and Health tabs** (`SurfaceTab.tsx`, `HealthTab.tsx`). `VersionTimeline` and
-  `SeamCompare` serve the drawer's History tab.
+  `SeamCompare` serve the History tab (`drawer/HistoryTab.tsx`), which nothing renders until the
+  block view takes it.
 
 `WiringRailEntry` is the one component that reaches into the shell's rail context (`useShellRail`
 from `@mattstack/app-kit/app`) to badge the rail entry with attention state.

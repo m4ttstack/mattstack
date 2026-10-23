@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { designFixture } from '../../__tests__/designFixtures';
 import type { SkillsCheck, SkillsComposition } from '../../../outline';
 import type { SkillsAnatomy, SkillsChanges } from '../../../useWiring';
-import { drawerContent } from '../drawerContent';
 import {
   buildTemplateView,
   selectedPartId,
@@ -519,19 +518,6 @@ describe('team sections inside a slot', () => {
     expect(
       view.inputs.find(card => card.id === 'slot:domain')?.sections
     ).toEqual([]);
-  });
-
-  it('leaves the drawer as it is without one', () => {
-    const plain = planView();
-    for (const target of [
-      { kind: 'output', part: null },
-      { kind: 'output', part: 'slot:domain' },
-      { kind: 'input', id: 'slot:domain' },
-    ] as const) {
-      expect(drawerContent(target, view, twoSections, null)).toEqual(
-        drawerContent(target, plain, anatomyPlan, null)
-      );
-    }
   });
 });
 

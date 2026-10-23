@@ -266,22 +266,6 @@ interface SkillsSurfaceApplyResponse {
   reReadError?: string;
 }
 
-/** One `rt skills bind <verb> <slot> <fill> --pack <pack>` invocation and
-    what it did. `ok: false` carries rt's own stderr as `error` -- the same
-    honest-failure shape `SkillsSurfaceApplyStep` uses. */
-interface SkillsBindResponse {
-  pack: string;
-  verb: string;
-  slot: string;
-  /** Absent when the write removed `pipeline`'s override. */
-  fill?: string;
-  /** Set when the write was that pipeline's override. */
-  pipeline?: string;
-  unset?: true;
-  ok: boolean;
-  error?: string;
-}
-
 interface SkillsCompilePreviewResponse {
   content: string;
 }
@@ -643,41 +627,6 @@ const surfaceApplyBody = validator(
       pack: typeof v?.pack === 'string' ? v.pack : undefined,
       toPublic: stringArray(v?.toPublic),
       toInternal: stringArray(v?.toInternal),
-    };
-  }
-);
-
-const bindBody = validator(
-  'json',
-  (
-    value
-  ): {
-    pack?: string;
-    verb?: string;
-    slot?: string;
-    fill?: string;
-    pipeline?: string;
-    unset?: boolean;
-  } => {
-    const v = value as {
-      pack?: unknown;
-      verb?: unknown;
-      slot?: unknown;
-      fill?: unknown;
-      pipeline?: unknown;
-      unset?: unknown;
-    };
-    return {
-      pack: typeof v?.pack === 'string' ? v.pack : undefined,
-      verb: typeof v?.verb === 'string' ? v.verb : undefined,
-      slot: typeof v?.slot === 'string' ? v.slot : undefined,
-      // A non-string reads as "", so an unset that sends one is still
-      // refused for carrying a fill.
-      fill: expectOf(v?.fill),
-      // A non-string reads as "", which no pack declares, so it is refused
-      // rather than read as a default write.
-      pipeline: expectOf(v?.pipeline),
-      unset: v?.unset === true,
     };
   }
 );
@@ -1213,134 +1162,6 @@ export function mountSkills(
           reReadError,
         };
         return c.json(response, allOk ? 200 : 502);
-      } catch (err) {
-        if (err instanceof RtNotFoundError) {
-          return c.json({ error: err.message }, 503);
-        }
-        return c.json({ error: (err as Error).message }, 502);
-      }
-    })
-    .post('/api/skills/bind', bindBody, async c => {
-      const { pack, verb, slot, fill, pipeline, unset } = c.req.valid('json');
-      if (!pack) return c.json({ error: 'pack is required' }, 400);
-      if (!verb) return c.json({ error: 'verb is required' }, 400);
-      if (!slot) return c.json({ error: 'slot is required' }, 400);
-      if (unset) {
-        if (pipeline === undefined) {
-          return c.json(
-            { error: 'unset removes a pipeline override; name the pipeline' },
-            400
-          );
-        }
-        if (fill !== undefined) {
-          return c.json({ error: 'unset takes no fill' }, 400);
-        }
-      } else if (!fill) {
-        return c.json({ error: 'fill is required' }, 400);
-      }
-      if (pipeline === '') {
-        return c.json({ error: 'pipeline must be a pipeline name' }, 400);
-      }
-      const rt = heldOpen(c.env, c.req.raw);
-
-      try {
-        // Never `cachedRun` here: this is about to write, so `verb`/`slot`/
-        // `fill` are checked against the roster and fills as they really are
-        // right now, not up to CACHE_TTL_MS stale -- the same rule the
-        // surface-apply route follows before its own write.
-        const compositionRun = await rt([
-          'skills',
-          'composition',
-          '--pack',
-          pack,
-          '--json',
-        ]);
-        const compositionPayload = parseJsonPayload(compositionRun.stdout);
-        if (compositionPayload === undefined) {
-          return c.json(
-            {
-              error: compositionRun.stderr.trim() || 'rt produced no output',
-            },
-            502
-          );
-        }
-        const composition = compositionPayload as SkillsCompositionResponse;
-
-        // Checked against the roster/composition BEFORE any of these
-        // names reaches an argv -- a name that is not really this pack's is
-        // rejected here, never handed to a spawn.
-        const verbEntry = composition.verbs.find(v => v.name === verb);
-        const stageEntry = composition.targets?.find(
-          t => t.kind === 'stage' && t.name === verb
-        );
-        if (!verbEntry && !stageEntry) {
-          return c.json(
-            { error: `"${verb}" is neither in ${pack}'s roster nor a stage` },
-            400
-          );
-        }
-        const declared = verbEntry?.slots ?? stageEntry?.slots ?? [];
-        const slotEntry = declared.find(s => s.name === slot);
-        if (!slotEntry) {
-          return c.json({ error: `"${slot}" is not a slot on "${verb}"` }, 400);
-        }
-        if (!unset) {
-          const fillEntry = composition.fills.find(f => f.binding === fill);
-          if (!fillEntry) {
-            return c.json(
-              { error: `"${fill}" is not a known fill in ${pack}` },
-              400
-            );
-          }
-          if (fillEntry.provides !== slotEntry.contract) {
-            return c.json(
-              {
-                error: `"${fill}" provides "${fillEntry.provides}", not "${slotEntry.contract}" required by ${verb}'s "${slot}" slot`,
-              },
-              400
-            );
-          }
-        }
-        if (
-          pipeline !== undefined &&
-          !Object.hasOwn(composition.pipelines ?? {}, pipeline)
-        ) {
-          return c.json(
-            { error: `"${pipeline}" is not a pipeline ${pack} declares` },
-            400
-          );
-        }
-
-        // `bind` recompiles the verb, so composition/check/compile all go
-        // stale too -- the same per-pack cache sweep the surface-apply route
-        // runs. Never a narrower invalidation, and never skipped on a failure
-        // or a kill: the binding may already be written.
-        const run = await rt(
-          [
-            'skills',
-            'bind',
-            verb,
-            slot,
-            ...(unset || fill === undefined ? [] : [fill]),
-            ...(pipeline !== undefined ? ['--pipeline', pipeline] : []),
-            ...(unset ? ['--unset'] : []),
-            '--pack',
-            pack,
-          ],
-          WRITE
-        ).finally(() => dropCachedReads(pack));
-        const ok = run.code === 0;
-
-        const response: SkillsBindResponse = {
-          pack,
-          verb,
-          slot,
-          ...(unset ? { unset: true as const } : { fill }),
-          ...(pipeline !== undefined ? { pipeline } : {}),
-          ok,
-          error: ok ? undefined : run.stderr.trim() || 'rt exited nonzero',
-        };
-        return c.json(response, ok ? 200 : 502);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

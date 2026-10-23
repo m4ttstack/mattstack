@@ -247,7 +247,7 @@ describe('slot states', () => {
     ]);
   });
 
-  it('required, unbound: a warn row and a warn card whose Bind opens the rebind panel', async () => {
+  it('required, unbound: a warn row and a warn card whose Bind selects its row', async () => {
     serve({
       composition: bindDomain(null),
       anatomy: { 'stage-plan': unboundPlan() },
@@ -272,15 +272,8 @@ describe('slot states', () => {
     expect(bind).toHaveAttribute('data-variant', 'card-outline');
     expect(bind).toHaveAttribute('data-size', 'compact-sm');
     fireEvent.click(bind);
-    await waitFor(() => {
-      expect(params().get('select')).toBe('row:136');
-      expect(params().get('rebind')).toBe('1');
-    });
-    const panel = await screen.findByTestId('rebind-panel');
-    expect(panel).toHaveTextContent('Choose what fills the domain slot');
-    expect(within(panel).getByTestId('rebind-current')).toHaveTextContent(
-      'nothing bound'
-    );
+    await waitFor(() => expect(params().get('select')).toBe('row:136'));
+    expect(params().get('rebind')).toBeNull();
   });
 
   it('no matching fill: a warn card naming the missing fill, and a warn row', async () => {
@@ -303,7 +296,7 @@ describe('slot states', () => {
     expect(within(card.parentElement!).queryByText('Bind')).toBeNull();
   });
 
-  it("resolve error: an error card and row carrying rt's message, read in full in the drawer", async () => {
+  it("resolve error: an error card and row carrying rt's message", async () => {
     const composition = designFixture('composition');
     for (const verb of composition.verbs)
       if (verb.name === 'release-notes')
@@ -330,22 +323,9 @@ describe('slot states', () => {
     );
     expect(subtitle).toHaveStyle({ color: 'var(--tk-text-bad-small)' });
     expect(paperOf(card)).toHaveAttribute('data-attention', 'bad');
-
-    fireEvent.click(card);
-    const drawer = await screen.findByTestId('skill-drawer');
-    expect(within(drawer).getByTestId('drawer-sentence')).toHaveTextContent(
-      'The changelog slot. rt could not resolve it.'
-    );
-    expect(within(drawer).getByTestId('drawer-error').textContent).toBe(
-      CHANGELOG_ERROR
-    );
-
-    fireEvent.click(await rowAt('L22'));
-    await waitFor(() => expect(params().get('select')).toBe('row:22'));
-    expect(within(drawer).getByText('Change')).toBeInTheDocument();
   });
 
-  it('referenced: the card says so, the row links to its fill, and the drawer opens on the rendered line', async () => {
+  it('referenced: the card says so and the row links to its fill', async () => {
     serve({
       anatomy: {
         'stage-plan': planWithDomain(1, {
@@ -379,27 +359,11 @@ describe('slot states', () => {
     ]);
     fireEvent.click(links[3]!);
     await waitFor(() => expect(params().get('select')).toBe('row:136'));
-
-    fireEvent.click(row);
-    const drawer = await screen.findByTestId('skill-drawer');
-    expect(within(drawer).getByTestId('drawer-chip')).toHaveTextContent(
-      'L136 → L223'
-    );
-    expect(within(drawer).getByTestId('drawer-sentence')).toHaveTextContent(
-      'The domain slot. This pack links it to plan-policy rather than pasting it in.'
-    );
-    const text = await screen.findByTestId('drawer-text');
-    await waitFor(() =>
-      expect(text.querySelector('[data-line="223"]')).not.toBeNull()
-    );
-    const line = text.querySelector('[data-line="223"]')!;
-    expect(line).toHaveAttribute('data-highlighted');
-    expect(line).toHaveTextContent(REFERENCE_LINE);
   });
 });
 
 describe('engines and builds', () => {
-  it('a legacy engine: rows guttered by rendered lines open on the rendered file', async () => {
+  it('a legacy engine: rows are guttered by rendered lines', async () => {
     const plan = designFixture('anatomy.stage-plan');
     const source = (name: string) =>
       plan.parts.find(part => part.name === name)!.source;
@@ -441,16 +405,9 @@ describe('engines and builds', () => {
       'rendered L303-749',
       'rendered L753-780',
     ]);
-
-    fireEvent.click(await rowAt('rendered L303-749'));
-    const drawer = await screen.findByTestId('skill-drawer');
-    expect(within(drawer).getByText('rendered')).toBeInTheDocument();
-    expect(within(drawer).getByTestId('drawer-chip')).toHaveTextContent(
-      'rendered L303-749'
-    );
   });
 
-  it('never compiled: the output card says so, and its drawer cannot switch to Rendered', async () => {
+  it('never compiled: the output card says so', async () => {
     const plan = designFixture('anatomy.stage-plan');
     const check = designFixture('check');
     for (const row of check.verbs)
@@ -478,15 +435,6 @@ describe('engines and builds', () => {
     expect(await screen.findByTestId('focus-status')).toHaveTextContent(
       'never compiled'
     );
-
-    const drawer = await screen.findByTestId('skill-drawer');
-    const toggle = within(drawer).getByTestId('drawer-view');
-    expect(
-      within(toggle).getByRole('radio', { name: 'Template' })
-    ).toBeChecked();
-    expect(
-      within(toggle).getByRole('radio', { name: 'Rendered' })
-    ).toBeDisabled();
   });
 });
 

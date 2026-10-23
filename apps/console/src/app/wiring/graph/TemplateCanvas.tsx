@@ -242,7 +242,7 @@ export default function TemplateCanvas({
       select: url.select,
       onSelect,
       onOpenSkill: skill => patch({ focus: focusOf(skill) }),
-      onBind: line => patch({ select: `row:${line}`, rebind: true }),
+      onBind: line => patch({ select: `row:${line}` }),
     }),
     [view, url.select, onSelect, patch, focusOf]
   );

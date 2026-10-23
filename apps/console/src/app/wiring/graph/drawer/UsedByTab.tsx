@@ -3,11 +3,15 @@ import { Box, Group, NavLink, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import type { SkillsComposition } from '../../outline';
-import type { DrawerUsedBy } from '../model/drawerContent';
 import type { FocusGroups, FocusItem } from '../model/focusModel';
 import classes from './drawer.module.css';
 import { TabHeading } from './TabHeading';
-import { USED_BY_GROUPS, usedBySites, type UsedBySite } from './usedBy';
+import {
+  USED_BY_GROUPS,
+  usedBySites,
+  type DrawerUsedBy,
+  type UsedBySite,
+} from './usedBy';
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';

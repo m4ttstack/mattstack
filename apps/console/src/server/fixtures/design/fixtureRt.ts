@@ -179,9 +179,6 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     }
     if (flagValue(argv, '--pack') !== FIXTURE_PACK) return refuse(argv);
 
-    if (verb === 'bind' && argv.length === 7) return answer('');
-    if (verb === 'bind' && argv.length === 9 && flagValue(argv, '--pipeline'))
-      return answer('');
     if (!argv.includes('--json')) return refuse(argv);
     switch (verb) {
       case 'composition':

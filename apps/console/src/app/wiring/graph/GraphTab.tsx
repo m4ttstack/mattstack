@@ -11,12 +11,6 @@ import {
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { useAnatomy, usePendingChanges } from '../useWiring';
-import {
-  DRAWER_WIDTH,
-  selectedContent,
-  SkillDrawer,
-} from './drawer/SkillDrawer';
-import { useDrawerMode } from './drawer/useDrawerMode';
 import { FocusHeader, kindOf, statusOf } from './FocusHeader';
 import classes from './graph.module.css';
 import { layoutTemplate } from './layout/templateLayout';
@@ -108,11 +102,6 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
     (skill: string) => focusUnder(pipeline, skill),
     [pipeline]
   );
-  const drawerOpen = useMemo(
-    () => selectedContent(url, view, anatomy, check) !== null,
-    [url, view, anatomy, check]
-  );
-  const [drawerMode] = useDrawerMode();
   const header = useBottomInStage();
 
   return (
@@ -154,24 +143,12 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
             layout={layout}
             view={view}
             height={height}
-            cover={drawerOpen && drawerMode === 'side' ? DRAWER_WIDTH : 0}
             headerBottom={focused ? header.bottom : 0}
             focusOf={focusOf}
             onSelect={onSelect}
           />
         </Suspense>
       )}
-      <SkillDrawer
-        pack={pack}
-        view={view}
-        anatomy={anatomy}
-        composition={composition}
-        check={check}
-        groups={groups}
-        pipeline={pipeline}
-        url={url}
-        setUrl={patch}
-      />
       {focused ? (
         <FocusHeader
           ref={header.ref}

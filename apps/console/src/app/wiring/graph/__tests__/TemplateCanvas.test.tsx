@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { statusOf } from '../FocusHeader';
 import { layoutTemplate } from '../layout/templateLayout';
-import { drawerContent } from '../model/drawerContent';
 import {
   buildTemplateView,
   type OutputCard,
@@ -398,9 +397,6 @@ describe('status tones', () => {
           .getByTestId('output-header')
           .querySelector('[data-parity="status"]')
       ).toHaveAttribute('data-tone', tone);
-      expect(
-        drawerContent({ kind: 'output', part: null }, view, anatomy, null)?.dot
-      ).toBe(tone);
       expect(statusOf(view, anatomy)?.tone).toBe(tone);
     }
   );

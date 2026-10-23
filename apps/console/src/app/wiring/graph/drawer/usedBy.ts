@@ -4,6 +4,7 @@ import {
   suffixOf,
   type SkillsComposition,
 } from '../../outline';
+import type { Owner } from '../../owner';
 import {
   focusUnder,
   workTypeOf,
@@ -23,6 +24,9 @@ export const USED_BY_GROUPS: readonly UsedByGroup[] = [
 
 /** A partial by its include name, or a fill by its binding. */
 export type UsedByRef = { kind: 'include' | 'fill'; name: string };
+
+/** A used-by ref with the plugin that owns its file. */
+export type DrawerUsedBy = UsedByRef & { plugin: string; owner: Owner };
 
 export type UsedBySite = {
   group: UsedByGroup;

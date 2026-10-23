@@ -8,7 +8,7 @@ export type CanvasState = {
   select: string | null;
   onSelect: (select: string) => void;
   onOpenSkill: (skill: string) => void;
-  /** Opens the drawer on a slot row, ready to bind it. */
+  /** Selects an unbound prop's row. */
   onBind: (line: number) => void;
 };
 
