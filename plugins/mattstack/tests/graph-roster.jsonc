@@ -13,6 +13,8 @@
     "receive-review": { "engine": "receive-review", "description": "CI graph roster: receive-review" },
     "checkout": { "engine": "checkout", "description": "CI graph roster: checkout" },
     "rebase-worktree": { "engine": "rebase-worktree", "description": "CI graph roster: rebase-worktree" },
-    "sync-open-mrs": { "engine": "sync-open-mrs", "description": "CI graph roster: sync-open-mrs" }
+    "sync-open-mrs": { "engine": "sync-open-mrs", "description": "CI graph roster: sync-open-mrs" },
+    "map-open-mrs": { "engine": "map-open-mrs", "description": "CI graph roster: map-open-mrs, the verb sync-open-mrs names" },
+    "checkout-and-open": { "engine": "checkout-and-open", "description": "CI graph roster: checkout-and-open" }
   }
 }
