@@ -24,7 +24,7 @@ flowchart TB
 %% name: self_review
     self_review_entered([Self-review stage entered])
     run_field_get_commits[/"run_field_get {key: commits}"/]
-    domain_rules_inlined{Domain rules inlined?}
+    domain_rules_inlined{Any domain rule inlined in this stage?}
     dispatch_reviewer
     blocking_findings{Blocking findings?}
     run_budget_review_rounds[/"run_budget {key: review-rounds, limit: 3, stage: self-review}"/]

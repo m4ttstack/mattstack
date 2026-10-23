@@ -10,8 +10,8 @@ node: precheck_result
    `reuse` refuse `branch-duplicated`, so offer none of them);
 2. the surviving local branch (`localBranch: true` with no `attached`
    tree), offered as resume on `base`;
-3. every `sameTicket` tree, but only when no domain rules are inlined (a
-   domain flow asks its own slug question for those).
+3. every `sameTicket` tree, but only when no domain rule is inlined in
+   this stage (a domain flow asks its own slug question for those).
 
 All of them go in the gate's one `resume_in` question, the first 3 in that
 order plus **Fresh tree**; provisioning adds no other gate or question.

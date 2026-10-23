@@ -1,0 +1,4 @@
+1. `run_field_get {key: approach}`; `run_field_set {key: extra.gates, value: ["migration-dry-run", "api-schema"], stage: gates}`; `run_stage {action: fail, stage: "gates", reason: "migration-dry-run failed: bun run widgets:migrate --dry-run exited 1, column badge_level is referenced by view badge_summary"}`
+2. `cd /repo/wt && bun run widgets:migrate --dry-run ; cd /repo/wt && bun run widgets:schema-check`
+3. Fired: `migration-dry-run`, `api-schema`. Failed: `migration-dry-run`.
+4. Stage failed

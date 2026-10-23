@@ -27,7 +27,7 @@ flowchart TB
     mode_is_worker{mode is worker?}
     git_status_pwd[/git status in $PWD/]
     clean_run{Clean run?}
-    domain_rules_inlined{Domain rules inlined?}
+    domain_rules_inlined{Any domain rule inlined in this stage?}
     follow_domain_flow
     domain_flow_result{Domain flow result?}
     worktree_provision_precheck[/"worktree_provision {repoName, ticket | branch, ticketTitle?, precheck: true}"/]

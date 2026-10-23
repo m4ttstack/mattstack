@@ -23,7 +23,7 @@ which gate failed and what it found.
 flowchart TB
 %% name: gates
     gates_entered([Gates stage entered])
-    domain_rules_inlined{Domain rules inlined?}
+    domain_rules_inlined{Any domain rule inlined in this stage?}
     say_no_gates[Say in one line there are no domain gates]
     stop_invented_gate[STOP: never invent a gate]:::stop
     apply_triggered_gates
