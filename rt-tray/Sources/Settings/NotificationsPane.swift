@@ -106,12 +106,20 @@ struct NotificationsPaneForm: View {
                     Text(tier.covers).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { onPreview(tier) } label: { Image(systemName: "play.fill") }
-                    .buttonStyle(.borderless)
-                    .disabled(picks[tier] == SoundID.none)
-                    .help("Play this sound")
-                    .accessibilityLabel("Play \(tier.title) sound")
-                    .accessibilityIdentifier(AXID.settingsSoundPreview(tier.key))
+                Button { onPreview(tier) } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.primary)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(Color(nsColor: .controlBackgroundColor)))
+                        .overlay(Circle().strokeBorder(Color(nsColor: .tertiaryLabelColor)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(picks[tier] == SoundID.none)
+                .help("Play this sound")
+                .accessibilityLabel("Play \(tier.title) sound")
+                .accessibilityIdentifier(AXID.settingsSoundPreview(tier.key))
                 picker(tier)
             }
             if let e = fileErrors[tier] {
@@ -122,31 +130,82 @@ struct NotificationsPaneForm: View {
     }
 
     private func picker(_ tier: SoundTier) -> some View {
-        Picker("\(tier.title) sound", selection: Binding(
-            get: { picks[tier] },
-            set: { id in id == Self.chooseFileTag ? onChooseFile(tier) : onPick(tier, id) })) {
-            Text("Original").tag(SoundID.original)
-            Section("Sober Ringtones") {
-                ForEach(SoundID.soberNumbers, id: \.self) { n in Text(SoundID.displayName(SoundID.sober(n))).tag(SoundID.sober(n)) }
-            }
-            Section("macOS") {
-                ForEach(systemIDs, id: \.self) { id in Text(SoundID.displayName(id)).tag(id) }
-            }
-            if !customIDs.isEmpty {
-                Section("My sounds") {
-                    ForEach(customIDs, id: \.self) { id in Text(SoundID.displayName(id)).tag(id) }
-                }
-            }
-            Divider()
-            Text("None").tag(SoundID.none)
-            Text("Choose file…").tag(Self.chooseFileTag)
+        var entries: [SoundPopUp.Entry] = [.item(SoundID.original)]
+        entries += [.separator, .header("Sober Ringtones")] + SoundID.soberNumbers.map { .item(SoundID.sober($0)) }
+        entries += [.separator, .header("macOS")] + systemIDs.map { .item($0) }
+        if !customIDs.isEmpty { entries += [.separator, .header("My sounds")] + customIDs.map { .item($0) } }
+        entries += [.separator, .item(SoundID.none), .action(Self.chooseFileTag, "Choose file…")]
+        return SoundPopUp(entries: entries, selection: picks[tier], accessibilityLabel: "\(tier.title) sound") { id in
+            id == Self.chooseFileTag ? onChooseFile(tier) : onPick(tier, id)
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .fixedSize()
-        .frame(minWidth: 150, alignment: .trailing)
+        .frame(width: 190)
         .disabled(busy)
         .accessibilityIdentifier(AXID.settingsSoundPicker(tier.key))
+    }
+}
+
+/// The boxed AppKit popup button: SwiftUI's Picker draws as plain text
+/// inside a grouped Form, which reads as a label rather than a control.
+struct SoundPopUp: NSViewRepresentable {
+    enum Entry: Equatable {
+        case item(String)
+        case action(String, String)
+        case header(String)
+        case separator
+    }
+
+    let entries: [Entry]
+    let selection: String
+    let accessibilityLabel: String
+    let onSelect: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.bezelStyle = .push
+        button.isBordered = true
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.picked(_:))
+        button.setAccessibilityLabel(accessibilityLabel)
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.onSelect = onSelect
+        if context.coordinator.entries != entries {
+            context.coordinator.entries = entries
+            let menu = NSMenu()
+            for entry in entries {
+                switch entry {
+                case .item(let id):
+                    let item = NSMenuItem(title: SoundID.displayName(id), action: nil, keyEquivalent: "")
+                    item.representedObject = id
+                    menu.addItem(item)
+                case .action(let id, let title):
+                    let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                    item.representedObject = id
+                    menu.addItem(item)
+                case .header(let title):
+                    menu.addItem(NSMenuItem.sectionHeader(title: title))
+                case .separator:
+                    menu.addItem(.separator())
+                }
+            }
+            button.menu = menu
+        }
+        if let item = button.itemArray.first(where: { $0.representedObject as? String == selection }) {
+            button.select(item)
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var entries: [Entry] = []
+        var onSelect: (String) -> Void = { _ in }
+        @objc func picked(_ sender: NSPopUpButton) {
+            guard let id = sender.selectedItem?.representedObject as? String else { return }
+            onSelect(id)
+        }
     }
 }
 
