@@ -25,14 +25,14 @@ let notificationSoundsModelChecks: [Check] = [
             c.expectEqual(m.error, nil)
         }
     },
-    Check("NotificationSoundsModel puts the pick back and shows an error when the write fails") { c in
+    Check("NotificationSoundsModel keeps the pick for this run and says it wasn't saved when the write fails") { c in
         let rt = ScriptedRt()
         rt.answers["settings set rt.notify.sounds"] = (1, "")
         let m = await MainActor.run { NotificationSoundsModel() }
         await m.set(.positive, to: "sober/101", rt: rt)
         await MainActor.run {
-            c.expectEqual(m.picks, SoundPicks.defaults, "a failed write reverts the optimistic pick")
-            c.expect(m.error != nil)
+            c.expectEqual(m.picks.positive, "sober/101", "a failed write still plays the pick until quit")
+            c.expect(m.error?.hasPrefix("Not saved") == true, "the error says the pick wasn't saved")
         }
         c.expectEqual(rt.calls.count, 1, "a failed write does not reload")
     },

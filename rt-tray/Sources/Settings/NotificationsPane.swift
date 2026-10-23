@@ -20,6 +20,7 @@ struct NotificationsPane: View {
             fileErrors: fileErrors, error: sounds.error, busy: sounds.inFlight,
             onPick: { tier, id in
                 fileErrors[tier] = nil
+                NotificationManager.preview(id: id, tier: tier)
                 Task { await sounds.set(tier, to: id, rt: env.rt) }
             },
             onChooseFile: { tier in DispatchQueue.main.async { chooseFile(for: tier) } },
@@ -56,6 +57,7 @@ struct NotificationsPane: View {
             try FileManager.default.copyItem(at: source, to: dir.appendingPathComponent(name))
             fileErrors[tier] = nil
             refreshLists()
+            NotificationManager.preview(id: SoundID.custom(name), tier: tier)
             Task { await sounds.set(tier, to: SoundID.custom(name), rt: env.rt) }
         } catch {
             TrayLog.error("could not add a custom sound", ["file": source.path, "err": String(describing: error)])

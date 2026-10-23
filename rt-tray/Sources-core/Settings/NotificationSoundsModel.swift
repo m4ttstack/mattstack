@@ -26,12 +26,15 @@ public final class NotificationSoundsModel: ObservableObject {
         }
     }
 
+    /// A pick that failed to save still plays until the app quits, so a
+    /// sound can be tried even when rt can't store it.
+    static func unsaved(_ why: String) -> String { "Not saved, so this pick lasts until mattstack quits. \(why)" }
+
     public func set(_ tier: SoundTier, to id: String, rt: RtRunning) async {
         guard !inFlight, picks[tier] != id else { return }
         inFlight = true
         defer { inFlight = false }
         error = nil
-        let prior = picks
         picks[tier] = id
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -39,13 +42,11 @@ public final class NotificationSoundsModel: ObservableObject {
         do {
             let r = try await rt.run(["settings", "set", "rt.notify.sounds", json, "--scope", "machine"], stdin: nil)
             guard r.exitCode == 0 else {
-                picks = prior
-                error = r.userError?.message ?? r.failureCopy(verb: "settings set")
+                error = Self.unsaved(r.userError?.message ?? r.failureCopy(verb: "settings set"))
                 return
             }
         } catch {
-            picks = prior
-            self.error = (error as? RtClientError)?.copy ?? "rt settings set failed to start."
+            self.error = Self.unsaved((error as? RtClientError)?.copy ?? "rt settings set failed to start.")
             return
         }
         await read(rt: rt)
