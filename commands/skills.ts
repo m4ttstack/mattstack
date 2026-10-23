@@ -125,6 +125,24 @@ export class SkillsUsageError extends Error {
 
 export class SkillsRefusal extends SkillsUsageError {}
 
+const STALE_ENGINE_WHY = "Its engines are single SKILL.md files, and this rt compiles only block trees. Update the plugin, or update the mattstack app, which updates it.";
+
+/** A new rt over an old plugin cache meets an engine that is one SKILL.md on every verb, so the failure names the update. */
+export function staleEngineFailure(message: string): out.FailureInput {
+  return {
+    title: "The installed mattstack plugin is older than this rt",
+    why: STALE_ENGINE_WHY,
+    next: out.cmd("claude plugin update mattstack@mattstack"),
+    details: message,
+  };
+}
+
+class StaleEngineError extends SkillsUsageError {
+  constructor(message: string) {
+    super(message, staleEngineFailure(message));
+  }
+}
+
 function refuseUnlessPackOwned(packDir: string): void {
   const owner = packOrg(packDir);
   if (owner.kind === "outside") return;
@@ -690,6 +708,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
     const copies = new Set(stages.filter((s) => s.pipeline !== undefined).map((s) => s.name));
     stageEntries = buildStageEntries({ pipelines, pluginRoots, publicSet: surface ? new Set(surface.public) : null, copies });
   } catch (err) {
+    if ((err as Error).cause instanceof NotABlockTreeError) throw new StaleEngineError((err as Error).message);
     throw new SkillsUsageError((err as Error).message);
   }
 
@@ -845,6 +864,7 @@ function compileVerb(
   } catch (err) {
     // A block diagnostic already names its file, line and column.
     if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+    if (err instanceof NotABlockTreeError) throw new StaleEngineError(`${where}: ${err.message}`);
     throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
   }
   if (isStage) verb = { ...verb, description: step.description };
@@ -958,7 +978,7 @@ type CompileVerbRow = {
   side: Side;
 };
 
-type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message: string };
+type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message: string; staleEngine?: boolean };
 
 /**
  * compileVerb fails two ways: it throws (loadStepSource/loadAttachment/
@@ -977,7 +997,7 @@ function tryCompileVerb(target: CompileTarget, resolved: Resolved, emittedTarget
     }
     return { ok: true, result };
   } catch (err) {
-    return { ok: false, message: (err as Error).message };
+    return { ok: false, message: (err as Error).message, ...(err instanceof StaleEngineError ? { staleEngine: true } : {}) };
   }
 }
 
@@ -1366,10 +1386,11 @@ export function staleCopyBlocks(names: string[], writing: boolean): Block[] {
 }
 
 // Field-contract lines only run once every verb compiled, so a failure list is all one kind or all the other.
-export function compileFailure(failures: string[]): out.FailureInput {
+export function compileFailure(failures: string[], staleEngine = false): out.FailureInput {
   const title = failures.every((f) => f.startsWith("field contract: "))
     ? countOf(failures.length, "field-contract error", "field-contract errors")
     : `${countOf(failures.length, "verb", "verbs")} did not compile`;
+  if (staleEngine) return { title, why: STALE_ENGINE_WHY, next: out.cmd("claude plugin update mattstack@mattstack"), details: failures.join("\n") };
   return { title, details: failures.join("\n") };
 }
 
@@ -1475,7 +1496,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     }
     const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract, unclaimedBlockKeys, missing, unusedParams } = compiledResult;
     if (failures.length > 0 && !flags.json) {
-      out.fail(compileFailure(failures));
+      out.fail(compileFailure(failures, outcomes.some(({ outcome }) => !outcome.ok && outcome.staleEngine === true)));
       process.exit(1);
     }
     if (missing.length > 0 && !flags.json) {
@@ -3901,6 +3922,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       step = loadStepSource(verb.engine, resolved.pluginRoots);
     } catch (err) {
       if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+      if (err instanceof NotABlockTreeError) throw new StaleEngineError(`verb "${verbName}": ${err.message}`);
       throw new SkillsUsageError(`verb "${verbName}": ${(err as Error).message}`);
     }
     const tree = step.tree;
@@ -3914,6 +3936,13 @@ export async function skillsBind(args: string[]): Promise<void> {
     }
 
     if (slotForm !== null) {
+      if (tree.root.props.some((p) => p.name === slotForm)) {
+        const rootForm = `rt skills bind ${verbName} ${tree.root.id} ${slotForm} ${positionals[2]}`;
+        throw new SkillsUsageError(`"${slotForm}" is a prop of ${verbName}'s root block "${tree.root.id}"; name the block too: ${rootForm}`, {
+          title: `Name the block before the prop: ${slotForm} is a prop of ${verbName}'s root block`,
+          next: out.cmd(rootForm),
+        });
+      }
       if (replacedSlots(tree).includes(slotForm) && !findBindBlock(tree, slotForm)) throw new SkillsUsageError(oldSlotBindingMessage(engineRef, slotForm, tree));
       throw bindUsageError();
     }

@@ -524,6 +524,33 @@ describe("skillsBind", () => {
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(false);
   });
 
+  test("an engine that is still one SKILL.md fails compile and bind with the plugin update as the next step", async () => {
+    const packDir = makePackDir();
+    writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+    const { mattstackDir, manifestPath } = makeEngineFixture();
+    const engineDir = join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci");
+    rmSync(engineDir, { recursive: true });
+    writeFile(join(engineDir, "SKILL.md"), "---\nname: watch-ci\ndescription: \"Watch CI\"\ntype: pipeline-step\n---\n\n# watch-ci\n\n{{domain}}\n");
+
+    const compiled = await runExpectingCleanExit(() =>
+      skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]),
+    );
+    expect(compiled.exitCode).toBe(1);
+    expect(compiled.errors[0]).toBe("1 verb did not compile");
+    expect(compiled.errors.join("\n")).toContain("claude plugin update mattstack@mattstack");
+    expect(compiled.errors.join("\n")).toContain("has no index.block.md; an engine is a block tree");
+
+    const bound = await runExpectingCleanExit(() =>
+      skillsBind([
+        "watch-ci", "watch-ci/domain-rules", "rules", "acme:watch-ci-domain-v2",
+        "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+      ]),
+    );
+    expect(bound.exitCode).toBe(1);
+    expect(bound.errors[0]).toEndWith("The installed mattstack plugin is older than this rt");
+    expect(bound.errors.join("\n")).toContain("claude plugin update mattstack@mattstack");
+  });
+
   test("fill whose provides does not match the prop's contract: clean error, exit 1, writes nothing", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
@@ -630,6 +657,38 @@ describe("skillsBind: pipeline stages", () => {
 
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
     expect(io.lines()).toContain("[not yet] stage-plan stage-plan.rules  (unbound) -> acme:plan-policy");
+  });
+
+  test("a pipeline stage that is still one SKILL.md fails compile with the plugin update as the next step", async () => {
+    const { packDir, mattstackDir, manifestPath } = makeStageFixture();
+    const stageDir = join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan");
+    rmSync(stageDir, { recursive: true });
+    writeFile(join(stageDir, "SKILL.md"), "---\nname: stage-plan\ndescription: \"stage-plan\"\ntype: pipeline-step\n---\n\n{{domain}}\n");
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toBe("The installed mattstack plugin is older than this rt");
+    expect(errors.join("\n")).toContain("next: claude plugin update mattstack@mattstack");
+  });
+
+  test("a three-argument bind naming a root prop is refused with the four-argument root form, and writes nothing", async () => {
+    const { packDir, mattstackDir, manifestPath } = makeStageFixture();
+    const before = readFileSync(manifestPath, "utf8");
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsBind([
+        "stage-plan", "rules", "acme:plan-policy",
+        "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+      ]),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toBe("Name the block before the prop: rules is a prop of stage-plan's root block");
+    expect(errors.join("\n")).toContain("rt skills bind stage-plan stage-plan rules acme:plan-policy");
+    expect(readFileSync(manifestPath, "utf8")).toBe(before);
   });
 
   test("a prop the block does not declare errors with the block's props", async () => {

@@ -115,3 +115,9 @@ A bind with three arguments, `<verb> <slot> <fill>`, names a slot the engine had
 ```
 
 Pick the block for your rule from that list and bind it with all four arguments. A `pack/skills.jsonc` key that still names such a slot is refused the same way by compile; see [`rt skills compile`](/rt/reference/skills/compile).
+
+A three-argument bind whose middle argument is a prop of the engine's root block, such as `rt skills bind shepherdr tiering widgets:tiering`, is refused too. Bind writes nothing and prints the four-argument form to run, with the root block named:
+
+```
+rt skills bind shepherdr shepherdr tiering widgets:tiering
+```
