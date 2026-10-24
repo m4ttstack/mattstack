@@ -49,6 +49,7 @@ import {
   FindingAnchor,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
+import { useSheetDraft } from './sheet-draft.ts';
 import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
@@ -346,6 +347,25 @@ function ReviewGateSheet({
     // wrappers and re-running on their identity would fight the seed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.gateId]);
+
+  // After the seed above, so the restore's unticks land on top of it. Only a
+  // revision this gate carries drops its comment edit: one an earlier gate
+  // carried must not keep discarding what the reviewer typed since.
+  const revisedIds = useMemo(
+    () =>
+      Object.entries(mr?.questions?.revised ?? {})
+        .filter(([, r]) => r.newGate === gate.gateId)
+        .map(([id]) => id),
+    [mr?.questions, gate.gateId]
+  );
+  useSheetDraft(
+    mr?.webUrl ?? undefined,
+    form,
+    { findings: findingsName, outcome: outcomeName },
+    findings.map(f => f.id),
+    revisedIds,
+    gate.gateId
+  );
 
   const handleReset = () => {
     form.resetAll();

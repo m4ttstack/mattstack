@@ -297,7 +297,9 @@ import {
   markQuestionsGone,
   questionAgentIds,
   readQuestionStates,
+  readSheetDraft,
   writeQuestionState,
+  writeSheetDraft,
 } from './question-state.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
@@ -351,6 +353,7 @@ import {
   ownerSteps,
   ringText,
 } from './run-owner.ts';
+import { parseSheetDraft } from './sheet-draft-shape.ts';
 import { canonicalReactions } from './slack-emoji.ts';
 import {
   attachOwnerPosts,
@@ -3151,6 +3154,46 @@ const httpServer = Bun.serve({
               status: result.status,
               headers: { 'content-type': 'application/json' },
             });
+      }
+      case '/review/sheet-draft': {
+        // The review sheet's unsent ticks and edits, kept per MR so a gate
+        // rebuilt after a finding revision restores them (see
+        // client/board/sheet-draft.ts). GET returns the draft or null.
+        if (req.method !== 'GET' && req.method !== 'PUT')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        if (req.method === 'GET') {
+          const mrUrl = new URL(req.url).searchParams.get('mr');
+          if (!mrUrl) return new Response('expected mr', { status: 400 });
+          return new Response(JSON.stringify(readSheetDraft(mrUrl) ?? null), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, draft } = (body ?? {}) as {
+          mrUrl?: unknown;
+          draft?: unknown;
+        };
+        const parsed = parseSheetDraft(draft);
+        if (typeof mrUrl !== 'string' || mrUrl === '' || !parsed)
+          return new Response(
+            'expected { mrUrl: string, draft: { ticked, texts, outcome?, notes } }',
+            { status: 400 }
+          );
+        writeSheetDraft(mrUrl, parsed);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        });
       }
       case '/drafts': {
         // The ONLY path from a held doctor draft to a GitLab note. The human

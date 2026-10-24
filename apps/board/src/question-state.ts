@@ -3,6 +3,7 @@ import { join } from 'path';
 import { Database } from 'bun:sqlite';
 
 import type { ReportFinding } from './review-finding.ts';
+import type { SheetDraft } from './sheet-draft-shape.ts';
 import {
   definedFields,
   FRESH_RUN_PANE,
@@ -370,14 +371,7 @@ export function deleteRevision(
   );
 }
 
-/** The review sheet's unsent state: which findings are ticked, their
-    editable texts, the chosen outcome and per-finding notes. */
-export interface SheetDraft {
-  ticked: string[];
-  texts: Record<string, string>;
-  outcome?: string;
-  notes: Record<string, string>;
-}
+export type { SheetDraft };
 
 export function readSheetDraft(
   mrUrl: string,
