@@ -479,7 +479,7 @@
               "layer": "base:acme-base",
               "color": "org",
               "binding": "widgets:ship-lint/base-commit",
-              "path": "/fixture/packs/acme/attachments/ship-lint/base-commit.md",
+              "path": "/fixture/orgbase/acme-base/attachments/ship-lint/base-commit.md",
               "lines": 1
             }
           ],
@@ -564,7 +564,7 @@
               "layer": "base:acme-base",
               "color": "org",
               "binding": "widgets:ship-lint/base-checks",
-              "path": "/fixture/packs/acme/attachments/ship-lint/base-checks.md",
+              "path": "/fixture/orgbase/acme-base/attachments/ship-lint/base-checks.md",
               "lines": 1
             },
             {

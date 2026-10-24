@@ -637,11 +637,8 @@ const SHIP_LINT_COMMITS: HistoryCommit[] = [
     shortSha: 'a83f0b6',
     authoredAt: '2026-10-02T16:05:19-05:00',
     author: 'Sam Reyes',
-    subject: 'ship-lint: shared format check comes first',
-    files: [
-      'attachments/ship-lint/base-checks.md',
-      'attachments/ship-lint/fast-checks.md',
-    ],
+    subject: 'ship-lint: a lint error is fixed, never disabled',
+    files: ['attachments/ship-lint/fast-checks.md'],
   },
 ];
 

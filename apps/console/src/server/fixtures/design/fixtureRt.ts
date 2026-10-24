@@ -5,8 +5,8 @@
  * `CONSOLE_FIXTURE_SCENARIO=unsynced` serves the pack after a rebind that has
  * not been synced yet; `scenarios.ts` lists the others, each a state no board
  * draws. Every scenario answers `rt skills blocks` from `blocks.<skill>.json`,
- * with rt's refusal for a skill it will not build (`BLOCKS_REFUSED`), and
- * any other skill as not a block tree.
+ * with rt's refusal for a skill it will not build (`BLOCKS_REFUSED`, which
+ * its anatomy gets too), and any other skill as not a block tree.
  *
  * Files the routes read live under `files/`, at their path below `/fixture`.
  * Everything is read at call time, so nothing here is bundled into the app.
@@ -216,6 +216,10 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         const own = skill ? def.anatomy?.[skill] : undefined;
         if (isFailure(own)) return fail(own);
         if (own) return answer(await payload(own.file, own.edit));
+        // rt compiles a skill for its anatomy as for its blocks, so a skill
+        // it will not build refuses both the same way.
+        const refused = skill ? BLOCKS_REFUSED[skill] : undefined;
+        if (refused) return fail(refused);
         if (!skill || !SKILLS_WITH_ANATOMY.has(skill)) return refuse(argv);
         const variant = unsynced && skill === 'stage-plan' ? '.unsynced' : '';
         return answer(await readJsonText(`anatomy.${skill}${variant}.json`));

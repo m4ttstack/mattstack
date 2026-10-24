@@ -10,6 +10,7 @@ import anatomyPlanUnsynced from './anatomy.stage-plan.unsynced.json';
 import anatomyWork from './anatomy.work.json';
 import anatomyWorkRt from './anatomy.work.rt.json';
 import blocksMini from './blocks.mini.json';
+import shipBlocks from './blocks.ship.json';
 import blocksStagePlan from './blocks.stage-plan.json';
 import changesClean from './changes.clean.json';
 import changesUnsynced from './changes.unsynced.json';
@@ -823,23 +824,39 @@ describe('the skills routes on the fixture', () => {
     }
   });
 
-  it("blocks scenario: ship's prop files sit in the pack, the base one marked as the org base's", () => {
+  it("blocks scenario: ship's own prop files sit in the pack, the org base's in its base pack", () => {
     const props = anatomyShip.parts.filter(part => part.kind === 'prop');
     expect(props.length).toBeGreaterThan(0);
-    for (const part of props)
+    const base = props.filter(part => part.source!.origin === 'base');
+    expect(base.map(part => part.source!.path).sort()).toEqual([
+      '/fixture/orgbase/acme-base/attachments/ship-lint/base-checks.md',
+      '/fixture/orgbase/acme-base/attachments/ship-lint/base-commit.md',
+    ]);
+    for (const part of base)
+      expect(part.source).toMatchObject({
+        base: 'acme-base',
+        baseVersion: '0.1.0',
+      });
+    for (const part of props.filter(part => !base.includes(part)))
       expect(part.source!.path.startsWith('/fixture/packs/acme/')).toBe(true);
-    const base = props.find(part =>
-      part.source!.path.endsWith('/base-checks.md')
-    )!;
-    expect(base.source).toMatchObject({
-      origin: 'base',
-      base: 'acme-base',
-      baseVersion: '0.1.0',
-    });
-    const own = props.find(part =>
-      part.source!.path.endsWith('/fast-checks.md')
-    )!;
-    expect(own.source).not.toHaveProperty('origin');
+
+    const values = shipBlocks.blocks.flatMap(block =>
+      block.props.flatMap(prop => prop.values)
+    );
+    for (const value of values)
+      expect([value.color, value.path.split('/attachments/')[0]]).toEqual(
+        value.color === 'org'
+          ? ['org', '/fixture/orgbase/acme-base']
+          : ['team', '/fixture/packs/acme']
+      );
+  });
+
+  it("blocks scenario: the pack's history holds no commit to the org base's file", async () => {
+    const res = await mount('blocks').request(
+      '/api/skills/history?pack=acme&verb=ship&path=attachments%2Fship-lint%2Fbase-checks.md'
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { commits: unknown[] }).commits).toEqual([]);
   });
 
   it("blocks scenario: a block file's history lists the commits that touched it", async () => {
@@ -886,6 +903,21 @@ describe('the skills routes on the fixture', () => {
     );
     expect(res.status).toBe(422);
     expect(((await res.json()) as { error: string }).error).toContain(
+      'prop "changelog" is required and has no default'
+    );
+  });
+
+  it("answers release-notes' anatomy with the refusal its blocks get, since rt compiles both the same way", async () => {
+    const { runRt } = fixtureRt('blocks');
+    const blocks = await runRt(
+      pack('blocks', '--skill', 'release-notes', '--json')
+    );
+    const anatomy = await runRt(
+      pack('anatomy', '--skill', 'release-notes', '--json')
+    );
+    expect(anatomy).toEqual(blocks);
+    expect(anatomy.code).toBe(1);
+    expect(anatomy.stderr).toContain(
       'prop "changelog" is required and has no default'
     );
   });

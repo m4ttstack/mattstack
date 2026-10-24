@@ -613,7 +613,7 @@ describe('BlockView: Used by and History', () => {
     expect(fileCells()).toContain('ship/index.block.md');
   });
 
-  it("scopes a block's commit timeline to its files inside the pack", () => {
+  it("scopes a block's commit timeline to its files inside the pack, leaving out the org base's", () => {
     renderView(
       { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
       { payload: shipPayload, context: shipContext }
@@ -624,10 +624,7 @@ describe('BlockView: Used by and History', () => {
       query: {
         pack: 'acme',
         verb: 'ship',
-        path: [
-          'attachments/ship-lint/base-checks.md',
-          'attachments/ship-lint/fast-checks.md',
-        ],
+        path: ['attachments/ship-lint/fast-checks.md'],
       },
     });
   });

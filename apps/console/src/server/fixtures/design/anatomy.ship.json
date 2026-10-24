@@ -187,7 +187,7 @@
       "mode": "inline",
       "source": {
         "ref": "widgets:ship-lint/base-commit",
-        "path": "/fixture/packs/acme/attachments/ship-lint/base-commit.md",
+        "path": "/fixture/orgbase/acme-base/attachments/ship-lint/base-commit.md",
         "version": "0.1.0",
         "builtVersion": "0.1.0",
         "lines": 1,
@@ -226,7 +226,7 @@
       "mode": "inline",
       "source": {
         "ref": "widgets:ship-lint/base-checks",
-        "path": "/fixture/packs/acme/attachments/ship-lint/base-checks.md",
+        "path": "/fixture/orgbase/acme-base/attachments/ship-lint/base-checks.md",
         "version": "0.1.0",
         "builtVersion": "0.1.0",
         "lines": 1,
