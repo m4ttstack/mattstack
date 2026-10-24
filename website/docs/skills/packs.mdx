@@ -123,7 +123,9 @@ A fill or engine that names a file in another skill or attachment uses a placeho
 - For a file in another attachment or source skill, write `{{pack.path:<attachment>/<file>}}`. Compile checks that the file exists.
 - For a compiled verb's `SKILL.md`, write `{{verb.path:<verb>}}`. Compile writes the path from the compiled file to that verb, whichever side each one lands on.
 
-A path inside the skill's own folder, such as `${CLAUDE_SKILL_DIR}/scripts/run.sh`, is fine. A hand-typed path that holds a team value gets the error with no suggestion. A marker cannot sit inside another marker, so name a fixed attachment instead.
+A path inside the skill's own folder, such as `${CLAUDE_SKILL_DIR}/scripts/run.sh`, is fine.
+
+A base fill can pick the attachment by team value: `{{pack.path:{{team.gates-fill}}/SKILL.md}}`. This is the only place one marker may sit inside another. The team marker is the whole attachment name, and it cannot be optional. Compile fills in the team's value first, then checks the path like any other `pack.path`. A hand-typed path such as `../../attachments/{{team.gates-fill}}/SKILL.md` gets that placeholder as its suggestion when the team sets the value and the file exists. Otherwise the error comes with no suggestion.
 
 `rt skills check` also reads the pack's hand-written skills, which compile never reads. It fails on each path out of a skill's folder that points at no file.
 

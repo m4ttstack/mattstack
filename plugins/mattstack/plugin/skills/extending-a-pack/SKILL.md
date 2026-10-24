@@ -649,7 +649,10 @@ them in, so a compiled verb never shows a marker.
    value marker sits inside prose, never inside another marker or in
    frontmatter. Compile refuses each of those, and any `{{team.*}}` in a
    team's own fill. A path into another skill or attachment uses
-   `{{pack.path:<attachment>/<file>}}`, never a hand-typed path.
+   `{{pack.path:<attachment>/<file>}}`, never a hand-typed path. The one
+   marker that nests: a required value marker as the whole attachment
+   segment, `{{pack.path:{{team.<key>}}/<file>}}`, picks the attachment by
+   team value.
 
    ```markdown
    Look up the ticket in the {{team.linear-team}} Linear team. Its id
