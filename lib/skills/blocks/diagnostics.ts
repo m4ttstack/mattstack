@@ -1,4 +1,7 @@
-export type BlockDiagnostic = { file: string; line: number; col: number; message: string; code: string };
+/** `fix` replaces `length` characters from line:col with `text`. */
+export type BlockFix = { length: number; text: string };
+
+export type BlockDiagnostic = { file: string; line: number; col: number; message: string; code: string; fix?: BlockFix };
 
 export class BlockError extends Error {
   diagnostics: BlockDiagnostic[];

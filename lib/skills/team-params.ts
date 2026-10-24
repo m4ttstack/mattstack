@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
-import { stripJsonc } from "../jsonc.ts";
+import { jsoncSites, stripJsonc } from "../jsonc.ts";
 
 export type TeamValues = {
   plugin: string;
@@ -29,6 +29,12 @@ const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;
 const FIRST_MARKER_RE = /\{\{\s*team\.[^}\n]*(?:\}\}?)?/;
 const SPLIT_MARKER_RE = /\{\{[^\S\n]*\r?\n\s*team\.[^}\n]*(?:\}\}?)?/;
 const NAME_RE = /^[a-z][a-z0-9-]*$/;
+/** The one nesting allowed: a value marker as pack.path's whole attachment segment. */
+const PACK_PATH_TEAM_RE = /\{\{pack\.path:(\{\{team\.([^}\s?:]*)(\?)?\}\})(\/[^{}\s]*)\}\}/g;
+/** What spliced team text may carry: the host text resolves these after the splice, as it does its own. */
+const SKILL_PATH_RE = /\{\{(?:pack|verb)\.path:[^{}\s]+\}\}/g;
+
+const bracesBeyondSkillPaths = (text: string) => text.replace(SKILL_PATH_RE, "").includes("{{");
 
 export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<string>): TeamContext {
   return { values, basePlugins, missing: new Map(), used: new Set(), sawMarker: false };
@@ -98,12 +104,28 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
   const split = hitOf(body, SPLIT_MARKER_RE.exec(body));
   if (split) throw new Error(`${where}: ${split.raw} breaks across lines; a team marker sits on one line (line ${split.lineIndex + startLine})`);
 
-  body.split("\n").forEach((line, i) => {
+  body.split("\n").forEach((source, i) => {
     const fail = (raw: string, why: string): never => {
       throw new Error(`${where}: ${raw} ${why} (line ${i + startLine})`);
     };
-    const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{[^\S\n]*team\.[^}]*(\}\}?|$)/);
+    const stray = source.replace(TEAM_MARKER_RE, "").match(/\{\{[^\S\n]*team\.[^}]*(\}\}?|$)/);
     if (stray) fail(stray[0], "is not a well-formed team marker");
+    const line = source.replace(PACK_PATH_TEAM_RE, (_whole, raw: string, name: string, optional: string | undefined, file: string) => {
+      if (name === "section") fail(raw, "uses the reserved name section as a key");
+      if (!NAME_RE.test(name)) fail(raw, "has a name that is not lowercase letters, digits and hyphens");
+      if (optional) fail(raw, "is optional, but pack.path needs a value");
+      team.sawMarker = true;
+      team.used.add(name);
+      const value = Object.hasOwn(values.params, name) ? values.params[name] : undefined;
+      // The missing list refuses the compile, so the dropped placeholder never ships; leaving it would let pack.path fail first and hide that list.
+      if (!value) {
+        recordMissing(team, "param", name, where);
+        return "";
+      }
+      if (value.includes("{{")) fail(raw, "has a value containing {{");
+      if (/[\s{}]/.test(value)) fail(raw, "has a value pack.path cannot take");
+      return `{{pack.path:${value}${file}}}`;
+    });
     let removeLine = false;
     let sectionText: string | null = null;
 
@@ -121,7 +143,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
           if (!optional) recordMissing(team, "param", name, where);
           return "";
         }
-        if (value.includes("{{")) fail(raw, "has a value containing {{");
+        if (bracesBeyondSkillPaths(value)) fail(raw, "has a value containing {{");
         return value;
       }
 
@@ -132,7 +154,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
         removeLine = true;
         return "";
       }
-      if (text.includes("{{")) fail(raw, `has a section pack/sections/${name}.md containing {{`);
+      if (bracesBeyondSkillPaths(text)) fail(raw, `has a section pack/sections/${name}.md containing {{`);
       const lines = text.split("\n").length;
       const indent = line.slice(0, line.length - line.trimStart().length);
       const indented = text.split("\n").map((l) => (l === "" ? l : indent + l)).join("\n");
@@ -151,4 +173,45 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
   });
 
   return out.join("\n");
+}
+
+/** Team text compile splices into base text, with where it starts in its own file: `indent` is the 0-based column of its first character. */
+export type TeamInput = { file: string; text: string; startLine: number; indent: number; noFix?: true };
+
+/** `list` names a folder's files; an editor adds the open files not yet saved. */
+export type TeamInputIO = { read: (abs: string) => string | null; list?: (dir: string) => string[] };
+
+const readIfPresent = (abs: string) => (existsSync(abs) ? readFileSync(abs, "utf8") : null);
+const listIfPresent = (dir: string) => (existsSync(dir) ? readdirSync(dir) : []);
+
+/** Every section and every param value, for the checks that run on them as compile input; params that do not parse are readTeamValues's to report. */
+export function teamInputs(packDir: string, io: TeamInputIO = { read: readIfPresent }): TeamInput[] {
+  const out: TeamInput[] = [];
+  const sectionsDir = join(packDir, "pack", "sections");
+  const names = [...new Set((io.list ?? listIfPresent)(sectionsDir))].filter((f) => f.endsWith(".md")).sort();
+  for (const name of names) {
+    const text = io.read(join(sectionsDir, name));
+    if (text !== null) out.push({ file: `pack/sections/${name}`, text, startLine: 1, indent: 0 });
+  }
+  const raw = io.read(join(packDir, PARAMS_FILE));
+  if (raw === null) return out;
+  let params: unknown;
+  try {
+    params = (JSON.parse(stripJsonc(raw)) as { params?: unknown } | null)?.params;
+  } catch {
+    return out;
+  }
+  if (!params || typeof params !== "object" || Array.isArray(params)) return out;
+  const sites = jsoncSites(raw);
+  const lines = raw.split("\n");
+  for (const [key, value] of Object.entries(params)) {
+    const at = sites.get(JSON.stringify(["params", key]))?.value;
+    if (typeof value !== "string" || !at) continue;
+    const input: TeamInput = { file: PARAMS_FILE, text: value, startLine: at.line, indent: at.col };
+    // An escape makes the parsed value shorter than its source, so a fix at the parsed column would edit the wrong span.
+    const literal = /^"(?:[^"\\]|\\.)*"/.exec((lines[at.line - 1] ?? "").slice(at.col - 1))?.[0] ?? "";
+    if (literal.includes("\\")) input.noFix = true;
+    out.push(input);
+  }
+  return out;
 }

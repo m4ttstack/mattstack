@@ -116,6 +116,23 @@ The run keeps each evidence board with its captures. Before anything is uploaded
 
 `rt skills compile` writes the floor of the mattstack engine it compiled against into the pack's `pack/requires.json`, or a higher one when the pack uses [team values](#which-app-it-needs). The floor is the oldest mattstack app that can run the pack. A teammate whose app is older keeps the pack version they have, or gets none yet, until they update the app; see [Teams and invites](/start/teams#a-pack-that-needs-a-newer-app). `rt skills check` reports a missing or stale `pack/requires.json` as drift. `rt skills init` stops when your own app is older than the floor, and tells you to update the app first.
 
+## Paths into another skill
+
+A fill or engine that names a file in another skill or attachment uses a placeholder, never a hand-typed path. `rt skills compile` stops on a hand-typed path into `attachments/`, `skills/` or a sibling skill's folder, such as `../../attachments/capture-evidence/SKILL.md` or `${CLAUDE_SKILL_DIR}/../ship/SKILL.md`. The error names the file and line, and the placeholder to write when compile can tell which one fits:
+
+- For a file in another attachment or source skill, write `{{pack.path:<attachment>/<file>}}`. Compile checks that the file exists.
+- For a compiled verb's `SKILL.md`, write `{{verb.path:<verb>}}`. Compile writes the path from the compiled file to that verb, whichever side each one lands on.
+
+A path inside the skill's own folder, such as `${CLAUDE_SKILL_DIR}/scripts/run.sh`, is fine.
+
+A compiled skill never reads pack source through `pack.path`. Compile copies the whole attachment into the compiled skill's own `references/<attachment>/` folder and writes the path to that copy, such as `${CLAUDE_SKILL_DIR}/references/capture-evidence/SKILL.md`. Each compiled skill gets its own copy, and every compile replaces it. In a copied `.md` file, compile fills in `{{pack.name}}`, `{{include}}`, `{{verb.path}}` and `{{pack.path}}`. A `pack.path` there copies that attachment too. Other text in braces, such as `${{ secrets.TOKEN }}`, stays as written. A placeholder that depends on the skill reading it, such as `{{stage.dir}}`, stops the compile. Compile copies other files as they are. A link between files in a copied attachment must stay inside that attachment or use `{{pack.path:<attachment>/<file>}}`, because the copy sits in a different folder.
+
+Base text can pick the attachment by team value: `{{pack.path:{{team.gates-fill}}/SKILL.md}}`. This is the only place one marker may sit inside another. The team marker is the whole attachment name, and it cannot be optional. Compile fills in the team's value first, then checks the path like any other `pack.path`. A hand-typed path such as `../../attachments/{{team.gates-fill}}/SKILL.md` gets that placeholder as its suggestion when the team sets the value and the file exists. Otherwise the error comes with no suggestion.
+
+A team's `pack/sections/*.md` text and `pack/params.jsonc` values may use `{{pack.path:<attachment>/<file>}}` and `{{verb.path:<verb>}}` too. Compile puts the team text into the base text first. It then fills in the path the way that text fills in its own. In a compiled skill, the path points at its `references/` copy. In a copied base attachment, it gets the path a base attachment gets. Compile and `rt skills check` stop on a hand-typed path in a section or a value. The error names the section file and line, or the `params.jsonc` line.
+
+`rt skills check` also reads the pack's hand-written skills, which compile never reads. It fails on each path out of a skill's folder that points at no file.
+
 ## What not to do
 
 - Do not edit `skills/work/`, `attachments/stage-*/` (stage copies like `attachments/stage-evidence--accessibility/` included), `pack/requires.json` or an attachment folder holding `compiled.json`: compiled output, overwritten on the next compile.
@@ -188,7 +205,7 @@ The rules:
 - A section marker sits alone on its line.
 - A value marker can sit inside a sentence or a plain path, but never inside another marker.
 - Markers only work in the body of base text. Compile stops on a marker in frontmatter, in a team's own fill, or in a copied file that is not `.md`.
-- Neither a value nor a section may contain `{{`.
+- Neither a value nor a section may contain `{{`, except `{{pack.path}}` and `{{verb.path}}` (see [Paths into another skill](#paths-into-another-skill)).
 - An empty value, or a section with only whitespace, counts as missing.
 
 ### When a team is missing a value

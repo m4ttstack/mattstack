@@ -81,20 +81,21 @@ describe("browser target compile", () => {
       }
     });
 
-    test("stage-ship and ship inline the include once and resolve the fill's pointer to an existing file", () => {
+    test("stage-ship and ship inline the include once and resolve the fill's pointer to their own copy", () => {
       for (const verb of ["stage-ship", "ship"] as const) {
         const body = compiled.verbs[verb];
         expect(count(body, INCLUDE_MARKER)).toBe(1);
         expect(body).not.toContain("{{pack.path");
         const pointer = body.match(/browser target section of `([^`]+)`/);
         expect(pointer).not.toBeNull();
-        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, "attachments", verb));
-        expect(target).toContain("/attachments/acme-evidence/SKILL.md");
+        const side = existsSync(join(compiled.pack, "skills", verb)) ? "skills" : "attachments";
+        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, side, verb));
+        expect(target).toContain(`/${side}/${verb}/references/acme-evidence/SKILL.md`);
         expect(existsSync(resolve(target))).toBe(true);
       }
     });
 
-    test("review and self-review inline the include once and resolve the criteria's pointer to the evidence fill", () => {
+    test("review and self-review inline the include once and resolve the criteria's pointer to their own copy of the evidence fill", () => {
       for (const verb of ["review", "self-review"] as const) {
         const body = compiled.verbs[verb]!;
         expect(count(body, INCLUDE_MARKER)).toBe(1);
@@ -103,8 +104,9 @@ describe("browser target compile", () => {
         expect(body).not.toContain("{{pack.path");
         const pointer = body.match(/browser target\s+section of `([^`]+)`/);
         expect(pointer).not.toBeNull();
-        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, "attachments", verb));
-        expect(target).toContain("/attachments/acme-evidence/SKILL.md");
+        const side = existsSync(join(compiled.pack, "skills", verb)) ? "skills" : "attachments";
+        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, side, verb));
+        expect(target).toContain(`/${side}/${verb}/references/acme-evidence/SKILL.md`);
         expect(existsSync(resolve(target))).toBe(true);
       }
     });

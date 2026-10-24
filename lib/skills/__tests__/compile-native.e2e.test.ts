@@ -310,7 +310,7 @@ describe("verb.path end to end", () => {
 });
 
 describe("pack.path end to end", () => {
-  test("a fill's pack.path compiles into a stage and a public verb with the anchored path intact, lint clean", async () => {
+  test("a fill's pack.path compiles into a stage and a public verb, each reading its own copy, lint clean", async () => {
     const { pack, ms, manifest } = buildWithRosterVerbs();
     mkdirSync(join(pack, "attachments", "evidence", "scripts"), { recursive: true });
     writeFileSync(join(pack, "attachments", "evidence", "scripts", "capture.sh"), "#!/bin/sh\n");
@@ -323,9 +323,11 @@ describe("pack.path end to end", () => {
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
 
-    const anchored = "${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh";
-    expect(readFileSync(join(pack, "attachments", "stage-plan", "SKILL.md"), "utf8")).toContain(`Capture with ${anchored}.`);
-    expect(readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8")).toContain(`then ${anchored}.`);
+    expect(readFileSync(join(pack, "attachments", "stage-plan", "SKILL.md"), "utf8")).toContain("Capture with ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/references/evidence/scripts/capture.sh.");
+    expect(readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8")).toContain("then ${CLAUDE_SKILL_DIR}/references/evidence/scripts/capture.sh.");
+    for (const dir of [join(pack, "attachments", "stage-plan"), join(pack, "skills", "checkout")]) {
+      expect(readFileSync(join(dir, "references", "evidence", "scripts", "capture.sh"), "utf8")).toBe("#!/bin/sh\n");
+    }
     expect(logs.some((l) => l.startsWith("[ok] Compiled stage-plan  "))).toBe(true);
     expect(logs.some((l) => l.startsWith("[ok] Compiled checkout  "))).toBe(true);
   });

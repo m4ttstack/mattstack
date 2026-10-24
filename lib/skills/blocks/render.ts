@@ -68,7 +68,7 @@ function propText(b: Block, name: string, src: SourcedTree, st: State): string {
     .map(({ fill, mode }) =>
       mode === "reference"
         ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`
-        : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used.packPaths))
+        : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used))
     .join("\n\n");
 }
 
@@ -241,7 +241,7 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
 }
 
 function run(input: Omit<RenderInput, "tree" | "source">, engine: BlockTree | null, draw: (st: State) => string): RenderResult {
-  const used: Used = { includes: [], packPaths: [] };
+  const used: Used = { includes: [], packPaths: [], references: [] };
   const st: State = { values: input.values, includes: input.includes, ctx: input.ctx, used, diagnostics: [], including: [], engine };
   const body = draw(st);
   if (st.diagnostics.length > 0) throw new BlockError(st.diagnostics);

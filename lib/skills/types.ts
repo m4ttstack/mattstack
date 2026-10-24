@@ -25,6 +25,7 @@ export type AttachmentSource = {
   dir: string;
   srcPath: string; // source SKILL.md path, relative to its PLUGIN root
   bodyStartLine: number; // 1-indexed line in that file where the body begins
+  bodyIndent?: number; // spaces trimmed off the body's first line, which a col on that line adds back
   body: string;
   provides: string; // frontmatter metadata.provides, e.g. "watch-ci-domain@1"
   allowedTools: string[];
@@ -49,7 +50,11 @@ export type StageEntry = {
   name: string; engine: string; stage: string; dir: string; consumes: string[]; produces: string[];
 };
 
-export type PlannedAttachments = ReadonlyMap<string, ReadonlySet<string>>;
+/** Where a planned unit is copied from: its folder in the org base pack, which `base` names. */
+export type PlannedSource = { dir: string; base: string };
+
+/** `sources` names each unit's base folder, so a built skill can copy one before compile has written it. */
+export type PlannedAttachments = ReadonlyMap<string, ReadonlySet<string>> & { readonly sources?: ReadonlyMap<string, PlannedSource> };
 
 export type PlaceholderContext = {
   partsPrefix: string;

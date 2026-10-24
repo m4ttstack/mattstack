@@ -1,15 +1,19 @@
 ---
 sidebar_position: 7
-title: RT Context extension
+title: Editor extensions
 ---
 
-# RT Context extension
+# Editor extensions
 
-The `rt-context` VS Code/Cursor extension shows your current worktree, branch, and linked Linear ticket in the status bar, so you always know which context you're in without running a command.
+mattstack.app ships two editor extensions: `rt-context` and `skill-blocks`.
 
-Setup installs it into every editor it detects (whether you install through mattstack.app's setup wizard or `rt --post-install`), so most people never need to think about it.
+Setup installs both into every VS Code-family editor it finds: VS Code, Cursor, Antigravity, Windsurf, VSCodium and the like. It does this whether you install through mattstack.app's setup wizard or `rt --post-install`. When the app updates, setup updates both extensions in the editors it installed them into, so most people never need to think about them.
 
-## Status bar
+## RT Context
+
+The `rt-context` extension shows your current worktree, branch, and linked Linear ticket in the status bar, so you always know which context you're in without running a command.
+
+### Status bar
 
 ```
 📁 main-worktree  │  🔖 ACME-1287: Add damage photo uploads
@@ -17,12 +21,16 @@ Setup installs it into every editor it detects (whether you install through matt
 
 Clicking the item offers a short menu: open the linked Linear ticket, open the merge request, or reveal the worktree in Finder. Two more items sit beside it: **Worktrees** lists every worktree of the repo, and the branch item switches branches.
 
+## Skill Blocks
+
+The `skill-blocks` extension helps you write skills. It gives `*.block.md` files, `skills.jsonc` manifests and the markdown they fill errors as you type, hover, go to definition, completion, references, rename and quick fixes. It runs `rt skills lsp`, so it needs `rt` on your PATH or at `~/.local/bin/rt`.
+
 ## Reinstalling or adding editors
 
 ```bash
 rt settings extension
 ```
 
-This opens a fuzzy picker to select which editors (Cursor, VS Code, Antigravity, and the like) to install into. Use it to reinstall after an editor update, or to add the extension to an editor you installed after setup.
+This opens a fuzzy picker to select which editors (Cursor, VS Code, Antigravity, and the like) to install into. It installs both extensions. Use it to reinstall after an editor update, or to add the extensions to an editor you installed after setup.
 
 See the full command reference: [`rt settings extension`](/rt/reference/settings/extension).

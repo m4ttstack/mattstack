@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { lintReferences, type CompileSkillOpts } from "../compile.ts";
 import { newTeamContext } from "../team-params.ts";
 import type { AttachmentSource, CompiledFile, VerbDef } from "../types.ts";
 import { compileOneBlock as compile, oneBlockEngine as engine } from "./helpers.ts";
@@ -426,6 +427,34 @@ function skillMd(result: { files: CompiledFile[] }): string {
   return f && "content" in f ? f.content : "";
 }
 
+const STAND_IN = "STAND-IN";
+
+/**
+ * Compile refuses a hand-typed `../` path in its input, so the output-side lint
+ * is pinned over a real compiled body: compile with a stand-in, then put the
+ * path where the stand-in rendered.
+ */
+function lintCompiled(
+  path: string,
+  source: { step?: ReturnType<typeof engine>; text?: string; fills?: Record<string, AttachmentSource> },
+  opts: { where?: string; exemptPrefixes?: string[] } & Pick<CompileSkillOpts, "packRoot" | "compiledDir" | "emittedTargetDirs" | "plannedAttachments">,
+): string[] {
+  const r = compile(verb, source.step ?? bare(source.text ?? ""), source.fills ?? {}, new Set(), {});
+  expect(r.diagnostics).toEqual([]);
+  const body = skillMd(r).replace(/^---\n[\s\S]*?\n---\n\n/, "").split(STAND_IN).join(path);
+  return lintReferences(body, new Set(), r.files, [], {
+    where: opts.where ?? `verb "${verb.name}"`,
+    exemptPrefixes: opts.exemptPrefixes,
+    layout: opts.packRoot && opts.compiledDir ? { packRoot: opts.packRoot, compiledDir: opts.compiledDir } : null,
+    emittedTargetDirs: opts.emittedTargetDirs,
+    plannedAttachments: opts.plannedAttachments,
+  });
+}
+
+function handTyped(result: { diagnostics: { code: string; file: string; line: number }[] }) {
+  return result.diagnostics.filter((d) => d.code === "hand-typed-path").map((d) => `${d.file}:${d.line}`);
+}
+
 describe("compileBlockSkill with placeholders", () => {
   test("a fileless fill's tool rule names the same dir its body does", () => {
     const filelessDomain: AttachmentSource = {
@@ -513,10 +542,10 @@ describe("compileBlockSkill with placeholders", () => {
   });
 
   test("emitted sibling dirs are not lint-warned as missing files", () => {
-    const r = compile(verb, bare("read ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md"), {}, new Set(), {
-      emittedSiblingDirs: ["${CLAUDE_SKILL_DIR}/../../attachments/stage-plan"],
+    const warnings = lintCompiled("${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md", { text: `read ${STAND_IN}` }, {
+      exemptPrefixes: ["${CLAUDE_SKILL_DIR}/../../attachments/stage-plan"],
     });
-    expect(r.warnings.filter((w) => w.includes("not an emitted file"))).toEqual([]);
+    expect(warnings.filter((w) => w.includes("not an emitted file"))).toEqual([]);
   });
 
   test("an internal roster verb's vendored include lints clean when its host dir is exempt", () => {
@@ -537,20 +566,27 @@ describe("compileBlockSkill with placeholders", () => {
     expect(r.warnings).toEqual([]);
   });
 
-  test("a relative read escaping the pack root is a compile error naming verb, path and source line", () => {
+  test("a relative read escaping the pack root is refused in compile's input at its source line", () => {
+    const r = compile(verb, bare("first line\nread `../../../attachments/self-review/SKILL.md` before starting"), {}, new Set(), {
+      packRoot: "/pack",
+      compiledDir: "/pack/attachments/stage-plan",
+    });
+    // The root's text starts on line 7 of its index.block.md, and the offending read is its second line.
+    expect(handTyped(r)).toEqual(["skills/pipeline/watch-ci/index.block.md:8"]);
+  });
+
+  test("an escaping read in a compiled body is a lint error naming verb, path and source line", () => {
     expect(() =>
-      compile(verb, bare("first line\nread `../../../attachments/self-review/SKILL.md` before starting"), {}, new Set(), {
+      lintCompiled("../../../attachments/self-review/SKILL.md", { text: `first line\nread \`${STAND_IN}\` before starting` }, {
         packRoot: "/pack",
         compiledDir: "/pack/attachments/stage-plan",
       }),
-    // The root's text starts on line 7 of its index.block.md, and the offending
-    // read is its second line.
     ).toThrow('verb "watch-ci": "../../../attachments/self-review/SKILL.md" at skills/pipeline/watch-ci/index.block.md:8 resolves outside the pack root');
   });
 
   test("a stage's escaping read is reported as a stage, not a verb", () => {
     expect(() =>
-      compile(verb, bare("read `../../../elsewhere/SKILL.md`"), {}, new Set(), {
+      lintCompiled("../../../elsewhere/SKILL.md", { text: `read \`${STAND_IN}\`` }, {
         packRoot: "/pack",
         compiledDir: "/pack/attachments/stage-plan",
         where: 'stage "stage-plan"',
@@ -563,59 +599,66 @@ describe("compileBlockSkill with placeholders", () => {
     expect(r.warnings).toEqual([]);
   });
 
-  test("an escaping read inside a fill is reported against the fill's own file", () => {
+  test("an escaping read inside a fill that reaches no other skill is left to the output lint, at the fill's own file", () => {
     const escapingFill: AttachmentSource = { ...domainFill, body: "read `../../../outside.md` first" };
     expect(() =>
-      compile(verb, stageStep, { domain: escapingFill }, new Set(), {
-        packRoot: "/pack",
-        compiledDir: "/pack/attachments/stage-watch-ci",
-      }),
+      compile(verb, stageStep, { domain: escapingFill }, new Set(), { packRoot: "/pack", compiledDir: "/pack/attachments/stage-watch-ci" }),
     ).toThrow('"../../../outside.md" at attachments/watch-ci-domain/SKILL.md:8 resolves outside the pack root');
   });
 
-  test("an escaping ${CLAUDE_SKILL_DIR} path is the same compile error", () => {
+  test("an escaping read a fill renders is linted against the fill's own file", () => {
+    const fill: AttachmentSource = { ...domainFill, body: `read \`${STAND_IN}\` first` };
+    expect(() =>
+      lintCompiled("../../../outside.md", { step: stageStep, fills: { domain: fill } }, { packRoot: "/pack", compiledDir: "/pack/attachments/stage-watch-ci" }),
+    ).toThrow('"../../../outside.md" at attachments/watch-ci-domain/SKILL.md:8 resolves outside the pack root');
+  });
+
+  test("an escaping ${CLAUDE_SKILL_DIR} path is the same lint error, from compile or the compiled body", () => {
     expect(() =>
       compile(verb, bare("read ${CLAUDE_SKILL_DIR}/../../../secrets.md"), {}, new Set(), { packRoot: "/pack", compiledDir: "/pack/skills/work" }),
+    ).toThrow("resolves outside the pack root");
+    expect(() =>
+      lintCompiled("${CLAUDE_SKILL_DIR}/../../../secrets.md", { text: `read ${STAND_IN}` }, { packRoot: "/pack", compiledDir: "/pack/skills/work" }),
     ).toThrow("resolves outside the pack root");
   });
 
   test("a relative read that resolves to nothing the pack has warns instead of erroring", () => {
     const packRoot = tempPackRoot();
-    const r = compile(verb, bare("read `../../attachments/self-review/SKILL.md`"), {}, new Set(), {
+    const warnings = lintCompiled("../../attachments/self-review/SKILL.md", { text: `read \`${STAND_IN}\`` }, {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
     });
-    expect(r.warnings).toEqual(["body references ../../attachments/self-review/SKILL.md which is not an emitted file"]);
+    expect(warnings).toEqual(["body references ../../attachments/self-review/SKILL.md which is not an emitted file"]);
   });
 
   test("a relative read onto a base attachment this compile plans to write is silent on a clean tree", () => {
     const packRoot = tempPackRoot();
-    const r = compile(verb, bare("read `../../attachments/self-review/SKILL.md`"), {}, new Set(), {
+    const warnings = lintCompiled("../../attachments/self-review/SKILL.md", { text: `read \`${STAND_IN}\`` }, {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       plannedAttachments: new Map([["self-review", new Set(["SKILL.md", "compiled.json"])]]),
     });
-    expect(r.warnings).toEqual([]);
+    expect(warnings).toEqual([]);
   });
 
   test("a planned base attachment satisfies only the files it plans", () => {
     const packRoot = tempPackRoot();
-    const r = compile(verb, bare("read `../../attachments/self-review/missing.md`"), {}, new Set(), {
+    const warnings = lintCompiled("../../attachments/self-review/missing.md", { text: `read \`${STAND_IN}\`` }, {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       plannedAttachments: new Map([["self-review", new Set(["SKILL.md"])]]),
     });
-    expect(r.warnings).toEqual(["body references ../../attachments/self-review/missing.md which is not an emitted file"]);
+    expect(warnings).toEqual(["body references ../../attachments/self-review/missing.md which is not an emitted file"]);
   });
 
   test("a relative read onto a grouped planned base attachment is silent", () => {
     const packRoot = tempPackRoot();
-    const r = compile(verb, bare("read `../../attachments/review/self/SKILL.md`"), {}, new Set(), {
+    const warnings = lintCompiled("../../attachments/review/self/SKILL.md", { text: `read \`${STAND_IN}\`` }, {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       plannedAttachments: new Map([["review/self", new Set(["SKILL.md"])]]),
     });
-    expect(r.warnings).toEqual([]);
+    expect(warnings).toEqual([]);
   });
 
   test("a relative read onto a file the pack already carries is silent", () => {
@@ -623,21 +666,21 @@ describe("compileBlockSkill with placeholders", () => {
     mkdirSync(join(packRoot, "attachments", "self-review"), { recursive: true });
     writeFileSync(join(packRoot, "attachments", "self-review", "SKILL.md"), "hand-authored\n");
 
-    const r = compile(verb, bare("read `../../attachments/self-review/SKILL.md`"), {}, new Set(), {
+    const warnings = lintCompiled("../../attachments/self-review/SKILL.md", { text: `read \`${STAND_IN}\`` }, {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
     });
-    expect(r.warnings).toEqual([]);
+    expect(warnings).toEqual([]);
   });
 
   test("a relative read onto another target's output dir is silent before that target is written", () => {
     const packRoot = tempPackRoot();
-    const r = compile(verb, bare("read `../../attachments/stage-plan/SKILL.md`"), {}, new Set(), {
+    const warnings = lintCompiled("../../attachments/stage-plan/SKILL.md", { text: `read \`${STAND_IN}\`` }, {
       packRoot,
       compiledDir: join(packRoot, "skills", "work"),
       emittedTargetDirs: [join(packRoot, "attachments", "stage-plan")],
     });
-    expect(r.warnings).toEqual([]);
+    expect(warnings).toEqual([]);
   });
 
   test("a shell-composed path whose ../ follows another path is not read as a body reference", () => {
@@ -710,20 +753,19 @@ describe("compileBlockSkill with placeholders", () => {
       side: "attachments",
       emittedSiblingDirs: [host],
     });
-    expect(skillMd(r)).toContain(
-      `Config at ${host}/parts/domain/ci-config.json; capture with \${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh.`,
-    );
+    expect(skillMd(r)).toContain(`Config at ${host}/parts/domain/ci-config.json; capture with ${host}/references/evidence/scripts/capture.sh.`);
+    expect(r.files.map((f) => f.path)).toContain("references/evidence/scripts/capture.sh");
     expect(r.warnings).toEqual([]);
   });
 
-  test("pack.path in a public verb renders the same anchored path and lints clean", () => {
+  test("pack.path in a public verb renders its own references copy and lints clean", () => {
     const packRoot = packWithEvidence();
     const r = compile(verb, bare("Run {{pack.path:evidence/scripts/capture.sh}} after the diff."), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "watch-ci"),
       side: "skills",
     });
-    expect(skillMd(r)).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh after the diff.");
+    expect(skillMd(r)).toContain("Run ${CLAUDE_SKILL_DIR}/references/evidence/scripts/capture.sh after the diff.");
     expect(r.warnings).toEqual([]);
   });
 

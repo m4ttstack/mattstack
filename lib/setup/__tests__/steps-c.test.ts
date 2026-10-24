@@ -1770,7 +1770,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
   const NOOP_SEAMS: ToolsInstallSeams = {
     resolveTool: (_p, tool) => noopResolution(tool),
     detectEditors: () => [],
-    findVsix: () => null,
+    findVsixes: () => [],
     bundledToolExec: () => null,
     link: () => {
       throw new Error("link() should not be called in this test");
@@ -1780,7 +1780,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
   describe("extension.install", () => {
     test("vsix + a compatible editor, install succeeds -> done", async () => {
       const p = fakeProbes({ home, exec: async () => ok("") });
-      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
+      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
       const { ctx } = makeCtx(p);
       const outcome = await extensionInstallRun(ctx, seams);
       expect(outcome.state).toBe("done");
@@ -1789,7 +1789,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
     test("idempotent re-run: two independent installs each make their own real call — nothing memoized between runs", async () => {
       const p = fakeProbes({ home, exec: async () => ok("") });
-      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
+      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
       const expectedCall = ["/x/cursor", "--install-extension", "/fake/rt-context.vsix", "--force"];
       expect((await extensionInstallRun(makeCtx(p).ctx, seams)).state).toBe("done");
       expect(p.calls.exec).toEqual([expectedCall]);
@@ -1799,14 +1799,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
     test("vsix missing -> skipped 'extension not bundled'", async () => {
       const p = fakeProbes({ home });
-      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => null, detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
+      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => [], detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
       const outcome = await extensionInstallRun(makeCtx(p).ctx, seams);
       expect(outcome).toEqual({ state: "skipped", detail: "The extension is not in this build" });
     });
 
     test("no compatible editor -> skipped 'no editor found'", async () => {
       const p = fakeProbes({ home });
-      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => [] };
+      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => [] };
       const outcome = await extensionInstallRun(makeCtx(p).ctx, seams);
       expect(outcome).toEqual({ state: "skipped", detail: "No editor found" });
     });
@@ -1820,7 +1820,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       test("an editor setup-state never recorded is untouched; a recorded one is refreshed", async () => {
         const p = fakeProbes({ home, exec: async () => ok("") });
         updateSetupState(p, (s) => ({ ...s, extensionEditors: ["Cursor"] }));
-        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => TWO_EDITORS };
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => TWO_EDITORS };
 
         const outcome = await extensionInstallRun(makeCtx(p, { update: true }).ctx, seams);
         expect(outcome.state).toBe("done");
@@ -1829,7 +1829,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       test("no recorded editor among those detected -> skipped, nothing installed", async () => {
         const p = fakeProbes({ home, exec: async () => ok("") });
-        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => TWO_EDITORS };
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => TWO_EDITORS };
 
         const outcome = await extensionInstallRun(makeCtx(p, { update: true }).ctx, seams);
         expect(outcome).toEqual({ state: "skipped", detail: "No editor that rt installed the extension into" });
@@ -1839,16 +1839,46 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       test("outside an update run, every detected editor is installed into", async () => {
         const p = fakeProbes({ home, exec: async () => ok("") });
         updateSetupState(p, (s) => ({ ...s, extensionEditors: ["Cursor"] }));
-        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => TWO_EDITORS };
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => TWO_EDITORS };
 
         expect((await extensionInstallRun(makeCtx(p).ctx, seams)).state).toBe("done");
         expect(p.calls.exec.map((a) => a[0])).toEqual(["/x/cursor", "/x/code"]);
       });
     });
 
+    describe("with both bundled files", () => {
+      const FILES = ["/fake/rt-context.vsix", "/fake/skill-blocks.vsix"];
+      const TWO_EDITORS = [
+        { name: "Cursor", cliPath: "/x/cursor", appPath: "/x" },
+        { name: "Antigravity", cliPath: "/x/antigravity", appPath: "/y" },
+      ];
+
+      test("an update run installs both into the recorded editor only", async () => {
+        const p = fakeProbes({ home, exec: async () => ok("") });
+        updateSetupState(p, (s) => ({ ...s, extensionEditors: ["Antigravity"] }));
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => FILES, detectEditors: () => TWO_EDITORS };
+
+        const outcome = await extensionInstallRun(makeCtx(p, { update: true }).ctx, seams);
+        expect(outcome.state).toBe("done");
+        expect(p.calls.exec).toEqual([
+          ["/x/antigravity", "--install-extension", "/fake/rt-context.vsix", "--force"],
+          ["/x/antigravity", "--install-extension", "/fake/skill-blocks.vsix", "--force"],
+        ]);
+      });
+
+      test("one file failing in one editor -> failed, that editor unrecorded", async () => {
+        const p = fakeProbes({ home, exec: async (argv) => (argv[0] === "/x/cursor" && argv[2] === FILES[1] ? { code: 1, stdout: "", stderr: "" } : ok("")) });
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => FILES, detectEditors: () => TWO_EDITORS };
+
+        const outcome = await extensionInstallRun(makeCtx(p).ctx, seams);
+        expect(outcome.state).toBe("failed");
+        expect(readSetupState(p).extensionEditors).toEqual(["Antigravity"]);
+      });
+    });
+
     test("editor found, install fails -> failed", async () => {
       const p = fakeProbes({ home, exec: async () => ({ code: 1, stdout: "", stderr: "" }) });
-      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
+      const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
       const outcome = await extensionInstallRun(makeCtx(p).ctx, seams);
       expect(outcome.state).toBe("failed");
       expect(remedyOf(outcome)).toBe("Install the extension manually, then Retry");

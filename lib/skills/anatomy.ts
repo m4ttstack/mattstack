@@ -40,7 +40,7 @@ function markerPart(x: PartExtent, sources: Record<string, AnatomySource>, chang
   return { kind, name: x.key.slice(colon + 1), templateLines: null, renderedLines: [x.start + 1, x.end + 1], mode, source: sources[x.key] ?? null, target: null, changed: changedKeys.has(x.key) };
 }
 
-const LINK_RE = /(?:\.\.\/)+(?:attachments|skills)\/[a-z0-9][a-z0-9-]*\/[A-Za-z0-9_./-]+\.md|(?<![A-Za-z0-9_.-])parts\/[A-Za-z0-9_./-]+\.md/g;
+const LINK_RE = /(?:\.\.\/)+(?:attachments|skills)\/[a-z0-9][a-z0-9-]*\/[A-Za-z0-9_./-]+\.md|(?<![A-Za-z0-9_.-])(?:parts|references)\/[A-Za-z0-9_./-]+\.md/g;
 
 export function linksIn(rendered: string): AnatomyLink[] {
   const seen = new Map<string, number>();

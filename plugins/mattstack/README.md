@@ -326,6 +326,22 @@ To pick up new versions later:
 claude plugin update mattstack@mattstack
 ```
 
+### The block editor server
+
+The plugin registers `rt skills lsp` with Claude Code (`.lsp.json`) for
+skill block files: diagnostics after an edit and code navigation. Claude
+Code matches a file by its last extension only, so the registration maps
+`.md` and `.jsonc`, and the server ignores every file that is not a skill
+file (and stays idle until it sees one).
+
+- Claude Code starts the server on the first edit of a matching file.
+- `rt` must be on the `PATH` of the shell `claude` starts from; otherwise
+  the `/plugin` Errors tab shows "Executable not found in $PATH".
+- Each file extension gets one server, the first registered. Another
+  enabled plugin that claims `.md` or `.jsonc` (a markdown language
+  server, say) means one of the two loses every such file, and the
+  Errors tab shows `LSP server "<name>" is not used for <ext> files`.
+
 ### Browser skills
 
 The browser skills (`fast-browsing`, `browser-macros`, `reviewing-flows`,

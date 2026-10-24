@@ -1148,7 +1148,12 @@ describe("base pack attachments", () => {
   });
 
   const kit = (packDir: string, ...rest: string[]) => join(packDir, "attachments", "review-kit", ...rest);
-  const PACK_PATH_DOMAIN = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:review-kit/references/guide.md}}.\n");
+  const notes = (packDir: string, ...rest: string[]) => join(packDir, "attachments", "notes-kit", ...rest);
+  const PACK_PATH_DOMAIN = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:notes-kit/references/guide.md}}.\n");
+  const NOTES_KIT = {
+    "attachments/notes-kit/SKILL.md": "---\nname: notes-kit\ndescription: shared notes\n---\nNotes. Back to {{verb.path:watch-ci}}.\n",
+    "attachments/notes-kit/references/guide.md": "See {{pack.path:notes-kit/SKILL.md}}.\n",
+  };
 
   test("emits a base attachment with compiled.json, renders the three placeholders by depth, and copies scripts byte for byte", async () => {
     const { baseDir, packDir, compile } = seedBaseAndTeam();
@@ -1186,27 +1191,58 @@ describe("base pack attachments", () => {
     expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
   });
 
-  test("a team verb reaches an emitted file through pack.path on a clean compile", async () => {
-    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+  test("a team verb reads a base attachment through its own rendered copy on a clean compile", async () => {
+    const { mattstackDir, packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: NOTES_KIT });
 
     const first = await compile();
     expect(first.errors).toEqual([]);
-    expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+    const verbDir = join(packDir, "skills", "watch-ci");
+    expect(readFileSync(join(verbDir, "SKILL.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/references/notes-kit/references/guide.md");
+    expect(readFileSync(join(verbDir, "references", "notes-kit", "SKILL.md"), "utf8")).toBe("---\nname: notes-kit\ndescription: shared notes\n---\nNotes. Back to ../../SKILL.md.\n");
+    expect(readFileSync(join(verbDir, "references", "notes-kit", "references", "guide.md"), "utf8")).toBe("See ${CLAUDE_SKILL_DIR}/references/notes-kit/SKILL.md.\n");
+    expect(existsSync(join(verbDir, "references", "notes-kit", "compiled.json"))).toBe(false);
+    expect((await checkPack({ packDir, mattstackDir })).verbs.map((row) => [row.name, row.status])).toEqual([["watch-ci", "in-sync"]]);
 
-    rmSync(kit(packDir), { recursive: true });
+    rmSync(notes(packDir), { recursive: true });
     const dry = await compile("--dry-run");
     expect(dry.errors).toEqual([]);
-    expect(existsSync(kit(packDir))).toBe(false);
+    expect(existsSync(notes(packDir))).toBe(false);
   });
 
-  test("a relative link onto a base attachment does not warn on the compile that first writes it", async () => {
-    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nRead `../../attachments/review-kit/SKILL.md` first.\n");
-    const { packDir, compile } = seedBaseAndTeam({ domainBody: linked });
+  test("a built skill's copy of a base attachment resolves {{pack.name}} and keeps other braces as text", async () => {
+    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:review-kit/SKILL.md}}.\n");
+    const { baseDir, packDir, compile } = seedBaseAndTeam({ domainBody: linked });
+
+    expect((await compile()).errors).toEqual([]);
+
+    const copy = join(packDir, "skills", "watch-ci", "references", "review-kit");
+    expect(readFileSync(join(copy, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\ndescription: shared review notes\n---\nInvoke widgets:watch-ci. Read ../../SKILL.md.\n");
+    expect(readFileSync(join(copy, "references", "guide.md"), "utf8")).toBe("Back to ../../../SKILL.md. Keep {{slot:x}} and ${{ secrets.TOKEN }}.\n");
+    expect(readFileSync(join(copy, "scripts", "run.sh")).equals(readFileSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh")))).toBe(true);
+  });
+
+  test("a recompile clears what an earlier compile copied into references/", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: { ...NOTES_KIT, "attachments/other-kit/SKILL.md": "---\nname: other-kit\n---\nother\n" } });
+    expect((await compile()).errors).toEqual([]);
+    const refs = join(packDir, "skills", "watch-ci", "references");
+    expect(existsSync(join(refs, "notes-kit", "SKILL.md"))).toBe(true);
+    writeFile(join(refs, "notes-kit", "left-over.md"), "stale\n");
+
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:other-kit/SKILL.md}}.\n"));
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(refs, "notes-kit"))).toBe(false);
+    expect(readFileSync(join(refs, "other-kit", "SKILL.md"), "utf8")).toBe("---\nname: other-kit\n---\nother\n");
+  });
+
+  test("a pack.path link onto a base attachment does not warn on the compile that first writes it", async () => {
+    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nRead `{{pack.path:notes-kit/SKILL.md}}` first.\n");
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: linked, baseFiles: NOTES_KIT });
     io.clear();
 
     expect((await compile()).errors).toEqual([]);
 
-    expect(existsSync(kit(packDir, "SKILL.md"))).toBe(true);
+    expect(existsSync(notes(packDir, "SKILL.md"))).toBe(true);
     expect(io.stdout() + io.stderr()).not.toContain("not an emitted file");
   });
 
@@ -1366,13 +1402,13 @@ describe("base pack attachments", () => {
     expect(await compilePackAll({ packDir, mattstackDir, manifest: manifestFile() })).toEqual({ ok: false, errors: [message], written: [], removed: [] });
   });
 
-  test("a copied attachment's dead relative link is a warning, and the copy still lands", async () => {
-    const { packDir, compile } = seedBaseAndTeam({ baseFiles: { "attachments/gates-note/SKILL.md": "---\nname: gates-note\n---\nSee `../stage-gates/SKILL.md`.\n" } });
+  test("a copied attachment's dead relative link out of the pack is a warning, and the copy still lands", async () => {
+    const { packDir, compile } = seedBaseAndTeam({ baseFiles: { "attachments/gates-note/SKILL.md": "---\nname: gates-note\n---\nSee `../../../stage-gates/SKILL.md`.\n" } });
     const { exitCode } = await compile();
     expect(exitCode).toBeUndefined();
     const printed = io.lines().join("\n");
     expect(printed).toContain("Copied gates-note");
-    expect(printed).toContain("SKILL.md references ../stage-gates/SKILL.md which is not an emitted file");
+    expect(printed).toContain("SKILL.md references ../../../stage-gates/SKILL.md which is not an emitted file");
     expect(existsSync(join(packDir, "attachments", "gates-note", "SKILL.md"))).toBe(true);
   });
 
@@ -1557,23 +1593,23 @@ describe("base pack attachments", () => {
   });
 
   test("a preview reaches an emitted file through pack.path on a clean tree", async () => {
-    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: NOTES_KIT });
 
     const { errors } = await compile("--preview", "--verb", "watch-ci");
 
     expect(errors).toEqual([]);
-    expect(io.stdout()).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
-    expect(existsSync(kit(packDir))).toBe(false);
+    expect(io.stdout()).toContain("${CLAUDE_SKILL_DIR}/references/notes-kit/references/guide.md");
+    expect(existsSync(notes(packDir))).toBe(false);
   });
 
   test("anatomy resolves pack.path to an emitted file on a clean tree", async () => {
-    const { mattstackDir, packDir } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+    const { mattstackDir, packDir } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: NOTES_KIT });
 
     const { errors } = await runExpectingCleanExit(() =>
       skillsAnatomy(["--skill", "watch-ci", "--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]));
 
     expect(errors).toEqual([]);
-    expect(io.lines().join("\n")).toContain("attachments/review-kit/references/guide.md");
+    expect(io.lines().join("\n")).toContain("references/notes-kit/references/guide.md");
   });
 
   describe("check", () => {
@@ -1852,6 +1888,26 @@ describe("base pack attachments", () => {
       expect(payload.drift).toBe(true);
       expect(payload.verbs.find((row) => row.name === "watch-ci")?.status).toBe("stale");
       expect(payload.compileErrors).toEqual([]);
+    });
+
+    test("a hand-typed path in a section or a param value fails compile and check at its own file and line", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+      writeFile(join(packDir, "attachments", "widgets-gates", "SKILL.md"), "gates\n");
+      setValues({ "linear-team": "Widgets", gates: "../../attachments/widgets-gates/SKILL.md" }, { "ci-extra": "- lint\n- read ../../attachments/widgets-gates/SKILL.md\n" });
+      const sectionLine = "pack/sections/ci-extra.md:2:8: hand-typed path ../../attachments/widgets-gates/SKILL.md breaks when its target moves; write {{pack.path:widgets-gates/SKILL.md}} instead";
+
+      const { exitCode, errors } = await compile();
+      expect(exitCode).toBe(1);
+      expect(errors.join("\n")).toContain(sectionLine);
+      expect(errors.join("\n")).toMatch(/pack\/params\.jsonc:1:\d+: hand-typed path \.\.\/\.\.\/attachments\/widgets-gates\/SKILL\.md/);
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+
+      const payload = await checkPack({ packDir, mattstackDir });
+      expect(payload.drift).toBe(true);
+      expect(payload.compileErrors).toContain(sectionLine);
+
+      setValues({ "linear-team": "Widgets", gates: "{{pack.path:widgets-gates/SKILL.md}}" }, { "ci-extra": "- lint\n- read {{pack.path:widgets-gates/SKILL.md}}\n" });
+      expect((await compile()).errors).toEqual([]);
     });
 
     const DOMAIN_WITH_SECTION = DOMAIN_SKILL_MD + "Rules:\n{{team.section:ci-extra}}\nDone.\n";

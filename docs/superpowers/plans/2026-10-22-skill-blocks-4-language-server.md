@@ -227,12 +227,120 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 
 ---
 
+> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them. Task 14 (lawson's pack conversion, 2026-10-23) runs after Task 10 and before Task 11. Task 15 (Matt, 2026-10-23) runs after Task 11, before the final review. Task 16 (the team-pack conversion's cutover prerequisite) runs beside the final review and joins its fix wave's re-review.
+
+### Task 12: Hand-typed paths fail compile
+
+A compiled source that reaches into another skill or attachment by a hand-typed path breaks silently when the target moves. `{{pack.path:<attachment>/<file>}}` (checked to exist at compile) and `{{verb.path:<verb>}}` (a compiled verb or stage) already say the same thing safely (`lib/skills/placeholders.ts`, `packPath` and `verbPath`).
+
+**Files:**
+- Create: `lib/skills/hand-paths.ts` (`handPathDiagnostics(text: string, file: string, opts: { startLine?: number; verbs: ReadonlySet<string> }): BlockDiagnostic[]`)
+- Modify: `lib/skills/blocks/diagnostics.ts` (`BlockDiagnostic` gains optional `fix?: { length: number; text: string }`, the span from line:col to replace and its replacement), the compile path so the check runs on every engine `*.block.md` body, include and fill a compile reads (follow where `compileBlockSkill` and the fill/include loaders read text), `commands/skills.ts` (`rt skills check` gains the hand-authored lint), `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` (its `../../attachments/{{team.gates-fill}}/SKILL.md` example teaches the old way; teach `{{pack.path:…}}` instead; load superpowers:writing-skills and mattstack:editing-skills first), `website/docs/skills/` (the page that documents `{{pack.path}}` and `{{verb.path}}`: say a hand-typed cross-skill path is a compile error and how to fix it)
+- Test: `lib/skills/__tests__/hand-paths.test.ts`, a compile test that a fixture fill with a hand-typed path fails with the code, and a `rt skills check` test for the lint
+
+**The rule (code `hand-typed-path`, error):**
+- A path that leaves the skill's own folder into `attachments/` or `skills/` is refused: through `../` (one or more), `${CLAUDE_SKILL_DIR}/../` or `$CLAUDE_SKILL_DIR/../`, or `${CLAUDE_PLUGIN_ROOT}/` (braced or not), in prose, code spans and fenced code alike.
+- Allowed: a path inside the skill's own folder (`${CLAUDE_SKILL_DIR}/parts/x.sh`, `./x.md`, `x.md`), and any path inside `{{pack.path:…}}` / `{{verb.path:…}}`.
+- The diagnostic sits on the path's first character, spans the whole path, and carries `fix`: `{{pack.path:<attachment>/<file>}}` for a target under `attachments/<attachment>/` or a source skill under `skills/<name>/`, `{{verb.path:<verb>}}` for `…/<verb>/SKILL.md` when `<verb>` is a compiled verb or stage of the pack. A path that holds a placeholder (`{{team.x}}`) or names nothing either form can express gets the error with no `fix`. The message names the replacement when there is one.
+- The rule reads compile's input, never its output: `{{stage.dir}}` and the vendoring rewrite emit `${CLAUDE_SKILL_DIR}/../../attachments/…` on purpose.
+
+**Hand-authored skills (code `broken-skill-path`):** `rt skills check` reads each plugin's skills that compile does not produce (in mattstack, `plugins/mattstack/plugin/skills/*/SKILL.md`) and reports every cross-skill relative path that does not resolve to a file from the skill's folder. A path holding a `{{…}}` placeholder or a `<name>` stand-in is a doc example and is skipped. The five paths in creating-a-pack, editing-skills and extending-a-pack today must resolve, or this task fixes them.
+
+- [ ] **Step 1: Write the failing tests** (`../../attachments/capture-evidence/SKILL.md` in a fill → `hand-typed-path` with fix `{{pack.path:capture-evidence/SKILL.md}}` and the exact range; `${CLAUDE_SKILL_DIR}/../../attachments/x/y.md` → fix `{{pack.path:x/y.md}}`; `../ship/SKILL.md` naming a compiled verb → fix `{{verb.path:ship}}`; `${CLAUDE_SKILL_DIR}/parts/a.sh` and `{{pack.path:x/y.md}}` → nothing; a path with `{{team.x}}` → error, no fix; compile of a fixture pack with such a fill fails with the code; `rt skills check` reports a hand-authored skill's path to a missing file, and is clean on `plugins/mattstack` under an isolated HOME)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement; every existing compile and check test stays green (a fixture that breaks the rule moves onto a placeholder)**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: hand-typed cross-skill paths fail compile`**
+
+---
+
+### Task 13: The editor handles skill paths
+
+**Files:**
+- Modify: `lib/skills/lsp/workspace.ts` (run `handPathDiagnostics` on every open or on-disk compiled source it analyses; Task 2's reach), `lib/skills/lsp/positions.ts` (tokens `pack-path { attachment, file }` and `verb-path { verb }` for `{{pack.path:…}}` and `{{verb.path:…}}`), `hover.ts`, `definition.ts`, `completion.ts`, `rename.ts`, `server.ts`
+- Create: `lib/skills/lsp/code-actions.ts`
+- Test: `lib/skills/lsp/__tests__/code-actions.test.ts` and new cases in the hover, definition, completion and rename tests
+
+**Interfaces:**
+- `codeActionsAt(ws, file, range): { title: string; edit: WorkspaceEdit; diagnostic: Diagnostic }[]`: one quick fix per `hand-typed-path` diagnostic with a `fix`, titled `Use {{pack.path:<a>/<f>}}` (or `{{verb.path:<v>}}`), replacing exactly the diagnostic's span. `codeActionProvider` with kind `quickfix`.
+- Completion: after `{{pack.path:` the pack's attachment and source-skill names, then after `/` the files in that folder; after `{{verb.path:` the pack's compiled verbs and stages.
+- Hover on a pack-path or verb-path token: the path it renders to and whether the target exists. Definition: opens the target file.
+- Renaming or moving a target updates the placeholders that name it: Task 8's block rename rewrites `{{pack.path:<old>/…}}` and `{{verb.path:<old>}}` that name the moved folder, and a `workspace/willRenameFiles` handler returns the same edits for a file or folder moved in the editor.
+
+- [ ] **Step 1: Write the failing tests** (a hand-typed path publishes `hand-typed-path`; its code action rewrites the span into the placeholder; completion after `{{pack.path:` lists `mini-rules` in the fixture pack, then its files after `mini-rules/`; hover on `{{pack.path:mini-rules/fast.md}}` names the resolved path; definition opens `attachments/mini-rules/fast.md`; moving `mini-rules` to `quick-rules` rewrites the placeholder)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement and register `textDocument/codeAction` and `workspace/willRenameFiles`**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `lsp: fix, complete and follow skill paths`**
+
+---
+
+### Task 14: `pack.path` takes a team value
+
+The org base pack picks a fill by team param: `../../attachments/{{team.gates-fill}}/SKILL.md`. Task 12 refuses that path and no placeholder can say it, because team markers never nest (`lib/skills/team-params.ts`, "sits inside another marker").
+
+**Files:**
+- Modify: `lib/skills/team-params.ts` (a `{{team.<key>}}` value marker is allowed inside the argument of `{{pack.path:…}}`, and only there; every other nesting is still refused), `lib/skills/hand-paths.ts` (a hand-typed path whose attachment segment is one team value marker gets the fix `{{pack.path:{{team.<key>}}/<file>}}` when the compile can resolve it), the language server's pack.path hover, definition and completion (resolve the team value from the pack's `pack/params.jsonc` when it is open; otherwise say the target depends on that team value), `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` and the website docs section from Task 12 (the param-chosen form)
+- Test: `lib/skills/__tests__/team-params.test.ts`, `hand-paths.test.ts`, a compile test, and lsp hover/definition cases
+
+- [ ] **Step 1: Write the failing tests** (`{{pack.path:{{team.gates-fill}}/SKILL.md}}` compiles to the resolved path when the team sets `gates-fill` to an attachment that exists, and fails with pack.path's own error when it names a missing one; `{{verb.path:{{team.x}}}}` and a team marker inside any other marker are still refused; `../../attachments/{{team.gates-fill}}/SKILL.md` is `hand-typed-path` with that fix; hover on the placeholder names the resolved target)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: pack.path takes a team value`**
+
+---
+
+### Task 15: A built skill reads its own rendered references
+
+`{{pack.path:…}}` renders to a path into the pack's source (`${CLAUDE_SKILL_DIR}/../../attachments/<a>/<f>`). A team's own files ship as written, so when a built skill tells the agent to open one, the agent reads unrendered text: a `{{pack.path:…}}` inside it stays literal (team packs hold five such files today, one with a `python3 {{pack.path:…}}` command). Matt's call (2026-10-23): every file a built skill opens is a rendered copy in that skill's own `references/` folder, never pack source. Copies are per skill, not shared: a skill stays self-contained and a copy may differ by skill later; the duplication is generated output.
+
+**The rule:**
+- In a built skill's output, `{{pack.path:<a>/<f>}}` copies the whole source unit `attachments/<a>/` (or `skills/<a>/`, or a planned base attachment) into `<built skill>/references/<a>/` and renders to `${CLAUDE_SKILL_DIR}/references/<a>/<f>`. The whole unit is copied so links inside it (`../scripts/x.sh`) keep working.
+- Copied `.md` files are rendered: team values, `{{include}}`, `{{verb.path}}` (relative to the copy's own location) and `{{pack.path}}` (into the same `references/`, copying that unit too). Other files are copied as they are. No `{{` placeholder survives in a copy; anything a prop value file may not carry is refused in a copy too.
+- Compile owns `references/`: it clears and rewrites it on every compile, and a missing source fails compile as `pack.path` does today.
+- `parts/` for inlined prop values, `{{verb.path}}`, and base attachments copied into a team pack keep their current behaviour.
+
+**Files:**
+- Modify: `lib/skills/placeholders.ts` (`packPath` and its callers), the compile write path in `lib/skills/compile-blocks.ts` / `commands/skills.ts`, the output lint (`lintReferences`) so `references/` paths resolve, the language server's pack-path hover (show the source and where the copy lands), `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` and `editing-skills` where they describe what `pack.path` renders to (load superpowers:writing-skills and mattstack:editing-skills first), the website "Paths into another skill" section
+- Test: compile tests in `lib/skills/__tests__/`, the hand-path and base-attachment tests that pin `pack.path` output
+
+- [ ] **Step 1: Write the failing tests** (two built skills that both `{{pack.path:widgets-gates/SKILL.md}}` each get their own rendered `references/widgets-gates/`; a copied file's `{{pack.path:widgets-conventions/SKILL.md}}` copies that unit into the same `references/` and renders to its path; a copied `python3 {{pack.path:capture-evidence/backend-db.py}}` line renders to `${CLAUDE_SKILL_DIR}/references/capture-evidence/backend-db.py`; no copy contains `{{`; a stale `references/` file from an earlier compile is gone after a recompile; a missing source fails compile with pack.path's error; a team value (`{{pack.path:{{team.gates-fill}}/SKILL.md}}`) copies the chosen unit)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: built skills read rendered copies in their own references`**
+
+---
+
+### Task 16: Team sections and params take `{{pack.path}}`
+
+A team's `pack/sections/*.md` text and `pack/params.jsonc` values are spliced into a built skill by team markers, after the hand-typed-path check runs. Both refuse `{{` outright (`lib/skills/team-params.ts`, "has a section … containing {{" and "has a value containing {{"), so their cross-skill pointers stay hand-typed relative paths. Two things break: a section spliced into a copied base attachment points from the wrong folder once Task 15 copies that attachment into `references/`, and a pointer to a file holding placeholders opens unrendered source. The team-pack conversion found nine such pointers and treats this as its cutover prerequisite.
+
+**The rule:**
+- Section text and param values may carry `{{pack.path:<a>/<f>}}` and `{{verb.path:<verb>}}`, and nothing else in braces; every other `{{` is still refused with today's words. After the splice they resolve in the text they land in, the same way that text's own placeholders do (a built skill copies into its `references/`; a copied base attachment renders like a base attachment, R60).
+- The hand-typed-path check runs on section text and param values too, as compile input, with the same fix rules (R41, R44, R55 at depth 0); positions point at the section file or the `params.jsonc` value.
+- `rt skills check` and the language server see the same: hand-typed-path diagnostics on `pack/sections/*.md` and on `params.jsonc` values when those files are open.
+
+**Files:**
+- Modify: `lib/skills/team-params.ts`, `lib/skills/hand-paths.ts` callers in compile (`compile-blocks.ts`, `base-attachments.ts`) and `rt skills check`, `lib/skills/lsp/workspace.ts` (check section files and params values; the server's file gate and the extension selector add `**/pack/sections/*.md` and `**/pack/params.jsonc`), `extensions/vscode/skill-blocks/src/server.ts` patterns, the website "Paths into another skill" section and `extending-a-pack` (sections and params may use pack.path; load superpowers:writing-skills and mattstack:editing-skills first)
+- Test: team-params, base-attachments, compile tests, `lib/skills/lsp`
+
+- [ ] **Step 1: Write the failing tests** (a section line `{{pack.path:widgets-gates/SKILL.md}}` spliced into a built skill renders to `${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md` and copies it; the same section spliced into a copied base attachment renders correctly in that copy; a param value carrying `{{pack.path:provision/SKILL.md}}` resolves where it lands; a section carrying `{{stage.dir}}` or `{{props.x}}` is refused with today's words; a section line `../../attachments/widgets-gates/SKILL.md` is `hand-typed-path` with the fix and the section file's own line; the language server publishes that diagnostic on the open section file)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: team sections and params take pack.path`**
+
+---
+
 ### Task 9: The VS Code extension
 
 **Files:**
 - Create: `extensions/vscode/skill-blocks/package.json` (name `skill-blocks`, `activationEvents: ["workspaceContains:**/*.block.md", "workspaceContains:**/skills.jsonc"]`, `contributes.languages` registering `skill-blocks-markdown` for `*.block.md` with `markdown` as the base configuration so highlighting stays, a `skillBlocks.rtPath` setting defaulting to `rt`), `src/extension.ts` (`LanguageClient` over `{ command: rtPath, args: ["skills", "lsp"], transport: stdio }`, document selector for both patterns, a "Skill Blocks: Restart Server" command), `tsconfig.json`, the esbuild `build` script in `package.json`, `README.md` (install from a `.vsix` built by `bun run build && npx @vscode/vsce package`)
 - Modify: root `package.json` workspaces
 - Test: `src/__tests__/extension.test.ts` (the client is built with `["skills","lsp"]` and the configured path)
+- Shipping shape (Task 11 consumes it): `publisher: "local"` so the id is `local.skill-blocks`, the same publisher as `rt-context`; a `package` script and a `scripts/load-smoke.mjs` in the shape `rt-context` has; `*.vsix` ignored; `engines.vscode` is `rt-context`'s (`^1.85.0`) and `vscode-languageclient` is a major whose own `engines.vscode` floor is at or below it, so the same `.vsix` installs in VS Code, Cursor and Antigravity, which trail VS Code's version. The command is `skillBlocks.rtPath` when the person set it; at the default `rt`, when `rt` does not resolve on the editor's PATH, the extension uses `~/.local/bin/rt`, where setup links it (an editor started from the Dock may not carry the shell's PATH).
 
 - [ ] **Step 1: Write the failing test**
 - [ ] **Step 2: Run from the repo root with the extension's own test script → FAIL**
@@ -251,6 +359,24 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 - [ ] **Step 1: Read the Claude Code plugin reference (code.claude.com/docs/en/plugins and the plugins reference page) for how a plugin registers a language server, and confirm the key name and shape there before writing it; do not guess a field**
 - [ ] **Step 2: If registration is supported: add it (command `rt`, args `["skills","lsp"]`, the two patterns), bump the plugin version, write the test, run it → PASS. If it is not: stop, write the finding in the commit message of a docs-only commit to `plugins/mattstack/README.md`'s editor section, and report it as out of scope under the spec's "only registration" rule**
 - [ ] **Step 3: Commit: `mattstack: register the block language server with Claude Code`**
+
+---
+
+### Task 11: Ship the extension with the app
+
+Every machine that installs or updates mattstack.app gets the extension in each editor rt installs `rt-context` into. The path is the one `rt-context` already takes: `release.yml` packages the `.vsix`, `rt-tray/build.sh` copies it into `Contents/Resources`, and the `extension.install` setup step installs it with `--install-extension <vsix> --force`. That step is `updateSafe`, so `rt setup update` (run by the app at every launch after an update) installs it into the editors setup-state records, which is how existing users get it.
+
+**Files:**
+- Modify: `.github/workflows/release.yml` (the "Build extension" step also runs `bun run package` and the load smoke in `extensions/vscode/skill-blocks`, and exports `RT_SKILL_BLOCKS_VSIX`; a missing `.vsix` fails the step as `RT_VSIX` does), `rt-tray/build.sh` (copies `RT_SKILL_BLOCKS_VSIX` to `Contents/Resources/skill-blocks.vsix`; add it to the env comment)
+- Modify: `lib/setup/tools-install.ts` (`findVsix` becomes `findVsixes(p) → string[]`, the bundled files that exist, from the app's `Contents/Resources` else beside the binary; `setupExtension` installs each into each editor; an editor is recorded in `extensionEditors` only when every file installed; `VSIX_NOT_FOUND_DETAIL` only when none is found), `lib/setup/steps/tools.ts` (unchanged contract; its tests cover two files), `commands/extension.ts` (`rt extension install` installs both, the source-tree fallback looks in both extension folders), `lib/setup/uninstall.ts` (uninstalls `local.rt-context` and `local.skill-blocks`), `lib/setup/validators/rt-health.ts` (`tool.vsix` reads ready only when both files ship; the editor check names an editor missing either)
+- Modify: `docs/release-and-distribution.md` and `website/docs/rt/guides/context-extension.mdx` (the second extension, what it does, that setup installs and updates it)
+- Test: `lib/setup/__tests__/tools-install.test.ts`, `commands/__tests__/extension-install.test.ts`, the uninstall and `validators-rt-health` tests, `lib/__tests__/release-workflow.test.ts` (pins the skill-blocks package step and the export), `commands/__tests__/setup-copy.test.ts` snapshots if a row's copy changes
+
+- [ ] **Step 1: Write the failing tests** (a fresh install with both files installs both into every editor `detectEditors` finds, with VS Code, Cursor and Antigravity all present in the fixture `/Applications`; an update run installs both into only the editors setup-state records, so an existing `rt-context` user gets `skill-blocks`; a bundle carrying only `rt-context.vsix` still installs it and is not a failure; one file failing in one editor leaves that editor unrecorded and the step `failed`; uninstall removes both ids; the release workflow packages and exports the second `.vsix`)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement.** Never run `rt-tray/build.sh` or a release step locally, and never touch an installed app bundle; the release-workflow test and the setup tests are the verification.
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `setup: ship the skill-blocks extension with the app`**
 
 ---
 

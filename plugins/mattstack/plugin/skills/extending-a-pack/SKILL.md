@@ -605,9 +605,9 @@ it into the team pack. When a team pack `extends` a base, each compile:
   drift;
 - expands, in a copied `.md` file only, `{{pack.name}}` to the team pack's
   plugin name (`{{pack.name}}:watch-ci` becomes `widgets:watch-ci`), plus
-  `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` as in a
-  fill and `{{team.*}}` markers (next section); any other `{{...}}` and
-  every non-`.md` file copies as written;
+  `{{verb.path:<verb>}}`, `{{pack.path:<attachment>/<file>}}` (a path
+  into the pack) and `{{team.*}}` markers (next section); any other
+  `{{...}}` and every non-`.md` file copies as written;
 - leaves a team's own `attachments/<name>/` (no `compiled.json` in
   compile's shape) alone and
   copies nothing for that name: to override a base attachment, delete the
@@ -616,6 +616,13 @@ it into the team pack. When a team pack `extends` a base, each compile:
   skill, or a team attachment at another path, naming both;
 - removes a copied folder whose base attachment is gone, or every copied
   folder once the pack stops extending a base.
+
+A built skill never reads those copies. Its `{{pack.path:<attachment>/<file>}}`
+copies the whole attachment into its own `references/<attachment>/` and
+points there. The copy renders like the team pack's copy, plus a flat
+`{{include}}`; its `{{pack.path}}` points into the same `references/`. A
+placeholder that depends on the reading skill (`{{stage.dir}}`,
+`{{pipeline.table}}` and the like) fails the compile.
 
 Every compile also writes `pack/requires.json`, the engine floor
 (`minEngine`) copied from the mattstack it compiled against. It is compile
@@ -646,10 +653,13 @@ them in, so a compiled verb never shows a marker.
    `{{team.section:<name>?}}`) makes one optional: a team without it gets
    nothing there. Names are lowercase letters, digits and hyphens, and no
    key is named `section`. A section marker sits alone on its line. A
-   value marker may sit inside prose or a plain path
-   (`../../attachments/{{team.gates-fill}}/SKILL.md`), never inside another
-   marker or in frontmatter. Compile refuses each of those, and any
-   `{{team.*}}` in a team's own fill.
+   value marker sits inside prose, never inside another marker or in
+   frontmatter. Compile refuses each of those, and any `{{team.*}}` in a
+   team's own fill. A path into another skill or attachment uses
+   `{{pack.path:<attachment>/<file>}}`, never a hand-typed path. The one
+   marker that nests: a required value marker as the whole attachment
+   segment, `{{pack.path:{{team.<key>}}/<file>}}`, picks the attachment by
+   team value.
 
    ```markdown
    Look up the ticket in the {{team.linear-team}} Linear team. Its id
@@ -669,8 +679,11 @@ them in, so a compiled verb never shows a marker.
    ```
 
    A value is one line. A multi-line block is a section instead:
-   `pack/sections/ci-extra-jobs.md`, plain markdown. Neither may contain
-   `{{`, and an empty value or a blank section counts as missing.
+   `pack/sections/ci-extra-jobs.md`, plain markdown. A path into another
+   skill or attachment from either one uses `{{pack.path:<attachment>/<file>}}`
+   or `{{verb.path:<verb>}}`, never a hand-typed path: it resolves in the
+   text it lands in. Neither may contain any other `{{`, and an empty value
+   or a blank section counts as missing.
 
 3. Compile each team pack:
    `rt_verb {args: ["skills", "compile", "--pack", "widgets"]}`. Compile

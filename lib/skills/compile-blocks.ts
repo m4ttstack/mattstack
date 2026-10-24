@@ -16,9 +16,12 @@ import {
   toWildcardRule,
   type CompileSkillOpts,
 } from "./compile.ts";
-import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, skillDirFor } from "./placeholders.ts";
+import { handPathDiagnostics } from "./hand-paths.ts";
+import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves, skillDirFor } from "./placeholders.ts";
 import { effectiveBindings, type LayeredBindings } from "./pipelines.ts";
+import { referenceCopies, type ReferenceCopies } from "./references.ts";
 import { AttachmentLoadError } from "./sources.ts";
+import type { TeamContext } from "./team-params.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
 
 const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
@@ -109,6 +112,18 @@ export function blockPropValues(
   load: (binding: string, prop: string) => AttachmentSource,
   internalRoster: Set<string>,
 ): BlockValues {
+  const { values, diagnostics } = collectBlockPropValues(trees, bindings, load, internalRoster);
+  if (diagnostics.length > 0) throw new BlockError(diagnostics);
+  return values;
+}
+
+/** blockPropValues without the throw: every problem comes back in `diagnostics`. */
+export function collectBlockPropValues(
+  trees: SourcedTree[],
+  bindings: PropBindings,
+  load: (binding: string, prop: string) => AttachmentSource,
+  internalRoster: Set<string>,
+): { values: BlockValues; diagnostics: BlockDiagnostic[] } {
   const sites = new ManifestSites(bindings);
   const diagnostics: BlockDiagnostic[] = [];
   const values: BlockValues = new Map();
@@ -168,8 +183,7 @@ export function blockPropValues(
     }
   }
 
-  if (diagnostics.length > 0) throw new BlockError(diagnostics);
-  return values;
+  return { values, diagnostics };
 }
 
 /** The slot names an engine declared before it became a block tree, from its root's `replaced-slots`. */
@@ -298,14 +312,19 @@ export function compileBlockSkill(
   const resolver: IncludeResolver = (name) => included.get(name) ?? null;
   const placed = placedBlocks([engine, ...[...included.values()].map((s) => s.tree)]);
 
+  const handPaths = handPathsIn(step, includes, sources.filter(({ mode }) => mode === "inline").map(({ fill }) => fill), {
+    verbs: new Set(Object.keys(ctx.verbSides)),
+    packSource: (arg) => packPathResolves(ctx, arg),
+  }, opts.team ?? null);
   let rendered;
   const diagnostics: BlockDiagnostic[] = [];
   try {
     rendered = renderTree({ tree: engine, source: { plugin: step.plugin, version: step.version }, values, includes: resolver, ctx });
   } catch (err) {
     if (!(err instanceof BlockError)) throw err;
-    return { files: [], warnings: [], errors: [], diagnostics: err.diagnostics };
+    return { files: [], warnings: [], errors: [], diagnostics: [...handPaths, ...err.diagnostics] };
   }
+  if (handPaths.length > 0) return { files: [], warnings: [], errors: [], diagnostics: handPaths };
   const body = `${HEADER_COMMENT}\n\n${rendered.body}`;
   assertNoPlaceholders(body, step.name);
   assertNoStrayBraces(body, step.name);
@@ -320,7 +339,9 @@ export function compileBlockSkill(
   ]);
   const content = `${buildFrontmatter(verb, allowedTools, compiledParts)}\n\n${body}\n`;
 
-  const vendored = vendorBlockFiles(step, placed, values, engine, includes, opts, diagnostics);
+  const copies = referenceCopies(rendered.used.references, ctx, { skillRel: `${ctx.side}/${verb.name}`, packName: opts.packName, loadInclude: opts.loadInclude });
+  diagnostics.push(...copies.diagnostics);
+  const vendored = vendorBlockFiles(step, placed, values, engine, { ...includes, ...copies.includes }, copies, opts, diagnostics);
   if (diagnostics.length > 0) return { files: [], warnings: [], errors: [], diagnostics };
   const files: CompiledFile[] = [{ path: "SKILL.md", content }, ...vendored];
 
@@ -338,10 +359,48 @@ export function compileBlockSkill(
       emittedTargetDirs: opts.emittedTargetDirs ?? [],
       plannedAttachments: opts.plannedAttachments,
     }),
+    ...copies.warnings,
     ...transitionNotes,
   ];
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];
   return { files, warnings, errors, diagnostics: [] };
+}
+
+/**
+ * Read from the sources as loaded, before the stage-dir and include rewrites
+ * put `${CLAUDE_SKILL_DIR}/../../attachments/...` into the text on purpose. A
+ * fill bound by reference is a skill of its own and is not compiled in. A
+ * flat include admits no placeholder, so its diagnostic offers no fix.
+ */
+function handPathsIn(
+  step: StepSource,
+  includes: Record<string, AttachmentSource>,
+  fills: AttachmentSource[],
+  view: { verbs: ReadonlySet<string>; packSource: (arg: string) => boolean },
+  team: TeamContext | null,
+): BlockDiagnostic[] {
+  const out: BlockDiagnostic[] = [];
+  const seen = new Set<string>();
+  const trees = [step.tree!, ...Object.values(includes).flatMap((inc) => (inc.tree ? [inc.tree] : []))];
+  for (const block of trees.flatMap((tree) => walk(tree))) {
+    if (seen.has(block.path)) continue;
+    seen.add(block.path);
+    out.push(...handPathDiagnostics(block.text, block.relPath, { startLine: block.textStartLine, indent: block.textIndent, ...view }));
+  }
+  for (const inc of Object.values(includes)) {
+    const key = `${inc.plugin}:${inc.srcPath}`;
+    if (inc.tree || seen.has(key)) continue;
+    seen.add(key);
+    out.push(...handPathDiagnostics(inc.body, inc.srcPath, { startLine: inc.bodyStartLine, indent: inc.bodyIndent, ...view, noFix: true }));
+  }
+  for (const fill of fills) {
+    const key = `${fill.plugin}:${fill.srcPath}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const teamValue = team?.basePlugins.has(fill.plugin) ? (key: string) => (Object.hasOwn(team.values.params, key) ? team.values.params[key] : undefined) : undefined;
+    out.push(...handPathDiagnostics(fill.body, fill.srcPath, { startLine: fill.bodyStartLine, indent: fill.bodyIndent, ...view, teamValue }));
+  }
+  return out;
 }
 
 type PropFill = { block: Block; fill: AttachmentSource; dir: string };
@@ -361,31 +420,34 @@ function vendorBlockFiles(
   values: BlockValues,
   engine: BlockTree,
   includes: Record<string, AttachmentSource>,
+  copies: ReferenceCopies,
   opts: CompileSkillOpts,
   diagnostics: BlockDiagnostic[],
 ): CompiledFile[] {
   const files: CompiledFile[] = [];
   const owner = new Map<string, string>();
-  const add = (path: string, copyFrom: string, file: string) => {
-    const first = owner.get(path);
-    if (first === copyFrom) return;
+  const add = (file: CompiledFile, from: string, at: string) => {
+    const first = owner.get(file.path);
+    if (first === from) return;
     if (first !== undefined) {
-      diagnostics.push({ file, line: 1, col: 1, code: "vendor-collision", message: `${first} and ${copyFrom} would both vendor to ${path}` });
+      diagnostics.push({ file: at, line: 1, col: 1, code: "vendor-collision", message: `${first} and ${from} would both vendor to ${file.path}` });
       return;
     }
-    owner.set(path, copyFrom);
-    files.push({ path, copyFrom });
+    owner.set(file.path, from);
+    files.push(file);
   };
+  const copy = (path: string, copyFrom: string, at: string) => add({ path, copyFrom }, copyFrom, at);
 
-  for (const entry of step.stepFiles) add(entry, `${step.dir}/${entry}`, step.tree!.root.relPath);
+  for (const entry of step.stepFiles) copy(entry, `${step.dir}/${entry}`, step.tree!.root.relPath);
   for (const { block, fill, dir } of propFills(placed, values, engine)) {
     for (const entry of fill.extraFiles) {
       assertNoTeamMarkerInVendoredFile(fill, entry, opts.team ?? null);
-      add(`parts/${dir}/${entry}`, `${fill.dir}/${entry}`, block.relPath);
+      copy(`parts/${dir}/${entry}`, `${fill.dir}/${entry}`, block.relPath);
     }
   }
   for (const [name, inc] of Object.entries(includes)) {
-    for (const entry of inc.extraFiles) add(`parts/include-${name}/${entry}`, `${inc.dir}/${entry}`, inc.srcPath);
+    for (const entry of inc.extraFiles) copy(`parts/include-${name}/${entry}`, `${inc.dir}/${entry}`, inc.srcPath);
   }
+  for (const { file, from } of copies.files) add(file, from, step.tree!.root.relPath);
   return files;
 }
