@@ -45,7 +45,7 @@ import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError, userErrorPayload } from "../lib/errors.ts";
+import { UserActionableError, exitUserError, failureFor, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
@@ -126,14 +126,16 @@ export class SkillsUsageError extends Error {
 
 export class SkillsRefusal extends SkillsUsageError {}
 
-const STALE_ENGINE_WHY = "Its engines are single SKILL.md files, and this rt compiles only block trees. Update the plugin, or update the mattstack app, which updates it.";
+const STALE_ENGINE_UPDATE = "Update the plugin, or update the mattstack app, which updates it.";
+const STALE_ENGINE_NEXT = "claude plugin update mattstack@mattstack";
+const STALE_ENGINE_WHY = `Its engines are single SKILL.md files, and this rt compiles only block trees. ${STALE_ENGINE_UPDATE}`;
 
 /** A new rt over an old plugin cache meets an engine that is one SKILL.md on every verb, so the failure names the update. */
 export function staleEngineFailure(message: string): out.FailureInput {
   return {
     title: "The installed mattstack plugin is older than this rt",
     why: STALE_ENGINE_WHY,
-    next: out.cmd("claude plugin update mattstack@mattstack"),
+    next: out.cmd(STALE_ENGINE_NEXT),
     details: message,
   };
 }
@@ -2595,12 +2597,13 @@ export function blocksTree(payload: BlocksPayload): Block {
 }
 
 /** Console's route maps this code to a 404, so a skill with no block tree is told apart from a failure. */
-function refuseNotABlockTree(skill: string, json: boolean): void {
-  const err = new UserActionableError("not-a-block-tree", `The ${skill} skill is not built from blocks`, {}, {
-    why: "It is written as one SKILL.md file, not a folder of block files.",
-  });
+/** The console maps the `not-a-block-tree` code to a 404, so only `why` and `next` may differ between a hand-written skill and a stale engine. */
+function refuseNotABlockTree(skill: string, json: boolean, staleEngine = false): void {
+  const err = new UserActionableError("not-a-block-tree", `The ${skill} skill is not built from blocks`, {}, staleEngine
+    ? { why: `Its engine in the installed mattstack plugin is one SKILL.md file, and this rt reads only block trees. ${STALE_ENGINE_UPDATE}`, next: STALE_ENGINE_NEXT }
+    : { why: "It is written as one SKILL.md file, not a folder of block files." });
   if (json) out.json(userErrorPayload(err));
-  else out.fail({ title: err.message, why: err.why! });
+  else out.fail(failureFor(err));
   process.exitCode = 1;
 }
 
@@ -2626,7 +2629,7 @@ export async function skillsBlocks(args: string[]): Promise<void> {
     try {
       loadStepSource(target.verb.engine, resolved.pluginRoots);
     } catch (err) {
-      if (err instanceof NotABlockTreeError) return refuseNotABlockTree(skill, flags.json);
+      if (err instanceof NotABlockTreeError) return refuseNotABlockTree(skill, flags.json, true);
       if (err instanceof BlockError) throw new SkillsUsageError(err.message);
       throw new SkillsUsageError(`skill "${skill}": ${(err as Error).message}`);
     }

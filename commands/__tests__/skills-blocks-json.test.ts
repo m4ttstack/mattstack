@@ -119,3 +119,18 @@ test("skills blocks on a skill that is not a block tree says so on stderr, exit 
   expect(io.stderr()).toStartWith("The plain skill is not built from blocks");
   expect(process.exitCode).toBe(1);
 });
+
+test("skills blocks on a stale engine names the plugin update", async () => {
+  addSlotEngine();
+  await skillsBlocks(args("--skill", "plain"));
+  expect(io.stderr()).toContain("Update the plugin, or update the mattstack app, which updates it.");
+  expect(io.stderr()).toContain("claude plugin update mattstack@mattstack");
+});
+
+test("skills blocks on a hand-written pack skill names no update", async () => {
+  mkdirSync(join(root, "pack", "skills", "hand"), { recursive: true });
+  writeFileSync(join(root, "pack", "skills", "hand", "SKILL.md"), '---\nname: hand\ndescription: "Written by hand"\n---\n\nDo it by hand.\n');
+  await skillsBlocks(args("--skill", "hand"));
+  expect(io.stderr()).toStartWith("The hand skill is not built from blocks");
+  expect(io.stderr()).not.toContain("claude plugin update");
+});
