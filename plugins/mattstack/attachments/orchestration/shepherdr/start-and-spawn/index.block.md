@@ -25,7 +25,6 @@ flowchart TB
     enter_worktree[/"EnterWorktree {path}"/]
     worked_in_tree(((Worked here in a tree, no herd)))
     ask_strategy_model
-    accounts_section_filled{Accounts section non-empty?}
     ask_account_pool
     collect_repo_conventions
     herd_already_live{A herd is already live for this work?}
@@ -63,9 +62,7 @@ flowchart TB
     single_job_no_herd -->|no| ask_strategy_model
     worktree_provision --> enter_worktree
     enter_worktree --> worked_in_tree
-    ask_strategy_model --> accounts_section_filled
-    accounts_section_filled -->|yes| ask_account_pool
-    accounts_section_filled -->|no: single account| collect_repo_conventions
+    ask_strategy_model --> ask_account_pool
     ask_account_pool --> collect_repo_conventions
     collect_repo_conventions --> herd_already_live
     herd_already_live -->|no| herd_start

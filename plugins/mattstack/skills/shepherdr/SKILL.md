@@ -226,7 +226,7 @@ Follow the section above: it owns the pool question, the per-spawn pick
 decision tree. Accounts in use are each job's `account` in `herd_status`,
 never memory.
 
-<!-- part: block:shepherdr/start-and-spawn source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/start-and-spawn/index.block.md lines=5-98 -->
+<!-- part: block:shepherdr/start-and-spawn source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/start-and-spawn/index.block.md lines=5-95 -->
 ## Start and spawn
 
 Walk this graph from the trigger; a move it does not show goes to the shepherd off-script gate.
@@ -251,7 +251,6 @@ digraph shepherdr_start {
     enter_worktree [label="EnterWorktree {path}" shape=plaintext];
     worked_in_tree [label="Worked here in a tree, no herd" shape=doublecircle];
     ask_strategy_model [label="Ask the strategy and model per job" shape=box];
-    accounts_section_filled [label="Accounts section non-empty?" shape=diamond];
     ask_account_pool [label="Ask the account pool question" shape=box];
     collect_repo_conventions [label="Collect the repo conventions" shape=box];
     herd_already_live [label="A herd is already live for this work?" shape=diamond];
@@ -290,9 +289,7 @@ digraph shepherdr_start {
     single_job_no_herd -> ask_strategy_model [label="no"];
     worktree_provision -> enter_worktree;
     enter_worktree -> worked_in_tree;
-    ask_strategy_model -> accounts_section_filled;
-    accounts_section_filled -> ask_account_pool [label="yes"];
-    accounts_section_filled -> collect_repo_conventions [label="no: single account"];
+    ask_strategy_model -> ask_account_pool;
     ask_account_pool -> collect_repo_conventions;
     collect_repo_conventions -> herd_already_live;
     herd_already_live -> herd_start [label="no"];
@@ -386,7 +383,7 @@ is wrong.
 ### Ask the account pool question
 
 Ask it once per herd, after the models are chosen: per-model pools
-hide headroom until the model mix is known. A later job for a live herd keeps the herd's pool answer.
+hide headroom until the model mix is known. A later job for a live herd keeps the herd's pool answer. The Accounts section says when there is no question to ask.
 
 <!-- part: block:shepherdr/start-and-spawn/collect-repo-conventions source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/start-and-spawn/collect-repo-conventions.block.md lines=9-31 -->
 ### Collect the repo conventions
@@ -524,7 +521,7 @@ off-script gate.
 - **Stagger 4+ spawns**: spawn one, confirm it returned, spawn the next.
 - Agents never work in the user's checkout; skip isolation only for read-only jobs or when the user says to work in place. The worker's directory must be a **linked worktree**, which `herd_spawn` guarantees.
 
-<!-- part: block:shepherdr/the-watch-loop source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/the-watch-loop/index.block.md lines=5-171 -->
+<!-- part: block:shepherdr/the-watch-loop source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/the-watch-loop/index.block.md lines=5-168 -->
 ## The watch loop
 
 After the spawns, do nothing until something arrives.
@@ -567,7 +564,6 @@ digraph shepherdr_watch {
     herd_nudge [label="herd_nudge {herd, job, gate}" shape=plaintext];
     nudge_delivered [label="Nudge delivered?" shape=diamond];
     smart_distribute_pool [label="Smart-distribute pool in use?" shape=diamond];
-    accounts_section_filled [label="Accounts section non-empty?" shape=diamond];
     pick_account_by_rules [label="Pick the account per the accounts rules" shape=box];
     report_stall [label="Report the stall to the user" shape=box];
     ask_attend_respawn [label="Ask: attend or respawn" shape=box];
@@ -646,7 +642,7 @@ digraph shepherdr_watch {
     diagnosis_verdict -> herd_gates_diagnosed [label="at-gate"];
     diagnosis_verdict -> nudges_spent [label="idle, and the arrival named an answered gate it has not read"];
     diagnosis_verdict -> end_turn_wait [label="working, or idle with nothing waiting"];
-    diagnosis_verdict -> accounts_section_filled [label="rate-limited"];
+    diagnosis_verdict -> pick_account_by_rules [label="rate-limited"];
     diagnosis_verdict -> smart_distribute_pool [label="dead, gone, no-pane or login-expired"];
     diagnosis_verdict -> ask_attend_respawn [label="parked-modal"];
     diagnosis_verdict -> pane_bg_human [label="needs-human"];
@@ -663,8 +659,6 @@ digraph shepherdr_watch {
     smart_distribute_pool -> pick_account_by_rules [label="yes"];
     smart_distribute_pool -> respawns_spent [label="no, and not login-expired: relaunch on the same account"];
     smart_distribute_pool -> report_stall [label="no, and login-expired: only a login fixes it"];
-    accounts_section_filled -> pick_account_by_rules [label="yes"];
-    accounts_section_filled -> report_stall [label="no: nowhere else to launch"];
     pick_account_by_rules -> respawns_spent [label="an account picked"];
     pick_account_by_rules -> end_turn_wait [label="wait or abandon"];
     report_stall -> end_turn_wait;
@@ -747,8 +741,8 @@ pick is the `account` on `herd_respawn`. Announce the respawn.
 <!-- part: block:shepherdr/the-watch-loop/report-stall source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/the-watch-loop/report-stall.block.md lines=5-8 -->
 ### Report the stall to the user
 
-Single-account mode, or an expired login with no pool (only the user's
-`/login` fixes it). Name the job, its pane and the verdict.
+An expired login with no smart-distribute pool: only the user's
+`/login` fixes it. Name the job, its pane and the verdict.
 
 <!-- part: block:shepherdr/the-watch-loop/ask-attend-respawn source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/the-watch-loop/ask-attend-respawn.block.md lines=7-11 -->
 ### Ask: attend or respawn
@@ -784,7 +778,7 @@ briefs** / **Hold**. No restated heading, no per-option descriptions.
 
 - **The push is transport.** A gate push is one line, `[gate] <id> is now open; re-read the gate registry.`, carrying only an id. Its arrival proves the daemon, the subscription and the herd; the `herd_gates` read is the verification, made first. `herd_gates` defaults to `HERD_ID` or the sole active herd and also returns open pipeline-run gates in a herd job's worktree. Room lines arrive the same way (`<job> #<n>: <body>` a report, `<job> #<n>: milestone: <artifact>` a milestone). A stale id or an unrelated room line is normal, never a reason to reach for another command or distrust the push.
 - **Diagnosis and nudges.** `herd_diagnose {herd, job}` has the daemon read the pane and returns a verdict and budgets, never pane text. An `UNCONSUMED` gate in `herd_status`, or the watchdog's "answered Nm ago and unconsumed" line, is the arrival for a nudge; the nudge keys on the UNCONSUMED arrival's gate, never `lastGate.consumed`, which reads null for a gate the daemon does not track. `herd_nudge` sends a DM, then a typed line only into an idle pane with no form open, else `needsHuman`. No tool presses keys, and neither do you. A hidden (`bg:`) pane reaches the user only through `herd_attend {job, herd}`.
-- **The disposable reviewer.** Its spawn is `herd_spawn {tree}` into the job's own tree (a guest if another job holds it; the tree stays the host's); the result's `reviewerRound` echoes the ticked budget. Its brief reads the artifact, DMs findings, and reports a verdict; the daemon closes its pane. You never read the artifact. With the Accounts section non-empty it takes a per-spawn pick.
+- **The disposable reviewer.** Its spawn is `herd_spawn {tree}` into the job's own tree (a guest if another job holds it; the tree stays the host's); the result's `reviewerRound` echoes the ticked budget. Its brief reads the artifact, DMs findings, and reports a verdict; the daemon closes its pane. You never read the artifact. It takes a per-spawn pick per the Accounts section.
 - **A bare pane form.** A worker pane showing a structured question with no gate behind it (`herd_gates` returns nothing for it) is the banned bare pane-local form, unreachable from every channel. Flag it to the user; never answer it yourself. Covered panes deny it at source through the launch-injected gate-fork hook, so seeing one means the pane is uncovered or its daemon was unreachable.
 - **Progress.** When the user asks for progress, and after a job's report while other jobs still run, show the view from mattstack:work-progress.
 
@@ -946,9 +940,9 @@ are routinely stale. Measure first
 ### Ask the integration job's strategy and model
 
 One AskUserQuestion like every job's: the tier table's integration row is
-the recommendation, the strategy half from the strategy table. With the
-Accounts section non-empty, keep the herd's pool answer and pass the
-per-spawn pick as `account`.
+the recommendation, the strategy half from the strategy table. Keep the
+herd's pool answer and pass the Accounts section's per-spawn pick as
+`account`.
 
 <!-- part: block:shepherdr/lanes-and-wrap-up/gate-merge-lane source=mattstack:shepherdr version=0.32.27 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-merge-lane.block.md lines=7-11 -->
 ### Gate: merge this lane?

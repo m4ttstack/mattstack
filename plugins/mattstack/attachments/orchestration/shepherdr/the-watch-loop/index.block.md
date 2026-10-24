@@ -43,7 +43,6 @@ flowchart TB
     herd_nudge[/"herd_nudge {herd, job, gate}"/]
     nudge_delivered{Nudge delivered?}
     smart_distribute_pool{Smart-distribute pool in use?}
-    accounts_section_filled{Accounts section non-empty?}
     pick_account_by_rules
     report_stall
     ask_attend_respawn
@@ -121,7 +120,7 @@ flowchart TB
     diagnosis_verdict -->|at-gate| herd_gates_diagnosed
     diagnosis_verdict -->|idle, and the arrival named an answered gate it has not read| nudges_spent
     diagnosis_verdict -->|working, or idle with nothing waiting| end_turn_wait
-    diagnosis_verdict -->|rate-limited| accounts_section_filled
+    diagnosis_verdict -->|rate-limited| pick_account_by_rules
     diagnosis_verdict -->|dead, gone, no-pane or login-expired| smart_distribute_pool
     diagnosis_verdict -->|parked-modal| ask_attend_respawn
     diagnosis_verdict -->|needs-human| pane_bg_human
@@ -138,8 +137,6 @@ flowchart TB
     smart_distribute_pool -->|yes| pick_account_by_rules
     smart_distribute_pool -->|no, and not login-expired: relaunch on the same account| respawns_spent
     smart_distribute_pool -->|no, and login-expired: only a login fixes it| report_stall
-    accounts_section_filled -->|yes| pick_account_by_rules
-    accounts_section_filled -->|no: nowhere else to launch| report_stall
     pick_account_by_rules -->|an account picked| respawns_spent
     pick_account_by_rules -->|wait or abandon| end_turn_wait
     report_stall --> end_turn_wait
