@@ -66,8 +66,8 @@ server is shared: the stop refuses while ANY background claim is live
 report the refusal, never work around it.
 
 **The domain-provisioned spawn.** Unbound, `herd_spawn` provisions the
-tree itself (branch `<job>`, disposal `job`). A domain part that owns
-provisioning makes the tree its own way and passes its registered name
+tree itself (branch `<job>`, disposal `job`). Domain rules that own
+provisioning make the tree their own way and pass its registered name
 (the `tree` that `worktree_provision` returns), never a directory, as
 `tree`. `herd_spawn` admits only an rt ephemeral tree in state `claimed`
 and refuses any other with its kind and state; that refusal goes to the

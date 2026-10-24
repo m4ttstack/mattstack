@@ -29,7 +29,7 @@ defaults and defeats tiering. A respawn inherits model, effort
 and account from the job row; pass one only to change it.
 
 **Domain hook -- model floor and strategy pin.** Unbound: both halves are
-open. A bound domain part may set a model floor for a class of work and pin
+open. Bound domain rules may set a model floor for a class of work and pin
 the strategy (its method skill is the brief's Method); the recommendation
 starts at the floor, the pin is a fixed half, and a spawn below the floor
 is wrong.

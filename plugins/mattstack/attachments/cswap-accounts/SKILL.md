@@ -16,9 +16,6 @@ qualifies. **Spawn-time only:** an Agent-tool subagent runs in-process on
 the caller's credentials and exposes no account dimension, so this
 contract can only be honored where workers launch as their own sessions.
 
-Paths below are relative to this skill's directory; the compiler inlines
-this fill under `shepherdr`'s `## Accounts` section at compile time.
-
 ## The pool question
 
 If `cswap` is installed and `cswap list --json` shows two or more
@@ -68,7 +65,8 @@ In smart-distribute mode with a qualifying account left in the pool,
 respawn automatically; the wrapper owns the respawn mechanics. In
 single-account mode, or with the pool exhausted, ask instead: 1. wait for
 reset (show the countdown from `cswap list --json`), 2. switch to an
-out-of-pool account, 3. abandon.
+out-of-pool account, 3. abandon. With no cswap installed, there is nowhere
+else to launch: report the stall (wait for the reset or abandon).
 
 ## Quirk
 

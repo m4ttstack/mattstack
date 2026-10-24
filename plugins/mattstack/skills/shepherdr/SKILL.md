@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=25-79 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=25-75 -->
 # shepherdr
 
 You are the shepherd: a thin delegator, not a reviewer. You break work into jobs, spawn an agent per job (own herdr pane, own git worktree), present what the daemon pushes, and route small messages between the user and the herd. Model, method and account are policy, answered by the bound skills below; you are transport.
@@ -29,7 +29,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 <!-- part: prop:shepherdr.tiering binding=mattstack:model-tiering version=0.32.28 path=skills/model-tiering/SKILL.md lines=8-164 -->
 For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@0.32.28) when this flow needs it.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=43-79 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=43-75 -->
 ## Strategy
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
@@ -125,32 +125,33 @@ for you -- name the strategy and pass it, nothing more. Either way, do not
 compose method prose per job; the bodies carry the worker-boundary rules
 and the report contract.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=49-79 -->
-`accounts` always has a fill: the pack's own, else mattstack's cswap
-accounts fill, which a `""` clear falls back to as well. That fill runs
-single-account mode itself when there is no cswap or only one account.
-
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=49-75 -->
 ## Domain rules
 
 Domain rules are optional: a pack binds them to the `rules` prop, here or
-on a step's own block. Bound rules win over this engine's default only at
+on a step's own block. Bound rules win over this skill's default only at
 the **Domain hook** paragraphs below: intake, the model floor and strategy
 pin, provisioning (the `Domain provisions the tree?` branch), the Method
 copy, conventions, what follows a job's report, and wrap-up. They never
 change the herd contract: questions and reports still flow through the
-herd tools and the gate registry.
+herd tools and the gate registry. A **Domain hook** paragraph no rule
+names keeps this skill's default as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=67-79 -->
-Rules sit above or in a step's own section. A **Domain hook**
-paragraph no rule names keeps the engine default as written.
-
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=64-75 -->
 ## Accounts
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: prop:shepherdr.accounts binding=mattstack:cswap-accounts version=0.32.28 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
+`accounts` always has a fill: the pack's own, else mattstack's cswap
+accounts fill. That fill runs single-account mode itself when there is no
+cswap or only one account. Follow the fill below: it owns the pool
+question, the per-spawn pick (passed as `account` on `herd_spawn` or
+`herd_respawn`), and the exhaustion decision tree. Accounts in use are
+each job's `account` in `herd_status`, never memory.
+
+<!-- part: prop:shepherdr.accounts binding=mattstack:cswap-accounts version=0.32.28 path=attachments/cswap-accounts/SKILL.md lines=11-76 -->
 ### cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -158,9 +159,6 @@ name where to launch the next worker, or report that no pool account
 qualifies. **Spawn-time only:** an Agent-tool subagent runs in-process on
 the caller's credentials and exposes no account dimension, so this
 contract can only be honored where workers launch as their own sessions.
-
-Paths below are relative to this skill's directory; the compiler inlines
-this fill under `shepherdr`'s `## Accounts` section at compile time.
 
 #### The pool question
 
@@ -211,7 +209,8 @@ In smart-distribute mode with a qualifying account left in the pool,
 respawn automatically; the wrapper owns the respawn mechanics. In
 single-account mode, or with the pool exhausted, ask instead: 1. wait for
 reset (show the countdown from `cswap list --json`), 2. switch to an
-out-of-pool account, 3. abandon.
+out-of-pool account, 3. abandon. With no cswap installed, there is nowhere
+else to launch: report the stall (wait for the reset or abandon).
 
 #### Quirk
 
@@ -219,12 +218,6 @@ cswap sessions share plugins along with settings and skills (the plugin
 cache is a shared symlink), so a worker pane missing a plugin's tools is a
 real failure: check the pane's plugin list and the shared cache instead of
 dismissing it.
-
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=76-79 -->
-Follow the section above: it owns the pool question, the per-spawn pick
-(passed as `account` on `herd_spawn` or `herd_respawn`), and the exhaustion
-decision tree. Accounts in use are each job's `account` in `herd_status`,
-never memory.
 
 <!-- part: block:shepherdr/start-and-spawn source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/start-and-spawn/index.block.md lines=5-95 -->
 ## Start and spawn
@@ -326,7 +319,7 @@ digraph shepherdr_start {
 ### Specify the jobs
 
 **Domain hook -- intake.** Unbound: the jobs are what the user hands you;
-invoked with nothing, ask what to fan out. A bound domain part may define a
+invoked with nothing, ask what to fan out. Bound domain rules may define a
 default intake for the empty invocation (a ticket queue, a board column):
 one job per item it yields.
 
@@ -349,7 +342,7 @@ those, say so and dispatch Agent-tool subagents.
 right skill for this") and do it yourself in the main pane; one agent
 behind a relay is pure overhead. `worktree_provision` and `EnterWorktree`
 keep it out of the user's checkout, and the delegator rules then do not
-apply. Apply a bound domain part's single-worker exception if it names one.
+apply. Apply the bound rules' single-worker exception if they name one.
 A later job for a live herd is never this case.
 
 <!-- part: block:shepherdr/start-and-spawn/ask-strategy-model source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/start-and-spawn/ask-strategy-model.block.md lines=11-37 -->
@@ -374,7 +367,7 @@ defaults and defeats tiering. A respawn inherits model, effort
 and account from the job row; pass one only to change it.
 
 **Domain hook -- model floor and strategy pin.** Unbound: both halves are
-open. A bound domain part may set a model floor for a class of work and pin
+open. Bound domain rules may set a model floor for a class of work and pin
 the strategy (its method skill is the brief's Method); the recommendation
 starts at the floor, the pin is a fixed half, and a spawn below the floor
 is wrong.
@@ -506,8 +499,8 @@ server is shared: the stop refuses while ANY background claim is live
 report the refusal, never work around it.
 
 **The domain-provisioned spawn.** Unbound, `herd_spawn` provisions the
-tree itself (branch `<job>`, disposal `job`). A domain part that owns
-provisioning makes the tree its own way and passes its registered name
+tree itself (branch `<job>`, disposal `job`). Domain rules that own
+provisioning make the tree their own way and pass its registered name
 (the `tree` that `worktree_provision` returns), never a directory, as
 `tree`. `herd_spawn` admits only an rt ephemeral tree in state `claimed`
 and refuses any other with its kind and state; that refusal goes to the
@@ -947,7 +940,7 @@ herd's pool answer and pass the Accounts section's per-spawn pick as
 <!-- part: block:shepherdr/lanes-and-wrap-up/gate-merge-lane source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-merge-lane.block.md lines=7-11 -->
 ### Gate: merge this lane?
 
-Only when a bound domain part gives the shepherd the merge. One sentence
+Only when bound domain rules give the shepherd the merge. One sentence
 with the PR or MR link, its state and its CI, then **Merge** / **Not yet** /
 **Hold**.
 
@@ -1019,8 +1012,8 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 - **A report is a claim, not a merge.** Answer "Merged on the repo?" from the job's row `merge.state` (GitHub or GitLab) alone, never the report or a forge read of your own: `merged` is yes; `open`, `closed` or `none` is no; `unknown` goes to the off-script gate with the read's error. A lane with no row (a merge can dispose its tree) goes there with its `skipped` reason, and the proposed move closes the lane once the user confirms the merge. The row's `unmergedReports` feeds `Unmerged reports for this lane spent?` (see **Budgets**).
 - **Job state is the daemon's.** It marks a job `done` when its report is published.
 - **The integration job.** Its brief merges or cherry-picks the job branches, runs full verification, carries the shipping conventions, and reports. The first is `integration-1`; a lane that joined after it spawned gets the next number, and that brief covers only the lanes no integration job has merged.
-- **Domain hook: after the report.** Unbound: the integration job merges. A bound domain part may define what follows a report (the worker ships through its own skill chain, or the shepherd merges after a gate; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.
-- **Domain hook: wrap-up.** Unbound: as drawn. A bound domain part may state its own tree lifecycle (trees that dispose themselves on merge, what a disposal refusal means); follow it over the defaults here.
+- **Domain hook: after the report.** Unbound: the integration job merges. Bound domain rules may define what follows a report (the worker ships through its own skill chain, or the shepherd merges after a gate; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.
+- **Domain hook: wrap-up.** Unbound: as drawn. Bound domain rules may state their own tree lifecycle (trees that dispose themselves on merge, what a disposal refusal means); follow it over the defaults here.
 
 <!-- part: block:shepherdr/wrap-up-form-contract source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/wrap-up-form-contract.block.md lines=6-10 -->
 ## wrap-up form contract

@@ -46,34 +46,30 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 {{props.strategy}}
 
-`accounts` always has a fill: the pack's own, else mattstack's cswap
-accounts fill, which a `""` clear falls back to as well. That fill runs
-single-account mode itself when there is no cswap or only one account.
-
 ## Domain rules
 
 Domain rules are optional: a pack binds them to the `rules` prop, here or
-on a step's own block. Bound rules win over this engine's default only at
+on a step's own block. Bound rules win over this skill's default only at
 the **Domain hook** paragraphs below: intake, the model floor and strategy
 pin, provisioning (the `Domain provisions the tree?` branch), the Method
 copy, conventions, what follows a job's report, and wrap-up. They never
 change the herd contract: questions and reports still flow through the
-herd tools and the gate registry.
+herd tools and the gate registry. A **Domain hook** paragraph no rule
+names keeps this skill's default as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
 {{props.rules}}
 
-Rules sit above or in a step's own section. A **Domain hook**
-paragraph no rule names keeps the engine default as written.
-
 ## Accounts
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-{{props.accounts}}
+`accounts` always has a fill: the pack's own, else mattstack's cswap
+accounts fill. That fill runs single-account mode itself when there is no
+cswap or only one account. Follow the fill below: it owns the pool
+question, the per-spawn pick (passed as `account` on `herd_spawn` or
+`herd_respawn`), and the exhaustion decision tree. Accounts in use are
+each job's `account` in `herd_status`, never memory.
 
-Follow the section above: it owns the pool question, the per-spawn pick
-(passed as `account` on `herd_spawn` or `herd_respawn`), and the exhaustion
-decision tree. Accounts in use are each job's `account` in `herd_status`,
-never memory.
+{{props.accounts}}

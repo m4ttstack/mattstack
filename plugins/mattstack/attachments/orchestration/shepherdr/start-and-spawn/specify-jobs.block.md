@@ -9,7 +9,7 @@ props:
 # Specify the jobs
 
 **Domain hook -- intake.** Unbound: the jobs are what the user hands you;
-invoked with nothing, ask what to fan out. A bound domain part may define a
+invoked with nothing, ask what to fan out. Bound domain rules may define a
 default intake for the empty invocation (a ticket queue, a board column):
 one job per item it yields.
 
@@ -32,7 +32,7 @@ those, say so and dispatch Agent-tool subagents.
 right skill for this") and do it yourself in the main pane; one agent
 behind a relay is pure overhead. `worktree_provision` and `EnterWorktree`
 keep it out of the user's checkout, and the delegator rules then do not
-apply. Apply a bound domain part's single-worker exception if it names one.
+apply. Apply the bound rules' single-worker exception if they name one.
 A later job for a live herd is never this case.
 
 {{props.rules}}
