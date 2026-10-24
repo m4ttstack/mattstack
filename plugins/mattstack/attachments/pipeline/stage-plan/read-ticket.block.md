@@ -9,6 +9,6 @@ props:
 # Read the ticket
 
 The ticket, or the task description standing in for one, and whatever the
-domain rules below say to read alongside it.
+rules here say to read alongside it.
 
 {{props.rules}}

@@ -8,7 +8,9 @@ props:
 
 # Domain rules
 
-If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
+A domain rule sits here or in its step's own section; if one asks for a
+move this graph marks STOP, take the off-script edge instead. Where no
+rule names a move, the graph's other flows apply.
 
 The domain supplies triage (how to read a red, REAL or INFRA, which jobs
 block, noise, ownership), judged at `Classify the triage report
@@ -26,6 +28,3 @@ what a rule states outright: `real-patterns`, `infra-patterns` and
 and `skip-base` replace them.
 
 {{props.rules}}
-
-Rules sit above or in a step's own section. Where no rule names a move,
-the graph's other flows apply.
