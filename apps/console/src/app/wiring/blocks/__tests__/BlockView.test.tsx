@@ -353,13 +353,13 @@ describe('BlockView: a single block', () => {
     expect(patch).toHaveBeenCalledWith({ block: 'mini/run', select: null });
   });
 
-  it('shows the whole graph in place of the small one, with a way back', async () => {
+  it('shows the block map in place of the small graph, with a way back', async () => {
     const patch = renderView({ block: 'mini/gate', select: 'graph' });
 
     expect(screen.queryByTestId('around-graph')).not.toBeInTheDocument();
-    const whole = screen.getByTestId('whole-graph');
-    expect(within(whole).getAllByTestId('around-step')).toHaveLength(2);
-    await userEvent.click(within(whole).getByText('Close graph'));
+    const map = screen.getByTestId('block-map');
+    expect(within(map).getByText('Block map')).toBeInTheDocument();
+    await userEvent.click(within(map).getByRole('button', { name: 'Close' }));
     expect(patch).toHaveBeenCalledWith({ select: null });
   });
 

@@ -7,20 +7,30 @@ const engineOver = (elk: ELK): LayoutEngine => ({
 });
 
 let loading: Promise<LayoutEngine> | null = null;
+let running: ELK | null = null;
 
 export function loadLayoutEngine(): Promise<LayoutEngine> {
   loading ??= Promise.all([
     import('elkjs/lib/elk-api'),
     import('elkjs/lib/elk-worker.min.js?worker'),
-  ]).then(
-    ([{ default: ElkApi }, { default: ElkWorker }]) =>
-      engineOver(new ElkApi({ workerFactory: () => new ElkWorker() })),
-    (error: unknown) => {
-      loading = null;
+  ])
+    .then(([{ default: ElkApi }, { default: ElkWorker }]) => {
+      running = new ElkApi({ workerFactory: () => new ElkWorker() });
+      return engineOver(running);
+    })
+    .catch((error: unknown) => {
+      forgetLayoutEngine();
       throw error;
-    }
-  );
+    });
   return loading;
+}
+
+/** Drops the cached engine and stops its worker, so the next load starts
+    afresh: elk-api never rejects a layout whose worker failed to load. */
+export function forgetLayoutEngine(): void {
+  running?.terminateWorker();
+  running = null;
+  loading = null;
 }
 
 export function bundledEngine(): LayoutEngine {

@@ -1015,3 +1015,292 @@
 .refusal {
   white-space: pre-line;
 }
+
+.map {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mapHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.mapClose {
+  margin-left: auto;
+  color: var(--tk-text-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mapNote {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 24px 0;
+}
+
+.mapCanvas {
+  --xy-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-border-selected: none;
+  --xy-node-color: inherit;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--tk-border);
+  border-radius: 12px;
+  background: var(--tk-panel);
+}
+
+.mapBox,
+.mapSplitBox {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  pointer-events: auto;
+}
+
+.mapBox {
+  gap: 8px;
+}
+
+.mapSplitBox {
+  gap: 9px;
+}
+
+.mapBox[data-dim],
+.mapSplitBox[data-dim] {
+  opacity: 0.4;
+}
+
+.mapCard {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  width: var(--card-w);
+  height: 40px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--tk-border);
+  border-radius: 9px;
+  background-color: var(--tk-card);
+  box-shadow: var(--tk-shadow-card);
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.mapCard[data-hot] {
+  border-color: var(--tk-fill-accent);
+}
+
+.mapCard:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+}
+
+.mapCardLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapBadge,
+.mapKeyBadge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.mapBadge {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.mapKeyBadge {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.mapBadge[data-badge='step'],
+.mapKeyBadge[data-badge='step'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-accent);
+}
+
+.mapBadge[data-badge='question'],
+.mapKeyBadge[data-badge='question'] {
+  background-color: var(--tk-raised);
+  color: var(--tk-text-2);
+}
+
+.mapBadge[data-badge='gate'],
+.mapKeyBadge[data-badge='gate'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-warn) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-warn);
+}
+
+.mapBadge[data-badge='end'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-ok) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-ok);
+}
+
+.mapPills {
+  display: flex;
+  gap: 6px;
+}
+
+.mapPill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 11px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  font-size: 11px;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  .mapPill:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--tk-fill-accent) var(--ui-wash-hover),
+      transparent
+    );
+  }
+}
+
+.mapPill:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+}
+
+.mapPillLabel {
+  color: var(--tk-text-3);
+}
+
+.mapPillIcon {
+  color: var(--tk-text-accent);
+}
+
+.mapPillTarget {
+  color: var(--tk-text-accent);
+  font-weight: 500;
+}
+
+.mapSplit {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--tk-line-1);
+  border-radius: 50%;
+  background-color: var(--tk-panel);
+}
+
+.mapHandle:global(.react-flow__handle) {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.mapEdge {
+  fill: none;
+  stroke: var(--tk-line-1);
+}
+
+.mapArrow {
+  fill: var(--tk-line-1);
+}
+
+.mapChip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--chip-w);
+  height: 16px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 8px;
+  background-color: var(--tk-card);
+  color: var(--tk-text-2);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translate(var(--chip-x), var(--chip-y));
+  pointer-events: none;
+}
+
+.mapKey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mapKey li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.mapKeyFolded {
+  width: 24px;
+  height: 4px;
+}
+
+.mapKeyLoop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 16px;
+  border-radius: 8px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-accent);
+}

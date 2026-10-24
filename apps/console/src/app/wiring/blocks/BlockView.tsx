@@ -25,7 +25,8 @@ import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
 import type { WiringUrl } from '../graph/useWiringUrl';
 import type { SkillsCheck, SkillsComposition } from '../outline';
 import { useSkillSource, type SkillsAnatomy } from '../useWiring';
-import { AroundGraph, WholeGraph } from './AroundGraph';
+import { AroundGraph } from './AroundGraph';
+import { BlockMap } from './BlockMap';
 import classes from './blocks.module.css';
 import { BlockText, GraphCard } from './BlockText';
 import { CopyForClaude } from './CopyForClaude';
@@ -315,11 +316,10 @@ function ZoomBody({
         {graph &&
           at &&
           (wholeGraph ? (
-            <WholeGraph
+            <BlockMap
+              payload={payload}
               graph={graph}
-              skill={payload.skill}
               highlight={at.node}
-              glyphOf={glyphOf}
               onSelect={open}
               onClose={closeGraph}
             />
@@ -363,11 +363,10 @@ function ZoomBody({
         />
       )}
       {wholeGraph && own && (
-        <WholeGraph
+        <BlockMap
+          payload={payload}
           graph={labelledGraph(payload, own)}
-          skill={payload.skill}
           highlight={null}
-          glyphOf={glyphOf}
           onSelect={open}
           onClose={closeGraph}
         />

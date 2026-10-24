@@ -5,9 +5,7 @@ import {
   memo,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useState,
   type CSSProperties,
 } from 'react';
 import {
@@ -33,12 +31,12 @@ import {
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import { BlockGlyph } from './BlockRow';
 import classes from './blocks.module.css';
+import { useFontsLoaded } from './graphCards';
 import { aroundBlock } from './model/around';
 import {
   AROUND,
   aroundLayout,
   reachOf,
-  wholeLayout,
   type AroundEdge,
   type AroundNode,
 } from './model/aroundLayout';
@@ -75,26 +73,6 @@ function measureLabel(label: string): number | null {
 }
 
 const measure = (label: string) => measureLabel(label) ?? label.length * 7;
-
-/** True once the page's web fonts have loaded, so labels measure in the font
-    they draw in rather than its fallback. */
-function useFontsLoaded(): boolean {
-  const fonts = typeof document === 'undefined' ? undefined : document.fonts;
-  const [loaded, setLoaded] = useState(
-    !fonts?.ready || fonts.status === 'loaded'
-  );
-  useEffect(() => {
-    if (loaded || !fonts?.ready) return;
-    let live = true;
-    void fonts.ready.then(() => {
-      if (live) setLoaded(true);
-    });
-    return () => {
-      live = false;
-    };
-  }, [fonts, loaded]);
-  return loaded;
-}
 
 /** The canvas is as tall as the layout at the zoom fitView will pick, so a
     zoomed-out graph leaves no empty band above and below it. */
@@ -272,8 +250,7 @@ export interface AroundGraphProps {
   onViewWholeGraph: () => void;
 }
 
-/** The canvas, its heading row and its key, shared by the small graph and
-    the whole one. */
+/** The canvas, its heading row and its key. */
 function GraphFrame({
   label,
   action,
@@ -401,44 +378,6 @@ export function AroundGraph({
       onSelect={onSelect}
       glyphOf={glyphOf}
       testId="around-graph"
-    />
-  );
-}
-
-export interface WholeGraphProps {
-  graph: BlocksPayload['graphs'][number];
-  /** The skill in view, which graph-only labels need not repeat. */
-  skill?: string;
-  /** The open block's own node, marked as the focus; null on a parent. */
-  highlight: string | null;
-  glyphOf?: GlyphLookup;
-  onSelect: (blockId: string) => void;
-  onClose: () => void;
-}
-
-/** A block's whole graph on the same canvas, in place of the small one. */
-export function WholeGraph({
-  graph,
-  highlight,
-  skill,
-  glyphOf = noGlyph,
-  onSelect,
-  onClose,
-}: WholeGraphProps) {
-  const layoutFor = useCallback(
-    (room: number) =>
-      wholeLayout(graph, highlight, Infinity, { room, measure, skill }),
-    [graph, highlight, skill]
-  );
-  return (
-    <GraphFrame
-      label="Whole graph"
-      action="Close graph"
-      onAction={onClose}
-      layoutFor={layoutFor}
-      onSelect={onSelect}
-      glyphOf={glyphOf}
-      testId="whole-graph"
     />
   );
 }

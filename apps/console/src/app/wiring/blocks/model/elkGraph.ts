@@ -12,6 +12,8 @@ export type LayoutEdge = {
   source: string;
   target: string;
   label?: { text: string; width: number; height: number };
+  /** ELK's straightness priority: higher keeps the edge straighter. */
+  priority?: number;
 };
 export type LayoutInput = { nodes: LayoutNode[]; edges: LayoutEdge[] };
 export type Box = { x: number; y: number; width: number; height: number };
@@ -32,6 +34,10 @@ export const ELK_OPTIONS: Record<string, string> = {
   'org.eclipse.elk.layered.spacing.nodeNodeBetweenLayers': '36',
   'org.eclipse.elk.hierarchyHandling': 'INCLUDE_CHILDREN',
   'org.eclipse.elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+  'org.eclipse.elk.spacing.nodeNode': '24',
+  'org.eclipse.elk.layered.spacing.edgeNodeBetweenLayers': '16',
+  'org.eclipse.elk.edgeLabels.placement': 'TAIL',
+  'org.eclipse.elk.padding': '[top=24,left=24,bottom=24,right=24]',
   // Shapes stay parent-relative (fromElk adds the offsets); edge points and
   // labels come back in root coordinates, since an INCLUDE_CHILDREN edge
   // would otherwise be relative to whichever container ELK assigns it.
@@ -84,6 +90,13 @@ export function toElk(input: LayoutInput): ElkNode {
     sources: [parents.has(e.source) ? e.source : bottomPort(e.source)],
     targets: [parents.has(e.target) ? e.target : topPort(e.target)],
     ...(e.label ? { labels: [{ ...e.label }] } : {}),
+    ...(e.priority === undefined
+      ? {}
+      : {
+          layoutOptions: {
+            'org.eclipse.elk.layered.priority.straightness': String(e.priority),
+          },
+        }),
   }));
 
   return { id: 'root', layoutOptions: ELK_OPTIONS, children, edges };
