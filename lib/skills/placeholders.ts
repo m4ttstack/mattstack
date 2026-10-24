@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { join, posix } from "path";
+import { relevelDelta, shiftHeadings } from "./blocks/headings.ts";
 import { defaultPipeline } from "./pipelines.ts";
 import { firstTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
@@ -108,7 +109,10 @@ export function fillReference(name: string, fill: AttachmentSource): string {
   return `Prop ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
 }
 
-/** `key` is the seam's part key (`prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under. */
+/**
+ * `key` is the seam's part key (`prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under.
+ * `headingLevel` is where the fill's shallowest heading lands, and its flat includes move with it; a tree include places its own headings.
+ */
 export function inlineFillText(
   key: string,
   partsName: string,
@@ -116,19 +120,25 @@ export function inlineFillText(
   ctx: PlaceholderContext,
   used: Pick<Used, "packPaths" | "references">,
   treeInclude?: TreeIncludeText,
+  headingLevel?: number,
 ): string {
   const resolved = resolveFillTeamMarkers(fill, ctx.team);
   const rewritten = atSkillDir(resolved.body, skillDirFor(fill, ctx, partsName));
+  const flatBodies = [...rewritten.matchAll(INCLUDE_LINE_RE)].flatMap((m) => (Object.hasOwn(ctx.includes, m[1]!) ? [ctx.includes[m[1]!]!.body] : []));
+  const shift = headingLevel === undefined ? 0 : relevelDelta([rewritten, ...flatBodies], headingLevel);
   const toSource: TreeIncludeText | undefined = treeInclude
     && ((name, at) => treeInclude(name, { line: resolved.sourceLine(at.line), textAfter: at.textAfter === null ? null : resolved.sourceLine(at.textAfter) }));
-  const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding, toSource);
+  const inlined = substituteIncludesOnly(shiftHeadings(rewritten, shift), ctx, fill.binding, toSource, shift);
   used.packPaths.push(...inlined.packPaths);
   used.references.push(...inlined.references);
   return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
 }
 
-export function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {
-  const body = atSkillDir(inc.body, skillDirFor(inc, ctx, `include-${name}`));
+const INCLUDE_LINE_RE = /^\s*\{\{include:([^}\s]+)\}\}\s*$/gm;
+
+/** `shift` moves the include's headings, as it does the fill's or block's text it is placed in. */
+export function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext, shift = 0): string {
+  const body = shiftHeadings(atSkillDir(inc.body, skillDirFor(inc, ctx, `include-${name}`)), shift);
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
 }
 
@@ -148,6 +158,7 @@ export function substituteIncludesOnly(
   ctx: PlaceholderContext,
   where: string,
   treeInclude?: TreeIncludeText,
+  shift = 0,
 ): { body: string; packPaths: string[]; references: PackTarget[] } {
   const packPaths: string[] = [];
   const references: PackTarget[] = [];
@@ -162,7 +173,7 @@ export function substituteIncludesOnly(
         case "include": {
           if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
           const inc = arg ? ctx.includes[arg] : undefined;
-          if (arg && inc) return includeText(arg, inc, ctx);
+          if (arg && inc) return includeText(arg, inc, ctx, shift);
           const tree = arg ? treeInclude?.(arg, { line: i + 1, textAfter: textAfter(i) }) ?? null : null;
           if (tree === null) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
           return tree;

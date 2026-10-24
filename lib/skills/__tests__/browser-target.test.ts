@@ -14,7 +14,7 @@ const REVIEW_VERBS = ["review", "self-review", "receive-review"] as const;
 const INCLUDE_MARKER = "<!-- part: block:browser-evidence source=";
 const INCLUDE_BLOCK = /^<!-- part: block:browser-evidence[ /]/;
 const PART_MARKER = "<!-- part: ";
-const TARGET_HEADING = /^## Browser target$/m;
+const TARGET_HEADING = /^#+ Browser target$/m;
 
 type Compiled = Record<(typeof VERBS)[number], string> & Partial<Record<(typeof REVIEW_VERBS)[number], string>>;
 
@@ -75,8 +75,8 @@ describe("browser target compile", () => {
     test("stage-evidence inlines the include once and carries the fill's four-block browser target", () => {
       const body = compiled.verbs["stage-evidence"];
       expect(count(body, INCLUDE_MARKER)).toBe(1);
-      expect(count(body, "\n## Browser target\n")).toBe(1);
-      for (const block of ["### Reach the view", "### What proves a change", "### Captions", "### Personal data"]) {
+      expect(count(body, "\n#### Browser target\n")).toBe(1);
+      for (const block of ["##### Reach the view", "##### What proves a change", "##### Captions", "##### Personal data"]) {
         expect(count(body, `\n${block}\n`)).toBe(1);
       }
     });

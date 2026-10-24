@@ -35,13 +35,13 @@ Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
 <!-- part: prop:shepherdr.strategy binding=mattstack:execution-strategy version=0.32.28 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
-# Execution Strategy
+### Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
 the executor runs and the report contract that method produces. A brief
 that names no method leaves its executor to improvise one.
 
-## The six strategies
+#### The six strategies
 
 | Strategy | Executor runs |
 |---|---|
@@ -60,7 +60,7 @@ Excluded: superpowers:executing-plans -- it defers to
 subagent-driven-development wherever subagents are available, and
 dispatched workers are full Claude Code sessions, so it is dominated.
 
-## Picking the strategy
+#### Picking the strategy
 
 - `trivial` -- no runtime behavior to test: pure docs, comments, config,
   or a mechanical rename with zero logic change.
@@ -80,7 +80,7 @@ writes its failing test first. `trivial` is the single escape hatch and it
 is tight -- "it's simple", "it's small", or "I'll test after" is the
 `direct-tdd` tell, not a `trivial` pass.
 
-## Surface support
+#### Surface support
 
 | Surface | `trivial` | `direct-tdd` | `from-spec` | `from-plan` | `superpowers` | `delegate` |
 |---|---|---|---|---|---|---|
@@ -98,7 +98,7 @@ surface). Name the two re-dispatch paths in the report: a pane worker
 with a question relay, or a supplied spec or plan that re-enters the work
 as `from-spec` or `from-plan`, which this surface supports.
 
-## One plan, one executor
+#### One plan, one executor
 
 A plan is never sliced across parallel executors: it has one sequential
 controller, its tasks chain by Consumes/Produces interfaces, and its
@@ -106,7 +106,7 @@ ledger is keyed by plan identity within one worktree. Fan out one level
 up: 1 job = 1 sub-project = 1 spec = 1 plan = 1 branch = 1 worktree =
 1 ledger.
 
-## Report shape is per strategy
+#### Report shape is per strategy
 
 | Strategy | Report |
 |---|---|
@@ -115,7 +115,7 @@ up: 1 job = 1 sub-project = 1 spec = 1 plan = 1 branch = 1 worktree =
 | `from-plan` | commit range and final-review verdict |
 | `delegate` | the chosen strategy's shape, with the choice named first |
 
-## Briefing an executor
+#### Briefing an executor
 
 When the caller has no brief-assembly verb, copy the assigned strategy's
 body from `${CLAUDE_SKILL_DIR}/parts/strategy/references/strategies.md` verbatim into the
@@ -151,7 +151,7 @@ paragraph no rule names keeps the engine default as written.
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
 <!-- part: prop:shepherdr.accounts binding=mattstack:cswap-accounts version=0.32.28 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
-# cswap account pool
+### cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
 name where to launch the next worker, or report that no pool account
@@ -162,7 +162,7 @@ contract can only be honored where workers launch as their own sessions.
 Paths below are relative to this skill's directory; the compiler inlines
 this fill under `shepherdr`'s `## Accounts` section at compile time.
 
-## The pool question
+#### The pool question
 
 If `cswap` is installed and `cswap list --json` shows two or more
 accounts, ask ONE structured question (AskUserQuestion, single choice)
@@ -188,7 +188,7 @@ The selection is the session pool: record it, and never spawn or respawn
 outside it without explicit approval. No cswap or a single account: skip
 all of this; workers launch on the default `claude` command.
 
-## Per-spawn pick
+#### Per-spawn pick
 
 Before each spawn in a smart-distribute herd:
 
@@ -205,7 +205,7 @@ structured question, never spawn anyway.
 The launch command this provider hands to transport:
 `cswap run <account> --` (model and effort arguments are appended to it).
 
-## Exhaustion mid-run
+#### Exhaustion mid-run
 
 In smart-distribute mode with a qualifying account left in the pool,
 respawn automatically; the wrapper owns the respawn mechanics. In
@@ -213,7 +213,7 @@ single-account mode, or with the pool exhausted, ask instead: 1. wait for
 reset (show the countdown from `cswap list --json`), 2. switch to an
 out-of-pool account, 3. abandon.
 
-## Quirk
+#### Quirk
 
 cswap sessions share plugins along with settings and skills (the plugin
 cache is a shared symlink), so a worker pane missing a plugin's tools is a

@@ -1,7 +1,8 @@
-import { fillReference, inlineFillText, PLACEHOLDER_RE, spanOf, substituteLine, type TreeIncludeText, type Used } from "../placeholders.ts";
+import { fillReference, includeText, inlineFillText, PLACEHOLDER_RE, spanOf, substituteLine, type TreeIncludeText, type Used } from "../placeholders.ts";
 import type { AttachmentSource, PlaceholderContext } from "../types.ts";
 import { BlockError, type BlockDiagnostic } from "./diagnostics.ts";
 import { toDot } from "./dot.ts";
+import { relevelDelta } from "./headings.ts";
 import type { PropValue } from "./props.ts";
 import { FENCE_RE } from "./tree.ts";
 import type { Block, BlockTree } from "./types.ts";
@@ -122,7 +123,7 @@ function propText(b: Block, name: string, src: SourcedTree, at: Heading, st: Sta
       continue;
     }
     const headed: HeadedInclude[] = [];
-    chunks.push(inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(fill, at, st, headed)));
+    chunks.push(inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(fill, at, st, headed), at.level + 1));
     const first = headed[0];
     if (first?.textAfter != null) st.diagnostics.push(textAfterFillInclude(fill, first.textAfter, first.name));
     else if (first) trailing = { name: first.name, binding: fill.binding };
@@ -245,6 +246,10 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
       rendered = includeBody(tree, { depth: nearest.level, includingTitle: nearest.title }, st);
       st.used.includes.push(inc![1]!);
       if (lastHeading(rendered) !== null) headedInclude = inc![1]!;
+    } else if (inc && !fenced && Object.hasOwn(st.ctx.includes, inc[1]!)) {
+      const flat = st.ctx.includes[inc[1]!]!;
+      rendered = includeText(inc[1]!, flat, st.ctx, relevelDelta([flat.body], nearest.level + 1));
+      st.used.includes.push(inc[1]!);
     } else {
       const h = fenced ? null : HEADING_RE.exec(line);
       let text = line;

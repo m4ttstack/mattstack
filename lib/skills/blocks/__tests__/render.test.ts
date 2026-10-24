@@ -207,6 +207,73 @@ test("sub-headings re-level from the block's own level, or its parent's when hea
   expect(lines).toContain("## Sub host");
 });
 
+function headedFillRoots(body: string): PluginRoots {
+  const files = { "attachments/mini-rules/SKILL.md": `---\nname: mini-rules\ndescription: "Rules"\nmetadata:\n  provides: "mini-rules@1"\n---\n\n${body}\n` };
+  return { byName: { mattstack: { dir: MATTSTACK, version: "1.0.0" }, widgets: { dir: tmpDir(files), version: "0.1.0" } }, list: [] };
+}
+
+const flatInclude = (body: string): AttachmentSource => ({
+  binding: "mattstack:flat", plugin: "mattstack", version: "1.0.0", dir: "/p/flat", srcPath: "attachments/flat/SKILL.md",
+  bodyStartLine: 5, body, provides: "", allowedTools: [], extraFiles: [], registered: false, file: null,
+});
+
+const STEP_WITH_RULES = "---\nprops:\n  rules:\n    merge: add\n---\n\n# Step\n\n{{props.rules}}\n";
+function headingsOf(body: string): string[] {
+  let fenced = false;
+  return body.split("\n").filter((l) => {
+    if (l.startsWith("```")) fenced = !fenced;
+    return !fenced && /^#+ /.test(l);
+  });
+}
+
+test("an inlined fill's headings re-level so its shallowest sits one below the heading the prop is under", () => {
+  const tree = plainTree({ "index.block.md": "---\n---\n\n# a\n", "step.block.md": STEP_WITH_RULES });
+  const roots = headedFillRoots("# Rules\n\nLead.\n\n## Sub rule\n\n```md\n# not a heading\n```");
+  const layers = { "a/step": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  const { body } = renderTree({ tree, source: SOURCE, values: valuesFor(tree, roots, layers), includes: noIncludes, ctx: ctx() });
+  expect(headingsOf(body)).toEqual(["# a", "## Step", "### Rules", "#### Sub rule"]);
+  expect(body).toContain("```md\n# not a heading\n```");
+});
+
+test("a fill demoted by hand lands at the same level as one written from the top", () => {
+  const tree = plainTree({ "index.block.md": "---\n---\n\n# a\n", "step.block.md": STEP_WITH_RULES });
+  const roots = headedFillRoots("#### Rules\n\n##### Sub rule");
+  const layers = { "a/step": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  const { body } = renderTree({ tree, source: SOURCE, values: valuesFor(tree, roots, layers), includes: noIncludes, ctx: ctx() });
+  expect(headingsOf(body)).toEqual(["# a", "## Step", "### Rules", "#### Sub rule"]);
+});
+
+test("a re-levelled fill heading caps at 6", () => {
+  const tree = plainTree({
+    "index.block.md": "---\n---\n\n# a\n",
+    "b/index.block.md": "---\n---\n\n# b\n",
+    "b/c/index.block.md": "---\n---\n\n# c\n",
+    "b/c/d/index.block.md": "---\n---\n\n# d\n",
+    "b/c/d/step.block.md": STEP_WITH_RULES,
+  });
+  const roots = headedFillRoots("# Rules\n\n## Sub rule\n\n### Deeper");
+  const layers = { "a/b/c/d/step": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  const { body } = renderTree({ tree, source: SOURCE, values: valuesFor(tree, roots, layers), includes: noIncludes, ctx: ctx() });
+  expect(headingsOf(body).slice(-3)).toEqual(["###### Rules", "###### Sub rule", "###### Deeper"]);
+});
+
+test("a flat include a fill carries moves with the fill's headings", () => {
+  const tree = plainTree({ "index.block.md": "---\n---\n\n# a\n", "step.block.md": STEP_WITH_RULES });
+  const roots = headedFillRoots("# Rules\n\n{{include:flat}}");
+  const flat = flatInclude("## Flat part");
+  const layers = { "a/step": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  const { body } = renderTree({ tree, source: SOURCE, values: valuesFor(tree, roots, layers), includes: noIncludes, ctx: ctx({ includes: { flat } }) });
+  expect(headingsOf(body)).toEqual(["# a", "## Step", "### Rules", "#### Flat part"]);
+});
+
+test("a flat include placed from block text re-levels under the heading it sits beneath", () => {
+  const flat = flatInclude("# Flat\n\n## Flat sub\n\n```\n# fenced\n```");
+  const host = plainTree({ "index.block.md": "---\n---\n\n# host\n\n## Where\n\n{{include:flat}}\n" });
+  const { body } = render(host, { ctx: ctx({ includes: { flat } }) });
+  expect(headingsOf(body)).toEqual(["# host", "## Where", "### Flat", "#### Flat sub"]);
+  expect(body).toContain("```\n# fenced\n```");
+});
+
 test("a props marker that shares its line is bad-marker at the marker", () => {
   const tree = plainTree({
     "index.block.md": "---\nprops:\n  x:\n    merge: add\n    default: \"\"\n---\n\n# T\n\nSee {{props.x}} here.\n",
