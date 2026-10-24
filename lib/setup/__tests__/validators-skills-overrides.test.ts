@@ -59,10 +59,15 @@ describe("skillsOverridesRow", () => {
   });
 
   test("says it cannot read a broken file", () => {
-    for (const text of ["{ nope", "[]", '{ "bindings": { "mattstack:work": "x" } }']) {
+    const cases: [string, string][] = [
+      ["{ nope", "Could not read the file: it is not valid JSONC."],
+      ["[]", "Could not read the file: it is not a JSON object."],
+      ['{ "bindings": { "mattstack:work": "x" } }', "Could not read the file: bindings.mattstack:work is not an object."],
+    ];
+    for (const [text, detail] of cases) {
       const r = at(text);
       expect(r.status).toBe("needs-you");
-      expect(r.detail.startsWith("Could not read the file")).toBe(true);
+      expect(r.detail).toBe(detail);
     }
   });
 

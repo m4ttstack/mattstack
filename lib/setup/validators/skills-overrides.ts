@@ -22,6 +22,14 @@ function describeKey(k: OldSlotKey): string {
   return `${k.key} ${k.slot}${where}: you decide. Use ${use}. rules adds to lower layers where domain replaced them`;
 }
 
+/** FragmentError reads "fragment <reason>: <path>"; the step already names the file. */
+function unreadableReason(err: unknown, file: string): string {
+  let reason = err instanceof Error ? err.message : String(err);
+  if (reason.endsWith(`: ${file}`)) reason = reason.slice(0, -`: ${file}`.length);
+  if (reason.startsWith("fragment ")) reason = reason.slice("fragment ".length);
+  return reason.startsWith("is ") ? `it ${reason}` : reason;
+}
+
 function steps(file: string, how: string): Action {
   return { type: "steps", label: "Show steps…", steps: [`Edit ${file} ${how}`, "Run: rt skills materialize"] };
 }
@@ -38,7 +46,7 @@ export function skillsOverridesRow(input: { file: string; text: string | null })
     return row({
       ...BASE,
       status: "needs-you",
-      detail: `Could not read the file: ${err instanceof Error ? err.message : String(err)}`,
+      detail: `Could not read the file: ${unreadableReason(err, file)}.`,
       action: steps(file, "so it is valid JSONC"),
     });
   }
