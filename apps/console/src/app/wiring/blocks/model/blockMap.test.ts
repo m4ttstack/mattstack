@@ -892,7 +892,7 @@ describe('blockMap on ship flow', () => {
     expect(layout.boxes.get('gate_which_forge')!.pills).toContainEqual({
       id: 'gate_which_forge->create_forge_host',
       label: null,
-      target: 'Forge host (ship, create)?',
+      target: 'Forge host?',
       targets: ['create_forge_host'],
       direction: 'back',
     });

@@ -496,7 +496,7 @@ describe('BlockMap interactions', () => {
 
       fireEvent.click(
         within(boxOf('Which forge') as HTMLElement).getByRole('button', {
-          name: 'back to Forge host (ship, create)?',
+          name: 'back to Forge host?',
         })
       );
 

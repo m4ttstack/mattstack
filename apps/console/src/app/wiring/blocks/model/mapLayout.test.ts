@@ -59,6 +59,14 @@ describe('pillTarget', () => {
     expect(pillTarget(jump('reopened_recapture'), map, graph)).toBe('Capture');
   });
 
+  it("names a split without the question's trailing parenthetical", () => {
+    const into = map.links.find(
+      link =>
+        link.from === 'gate_which_forge' && link.to[0] === 'create_forge_host'
+    )!;
+    expect(pillTarget(into, map, graph)).toBe('Forge host?');
+  });
+
   it("names a split by its short label, as the dot's tooltip does", () => {
     const named = {
       ...map,
