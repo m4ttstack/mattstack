@@ -40,9 +40,11 @@ These count as failures even if everything else works:
 
 ## Constraints
 
-- **Kit:** chrome and role tokens only (`docs/apps/ui-authoring.md`). One new
-  role token, `tk-tint-ok` (light `#0085731a`, dark `#0bd8b626`), joins the
-  kit theme for the end badge.
+- **Kit:** chrome and role tokens only (`docs/apps/ui-authoring.md`). Tints
+  mix a role colour with `--ui-wash`
+  (`color-mix(in srgb, var(--tk-…) var(--ui-wash), transparent)`), the way
+  the block view's prop cards already do. The end badge mixes
+  `--tk-dot-ok`, so no new token is needed.
 - **Drawing:** React Flow (`@xyflow/react`), already a console dependency.
 - **Layout:** elkjs, a new dependency added through the catalog. It loads
   with the graph view only.
@@ -107,9 +109,10 @@ The boards decide the look. Where the hand-drawn board and the model
 disagree on content, the model wins, and the board is redrawn from the
 model's output on ship's Flow (see Boards).
 
-- **Exit nodes.** A graph-only node is an exit node when every path out of
-  it reaches an end without passing a block. In ship that is `which_exit`
-  and everything after it.
+- **Exit nodes.** An end is a node with no outgoing edges or a Mermaid end
+  (`(((…)))`). A graph-only node is an exit node when every path out of it
+  reaches an end without passing a block. In ship that is `which_exit` and
+  everything after it.
 - **What links.** Walk forward from each block through graph-only nodes.
   Stop at the first block, and also stop on entering an exit node. Each
   block reached is a link. Paths that reach the same block merge into one
@@ -131,23 +134,25 @@ model's output on ship's Flow (see Boards).
 - **Jumps.** A back link is not drawn as a line. It becomes a jump pill
   beside its source: accent tint, a ↩ icon and the target. A forward link
   that skips three or more layers becomes a → pill the same way.
-  - **Label:** the pill leads with the exit label of the first labelled
-    edge on its path. That is the source block's own exit when it has one
-    ("iterate ↩ Domain steps"), else the folded question's ("next case ↩
-    Capture"). Budget loops show too: Fast checks gets "spent ↩ Ship gate"
-    when fix rounds run out.
+  - **Label:** the pill leads with the label of the source block's own
+    first edge on the path, cut at its first colon ("iterate ↩ Domain
+    steps", "yes → Capture"). With no such label it shows just the target
+    ("↩ Fast checks"). Budget loops show too: Fast checks gets "↩ Ship gate"
+    for when fix rounds run out. Hovering a pill lists its folded steps, the
+    same way a dotted link does.
   - **One target or several:** when a jump reaches several blocks through
     one folded question, it is one pill. It is named by the targets' shared
     leading word when they have one ("Capture"), else by that question's
     short label. Clicking it pans to fit all its targets and rings each one.
   - **Several sources:** sibling blocks with the same jump (same label, same
     targets) share one pill, beside the last sibling. Capture after browser
-    and Capture after next share "next case ↩ Capture".
+    and Capture after next share "↩ Capture".
 - **Shared trunks.** Two links from one block that share their first folded
   steps are drawn as one trunk that splits at the folded question where
   their paths part. The split is a junction node in the ELK graph, with no
-  visible box. The branch carries that question's exit label ("refused" on
-  Rebases unfinished → Push refused, where it leaves the push steps). By the
+  visible box. The branch carries that question's exit label, cut at its
+  first colon ("refused or errored" on Rebases unfinished → Push refused,
+  where it leaves the push steps). By the
   same rule, Which forge branches off the Rebases unfinished → Create MR
   trunk at the forge question, not out of Create MR as the hand-drawn board
   shows.
@@ -267,7 +272,7 @@ them with the keyboard.
 - **The model over the hand-drawn board:** the model decides which links
   exist, and the board's content is redrawn from it. The look stays as
   approved, but the map gains loops the board left out (budget loops such
-  as "spent ↩ Ship gate"), some links turn dotted, and Which forge moves.
+  as "↩ Ship gate"), some links turn dotted, and Which forge moves.
 - **Exits:** the cut-off at exit nodes. Failure, hold and abort exits stay
   off the map; they show in an open fold and in Every step.
 - **Jump threshold:** a forward link that skips three or more layers becomes
