@@ -1,5 +1,9 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { BREW_FORMULAE, VENDOR_INSTALLERS, claudeConfigDirs, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { BREW_FORMULAE, BUNDLED_VSIX_FILES, VENDOR_INSTALLERS, VSIX_NOT_FOUND_DETAIL, claudeConfigDirs, findBundledVsixes, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
+import { detectEditors } from "../../editors.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { PackRequirements } from "../requirements.ts";
@@ -7,7 +11,7 @@ import type { ToolResolution } from "../../deps/resolve.ts";
 import type { LinkOutcome } from "../../deps/links.ts";
 import type { DetectedEditor } from "../../editors.ts";
 import { UserActionableError } from "../../errors.ts";
-import { readSetupState } from "../state.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 
 function noopResolution(tool: string): ToolResolution {
   return { tool, bundled: null, exec: null, userCopy: null, linked: false, chosen: null };
@@ -17,7 +21,7 @@ function noopResolution(tool: string): ToolResolution {
 const NOOP_SEAMS: ToolsInstallSeams = {
   resolveTool: (_p, tool) => noopResolution(tool),
   detectEditors: () => [],
-  findVsix: () => null,
+  findVsixes: () => [],
   bundledToolExec: () => null,
   link: () => {
     throw new Error("link() should not be called in this test");
@@ -437,7 +441,7 @@ describe("setupTool — extension", () => {
       { name: "Cursor", cliPath: "/Applications/Cursor.app/cli", appPath: "/Applications/Cursor.app" },
       { name: "Visual Studio Code", cliPath: "/Applications/Code.app/cli", appPath: "/Applications/Code.app" },
     ];
-    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => editors };
+    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => editors };
     const exec: ExecScript = (argv) => (argv.includes("--install-extension") ? ok() : ok());
     const p = fakeProbes({ exec, home: "/fake-home" });
     const result = await setupTool(p, "extension", { configDirs: [] }, seams);
@@ -451,7 +455,7 @@ describe("setupTool — extension", () => {
   });
 
   test("no vsix found -> honest failure, no editors touched", async () => {
-    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => null, detectEditors: () => [{ name: "Cursor", cliPath: "/x/cli", appPath: "/x" }] };
+    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => [], detectEditors: () => [{ name: "Cursor", cliPath: "/x/cli", appPath: "/x" }] };
     const p = fakeProbes({ home: "/fake-home" });
     const result = await setupTool(p, "extension", { configDirs: [] }, seams);
     expect(result.ok).toBe(false);
@@ -459,7 +463,7 @@ describe("setupTool — extension", () => {
   });
 
   test("no editors detected -> honest failure", async () => {
-    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => [] };
+    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => [] };
     const p = fakeProbes({ home: "/fake-home" });
     const result = await setupTool(p, "extension", { configDirs: [] }, seams);
     expect(result.ok).toBe(false);
@@ -470,7 +474,7 @@ describe("setupTool — extension", () => {
       { name: "Cursor", cliPath: "/x/cursor-cli", appPath: "/x/Cursor.app" },
       { name: "Windsurf", cliPath: "/x/windsurf-cli", appPath: "/x/Windsurf.app" },
     ];
-    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => editors };
+    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsixes: () => ["/fake/rt-context.vsix"], detectEditors: () => editors };
     const exec: ExecScript = (argv) => (argv[0] === "/x/windsurf-cli" ? { code: 1, stdout: "", stderr: "boom" } : ok());
     const p = fakeProbes({ exec, home: "/fake-home" });
     const result = await setupTool(p, "extension", { configDirs: [] }, seams);
@@ -478,6 +482,106 @@ describe("setupTool — extension", () => {
 
     const state = readSetupState(p);
     expect(state.extensionEditors).toEqual(["Cursor"]);
+  });
+});
+
+describe("setupTool — extension, both bundled files", () => {
+  const RT_CONTEXT = "/bundle/Contents/Resources/rt-context.vsix";
+  const SKILL_BLOCKS = "/bundle/Contents/Resources/skill-blocks.vsix";
+  let apps: string;
+
+  afterEach(() => {
+    if (apps) rmSync(apps, { recursive: true, force: true });
+  });
+
+  /** A fixture /Applications holding VS Code, Cursor and Antigravity, each with the CLI detectEditors looks for. */
+  function fixtureApplications(): string {
+    apps = mkdtempSync(join(tmpdir(), "rt-fixture-applications-"));
+    for (const [app, cli] of [["Visual Studio Code.app", "code"], ["Cursor.app", "cursor"], ["Antigravity.app", "antigravity"]] as const) {
+      const bin = join(apps, app, "Contents/Resources/app/bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, cli), "");
+    }
+    return apps;
+  }
+
+  function seamsFor(files: string[]): ToolsInstallSeams {
+    const root = fixtureApplications();
+    return { ...NOOP_SEAMS, findVsixes: () => files, detectEditors: () => detectEditors([root]) };
+  }
+
+  const installs = (calls: string[][]) => calls.filter((a) => a.includes("--install-extension")).map((a) => [a[0]!.split("/").at(-1), a[2]]);
+
+  test("a fresh install puts both files into VS Code, Cursor and Antigravity and records all three", async () => {
+    const seams = seamsFor([RT_CONTEXT, SKILL_BLOCKS]);
+    const p = fakeProbes({ exec: () => ok(), home: "/fake-home" });
+    const result = await setupTool(p, "extension", { configDirs: [] }, seams);
+    expect(result.ok).toBe(true);
+    for (const cli of ["code", "cursor", "antigravity"]) {
+      expect(installs(p.calls.exec)).toContainEqual([cli, RT_CONTEXT]);
+      expect(installs(p.calls.exec)).toContainEqual([cli, SKILL_BLOCKS]);
+    }
+    expect(installs(p.calls.exec)).toHaveLength(6);
+    expect([...readSetupState(p).extensionEditors].sort()).toEqual(["Antigravity", "Cursor", "Visual Studio Code"]);
+  });
+
+  test("an update run gives skill-blocks to an existing rt-context user, only in the editors setup-state records", async () => {
+    const seams = seamsFor([RT_CONTEXT, SKILL_BLOCKS]);
+    const p = fakeProbes({ exec: () => ok(), home: "/fake-home" });
+    updateSetupState(p, (s) => ({ ...s, extensionEditors: ["Cursor", "Antigravity"] }));
+    const result = await setupTool(p, "extension", { configDirs: [], onlyEditors: readSetupState(p).extensionEditors }, seams);
+    expect(result.ok).toBe(true);
+    expect(installs(p.calls.exec).sort()).toEqual([
+      ["antigravity", RT_CONTEXT],
+      ["antigravity", SKILL_BLOCKS],
+      ["cursor", RT_CONTEXT],
+      ["cursor", SKILL_BLOCKS],
+    ]);
+    expect([...readSetupState(p).extensionEditors].sort()).toEqual(["Antigravity", "Cursor"]);
+  });
+
+  test("a bundle carrying only rt-context.vsix still installs it and is not a failure", async () => {
+    const seams = seamsFor([RT_CONTEXT]);
+    const p = fakeProbes({ exec: () => ok(), home: "/fake-home" });
+    const result = await setupTool(p, "extension", { configDirs: [] }, seams);
+    expect(result.ok).toBe(true);
+    expect(result.detail).not.toBe(VSIX_NOT_FOUND_DETAIL);
+    expect(installs(p.calls.exec).map((c) => c[1])).toEqual([RT_CONTEXT, RT_CONTEXT, RT_CONTEXT]);
+  });
+
+  test("one file failing in one editor leaves that editor unrecorded and the result failed", async () => {
+    const seams = seamsFor([RT_CONTEXT, SKILL_BLOCKS]);
+    const exec: ExecScript = (argv) => (argv[0]!.endsWith("/cursor") && argv[2] === SKILL_BLOCKS ? { code: 1, stdout: "", stderr: "boom" } : ok());
+    const p = fakeProbes({ exec, home: "/fake-home" });
+    const result = await setupTool(p, "extension", { configDirs: [] }, seams);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("Cursor");
+    expect([...readSetupState(p).extensionEditors].sort()).toEqual(["Antigravity", "Visual Studio Code"]);
+  });
+
+  test("a re-run never records an editor twice", async () => {
+    const seams = seamsFor([RT_CONTEXT, SKILL_BLOCKS]);
+    const p = fakeProbes({ exec: () => ok(), home: "/fake-home" });
+    await setupTool(p, "extension", { configDirs: [] }, seams);
+    await setupTool(p, "extension", { configDirs: [] }, seams);
+    expect(readSetupState(p).extensionEditors).toHaveLength(3);
+  });
+});
+
+describe("findBundledVsixes", () => {
+  test("names both bundled files", () => {
+    expect([...BUNDLED_VSIX_FILES]).toEqual(["rt-context.vsix", "skill-blocks.vsix"]);
+  });
+
+  test("takes each file from beside the binary when no app bundle carries it, and leaves out a file that ships nowhere", () => {
+    const beside = "/fake-bin";
+    const p = fakeProbes({ home: "/nonexistent-find-vsixes-home", files: { [join(beside, "rt-context.vsix")]: "" } });
+    expect(findBundledVsixes(p, beside)).toEqual([join(beside, "rt-context.vsix")]);
+  });
+
+  test("an empty list when neither file ships", () => {
+    const p = fakeProbes({ home: "/nonexistent-find-vsixes-home" });
+    expect(findBundledVsixes(p, "/fake-bin")).toEqual([]);
   });
 });
 

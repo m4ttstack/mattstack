@@ -30,6 +30,7 @@ describe("checkRtContextExtension", () => {
   test("extension present in one editor's extensions dir → pass, naming that editor", () => {
     const home = fixtureHome();
     mkdirSync(join(home, ".vscode", "extensions", "local.rt-context-0.1.0"), { recursive: true });
+    mkdirSync(join(home, ".vscode", "extensions", "local.skill-blocks-0.1.0"), { recursive: true });
 
     const result = checkRtContextExtension(home);
 
@@ -41,6 +42,7 @@ describe("checkRtContextExtension", () => {
   test("extension present under Cursor's extensions dir → pass, naming Cursor", () => {
     const home = fixtureHome();
     mkdirSync(join(home, ".cursor", "extensions", "local.rt-context-0.1.0"), { recursive: true });
+    mkdirSync(join(home, ".cursor", "extensions", "local.skill-blocks-0.1.0"), { recursive: true });
 
     const result = checkRtContextExtension(home);
 
@@ -59,6 +61,20 @@ describe("checkRtContextExtension", () => {
     expect(result.detail).toContain("rt settings extension");
   });
 
+  test("an editor with rt-context but not skill-blocks → warn, naming that editor and the missing extension", () => {
+    const home = fixtureHome();
+    mkdirSync(join(home, ".vscode", "extensions", "local.rt-context-0.1.0"), { recursive: true });
+    mkdirSync(join(home, ".vscode", "extensions", "local.skill-blocks-0.1.0"), { recursive: true });
+    mkdirSync(join(home, ".cursor", "extensions", "local.rt-context-0.1.0"), { recursive: true });
+
+    const result = checkRtContextExtension(home);
+
+    expect(result.status).toBe("warn");
+    expect(result.detail).toContain("Cursor");
+    expect(result.detail).toContain("skill-blocks");
+    expect(result.detail).not.toContain("VS Code");
+  });
+
   test("no editor extensions dirs at all → skip", () => {
     const home = fixtureHome();
 
@@ -70,6 +86,7 @@ describe("checkRtContextExtension", () => {
   test("extension present in one editor while the other's dir is missing entirely → still pass", () => {
     const home = fixtureHome();
     mkdirSync(join(home, ".vscode", "extensions", "local.rt-context-0.1.0"), { recursive: true });
+    mkdirSync(join(home, ".vscode", "extensions", "local.skill-blocks-0.1.0"), { recursive: true });
     // No ~/.cursor at all — must not count as a "dir present, not installed" warn.
 
     const result = checkRtContextExtension(home);

@@ -100,11 +100,11 @@ test("an editor that timed out says so and the next editor is still installed", 
     { name: "Sample Editor", cliPath: ok },
   ];
   const install = (cliPath: string, vsixPath: string) => __test__.installWithCli(cliPath, vsixPath, SHORT_TIMEOUT_MS);
-  expect(await __test__.installInto(editors, "/x/rt-context.vsix", install)).toBe(1);
+  expect(await __test__.installInto(editors, ["/x/rt-context.vsix"], install)).toBe(1);
   expect(io.lines()).toEqual([
     "[failed] Sample Code did not take the extension  it did not finish within 30 seconds",
     "[ok] Installed in Sample Editor",
-    "[ok] RT Context is installed  1 of 2 editors",
+    "[ok] The editor extensions are installed  1 of 2 editors",
     "  next: Restart your editor to turn it on",
   ]);
 }, 15_000);
@@ -115,7 +115,7 @@ describe("installExtension's exit code", () => {
     { name: "Sample Editor", cliPath: "/apps/sample-editor", appPath: "/Applications/Sample Editor.app" },
   ];
   const deps = (over: Partial<ExtensionDeps>): ExtensionDeps => ({
-    findVsix: () => "/x/rt-context.vsix",
+    findVsixes: () => ["/x/rt-context.vsix", "/x/skill-blocks.vsix"],
     detectEditors: () => EDITORS,
     pick: async () => EDITORS.map((e) => e.cliPath),
     install: async () => ({ ok: true }),
@@ -138,8 +138,25 @@ describe("installExtension's exit code", () => {
   };
 
   test("a missing extension exits 1", async () => {
-    expect(await run(deps({ findVsix: () => null }))).toBe(1);
+    expect(await run(deps({ findVsixes: () => [] }))).toBe(1);
     expect(io.stderr()).toStartWith("rt could not find its editor extension");
+  });
+
+  test("both files go into every picked editor", async () => {
+    const calls: string[][] = [];
+    expect(await run(deps({ install: async (cliPath, vsix) => (calls.push([cliPath, vsix]), { ok: true }) }))).toBe(0);
+    expect(calls).toEqual([
+      ["/apps/sample-code", "/x/rt-context.vsix"],
+      ["/apps/sample-code", "/x/skill-blocks.vsix"],
+      ["/apps/sample-editor", "/x/rt-context.vsix"],
+      ["/apps/sample-editor", "/x/skill-blocks.vsix"],
+    ]);
+  });
+
+  test("an editor that takes one file but not the other counts as failed", async () => {
+    expect(await run(deps({ install: async (cliPath, vsix) => (cliPath === "/apps/sample-code" && vsix.endsWith("skill-blocks.vsix") ? { ok: false, output: "boom" } : { ok: true }) }))).toBe(0);
+    expect(io.lines()).toContain("[failed] Sample Code did not take the extension  boom");
+    expect(io.lines()).toContain("[ok] Installed in Sample Editor");
   });
 
   test("nothing installed exits 1", async () => {

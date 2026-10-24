@@ -41,6 +41,7 @@ import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { memberPath } from "../member-path.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverOrgs } from "../team-settings.ts";
+import { BUNDLED_VSIX_FILES } from "../tools-install.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
 import { named } from "./tools.ts";
 
@@ -65,24 +66,29 @@ export function checkRtContextExtension(home: string): ExtensionCheckResult {
     { name: "VS Code", dir: join(home, ".vscode", "extensions") },
     { name: "Cursor", dir: join(home, ".cursor", "extensions") },
   ];
+  const wanted = ["rt-context", "skill-blocks"];
 
   const dirsFound: string[] = [];
-  const editorsWithExtension: string[] = [];
+  const complete: string[] = [];
+  const partial: string[] = [];
 
   for (const editor of editors) {
     if (!existsSync(editor.dir)) continue;
     dirsFound.push(editor.name);
     let entries: string[];
     try {
-      entries = readdirSync(editor.dir);
+      entries = readdirSync(editor.dir).map((e) => e.toLowerCase());
     } catch {
       continue;
     }
-    if (entries.some((e) => e.toLowerCase().includes("rt-context"))) editorsWithExtension.push(editor.name);
+    const missing = wanted.filter((w) => !entries.some((e) => e.includes(w)));
+    if (missing.length === 0) complete.push(editor.name);
+    else if (missing.length < wanted.length) partial.push(`${editor.name} is missing ${missing.join(" and ")}`);
   }
 
   const name = "rt-context extension";
-  if (editorsWithExtension.length > 0) return { name, status: "pass", detail: `Installed in ${editorsWithExtension.join(", ")}`, severity: "warning" };
+  if (partial.length > 0) return { name, status: "warn", detail: `${partial.join("; ")}. Run rt settings extension`, severity: "warning" };
+  if (complete.length > 0) return { name, status: "pass", detail: `Installed in ${complete.join(", ")}`, severity: "warning" };
   if (dirsFound.length > 0) return { name, status: "warn", detail: `Not installed in ${dirsFound.join(", ")}. Run rt settings extension`, severity: "warning" };
   return { name, status: "skip", detail: "No editor extension folders found", severity: "info" };
 }
@@ -265,16 +271,17 @@ function vsixRow(p: Probes): Row {
     id: "tool.vsix",
     kind: "tool" as const,
     title: "Bundled extension",
-    why: "mattstack.app can carry the rt-context editor extension pre-bundled.",
+    why: "mattstack.app can carry rt's editor extensions, rt-context and skill-blocks, pre-bundled.",
     required: false,
-    optionalNote: "Works without this; the rt-context editor extension just won't be pre-installed for you.",
+    optionalNote: "Works without this; rt's editor extensions just won't be pre-installed for you.",
   };
   const root = appBundlePath(p);
   if (!root) return row({ ...base, status: "skipped", detail: "mattstack.app not found" });
 
-  const vsix = join(root, "Contents", "Resources", "rt-context.vsix");
-  if (p.exists(vsix)) return row({ ...base, status: "ready", detail: "The extension ships in the app" });
-  return row({ ...base, status: "skipped", detail: "This build does not ship the extension" });
+  const missing = BUNDLED_VSIX_FILES.filter((file) => !p.exists(join(root, "Contents", "Resources", file)));
+  if (missing.length === 0) return row({ ...base, status: "ready", detail: "Both editor extensions ship in the app" });
+  if (missing.length === BUNDLED_VSIX_FILES.length) return row({ ...base, status: "skipped", detail: "This build does not ship the editor extensions" });
+  return row({ ...base, status: "skipped", detail: `This build does not ship ${missing.join(" or ")}` });
 }
 
 function extensionRow(p: Probes): Row {

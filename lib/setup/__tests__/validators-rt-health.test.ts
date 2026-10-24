@@ -203,12 +203,20 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
   });
 
   describe("tool.vsix", () => {
-    test("vsix present in the bundle -> ready", async () => {
+    test("a bundle carrying only rt-context.vsix -> skipped, naming the missing file", async () => {
       const vsix = join(appRoot, "Contents", "Resources", "rt-context.vsix");
       const p = bundleProbe({ files: { [vsix]: "" } });
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
+      expect(r.status).toBe("skipped");
+      expect(r.detail).toContain("skill-blocks");
+    });
+
+    test("both vsix files in the bundle -> ready", async () => {
+      const resources = join(appRoot, "Contents", "Resources");
+      const p = bundleProbe({ files: { [join(resources, "rt-context.vsix")]: "", [join(resources, "skill-blocks.vsix")]: "" } });
+      const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
       expect(r.status).toBe("ready");
-      expect(r.detail).toBe("The extension ships in the app");
+      expect(r.detail).toBe("Both editor extensions ship in the app");
       expect(r.required).toBe(false);
       expect(r.optionalNote).not.toBeNull();
     });
@@ -217,7 +225,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe();
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
       expect(r.status).toBe("skipped");
-      expect(r.detail).toContain("This build does not ship the extension");
+      expect(r.detail).toContain("This build does not ship the editor extensions");
     });
   });
 });

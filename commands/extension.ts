@@ -1,5 +1,5 @@
 /**
- * rt settings extension — Install the RT Context extension in local editors.
+ * rt settings extension — Install rt's editor extensions (rt-context, skill-blocks) in local editors.
  *
  * Detects VS Code-compatible editors by scanning /Applications and ~/Applications
  * for .app bundles that contain `bin/code` or similar CLI wrappers. Shows a fuzzy
@@ -19,17 +19,21 @@ import { detectEditors, type DetectedEditor } from "../lib/editors.ts";
 
 // ─── VSIX Finder ─────────────────────────────────────────────────────────────
 
-function findVsix(): string | null {
+const EXTENSIONS = [
+  { file: "rt-context.vsix", sourceDir: "rt-context" },
+  { file: "skill-blocks.vsix", sourceDir: "skill-blocks" },
+];
+
+function findOneVsix(file: string, sourceDirName: string): string | null {
   // 1. Next to the binary (extracted release tarball layout)
-  const execPath = process.execPath;
-  const bundledVsix = resolve(execPath, "../rt-context.vsix");
+  const bundledVsix = resolve(process.execPath, "..", file);
   if (existsSync(bundledVsix)) return bundledVsix;
 
   // 2. Check relative to source repo (development mode only — skip in compiled binary)
   const metaUrl = fileURLToPath(import.meta.url);
   if (metaUrl.startsWith("/$bunfs")) return null; // compiled binary — no source access
 
-  const sourceDir = resolve(metaUrl, "../../extensions/vscode/rt-context");
+  const sourceDir = resolve(metaUrl, "../../extensions/vscode", sourceDirName);
   if (!existsSync(sourceDir)) return null;
 
   const glob = new Bun.Glob("*.vsix");
@@ -41,7 +45,7 @@ function findVsix(): string | null {
   const pkgJson = join(sourceDir, "package.json");
   if (existsSync(pkgJson)) {
     try {
-      out.print(out.line("running", "Building the extension from source"));
+      out.print(out.line("running", `Building ${sourceDirName} from source`));
       execSync("npm run package", { cwd: sourceDir, stdio: "pipe" });
       for (const match of glob.scanSync(sourceDir)) {
         return join(sourceDir, match);
@@ -54,10 +58,24 @@ function findVsix(): string | null {
   return null;
 }
 
+function findVsixes(): string[] {
+  return EXTENSIONS.map((e) => findOneVsix(e.file, e.sourceDir)).filter((v): v is string => v !== null);
+}
+
 // ─── Install ─────────────────────────────────────────────────────────────────
 
 type InstallOutcome = { ok: true } | { ok: false; output: string; timedOut?: true };
 type Installer = (cliPath: string, vsixPath: string) => Promise<InstallOutcome>;
+
+async function installAll(cliPath: string, vsixPaths: readonly string[], install: Installer): Promise<InstallOutcome> {
+  for (const vsixPath of vsixPaths) {
+    const result = await install(cliPath, vsixPath).catch(
+      (err): InstallOutcome => ({ ok: false, output: err instanceof Error ? err.message : String(err) }),
+    );
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}
 
 const INSTALL_TIMEOUT_MS = 30_000;
 
@@ -146,16 +164,14 @@ function stepFor(title: string): StepHandle | null {
 
 async function installInto(
   editors: Array<{ name: string; cliPath: string }>,
-  vsixPath: string,
+  vsixPaths: readonly string[],
   install: Installer = installWithCli,
 ): Promise<number> {
   let installed = 0;
   for (const editor of editors) {
     if (interactive()) await settleBackground();
     const step = stepFor(`Installing in ${editor.name}`);
-    const result = await install(editor.cliPath, vsixPath).catch(
-      (err): InstallOutcome => ({ ok: false, output: err instanceof Error ? err.message : String(err) }),
-    );
+    const result = await installAll(editor.cliPath, vsixPaths, install);
     if (result.ok) {
       installed++;
       const title = `Installed in ${editor.name}`;
@@ -168,7 +184,7 @@ async function installInto(
   }
   if (installed > 0) {
     out.print(
-      out.summary("done", "RT Context is installed", [`${installed} of ${editors.length} editors`]),
+      out.summary("done", "The editor extensions are installed", [`${installed} of ${editors.length} editors`]),
       out.callout("next", "Restart your editor to turn it on"),
     );
   }
@@ -178,7 +194,7 @@ async function installInto(
 export const __test__ = { installInto, installWithCli };
 
 export interface ExtensionDeps {
-  findVsix: () => string | null;
+  findVsixes: () => string[];
   detectEditors: () => DetectedEditor[];
   pick: (editors: DetectedEditor[]) => Promise<string[] | null>;
   install: Installer;
@@ -186,12 +202,12 @@ export interface ExtensionDeps {
 
 function realExtensionDeps(): ExtensionDeps {
   return {
-    findVsix,
+    findVsixes,
     detectEditors: () => detectEditors(),
     pick: async (editors) => {
       const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
       return filterableMultiselect({
-        message: "Select editors to install RT Context into",
+        message: "Select editors to install rt's extensions into",
         options: editors.map((e) => ({ value: e.cliPath, label: e.name, hint: e.appPath })),
       });
     },
@@ -200,12 +216,12 @@ function realExtensionDeps(): ExtensionDeps {
 }
 
 export async function installExtension(_args: string[] = [], _ctx: unknown = {}, deps: ExtensionDeps = realExtensionDeps()): Promise<void> {
-  const vsixPath = deps.findVsix();
-  if (!vsixPath) {
+  const vsixPaths = deps.findVsixes();
+  if (vsixPaths.length === 0) {
     out.fail({ title: "rt could not find its editor extension", why: "It ships beside the rt program and is missing there." });
     process.exit(1);
   }
-  logCliEvent("debug", "extension", "vsix found", { path: vsixPath });
+  logCliEvent("debug", "extension", "vsix found", { paths: vsixPaths });
 
   const editors = deps.detectEditors();
   if (editors.length === 0) {
@@ -222,7 +238,7 @@ export async function installExtension(_args: string[] = [], _ctx: unknown = {},
 
   const installed = await installInto(
     selected.map((cliPath) => editors.find((e) => e.cliPath === cliPath)!),
-    vsixPath,
+    vsixPaths,
     deps.install,
   );
   if (installed === 0) process.exit(1);

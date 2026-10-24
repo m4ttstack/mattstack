@@ -543,9 +543,9 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "tool.state-backup.title": "State backup tools",
   "tool.state-backup.why": "Encrypted state backup compresses with zstd, encrypts with age, and ships the result through git-lfs.",
   "tool.vsix.detail": "mattstack.app not found",
-  "tool.vsix.optionalNote": "Works without this; the rt-context editor extension just won't be pre-installed for you.",
+  "tool.vsix.optionalNote": "Works without this; rt's editor extensions just won't be pre-installed for you.",
   "tool.vsix.title": "Bundled extension",
-  "tool.vsix.why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
+  "tool.vsix.why": "mattstack.app can carry rt's editor extensions, rt-context and skill-blocks, pre-bundled.",
 }
 `;
 
@@ -1078,9 +1078,9 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.state-backup.title": "State backup tools",
   "tool.state-backup.why": "Encrypted state backup compresses with zstd, encrypts with age, and ships the result through git-lfs.",
   "tool.vsix.detail": "mattstack.app not found",
-  "tool.vsix.optionalNote": "Works without this; the rt-context editor extension just won't be pre-installed for you.",
+  "tool.vsix.optionalNote": "Works without this; rt's editor extensions just won't be pre-installed for you.",
   "tool.vsix.title": "Bundled extension",
-  "tool.vsix.why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
+  "tool.vsix.why": "mattstack.app can carry rt's editor extensions, rt-context and skill-blocks, pre-bundled.",
 }
 `;
 
