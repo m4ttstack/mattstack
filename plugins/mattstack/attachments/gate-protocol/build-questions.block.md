@@ -22,8 +22,8 @@ not your own.
   the option the table writes; a row with none, such as the stage-end
   `next`, marks none.
 - **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,
-  and `abandon` or `done` where offered; the tools read `proceed` and
-  `iterate`.
+  and `abandon`, `done`, `handback` or `goon` where the site's table offers
+  them; the tools read `proceed` and `iterate`.
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on `next` or a review-post, respond, doctor or pane-attention
   question.
