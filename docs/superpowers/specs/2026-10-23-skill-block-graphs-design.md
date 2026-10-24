@@ -118,19 +118,22 @@ model's output on ship's Flow (see Boards).
   block reached is a link. Paths that reach the same block merge into one
   link, and its folded steps are the union of the graph-only nodes they pass
   through. Paths that enter an exit node are dropped, with one exception: a
-  block whose every path enters an exit node links to the success end
-  (Mark ready → Shipped). The other ends never appear in the map.
+  block with no links, or whose only links loop back to itself, links to
+  the success end (Mark ready → Shipped, whose only other path loops back
+  to itself). The other ends never appear in the map.
 - **Solid or dotted.** A link that passes no graph-only node is a solid
   line. Any other link is dotted: round 2.4px dots every 5px. This applies
   even to a link that only passes plumbing; Reopened → Domain steps is
   dotted.
 - **Line style.** Both kinds are 1.5px in `tk-line-1`, right-angled with a
   10px corner radius, with filled arrowheads.
-- **Flow order and layers.** Flow order is a depth-first walk of the full
-  graph from the trigger, taking each node's edges in Mermaid declaration
-  order. An edge to a node still on the walk's stack is a back edge. Layers
-  are longest-path layers of the block map with its back links removed.
-  Both are computed in the model, before ELK runs.
+- **Flow order and layers.** Flow order is the reverse postorder of a
+  depth-first walk of the full graph from the trigger, taking each node's
+  edges in Mermaid declaration order. An edge to a node still on the walk's
+  stack is a back edge, which is exactly an edge that goes backwards in
+  that order, so a link whose target sits at or before its source is a
+  back link. Layers are longest-path layers of the block map with its back
+  links removed. Both are computed in the model, before ELK runs.
 - **Jumps.** A back link is not drawn as a line. It becomes a jump pill
   beside its source: accent tint, a ↩ icon and the target. A forward link
   that skips three or more layers becomes a → pill the same way.
@@ -145,17 +148,35 @@ model's output on ship's Flow (see Boards).
     leading word when they have one ("Capture"), else by that question's
     short label. Clicking it pans to fit all its targets and rings each one.
   - **Several sources:** sibling blocks with the same jump (same label, same
-    targets) share one pill, beside the last sibling. Capture after browser
-    and Capture after next share "↩ Capture".
-- **Shared trunks.** Two links from one block that share their first folded
+    targets) share one pill, beside the last sibling. Jumps that differ in
+    label or target keep their own pills.
+- **Shared trunks.** Two forward links from one block that share folded
   steps are drawn as one trunk that splits at the folded question where
-  their paths part. The split is a junction node in the ELK graph, with no
+  their paths part. The main line follows each split question's
+  first-declared edge and stays a line however many layers it skips. A
+  branch stays in the trunk unless it skips three or more layers and more
+  than the main line does; then it leaves the trunk and follows the jump
+  rule (Reopened's "yes → Capture"). The split is a junction node in the ELK graph, with no
   visible box. The branch carries that question's exit label, cut at its
   first colon ("refused or errored" on Rebases unfinished → Push refused,
   where it leaves the push steps). By the
   same rule, Which forge branches off the Rebases unfinished → Create MR
   trunk at the forge question, not out of Create MR as the hand-drawn board
   shows.
+- **Shared splits.** When forward links from two or more blocks pass the
+  same folded question and part there toward two or more blocks, that
+  question becomes one split on the map, drawn as a small dot. Each block
+  draws one dotted line into it, and the split draws one line per exit,
+  labelled with the exit ("GitLab", "anything else"). Its long exits become
+  pills beside the dot ("GitHub → Capture"). Budget questions never split,
+  and a block whose line into the split would skip three or more layers
+  keeps its own links unless that line is its main line. On ship's Flow the
+  forge question, the browser-or-case question and "every named case
+  tried?" become splits. Matt chose this over per-block trunks, which
+  tangled where three blocks reach the forge question.
+- **Main column.** It follows each block's main line and, from a split,
+  the split's first-declared exit. It is not the longest path, which runs
+  through the side branches.
 - **Exit labels elsewhere.** A plain line carries no exit label.
 - **The count.** The header counts the map's block nodes. For ship's Flow
   that is 21, not the board's 19.
