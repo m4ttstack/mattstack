@@ -50,7 +50,9 @@ const asStep = (blockId: string) => ({
 });
 
 const linkTo = (map: BlockMap, from: string, to: string): MapLink => {
-  const link = map.links.find(l => l.from === from && l.to.includes(to));
+  const link = map.links.find(
+    l => (l.from === from || l.alsoFrom.includes(from)) && l.to.includes(to)
+  );
   if (!link) throw new Error(`no link ${from} → ${to}`);
   return link;
 };
@@ -296,6 +298,7 @@ describe('blockMap', () => {
       kind: 'jump-back',
       label: 'yes',
       folded: ['q'],
+      fork: 'q',
     });
     expect([...jumps[0]!.to].sort()).toEqual(['B', 'C']);
   });
@@ -467,6 +470,33 @@ describe('blockMap', () => {
     });
   });
 
+  it('a trunk keeps only links that share a step with its main', () => {
+    const map = blockMap(
+      g(
+        [['S'], ['x', null], ['y', null], ['z', null], ['A'], ['B'], ['C']],
+        [
+          ['S', 'x'],
+          ['S', 'y'],
+          ['x', 'A'],
+          ['x', 'z'],
+          ['y', 'z'],
+          ['z', 'B'],
+          ['y', 'C'],
+        ]
+      ),
+      asStep
+    );
+
+    const main = linkTo(map, 'S', 'A');
+    expect(main.trunk).toMatchObject({ main: true });
+    expect(linkTo(map, 'S', 'B').trunk).toEqual({
+      group: main.id,
+      splitAt: 'x',
+      main: false,
+    });
+    expect(linkTo(map, 'S', 'C')).toMatchObject({ kind: 'line', trunk: null });
+  });
+
   it('a graph-only cycle with no block ends the walk', () => {
     const map = blockMap(
       g(
@@ -518,6 +548,8 @@ describe('blockMap on ship flow', () => {
       folded: ['checks_pass', 'run_budget_fix_rounds', 'fix_rounds_spent'],
     });
     expect(linkTo(map, 'fix_test_first', 'domain_fast_checks')).toMatchObject({
+      from: 'resolve_conflict_files',
+      alsoFrom: ['fix_test_first'],
       kind: 'jump-back',
       label: null,
     });
@@ -534,6 +566,17 @@ describe('blockMap on ship flow', () => {
     expect([...captures.to].sort()).toEqual([
       'capture_after_browser',
       'capture_after_case',
+    ]);
+
+    expect(captures.fork).toBe('browser_case');
+
+    const conflictLoops = map.links.filter(
+      link => link.from === 'resolve_conflict_files'
+    );
+    expect(conflictLoops.map(link => link.to)).toEqual([
+      ['gate_ship'],
+      ['domain_fast_checks'],
+      ['resolve_conflict_files'],
     ]);
 
     expect(linkTo(map, 'gate_mark_ready', 'shipped').kind).toBe('line');

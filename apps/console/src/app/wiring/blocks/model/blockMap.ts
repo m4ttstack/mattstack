@@ -25,6 +25,9 @@ export type MapLink = {
   kind: 'line' | 'jump-back' | 'jump-forward';
   /** Already cut at the first colon. */
   label: string | null;
+  /** A jump's fork question: the graph-only step its path leaves to reach
+      its targets. */
+  fork: string | null;
   trunk: { group: string; splitAt: string; main: boolean } | null;
 };
 
@@ -46,6 +49,7 @@ type Reach = {
   to: string;
   folded: string[];
   firstEdge: Edge | null;
+  fork: string | null;
 };
 
 function adjacency(graph: Graph, forward: boolean): Map<string, Edge[]> {
@@ -120,7 +124,8 @@ function reachesFrom(
   outs: Map<string, Edge[]>,
   ins: Map<string, Edge[]>,
   isBlock: (id: string) => boolean,
-  exits: Set<string>
+  exits: Set<string>,
+  byRank: (a: string, b: string) => number
 ): Reach[] {
   const walked = new Set<string>();
   const targets: string[] = [];
@@ -149,7 +154,14 @@ function reachesFrom(
     const firstEdge =
       outs.get(from)!.find(edge => edge.to === to || onPath.has(edge.to)) ??
       null;
-    return { from, to, folded: [...onPath], firstEdge };
+    const fork =
+      ins
+        .get(to)!
+        .map(edge => edge.from)
+        .filter(id => walked.has(id))
+        .sort(byRank)
+        .at(-1) ?? null;
+    return { from, to, folded: [...onPath], firstEdge, fork };
   });
 }
 
@@ -209,7 +221,7 @@ export function blockMap(
   const reaches: Reach[] = [];
   for (const node of nodes) {
     if (node.blockId === null) continue;
-    const own = reachesFrom(node.id, outs, ins, isBlock, exits);
+    const own = reachesFrom(node.id, outs, ins, isBlock, exits, byRank);
     for (const reach of own) reach.folded.sort(byRank);
     reaches.push(...own);
     if (success && own.every(reach => reach.to === node.id)) {
@@ -218,6 +230,7 @@ export function blockMap(
         to: success.id,
         folded: [],
         firstEdge: null,
+        fork: null,
       });
     }
   }
@@ -239,17 +252,18 @@ export function blockMap(
     const inTrunk = new Set<Reach>();
     for (const group of trunkGroups(own.filter(isForward))) {
       const main = mainOf(node.id, group, outs, byRank);
+      const onMain = new Set(main.folded);
       const kept = group.filter(
         reach =>
           reach === main ||
-          span(reach) < JUMP_LAYERS ||
-          span(reach) <= span(main)
+          (reach.folded.some(id => onMain.has(id)) &&
+            (span(reach) < JUMP_LAYERS || span(reach) <= span(main)))
       );
       if (kept.length < 2) continue;
       links.push(...trunkLinks(node.id, main, kept, outs, byRank));
       for (const reach of kept) inTrunk.add(reach);
     }
-    const bySplit = new Map<string, MapLink>();
+    const byFork = new Map<string, MapLink>();
     for (const reach of own) {
       if (inTrunk.has(reach)) continue;
       const kind = !isForward(reach)
@@ -265,14 +279,14 @@ export function blockMap(
       link.label = reach.firstEdge?.label
         ? cutLabel(reach.firstEdge.label)
         : null;
-      const last = reach.folded.at(-1);
-      const key = `${kind}\u0000${link.label}\u0000${last}`;
-      const twin = last === undefined ? undefined : bySplit.get(key);
+      link.fork = reach.fork;
+      const key = `${kind}\u0000${link.label}\u0000${reach.fork}`;
+      const twin = reach.fork === null ? undefined : byFork.get(key);
       if (twin) {
         twin.to = [...twin.to, reach.to].sort(byRank);
         twin.folded = union(twin.folded, reach.folded, byRank);
       } else {
-        bySplit.set(key, link);
+        byFork.set(key, link);
         jumps.push(link);
       }
     }
@@ -287,6 +301,7 @@ export function blockMap(
       continue;
     }
     const sources = [twin.from, ...twin.alsoFrom, jump.from].sort(byRank);
+    if (sources.at(-1) === jump.from) twin.fork = jump.fork;
     twin.from = sources.at(-1)!;
     twin.alsoFrom = sources.slice(0, -1);
     twin.folded = union(twin.folded, jump.folded, byRank);
@@ -320,6 +335,7 @@ function newLink(reach: Reach, kind: MapLink['kind']): MapLink {
     folded: reach.folded,
     kind,
     label: null,
+    fork: null,
     trunk: null,
   };
 }
@@ -376,8 +392,8 @@ function trunkLinks(
       const own = new Set(reach.folded);
       const leaves = (edge: Edge) =>
         edge.to === reach.to || (own.has(edge.to) && !mainSteps.has(edge.to));
-      // A shared step always exists: the last main-line step on any path
-      // from a shared step to this target.
+      // Every branch shares a step with the main, so the last main-line
+      // step on its path to the target exists.
       const splitAt = main.folded
         .filter(id => outs.get(id)!.some(leaves))
         .sort(byRank)
@@ -416,6 +432,7 @@ export function formatBlockMap(map: BlockMap): string {
       const main = byId.get(link.trunk.group)!;
       parts.push(`trunk branch off → ${main.to[0]} at ${link.trunk.splitAt}`);
     }
+    if (link.fork !== null) parts.push(`fork ${link.fork}`);
     parts.push(`folded ${link.folded.length}`);
     if (link.folded.length > 0) parts.push(link.folded.join(', '));
     lines.push(parts.join(' · '));
