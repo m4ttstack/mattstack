@@ -10,7 +10,7 @@ import { referenceCopies } from "./references.ts";
 import type { TeamContext } from "./team-params.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
-import type { CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
+import type { AttachmentSource, CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = "compiled.json";
 export const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
@@ -169,8 +169,15 @@ function isTeamOwned(dir: string): boolean {
     !isSkippedAttachmentPath(entry.name) && !(entry.isDirectory() && isEmittedAttachmentDir(join(dir, entry.name))));
 }
 
-export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side>; team: TeamContext | null }): BaseAttachmentPlan {
-  const { packDir, packName, verbSides, team } = input;
+/** `loadInclude` loads an include a file vendored into a copy's references/ names, as a built skill's copies load theirs. */
+export function planBaseAttachments(input: {
+  packDir: string;
+  packName: string;
+  verbSides: Record<string, Side>;
+  team: TeamContext | null;
+  loadInclude?: (name: string) => AttachmentSource;
+}): BaseAttachmentPlan {
+  const { packDir, packName, verbSides, team, loadInclude } = input;
   const own = readJsoncObject(join(packDir, "pack", "skills.jsonc"));
   const ext = own?.extends;
   const attachmentsDir = join(packDir, "attachments");
@@ -308,7 +315,11 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
         errors.push(err instanceof Error ? err.message : String(err));
       }
     }
-    if (vendored.length > 0) errors.push(...vendorTeamSources(vendored, out, { name, label: `${base.name} attachment ${name}`, copyDir, packDir, packName, verbSides, planned, team }));
+    if (vendored.length > 0) {
+      const v = vendorTeamSources(vendored, out, { name, label: `${base.name} attachment ${name}`, copyDir, packDir, packName, verbSides, planned, team, loadInclude });
+      errors.push(...v.errors);
+      warnings.push(...v.warnings);
+    }
     out.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
     emits.push({ name, files: out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), warnings, source: { dir: srcDir, base: base.name } });
   }
@@ -330,10 +341,11 @@ type VendorInput = {
   verbSides: Record<string, Side>;
   planned: PlannedAttachments;
   team: TeamContext | null;
+  loadInclude?: (name: string) => AttachmentSource;
 };
 
 /** The team's source ships as written, so a base copy reads its own rendered copy of each unit it names, as a built skill does. */
-function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): string[] {
+function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): { errors: string[]; warnings: string[] } {
   const ctx: PlaceholderContext = {
     partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "", mattstackSha: "", mattstackDirty: 0, packSha: "",
     stageDir: v.copyDir, stageMeta: null, compiledFrom: "", verbSides: v.verbSides, side: "attachments", packRoot: v.packDir,
@@ -341,17 +353,23 @@ function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: Vendor
   };
   let copies;
   try {
-    copies = referenceCopies(targets, ctx, { skillRel: `attachments/${v.name}`, packName: v.packName });
+    copies = referenceCopies(targets, ctx, { skillRel: `attachments/${v.name}`, packName: v.packName, loadInclude: v.loadInclude });
   } catch (err) {
-    return [err instanceof Error ? err.message : String(err)];
+    return { errors: [err instanceof Error ? err.message : String(err)], warnings: [] };
   }
   const errors = copies.diagnostics.map((d) => `${d.file}: ${d.message} (line ${d.line})`);
   const own = new Set(out.map((f) => f.path));
-  for (const { file } of copies.files) {
-    if (own.has(file.path)) errors.push(`${v.label} has its own ${file.path}, where its copy of ${file.path.slice("references/".length)} would land; rename one of them`);
-    else out.push(file);
+  const includeFiles = Object.entries(copies.includes).flatMap(([name, inc]) =>
+    inc.extraFiles.map((entry): CompiledFile => ({ path: `parts/include-${name}/${entry}`, copyFrom: `${inc.dir}/${entry}` })));
+  for (const file of [...copies.files.map((c) => c.file), ...includeFiles]) {
+    const what = file.path.startsWith("references/") ? `its copy of ${file.path.slice("references/".length)}` : "an include's file";
+    if (own.has(file.path)) errors.push(`${v.label} has its own ${file.path}, where ${what} would land; rename one of them`);
+    else {
+      own.add(file.path);
+      out.push(file);
+    }
   }
-  return errors;
+  return { errors, warnings: copies.warnings };
 }
 
 /** A reader follows a base copy's pointer to the file it names, so that file must carry no placeholder left unrendered. */

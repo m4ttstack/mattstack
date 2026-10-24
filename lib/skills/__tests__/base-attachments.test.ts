@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { HEADER_COMMENT } from "../compile.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
+import type { AttachmentSource } from "../types.ts";
 import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, walkAttachmentFiles } from "../base-attachments.ts";
 
 let root: string;
@@ -279,6 +280,40 @@ describe("pointers from a base copy to the team's own source", () => {
     expect(plan().errors).toEqual([
       "acme-base:attachments/review-kit/SKILL.md: {{pack.path:widgets-evidence/rules.md}} points at a copy that still holds {{ at its line 2, which a reader would meet unrendered",
       "acme-base:attachments/review-kit/SKILL.md: {{pack.path:stage-gates/SKILL.md}} points at a copy that still holds {{ at its line 1, which a reader would meet unrendered",
+    ]);
+  });
+
+  test("an include in a vendored team file is loaded, placed, and its files vendor under parts/", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-evidence/rules.md}}.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "Rules.\n\n{{include:style-floor}}\n");
+    const incDir = join(root, "mattstack-plugin", "attachments", "style-floor");
+    put(join(incDir, "lint.sh"), "echo lint\n");
+    const styleFloor: AttachmentSource = {
+      binding: "mattstack:style-floor", plugin: "mattstack", version: "1.0.0", dir: incDir, srcPath: "attachments/style-floor/SKILL.md",
+      bodyStartLine: 5, body: "Run ${CLAUDE_SKILL_DIR}/lint.sh first.", provides: "", allowedTools: [], extraFiles: ["lint.sh"], registered: false, file: null,
+    };
+    const result = planBaseAttachments({
+      packDir: packDir(), packName: "widgets", verbSides: { ship: "skills" }, team: null,
+      loadInclude: (name) => {
+        if (name !== "style-floor") throw new Error(`no include ${name}`);
+        return styleFloor;
+      },
+    });
+    expect(result.errors).toEqual([]);
+    const rules = (fileOf(result, "references/widgets-evidence/rules.md") as { content: string }).content;
+    expect(rules).toContain("<!-- part: include:style-floor source=mattstack:style-floor version=1.0.0");
+    expect(rules).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/review-kit/parts/include-style-floor/lint.sh first.");
+    expect(fileOf(result, "parts/include-style-floor/lint.sh")).toEqual({ path: "parts/include-style-floor/lint.sh", copyFrom: join(incDir, "lint.sh") });
+  });
+
+  test("a vendored hand-authored skill's link that no longer resolves is a warning on the copy", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-guide/SKILL.md}}.\n");
+    put(join(packDir(), "skills", "widgets-guide", "SKILL.md"), "---\nname: widgets-guide\n---\nRead [the notes](../widgets-notes/SKILL.md) too.\n");
+    put(join(packDir(), "skills", "widgets-notes", "SKILL.md"), "---\nname: widgets-notes\n---\nnotes\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(emitOf(result).warnings).toEqual([
+      "skills/widgets-guide/SKILL.md: ../widgets-notes/SKILL.md does not resolve from its copy in references/widgets-guide/",
     ]);
   });
 
