@@ -52,7 +52,7 @@ type Reach = {
   fork: string | null;
 };
 
-function adjacency(graph: Graph, forward: boolean): Map<string, Edge[]> {
+export function adjacency(graph: Graph, forward: boolean): Map<string, Edge[]> {
   const next = new Map<string, Edge[]>(graph.nodes.map(node => [node.id, []]));
   for (const edge of graph.edges) {
     next.get(forward ? edge.from : edge.to)?.push(edge);
@@ -62,7 +62,7 @@ function adjacency(graph: Graph, forward: boolean): Map<string, Edge[]> {
 
 /** Graph-only nodes from which every path reaches an end without passing a
     block: the least fixed point, so a graph-only cycle never qualifies. */
-function exitNodes(
+export function exitNodes(
   graph: Graph,
   outs: Map<string, Edge[]>,
   ins: Map<string, Edge[]>
