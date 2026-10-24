@@ -159,7 +159,7 @@
       "relPath": "attachments/pipeline/mini/gate.block.md",
       "lines": [11, 15],
       "summary": "Ask the human whether to continue, using the tiering rules.",
-      "text": "## Ask the gate\n\nAsk the human whether to continue, using the tiering rules.\n\n<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering version=1.0.0 path=skills/model-tiering/SKILL.md lines=8-8 -->\nProp tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.",
+      "text": "## Ask the gate\n\nAsk the human whether to continue, using the tiering rules.\n\n<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering version=1.0.0 path=skills/model-tiering/SKILL.md lines=8-8 -->\nFor tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.",
       "segments": [
         {
           "layer": "default",
@@ -171,7 +171,7 @@
           "layer": "default",
           "color": "mattstack",
           "prop": "tiering",
-          "text": "Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it."
+          "text": "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it."
         }
       ],
       "props": [

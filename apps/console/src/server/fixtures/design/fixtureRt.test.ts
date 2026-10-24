@@ -172,7 +172,7 @@ describe('the state scenarios', () => {
     const text = await lines('referenced', anatomy.rendered.path);
     expect(text).toHaveLength(701);
     expect(text[222]).toBe(
-      'Prop domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.'
+      'For domain, invoke the `acme:plan-policy` skill (acme:plan-policy@0.8.14) when this flow needs it.'
     );
     expect(text[223]).toContain('part: include:gate-protocol');
     expect(await compositionOf('referenced')).toEqual(composition);

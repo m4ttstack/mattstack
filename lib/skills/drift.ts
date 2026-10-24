@@ -57,8 +57,8 @@ export function isPropReference(text: string): boolean {
 }
 
 /**
- * An include part is its marker plus exactly its `lines=` count: include bodies
- * are verbatim, as are a section's. An inlined prop value's count is in SOURCE
+ * An include part is its marker plus exactly its `lines=` count: an include body
+ * keeps its line count (its headings may shift), as a section's does. An inlined prop value's count is in SOURCE
  * lines, less any line an absent optional section dropped, and a nested include
  * or section marker stands for the one source line it replaced while carrying
  * its own body lines on top, so the walk counts the marker once and steps over
