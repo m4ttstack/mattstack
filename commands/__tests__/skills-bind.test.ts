@@ -709,6 +709,18 @@ describe("skillsBind: pipeline stages", () => {
     );
   });
 
+  test("the root form keeps --pipeline and drops --json", async () => {
+    const { packDir, mattstackDir, manifestPath } = makeStageFixture();
+    const flags = ["--pipeline", "feature", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath];
+    const want = `rt skills bind stage-plan stage-plan rules acme:plan-policy ${flags.join(" ")}`;
+
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsBind(["stage-plan", "rules", "acme:plan-policy", "--json", ...flags]));
+
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain(want);
+    expect(errors.filter((l) => l.includes("rt skills bind") && l.includes("--json"))).toEqual([]);
+  });
+
   test("a prop the block does not declare errors with the block's props", async () => {
     const { packDir, mattstackDir, manifestPath } = makeStageFixture();
     const before = readFileSync(manifestPath, "utf8");
