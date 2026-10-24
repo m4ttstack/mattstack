@@ -12,7 +12,7 @@ const LANE_DIR: Record<Lane, string> = {
   doctor: 'doctors',
 };
 
-function slug(mrUrl: string): string {
+export function slug(mrUrl: string): string {
   return mrUrl
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
