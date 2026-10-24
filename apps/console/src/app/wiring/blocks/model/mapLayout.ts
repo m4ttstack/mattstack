@@ -40,6 +40,21 @@ export function fitZoom(available: number, mapWidth: number): number {
   return Math.min(1, Math.max(MIN_MAP_ZOOM, available / mapWidth));
 }
 
+/** The zoom, the plane's width and the map's offset in from the plane's
+    left for a map `mapWidth` wide in a canvas `available` px wide. A
+    measured width can be fractional, and a plane even a fraction wider
+    than its canvas scrolls. */
+export function canvasPlane(
+  available: number,
+  mapWidth: number
+): { zoom: number; plane: number; offset: number } {
+  const room = Math.floor(available);
+  const zoom = fitZoom(room, mapWidth);
+  const drawn = mapWidth * zoom;
+  const plane = drawn <= room + 0.5 ? room : Math.ceil(drawn);
+  return { zoom, plane, offset: Math.max(0, (plane - drawn) / 2) };
+}
+
 export type Pill = {
   id: string;
   label: string | null;
@@ -268,6 +283,7 @@ export function mapLayout(
     for (const splitAt of splitsAt) {
       const id = `${group}>${splitAt}`;
       junctions.push(junction(splitAt));
+      rank.set(junction(splitAt), rank.get(splitAt)!);
       edges.push({
         id,
         from: previous,
@@ -288,23 +304,29 @@ export function mapLayout(
     }
   }
 
+  const flowRank = (id: string) => rank.get(id) ?? Infinity;
   const input: LayoutInput = {
-    nodes: [...nodes, ...junctions.map(id => ({ id, width: 1, height: 1 }))],
-    edges: edges.map((edge): LayoutEdge => ({
-      id: edge.id,
-      source: edge.from,
-      target: edge.to,
-      ...(edge.label
-        ? {
-            label: {
-              text: edge.label,
-              width: Math.ceil(measure(edge.label, 11, 400) + 2 * CHIP.padX),
-              height: CHIP.height,
-            },
-          }
-        : {}),
-      ...(priority.has(edge.id) ? { priority: MAIN_PRIORITY } : {}),
-    })),
+    nodes: [
+      ...nodes,
+      ...junctions.map(id => ({ id, width: 1, height: 1 })),
+    ].sort((a, b) => flowRank(a.id) - flowRank(b.id)),
+    edges: [...edges]
+      .sort((a, b) => flowRank(a.from) - flowRank(b.from))
+      .map((edge): LayoutEdge => ({
+        id: edge.id,
+        source: edge.from,
+        target: edge.to,
+        ...(edge.label
+          ? {
+              label: {
+                text: edge.label,
+                width: Math.ceil(measure(edge.label, 11, 400) + 2 * CHIP.padX),
+                height: CHIP.height,
+              },
+            }
+          : {}),
+        ...(priority.has(edge.id) ? { priority: MAIN_PRIORITY } : {}),
+      })),
   };
   return { boxes, edges, junctions, input };
 }

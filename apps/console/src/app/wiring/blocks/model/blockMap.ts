@@ -52,7 +52,9 @@ export type BlockMap = {
 /** A forward link spanning this many layers or more is drawn as a jump. */
 export const JUMP_LAYERS = 3;
 
-export function adjacency(graph: Graph, forward: boolean): Map<string, Edge[]> {
+type Shape = Pick<Graph, 'nodes' | 'edges'>;
+
+export function adjacency(graph: Shape, forward: boolean): Map<string, Edge[]> {
   const next = new Map<string, Edge[]>(graph.nodes.map(node => [node.id, []]));
   for (const edge of graph.edges) {
     next.get(forward ? edge.from : edge.to)?.push(edge);
@@ -99,7 +101,10 @@ export function exitNodes(
 /** Reverse postorder of a depth-first walk from the trigger, edges in
     declaration order: an edge points backwards exactly when it is a back
     edge. */
-function flowOrder(graph: Graph, outs: Map<string, Edge[]>): string[] {
+export function flowOrder(
+  graph: Shape,
+  outs: Map<string, Edge[]> = adjacency(graph, true)
+): string[] {
   const trigger =
     graph.nodes.find(node => node.shape === 'ellipse') ?? graph.nodes[0];
   const finished: string[] = [];

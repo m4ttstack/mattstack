@@ -38,6 +38,10 @@ export const ELK_OPTIONS: Record<string, string> = {
   'org.eclipse.elk.layered.spacing.edgeNodeBetweenLayers': '16',
   'org.eclipse.elk.edgeLabels.placement': 'TAIL',
   'org.eclipse.elk.padding': '[top=24,left=24,bottom=24,right=24]',
+  // Inputs list nodes in the model's flow order, so an edge against that
+  // order is the model's back edge and siblings keep their order.
+  'org.eclipse.elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
+  'org.eclipse.elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
   // Shapes stay parent-relative (fromElk adds the offsets); edge points and
   // labels come back in root coordinates, since an INCLUDE_CHILDREN edge
   // would otherwise be relative to whichever container ELK assigns it.

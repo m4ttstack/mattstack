@@ -7,11 +7,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { EveryStep, FlowGraph } from '../FlowGraph';
 import { measureText } from '../graphCards';
 import { bundledEngine } from '../layoutEngine';
-import { aroundBlock } from '../model/around';
+import { aroundBlock, aroundOrder } from '../model/around';
+import { flowOrder } from '../model/blockMap';
 import { labelledGraph } from '../model/blockView';
 import type { Box, LaidOut } from '../model/elkGraph';
-import { flowLayout, LABEL_REACH, placeLabels } from '../model/flowLayout';
-import { fitZoom } from '../model/mapLayout';
+import {
+  blockFactsOf,
+  flowLayout,
+  LABEL_REACH,
+  placeLabels,
+  scrollToShow,
+} from '../model/flowLayout';
+import { canvasPlane } from '../model/mapLayout';
 import { shipPayload } from './blocksFixture';
 import { labelClashes, strayLabels } from './flowGeometry';
 
@@ -20,7 +27,7 @@ const canvas = vi.hoisted(() => ({ width: 0 }));
 vi.mock('@mattstack/app-kit/hooks', async importOriginal => ({
   ...(await importOriginal<typeof import('@mattstack/app-kit/hooks')>()),
   useElementSize: () => ({
-    ref: { current: null },
+    ref: () => {},
     width: canvas.width,
     height: 0,
   }),
@@ -36,22 +43,32 @@ const ship = labelledGraph(
 );
 const FAST_CHECKS = 'domain_fast_checks';
 const around = aroundBlock(ship, FAST_CHECKS);
+const shipOrder = flowOrder(ship);
+const aroundFlow = aroundOrder(around, FAST_CHECKS, shipOrder);
 
-const CASES = [
+type Case = {
+  name: string;
+  graph: typeof ship | typeof around;
+  focus: string | null;
+  order?: string[];
+};
+const CASES: Case[] = [
   { name: 'ship Every step', graph: ship, focus: null },
-  { name: 'Around Fast checks', graph: around, focus: FAST_CHECKS },
-] as const;
+  {
+    name: 'Around Fast checks',
+    graph: around,
+    focus: FAST_CHECKS,
+    order: aroundFlow,
+  },
+];
 const WIDTHS = [560, 1100];
 
-async function laidOutFor(
-  graph: (typeof CASES)[number]['graph'],
-  focus: string | null
-): Promise<LaidOut> {
+async function laidOutFor({ graph, order }: Case): Promise<LaidOut> {
   const layout = flowLayout(graph, {
     skill: 'ship',
-    focus,
-    factsOf: () => ({ kind: 'step', dots: [] }),
+    factsOf: blockFactsOf(shipPayload),
     measure: measureText,
+    order,
   });
   return placeLabels(await shared.layout(layout.input));
 }
@@ -67,25 +84,23 @@ const key = (box: Box) => `${box.x},${box.y},${box.width}`;
 
 /** The chips the canvas draws at `width`, which must be the laid-out label
     boxes, and that laid-out graph. */
-async function drawnAt(
-  width: number,
-  graph: (typeof CASES)[number]['graph'],
-  focus: string | null
-): Promise<LaidOut> {
+async function drawnAt(width: number, at: Case): Promise<LaidOut> {
   canvas.width = width;
   const view = renderWithProviders(
     <FlowGraph
-      graph={graph}
+      graph={at.graph}
+      payload={shipPayload}
       skill="ship"
-      focus={focus}
+      focus={at.focus}
+      order={at.order}
       onSelect={() => {}}
       engine={engine}
     />
   );
   const flow = await screen.findByTestId('flow-canvas', {}, LAID_OUT);
-  const laidOut = await laidOutFor(graph, focus);
+  const laidOut = await laidOutFor(at);
   expect(Number(flow.getAttribute('data-zoom'))).toBe(
-    fitZoom(width, laidOut.width)
+    canvasPlane(width, laidOut.width).zoom
   );
   const labels = Object.values(laidOut.edges).flatMap(edge =>
     edge.label ? [key(edge.label)] : []
@@ -143,7 +158,7 @@ describe('FlowGraph', () => {
 
     const focus = await screen.findByRole(
       'button',
-      { name: 'Fast checks' },
+      { name: /^Fast checks/ },
       LAID_OUT
     );
     expect(focus).toHaveAttribute('data-hot', 'true');
@@ -151,11 +166,118 @@ describe('FlowGraph', () => {
     expect(onSelect).toHaveBeenCalledWith('ship/flow/domain-fast-checks');
   }, 20_000);
 
-  describe.each(CASES)('$name', ({ graph, focus }) => {
+  it('puts the trigger in the top layer', async () => {
+    const laidOut = await laidOutFor(CASES[0]!);
+    const trigger = ship.nodes.find(node => node.shape === 'ellipse')!;
+    const tops = Object.values(laidOut.nodes).map(box => box.y);
+
+    expect(laidOut.nodes[trigger.id]!.y).toBe(Math.min(...tops));
+    expect(
+      Object.entries(laidOut.nodes).filter(
+        ([, box]) => box.y < laidOut.nodes[trigger.id]!.y + 40
+      )
+    ).toHaveLength(1);
+  }, 20_000);
+
+  it('Around sets every step into the block above it', async () => {
+    const laidOut = await laidOutFor(CASES[1]!);
+    const into = around.edges
+      .filter(edge => edge.to === FAST_CHECKS && edge.from !== FAST_CHECKS)
+      .map(edge => edge.from);
+
+    expect(into.length).toBeGreaterThan(2);
+    for (const id of into) {
+      expect(laidOut.nodes[id]!.y).toBeLessThan(laidOut.nodes[FAST_CHECKS]!.y);
+    }
+  }, 20_000);
+
+  it('Every step opens scrolled to its first step', async () => {
+    canvas.width = 560;
+    renderWithProviders(
+      <EveryStep
+        payload={shipPayload}
+        graph={ship}
+        highlight={null}
+        onSelect={() => {}}
+        onView={() => {}}
+        onClose={() => {}}
+        engine={engine}
+      />
+    );
+
+    const flow = await screen.findByTestId('flow-canvas', {}, LAID_OUT);
+    const laidOut = await laidOutFor(CASES[0]!);
+    const { zoom, plane, offset } = canvasPlane(560, laidOut.width);
+    const first = laidOut.nodes[shipOrder[0]!]!;
+    expect(first.y).toBe(
+      Math.min(...Object.values(laidOut.nodes).map(box => box.y))
+    );
+    const left = scrollToShow(first, { zoom, offset, visible: 560, plane });
+    expect(left).toBeGreaterThan(0);
+    expect(flow.scrollLeft).toBe(left);
+  }, 30_000);
+
+  it('Every step opens on the open block when one is lit', async () => {
+    canvas.width = 560;
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    try {
+      renderWithProviders(
+        <EveryStep
+          payload={shipPayload}
+          graph={ship}
+          highlight={FAST_CHECKS}
+          onSelect={() => {}}
+          onView={() => {}}
+          onClose={() => {}}
+          engine={engine}
+        />
+      );
+
+      const flow = await screen.findByTestId('flow-canvas', {}, LAID_OUT);
+      const laidOut = await laidOutFor(CASES[0]!);
+      const { zoom, plane, offset } = canvasPlane(560, laidOut.width);
+      expect(flow.scrollLeft).toBe(
+        scrollToShow(laidOut.nodes[FAST_CHECKS]!, {
+          zoom,
+          offset,
+          visible: 560,
+          plane,
+        })
+      );
+      expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrolled.mock.contexts[0]).toHaveAttribute('data-id', FAST_CHECKS);
+    } finally {
+      // @ts-expect-error jsdom has no scrollIntoView of its own.
+      delete Element.prototype.scrollIntoView;
+    }
+  }, 30_000);
+
+  it('a canvas of fractional width fits a graph that fits above the zoom floor', async () => {
+    canvas.width = 730.6;
+    renderWithProviders(
+      <FlowGraph
+        graph={around}
+        payload={shipPayload}
+        skill="ship"
+        focus={FAST_CHECKS}
+        order={aroundFlow}
+        onSelect={() => {}}
+        engine={engine}
+      />
+    );
+
+    const flow = await screen.findByTestId('flow-canvas', {}, LAID_OUT);
+    const plane = flow.firstElementChild as HTMLElement;
+    expect(Number(plane.getAttribute('data-plane'))).toBeLessThanOrEqual(730.6);
+    expect(Number(flow.getAttribute('data-zoom'))).toBeGreaterThan(0.85);
+  }, 20_000);
+
+  describe.each(CASES)('$name', at => {
     it.each(WIDTHS)(
       "no edge label overlaps another edge's line or any card, at %ipx",
       async width => {
-        const laidOut = await drawnAt(width, graph, focus);
+        const laidOut = await drawnAt(width, at);
         expect(labelClashes(laidOut)).toEqual([]);
       },
       30_000
@@ -164,7 +286,7 @@ describe('FlowGraph', () => {
     it.each(WIDTHS)(
       `every edge label sits within ${LABEL_REACH}px of its own edge's start or first bend, at %ipx`,
       async width => {
-        const laidOut = await drawnAt(width, graph, focus);
+        const laidOut = await drawnAt(width, at);
         expect(strayLabels(laidOut, 40)).toEqual([]);
       },
       30_000

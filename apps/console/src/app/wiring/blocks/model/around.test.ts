@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { graphOf, shipShaped } from '../__tests__/aroundFixtures';
-import { aroundBlock } from './around';
+import { aroundBlock, aroundOrder } from './around';
 
 const ids = (sub: ReturnType<typeof aroundBlock>) =>
   sub.nodes.map(node => node.id).sort();
@@ -131,5 +131,35 @@ describe('aroundBlock', () => {
 
   it('returns an empty subgraph for a node the graph lacks', () => {
     expect(aroundBlock(shipShaped, 'nope')).toEqual({ nodes: [], edges: [] });
+  });
+});
+
+describe('aroundOrder', () => {
+  it('puts the steps into the focus first, then the focus, then the rest, each in flow order', () => {
+    const sub = aroundBlock(shipShaped, 'fast_checks');
+    const order = [
+      'tree_dirty',
+      'commit_named',
+      'stash_them',
+      'fast_checks',
+      'checks_pass',
+      'fix_rounds_left',
+      'fix_test_first',
+      'rebase_this_pass',
+      'push_branch',
+      'watch_ci',
+      'rebase_status',
+    ];
+
+    expect(aroundOrder(sub, 'fast_checks', order)).toEqual([
+      'tree_dirty',
+      'commit_named',
+      'stash_them',
+      'fix_rounds_left',
+      'fix_test_first',
+      'rebase_status',
+      'fast_checks',
+      'checks_pass',
+    ]);
   });
 });

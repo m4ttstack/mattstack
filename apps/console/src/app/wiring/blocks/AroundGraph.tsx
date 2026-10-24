@@ -4,7 +4,8 @@ import { Text, UnstyledButton } from '@mattstack/app-kit/core';
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import classes from './blocks.module.css';
 import { FlowGraph, FlowKey } from './FlowGraph';
-import { aroundBlock } from './model/around';
+import { aroundBlock, aroundOrder } from './model/around';
+import { flowOrder } from './model/blockMap';
 import type { LayoutEngine } from './model/elkGraph';
 
 export interface AroundGraphProps {
@@ -30,7 +31,13 @@ export function AroundGraph({
   onViewWholeGraph,
   engine,
 }: AroundGraphProps) {
-  const sub = useMemo(() => aroundBlock(graph, focus), [graph, focus]);
+  const { sub, order } = useMemo(() => {
+    const around = aroundBlock(graph, focus);
+    return {
+      sub: around,
+      order: aroundOrder(around, focus, flowOrder(graph)),
+    };
+  }, [graph, focus]);
   return (
     <section
       className={classes.around}
@@ -53,6 +60,7 @@ export function AroundGraph({
         payload={payload}
         skill={skill}
         focus={focus}
+        order={order}
         onSelect={onSelect}
         engine={engine}
         loadingHeight={240}

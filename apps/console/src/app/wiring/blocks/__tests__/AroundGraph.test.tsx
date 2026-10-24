@@ -51,6 +51,30 @@ describe('AroundGraph', () => {
     expect(screen.getAllByTestId('map-edge')).toHaveLength(11);
   }, 20_000);
 
+  it('sets every step into the block above it', async () => {
+    await renderAround();
+
+    const top = (id: string) => {
+      const node = document.querySelector(
+        `.react-flow__node[data-id="${id}"]`
+      ) as HTMLElement;
+      return Number(
+        /translate\([^,]+,\s*([\d.]+)px\)/.exec(node.style.transform)![1]
+      );
+    };
+    for (const id of [
+      'tree_dirty',
+      'commit_named',
+      'stash_them',
+      'fix_rounds_left',
+      'fix_test_first',
+      'rebase_status',
+    ]) {
+      expect(top(id)).toBeLessThan(top('fast_checks'));
+    }
+    expect(top('checks_pass')).toBeGreaterThan(top('fast_checks'));
+  }, 20_000);
+
   it('draws its exit labels as chips', async () => {
     await renderAround();
 

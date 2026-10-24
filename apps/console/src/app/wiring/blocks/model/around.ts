@@ -68,3 +68,25 @@ export function aroundBlock(graph: Graph, nodeId: string): AroundGraphData {
     edges: graph.edges.filter(edge => kept.has(edge.from) && kept.has(edge.to)),
   };
 }
+
+/** The order Around lays its nodes out in: the focus's in-neighbours, then
+    the focus, then the rest, each in the whole graph's flow `order`, so a
+    step that leads into the block sits above it even where the whole graph
+    reaches it later, round a loop. */
+export function aroundOrder(
+  sub: AroundGraphData,
+  focus: string,
+  order: string[]
+): string[] {
+  const into = new Set(
+    sub.edges.flatMap(edge =>
+      edge.to === focus && edge.from !== focus ? [edge.from] : []
+    )
+  );
+  const kept = order.filter(id => sub.nodes.some(node => node.id === id));
+  return [
+    ...kept.filter(id => into.has(id)),
+    focus,
+    ...kept.filter(id => id !== focus && !into.has(id)),
+  ];
+}

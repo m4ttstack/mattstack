@@ -4,7 +4,9 @@ import {
   createContext,
   memo,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   type CSSProperties,
 } from 'react';
 import {
@@ -15,7 +17,7 @@ import {
   UnstyledButton,
   useComputedColorScheme,
 } from '@mattstack/app-kit/core';
-import { useElementSize } from '@mattstack/app-kit/hooks';
+import { useElementSize, useMergedRef } from '@mattstack/app-kit/hooks';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import {
   Background,
@@ -34,17 +36,17 @@ import classes from './blocks.module.css';
 import { BlockCard, measureText, useFontsLoaded } from './graphCards';
 import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
 import type { AroundGraphData } from './model/around';
-import { dotsOf } from './model/blockFacts';
 import type { MapKind } from './model/blockMap';
 import type { LaidOut, LayoutEngine, LayoutInput } from './model/elkGraph';
 import {
+  blockFactsOf,
   flowLayout,
   placeLabels,
-  type BlockFacts,
+  scrollToShow,
   type FlowCard,
   type FlowLayout,
 } from './model/flowLayout';
-import { fitZoom, MIN_MAP_ZOOM } from './model/mapLayout';
+import { canvasPlane, MIN_MAP_ZOOM } from './model/mapLayout';
 import { useGraphLayout } from './useGraphLayout';
 
 type Graph = BlocksPayload['graphs'][number];
@@ -65,7 +67,10 @@ const layoutOf = new WeakMap<LayoutInput, FlowLayout>();
 
 const OnSelect = createContext<(blockId: string) => void>(() => {});
 
-type FlowNode = Node<{ card: FlowCard }, 'flowBlock' | 'flowStep'>;
+type FlowNode = Node<
+  { card: FlowCard; focus: boolean },
+  'flowBlock' | 'flowStep'
+>;
 
 /** A graph-only step: muted, no shadow, never a button. */
 export function StepCard({
@@ -113,7 +118,7 @@ function Handles() {
   );
 }
 
-function BlockNode({ data: { card } }: NodeProps<FlowNode>) {
+function BlockNode({ data: { card, focus } }: NodeProps<FlowNode>) {
   const onSelect = useContext(OnSelect);
   const { blockId } = card;
   return (
@@ -124,7 +129,7 @@ function BlockNode({ data: { card } }: NodeProps<FlowNode>) {
         dots={card.dots}
         width={card.width}
         pills={[]}
-        hot={card.focus}
+        hot={focus}
         onClick={blockId ? () => onSelect(blockId) : undefined}
       />
       <Handles />
@@ -172,7 +177,8 @@ const handlesAt = (anchorX: number, height: number) => [
 
 function flowOf(
   layout: FlowLayout,
-  laidOut: LaidOut
+  laidOut: LaidOut,
+  focus: string | null
 ): { nodes: FlowNode[]; edges: MapFlowEdge[] } {
   const nodes = [...layout.cards.values()].flatMap((card): FlowNode[] => {
     const placed = laidOut.nodes[card.id];
@@ -185,7 +191,7 @@ function flowOf(
         width: placed.width,
         height: placed.height,
         handles: handlesAt(card.width / 2, placed.height),
-        data: { card },
+        data: { card, focus: card.id === focus },
       },
     ];
   });
@@ -214,79 +220,93 @@ function flowOf(
 function FlowCanvas({
   layout,
   laidOut,
+  focus,
+  startInView,
 }: {
   layout: FlowLayout;
   laidOut: LaidOut;
+  focus: string | null;
+  startInView: boolean;
 }) {
   const scheme = useComputedColorScheme('light');
-  const { ref, width } = useElementSize();
+  const { ref: sized, width } = useElementSize();
+  const ref = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useMergedRef(sized, ref);
   const { nodes, edges } = useMemo(
-    () => flowOf(layout, laidOut),
-    [layout, laidOut]
+    () => flowOf(layout, laidOut, focus),
+    [layout, laidOut, focus]
   );
-  const zoom = fitZoom(width, laidOut.width);
-  const drawn = laidOut.width * zoom;
-  const plane = Math.max(width, Math.ceil(drawn));
-  const x = Math.max(0, (plane - drawn) / 2);
+  const { zoom, plane, offset: x } = canvasPlane(width, laidOut.width);
+  const start = focus ?? layout.order[0] ?? null;
+  const shown = useRef(false);
+  useEffect(() => {
+    const canvas = ref.current;
+    const box = start ? laidOut.nodes[start] : undefined;
+    if (!startInView || shown.current || width <= 0 || !canvas || !box) {
+      return;
+    }
+    shown.current = true;
+    canvas.scrollLeft = scrollToShow(box, {
+      zoom,
+      offset: x,
+      visible: width,
+      plane,
+    });
+    if (focus) {
+      [...canvas.querySelectorAll('.react-flow__node')]
+        .find(node => node.getAttribute('data-id') === focus)
+        ?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [startInView, start, focus, laidOut, width, zoom, x, plane]);
   return (
-    <div
-      ref={ref}
-      className={`${classes.mapCanvas} ${classes.flowCanvas}`}
-      data-testid="flow-canvas"
-      data-zoom={zoom}
-    >
-      <Box
-        className={classes.mapPlane}
-        w={plane > 0 ? plane : '100%'}
-        h={Math.ceil(laidOut.height * zoom)}
+    <div className={classes.flowFrame}>
+      <div
+        ref={canvasRef}
+        className={classes.flowCanvas}
+        data-testid="flow-canvas"
+        data-zoom={zoom}
       >
-        <ReactFlow
-          key={`${plane}:${zoom}`}
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={FLOW_NODE_TYPES}
-          edgeTypes={MAP_EDGE_TYPES}
-          defaultViewport={{ x, y: 0, zoom }}
-          minZoom={MIN_MAP_ZOOM}
-          maxZoom={1}
-          panOnDrag={false}
-          panOnScroll={false}
-          zoomOnScroll={false}
-          zoomOnPinch={false}
-          zoomOnDoubleClick={false}
-          preventScrolling={false}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          nodesFocusable={false}
-          edgesFocusable={false}
-          elementsSelectable={false}
-          proOptions={{ hideAttribution: true }}
-          colorMode={scheme}
+        <Box
+          className={classes.mapPlane}
+          w={plane > 0 ? plane : '100%'}
+          data-plane={plane}
+          h={Math.ceil(laidOut.height * zoom)}
         >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={16}
-            size={1}
-            color="var(--tk-line-2)"
-            bgColor="var(--tk-panel)"
-          />
-        </ReactFlow>
-      </Box>
+          <ReactFlow
+            key={`${plane}:${zoom}`}
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={FLOW_NODE_TYPES}
+            edgeTypes={MAP_EDGE_TYPES}
+            defaultViewport={{ x, y: 0, zoom }}
+            minZoom={MIN_MAP_ZOOM}
+            maxZoom={1}
+            panOnDrag={false}
+            panOnScroll={false}
+            zoomOnScroll={false}
+            zoomOnPinch={false}
+            zoomOnDoubleClick={false}
+            preventScrolling={false}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            nodesFocusable={false}
+            edgesFocusable={false}
+            elementsSelectable={false}
+            proOptions={{ hideAttribution: true }}
+            colorMode={scheme}
+          >
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={16}
+              size={1}
+              color="var(--tk-line-2)"
+              bgColor="var(--tk-panel)"
+            />
+          </ReactFlow>
+        </Box>
+      </div>
     </div>
   );
-}
-
-/** A block's kind badge and layer dots, from the payload. */
-function factsFrom(payload: BlocksPayload | undefined) {
-  const byId = new Map(payload?.blocks.map(block => [block.id, block]));
-  return (blockId: string): BlockFacts => {
-    const block = byId.get(blockId);
-    const kind = block?.kind;
-    return {
-      kind: kind === 'question' || kind === 'gate' ? kind : 'step',
-      dots: block ? dotsOf(block) : [],
-    };
-  };
 }
 
 export interface FlowGraphProps {
@@ -297,6 +317,11 @@ export interface FlowGraphProps {
   skill?: string;
   /** The node drawn lit. */
   focus: string | null;
+  /** The whole graph's flow order, when `graph` is a part of it. */
+  order?: string[];
+  /** On open, the canvas scrolls the focus, or else the first step, into
+      view. */
+  startInView?: boolean;
   onSelect: (blockId: string) => void;
   engine?: () => Promise<LayoutEngine>;
   /** The placeholder's height while the first layout runs. */
@@ -310,6 +335,8 @@ export function FlowGraph({
   payload,
   skill,
   focus,
+  order,
+  startInView = false,
   onSelect,
   engine,
   loadingHeight = 320,
@@ -319,15 +346,15 @@ export function FlowGraph({
     if (graph.nodes.length === 0) return null;
     const laid = flowLayout(graph, {
       skill,
-      focus,
-      factsOf: factsFrom(payload),
+      factsOf: blockFactsOf(payload),
       measure: measureText,
+      order,
     });
     layoutOf.set(laid.input, laid);
     return laid;
     // fontsLoaded only re-runs the layout; measureText reads the fonts itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, payload, skill, focus, fontsLoaded]);
+  }, [graph, payload, skill, order, fontsLoaded]);
   const { state, laidOut, laidFor, retry } = useGraphLayout(
     layout?.input ?? null,
     engine
@@ -369,7 +396,12 @@ export function FlowGraph({
   }
   return (
     <OnSelect.Provider value={onSelect}>
-      <FlowCanvas layout={shown} laidOut={placed} />
+      <FlowCanvas
+        layout={shown}
+        laidOut={placed}
+        focus={focus}
+        startInView={startInView}
+      />
     </OnSelect.Provider>
   );
 }
@@ -461,6 +493,7 @@ export function EveryStep({
         payload={payload}
         skill={payload.skill}
         focus={highlight}
+        startInView
         onSelect={onSelect}
         engine={engine}
       />

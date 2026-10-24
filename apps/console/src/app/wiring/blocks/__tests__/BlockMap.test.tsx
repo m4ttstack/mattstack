@@ -9,7 +9,7 @@ import { BlockMap } from '../BlockMap';
 import { bundledEngine } from '../layoutEngine';
 import { blockMap, type MapKind } from '../model/blockMap';
 import type { LayoutEngine } from '../model/elkGraph';
-import { mainColumn } from '../model/mapLayout';
+import { mainColumn, mapLayout } from '../model/mapLayout';
 import { LAYOUT_TIMEOUT_MS } from '../useGraphLayout';
 import { shipPayload } from './blocksFixture';
 
@@ -135,6 +135,25 @@ describe('BlockMap', () => {
     expect(new Set(main).size).toBe(1);
     expect(main[0]).not.toBe('');
     expect(widthOf('Stash them')).not.toBe(main[0]);
+  }, 20_000);
+
+  it('lays the main column out straight, from the top, in model order', async () => {
+    const layout = mapLayout(map, graph, {
+      dotsOf: () => [],
+      measure: (text, size) => text.length * size * 0.55,
+    });
+    const laidOut = await shared.layout(layout.input);
+    const main = mainColumn(map, graph).nodes;
+    const centre = (id: string) => {
+      const box = laidOut.nodes[id]!;
+      return box.x + layout.boxes.get(id)!.width / 2;
+    };
+    expect(new Set(main.map(centre)).size).toBe(1);
+    const tops = main.map(id => laidOut.nodes[id]!.y);
+    expect(tops).toEqual([...tops].sort((a, b) => a - b));
+    expect(laidOut.nodes[main[0]!]!.y).toBe(
+      Math.min(...Object.values(laidOut.nodes).map(box => box.y))
+    );
   }, 20_000);
 
   it('"No blocks here" links to Every step', () => {

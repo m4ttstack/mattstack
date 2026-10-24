@@ -367,8 +367,34 @@
   gap: 12px;
 }
 
+/* The frame draws the border, so the scroller inside it measures exactly
+   the room the plane has: a border on the scroller itself counts in its
+   measured width and scrolls the plane by two pixels. */
+.flowFrame {
+  overflow: hidden;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 12px;
+  background: var(--tk-panel);
+}
+
+.flowCanvas {
+  --xy-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-border-selected: none;
+  --xy-node-color: inherit;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .flowCanvas .mapCard[data-hot] {
   border-width: 1.5px;
+}
+
+/* React Flow's viewport is the plane's width before its zoom, so centred
+   at full size it would run past the plane and scroll the canvas. */
+.flowCanvas .mapPlane {
+  overflow: hidden;
 }
 
 .flowStep {
