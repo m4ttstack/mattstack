@@ -7,7 +7,8 @@ import type { Block, BlockTree } from "./types.ts";
 
 const SUFFIX = ".block.md";
 const INDEX = "index.block.md";
-export const FENCE_RE = /^\s*(`{3,}|~{3,})\s*(\S*)\s*$/;
+/** `[2]` is the info string's first word, empty on a closing line; words after it (a title) do not end the match. */
+export const FENCE_RE = /^\s*(`{3,}|~{3,})\s*([^\s`]*)(?:\s+[^`]*)?$/;
 
 export function isBlockTree(dir: string): boolean {
   return existsSync(join(dir, INDEX));

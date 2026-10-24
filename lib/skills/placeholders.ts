@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { join, posix } from "path";
-import { relevelDelta, shiftHeadings } from "./blocks/headings.ts";
+import { fencedLines, relevelDelta, shiftHeadings } from "./blocks/headings.ts";
 import { defaultPipeline } from "./pipelines.ts";
 import { firstTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
@@ -124,7 +124,11 @@ export function inlineFillText(
 ): string {
   const resolved = resolveFillTeamMarkers(fill, ctx.team);
   const rewritten = atSkillDir(resolved.body, skillDirFor(fill, ctx, partsName));
-  const flatBodies = [...rewritten.matchAll(INCLUDE_LINE_RE)].flatMap((m) => (Object.hasOwn(ctx.includes, m[1]!) ? [ctx.includes[m[1]!]!.body] : []));
+  const fenced = fencedLines(rewritten);
+  const flatBodies = rewritten.split("\n").flatMap((line, i) => {
+    const name = fenced[i] ? undefined : INCLUDE_LINE_RE.exec(line)?.[1];
+    return name !== undefined && Object.hasOwn(ctx.includes, name) ? [ctx.includes[name]!.body] : [];
+  });
   const shift = headingLevel === undefined ? 0 : relevelDelta([rewritten, ...flatBodies], headingLevel);
   const toSource: TreeIncludeText | undefined = treeInclude
     && ((name, at) => treeInclude(name, { line: resolved.sourceLine(at.line), textAfter: at.textAfter === null ? null : resolved.sourceLine(at.textAfter) }));
@@ -134,7 +138,7 @@ export function inlineFillText(
   return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
 }
 
-const INCLUDE_LINE_RE = /^\s*\{\{include:([^}\s]+)\}\}\s*$/gm;
+const INCLUDE_LINE_RE = /^\s*\{\{include:([^}\s]+)\}\}\s*$/;
 
 /** `shift` moves the include's headings, as it does the fill's or block's text it is placed in. */
 export function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext, shift = 0): string {
@@ -167,13 +171,14 @@ export function substituteIncludesOnly(
     const next = lines.findIndex((l, j) => j > i && l.trim() !== "");
     return next < 0 ? null : next + 1;
   };
+  const fenced = fencedLines(body);
   const out = lines.map((line, i) =>
     line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
       switch (kind) {
         case "include": {
           if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
           const inc = arg ? ctx.includes[arg] : undefined;
-          if (arg && inc) return includeText(arg, inc, ctx, shift);
+          if (arg && inc) return includeText(arg, inc, ctx, fenced[i] ? 0 : shift);
           const tree = arg ? treeInclude?.(arg, { line: i + 1, textAfter: textAfter(i) }) ?? null : null;
           if (tree === null) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
           return tree;

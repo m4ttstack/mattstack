@@ -138,6 +138,10 @@ function failingPlaceholderCol(line: string, message: string): number {
   return (hit?.index ?? Math.max(0, line.indexOf("{{"))) + 1;
 }
 
+function firstContentLine(text: string): string | null {
+  return text.split("\n").find((l) => l.trim() !== "" && !l.startsWith(SEAM_START)) ?? null;
+}
+
 /** The last `#` heading line in rendered text, outside code fences, or null. */
 function lastHeading(text: string): string | null {
   let fence: string | null = null;
@@ -186,6 +190,7 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
   let resume = false;
   let fence: { marker: string; mermaid: boolean } | null = null;
   let headedInclude: string | null = null;
+  let headedFill: string | null = null;
   let collapseBlanks = false;
   const endsBlank = () => out.length === 0 || out[out.length - 1]!.split("\n").pop()!.trim() === "";
 
@@ -266,6 +271,24 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
         rendered = "";
       }
     }
+
+    // Text after a fill with headings would read as the fill's last section, so only a heading may follow it.
+    if (headedFill !== null && trimmed !== "") {
+      const first = firstContentLine(rendered);
+      if (first !== null) {
+        if (fenced || !HEADING_RE.test(first)) {
+          st.diagnostics.push({
+            file: b.relPath,
+            line: fileLine,
+            col: line.search(/\S/) + 1 + indent,
+            message: `text after {{props.${headedFill}}}: a fill that carries headings must be the last thing in its block, or be followed by a heading`,
+            code: "text-after-include",
+          });
+        }
+        headedFill = null;
+      }
+    }
+    if (prop && headedInclude === null && lastHeading(rendered) !== null) headedFill = prop[1]!;
 
     const emptyProp = prop !== null && !fenced && rendered === "";
     const blank = rendered.trim() === "";

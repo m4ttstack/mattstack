@@ -274,6 +274,49 @@ test("a flat include placed from block text re-levels under the heading it sits 
   expect(body).toContain("```\n# fenced\n```");
 });
 
+const renderStepFill = (fillBody: string, over: Partial<PlaceholderContext> = {}) => {
+  const tree = plainTree({ "index.block.md": "---\n---\n\n# a\n", "step.block.md": STEP_WITH_RULES });
+  const layers = { "a/step": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  return renderTree({ tree, source: SOURCE, values: valuesFor(tree, headedFillRoots(fillBody), layers), includes: noIncludes, ctx: ctx(over) }).body;
+};
+
+test("a fence whose info string holds a space keeps its lines out of the shift", () => {
+  const body = renderStepFill("# Rules\n\n```bash title\n# a shell comment\n```\n\n## Sub rule");
+  expect(body).toContain("```bash title\n# a shell comment\n```");
+  expect(headingsOf(body)).toEqual(["# a", "## Step", "### Rules", "#### Sub rule"]);
+});
+
+test("a fill's include line inside a fence is neither counted nor shifted", () => {
+  const flat = flatInclude("# Example heading");
+  const body = renderStepFill("## Rules\n\n```md\n{{include:flat}}\n```", { includes: { flat } });
+  expect(headingsOf(body)).toEqual(["# a", "## Step", "### Rules"]);
+  expect(body).toContain("\n# Example heading\n```");
+});
+
+test("setext headings in a fill are counted and shifted, keeping the line count", () => {
+  const body = renderStepFill("Rules\n=====\n\nLead.\n\nSub rule\n--------\n\nText.");
+  expect(headingsOf(body)).toEqual(["# a", "## Step", "### Rules", "#### Sub rule"]);
+  expect(body).toContain("### Rules\n\n\nLead.\n\n#### Sub rule\n\n\nText.");
+});
+
+test("block text after a fill that carries headings is text-after-include at that text", () => {
+  const tree = plainTree({ "index.block.md": "---\n---\n\n# a\n", "step.block.md": `${STEP_WITH_RULES}\nAfter the fill.\n` });
+  const layers = { "a/step": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  const values = valuesFor(tree, headedFillRoots("# Rules\n\nRule text."), layers);
+  expect(diagnosticsOf(() => renderTree({ tree, source: SOURCE, values, includes: noIncludes, ctx: ctx() }))).toEqual([
+    expect.objectContaining({ file: "a/step.block.md", line: 11, col: 1, code: "text-after-include" }),
+  ]);
+});
+
+test("a heading, or a fill with no headings, may follow a fill", () => {
+  const after = "\n## Next part\n\nMore.\n";
+  const tree = plainTree({ "index.block.md": "---\n---\n\n# a\n", "step.block.md": `${STEP_WITH_RULES}${after}` });
+  const layers = { "a/step": { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };
+  expect(() => renderTree({ tree, source: SOURCE, values: valuesFor(tree, headedFillRoots("# Rules\n\nRule text."), layers), includes: noIncludes, ctx: ctx() })).not.toThrow();
+  const plain = plainTree({ "index.block.md": "---\n---\n\n# a\n", "step.block.md": `${STEP_WITH_RULES}\nAfter the fill.\n` });
+  expect(() => renderTree({ tree: plain, source: SOURCE, values: valuesFor(plain, headedFillRoots("Rule text."), layers), includes: noIncludes, ctx: ctx() })).not.toThrow();
+});
+
 test("a props marker that shares its line is bad-marker at the marker", () => {
   const tree = plainTree({
     "index.block.md": "---\nprops:\n  x:\n    merge: add\n    default: \"\"\n---\n\n# T\n\nSee {{props.x}} here.\n",
