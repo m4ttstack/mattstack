@@ -4,10 +4,15 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AroundGraph, roomAt } from '../AroundGraph';
+import { AroundGraph } from '../AroundGraph';
+import { bundledEngine } from '../layoutEngine';
 import { shipShaped } from './aroundFixtures';
 
-function renderAround() {
+const shared = bundledEngine();
+const engine = () => Promise.resolve(shared);
+const LAID_OUT = { timeout: 15_000 };
+
+async function renderAround() {
   const onSelect = vi.fn();
   const onViewWholeGraph = vi.fn();
   renderWithProviders(
@@ -16,85 +21,82 @@ function renderAround() {
       focus="fast_checks"
       onSelect={onSelect}
       onViewWholeGraph={onViewWholeGraph}
+      engine={engine}
     />
   );
+  await screen.findByTestId('flow-canvas', {}, LAID_OUT);
   return { onSelect, onViewWholeGraph };
 }
 
-// Clicks, not pointer sequences: React Flow's pan handler reads the
-// `MouseEvent.view` that jsdom's synthetic pointer events leave null.
-const click = (element: Element) => fireEvent.click(element);
+const texts = (testId: string) =>
+  screen.getAllByTestId(testId).map(node => node.textContent);
 
 describe('AroundGraph', () => {
-  it('draws the subgraph: block nodes solid, graph steps outlined', () => {
-    renderAround();
+  it('Around keeps one hop in and out and short cycles', async () => {
+    await renderAround();
 
-    expect(
-      screen.getAllByTestId('around-block').map(node => node.textContent)
-    ).toEqual(
-      expect.arrayContaining(['Commit named', 'Fast checks', 'Fix test-first'])
+    expect(texts('map-card').sort()).toEqual(
+      ['Commit named', 'Fast checks', 'Fix test-first', 'Stash them'].sort()
     );
-    expect(
-      screen.getAllByTestId('around-step').map(node => node.textContent)
-    ).toEqual(
-      expect.arrayContaining([
-        'Tree dirty?',
+    expect(texts('flow-step').sort()).toEqual(
+      [
         'Checks pass?',
         'Fix rounds left?',
-      ])
+        'Rebase status?',
+        'Tree dirty?',
+      ].sort()
     );
     expect(screen.queryByText('Rebase this pass?')).not.toBeInTheDocument();
-  });
+    expect(screen.queryByText('Push')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('map-edge')).toHaveLength(11);
+  }, 20_000);
 
-  it('marks the focus node', () => {
-    renderAround();
+  it('draws its exit labels as chips', async () => {
+    await renderAround();
+
+    expect(texts('map-chip')).toEqual(
+      expect.arrayContaining(['commit', 'stash', 'clean', 'red test'])
+    );
+  }, 20_000);
+
+  it('lights the focus', async () => {
+    await renderAround();
 
     expect(screen.getByRole('button', { name: 'Fast checks' })).toHaveAttribute(
-      'data-focus',
+      'data-hot',
       'true'
     );
     expect(
       screen.getByRole('button', { name: 'Commit named' })
-    ).not.toHaveAttribute('data-focus');
-  });
+    ).not.toHaveAttribute('data-hot');
+  }, 20_000);
 
-  it('opens a block when its node is clicked', () => {
-    const { onSelect } = renderAround();
+  it('opens a block when its card is clicked', async () => {
+    const { onSelect } = await renderAround();
 
-    click(screen.getByRole('button', { name: 'Commit named' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Commit named' }));
 
     expect(onSelect).toHaveBeenCalledWith('ship/flow/commit-named');
-  });
+  }, 20_000);
 
-  it('does nothing when a graph-only step is clicked', () => {
-    const { onSelect } = renderAround();
+  it('does nothing when a graph-only step is clicked', async () => {
+    const { onSelect } = await renderAround();
 
-    click(screen.getByText('Tree dirty?'));
+    fireEvent.click(screen.getByText('Tree dirty?'));
 
     expect(onSelect).not.toHaveBeenCalled();
     expect(
       screen.queryByRole('button', { name: 'Tree dirty?' })
     ).not.toBeInTheDocument();
-  });
+  }, 20_000);
 
-  it('shows the key and opens the whole graph', () => {
-    const { onViewWholeGraph } = renderAround();
+  it('shows the key and opens the whole graph', async () => {
+    const { onViewWholeGraph } = await renderAround();
 
     expect(screen.getByText('Opens a block')).toBeInTheDocument();
     expect(screen.getByText('Graph step only')).toBeInTheDocument();
-    click(screen.getByRole('button', { name: 'View whole graph' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View whole graph' }));
 
     expect(onViewWholeGraph).toHaveBeenCalledOnce();
-  });
-});
-
-describe('roomAt', () => {
-  it("leaves the board's row of four room beside a scrollbar, at 1440 and at 900", () => {
-    // The board's row: three nodes at 150, one at 160, three 30px gaps.
-    const boardRow = 3 * 150 + 160 + 3 * 30;
-    expect(roomAt(730)).toBeGreaterThanOrEqual(boardRow);
-    expect(roomAt(715)).toBeGreaterThanOrEqual(boardRow);
-    expect(roomAt(554)).toBeLessThan(boardRow);
-    expect(roomAt(0)).toBe(Number.POSITIVE_INFINITY);
-  });
+  }, 20_000);
 });

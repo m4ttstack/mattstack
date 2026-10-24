@@ -367,155 +367,82 @@
   gap: 12px;
 }
 
-.aroundCanvas {
-  --xy-background-color: transparent;
-  --xy-node-border: none;
-  --xy-node-border-selected: none;
-  --xy-node-color: inherit;
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--tk-border);
-  border-radius: 8px;
-  background: var(--tk-inset);
+.flowCanvas .mapCard[data-hot] {
+  border-width: 1.5px;
 }
 
-/* React Flow turns pointer events off on a node it cannot select or drag;
-   a block node is a button all the same. */
-.aroundShell {
-  position: relative;
+.flowStep {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: var(--card-w);
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 8px;
+  background-color: var(--tk-panel);
+  color: var(--tk-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: normal;
   pointer-events: auto;
 }
 
-.aroundNode {
-  display: flex;
+.flowStepBadge {
+  display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
-  gap: 6px;
-  box-sizing: border-box;
-  min-width: 150px;
-  max-width: 240px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--tk-border);
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: normal;
-}
-
-.aroundNode[data-kind='block'] {
-  background-color: var(--tk-card);
-  color: var(--tk-text-accent);
-}
-
-/* Filled with the canvas, so it reads as see-through while an edge passing
-   behind it stays off its text. */
-.aroundNode[data-kind='step'] {
-  background-color: var(--tk-inset);
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background-color: var(--tk-raised);
   color: var(--tk-text-2);
-  cursor: default;
 }
 
-.aroundNode[data-focus] {
-  border-color: var(--tk-fill-accent);
-  background-color: color-mix(
-    in srgb,
-    var(--tk-fill-accent) var(--ui-wash),
-    transparent
-  );
-  font-weight: 500;
-}
-
-@media (hover: hover) {
-  .aroundNode[data-kind='block']:hover {
-    border-color: var(--tk-fill-accent);
-  }
-}
-
-.aroundNode[data-kind='block']:focus-visible {
-  outline: 1.5px solid var(--tk-fill-accent);
-  outline-offset: 1px;
-}
-
-.aroundLabel {
+.flowStepLabel {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.aroundHandle:global(.react-flow__handle) {
-  width: 1px;
-  height: 1px;
-  min-width: 0;
-  min-height: 0;
-  border: 0;
-  opacity: 0;
-}
-
-.aroundEdge {
-  fill: none;
-  stroke: var(--tk-line-1);
-  stroke-width: 1.25;
-}
-
-.aroundEdge[data-dashed] {
-  stroke-dasharray: 4 3;
-}
-
-.aroundMarker {
-  fill: var(--tk-line-1);
-}
-
-/* React Flow stacks its label layer under the nodes; labels draw over them. */
-.aroundCanvas :global(.react-flow__edgelabel-renderer) {
-  z-index: 1;
-}
-
-.aroundEdgeLabel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform: translate(var(--label-x), var(--label-y));
-  padding: 0 4px;
-  border-radius: 4px;
-  background-color: var(--tk-inset);
-  color: var(--tk-text-3);
-  font-size: 12px;
-  line-height: normal;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.aroundEdgeLabel[data-side='left'] {
-  transform: translate(var(--label-x), var(--label-y)) translateX(-100%);
-}
-
-.aroundKey {
+.flowKey {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
+  gap: 4px 16px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.aroundSample {
+.flowKey li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.flowSample {
   display: inline-block;
   flex-shrink: 0;
   box-sizing: border-box;
   width: 14px;
   height: 10px;
-  border: 1px solid var(--tk-border);
+  border: 1px solid var(--tk-border-soft);
   border-radius: 3px;
 }
 
-.aroundSample[data-kind='block'] {
+.flowSample[data-kind='block'] {
   background-color: var(--tk-card);
 }
 
-/* A graph-only node is see-through on the canvas, so its sample takes the
-   canvas fill. */
-.aroundSample[data-kind='step'] {
-  background-color: var(--tk-inset);
+.flowSample[data-kind='step'] {
+  background-color: var(--tk-panel);
 }
 
 .page {
@@ -1033,8 +960,14 @@
   gap: 10px;
 }
 
-.mapClose {
+.mapTools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-left: auto;
+}
+
+.mapClose {
   color: var(--tk-text-accent);
   font-size: 13px;
   font-weight: 500;

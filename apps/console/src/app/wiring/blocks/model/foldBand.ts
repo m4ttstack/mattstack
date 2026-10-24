@@ -1,7 +1,6 @@
 import type { BlocksPayload } from '../../../../server/blocksPayload';
-import { shortLabel } from './aroundLayout';
 import { adjacency, exitNodes, type BlockMap, type MapLink } from './blockMap';
-import { cutLabel } from './labels';
+import { cutLabel, shortLabel } from './labels';
 
 type Graph = BlocksPayload['graphs'][number];
 

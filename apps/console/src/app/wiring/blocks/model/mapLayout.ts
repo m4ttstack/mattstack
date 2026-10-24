@@ -1,8 +1,8 @@
 import type { BlocksPayload } from '../../../../server/blocksPayload';
-import { shortLabel } from './aroundLayout';
 import type { Dot } from './blockFacts';
 import type { BlockMap, MapLink, MapNode } from './blockMap';
 import type { LayoutEdge, LayoutInput, LayoutNode } from './elkGraph';
+import { shortLabel } from './labels';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -131,7 +131,11 @@ export function mainColumn(
   return { nodes, links };
 }
 
-function cardWidth(label: string, dots: number, measure: Measure): number {
+export function cardWidth(
+  label: string,
+  dots: number,
+  measure: Measure
+): number {
   const dotsWidth =
     dots > 0 ? CARD.dotsGap + dots * CARD.dot + (dots - 1) * CARD.dotGap : 0;
   return Math.ceil(

@@ -4,6 +4,9 @@ import { navigate } from 'wouter/use-browser-location';
 
 export type WiringTab = 'graph' | 'surface' | 'health';
 export type WiringView = 'template' | 'rendered';
+/** The block view's two graphs, as `select` names them: the block map and
+    Every step. */
+export type BlockGraphSelect = 'graph' | 'graph-steps';
 
 export type WiringUrl = {
   tab: WiringTab;

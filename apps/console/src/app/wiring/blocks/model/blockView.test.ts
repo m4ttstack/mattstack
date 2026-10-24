@@ -127,18 +127,45 @@ describe('graphs', () => {
 
   it("finds the graph a zoom level's block map draws", () => {
     expect(
-      mapGraphOf(miniPayload, { level: 'block', block: byId('mini/gate') })
-    ).toMatchObject({ highlight: 'ask_gate', graph: { blockId: 'mini' } });
+      mapGraphOf(
+        miniPayload,
+        { level: 'block', block: byId('mini/gate') },
+        'graph'
+      )
+    ).toMatchObject({
+      highlight: 'ask_gate',
+      graph: { blockId: 'mini' },
+      view: 'graph',
+    });
     expect(
-      mapGraphOf(miniPayload, { level: 'block', block: byId('mini/notes') })
+      mapGraphOf(
+        miniPayload,
+        { level: 'block', block: byId('mini/notes') },
+        'graph'
+      )
     ).toBeNull();
-    expect(mapGraphOf(miniPayload, { level: 'skill' })).toMatchObject({
+    expect(mapGraphOf(miniPayload, { level: 'skill' }, 'graph')).toMatchObject({
       highlight: null,
       graph: { blockId: 'mini' },
     });
     expect(
-      mapGraphOf(miniPayload, { level: 'parent', block: byId('mini/run') })
+      mapGraphOf(
+        miniPayload,
+        { level: 'parent', block: byId('mini/run') },
+        'graph'
+      )
     ).toBeNull();
+  });
+
+  it('finds the same graph for Every step, and none for any other select', () => {
+    const gate = { level: 'block', block: byId('mini/gate') } as const;
+    expect(mapGraphOf(miniPayload, gate, 'graph-steps')).toMatchObject({
+      highlight: 'ask_gate',
+      graph: { blockId: 'mini' },
+      view: 'graph-steps',
+    });
+    expect(mapGraphOf(miniPayload, gate, null)).toBeNull();
+    expect(mapGraphOf(miniPayload, gate, 'row:intro')).toBeNull();
   });
 
   it('counts every block under the root', () => {

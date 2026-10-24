@@ -22,7 +22,7 @@ import type {
 import { useEditorHref } from '../../editorHref';
 import { FocusHeader, type HeaderStatus } from '../graph/FocusHeader';
 import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
-import type { WiringUrl } from '../graph/useWiringUrl';
+import type { BlockGraphSelect, WiringUrl } from '../graph/useWiringUrl';
 import type { SkillsCheck, SkillsComposition } from '../outline';
 import { useSkillSource, type SkillsAnatomy } from '../useWiring';
 import { AroundGraph } from './AroundGraph';
@@ -30,6 +30,7 @@ import { BlockMap } from './BlockMap';
 import classes from './blocks.module.css';
 import { BlockText, GraphCard } from './BlockText';
 import { CopyForClaude } from './CopyForClaude';
+import { EveryStep } from './FlowGraph';
 import { HistoryTab } from './HistoryTab';
 import { LayersPanel } from './LayersPanel';
 import { labelOf, rootOf, shownLabel } from './model/blockFacts';
@@ -44,14 +45,13 @@ import {
   scopeStats,
   sharedRootOf,
   withoutLead,
+  type MapGraph,
 } from './model/blockView';
 import { sectionsAt } from './model/sections';
 import { usedBySites } from './model/usedBy';
 import { crumbsOf, zoomOf, type Zoom } from './model/zoom';
 import { SectionBand } from './SectionBand';
 import { UsedBy } from './UsedBy';
-
-type Graph = BlocksPayload['graphs'][number];
 
 /** The skill's own facts for the header at the skill level. */
 export type SkillHeader = {
@@ -277,6 +277,33 @@ function ParentBody({ children }: { children: ReactNode }) {
   return <div className={classes.parentBody}>{children}</div>;
 }
 
+/** The graph the URL opens: the block map or Every step. */
+function GraphView({
+  payload,
+  map,
+  patch,
+  onSelect,
+}: {
+  payload: BlocksPayload;
+  map: MapGraph;
+  patch: Patch;
+  onSelect: (blockId: string) => void;
+}) {
+  const shared = {
+    payload,
+    graph: map.graph,
+    highlight: map.highlight,
+    onSelect,
+    onView: (view: BlockGraphSelect) => patch({ select: view }),
+    onClose: () => patch({ select: null }),
+  };
+  return map.view === 'graph-steps' ? (
+    <EveryStep {...shared} />
+  ) : (
+    <BlockMap {...shared} />
+  );
+}
+
 /** The block's text, then its graph (whole, small or as a card) and the
     folded blocks under it, by zoom level. */
 function ZoomBody({
@@ -291,8 +318,8 @@ function ZoomBody({
   payload: BlocksPayload;
   zoom: Zoom;
   patch: Patch;
-  /** The block map's graph when the map is open here, else null. */
-  map: { graph: Graph; highlight: string | null } | null;
+  /** The graph the URL opens here, and in which view; null for none. */
+  map: MapGraph | null;
   /** Every folded row shows its text. */
   expanded: boolean;
   /** The line the header shows under the title. */
@@ -302,9 +329,9 @@ function ZoomBody({
 }) {
   const open = (id: string) => patch({ block: id, select: null });
   const viewGraph = () => patch({ select: 'graph' });
-  const closeGraph = () => patch({ select: null });
-  const glyphOf = (blockId: string) =>
-    payload.blocks.find(candidate => candidate.id === blockId)?.kind ?? null;
+  const graphView = map && (
+    <GraphView payload={payload} map={map} patch={patch} onSelect={open} />
+  );
   if (zoom.level === 'block') {
     const { block } = zoom;
     const at = graphOfBlock(payload, block);
@@ -317,27 +344,17 @@ function ZoomBody({
           level="block"
           size="lg"
         />
-        {map ? (
-          <BlockMap
-            payload={payload}
-            graph={map.graph}
-            highlight={map.highlight}
-            onSelect={open}
-            onClose={closeGraph}
-          />
-        ) : (
-          graph &&
-          at && (
+        {graphView ??
+          (graph && at && (
             <AroundGraph
               graph={graph}
+              payload={payload}
               skill={payload.skill}
               focus={at.node}
-              glyphOf={glyphOf}
               onSelect={open}
               onViewWholeGraph={viewGraph}
             />
-          )
-        )}
+          ))}
       </>
     );
   }
@@ -364,15 +381,7 @@ function ZoomBody({
           onViewGraph={viewGraph}
         />
       )}
-      {map && (
-        <BlockMap
-          payload={payload}
-          graph={map.graph}
-          highlight={map.highlight}
-          onSelect={open}
-          onClose={closeGraph}
-        />
-      )}
+      {graphView}
       {sectionsAt(payload, zoom).map(band => (
         <SectionBand
           key={band.id}
@@ -421,8 +430,7 @@ export function BlockView({
   const root = rootOf(payload);
   const rendered = url.view === 'rendered';
   const map = useMemo(
-    () =>
-      url.select === 'graph' && !rendered ? mapGraphOf(payload, zoom) : null,
+    () => (rendered ? null : mapGraphOf(payload, zoom, url.select)),
     [url.select, rendered, payload, zoom]
   );
   const showRail = !readOnly && map === null;

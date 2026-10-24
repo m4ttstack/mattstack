@@ -35,17 +35,19 @@ function renderMap(
 ) {
   const onSelect = vi.fn();
   const onClose = vi.fn();
+  const onView = vi.fn();
   renderWithProviders(
     <BlockMap
       payload={shipPayload}
       graph={overrides.graph ?? graph}
       highlight={null}
       onSelect={onSelect}
+      onView={onView}
       onClose={onClose}
       engine={overrides.engine ?? engine}
     />
   );
-  return { onSelect, onClose };
+  return { onSelect, onClose, onView };
 }
 
 const cardNamed = (label: string) =>
@@ -135,8 +137,8 @@ describe('BlockMap', () => {
     expect(widthOf('Stash them')).not.toBe(main[0]);
   }, 20_000);
 
-  it('with no blocks in the graph it says "No blocks here"', () => {
-    renderMap({
+  it('"No blocks here" links to Every step', () => {
+    const { onView } = renderMap({
       graph: {
         blockId: 'ship/empty',
         nodes: [
@@ -155,6 +157,18 @@ describe('BlockMap', () => {
 
     expect(screen.getByText('No blocks here')).toBeInTheDocument();
     expect(screen.queryByTestId('map-card')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'See every step' }));
+    expect(onView).toHaveBeenCalledWith('graph-steps');
+  });
+
+  it('the header switches to Every step', () => {
+    const { onView } = renderMap({ engine: () => new Promise(() => {}) });
+
+    const views = screen.getByRole('radiogroup', { name: 'Graph view' });
+    expect(within(views).getByRole('radio', { name: 'Blocks' })).toBeChecked();
+    fireEvent.click(within(views).getByRole('radio', { name: 'Every step' }));
+
+    expect(onView).toHaveBeenCalledWith('graph-steps');
   });
 
   it('when layout fails it says "The graph didn\'t lay out" and Retry lays out again', async () => {
@@ -199,6 +213,7 @@ describe('BlockMap', () => {
       payload: shipPayload,
       highlight: null,
       onSelect: vi.fn(),
+      onView: vi.fn(),
       onClose: vi.fn(),
       engine: slowAfterFirst,
     };

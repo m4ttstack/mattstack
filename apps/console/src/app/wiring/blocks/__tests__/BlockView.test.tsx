@@ -37,6 +37,14 @@ vi.mock('../../../api', () => ({
   },
 }));
 
+vi.mock('../layoutEngine', async importOriginal => {
+  const real = await importOriginal<typeof import('../layoutEngine')>();
+  const engine = real.bundledEngine();
+  return { ...real, loadLayoutEngine: () => Promise.resolve(engine) };
+});
+
+const LAID_OUT = { timeout: 15_000 };
+
 const { BlockView } = await import('../BlockView');
 
 const URL_AT: WiringUrl = {
@@ -320,35 +328,36 @@ describe('BlockView: a single block', () => {
     ).toBeInTheDocument();
   });
 
-  it('draws Around this block with block nodes under their short labels', () => {
+  it('draws Around this block with block nodes under their short labels', async () => {
     renderView({ block: 'mini/gate' });
 
     const around = screen.getByTestId('around-graph');
-    expect(
-      within(around)
-        .getAllByTestId('around-block')
-        .map(node => node.textContent)
-    ).toEqual(['Run', 'Gate']);
+    const cards = await within(around).findAllByTestId(
+      'map-card',
+      {},
+      LAID_OUT
+    );
+    expect(cards.map(node => node.textContent)).toEqual(['Run', 'Gate']);
     expect(screen.getAllByText('Around this block')).toHaveLength(1);
   });
 
-  it("marks a block node with its block's kind glyph", () => {
+  it("marks a block node with its block's kind badge", async () => {
     renderView({ block: 'mini/gate' });
 
-    const gate = within(screen.getByTestId('around-graph'))
-      .getAllByTestId('around-block')
-      .find(node => node.textContent === 'Gate')!;
-    expect(gate.querySelector('[data-glyph="gate"]')).not.toBeNull();
+    const cards = await within(
+      screen.getByTestId('around-graph')
+    ).findAllByTestId('map-card', {}, LAID_OUT);
+    const gate = cards.find(node => node.textContent === 'Gate')!;
+    expect(gate.querySelector('[data-badge="gate"]')).not.toBeNull();
   });
 
-  it('opens a block from its node in Around this block', () => {
+  it('opens a block from its node in Around this block', async () => {
     const patch = renderView({ block: 'mini/gate' });
 
-    fireEvent.click(
-      within(screen.getByTestId('around-graph'))
-        .getAllByTestId('around-block')
-        .find(node => node.textContent === 'Run')!
-    );
+    const cards = await within(
+      screen.getByTestId('around-graph')
+    ).findAllByTestId('map-card', {}, LAID_OUT);
+    fireEvent.click(cards.find(node => node.textContent === 'Run')!);
 
     expect(patch).toHaveBeenCalledWith({ block: 'mini/run', select: null });
   });
@@ -361,6 +370,45 @@ describe('BlockView: a single block', () => {
     expect(within(map).getByText('Block map')).toBeInTheDocument();
     await userEvent.click(within(map).getByRole('button', { name: 'Close' }));
     expect(patch).toHaveBeenCalledWith({ select: null });
+  });
+
+  it('the Blocks | Every step control switches the URL between graph and graph-steps', async () => {
+    const patch = renderView({ block: 'mini/gate', select: 'graph' });
+
+    await userEvent.click(
+      within(screen.getByTestId('block-map')).getByRole('radio', {
+        name: 'Every step',
+      })
+    );
+    expect(patch).toHaveBeenCalledWith({ select: 'graph-steps' });
+  });
+
+  it('shows Every step at graph-steps, switches back to Blocks and closes', async () => {
+    const patch = renderView({ block: 'mini/gate', select: 'graph-steps' });
+
+    expect(screen.queryByTestId('block-map')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('around-graph')).not.toBeInTheDocument();
+    const steps = screen.getByTestId('every-step');
+    expect(
+      within(steps).getByRole('radio', { name: 'Every step' })
+    ).toBeChecked();
+    await userEvent.click(within(steps).getByRole('radio', { name: 'Blocks' }));
+    expect(patch).toHaveBeenCalledWith({ select: 'graph' });
+    await userEvent.click(within(steps).getByRole('button', { name: 'Close' }));
+    expect(patch).toHaveBeenCalledWith({ select: null });
+  });
+
+  it('gives Every step the stage width too', () => {
+    renderView({ block: 'mini/gate', select: 'graph-steps' });
+
+    expect(screen.getByTestId('every-step')).toBeInTheDocument();
+    expect(screen.getByTestId('block-view')).toHaveAttribute(
+      'data-rail',
+      'map'
+    );
+    expect(
+      screen.queryByRole('region', { name: 'Layers' })
+    ).not.toBeInTheDocument();
   });
 
   it('drops the Layers panel while the block map is open', () => {

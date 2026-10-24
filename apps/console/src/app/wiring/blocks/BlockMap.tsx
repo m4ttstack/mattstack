@@ -18,7 +18,9 @@ import {
 } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
+import { GraphViews } from './FlowGraph';
 import {
   MAP_NODE_TYPES,
   MapActionsContext,
@@ -29,10 +31,10 @@ import {
   type MapFlowNode,
 } from './graphCards';
 import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
-import { shortLabel } from './model/aroundLayout';
 import { dotsOf, labelOf } from './model/blockFacts';
 import { blockMap, type MapKind } from './model/blockMap';
 import type { LaidOut, LayoutEngine, LayoutInput } from './model/elkGraph';
+import { shortLabel } from './model/labels';
 import {
   fitZoom,
   mapLayout,
@@ -240,6 +242,7 @@ export interface BlockMapProps {
   /** The open block's own node, drawn lit; null on a parent. */
   highlight: string | null;
   onSelect: (blockId: string) => void;
+  onView: (view: BlockGraphSelect) => void;
   onClose: () => void;
   engine?: () => Promise<LayoutEngine>;
 }
@@ -251,6 +254,7 @@ export function BlockMap({
   graph,
   highlight,
   onSelect,
+  onView,
   onClose,
   engine,
 }: BlockMapProps) {
@@ -313,14 +317,25 @@ export function BlockMap({
         <Text fz={13} lh="normal" c="dimmed">
           {`${blocks} blocks · ${map.foldedSteps} steps folded`}
         </Text>
-        <UnstyledButton className={classes.mapClose} onClick={onClose}>
-          Close
-        </UnstyledButton>
+        <div className={classes.mapTools}>
+          <GraphViews value="graph" onChange={onView} />
+          <UnstyledButton className={classes.mapClose} onClick={onClose}>
+            Close
+          </UnstyledButton>
+        </div>
       </div>
       {layout === null ? (
-        <Text fz={13} c="dimmed" className={classes.mapNote}>
-          No blocks here
-        </Text>
+        <div className={classes.mapNote}>
+          <Text fz={13} c="dimmed">
+            No blocks here
+          </Text>
+          <UnstyledButton
+            className={classes.graphLink}
+            onClick={() => onView('graph-steps')}
+          >
+            See every step
+          </UnstyledButton>
+        </div>
       ) : state === 'error' ? (
         <div className={classes.mapNote} role="alert">
           <Text fz={13} c="dimmed">

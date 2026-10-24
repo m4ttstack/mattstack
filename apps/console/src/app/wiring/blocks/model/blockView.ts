@@ -2,6 +2,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
+import type { BlockGraphSelect } from '../../graph/useWiringUrl';
 import {
   childrenOf,
   insideSharedTop,
@@ -240,24 +241,39 @@ export function labelledGraph(payload: BlocksPayload, graph: Graph): Graph {
   return result;
 }
 
-/** The graph a block map at this zoom level draws, labelled, and the node
-    it lights: a block's own graph and node, or a parent's or the skill's
-    own graph; null where there is none. */
+export type MapGraph = {
+  graph: Graph;
+  highlight: string | null;
+  view: BlockGraphSelect;
+};
+
+/** The graph the URL's `select` opens at this zoom level, labelled, the
+    node it lights and which view draws it: a block's own graph and node,
+    or a parent's or the skill's own graph; null where `select` opens no
+    graph or there is none. */
 export function mapGraphOf(
   payload: BlocksPayload,
-  zoom: Zoom
-): { graph: Graph; highlight: string | null } | null {
+  zoom: Zoom,
+  select: string | null
+): MapGraph | null {
+  if (select !== 'graph' && select !== 'graph-steps') return null;
   if (zoom.level === 'block') {
     const at = graphOfBlock(payload, zoom.block);
     return at
-      ? { graph: labelledGraph(payload, at.graph), highlight: at.node }
+      ? {
+          graph: labelledGraph(payload, at.graph),
+          highlight: at.node,
+          view: select,
+        }
       : null;
   }
   const owner = zoom.level === 'parent' ? zoom.block : rootOf(payload);
   const own = owner
     ? payload.graphs.find(graph => graph.blockId === owner.id)
     : undefined;
-  return own ? { graph: labelledGraph(payload, own), highlight: null } : null;
+  return own
+    ? { graph: labelledGraph(payload, own), highlight: null, view: select }
+    : null;
 }
 
 /** Every block under the root, an include's shared tree counted once by
