@@ -10,7 +10,7 @@
       "plugin": "mattstack",
       "description": "Runs a unit of work end to end, from provisioning through ship and CI.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/work/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/work",
       "props": {
         "work": [
@@ -42,7 +42,7 @@
       "plugin": "mattstack",
       "description": "Runs accessibility work end to end, from provisioning through ship and CI.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/work/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/work-a11y",
       "props": {
         "work": [
@@ -75,7 +75,7 @@
       "plugin": "mattstack",
       "description": "Fans work out across parallel agents and keeps track of them.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/shepherdr/SKILL.md",
+      "sourcePath": "/fixture/mattstack/skills/shepherdr/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/shepherdr",
       "props": {
         "shepherdr": [
@@ -124,7 +124,7 @@
       "plugin": "mattstack",
       "description": "Reviews a teammate's merge request and drafts the comments.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/review/SKILL.md",
+      "sourcePath": "/fixture/mattstack/skills/review/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/review",
       "props": {
         "review": [
@@ -156,7 +156,7 @@
       "plugin": "mattstack",
       "description": "Reviews your own branch before it ships.",
       "public": false,
-      "sourcePath": "/fixture/mattstack/attachments/review/self-review/SKILL.md",
+      "sourcePath": "/fixture/mattstack/attachments/review/self-review/index.block.md",
       "artifactPath": "/fixture/packs/acme/attachments/self-review",
       "props": {
         "self-review": [
@@ -188,7 +188,7 @@
       "plugin": "mattstack",
       "description": "Works through the review comments left on your merge request.",
       "public": false,
-      "sourcePath": "/fixture/mattstack/attachments/review/receive-review/SKILL.md",
+      "sourcePath": "/fixture/mattstack/attachments/review/receive-review/index.block.md",
       "artifactPath": "/fixture/packs/acme/attachments/receive-review",
       "props": {
         "receive-review": [
@@ -220,7 +220,7 @@
       "plugin": "mattstack",
       "description": "Pushes the branch and opens the merge request.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/attachments/pipeline/ship/SKILL.md",
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/ship/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/ship",
       "props": {
         "ship": [
@@ -252,7 +252,7 @@
       "plugin": "mattstack",
       "description": "Watches CI on a branch and triages what fails.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/attachments/pipeline/watch-ci/SKILL.md",
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/watch-ci/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/watch-ci",
       "props": {
         "watch-ci": [
@@ -284,7 +284,7 @@
       "plugin": "mattstack",
       "description": "Checks out a merge request's branch in a worktree of its own.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/checkout/SKILL.md",
+      "sourcePath": "/fixture/mattstack/skills/checkout/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/checkout",
       "props": {},
       "includes": ["gate-protocol"]
@@ -296,7 +296,7 @@
       "plugin": "mattstack",
       "description": "Rebases every open merge request onto the latest main.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/sync-open-mrs/SKILL.md",
+      "sourcePath": "/fixture/mattstack/skills/sync-open-mrs/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/sync-open-mrs",
       "props": {},
       "includes": ["gate-protocol"]
@@ -308,7 +308,7 @@
       "plugin": "mattstack",
       "description": "Rebases one worktree's branch onto the latest main.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/rebase-worktree/SKILL.md",
+      "sourcePath": "/fixture/mattstack/skills/rebase-worktree/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/rebase-worktree",
       "props": {},
       "includes": ["gate-protocol"]
@@ -320,7 +320,7 @@
       "plugin": "mattstack",
       "description": "Drafts release notes from the work merged since the last tag.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/release-notes/SKILL.md",
+      "sourcePath": "/fixture/mattstack/skills/release-notes/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/release-notes",
       "props": {
         "release-notes": [
@@ -343,7 +343,7 @@
       "plugin": "mattstack",
       "description": "Summarizes yesterday's merged work for a standup.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/standup/SKILL.md",
+      "sourcePath": "/fixture/mattstack/skills/standup/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/standup",
       "props": {},
       "includes": []
@@ -573,78 +573,78 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/work/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/work/index.block.md",
       "placeholders": [
         {
           "kind": "verb.path",
           "arg": "stage-provision",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 29
         },
         {
           "kind": "verb.path",
           "arg": "stage-plan",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 30
         },
         {
           "kind": "verb.path",
           "arg": "stage-gates",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 31
         },
         {
           "kind": "verb.path",
           "arg": "stage-evidence",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 32
         },
         {
           "kind": "verb.path",
           "arg": "stage-implement",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 33
         },
         {
           "kind": "verb.path",
           "arg": "stage-self-review",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 34
         },
         {
           "kind": "verb.path",
           "arg": "stage-ship",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 35
         },
         {
           "kind": "verb.path",
           "arg": "stage-watch-ci",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 36
         },
         {
           "kind": "run-start.flags",
           "arg": "work",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 40
         },
         {
           "kind": "prop",
           "arg": "work.tiering",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 242
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 246
         },
         {
           "kind": "include",
           "arg": "wrap-up-form",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 250
         }
       ],
@@ -666,78 +666,78 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/work-a11y/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/work/index.block.md",
       "placeholders": [
         {
           "kind": "verb.path",
           "arg": "stage-provision",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 29
         },
         {
           "kind": "verb.path",
           "arg": "stage-plan",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 30
         },
         {
           "kind": "verb.path",
           "arg": "stage-gates",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 31
         },
         {
           "kind": "verb.path",
           "arg": "stage-evidence--accessibility",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 32
         },
         {
           "kind": "verb.path",
           "arg": "stage-implement",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 33
         },
         {
           "kind": "verb.path",
           "arg": "stage-self-review",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 34
         },
         {
           "kind": "verb.path",
           "arg": "stage-ship",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 35
         },
         {
           "kind": "verb.path",
           "arg": "stage-watch-ci",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 36
         },
         {
           "kind": "run-start.flags",
           "arg": "work-a11y",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 40
         },
         {
           "kind": "prop",
           "arg": "work.tiering",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 242
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 246
         },
         {
           "kind": "include",
           "arg": "wrap-up-form",
-          "file": "attachments/pipeline/work/SKILL.md",
+          "file": "attachments/pipeline/work/index.block.md",
           "line": 250
         }
       ],
@@ -759,7 +759,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/shepherdr/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/shepherdr/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/shepherdr/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
@@ -799,7 +799,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/review/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/review/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/review/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
@@ -832,7 +832,7 @@
       "kind": "verb",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/self-review/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/review/self-review/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/review/self-review/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
@@ -865,7 +865,7 @@
       "kind": "verb",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/receive-review/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/review/receive-review/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/review/receive-review/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
@@ -898,7 +898,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/ship/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/ship/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/ship/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
@@ -931,7 +931,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/watch-ci/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/watch-ci/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/watch-ci/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
@@ -964,7 +964,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/checkout/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/checkout/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/checkout/index.block.md",
       "placeholders": [
         {
           "kind": "include",
@@ -981,7 +981,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/sync-open-mrs/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/sync-open-mrs/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/sync-open-mrs/index.block.md",
       "placeholders": [
         {
           "kind": "include",
@@ -998,7 +998,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/rebase-worktree/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/rebase-worktree/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/rebase-worktree/index.block.md",
       "placeholders": [
         {
           "kind": "include",
@@ -1015,12 +1015,12 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/release-notes/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/release-notes/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/release-notes/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
           "arg": "release-notes.changelog",
-          "file": "skills/release-notes/SKILL.md",
+          "file": "skills/release-notes/index.block.md",
           "line": 22
         }
       ],
@@ -1042,7 +1042,7 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/standup/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/standup/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/standup/index.block.md",
       "placeholders": [],
       "props": {},
       "engineError": null
@@ -1052,7 +1052,7 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-provision/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-provision/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-provision/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
@@ -1075,36 +1075,36 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-plan/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-plan/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-plan/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
           "arg": null,
-          "file": "attachments/pipeline/stage-plan/SKILL.md",
+          "file": "attachments/pipeline/stage-plan/index.block.md",
           "line": 16
         },
         {
           "kind": "include",
           "arg": "execution-strategy",
-          "file": "attachments/pipeline/stage-plan/SKILL.md",
+          "file": "attachments/pipeline/stage-plan/index.block.md",
           "line": 76
         },
         {
           "kind": "prop",
           "arg": "stage-plan.domain",
-          "file": "attachments/pipeline/stage-plan/SKILL.md",
+          "file": "attachments/pipeline/stage-plan/index.block.md",
           "line": 136
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/stage-plan/SKILL.md",
+          "file": "attachments/pipeline/stage-plan/index.block.md",
           "line": 140
         },
         {
           "kind": "include",
           "arg": "wrap-up-form",
-          "file": "attachments/pipeline/stage-plan/SKILL.md",
+          "file": "attachments/pipeline/stage-plan/index.block.md",
           "line": 144
         }
       ],
@@ -1126,7 +1126,7 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-gates/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-gates/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-gates/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
@@ -1143,24 +1143,24 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-evidence/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-evidence/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-evidence/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
           "arg": null,
-          "file": "attachments/pipeline/stage-evidence/SKILL.md",
+          "file": "attachments/pipeline/stage-evidence/index.block.md",
           "line": 14
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/stage-evidence/SKILL.md",
+          "file": "attachments/pipeline/stage-evidence/index.block.md",
           "line": 268
         },
         {
           "kind": "prop",
           "arg": "stage-evidence.domain",
-          "file": "attachments/pipeline/stage-evidence/SKILL.md",
+          "file": "attachments/pipeline/stage-evidence/index.block.md",
           "line": 299
         }
       ],
@@ -1182,7 +1182,7 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-implement/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-implement/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-implement/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
@@ -1199,7 +1199,7 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-self-review/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-self-review/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-self-review/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
@@ -1216,7 +1216,7 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-ship/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-ship/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-ship/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
@@ -1239,7 +1239,7 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-watch-ci/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-watch-ci/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-watch-ci/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
@@ -1262,24 +1262,24 @@
       "kind": "stage",
       "public": false,
       "artifactPath": "/fixture/packs/acme/attachments/stage-evidence--accessibility/SKILL.md",
-      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-evidence/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-evidence/index.block.md",
       "placeholders": [
         {
           "kind": "stage.fields",
           "arg": null,
-          "file": "attachments/pipeline/stage-evidence/SKILL.md",
+          "file": "attachments/pipeline/stage-evidence/index.block.md",
           "line": 14
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/stage-evidence/SKILL.md",
+          "file": "attachments/pipeline/stage-evidence/index.block.md",
           "line": 268
         },
         {
           "kind": "prop",
           "arg": "stage-evidence.domain",
-          "file": "attachments/pipeline/stage-evidence/SKILL.md",
+          "file": "attachments/pipeline/stage-evidence/index.block.md",
           "line": 299
         }
       ],

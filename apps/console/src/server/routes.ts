@@ -42,7 +42,8 @@ export const routes = new Hono()
       fixture?.runRt,
       fixture?.runGit,
       fixture?.readPackFile,
-      fixture?.realpath
+      fixture?.realpath,
+      fixture?.skillsDir
     )
   )
   .route('/', mountEffectiveInputs(new Hono(), undefined, undefined, runsData));

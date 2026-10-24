@@ -41,28 +41,22 @@ function artifactOf(
 }
 
 /** A board skill is the app's own installed SKILL.md, never a block tree of
-    this pack; a roster verb's hand-written source is its `sourcePath`. */
-function handWrittenFile(
+    this pack. Every engine rt compiles is a block tree, so a board skill is
+    the one kind read from its headings. */
+function boardSkillFile(
   composition: SkillsComposition | undefined,
-  item: FocusItem,
-  board: boolean
+  item: FocusItem
 ): string | null {
-  if (board) {
-    return (
-      composition?.binders.find(
-        binder => binder.ref === item.skill && binder.kind === 'external'
-      )?.skillFile ?? null
-    );
-  }
   return (
-    composition?.verbs.find(verb => verb.name === item.skill)?.sourcePath ??
-    null
+    composition?.binders.find(
+      binder => binder.ref === item.skill && binder.kind === 'external'
+    )?.skillFile ?? null
   );
 }
 
 /**
- * The focused skill as a block tree: rt's own, or for a skill that is not
- * one, its file's headings read as a read-only tree.
+ * The focused skill as a block tree: rt's own, or for a board skill, its
+ * file's headings read as a read-only tree.
  */
 export function useSkillBlocks(
   pack: string,
@@ -72,8 +66,7 @@ export function useSkillBlocks(
   const board = item?.icon === 'layoutDashboard';
   const blocksQuery = useBlocks(pack, item && !board ? item.skill : null);
   const notBlocks = board || blocksQuery.data === null;
-  const sourcePath =
-    item && notBlocks ? handWrittenFile(composition, item, board) : null;
+  const sourcePath = item && board ? boardSkillFile(composition, item) : null;
   const sourceQuery = useSkillSource(pack, sourcePath);
   const content = sourceQuery.data?.content;
   const tree = useMemo(

@@ -8,6 +8,7 @@ import anatomyShip from './anatomy.ship.json';
 import anatomyPlan from './anatomy.stage-plan.json';
 import anatomyPlanUnsynced from './anatomy.stage-plan.unsynced.json';
 import anatomyWork from './anatomy.work.json';
+import anatomyWorkRt from './anatomy.work.rt.json';
 import blocksMini from './blocks.mini.json';
 import blocksStagePlan from './blocks.stage-plan.json';
 import changesClean from './changes.clean.json';
@@ -26,7 +27,15 @@ import sync from './sync.json';
 const served = {
   ...composition,
   binders: composition.binders.map(binder =>
-    binder.kind === 'external' ? { ...binder, skillFile: null } : binder
+    binder.kind === 'external'
+      ? {
+          ...binder,
+          skillFile:
+            binder.ref === 'board:review'
+              ? '/fixture/claude/skills/board:review/SKILL.md'
+              : null,
+        }
+      : binder
   ),
 };
 
@@ -290,7 +299,9 @@ describe('the state scenarios', () => {
       if (scenario === 'unsynced') continue;
       const { runRt } = fixtureRt(scenario);
       const work = await runRt(pack('anatomy', '--skill', 'work'));
-      expect(JSON.parse(work.stdout)).toEqual(anatomyWork);
+      expect(JSON.parse(work.stdout)).toEqual(
+        scenario === 'blocks' ? anatomyWorkRt : anatomyWork
+      );
       if (
         ![
           'check-failed',
@@ -725,7 +736,8 @@ describe('the skills routes on the fixture', () => {
       f.runRt,
       f.runGit,
       f.readPackFile,
-      f.realpath
+      f.realpath,
+      f.skillsDir
     );
   };
 
@@ -769,6 +781,38 @@ describe('the skills routes on the fixture', () => {
     expect(anatomyShip.status).toBe('in-sync');
   });
 
+  it("blocks scenario: serves rt's own work anatomy and work's block placeholders", async () => {
+    const app = mount('blocks');
+    const anatomy = await (
+      await app.request('/api/skills/anatomy?pack=acme&skill=work')
+    ).json();
+    expect(anatomy).toEqual(anatomyWorkRt);
+    expect(anatomyWorkRt.template.path).toMatch(/\/work\/index\.block\.md$/);
+    expect(
+      anatomyWorkRt.parts.every(
+        part => part.kind === 'block' && part.templateLines === null
+      )
+    ).toBe(true);
+
+    const body = (await (
+      await app.request('/api/skills/composition?pack=acme')
+    ).json()) as typeof composition;
+    const work = body.targets.find(target => target.name === 'work')!;
+    const stages = work.placeholders.filter(p => p.kind === 'verb.path');
+    expect(stages.length).toBeGreaterThan(0);
+    for (const stage of stages)
+      expect(stage).toMatchObject({
+        file: 'attachments/pipeline/work/stages/index.block.md',
+        line: 9,
+      });
+    expect(work.placeholders).toContainEqual({
+      kind: 'run-start.flags',
+      arg: 'work',
+      file: 'attachments/pipeline/work/stages/index.block.md',
+      line: 14,
+    });
+  });
+
   it('answers blocks in every scenario, so a focused skill never 502s', async () => {
     for (const scenario of ['clean', 'unsynced', 'org-base'] as const) {
       const app = mount(scenario);
@@ -787,6 +831,23 @@ describe('the skills routes on the fixture', () => {
     );
     const body = (await res.json()) as { verbs: { name: string }[] };
     expect(body.verbs.map(verb => verb.name)).toContain('mini');
+  });
+
+  it("names each board skill's installed file, and serves its text", async () => {
+    const app = mount('clean');
+    const res = await app.request('/api/skills/composition?pack=acme');
+    const body = (await res.json()) as {
+      binders: { ref: string; skillFile?: string | null }[];
+    };
+    const file = body.binders.find(b => b.ref === 'board:review')?.skillFile;
+    expect(file).toBe('/fixture/claude/skills/board:review/SKILL.md');
+
+    const source = await app.request(
+      `/api/skills/source?pack=acme&path=${encodeURIComponent(file!)}`
+    );
+    expect(source.status).toBe(200);
+    const text = (await source.json()) as { content: string };
+    expect(text.content).toContain('## ');
   });
 
   it('serves a template through the confined source route', async () => {

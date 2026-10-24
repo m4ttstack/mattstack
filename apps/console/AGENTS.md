@@ -95,9 +95,10 @@ The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
   level the URL's `block` sets: the skill (section bands of folded rows), a parent block (its
   text, its graph card and its children) or a single block (its text with each prop in a box,
   Around this block, Copy for Claude). The Layers panel sits on the right; a shared block shows
-  Used by, and every block its History (`HistoryTab.tsx`). A skill rt says is not a block tree
-  (a hand-written one) is read from its file's headings (`model/headingTree.ts`) into the same
-  view, read-only. Pure models live in `blocks/model/*`.
+  Used by, and every block its History (`HistoryTab.tsx`: its engine text and the files its props
+  paste in). A skill not built from blocks, such as a board skill (its installed `SKILL.md`,
+  composition's `binders[].skillFile`), is read from its file's headings (`model/headingTree.ts`)
+  into the same view, read-only. Pure models live in `blocks/model/*`.
 - **Template model** (`graph/model/*`). Pure functions from rt's payloads (composition, check,
   anatomy, changes) to what the tab draws: `focusModel` (the focus list), `templateModel` (rows,
   input cards, link cards, output card), `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`

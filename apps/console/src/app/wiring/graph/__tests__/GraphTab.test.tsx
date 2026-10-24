@@ -751,22 +751,46 @@ describe('Graph tab: the block view', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('reads a hand-written skill from its headings, read-only', async () => {
+  it('reads a board skill from its headings, read-only', async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=release-notes');
+    const composition = designFixture('composition');
+    compositionGet.mockResolvedValue(
+      ok({
+        ...composition,
+        binders: composition.binders.map(binder =>
+          binder.ref === 'board:review'
+            ? {
+                ...binder,
+                skillFile: '/fixture/claude/skills/board:review/SKILL.md',
+              }
+            : binder
+        ),
+      })
+    );
+    renderAt('?tab=graph&focus=board:review');
 
     expect(await screen.findByTestId('read-only-note')).toBeInTheDocument();
     expect(sourceGet).toHaveBeenCalledWith({
       query: {
         pack: 'acme',
-        path: '/fixture/mattstack/skills/release-notes/SKILL.md',
+        path: '/fixture/claude/skills/board:review/SKILL.md',
       },
     });
     const rows = screen
       .getAllByTestId('block-row')
       .map(row => row.textContent ?? '');
-    expect(rows.some(text => text.startsWith('Gather'))).toBe(true);
-    expect(rows.some(text => text.startsWith('Hand-off'))).toBe(true);
+    expect(rows.some(text => text.startsWith('Read the diff'))).toBe(true);
+    expect(rows.some(text => text.startsWith('Post the review'))).toBe(true);
+  });
+
+  it('says a roster verb rt cannot read as blocks has no file to read', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=release-notes');
+
+    expect(await screen.findByTestId('block-view-note')).toHaveTextContent(
+      'release-notes is not built from blocks, and rt names no file of it to read its headings from.'
+    );
+    expect(sourceGet).not.toHaveBeenCalled();
   });
 
   it('says a stage that is not a block tree has no file to read', async () => {

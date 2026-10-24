@@ -21,7 +21,7 @@
  * | `pipeline-base-override` | `acme-base` sets the accessibility evidence override |
  * | `stale-copy`       | check reports a stale stage copy and a dropped override |
  * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
- * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it; `ship`'s anatomy is rt's own |
+ * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it; `ship`'s and `work`'s anatomy are rt's own, and work's placeholders sit in its block files |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -85,6 +85,13 @@ interface PropSpec {
   default: string | null;
 }
 
+interface Placeholder {
+  kind: string;
+  arg: string | null;
+  file: string;
+  line: number;
+}
+
 interface Composition {
   verbs: {
     name: string;
@@ -92,7 +99,11 @@ interface Composition {
   }[];
   fills: { binding: string }[];
   extends?: { name: string; version: string | null } | null;
-  targets: { name: string; props: Record<string, PropSpec[]> }[];
+  targets: {
+    name: string;
+    props: Record<string, PropSpec[]>;
+    placeholders: Placeholder[];
+  }[];
   binders: {
     ref: string;
     props: {
@@ -532,6 +543,60 @@ function withMini(composition: Composition): Composition {
   return { ...composition, verbs: [...composition.verbs, mini] };
 }
 
+const WORK_BLOCKS = 'attachments/pipeline/work';
+
+/**
+ * work's placeholders where rt reports them for its block tree (read from
+ * `rt skills composition` on the generator's scratch pack): the pipeline
+ * table expands to one `verb.path` per stage, all at one line of one block.
+ */
+function workAsBlocks(composition: Composition): Composition {
+  const at = (file: string, line: number) => ({
+    file: `${WORK_BLOCKS}/${file}`,
+    line,
+  });
+  return {
+    ...composition,
+    targets: composition.targets.map(target =>
+      target.name === 'work'
+        ? {
+            ...target,
+            placeholders: [
+              ...target.placeholders
+                .filter(p => p.kind === 'verb.path')
+                .map(p => ({ ...p, ...at('stages/index.block.md', 9) })),
+              {
+                kind: 'run-start.flags',
+                arg: 'work',
+                ...at('stages/index.block.md', 14),
+              },
+              {
+                kind: 'run-list.pipelines',
+                arg: null,
+                ...at('stages/gate-resume-or-fresh.block.md', 10),
+              },
+              {
+                kind: 'prop',
+                arg: 'work/sub-agent-tiering.tiering',
+                ...at('sub-agent-tiering.block.md', 12),
+              },
+              {
+                kind: 'include',
+                arg: 'gate-protocol',
+                ...at('gate-protocol.block.md', 7),
+              },
+              {
+                kind: 'include',
+                arg: 'wrap-up-form',
+                ...at('wrap-up-form-contract.block.md', 8),
+              },
+            ],
+          }
+        : target
+    ),
+  };
+}
+
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   runs: { subject: 'stage-plan' },
@@ -634,8 +699,11 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
   },
   blocks: {
     subject: 'mini',
-    composition: withMini,
-    anatomy: { ship: { file: 'anatomy.ship.json' } },
+    composition: composition => workAsBlocks(withMini(composition)),
+    anatomy: {
+      ship: { file: 'anatomy.ship.json' },
+      work: { file: 'anatomy.work.rt.json' },
+    },
   },
   'team-sections': {
     subject: 'stage-plan',

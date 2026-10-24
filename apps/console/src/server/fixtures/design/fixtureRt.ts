@@ -34,6 +34,9 @@ export interface FixtureRt {
   runGit: RunGit;
   readPackFile: ReadPackFile;
   realpath: (path: string) => Promise<string>;
+  /** Where the apps installed their skills: the fixture's own, never the
+      machine's `~/.claude/skills`. */
+  skillsDir: () => string;
 }
 
 const FIXTURE_PACK = 'acme';
@@ -312,5 +315,11 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     return posix.normalize(path);
   };
 
-  return { runRt, runGit, readPackFile, realpath };
+  return {
+    runRt,
+    runGit,
+    readPackFile,
+    realpath,
+    skillsDir: () => `${FIXTURE_ROOT}/claude/skills`,
+  };
 }

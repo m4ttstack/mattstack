@@ -10,12 +10,14 @@ bash apps/console/scripts/fixtures/blocks-fixtures.sh . "$(mktemp -d)" ship stag
 ```
 
 Arguments: the repo root, a scratch directory, then the skills to rebuild.
-`--anatomy <skill>` (repeatable) also writes `anatomy.<skill>.json` from
-`rt skills anatomy`. The `blocks` scenario serves `anatomy.ship.json` this
-way, so the block view's pack line names the engine's version:
+`--anatomy <skill>[=<name>]` (repeatable) also writes `anatomy.<name>.json`
+(the name defaults to the skill) from `rt skills anatomy`. The `blocks`
+scenario serves `anatomy.ship.json` this way, so the block view's pack line
+names the engine's version, and `anatomy.work.rt.json` for the pipeline map
+(`anatomy.work.json` stays the older scenarios' hand-made one):
 
 ```sh
-bash apps/console/scripts/fixtures/blocks-fixtures.sh . "$(mktemp -d)" --anatomy ship ship stage-plan
+bash apps/console/scripts/fixtures/blocks-fixtures.sh . "$(mktemp -d)" --anatomy ship --anatomy work=work.rt ship stage-plan
 ```
 
 What it does:

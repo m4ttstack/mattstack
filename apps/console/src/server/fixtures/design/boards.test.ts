@@ -89,11 +89,16 @@ describe('fixture payloads agree with their files', () => {
     }
   );
 
-  it.each(['work', 'stage-plan'])(
-    '%s placeholders are the template file',
-    name => {
+  // The old-shape anatomy keeps its single SKILL.md template, so the
+  // composition's lines are read there, not in the block file it names.
+  it.each([
+    ['work', anatomyWork],
+    ['stage-plan', anatomyPlan],
+  ] as const)(
+    '%s placeholders sit at their lines in the old-shape template',
+    (name, anatomy) => {
       const t = target(name);
-      const found = linesOf(t.templatePath).flatMap((line, i) =>
+      const found = linesOf(anatomy.template.path).flatMap((line, i) =>
         [...line.matchAll(PLACEHOLDER_RE)].map(m =>
           m[1]!.startsWith('props.')
             ? {

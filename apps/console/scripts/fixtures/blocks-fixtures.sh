@@ -1,10 +1,10 @@
 #!/bin/bash
 # Rebuilds the console's blocks.<skill>.json fixtures from the mattstack engines.
-# usage: blocks-fixtures.sh <repo-root> <scratch-dir> [--anatomy <skill>]... <skill>...
+# usage: blocks-fixtures.sh <repo-root> <scratch-dir> [--anatomy <skill>[=<name>]]... <skill>...
 #   repo-root    the mattstack checkout whose plugins/mattstack is read and whose cli.ts runs
 #   scratch-dir  an empty or throwaway directory; the only place besides the fixture dir that is written
 #   skill        ship, stage-plan ... (a verb or stage the scratch pack's stubs and pipelines name)
-#   --anatomy    also writes anatomy.<skill>.json from `rt skills anatomy` for that skill
+#   --anatomy    also writes anatomy.<name>.json (name defaults to the skill) from `rt skills anatomy`
 set -euo pipefail
 
 if [ "$#" -lt 3 ]; then
@@ -84,7 +84,10 @@ done
 
 cd "$ROOT"
 # Anatomy compares the compiled skill on disk with a fresh compile, so each one compiles first.
-for skill in "${ANATOMY[@]+"${ANATOMY[@]}"}"; do
+for entry in "${ANATOMY[@]+"${ANATOMY[@]}"}"; do
+  skill="${entry%%=*}"
+  name="${entry#*=}"
+  [ "$name" = "$entry" ] && name="$skill"
   env -i HOME="$S/home" PATH="$PATH" bun cli.ts skills compile --verb "$skill" \
     --pack-dir "$S/pack" --mattstack-dir "$S/mattstack-home" \
     --manifest "$S/mattstack-home/repos/my-repo/skills.jsonc" > "$S/out/compile.$skill.log" 2>&1
@@ -92,7 +95,7 @@ for skill in "${ANATOMY[@]+"${ANATOMY[@]}"}"; do
     --pack-dir "$S/pack" --mattstack-dir "$S/mattstack-home" \
     --manifest "$S/mattstack-home/repos/my-repo/skills.jsonc" \
     --skill "$skill" --json > "$S/out/anatomy.$skill.json" 2> "$S/out/anatomy.$skill.err"
-  python3 -I "$HERE/place-anatomy-fixture.py" "$S" "$S/out/anatomy.$skill.json" "$DEST/anatomy.$skill.json"
+  python3 -I "$HERE/place-anatomy-fixture.py" "$S" "$S/out/anatomy.$skill.json" "$DEST/anatomy.$name.json"
 done
 for skill in "${SKILLS[@]+"${SKILLS[@]}"}"; do
   env -i HOME="$S/home" PATH="$PATH" bun cli.ts skills blocks \
