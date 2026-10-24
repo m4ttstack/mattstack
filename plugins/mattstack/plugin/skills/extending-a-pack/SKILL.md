@@ -679,8 +679,11 @@ them in, so a compiled verb never shows a marker.
    ```
 
    A value is one line. A multi-line block is a section instead:
-   `pack/sections/ci-extra-jobs.md`, plain markdown. Neither may contain
-   `{{`, and an empty value or a blank section counts as missing.
+   `pack/sections/ci-extra-jobs.md`, plain markdown. A path into another
+   skill or attachment from either one uses `{{pack.path:<attachment>/<file>}}`
+   or `{{verb.path:<verb>}}`, never a hand-typed path: it resolves in the
+   text it lands in. Neither may contain any other `{{`, and an empty value
+   or a blank section counts as missing.
 
 3. Compile each team pack:
    `rt_verb {args: ["skills", "compile", "--pack", "widgets"]}`. Compile

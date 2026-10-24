@@ -129,6 +129,8 @@ A compiled skill never reads pack source through `pack.path`. Compile copies the
 
 Base text can pick the attachment by team value: `{{pack.path:{{team.gates-fill}}/SKILL.md}}`. This is the only place one marker may sit inside another. The team marker is the whole attachment name, and it cannot be optional. Compile fills in the team's value first, then checks the path like any other `pack.path`. A hand-typed path such as `../../attachments/{{team.gates-fill}}/SKILL.md` gets that placeholder as its suggestion when the team sets the value and the file exists. Otherwise the error comes with no suggestion.
 
+A team's `pack/sections/*.md` text and `pack/params.jsonc` values may use `{{pack.path:<attachment>/<file>}}` and `{{verb.path:<verb>}}` too. Compile puts the team text into the base text first. It then fills in the path the way that text fills in its own. In a compiled skill, the path points at its `references/` copy. In a copied base attachment, it gets the path a base attachment gets. Compile and `rt skills check` stop on a hand-typed path in a section or a value. The error names the section file and line, or the `params.jsonc` line.
+
 `rt skills check` also reads the pack's hand-written skills, which compile never reads. It fails on each path out of a skill's folder that points at no file.
 
 ## What not to do
@@ -203,7 +205,7 @@ The rules:
 - A section marker sits alone on its line.
 - A value marker can sit inside a sentence or a plain path, but never inside another marker.
 - Markers only work in the body of base text. Compile stops on a marker in frontmatter, in a team's own fill, or in a copied file that is not `.md`.
-- Neither a value nor a section may contain `{{`.
+- Neither a value nor a section may contain `{{`, except `{{pack.path}}` and `{{verb.path}}` (see [Paths into another skill](#paths-into-another-skill)).
 - An empty value, or a section with only whitespace, counts as missing.
 
 ### When a team is missing a value
