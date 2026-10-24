@@ -4,6 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { BREW_FORMULAE, BUNDLED_VSIX_FILES, VENDOR_INSTALLERS, VSIX_NOT_FOUND_DETAIL, claudeConfigDirs, findBundledVsixes, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
 import { detectEditors } from "../../editors.ts";
+import { processFlavor } from "../../flavor.ts";
+import { DEV_TRAY_APP_BUNDLE, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { PackRequirements } from "../requirements.ts";
@@ -582,6 +584,23 @@ describe("findBundledVsixes", () => {
   test("an empty list when neither file ships", () => {
     const p = fakeProbes({ home: "/nonexistent-find-vsixes-home" });
     expect(findBundledVsixes(p, "/fake-bin")).toEqual([]);
+  });
+
+  test("the app bundle's Contents/Resources wins over beside the binary", () => {
+    const app = join("/Applications", processFlavor() === "dev" ? DEV_TRAY_APP_BUNDLE : TRAY_APP_BUNDLE);
+    const resources = join(app, "Contents", "Resources");
+    const beside = "/fake-bin";
+    const p = fakeProbes({
+      home: "/nonexistent-find-vsixes-home",
+      dirs: { [app]: [] },
+      files: {
+        [join(resources, "rt-context.vsix")]: "",
+        [join(resources, "skill-blocks.vsix")]: "",
+        [join(beside, "rt-context.vsix")]: "",
+        [join(beside, "skill-blocks.vsix")]: "",
+      },
+    });
+    expect(findBundledVsixes(p, beside)).toEqual([join(resources, "rt-context.vsix"), join(resources, "skill-blocks.vsix")]);
   });
 });
 

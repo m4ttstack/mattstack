@@ -17,16 +17,35 @@ export interface DetectedEditor {
   appPath: string; // Full path to the .app bundle
 }
 
-/** Known VS Code-family editors and their expected CLI binary names — scanned as .app bundles in /Applications and ~/Applications. */
-export const EDITOR_PATTERNS: Array<{ appName: string; cliBinary: string; displayName: string }> = [
-  { appName: "Cursor.app", cliBinary: "cursor", displayName: "Cursor" },
-  { appName: "Cursor Personal.app", cliBinary: "cursor", displayName: "Cursor Personal" },
-  { appName: "Visual Studio Code.app", cliBinary: "code", displayName: "Visual Studio Code" },
-  { appName: "Visual Studio Code - Insiders.app", cliBinary: "code-insiders", displayName: "VS Code Insiders" },
-  { appName: "VSCodium.app", cliBinary: "codium", displayName: "VSCodium" },
-  { appName: "Antigravity.app", cliBinary: "antigravity", displayName: "Antigravity" },
-  { appName: "Windsurf.app", cliBinary: "windsurf", displayName: "Windsurf" },
+/**
+ * Known VS Code-family editors: the .app bundle scanned for in /Applications
+ * and ~/Applications, its CLI, and its extensions folder under $HOME (null
+ * where the editor's folder is not known).
+ */
+export const EDITOR_PATTERNS: Array<{ appName: string; cliBinary: string; displayName: string; extensionsDir: string | null }> = [
+  { appName: "Cursor.app", cliBinary: "cursor", displayName: "Cursor", extensionsDir: ".cursor/extensions" },
+  { appName: "Cursor Personal.app", cliBinary: "cursor", displayName: "Cursor Personal", extensionsDir: null },
+  { appName: "Visual Studio Code.app", cliBinary: "code", displayName: "Visual Studio Code", extensionsDir: ".vscode/extensions" },
+  { appName: "Visual Studio Code - Insiders.app", cliBinary: "code-insiders", displayName: "VS Code Insiders", extensionsDir: ".vscode-insiders/extensions" },
+  { appName: "VSCodium.app", cliBinary: "codium", displayName: "VSCodium", extensionsDir: ".vscode-oss/extensions" },
+  { appName: "Antigravity.app", cliBinary: "antigravity", displayName: "Antigravity", extensionsDir: ".antigravity/extensions" },
+  { appName: "Windsurf.app", cliBinary: "windsurf", displayName: "Windsurf", extensionsDir: ".windsurf/extensions" },
 ];
+
+export type DetectedEditorWithExtensions = DetectedEditor & { extensionsDir: string | null };
+
+/** The same scan as `detectEditors`, through an injected `exists`, so a caller holding Probes never reads the real machine in a test. */
+export function detectEditorsVia(exists: (path: string) => boolean, appDirs: string[]): DetectedEditorWithExtensions[] {
+  const editors: DetectedEditorWithExtensions[] = [];
+  for (const appDir of appDirs) {
+    for (const pattern of EDITOR_PATTERNS) {
+      const appPath = join(appDir, pattern.appName);
+      const cliPath = join(appPath, "Contents/Resources/app/bin", pattern.cliBinary);
+      if (exists(cliPath)) editors.push({ name: pattern.displayName, cliPath, appPath, extensionsDir: pattern.extensionsDir });
+    }
+  }
+  return editors;
+}
 
 const APP_DIRS = ["/Applications", join(homedir(), "Applications")];
 

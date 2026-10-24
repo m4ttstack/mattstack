@@ -451,6 +451,18 @@ describe("rtHealthRows — tool.extension (checkRtContextExtension over p.home)"
     expect(r.required).toBe(false);
     expect(r.optionalNote).not.toBeNull();
   });
+
+  test("Antigravity missing skill-blocks -> needs-you, naming it", async () => {
+    const home = "/fake-home-rt-health-antigravity";
+    const p = fakeProbes({
+      home,
+      files: { [join(home, "Applications/Antigravity.app/Contents/Resources/app/bin/antigravity")]: "" },
+      dirs: { [join(home, ".antigravity/extensions")]: ["local.rt-context-0.1.0"] },
+    });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("Antigravity is missing skill-blocks. Run rt settings extension");
+  });
 });
 
 /**

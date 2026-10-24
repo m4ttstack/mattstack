@@ -6,6 +6,39 @@ import { __test__, installExtension, type ExtensionDeps } from "../extension.ts"
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { __test__ as gate } from "../../lib/ui/gate.ts";
+import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+import { processFlavor } from "../../lib/flavor.ts";
+import { DEV_TRAY_APP_BUNDLE, TRAY_APP_BUNDLE } from "../../lib/rt-paths.ts";
+
+describe("finding the bundled extensions", () => {
+  const app = join("/Applications", processFlavor() === "dev" ? DEV_TRAY_APP_BUNDLE : TRAY_APP_BUNDLE);
+  const resources = join(app, "Contents", "Resources");
+  const beside = "/fake-app/Contents/MacOS";
+
+  test("an installed app's Contents/Resources wins over beside the binary and the source tree", () => {
+    const p = fakeProbes({
+      home: "/nonexistent-extension-find-home",
+      dirs: { [app]: [] },
+      files: {
+        [join(resources, "rt-context.vsix")]: "",
+        [join(resources, "skill-blocks.vsix")]: "",
+        [join(beside, "rt-context.vsix")]: "",
+      },
+    });
+    const fromSource = (dir: string): string => {
+      throw new Error(`unexpected source lookup for ${dir}`);
+    };
+    expect(__test__.findVsixes(p, beside, fromSource)).toEqual([join(resources, "rt-context.vsix"), join(resources, "skill-blocks.vsix")]);
+  });
+
+  test("the source tree fills in only a file the app and the binary's folder lack", () => {
+    const p = fakeProbes({ home: "/nonexistent-extension-find-home", dirs: { [app]: [] }, files: { [join(resources, "rt-context.vsix")]: "" } });
+    const asked: string[] = [];
+    const fromSource = (dir: string): string => (asked.push(dir), `/src/${dir}/${dir}-0.1.0.vsix`);
+    expect(__test__.findVsixes(p, beside, fromSource)).toEqual([join(resources, "rt-context.vsix"), "/src/skill-blocks/skill-blocks-0.1.0.vsix"]);
+    expect(asked).toEqual(["skill-blocks"]);
+  });
+});
 
 const SHORT_TIMEOUT_MS = 300;
 

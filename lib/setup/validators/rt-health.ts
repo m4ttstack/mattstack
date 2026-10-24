@@ -7,7 +7,6 @@
  * implementation.
  */
 
-import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { RT_BUNDLE_PATH } from "../../bundle-layout.ts";
 import type { DaemonResponse } from "../../daemon-client.ts";
@@ -42,6 +41,7 @@ import { memberPath } from "../member-path.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverOrgs } from "../team-settings.ts";
 import { BUNDLED_VSIX_FILES } from "../tools-install.ts";
+import { detectEditorsVia } from "../../editors.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
 import { named } from "./tools.ts";
 
@@ -54,43 +54,54 @@ export interface ExtensionCheckResult {
   severity: "warning" | "info";
 }
 
+const RT_EXTENSIONS = [
+  { label: "rt-context", prefix: "local.rt-context-" },
+  { label: "skill-blocks", prefix: "local.skill-blocks-" },
+];
+
 /**
- * Pure directory reads against a fixture `home`, no subprocess and no
- * version comparison — the extension versions independently of the CLI, so
- * a version check is underivable here. Shape matches `rt verify`'s
+ * Directory reads only, no subprocess and no version comparison — the
+ * extensions version independently of the CLI, so a version check is
+ * underivable here. Every VS Code-family editor found in `appDirs` is
+ * checked through its extensions folder under `home`; an editor whose folder
+ * is not known is named as unchecked. Shape matches `rt verify`'s
  * CheckResult (name/status/detail/severity) so commands/verify.ts's
  * re-export slots straight into its existing `results.push(...)`.
  */
-export function checkRtContextExtension(home: string): ExtensionCheckResult {
-  const editors = [
-    { name: "VS Code", dir: join(home, ".vscode", "extensions") },
-    { name: "Cursor", dir: join(home, ".cursor", "extensions") },
-  ];
-  const wanted = ["rt-context", "skill-blocks"];
-
-  const dirsFound: string[] = [];
+export function checkRtContextExtension(
+  p: Pick<Probes, "exists" | "readDir" | "home">,
+  appDirs: string[] = ["/Applications", join(p.home, "Applications")],
+): ExtensionCheckResult {
   const complete: string[] = [];
   const partial: string[] = [];
+  const bare: string[] = [];
+  const unchecked: string[] = [];
 
-  for (const editor of editors) {
-    if (!existsSync(editor.dir)) continue;
-    dirsFound.push(editor.name);
-    let entries: string[];
-    try {
-      entries = readdirSync(editor.dir).map((e) => e.toLowerCase());
-    } catch {
+  for (const editor of detectEditorsVia(p.exists, appDirs)) {
+    if (!editor.extensionsDir) {
+      unchecked.push(editor.name);
       continue;
     }
-    const missing = wanted.filter((w) => !entries.some((e) => e.includes(w)));
+    const dir = join(p.home, editor.extensionsDir);
+    let entries: string[] = [];
+    try {
+      if (p.exists(dir)) entries = p.readDir(dir).map((e) => e.toLowerCase());
+    } catch {
+      entries = [];
+    }
+    const missing = RT_EXTENSIONS.filter((x) => !entries.some((e) => e.startsWith(x.prefix))).map((x) => x.label);
     if (missing.length === 0) complete.push(editor.name);
-    else if (missing.length < wanted.length) partial.push(`${editor.name} is missing ${missing.join(" and ")}`);
+    else if (missing.length < RT_EXTENSIONS.length) partial.push(`${editor.name} is missing ${missing.join(" and ")}`);
+    else bare.push(editor.name);
   }
 
   const name = "rt-context extension";
+  const uncheckedNote = unchecked.length > 0 ? `. rt can't check ${unchecked.join(", ")}` : "";
   if (partial.length > 0) return { name, status: "warn", detail: `${partial.join("; ")}. Run rt settings extension`, severity: "warning" };
-  if (complete.length > 0) return { name, status: "pass", detail: `Installed in ${complete.join(", ")}`, severity: "warning" };
-  if (dirsFound.length > 0) return { name, status: "warn", detail: `Not installed in ${dirsFound.join(", ")}. Run rt settings extension`, severity: "warning" };
-  return { name, status: "skip", detail: "No editor extension folders found", severity: "info" };
+  if (complete.length > 0) return { name, status: "pass", detail: `Installed in ${complete.join(", ")}${uncheckedNote}`, severity: "warning" };
+  if (bare.length > 0) return { name, status: "warn", detail: `Not installed in ${bare.join(", ")}. Run rt settings extension`, severity: "warning" };
+  if (unchecked.length > 0) return { name, status: "skip", detail: `rt can't check ${unchecked.join(", ")}`, severity: "info" };
+  return { name, status: "skip", detail: "No VS Code-family editor found", severity: "info" };
 }
 
 // ─── injectable seams ─────────────────────────────────────────────────────────
@@ -293,7 +304,7 @@ function extensionRow(p: Probes): Row {
     required: false,
     optionalNote: "Works without this; your editor just won't have rt-aware context.",
   };
-  const result = checkRtContextExtension(p.home);
+  const result = checkRtContextExtension(p);
   if (result.status === "pass") return row({ ...base, status: "ready", detail: result.detail });
   if (result.status === "warn") return row({ ...base, status: "needs-you", detail: result.detail, action: INSTALL_EXTENSION_ACTION });
   return row({ ...base, status: "skipped", detail: result.detail });

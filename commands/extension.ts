@@ -8,9 +8,11 @@
 
 import { execSync } from "child_process";
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { basename, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { logCliEvent } from "../lib/cli-logger.ts";
+import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
+import { BUNDLED_VSIX_FILES, findBundledVsixes } from "../lib/setup/tools-install.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import * as out from "../lib/ui/out.ts";
@@ -19,17 +21,14 @@ import { detectEditors, type DetectedEditor } from "../lib/editors.ts";
 
 // ─── VSIX Finder ─────────────────────────────────────────────────────────────
 
-const EXTENSIONS = [
-  { file: "rt-context.vsix", sourceDir: "rt-context" },
-  { file: "skill-blocks.vsix", sourceDir: "skill-blocks" },
-];
+/** Each bundled file name and the extensions/vscode folder its source lives in. */
+const SOURCE_DIRS: Record<(typeof BUNDLED_VSIX_FILES)[number], string> = {
+  "rt-context.vsix": "rt-context",
+  "skill-blocks.vsix": "skill-blocks",
+};
 
-function findOneVsix(file: string, sourceDirName: string): string | null {
-  // 1. Next to the binary (extracted release tarball layout)
-  const bundledVsix = resolve(process.execPath, "..", file);
-  if (existsSync(bundledVsix)) return bundledVsix;
-
-  // 2. Check relative to source repo (development mode only — skip in compiled binary)
+/** Development mode only: a packaged `.vsix` in the source tree, built on demand. */
+function findInSource(sourceDirName: string): string | null {
   const metaUrl = fileURLToPath(import.meta.url);
   if (metaUrl.startsWith("/$bunfs")) return null; // compiled binary — no source access
 
@@ -58,8 +57,19 @@ function findOneVsix(file: string, sourceDirName: string): string | null {
   return null;
 }
 
-function findVsixes(): string[] {
-  return EXTENSIONS.map((e) => findOneVsix(e.file, e.sourceDir)).filter((v): v is string => v !== null);
+/** The app's `Contents/Resources` first, then beside the binary, then the source tree for any file neither holds. */
+function findVsixes(
+  p: Pick<Probes, "exists" | "home"> = createRealProbes(),
+  besideBinaryDir?: string,
+  fromSource: (sourceDirName: string) => string | null = findInSource,
+): string[] {
+  const bundled = findBundledVsixes(p, besideBinaryDir);
+  const found: string[] = [];
+  for (const file of BUNDLED_VSIX_FILES) {
+    const hit = bundled.find((path) => basename(path) === file) ?? fromSource(SOURCE_DIRS[file]);
+    if (hit) found.push(hit);
+  }
+  return found;
 }
 
 // ─── Install ─────────────────────────────────────────────────────────────────
@@ -191,7 +201,7 @@ async function installInto(
   return installed;
 }
 
-export const __test__ = { installInto, installWithCli };
+export const __test__ = { installInto, installWithCli, findVsixes };
 
 export interface ExtensionDeps {
   findVsixes: () => string[];
@@ -202,7 +212,7 @@ export interface ExtensionDeps {
 
 function realExtensionDeps(): ExtensionDeps {
   return {
-    findVsixes,
+    findVsixes: () => findVsixes(),
     detectEditors: () => detectEditors(),
     pick: async (editors) => {
       const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
