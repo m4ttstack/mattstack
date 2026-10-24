@@ -204,15 +204,42 @@ describe("Workspace with two plugins of the same name", () => {
 });
 
 describe("Workspace plugin discovery", () => {
-  test("is walked once until a document opens, changes or closes", () => {
-    const ws = new Workspace([plugin, pack]);
+  test("an edit to a file that exists keeps discovery; only the analysis runs again", () => {
+    const walked: string[] = [];
+    const ws = new Workspace([plugin, pack], undefined, { walked: (dir) => walked.push(dir) });
     const first = ws.plugins();
     expect(first.map((p) => p.name).sort()).toEqual(["mattstack", "widgets"]);
     ws.analysis();
     ws.rootsFor([manifest]);
-    expect(ws.plugins()).toBe(first);
+    ws.blockFiles();
+    const walks = walked.length;
+    expect(walks).toBeGreaterThan(0);
     ws.open(manifest, readFileSync(manifest, "utf8"));
-    expect(ws.plugins()).not.toBe(first);
+    ws.change(manifest, nopeManifest());
+    expect(allDiagnostics(ws).map((d) => d.code)).toEqual(["missing-block"]);
+    ws.close(manifest);
+    expect(allDiagnostics(ws)).toEqual([]);
+    expect(ws.plugins()).toBe(first);
+    expect(walked.length).toBe(walks);
+  });
+
+  test("a new unsaved file, a plugin.json edit or a refresh walks again", () => {
+    const walked: string[] = [];
+    const ws = new Workspace([plugin, pack], undefined, { walked: (dir) => walked.push(dir) });
+    ws.analysis();
+    let walks = walked.length;
+    const fresh = join(mini, "fresh.block.md");
+    ws.open(fresh, "# Fresh\n");
+    ws.analysis();
+    expect(walked.length).toBeGreaterThan(walks);
+    walks = walked.length;
+    ws.change(join(pack, ".claude-plugin/plugin.json"), JSON.stringify({ name: "gadgets", version: "0.2.0" }));
+    expect(ws.plugins().map((p) => p.name).sort()).toEqual(["gadgets", "mattstack"]);
+    expect(walked.length).toBeGreaterThan(walks);
+    walks = walked.length;
+    ws.refresh();
+    ws.analysis();
+    expect(walked.length).toBeGreaterThan(walks);
   });
 
   test("refresh follows a folder moved on disk, carrying its open documents to the new path", () => {

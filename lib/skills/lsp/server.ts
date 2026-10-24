@@ -75,12 +75,23 @@ const ITEM_KIND: Record<Completion["kind"], CompletionItemKind> = {
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** An analysis of a large workspace takes over 100 ms, so a typing burst publishes once, after it settles. */
+export const PUBLISH_DEBOUNCE_MS = 200;
+
+export type ServerOpts = {
+  roots: string[];
+  input?: NodeJS.ReadableStream;
+  output?: NodeJS.WritableStream;
+  debounceMs?: number;
+  workspace?: (roots: string[]) => Workspace;
+};
+
 /**
  * Speaks LSP on stdin/stdout. `createConnection` with no streams would need `--stdio` in argv, which a
  * client launching `rt skills lsp` need not pass, so the streams are handed over explicitly.
  */
-export function startServer(opts: { roots: string[] }): void {
-  const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
+export function startServer(opts: ServerOpts): void {
+  const connection = createConnection(ProposedFeatures.all, opts.input ?? process.stdin, opts.output ?? process.stdout);
   const documents = new TextDocuments(TextDocument);
   let ws: Workspace | null = null;
   let fileRenames = false;
@@ -95,12 +106,26 @@ export function startServer(opts: { roots: string[] }): void {
     });
   };
 
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  const debounceMs = opts.debounceMs ?? PUBLISH_DEBOUNCE_MS;
+
+  /** The workspace takes each change at once, so a request reads the newest text; only publishing waits. */
   const publishAll = (update: (ws: Workspace) => void = () => {}) => {
     if (!ws) return;
+    try {
+      update(ws);
+    } catch (err) {
+      logCliEvent("error", MODULE, "applying a change failed", { error: errorText(err) });
+    }
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(publishNow, debounceMs);
+  };
+
+  const publishNow = () => {
+    pending = null;
+    if (!ws || !active) return;
     const current = ws;
     try {
-      update(current);
-      if (!active) return;
       const files = new Set(current.analysis().diagnostics.keys());
       for (const file of files) send(file, publishable(current, file));
       for (const file of published) {
@@ -115,7 +140,7 @@ export function startServer(opts: { roots: string[] }): void {
 
   connection.onInitialize((params): InitializeResult => {
     const roots = rootsFrom(opts.roots, params);
-    ws = new Workspace(roots);
+    ws = opts.workspace ? opts.workspace(roots) : new Workspace(roots);
     fileRenames = params.capabilities.workspace?.workspaceEdit?.resourceOperations?.includes("rename") ?? false;
     watchesFiles = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration ?? false;
     logCliEvent("debug", MODULE, "initialized", { roots });
@@ -167,6 +192,11 @@ export function startServer(opts: { roots: string[] }): void {
   });
 
   connection.onDidChangeWatchedFiles(() => publishAll((current) => current.refresh()));
+
+  connection.onShutdown(() => {
+    if (pending) clearTimeout(pending);
+    pending = null;
+  });
 
   documents.onDidChangeContent(({ document }) => {
     const file = pathOf(document.uri);

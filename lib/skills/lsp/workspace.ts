@@ -48,7 +48,7 @@ function listDir(dir: string) {
 }
 
 /** Every directory under `root`, root included, skipping dot and dependency folders. */
-function dirsUnder(root: string): string[] {
+function walkDirs(root: string): string[] {
   const out: string[] = [];
   const visit = (dir: string) => {
     out.push(dir);
@@ -62,20 +62,28 @@ function dirsUnder(root: string): string[] {
 
 const toPosix = (p: string) => p.split(sep).join("/");
 
+/** `walked` is told of each folder tree actually read from disk, so a caller can see when discovery runs. */
+export type WorkspaceHooks = { walked?: (root: string) => void };
+
+/** What the folder walks found; only a structural change (a new file, a move, a plugin.json) drops it. */
+type Discovery = { dirs: Map<string, string[]>; plugins?: Plugin[]; engines?: Engine[]; manifests?: string[] };
+
 export class Workspace {
   private readonly overlay = new Map<string, string>();
   private readonly lastGood = new Map<string, BlockTree>();
   private cached: Analysis | null = null;
-  private cachedPlugins: Plugin[] | null = null;
+  private discovery: Discovery = { dirs: new Map() };
 
   constructor(
     private readonly roots: string[],
     private readonly readFile: (p: string) => string = diskRead,
+    private readonly hooks: WorkspaceHooks = {},
   ) {}
 
   open(file: string, text: string): void {
+    const structural = (!this.overlay.has(file) && !existsSync(file)) || file.endsWith(sep + PLUGIN_JSON);
     this.overlay.set(file, text);
-    this.invalidate();
+    this.invalidate(structural);
   }
 
   change(file: string, text: string): void {
@@ -84,7 +92,7 @@ export class Workspace {
 
   close(file: string): void {
     this.overlay.delete(file);
-    this.invalidate();
+    this.invalidate(!existsSync(file) || file.endsWith(sep + PLUGIN_JSON));
   }
 
   /**
@@ -103,12 +111,22 @@ export class Workspace {
         if (under(dir, from) || under(from, dir)) this.lastGood.delete(dir);
       }
     }
-    this.invalidate();
+    this.invalidate(true);
   }
 
-  private invalidate(): void {
+  private invalidate(structural: boolean): void {
     this.cached = null;
-    this.cachedPlugins = null;
+    if (structural) this.discovery = { dirs: new Map() };
+  }
+
+  private dirsUnder(root: string): string[] {
+    let dirs = this.discovery.dirs.get(root);
+    if (!dirs) {
+      this.hooks.walked?.(root);
+      dirs = walkDirs(root);
+      this.discovery.dirs.set(root, dirs);
+    }
+    return dirs;
   }
 
   text(file: string): string {
@@ -148,14 +166,14 @@ export class Workspace {
 
   /** Every plugin under the roots, in discovery order. */
   plugins(): Plugin[] {
-    this.cachedPlugins ??= this.discoverPlugins();
-    return this.cachedPlugins;
+    this.discovery.plugins ??= this.discoverPlugins();
+    return this.discovery.plugins;
   }
 
   private discoverPlugins(): Plugin[] {
     const out: Plugin[] = [];
     for (const root of this.roots) {
-      for (const dir of dirsUnder(root)) {
+      for (const dir of this.dirsUnder(root)) {
         if (!this.exists(join(dir, PLUGIN_JSON))) continue;
         try {
           const json = JSON.parse(this.text(join(dir, PLUGIN_JSON))) as { name?: unknown; version?: unknown };
@@ -178,7 +196,7 @@ export class Workspace {
   blockFiles(): string[] {
     const found = new Set<string>();
     for (const root of this.roots) {
-      for (const dir of dirsUnder(root)) {
+      for (const dir of this.dirsUnder(root)) {
         for (const e of listDir(dir)) if (e.isFile() && e.name.endsWith(BLOCK_SUFFIX)) found.add(join(dir, e.name));
       }
     }
@@ -200,10 +218,15 @@ export class Workspace {
    * A tree's top dir: its index's parent holds no index. In a plugin these are the pipeline steps and
    * the includes, and the index's frontmatter is not read, so a root that stops parsing stays an engine.
    */
-  private engines(plugins = this.plugins()): Engine[] {
+  private engines(): Engine[] {
+    this.discovery.engines ??= this.discoverEngines(this.plugins());
+    return this.discovery.engines;
+  }
+
+  private discoverEngines(plugins: Plugin[]): Engine[] {
     const out: Engine[] = [];
     for (const plugin of plugins) {
-      for (const dir of dirsUnder(plugin.dir)) {
+      for (const dir of this.dirsUnder(plugin.dir)) {
         if (!this.exists(join(dir, INDEX)) || this.exists(join(dirname(dir), INDEX))) continue;
         if (this.pluginOf(dir, plugins) !== plugin) continue;
         out.push({ dir, plugin });
@@ -213,9 +236,14 @@ export class Workspace {
   }
 
   private manifestPaths(): string[] {
+    this.discovery.manifests ??= this.discoverManifests();
+    return this.discovery.manifests;
+  }
+
+  private discoverManifests(): string[] {
     const found = new Set<string>();
     for (const root of this.roots) {
-      for (const dir of dirsUnder(root)) {
+      for (const dir of this.dirsUnder(root)) {
         if (this.exists(join(dir, MANIFEST))) found.add(join(dir, MANIFEST));
       }
     }
@@ -242,7 +270,7 @@ export class Workspace {
     const plugins = this.plugins();
     const trees = new Map<string, BlockTree | null>();
     const loaded: { tree: BlockTree; engine: Engine }[] = [];
-    for (const engine of this.engines(plugins)) {
+    for (const engine of this.engines()) {
       const tree = this.loadTree(engine, (d) => report(d, engine.plugin.dir));
       trees.set(engine.dir, tree);
       if (tree) loaded.push({ tree, engine });
