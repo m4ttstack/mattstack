@@ -3,7 +3,8 @@ import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { hasCompiledHeader, unresolvedRelativePaths } from "./compile.ts";
-import { assertNoTeamMarkerInRawFile, readTextUnlessBinary, substituteAttachmentPlaceholders } from "./placeholders.ts";
+import { handPathDiagnostics } from "./hand-paths.ts";
+import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, substituteAttachmentPlaceholders } from "./placeholders.ts";
 import type { TeamContext } from "./team-params.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
@@ -241,6 +242,12 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
 
   const emits: EmittedAttachment[] = [];
   const verbDirs = Object.entries(verbSides).map(([verb, side]) => join(packDir, side, verb));
+  const pathView = { verbSides, packRoot: packDir, plannedAttachments: planned };
+  const fixView = {
+    verbs: new Set(Object.keys(verbSides)),
+    packSource: (arg: string) => packPathResolves(pathView, arg),
+    teamValue: team ? (key: string) => (Object.hasOwn(team.values.params, key) ? team.values.params[key] : undefined) : undefined,
+  };
   for (const { name, srcDir, files } of records) {
     const out: CompiledFile[] = [];
     const warnings: string[] = [];
@@ -256,14 +263,22 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
         out.push({ path: file, copyFrom: abs });
         continue;
       }
+      const where = `${base.name}:attachments/${name}/${file}`;
+      const raw = readFileSync(abs, "utf8");
+      // Read before team markers resolve, so a path built from a team value is still the hand-typed text the author wrote.
+      const handPaths = handPathDiagnostics(raw, file, fixView);
+      if (handPaths.length > 0) {
+        errors.push(...handPaths.map((d) => `${where}: ${d.message} (line ${d.line})`));
+        continue;
+      }
       try {
-        const content = substituteAttachmentPlaceholders(readFileSync(abs, "utf8"), {
+        const content = substituteAttachmentPlaceholders(raw, {
           packName,
           fileRel: `attachments/${name}/${file}`,
           verbSides,
           packRoot: packDir,
           plannedAttachments: planned,
-          where: `${base.name}:attachments/${name}/${file}`,
+          where,
           team,
         });
         out.push({ path: file, content });

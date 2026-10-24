@@ -1366,13 +1366,13 @@ describe("base pack attachments", () => {
     expect(await compilePackAll({ packDir, mattstackDir, manifest: manifestFile() })).toEqual({ ok: false, errors: [message], written: [], removed: [] });
   });
 
-  test("a copied attachment's dead relative link is a warning, and the copy still lands", async () => {
-    const { packDir, compile } = seedBaseAndTeam({ baseFiles: { "attachments/gates-note/SKILL.md": "---\nname: gates-note\n---\nSee `../stage-gates/SKILL.md`.\n" } });
+  test("a copied attachment's dead relative link out of the pack is a warning, and the copy still lands", async () => {
+    const { packDir, compile } = seedBaseAndTeam({ baseFiles: { "attachments/gates-note/SKILL.md": "---\nname: gates-note\n---\nSee `../../../stage-gates/SKILL.md`.\n" } });
     const { exitCode } = await compile();
     expect(exitCode).toBeUndefined();
     const printed = io.lines().join("\n");
     expect(printed).toContain("Copied gates-note");
-    expect(printed).toContain("SKILL.md references ../stage-gates/SKILL.md which is not an emitted file");
+    expect(printed).toContain("SKILL.md references ../../../stage-gates/SKILL.md which is not an emitted file");
     expect(existsSync(join(packDir, "attachments", "gates-note", "SKILL.md"))).toBe(true);
   });
 
