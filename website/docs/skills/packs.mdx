@@ -128,9 +128,14 @@ Each old key has a new key and prop:
 | `mattstack:shepherdr` tiering, strategy, accounts | unchanged: the root block still declares them | same |
 | any engine's `domain` | a person decides: `<engine>/domain-rules` rules, or a step's own `rules` prop; `rules` adds to lower layers where `domain` replaced them | none |
 
-`<engine>` stands for the old key's name, so `mattstack:review` `criteria` becomes `mattstack:review/criteria` `criteria`. `mattstack:shepherdr` has no `domain-rules` block, so its `domain` fill moves to a step's own `rules` prop.
+`<engine>` stands for the old key's name, so `mattstack:review` `criteria` becomes `mattstack:review/criteria` `criteria`. `mattstack:shepherdr` has no `domain-rules` block, so its `domain` fill moves to `mattstack:shepherdr` `rules`, a prop on its root block.
 
-Convert the pack in the org clone, on the branch it has checked out:
+Where you convert a pack depends on who else uses it:
+
+- In an org with other members, packs convert only on the org admin's trial branch, as [Moving to block packs](/start/teams#moving-to-block-packs) describes. Never sync a converted pack to the org's data branch before the org is on layout 5. Members on an older app would pull bindings their app cannot read.
+- In a Just Me org, or for a pack outside an org, convert the pack in place.
+
+To convert a pack:
 
 1. Split the domain fill's `## At: <step>` sections into one file each, beside a `SKILL.md` that holds only frontmatter. A section whose step has no prop goes into the stage's `domain-rules` block.
 2. Bind each fill under its new key with `rt skills bind`, for example:
@@ -143,7 +148,7 @@ Convert the pack in the org clone, on the branch it has checked out:
 4. Run `rt skills compile`, then `rt skills check --strict`.
 5. Publish the pack as usual: bump its version, commit, push, `rt skills sync --pack widgets`.
 
-The org's base pack converts first, since a team pack that extends it does not compile while the base binds old keys. To move the whole org at once, see [Moving to block packs](/start/teams#moving-to-block-packs).
+The org's base pack converts first, since a team pack that extends it does not compile while the base binds old keys.
 
 If you wrote your own `~/.mattstack/user/skills/overrides.jsonc`, the same keys change there. Setup's **Skill overrides** row lists each old key in it and what replaces it. Edit the file, then run `rt skills materialize`.
 
