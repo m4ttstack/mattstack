@@ -2,21 +2,21 @@
 
 usage: place-blocks-fixture.py <scratch-pack-dir> <payload.json> <fixture.json>
 
-Rewrites the scratch pack's path to the fixture root, and completes the org layer
-when the payload's values use it: the layer entry and the `lines` row rt emits for
-a pack that extends a real org base.
+Rewrites the scratch pack's paths to the fixture's (`fixture_paths.py`), and
+completes the org layer when the payload's values use it: the layer entry and the
+`lines` row rt emits for a pack that extends a real org base.
 """
 import json
 import os
 import sys
 
-BASE = "acme-base"
-FIXTURE_ROOT = "/Users/acme/.mattstack-fixture"
+# -I keeps the script's own folder off the path; no cache lands beside it.
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fixture_paths import BASE, placed
 
 scratch, source, dest = sys.argv[1:4]
-text = open(source).read().replace(scratch, FIXTURE_ROOT)
-assert scratch not in text, "scratch path left in the payload"
-data = json.loads(text)
+data = json.loads(placed(open(source).read(), scratch))
 
 org_lines = 0
 uses_org = False

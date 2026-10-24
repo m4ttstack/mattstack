@@ -153,6 +153,17 @@ export interface ScenarioDef {
   /** rt's refusal to build a skill's blocks, where it differs from the
       clean pack's. */
   blocks?: Record<string, Failure>;
+  /** Commits newer than the pack's own history, newest first. */
+  history?: { commits: HistoryCommit[] };
+}
+
+interface HistoryCommit {
+  sha: string;
+  shortSha: string;
+  authoredAt: string;
+  author: string;
+  subject: string;
+  files: string[];
 }
 
 /** What rt refuses to build in the clean pack: release-notes requires a
@@ -610,6 +621,30 @@ function workAsBlocks(composition: Composition): Composition {
   };
 }
 
+/** The pack's edits to ship's lint files, so a block's History has commits
+    of its own to list. */
+const SHIP_LINT_COMMITS: HistoryCommit[] = [
+  {
+    sha: 'd41a7c3e9b2f8a6d5c4b3a2f1e0d9c8b7a6f5e4d',
+    shortSha: 'd41a7c3',
+    authoredAt: '2026-10-08T10:12:44-05:00',
+    author: 'Robin Okafor',
+    subject: 'ship-lint: run the typecheck after lint',
+    files: ['attachments/ship-lint/fast-checks.md'],
+  },
+  {
+    sha: 'a83f0b6c2d1e9f8a7b6c5d4e3f2a1b0c9d8e7f6a',
+    shortSha: 'a83f0b6',
+    authoredAt: '2026-10-02T16:05:19-05:00',
+    author: 'Sam Reyes',
+    subject: 'ship-lint: shared format check comes first',
+    files: [
+      'attachments/ship-lint/base-checks.md',
+      'attachments/ship-lint/fast-checks.md',
+    ],
+  },
+];
+
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   runs: { subject: 'stage-plan' },
@@ -713,6 +748,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
   },
   blocks: {
     subject: 'mini',
+    history: { commits: SHIP_LINT_COMMITS },
     composition: composition => workAsBlocks(withMini(composition)),
     anatomy: {
       ship: { file: 'anatomy.ship.json' },

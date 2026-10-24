@@ -823,6 +823,38 @@ describe('the skills routes on the fixture', () => {
     }
   });
 
+  it("blocks scenario: ship's prop files sit in the pack, the base one marked as the org base's", () => {
+    const props = anatomyShip.parts.filter(part => part.kind === 'prop');
+    expect(props.length).toBeGreaterThan(0);
+    for (const part of props)
+      expect(part.source!.path.startsWith('/fixture/packs/acme/')).toBe(true);
+    const base = props.find(part =>
+      part.source!.path.endsWith('/base-checks.md')
+    )!;
+    expect(base.source).toMatchObject({
+      origin: 'base',
+      base: 'acme-base',
+      baseVersion: '0.1.0',
+    });
+    const own = props.find(part =>
+      part.source!.path.endsWith('/fast-checks.md')
+    )!;
+    expect(own.source).not.toHaveProperty('origin');
+  });
+
+  it("blocks scenario: a block file's history lists the commits that touched it", async () => {
+    const res = await mount('blocks').request(
+      '/api/skills/history?pack=acme&verb=ship&path=attachments%2Fship-lint%2Ffast-checks.md'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      commits: { files: string[] }[];
+    };
+    expect(body.commits.length).toBeGreaterThan(0);
+    for (const commit of body.commits)
+      expect(commit.files).toContain('attachments/ship-lint/fast-checks.md');
+  });
+
   it('answers blocks in every scenario, so a focused skill never 502s', async () => {
     for (const scenario of ['clean', 'unsynced', 'org-base'] as const) {
       const app = mount(scenario);

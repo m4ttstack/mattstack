@@ -479,7 +479,7 @@
               "layer": "base:acme-base",
               "color": "org",
               "binding": "widgets:ship-lint/base-commit",
-              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/base-commit.md",
+              "path": "/fixture/packs/acme/attachments/ship-lint/base-commit.md",
               "lines": 1
             }
           ],
@@ -564,14 +564,14 @@
               "layer": "base:acme-base",
               "color": "org",
               "binding": "widgets:ship-lint/base-checks",
-              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/base-checks.md",
+              "path": "/fixture/packs/acme/attachments/ship-lint/base-checks.md",
               "lines": 1
             },
             {
               "layer": "pack",
               "color": "team",
               "binding": "widgets:ship-lint/fast-checks",
-              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/fast-checks.md",
+              "path": "/fixture/packs/acme/attachments/ship-lint/fast-checks.md",
               "lines": 2
             }
           ],
@@ -974,7 +974,7 @@
               "layer": "pack",
               "color": "team",
               "binding": "widgets:ship-lint/title",
-              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/title.md",
+              "path": "/fixture/packs/acme/attachments/ship-lint/title.md",
               "lines": 1
             }
           ],

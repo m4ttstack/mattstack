@@ -614,14 +614,9 @@ describe('BlockView: Used by and History', () => {
   });
 
   it("scopes a block's commit timeline to its files inside the pack", () => {
-    const anatomy = designFixture('anatomy.ship');
-    for (const part of anatomy.parts)
-      if (part.source?.path.endsWith('/fast-checks.md'))
-        part.source.path =
-          '/fixture/packs/acme/attachments/ship-lint/fast-checks.md';
     renderView(
       { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
-      { payload: shipPayload, context: { ...context, anatomy } }
+      { payload: shipPayload, context: shipContext }
     );
 
     expect(screen.getByTestId('version-timeline')).toBeInTheDocument();
@@ -629,18 +624,41 @@ describe('BlockView: Used by and History', () => {
       query: {
         pack: 'acme',
         verb: 'ship',
-        path: ['attachments/ship-lint/fast-checks.md'],
+        path: [
+          'attachments/ship-lint/base-checks.md',
+          'attachments/ship-lint/fast-checks.md',
+        ],
       },
     });
   });
 
   it('draws no timeline for a block whose files all live outside the pack', () => {
+    const anatomy = designFixture('anatomy.ship');
+    for (const part of anatomy.parts)
+      if (part.source)
+        part.source.path = part.source.path.replace(
+          '/fixture/packs/acme/',
+          '/elsewhere/'
+        );
+    renderView(
+      { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
+      { payload: shipPayload, context: { ...context, anatomy } }
+    );
+
+    expect(screen.queryByTestId('version-timeline')).not.toBeInTheDocument();
+  });
+
+  it("names the org base's file in History as the org base's, as Layers does", () => {
     renderView(
       { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
       { payload: shipPayload, context: shipContext }
     );
 
-    expect(screen.queryByTestId('version-timeline')).not.toBeInTheDocument();
+    const base = screen
+      .getAllByTestId('built-from-row')
+      .find(row => row.textContent?.startsWith('ship-lint/base-checks.md'))!;
+    expect(base).toHaveTextContent('acme-base 0.1.0');
+    expect(base).toHaveTextContent('org base');
   });
 
   it("gives each Shared row its include's name, length and the skills that paste it", () => {

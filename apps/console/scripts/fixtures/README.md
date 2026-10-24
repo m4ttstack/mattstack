@@ -24,8 +24,9 @@ What it does:
 
 - Copies `plugins/mattstack` and builds a small `widgets` pack beside it in the scratch directory.
 - Runs `bun cli.ts skills blocks --json` under a throwaway `HOME` inside the scratch directory, so `~/.mattstack` is never read or written.
-- `place-anatomy-fixture.py` rewrites an anatomy payload's scratch path to the same root.
-- `place-blocks-fixture.py` rewrites the scratch path to `/Users/acme/.mattstack-fixture` and adds the `acme-base` layer and its `lines` row (rt emits both for a pack that extends a real org base; the scratch pack binds through `layered` instead).
+- `fixture_paths.py` places the scratch paths: the scratch pack becomes `/fixture/packs/acme`, the design fixture's own pack, so a block's prop files sit in the pack the history route reads; the rest goes under `/Users/acme/.mattstack-fixture`.
+- `place-anatomy-fixture.py` tags a prop source the manifest takes from the `base:acme-base` layer as the org base's (`origin`, `base`, `baseVersion`), as rt tags a fill from a real org base pack.
+- `place-blocks-fixture.py` adds the `acme-base` layer and its `lines` row (rt emits both for a pack that extends a real org base; the scratch pack binds through `layered` instead).
 
 It writes only into the scratch directory and the fixture directory. Run
 `bun run console:test` afterwards: `blocksPayload.test.ts` checks every layer

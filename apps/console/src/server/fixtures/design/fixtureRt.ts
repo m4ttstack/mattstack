@@ -263,9 +263,18 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         stderr: `fatal: not a git repository: ${dir}`,
       };
     }
-    const history = await readJson<History>('history.json');
+    const read = await readJson<History>('history.json');
+    const history = {
+      ...read,
+      commits: [...(def.history?.commits ?? []), ...read.commits],
+    };
     const dashDash = rest.indexOf('--');
     const scope = dashDash === -1 ? '.' : (rest[dashDash + 1] ?? '.');
+    // The route hands a block's files over as literal pathspecs.
+    const scopes =
+      dashDash === -1
+        ? ['.']
+        : rest.slice(dashDash + 1).map(spec => spec.replace(/^:\([^)]*\)/, ''));
     switch (command) {
       case 'rev-parse':
         return rest[0] === '--show-toplevel'
@@ -277,8 +286,10 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         );
         const inScope = history.commits.filter(
           c =>
-            scope === '.' ||
-            c.files.some(f => f === scope || f.startsWith(`${scope}/`))
+            scopes.includes('.') ||
+            c.files.some(f =>
+              scopes.some(at => f === at || f.startsWith(`${at}/`))
+            )
         );
         return answer(
           formatLog(Number.isFinite(max) ? inScope.slice(0, max) : inScope)

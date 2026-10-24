@@ -12,7 +12,7 @@
     "lines": 14
   },
   "rendered": {
-    "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship/SKILL.md",
+    "path": "/fixture/packs/acme/attachments/ship/SKILL.md",
     "exists": true,
     "lines": 2195
   },
@@ -187,10 +187,13 @@
       "mode": "inline",
       "source": {
         "ref": "widgets:ship-lint/base-commit",
-        "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/base-commit.md",
+        "path": "/fixture/packs/acme/attachments/ship-lint/base-commit.md",
         "version": "0.1.0",
         "builtVersion": "0.1.0",
-        "lines": 1
+        "lines": 1,
+        "origin": "base",
+        "base": "acme-base",
+        "baseVersion": "0.1.0"
       },
       "target": null,
       "changed": false
@@ -223,10 +226,13 @@
       "mode": "inline",
       "source": {
         "ref": "widgets:ship-lint/base-checks",
-        "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/base-checks.md",
+        "path": "/fixture/packs/acme/attachments/ship-lint/base-checks.md",
         "version": "0.1.0",
         "builtVersion": "0.1.0",
-        "lines": 1
+        "lines": 1,
+        "origin": "base",
+        "base": "acme-base",
+        "baseVersion": "0.1.0"
       },
       "target": null,
       "changed": false
@@ -239,7 +245,7 @@
       "mode": "inline",
       "source": {
         "ref": "widgets:ship-lint/fast-checks",
-        "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/fast-checks.md",
+        "path": "/fixture/packs/acme/attachments/ship-lint/fast-checks.md",
         "version": "0.1.0",
         "builtVersion": "0.1.0",
         "lines": 2
@@ -375,7 +381,7 @@
       "mode": "inline",
       "source": {
         "ref": "widgets:ship-lint/title",
-        "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/title.md",
+        "path": "/fixture/packs/acme/attachments/ship-lint/title.md",
         "version": "0.1.0",
         "builtVersion": "0.1.0",
         "lines": 1

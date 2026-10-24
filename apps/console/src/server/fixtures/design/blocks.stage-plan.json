@@ -240,7 +240,7 @@
               "layer": "pack",
               "color": "team",
               "binding": "widgets:ship-lint/evidence-plan",
-              "path": "/Users/acme/.mattstack-fixture/pack/attachments/ship-lint/evidence-plan.md",
+              "path": "/fixture/packs/acme/attachments/ship-lint/evidence-plan.md",
               "lines": 1
             }
           ],
