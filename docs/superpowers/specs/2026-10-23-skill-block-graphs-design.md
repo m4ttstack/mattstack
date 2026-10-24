@@ -147,8 +147,9 @@ model's output on ship's Flow (see Boards).
     one folded question, it is one pill. It is named by the targets' shared
     leading word when they have one ("Capture"), else by that question's
     short label. Clicking it pans to fit all its targets and rings each one.
-  - **Several sources:** sibling blocks with the same jump (same label, same
-    targets) share one pill, beside the last sibling. Jumps that differ in
+  - **Several sources:** sibling blocks (reached by lines from the same
+    block or split) with the same jump (same label, same targets) share
+    one pill, beside the last sibling. Jumps that differ in
     label or target keep their own pills.
 - **Shared trunks.** Two forward links from one block that share folded
   steps are drawn as one trunk that splits at the folded question where
