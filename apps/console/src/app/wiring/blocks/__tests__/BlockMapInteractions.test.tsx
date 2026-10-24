@@ -398,6 +398,31 @@ describe('BlockMap interactions', () => {
   );
 
   it(
+    'a jump and Back made before a fold lands keep their focus once the link draws',
+    async () => {
+      await renderMap();
+      const band = await openFold(REBASE_TO_RESOLVE);
+
+      fireEvent.click(within(band).getByRole('button', { name: 'Fold' }));
+      fireEvent.click(
+        screen.getByRole('button', { name: 'iterate: back to Domain steps' })
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+      const gate = screen.getByRole('button', { name: 'Ship gate' });
+      expect(gate).toHaveFocus();
+
+      await vi.waitFor(
+        () => expect(screen.queryByTestId('fold-band')).toBeNull(),
+        LAID_OUT
+      );
+      await new Promise(resolve => setTimeout(resolve, 200));
+      expect(linkButton(REBASE_TO_RESOLVE)).toBeInTheDocument();
+      expect(gate).toHaveFocus();
+    },
+    SLOW
+  );
+
+  it(
     'Back after a second jump returns to the second source',
     async () => {
       await renderMap();

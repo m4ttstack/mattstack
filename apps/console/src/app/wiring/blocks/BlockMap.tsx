@@ -274,7 +274,8 @@ export function BlockMap({
   } | null>(null);
   const reduceMotion = useReducedMotion();
   const sectionRef = useRef<HTMLElement>(null);
-  /** Where focus goes once the layout that holds it has drawn. */
+  /** Where focus goes once the layout that holds it has drawn; a jump or
+      Back moves focus itself and drops it. */
   const pendingFocus = useRef<string | null>(null);
 
   // React Flow draws changed nodes a commit after it gets them, so the target
@@ -356,6 +357,7 @@ export function BlockMap({
     return {
       select: onSelect,
       jump: (targets, from, fromLabel) => {
+        pendingFocus.current = null;
         const self = targets.length === 1 && targets[0] === from;
         if (!self) scrollTo(nodeAt(targets[0]!));
         setJumped({
@@ -390,6 +392,7 @@ export function BlockMap({
             ? {
                 label: jumped.fromLabel,
                 onBack: () => {
+                  pendingFocus.current = null;
                   const source =
                     nodeAt(jumped.from) ??
                     (jumped.fallback ? nodeAt(jumped.fallback) : null);
