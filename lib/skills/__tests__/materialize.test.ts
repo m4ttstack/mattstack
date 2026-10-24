@@ -264,6 +264,27 @@ describe("materializeRepo", () => {
     }
     expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(false);
   });
+
+  test("a whitespace-only overrides file materializes the packs as if there were none", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: { pack: {} } } });
+    write(join(root, "user", "skills", "overrides.jsonc"), "  \n\t\n");
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    for (const p of out.packs) {
+      if (!p.ok) throw new Error(p.detail);
+      expect(p.layers).not.toContain("override");
+    }
+  });
+
+  test("a comment-only overrides file is still not valid JSONC", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
+    write(join(root, "user", "skills", "overrides.jsonc"), "// nothing yet\n");
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.every((p) => !p.ok)).toBe(true);
+  });
 });
 
 describe("materializeRepo dropped overrides", () => {

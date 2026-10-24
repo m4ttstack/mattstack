@@ -27,7 +27,10 @@ function replacedSlotsByEngine(): Map<string, { slots: string[]; dir: string }> 
     }
     const raw = frontmatter["replaced-slots"];
     if (!Array.isArray(raw)) continue;
-    out.set(basename(dirname(file)), { slots: raw.map(String), dir: dirname(file) });
+    const engine = basename(dirname(file));
+    const seen = out.get(engine);
+    if (seen) throw new Error(`two engines are named ${engine}: ${seen.dir} and ${dirname(file)}`);
+    out.set(engine, { slots: raw.map(String), dir: dirname(file) });
   }
   return out;
 }

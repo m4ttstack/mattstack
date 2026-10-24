@@ -87,6 +87,11 @@ function shapeError(doc: Record<string, unknown>): string | null {
   return null;
 }
 
+/** Only the user's overrides file may be blank and mean "no override"; pack and engine fragments still refuse blank text. */
+export function isBlankOverridesText(text: string): boolean {
+  return text.trim() === "";
+}
+
 export function parseFragment(text: string, path: string): Fragment {
   let parsed: unknown;
   try {

@@ -2,7 +2,7 @@ import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { warn } from "../ui/warn.ts";
 import { isPackDir, parseRemote, readZonesFrom, zonePackDir, zoneTeamConfigReads, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
-import { FragmentError, mergeLayers, parseFragment, readManifestZone, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
+import { FragmentError, isBlankOverridesText, mergeLayers, parseFragment, readManifestZone, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
 import { boardOnlyBaseFills, mergedBindings, retargetBoardFills } from "./board-fills.ts";
 
@@ -170,8 +170,9 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
   try {
     const engineFragment = readFragment(deps.fs, join(deps.enginePackDir, "pack", "skills.jsonc"));
     if (engineFragment) defaults = { label: "default", fragment: engineFragment };
-    const overrideFragment = readFragment(deps.fs, join(deps.mattstackRoot, "user", "skills", "overrides.jsonc"));
-    if (overrideFragment) override = { label: "override", fragment: overrideFragment };
+    const overridePath = join(deps.mattstackRoot, "user", "skills", "overrides.jsonc");
+    const overrideText = deps.fs.readFile(overridePath);
+    if (overrideText !== null && !isBlankOverridesText(overrideText)) override = { label: "override", fragment: parseFragment(overrideText, overridePath) };
   } catch (err) {
     if (!(err instanceof FragmentError)) throw err;
     sharedError = err.message;

@@ -29,15 +29,35 @@ describe("skillsOverridesRow", () => {
   test("says a person decides for domain", () => {
     const r = at('{ "bindings": { "mattstack:stage-ship": { "domain": "acme:ship-rules" } } }');
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("mattstack:stage-ship/domain-rules rules");
-    expect(r.detail).toContain("adds to lower layers");
+    expect(r.detail).toBe(
+      "Old slot keys: mattstack:stage-ship domain becomes mattstack:stage-ship/domain-rules rules or a step's own rules prop, your choice. " +
+        "A rules prop adds to lower layers where domain replaced them.",
+    );
   });
 
   test("shepherdr's domain names only a step's own rules prop, since it has no domain-rules block", () => {
     const r = at('{ "bindings": { "mattstack:shepherdr": { "domain": "acme:fan-rules" } } }');
     expect(r.status).toBe("needs-you");
-    expect(r.detail).not.toContain("domain-rules");
-    expect(r.detail).toContain("rules prop");
+    expect(r.detail).toBe("Old slot keys: mattstack:shepherdr domain becomes a step's own rules prop. A rules prop adds to lower layers where domain replaced them.");
+  });
+
+  test("states the domain caveat once, after the list", () => {
+    const r = at(JSON.stringify({
+      bindings: { "mattstack:stage-plan": { domain: "acme:plan" }, "mattstack:work": { tiering: "acme:t" } },
+      pipelines: { bugfix: { bindings: { "mattstack:stage-ship": { domain: "acme:ship" } } } },
+    }));
+    expect(r.detail).toBe(
+      "Old slot keys: mattstack:stage-plan domain becomes mattstack:stage-plan/domain-rules rules or a step's own rules prop, your choice; " +
+        "mattstack:work tiering becomes mattstack:work/sub-agent-tiering tiering; " +
+        "mattstack:stage-ship domain in pipeline bugfix becomes mattstack:stage-ship/domain-rules rules or a step's own rules prop, your choice. " +
+        "A rules prop adds to lower layers where domain replaced them.",
+    );
+  });
+
+  test("leaves the caveat out when no key is domain", () => {
+    expect(at('{ "bindings": { "mattstack:work": { "tiering": "x" } } }').detail).toBe(
+      "Old slot keys: mattstack:work tiering becomes mattstack:work/sub-agent-tiering tiering.",
+    );
   });
 
   test("lists only the old keys when old and new are mixed", () => {
@@ -63,11 +83,13 @@ describe("skillsOverridesRow", () => {
       ["{ nope", "Could not read the file: it is not valid JSONC."],
       ["[]", "Could not read the file: it is not a JSON object."],
       ['{ "bindings": { "mattstack:work": "x" } }', "Could not read the file: bindings.mattstack:work is not an object."],
+      ["// nothing yet\n", "Could not read the file: it is not valid JSONC."],
     ];
     for (const [text, detail] of cases) {
       const r = at(text);
       expect(r.status).toBe("needs-you");
       expect(r.detail).toBe(detail);
+      expect((r.action as { steps: string[] }).steps).toEqual([`Fix the problem above in ${FILE}`, "Run: rt skills materialize"]);
     }
   });
 
