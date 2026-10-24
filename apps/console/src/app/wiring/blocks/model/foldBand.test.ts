@@ -173,8 +173,10 @@ describe('foldBand', () => {
     });
   });
 
-  it('on ship, jumps that find no block target the exit node they enter', () => {
-    const blocks = new Set(shipMap.nodes.map(each => each.id));
+  it('on ship, jumps stop at a split, and jumps that find no block target the exit node they enter', () => {
+    const blocks = new Set(
+      shipMap.nodes.filter(each => each.kind !== 'split').map(each => each.id)
+    );
     const exitJumps: string[] = [];
     for (const link of shipMap.links) {
       for (const each of foldBand(shipGraph, link, shipMap).nodes) {
@@ -189,10 +191,20 @@ describe('foldBand', () => {
     }
 
     expect(exitJumps).toEqual([
+      'reopened_recapture → domain_steps_before_gate · nothing_to_push · yes → browser_case · forward',
       'reopened_recapture → domain_steps_before_gate · on_default_branch · yes → own_run_default_branch · forward',
       'gate_ship → domain_steps_before_gate · run_budget_gate_rounds · no → rebase_in_progress · forward',
       'domain_fast_checks → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · forward',
       'domain_rebases_unfinished → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · forward',
+      'domain_rebases_unfinished → gate_push_refused · push_result · ok → create_forge_host · forward',
+      'gate_push_refused → gate_push_refused · push_result · ok → create_forge_host · forward',
+      'confirm_human_push → gate_push_refused · push_landed · yes → create_forge_host · forward',
+      'gate_which_forge → gate_which_forge · create_forge_host · GitHub → browser_case · forward',
+      'gate_which_forge → mr_create · create_forge_host · GitHub → browser_case · forward',
+      'mr_create → mr_create · mr_create_result · created or existing → browser_case · forward',
+      'mr_create → mr_create · mr_create_result · squashApplied → browser_case · forward',
+      'capture_after_case → every_case_tried · run_budget_after_attempts · yes → browser_case · back',
+      'capture_after_browser → every_case_tried · run_budget_after_attempts · yes → browser_case · back',
       'run_watch_ci → gate_mark_ready · watch_ci_result · held → held_in_watch_ci · forward',
       'resolve_conflict_files → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · back',
       'resolve_conflict_files → gate_ship · continue_result · error → git_rebase_abort · forward',

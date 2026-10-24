@@ -18,6 +18,7 @@ type NodeSpec = [
   blockId?: string | null,
   shape?: Shape,
   cls?: 'done' | 'stop',
+  label?: string,
 ];
 type EdgeSpec = [from: string, to: string, label?: string];
 
@@ -26,9 +27,9 @@ type EdgeSpec = [from: string, to: string, label?: string];
 function g(nodes: NodeSpec[], edges: EdgeSpec[]): Graph {
   return {
     blockId: 'test',
-    nodes: nodes.map(([id, blockId = id, shape = 'box', cls], line) => ({
+    nodes: nodes.map(([id, blockId = id, shape = 'box', cls, label], line) => ({
       id,
-      label: id,
+      label: label ?? id,
       shape,
       cls: cls ?? null,
       line,
@@ -453,35 +454,114 @@ describe('blockMap', () => {
   });
 
   it('a budget question and a merge point are never splits', () => {
+    const withCommand = (command: string) =>
+      blockMap(
+        g(
+          [
+            ['A'],
+            ['B'],
+            ['budget', null, 'plaintext', undefined, command],
+            ['spent', null, 'diamond'],
+            ['m', null, 'diamond'],
+            ['n', null],
+            ['C'],
+            ['D'],
+          ],
+          [
+            ['A', 'B'],
+            ['A', 'budget'],
+            ['B', 'budget'],
+            ['budget', 'spent'],
+            ['spent', 'C', 'yes'],
+            ['spent', 'm', 'no'],
+            ['m', 'n', 'yes'],
+            ['m', 'D', 'no'],
+            ['n', 'D'],
+            ['n', 'C'],
+          ]
+        ),
+        asStep
+      );
+    const splitsOf = (map: BlockMap) =>
+      map.nodes.filter(node => node.kind === 'split').map(node => node.id);
+
+    expect(splitsOf(withCommand('git status --porcelain'))).toEqual(['spent']);
+    expect(
+      splitsOf(
+        withCommand('run_budget {key: ship:fix-rounds, limit: 4, stage}')
+      )
+    ).toEqual([]);
+  });
+
+  it('a split that stops qualifying after an undo dissolves', () => {
+    const map = blockMap(
+      g(
+        [
+          ['B'],
+          ['b', null],
+          ['M'],
+          ['T2'],
+          ['A'],
+          ['C'],
+          ['a', null],
+          ['c', null],
+          ['F', null, 'diamond'],
+          ['T1'],
+        ],
+        [
+          ['B', 'b', 'go'],
+          ['b', 'M'],
+          ['b', 'F'],
+          ['M', 'T2'],
+          ['T2', 'A'],
+          ['T2', 'C'],
+          ['A', 'a'],
+          ['C', 'c'],
+          ['a', 'F'],
+          ['c', 'F'],
+          ['F', 'T1', 'one'],
+          ['F', 'T2', 'two'],
+        ]
+      ),
+      asStep
+    );
+
+    expect(map.nodes.filter(node => node.kind === 'split')).toEqual([]);
+    expect(linkTo(map, 'A', 'T1').folded).toEqual(['a', 'F']);
+    expect(linkTo(map, 'C', 'T1').folded).toEqual(['c', 'F']);
+  });
+
+  it('a link into a split stays a line, however far it spans', () => {
     const map = blockMap(
       g(
         [
           ['A'],
           ['B'],
-          ['budget', null, 'plaintext'],
-          ['spent', null, 'diamond'],
-          ['m', null, 'diamond'],
-          ['n', null],
           ['C'],
           ['D'],
+          ['p', null],
+          ['q', null],
+          ['f', null, 'diamond'],
+          ['E'],
+          ['G'],
         ],
         [
+          ['A', 'p'],
           ['A', 'B'],
-          ['A', 'budget'],
-          ['B', 'budget'],
-          ['budget', 'spent'],
-          ['spent', 'm', 'no'],
-          ['spent', 'C', 'yes'],
-          ['m', 'n', 'yes'],
-          ['m', 'D', 'no'],
-          ['n', 'D'],
-          ['n', 'C'],
+          ['B', 'C'],
+          ['C', 'D'],
+          ['p', 'f'],
+          ['D', 'q'],
+          ['q', 'f'],
+          ['f', 'E', 'l'],
+          ['f', 'G', 'r'],
         ]
       ),
-      () => ({ label: 'block', kind: 'step' as const })
+      asStep
     );
 
-    expect(map.nodes.filter(node => node.kind === 'split')).toEqual([]);
+    expect(map.layers.f! - map.layers.A!).toBeGreaterThanOrEqual(3);
+    expect(linkTo(map, 'A', 'f')).toMatchObject({ kind: 'line', trunk: null });
   });
 
   it('a trunk splits where the branch leaves the main path; the main line follows first-declared edges', () => {
@@ -777,7 +857,11 @@ describe('blockMap on ship flow', () => {
 
   it("every_case_tried keeps its short trunk while the forge split's long links jump", () => {
     const main = linkTo(map, 'every_case_tried', 'record_evidence');
-    expect(main).toMatchObject({ kind: 'line', trunk: { main: true } });
+    expect(main).toMatchObject({
+      kind: 'line',
+      label: 'yes',
+      trunk: { main: true },
+    });
     expect(linkTo(map, 'every_case_tried', 'attach_evidence')).toMatchObject({
       kind: 'line',
       label: 'no',

@@ -1,5 +1,12 @@
 import type { BlocksPayload } from '../../../../server/blocksPayload';
 import { cutLabel } from './labels';
+import {
+  findSplits,
+  forkOf,
+  settleSplits,
+  type ByRank,
+  type Reach,
+} from './splits';
 
 type Graph = BlocksPayload['graphs'][number];
 type Edge = Graph['edges'][number];
@@ -44,15 +51,6 @@ export type BlockMap = {
 
 /** A forward link spanning this many layers or more is drawn as a jump. */
 export const JUMP_LAYERS = 3;
-
-/** One block reaching one target, before kinds, trunks and grouping. */
-type Reach = {
-  from: string;
-  to: string;
-  folded: string[];
-  firstEdge: Edge | null;
-  fork: string | null;
-};
 
 export function adjacency(graph: Graph, forward: boolean): Map<string, Edge[]> {
   const next = new Map<string, Edge[]>(graph.nodes.map(node => [node.id, []]));
@@ -156,13 +154,7 @@ function reachesFrom(
     const firstEdge =
       outs.get(from)!.find(edge => edge.to === to || onPath.has(edge.to)) ??
       null;
-    const fork =
-      ins
-        .get(to)!
-        .map(edge => edge.from)
-        .filter(id => walked.has(id))
-        .sort(byRank)
-        .at(-1) ?? null;
+    const fork = forkOf(to, walked, ins, byRank);
     return { from, to, folded: [...onPath], firstEdge, fork };
   });
 }
@@ -179,169 +171,6 @@ function trunkGroups(forward: Reach[]): Reach[][] {
     groups.push(merged);
   }
   return groups.filter(group => group.length > 1);
-}
-
-type ByRank = (a: string, b: string) => number;
-
-/** A shared split: the block reaches each source routes through it. */
-type Split = { id: string; through: Map<string, Reach[]> };
-
-/** Steps of a reach's folded set on its way into `at`, and on from it. */
-function aroundStep(
-  reach: Reach,
-  at: string,
-  outs: Map<string, Edge[]>,
-  ins: Map<string, Edge[]>
-): { before: Set<string>; after: Set<string> } {
-  const inner = new Set(reach.folded);
-  const walk = (next: Map<string, Edge[]>, forward: boolean) => {
-    const seen = new Set<string>();
-    const stack = [at];
-    while (stack.length > 0) {
-      for (const edge of next.get(stack.pop()!)!) {
-        const id = forward ? edge.to : edge.from;
-        if (id === at || !inner.has(id) || seen.has(id)) continue;
-        seen.add(id);
-        stack.push(id);
-      }
-    }
-    return seen;
-  };
-  return { before: walk(ins, false), after: walk(outs, true) };
-}
-
-/** The latest of `target`'s predecessors among `steps`, by flow order. */
-function forkOf(
-  target: string,
-  steps: Set<string>,
-  ins: Map<string, Edge[]>,
-  byRank: ByRank
-): string | null {
-  return (
-    ins
-      .get(target)!
-      .map(edge => edge.from)
-      .filter(id => steps.has(id))
-      .sort(byRank)
-      .at(-1) ?? null
-  );
-}
-
-/** A budget's "spent?" question sits right after its `run_budget` command. */
-function isBudgetQuestion(
-  id: string,
-  ins: Map<string, Edge[]>,
-  nodeOf: Map<string, Graph['nodes'][number]>
-): boolean {
-  const into = ins.get(id)!;
-  if (into.length !== 1) return false;
-  const before = nodeOf.get(into[0]!.from)!;
-  return (
-    before.shape === 'plaintext' &&
-    (before.label ?? '').startsWith('run_budget ')
-  );
-}
-
-/** The links a split stands for: one per source into it, one per target
-    out of it. */
-function splitReaches(
-  split: Split,
-  outs: Map<string, Edge[]>,
-  ins: Map<string, Edge[]>,
-  byRank: ByRank
-): Reach[] {
-  const into: Reach[] = [];
-  const onward = new Map<string, Set<string>>();
-  for (const [source, through] of split.through) {
-    const before = new Set<string>();
-    for (const reach of through) {
-      const steps = aroundStep(reach, split.id, outs, ins);
-      for (const id of steps.before) before.add(id);
-      const after = onward.get(reach.to) ?? new Set<string>();
-      for (const id of steps.after) after.add(id);
-      onward.set(reach.to, after);
-    }
-    into.push({
-      from: source,
-      to: split.id,
-      folded: [...before].sort(byRank),
-      firstEdge:
-        outs
-          .get(source)!
-          .find(edge => edge.to === split.id || before.has(edge.to)) ?? null,
-      fork: forkOf(split.id, before, ins, byRank),
-    });
-  }
-  const out = [...onward].map(([to, after]) => ({
-    from: split.id,
-    to,
-    folded: [...after].sort(byRank),
-    firstEdge:
-      outs.get(split.id)!.find(edge => edge.to === to || after.has(edge.to)) ??
-      null,
-    fork: forkOf(to, new Set([split.id, ...after]), ins, byRank),
-  }));
-  return [...into, ...out];
-}
-
-/** Shared splits, in flow order: a graph-only question that block reaches
-    from two or more sources pass on their way to two or more targets,
-    leaving it by two or more of its exits. A reach routed through one split
-    never feeds a later one. */
-function findSplits(
-  candidates: string[],
-  pool: Reach[],
-  isBlock: (id: string) => boolean,
-  outs: Map<string, Edge[]>,
-  ins: Map<string, Edge[]>,
-  byRank: ByRank
-): Split[] {
-  const splits: Split[] = [];
-  let free = pool;
-  for (const at of candidates) {
-    const through = free.filter(
-      reach =>
-        isBlock(reach.from) &&
-        byRank(reach.to, reach.from) > 0 &&
-        byRank(at, reach.from) > 0 &&
-        reach.folded.includes(at)
-    );
-    const exits = new Set(
-      through.map(reach => {
-        const { after } = aroundStep(reach, at, outs, ins);
-        return outs
-          .get(at)!
-          .findIndex(edge => edge.to === reach.to || after.has(edge.to));
-      })
-    );
-    const sources = new Set(through.map(reach => reach.from));
-    const targets = new Set(through.map(reach => reach.to));
-    if (sources.size < 2 || targets.size < 2 || exits.size < 2) continue;
-    const bySource = new Map<string, Reach[]>();
-    for (const reach of through) {
-      bySource.set(reach.from, [...(bySource.get(reach.from) ?? []), reach]);
-    }
-    splits.push({ id: at, through: bySource });
-    free = free.filter(reach => !through.includes(reach));
-  }
-  return splits;
-}
-
-/** Longest-path layers over the forward reaches, in flow order. */
-function layersOf(
-  ids: string[],
-  reaches: Reach[],
-  byRank: ByRank
-): Record<string, number> {
-  const layers: Record<string, number> = {};
-  for (const id of ids) layers[id] = 0;
-  for (const id of ids) {
-    for (const reach of reaches) {
-      if (reach.from !== id || byRank(reach.to, reach.from) <= 0) continue;
-      layers[reach.to] = Math.max(layers[reach.to]!, layers[id]! + 1);
-    }
-  }
-  return layers;
 }
 
 export function blockMap(
@@ -403,60 +232,26 @@ export function blockMap(
     }
   }
 
-  const candidates = order.filter(id => {
-    const node = nodeOf.get(id)!;
-    return (
-      node.blockId === null &&
-      node.shape === 'diamond' &&
-      !isBudgetQuestion(id, ins, nodeOf)
-    );
-  });
-  const splits = findSplits(candidates, base, isBlock, outs, ins, byRank);
-  const routed = () => {
-    const taken = new Set(
-      splits.flatMap(split => [...split.through.values()].flat())
-    );
-    return [
-      ...base.filter(reach => !taken.has(reach)),
-      ...splits.flatMap(split => splitReaches(split, outs, ins, byRank)),
-    ];
-  };
-  const mapIds = () =>
-    [...nodes.map(node => node.id), ...splits.map(split => split.id)].sort(
-      byRank
-    );
+  const walk = { outs, ins, byRank };
+  const { splits, reaches, layers } = settleSplits(
+    findSplits(graph, order, base, isBlock, walk),
+    base,
+    mains,
+    nodes.map(node => node.id),
+    walk,
+    JUMP_LAYERS
+  );
 
-  let reaches = routed();
-  let layers = layersOf(mapIds(), reaches, byRank);
-  for (let settled = false; !settled;) {
-    settled = true;
-    for (const split of [...splits]) {
-      for (const [source, through] of split.through) {
-        const span = layers[split.id]! - layers[source]!;
-        if (span >= JUMP_LAYERS && !through.some(reach => mains.has(reach))) {
-          split.through.delete(source);
-          settled = false;
-        }
-      }
-      if (split.through.size < 2) {
-        splits.splice(splits.indexOf(split), 1);
-        settled = false;
-      }
-    }
-    reaches = routed();
-    layers = layersOf(mapIds(), reaches, byRank);
-  }
-
-  for (const split of splits) {
+  for (const id of splits) {
     nodes.push({
-      id: split.id,
+      id,
       blockId: null,
-      label: nodeOf.get(split.id)!.label ?? split.id,
+      label: nodeOf.get(id)!.label ?? id,
       kind: 'split',
     });
   }
   nodes.sort((a, b) => byRank(a.id, b.id));
-  const isSplit = new Set(splits.map(split => split.id));
+  const isSplit = new Set(splits);
   const cut = (edge: Edge | null) =>
     edge?.label ? cutLabel(edge.label) : null;
 
@@ -480,17 +275,21 @@ export function blockMap(
             (span(reach) < JUMP_LAYERS || span(reach) <= span(main)))
       );
       if (kept.length < 2) continue;
-      links.push(...trunkLinks(node.id, main, kept, outs, byRank));
+      const trunk = trunkLinks(node.id, main, kept, outs, byRank);
+      if (isSplit.has(node.id)) trunk[0]!.label = cut(main.firstEdge);
+      links.push(...trunk);
       for (const reach of kept) inTrunk.add(reach);
     }
     const byFork = new Map<string, MapLink>();
     for (const reach of own) {
       if (inTrunk.has(reach)) continue;
-      const kind = !isForward(reach)
-        ? 'jump-back'
-        : span(reach) >= JUMP_LAYERS
-          ? 'jump-forward'
-          : 'line';
+      const kind = isSplit.has(reach.to)
+        ? 'line'
+        : !isForward(reach)
+          ? 'jump-back'
+          : span(reach) >= JUMP_LAYERS
+            ? 'jump-forward'
+            : 'line';
       const link = newLink(reach, kind);
       if (kind === 'line') {
         if (isSplit.has(node.id)) link.label = cut(reach.firstEdge);

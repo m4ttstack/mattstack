@@ -61,7 +61,7 @@ link capture_after_case → every_case_tried · line · folded 3 · after_result
 link capture_after_browser → capture_after_case, capture_after_browser · jump-back · fork browser_case · folded 5 · browser_case, after_result, run_budget_after_attempts, after_attempts_spent, every_case_tried
 link capture_after_browser → every_case_tried · line · folded 3 · after_result, run_budget_after_attempts, after_attempts_spent
 link every_case_tried → capture_after_browser · jump-back · "no" · fork browser_case · folded 1 · browser_case
-link every_case_tried → record_evidence · line · trunk main, first split at after_captured · folded 1 · after_captured
+link every_case_tried → record_evidence · line · "yes" · trunk main, first split at after_captured · folded 1 · after_captured
 link every_case_tried → attach_evidence · line · "no" · trunk branch off → record_evidence at after_captured · folded 2 · after_captured, run_has_evidence
 link every_case_tried → write_title_description · jump-forward · "yes" · fork mr_view_url · folded 6 · after_captured, run_has_evidence, domain_owns_title, read_forge_host, gh_pr_view_body, mr_view_url
 link every_case_tried → domain_runs_ci · jump-forward · "yes" · fork domain_owns_title · folded 3 · after_captured, run_has_evidence, domain_owns_title

@@ -52,7 +52,7 @@ export function foldBand(graph: Graph, link: MapLink, map: BlockMap): Band {
   const rank = new Map(map.order.map((id, index) => [id, index]));
   const skill = graph.blockId.split('/')[0]!;
   const folded = new Set(link.folded);
-  const isBlock = (id: string) => (nodeOf.get(id)?.blockId ?? null) !== null;
+  const onMap = new Set(map.nodes.map(node => node.id));
 
   const budgets = new Map<string, { question: string; label: string }>();
   const mergedInto = new Map<string, string>();
@@ -83,7 +83,7 @@ export function foldBand(graph: Graph, link: MapLink, map: BlockMap): Band {
     let firstExit: string | null = null;
     while (queue.length > 0) {
       const id = queue.shift()!;
-      if (isBlock(id)) return id;
+      if (onMap.has(id)) return id;
       if (exits.has(id)) {
         firstExit ??= id;
         continue;
