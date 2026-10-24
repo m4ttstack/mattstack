@@ -360,6 +360,13 @@ export function BlockMap({
     engine
   );
   const shown = laidFor ? layoutOf.get(laidFor) : undefined;
+  const stepsOf = useMemo(
+    () =>
+      new Map(
+        map.links.map(link => [link.id, foldBand(graph, link, map).nodes])
+      ),
+    [graph, map]
+  );
 
   useEffect(() => {
     if (!jumped?.ring) return;
@@ -387,7 +394,6 @@ export function BlockMap({
           opens: new Map(),
           buttons: new Map(),
         };
-    const steps = new Map<string, ReturnType<typeof foldBand>['nodes']>();
     const nodeAt = (id: string) =>
       sectionRef.current?.querySelector<HTMLElement>(`[data-node="${id}"]`);
     const scrollTo = (element: HTMLElement | null | undefined) => {
@@ -416,7 +422,7 @@ export function BlockMap({
       hover: setHover,
       open: id => {
         setHover(null);
-        pendingFocus.current = '[data-fold]';
+        pendingFocus.current = `[data-testid="fold-band"][data-link="${id}"] [data-fold]`;
         setOpen(id);
       },
       fold: () => {
@@ -462,8 +468,8 @@ export function BlockMap({
       linkInfo: id => {
         const link = map.links.find(each => each.id === id);
         if (!link) return null;
-        if (!steps.has(id)) steps.set(id, foldBand(graph, link, map).nodes);
-        const folded = steps.get(id)!;
+        const folded = stepsOf.get(id);
+        if (!folded || folded.length === 0) return null;
         return {
           name: `Unfold ${folded.length} steps: ${nameOf(link.from)} to ${link.to.map(nameOf).join(', ')}`,
           steps: folded,
@@ -473,6 +479,7 @@ export function BlockMap({
   }, [
     graph,
     map,
+    stepsOf,
     shown,
     open,
     hover,

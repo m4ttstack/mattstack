@@ -66,11 +66,10 @@ export function mapFocus(
   const buttons = new Map<string, string>();
   for (const edge of layout.edges) {
     if (!edge.folded) continue;
-    const own = owners.get(edge.id) ?? [];
-    const link =
-      own.length === 1
-        ? own[0]!
-        : (own.find(id => byId.get(id)!.trunk?.main) ?? null);
+    const own = (owners.get(edge.id) ?? []).filter(
+      id => byId.get(id)!.folded.length > 0
+    );
+    const link = own.find(id => byId.get(id)!.trunk?.main) ?? own[0] ?? null;
     if (link === null) continue;
     opens.set(edge.id, link);
     if (edge.id === link || !buttons.has(link)) buttons.set(link, edge.id);
@@ -101,7 +100,15 @@ export function mapFocus(
       litNodes.add(id);
     }
   }
-  if (layout.band && hotLinks.has(layout.band.link.id)) {
+  const bandLink = layout.band?.link;
+  const bandTrunk = bandLink
+    ? map.links.filter(link =>
+        bandLink.trunk
+          ? link.trunk?.group === bandLink.trunk.group
+          : link.id === bandLink.id
+      )
+    : [];
+  if (layout.band && bandTrunk.some(link => hotLinks.has(link.id))) {
     litNodes.add(layout.band.id);
     for (const box of layout.band.boxes) litNodes.add(box.node.id);
   }

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockMap } from '../BlockMap';
 import { RING_MS } from '../FoldBand';
 import { bundledEngine } from '../layoutEngine';
+import { blockMap, type MapKind } from '../model/blockMap';
 import { shipPayload } from './blocksFixture';
 
 const graph = shipPayload.graphs.find(each => each.blockId === 'ship/flow')!;
@@ -417,6 +418,68 @@ describe('BlockMap interactions', () => {
 
       expect(scrolled.mock.contexts.at(-1)).toBe(boxOf('Ship gate'));
       expect(screen.getByRole('button', { name: 'Ship gate' })).toHaveFocus();
+    },
+    SLOW
+  );
+
+  it(
+    'no link button stands for a link with nothing folded',
+    async () => {
+      await renderMap();
+      const map = blockMap(graph, blockId => {
+        const block = shipPayload.blocks.find(each => each.id === blockId)!;
+        return {
+          label: block.label,
+          kind: block.kind as Exclude<MapKind, 'end' | 'split'>,
+        };
+      });
+      const foldedOf = new Map(
+        map.links.map(link => [link.id, link.folded.length])
+      );
+
+      const buttons = screen.getAllByTestId('map-link');
+      expect(buttons.length).toBeGreaterThan(0);
+      for (const button of buttons) {
+        expect(foldedOf.get(button.getAttribute('data-link')!)).toBeGreaterThan(
+          0
+        );
+        expect(button.getAttribute('aria-label')).not.toMatch(/Unfold 0 /);
+      }
+    },
+    SLOW
+  );
+
+  it(
+    'opening a second band focuses its own Fold button',
+    async () => {
+      await renderMap();
+      await openFold(REBASE_TO_RESOLVE);
+
+      fireEvent.click(linkButton(REOPENED_TO_DOMAIN));
+
+      await vi.waitFor(() => {
+        const band = screen.getByTestId('fold-band');
+        expect(band).toHaveAttribute('data-link', REOPENED_TO_DOMAIN);
+        expect(
+          within(band).getByRole('button', { name: 'Fold' })
+        ).toHaveFocus();
+      }, LAID_OUT);
+    },
+    SLOW
+  );
+
+  it(
+    "hovering a block on another link of the band's trunk keeps the band lit",
+    async () => {
+      await renderMap();
+      const band = await openFold(
+        'domain_rebases_unfinished->create_forge_host'
+      );
+
+      fireEvent.mouseEnter(cardNamed('Push refused'));
+
+      expect(band).not.toHaveAttribute('data-dim');
+      expect(stepNamed('push_result')).not.toHaveAttribute('data-dim');
     },
     SLOW
   );

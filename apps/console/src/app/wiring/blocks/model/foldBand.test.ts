@@ -221,14 +221,15 @@ describe('foldBand', () => {
     ]);
   });
 
-  it('a split the link passes stays on the map, out of the band', () => {
-    const through = shipMap.links.find(
-      l => l.from === 'gate_which_forge' && l.to.includes('browser_case')
+  it("a split in a link's folded steps stays on the map, out of the band", () => {
+    const github = shipMap.links.find(
+      l => l.from === 'create_forge_host' && l.label === 'GitHub'
     )!;
+    const through = { ...github, folded: [...github.folded, 'browser_case'] };
 
     const band = foldBand(shipGraph, through, shipMap);
 
-    expect(band.nodes.map(each => each.id)).not.toContain('create_forge_host');
+    expect(band.nodes.map(each => each.id)).not.toContain('browser_case');
     expect(band.nodes.map(each => each.id)).toContain('gh_pr_create');
   });
 

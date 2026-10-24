@@ -145,6 +145,33 @@ describe('openBand', () => {
   });
 });
 
+describe('every band', () => {
+  const folded = map.links.filter(
+    link => link.kind === 'line' && link.folded.length > 0
+  );
+
+  it('has an edge into it and redraws each link of its trunk', () => {
+    const problems: string[] = [];
+    for (const link of folded) {
+      const opened = openBand(layout, map, graph, link, measure);
+      const steps = new Set(opened.band!.boxes.map(box => box.node.id));
+      if (!opened.edges.some(e => !steps.has(e.from) && steps.has(e.to))) {
+        problems.push(`${link.id}: nothing enters the band`);
+      }
+      const group = link.trunk
+        ? map.links.filter(each => each.trunk?.group === link.trunk!.group)
+        : [link];
+      for (const each of group) {
+        const target = each.to[0]!;
+        if (!opened.edges.some(e => e.to === target && steps.has(e.from))) {
+          problems.push(`${link.id}: ${each.id} is not redrawn`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+});
+
 describe('openBand laid out', () => {
   const engine = bundledEngine();
   /** The map's nodes in each drawn row, left to right. */

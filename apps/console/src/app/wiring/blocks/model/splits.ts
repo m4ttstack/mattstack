@@ -191,6 +191,50 @@ function layersOf(
   return layers;
 }
 
+/** A block's forward reaches that pass a split sitting before it in flow
+    order become one reach up into that split. */
+function intoEarlierSplits(
+  reaches: Reach[],
+  splitIds: string[],
+  walk: Walk
+): Reach[] {
+  const { outs, ins, byRank } = walk;
+  const isSplit = new Set(splitIds);
+  const kept: Reach[] = [];
+  const routed = new Map<string, { from: string; to: string; via: Reach[] }>();
+  for (const reach of reaches) {
+    const split =
+      isSplit.has(reach.from) || byRank(reach.to, reach.from) <= 0
+        ? undefined
+        : reach.folded.find(
+            id => isSplit.has(id) && byRank(id, reach.from) < 0
+          );
+    if (split === undefined) {
+      kept.push(reach);
+      continue;
+    }
+    const key = `${reach.from}\u0000${split}`;
+    const group = routed.get(key) ?? { from: reach.from, to: split, via: [] };
+    group.via.push(reach);
+    routed.set(key, group);
+  }
+  for (const { from, to, via } of routed.values()) {
+    const before = new Set(
+      via.flatMap(reach => [...aroundStep(reach, to, walk).before])
+    );
+    kept.push({
+      from,
+      to,
+      folded: [...before].sort(byRank),
+      firstEdge:
+        outs.get(from)!.find(edge => edge.to === to || before.has(edge.to)) ??
+        null,
+      fork: forkOf(to, before, ins, byRank),
+    });
+  }
+  return kept;
+}
+
 /** Route reaches through the splits, then undo a source's long route into a
     split unless it carries the source's main line, and dissolve a split
     that no longer qualifies, until nothing changes. */
@@ -243,5 +287,7 @@ export function settleSplits(
     reaches = routed();
     layers = layersNow(reaches);
   }
-  return { splits: splits.map(split => split.id), reaches, layers };
+  const ids = splits.map(split => split.id);
+  reaches = intoEarlierSplits(reaches, ids, walk);
+  return { splits: ids, reaches, layers: layersNow(reaches) };
 }

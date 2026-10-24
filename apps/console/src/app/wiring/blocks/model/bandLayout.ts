@@ -109,6 +109,7 @@ export function openBand(
   measure: Measure
 ): BandedLayout {
   const band = foldBand(graph, link, map);
+  if (band.nodes.length === 0) return { ...layout, band: null };
   const id = bandIdOf(link);
   const skill = skillOf(graph);
   const mapNodes = new Map(map.nodes.map(node => [node.id, node]));

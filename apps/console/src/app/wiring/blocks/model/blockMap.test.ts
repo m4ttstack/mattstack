@@ -843,6 +843,7 @@ describe('blockMap on ship flow', () => {
       'domain_rebases_unfinished',
       'gate_push_refused',
       'confirm_human_push',
+      'gate_which_forge',
     ]);
     expect(linkTo(map, 'create_forge_host', 'mr_create').label).toBe('GitLab');
     expect(linkTo(map, 'create_forge_host', 'gate_which_forge').label).toBe(
@@ -856,7 +857,7 @@ describe('blockMap on ship flow', () => {
     ]);
   });
 
-  it('a link never folds a map node, so one that only passes a split is solid', () => {
+  it('a link never folds a map node', () => {
     const onMap = new Set(map.nodes.map(node => node.id));
     for (const link of map.links) {
       expect({
@@ -864,13 +865,27 @@ describe('blockMap on ship flow', () => {
         folded: link.folded.filter(id => onMap.has(id)),
       }).toEqual({ link: link.id, folded: [] });
     }
-    const through = linkTo(map, 'gate_which_forge', 'mr_create');
-    expect(through).toMatchObject({ kind: 'line', folded: [] });
+  });
+
+  it('a block after a split that its forward links pass loops up into the split with one line', () => {
+    const own = map.links.filter(link => link.from === 'gate_which_forge');
+
+    expect(own.map(link => [link.to.join(', '), link.kind])).toEqual([
+      ['create_forge_host', 'line'],
+      ['gate_which_forge', 'jump-back'],
+    ]);
+    expect(linkTo(map, 'gate_which_forge', 'create_forge_host')).toMatchObject({
+      folded: [],
+      trunk: null,
+    });
+    expect(linkTo(map, 'gate_which_forge', 'gate_which_forge').label).toBe(
+      'answered'
+    );
     const edge = mapLayout(map, graph, {
       dotsOf: () => [],
       measure: text => text.length * 7,
-    }).edges.find(each => each.id === through.id)!;
-    expect(edge.folded).toBe(false);
+    }).edges.find(each => each.from === 'gate_which_forge')!;
+    expect(edge).toMatchObject({ to: 'create_forge_host', folded: false });
   });
 
   it("every_case_tried keeps its short trunk while the forge split's long links jump", () => {

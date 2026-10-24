@@ -10,19 +10,19 @@ node gate_push_refused · gate · layer 6 · Push refused
 node confirm_human_push · step · layer 7 · Confirm human push
 node create_forge_host · split · layer 8 · Forge host (ship, create)?
 node gate_which_forge · gate · layer 9 · Which forge
-node mr_create · step · layer 10 · Create MR
-node browser_case · split · layer 11 · Browser screenshot for this case (ship)?
-node capture_after_case · step · layer 12 · Capture after next
-node capture_after_browser · step · layer 12 · Capture after browser
-node every_case_tried · split · layer 13 · Every named case tried (ship)?
-node record_evidence · step · layer 14 · Record evidence
-node attach_evidence · step · layer 15 · Attach evidence
-node write_title_description · step · layer 16 · Write title
-node domain_runs_ci · question · layer 17 · CI runs after MR
-node run_watch_ci · step · layer 18 · Watch CI
-node gate_mark_ready · gate · layer 19 · Mark ready
+node mr_create · step · layer 9 · Create MR
+node browser_case · split · layer 10 · Browser screenshot for this case (ship)?
+node capture_after_case · step · layer 11 · Capture after next
+node capture_after_browser · step · layer 11 · Capture after browser
+node every_case_tried · split · layer 12 · Every named case tried (ship)?
+node record_evidence · step · layer 13 · Record evidence
+node attach_evidence · step · layer 14 · Attach evidence
+node write_title_description · step · layer 15 · Write title
+node domain_runs_ci · question · layer 16 · CI runs after MR
+node run_watch_ci · step · layer 17 · Watch CI
+node gate_mark_ready · gate · layer 18 · Mark ready
 node resolve_conflict_files · step · layer 6 · Resolve conflicts
-node shipped · end · layer 20 · Shipped
+node shipped · end · layer 19 · Shipped
 link reopened_recapture → domain_steps_before_gate · line · folded 6 · git_status_recapture, nothing_to_push, git_branch_current, on_default_branch, own_run_identity, run_field_set_branch
 link reopened_recapture → capture_after_case, capture_after_browser · jump-forward · "yes" · fork browser_case · folded 3 · git_status_recapture, nothing_to_push, run_field_get_evidence
 link domain_steps_before_gate → gate_ship · line · folded 3 · git_status_log, branch_stack, stack_parent_read
@@ -49,9 +49,8 @@ link confirm_human_push → create_forge_host · line · folded 2 · push_landed
 link create_forge_host → gate_which_forge · line · "anything else" · folded 2 · run_budget_forge_clarify, forge_clarify_spent
 link create_forge_host → mr_create · line · "GitLab" · folded 0
 link create_forge_host → capture_after_case, capture_after_browser · jump-forward · "GitHub" · fork browser_case · folded 5 · gh_pr_create, gh_create_result, own_run_mr, run_field_set_mr, run_field_get_evidence
+link gate_which_forge → create_forge_host · line · folded 0
 link gate_which_forge → gate_which_forge · jump-back · "answered" · fork forge_clarify_spent · folded 2 · run_budget_forge_clarify, forge_clarify_spent
-link gate_which_forge → mr_create · line · trunk main, first split at create_forge_host · folded 0
-link gate_which_forge → browser_case · line · "GitHub" · trunk branch off → mr_create at create_forge_host · folded 5 · gh_pr_create, gh_create_result, own_run_mr, run_field_set_mr, run_field_get_evidence
 link mr_create → mr_create · jump-back · fork mr_recalls_spent · folded 4 · mr_create_result, stop_gitlab_shortcut, run_budget_mr_recalls, mr_recalls_spent
 link mr_create → browser_case · line · folded 5 · mr_create_result, mr_update_squash, own_run_mr, run_field_set_mr, run_field_get_evidence
 link browser_case → capture_after_case · line · "no" · folded 0
