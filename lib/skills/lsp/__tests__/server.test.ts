@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
-import { isSkillFile, PUBLISH_DEBOUNCE_MS, startServer } from "../server.ts";
+import { DOCUMENT_SELECTOR, isSkillFile, PUBLISH_DEBOUNCE_MS, startServer } from "../server.ts";
 import { Workspace } from "../workspace.ts";
 
 const FIXTURES = join(import.meta.dir, "../../__tests__/fixtures/blocks");
@@ -172,6 +172,40 @@ describe("isSkillFile", () => {
     expect(isSkillFile(join(plugin, "pack/skills.jsonc"))).toBe(true);
     expect(isSkillFile(join(plugin, "README.md"))).toBe(false);
     expect(isSkillFile(join(plugin, ".claude/skills/notes/SKILL.md"))).toBe(false);
+  });
+
+  test("a pack's sections and params.jsonc are skill files; other pack files are not", () => {
+    expect(isSkillFile(join(plugin, "pack/sections/gates.md"))).toBe(true);
+    expect(isSkillFile(join(plugin, "pack/params.jsonc"))).toBe(true);
+    expect(isSkillFile(join(plugin, "pack/notes.md"))).toBe(false);
+    expect(isSkillFile(join(plugin, "pack/sections/deep/gates.md"))).toBe(false);
+    expect(isSkillFile(join(plugin, "params.jsonc"))).toBe(false);
+    expect(isSkillFile(join(tmp, "repo/pack/sections/gates.md"))).toBe(false);
+    expect(DOCUMENT_SELECTOR.map((s) => s.pattern)).toEqual(["**/*.block.md", "**/skills.jsonc", "**/attachments/**/*.md", "**/skills/**/*.md", "**/pack/sections/*.md", "**/pack/params.jsonc"]);
+  });
+});
+
+describe("team sections in the editor", () => {
+  test("an open section file gets the hand-typed-path diagnostic compile reports, with its fix", async () => {
+    const pack = join(tmp, "widgets");
+    cpSync(join(FIXTURES, "pack"), pack, { recursive: true });
+    const section = join(pack, "pack/sections/gates.md");
+    const text = "Gates.\nRead ../../attachments/mini-rules/fast.md first.\n";
+    put(section, text);
+    const server = new InProcess([plugin, pack], { debounceMs: 20 });
+    await server.start();
+    const uri = pathToFileURL(section).href;
+    server.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text } } });
+    const published = await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri);
+    expect(published.params.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "hand-typed-path",
+        source: "skill-blocks",
+        range: { start: { line: 1, character: 5 }, end: { line: 1, character: 5 + "../../attachments/mini-rules/fast.md".length } },
+        message: "hand-typed path ../../attachments/mini-rules/fast.md breaks when its target moves; write {{pack.path:mini-rules/fast.md}} instead",
+      }),
+    ]);
+    await server.stop();
   });
 });
 

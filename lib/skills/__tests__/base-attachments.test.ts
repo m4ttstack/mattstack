@@ -500,6 +500,17 @@ describe("team markers in copied base attachments", () => {
     expect(textOf(result, "SKILL.md")).toBe("---\nname: review-kit\n---\nTickets live in Widgets.\n\nGate one.\nGate two.\n\nEnd.\n");
   });
 
+  test("a section's pack.path and verb.path render the way the copied attachment's own do", () => {
+    put(join(packDir(), "attachments", "widgets-gates", "SKILL.md"), "gates\n");
+    put(join(kit(), "SKILL.md"), "Rules:\n{{team.section:gates}}\n");
+    put(join(kit(), "references", "guide.md"), "Also {{team.provision}}.\n");
+    const team = teamWith({ provision: "{{verb.path:ship}}" }, { gates: "Read {{pack.path:widgets-gates/SKILL.md}} first.\n" });
+    const result = plan({ ship: "skills" }, team);
+    expect(result.errors).toEqual([]);
+    expect(textOf(result, "SKILL.md")).toBe("Rules:\nRead ${CLAUDE_SKILL_DIR}/../../attachments/widgets-gates/SKILL.md first.\n");
+    expect(textOf(result, "references/guide.md")).toBe("Also ../../../skills/ship/SKILL.md.\n");
+  });
+
   test("copied md attachment records a missing required value", () => {
     put(join(kit(), "SKILL.md"), "ok\n");
     put(join(kit(), "references", "guide.md"), "Team {{team.linear-team}}\n");

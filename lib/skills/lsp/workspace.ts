@@ -6,7 +6,7 @@ import type { SourcedTree } from "../blocks/render.ts";
 import { collectBlockTree, walk } from "../blocks/tree.ts";
 import type { Block, BlockTree } from "../blocks/types.ts";
 import { collectBlockPropValues, includeNamesIn, type BlockValues, type PropBindings } from "../compile-blocks.ts";
-import { handPathDiagnostics } from "../hand-paths.ts";
+import { handPathDiagnostics, teamInputPathDiagnostics } from "../hand-paths.ts";
 import { layeredFromManifest } from "../manifest-merge.ts";
 import type { LayeredBindings } from "../pipelines.ts";
 import { loadAttachment, loadInclude, type PluginRoots } from "../sources.ts";
@@ -393,6 +393,14 @@ export class Workspace {
       }
     }
     for (const d of [...inputs.values()].flatMap(handPathsOf)) report(d, null);
+    const read = (p: string) => (this.exists(p) ? this.text(p) : null);
+    const list = (dir: string) => [
+      ...listDir(dir).filter((e) => e.isFile()).map((e) => e.name),
+      ...[...this.overlay.keys()].filter((f) => dirname(f) === dir).map((f) => basename(f)),
+    ];
+    for (const pack of packs) {
+      for (const d of teamInputPathDiagnostics(pack.plugin.dir, fixView(pack), { read, list })) report(d, pack.plugin.dir);
+    }
 
     const byBlockId = new Map<string, { tree: BlockTree; block: Block }>();
     for (const { tree, engine } of loaded) {

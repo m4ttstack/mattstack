@@ -104,6 +104,39 @@ describe("hand-typed paths in the editor", () => {
   });
 });
 
+describe("team sections and params", () => {
+  test("a section's hand-typed path gets the same fix compile offers, and the fixed text is clean", () => {
+    const ws = new Workspace([plugin, pack]);
+    const section = join(pack, "pack/sections/gates.md");
+    ws.open(section, `Gates.\nRead ${HAND} first.\n`);
+    const [d] = publishable(ws, section).filter((x) => x.code === "hand-typed-path");
+    expect(d?.range).toEqual({ start: { line: 1, character: 5 }, end: { line: 1, character: 5 + HAND.length } });
+    const [action] = codeActionsAt(ws, section, d!.range);
+    expect(action!.edit.changes[pathToFileURL(section).href]![0]!.newText).toBe("{{pack.path:mini-rules/fast.md}}");
+    ws.change(section, "Gates.\nRead {{pack.path:mini-rules/fast.md}} first.\n");
+    expect(publishable(ws, section)).toEqual([]);
+  });
+
+  test("a params.jsonc value's hand-typed path points at the value inside the file", () => {
+    const ws = new Workspace([plugin, pack]);
+    const params = join(pack, "pack/params.jsonc");
+    const text = `{\n  "params": {\n    "rules": "${HAND}"\n  }\n}\n`;
+    ws.open(params, text);
+    const [d] = publishable(ws, params).filter((x) => x.code === "hand-typed-path");
+    expect(d?.range).toEqual({ start: { line: 2, character: 14 }, end: { line: 2, character: 14 + HAND.length } });
+  });
+
+  test("a fill splicing a section reports the section's path once, at the section", () => {
+    const ws = new Workspace([plugin, pack]);
+    const section = join(pack, "pack/sections/gates.md");
+    ws.open(section, `Read ${HAND} first.\n`);
+    const fill = join(pack, "attachments/mini-rules/fast.md");
+    ws.open(fill, `${ws.text(fill).trimEnd()}\n{{team.section:gates}}\n`);
+    const all = [...ws.analysis().diagnostics.values()].flat().filter((x) => x.code === "hand-typed-path");
+    expect(all.map((x) => x.file)).toEqual([section]);
+  });
+});
+
 describe("a bound fill's unsaved buffer", () => {
   test("the diagnostic and its quick fix follow edits that have not been saved", () => {
     const ws = new Workspace([plugin, pack]);

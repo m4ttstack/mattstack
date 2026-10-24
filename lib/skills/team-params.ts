@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
-import { stripJsonc } from "../jsonc.ts";
+import { jsoncSites, stripJsonc } from "../jsonc.ts";
 
 export type TeamValues = {
   plugin: string;
@@ -31,6 +31,10 @@ const SPLIT_MARKER_RE = /\{\{[^\S\n]*\r?\n\s*team\.[^}\n]*(?:\}\}?)?/;
 const NAME_RE = /^[a-z][a-z0-9-]*$/;
 /** The one nesting allowed: a value marker as pack.path's whole attachment segment. */
 const PACK_PATH_TEAM_RE = /\{\{pack\.path:(\{\{team\.([^}\s?:]*)(\?)?\}\})(\/[^{}\s]*)\}\}/g;
+/** What spliced team text may carry: the host text resolves these after the splice, as it does its own. */
+const SKILL_PATH_RE = /\{\{(?:pack|verb)\.path:[^{}\s]+\}\}/g;
+
+const bracesBeyondSkillPaths = (text: string) => text.replace(SKILL_PATH_RE, "").includes("{{");
 
 export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<string>): TeamContext {
   return { values, basePlugins, missing: new Map(), used: new Set(), sawMarker: false };
@@ -139,7 +143,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
           if (!optional) recordMissing(team, "param", name, where);
           return "";
         }
-        if (value.includes("{{")) fail(raw, "has a value containing {{");
+        if (bracesBeyondSkillPaths(value)) fail(raw, "has a value containing {{");
         return value;
       }
 
@@ -150,7 +154,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
         removeLine = true;
         return "";
       }
-      if (text.includes("{{")) fail(raw, `has a section pack/sections/${name}.md containing {{`);
+      if (bracesBeyondSkillPaths(text)) fail(raw, `has a section pack/sections/${name}.md containing {{`);
       const lines = text.split("\n").length;
       const indent = line.slice(0, line.length - line.trimStart().length);
       const indented = text.split("\n").map((l) => (l === "" ? l : indent + l)).join("\n");
@@ -169,4 +173,39 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
   });
 
   return out.join("\n");
+}
+
+/** Team text compile splices into base text, with where it starts in its own file: `indent` is the 0-based column of its first character. */
+export type TeamInput = { file: string; text: string; startLine: number; indent: number };
+
+/** `list` names a folder's files; an editor adds the open files not yet saved. */
+export type TeamInputIO = { read: (abs: string) => string | null; list?: (dir: string) => string[] };
+
+const readIfPresent = (abs: string) => (existsSync(abs) ? readFileSync(abs, "utf8") : null);
+const listIfPresent = (dir: string) => (existsSync(dir) ? readdirSync(dir) : []);
+
+/** Every section and every param value, for the checks that run on them as compile input; params that do not parse are readTeamValues's to report. */
+export function teamInputs(packDir: string, io: TeamInputIO = { read: readIfPresent }): TeamInput[] {
+  const out: TeamInput[] = [];
+  const sectionsDir = join(packDir, "pack", "sections");
+  const names = [...new Set((io.list ?? listIfPresent)(sectionsDir))].filter((f) => f.endsWith(".md")).sort();
+  for (const name of names) {
+    const text = io.read(join(sectionsDir, name));
+    if (text !== null) out.push({ file: `pack/sections/${name}`, text, startLine: 1, indent: 0 });
+  }
+  const raw = io.read(join(packDir, PARAMS_FILE));
+  if (raw === null) return out;
+  let params: unknown;
+  try {
+    params = (JSON.parse(stripJsonc(raw)) as { params?: unknown } | null)?.params;
+  } catch {
+    return out;
+  }
+  if (!params || typeof params !== "object" || Array.isArray(params)) return out;
+  const sites = jsoncSites(raw);
+  for (const [key, value] of Object.entries(params)) {
+    const at = sites.get(JSON.stringify(["params", key]))?.value;
+    if (typeof value === "string" && at) out.push({ file: PARAMS_FILE, text: value, startLine: at.line, indent: at.col });
+  }
+  return out;
 }

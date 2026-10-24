@@ -25,19 +25,28 @@ import { referencesAt, toLocations } from "./references.ts";
 import { prepareRename, RenameRefused, renameAt, willRenameEdits } from "./rename.ts";
 import { pluginRootOf, Workspace } from "./workspace.ts";
 
-export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }, { pattern: "**/attachments/**/*.md" }, { pattern: "**/skills/**/*.md" }];
+export const DOCUMENT_SELECTOR = [
+  { pattern: "**/*.block.md" },
+  { pattern: "**/skills.jsonc" },
+  { pattern: "**/attachments/**/*.md" },
+  { pattern: "**/skills/**/*.md" },
+  { pattern: "**/pack/sections/*.md" },
+  { pattern: "**/pack/params.jsonc" },
+];
 
 const MODULE = "skills-lsp";
 
 /** Only a file a compile can read: inside a plugin, outside its dot folders, which discovery never walks. */
 export function isSkillFile(file: string): boolean {
   const name = basename(file);
-  if (!name.endsWith(".md") && name !== "skills.jsonc") return false;
+  if (!name.endsWith(".md") && name !== "skills.jsonc" && name !== "params.jsonc") return false;
   const root = pluginRootOf(file);
   if (root === null) return false;
   const dirs = relative(root, file).split(sep).slice(0, -1);
   if (dirs.some((d) => d.startsWith("."))) return false;
-  if (name.endsWith(".block.md") || name === "skills.jsonc") return true;
+  const inPack = dirs.join("/");
+  if (name === "params.jsonc") return inPack === "pack";
+  if (name.endsWith(".block.md") || name === "skills.jsonc" || (inPack === "pack/sections" && name.endsWith(".md"))) return true;
   return dirs.includes("attachments") || dirs.includes("skills");
 }
 

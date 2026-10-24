@@ -153,8 +153,8 @@ describe('createLifecycle overlap', () => {
 });
 
 describe('document patterns', () => {
-  test('cover block files, manifests, and fill markdown', () => {
-    expect(DOCUMENT_PATTERNS).toEqual(['**/*.block.md', '**/skills.jsonc', '**/attachments/**/*.md', '**/skills/**/*.md']);
+  test('cover block files, manifests, fill markdown, and team sections and params', () => {
+    expect(DOCUMENT_PATTERNS).toEqual(['**/*.block.md', '**/skills.jsonc', '**/attachments/**/*.md', '**/skills/**/*.md', '**/pack/sections/*.md', '**/pack/params.jsonc']);
   });
 });
 

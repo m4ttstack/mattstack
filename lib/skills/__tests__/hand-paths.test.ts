@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { brokenSkillPathDiagnostics, handPathDiagnostics } from "../hand-paths.ts";
+import { brokenSkillPathDiagnostics, handPathDiagnostics, teamInputPathDiagnostics } from "../hand-paths.ts";
 
 const VERBS = new Set(["ship", "review"]);
 const SOURCE = { verbs: VERBS, packSource: () => true };
@@ -145,6 +145,52 @@ describe("handPathDiagnostics", () => {
     expect(d).toMatchObject({ line: 3, col: 8 });
     const [e] = handPathDiagnostics("a\nRead ../x/y.md", FILE, { startLine: 3, indent: 2, verbs: VERBS });
     expect(e).toMatchObject({ line: 4, col: 6 });
+  });
+});
+
+describe("teamInputPathDiagnostics", () => {
+  const made: string[] = [];
+  afterEach(() => {
+    for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  function pack(files: Record<string, string>): string {
+    const dir = mkdtempSync(join(tmpdir(), "rt-team-inputs-"));
+    made.push(dir);
+    for (const [rel, text] of Object.entries(files)) {
+      mkdirSync(join(dir, rel, ".."), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    }
+    return dir;
+  }
+
+  test("a section line is checked at depth 0 and points at the section file's own line", () => {
+    const dir = pack({ "pack/sections/gates.md": "Gates.\nRead ../../attachments/widgets-gates/SKILL.md first.\n" });
+    expect(teamInputPathDiagnostics(dir, SOURCE)).toEqual([
+      {
+        file: "pack/sections/gates.md",
+        line: 2,
+        col: 6,
+        code: "hand-typed-path",
+        message: "hand-typed path ../../attachments/widgets-gates/SKILL.md breaks when its target moves; write {{pack.path:widgets-gates/SKILL.md}} instead",
+        fix: { length: "../../attachments/widgets-gates/SKILL.md".length, text: "{{pack.path:widgets-gates/SKILL.md}}" },
+      },
+    ]);
+  });
+
+  test("a sibling path one level up is hand-typed in a section, since it lands at the verb's root", () => {
+    const dir = pack({ "pack/sections/gates.md": "See ../ship/SKILL.md.\n" });
+    expect(teamInputPathDiagnostics(dir, SOURCE)).toMatchObject([{ line: 1, col: 5, fix: { text: "{{verb.path:ship}}" } }]);
+  });
+
+  test("a params value points at its own line and column in params.jsonc", () => {
+    const dir = pack({ "pack/params.jsonc": '{\n  "params": { "gates": "see ../../attachments/widgets-gates/SKILL.md" }\n}\n' });
+    expect(teamInputPathDiagnostics(dir, SOURCE)).toMatchObject([{ file: "pack/params.jsonc", line: 2, col: 29, code: "hand-typed-path" }]);
+  });
+
+  test("pack.path and verb.path in a section are clean", () => {
+    const dir = pack({ "pack/sections/gates.md": "Read {{pack.path:widgets-gates/SKILL.md}} and {{verb.path:ship}}.\n" });
+    expect(teamInputPathDiagnostics(dir, SOURCE)).toEqual([]);
   });
 });
 

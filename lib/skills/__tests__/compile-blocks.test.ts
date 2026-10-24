@@ -7,7 +7,7 @@ import { blockPropValues, compileBlockSkill, includeNamesIn, includeSitesIn, unc
 import { loadBlockTree } from "../blocks/tree.ts";
 import { layeredFromManifest } from "../manifest-merge.ts";
 import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from "../sources.ts";
-import type { CompiledFile, StepSource } from "../types.ts";
+import type { CompiledFile, PlannedAttachments, StepSource } from "../types.ts";
 import type { BlockTree } from "../blocks/types.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
 
@@ -54,6 +54,7 @@ type MiniOpts = {
   loadIncludes?: boolean;
   packName?: string;
   prep?: (s: ReturnType<typeof setup>) => void;
+  planned?: (s: ReturnType<typeof setup>) => PlannedAttachments;
 };
 
 function compileMini(opts: MiniOpts = {}) {
@@ -69,6 +70,7 @@ function compileMini(opts: MiniOpts = {}) {
     team: opts.team,
     loadInclude: opts.loadIncludes ? (name) => loadInclude(name, s.roots) : undefined,
     packName: opts.packName,
+    plannedAttachments: opts.planned?.(s),
   });
   const skillMd = result.files.find((f) => f.path === "SKILL.md");
   return { ...s, result, skillMd: skillMd && "content" in skillMd ? skillMd.content : "" };
@@ -213,6 +215,55 @@ describe("compileBlockSkill", () => {
       const { result } = compileMini({ packRoot: true, team: teamWith({}), prep: gatesFill("Read ../../attachments/{{team.gates-fill}}/SKILL.md first.\n") });
       expect(result.diagnostics).toMatchObject([{ code: "hand-typed-path" }]);
       expect(result.diagnostics[0]!.fix).toBeUndefined();
+    });
+  });
+
+  describe("team sections and values take pack.path", () => {
+    const teamWith = (params: Record<string, string>, sections: Record<string, string> = {}) =>
+      newTeamContext({ plugin: "widgets", version: "0.1.0", params, sections }, new Set(["widgets"]));
+    const gates = (body: string) => ({ widgets }: ReturnType<typeof setup>) => {
+      mkdirSync(join(widgets, "attachments", "widgets-gates"), { recursive: true });
+      writeFileSync(join(widgets, "attachments", "widgets-gates", "SKILL.md"), "gates\n");
+      mkdirSync(join(widgets, "attachments", "provision"), { recursive: true });
+      writeFileSync(join(widgets, "attachments", "provision", "SKILL.md"), "provision\n");
+      writeFileSync(join(widgets, "attachments", "mini-rules", "fast.md"), body);
+    };
+    const contentOf = (files: CompiledFile[], path: string) => {
+      const file = files.find((f) => f.path === path);
+      return file && "content" in file ? file.content : undefined;
+    };
+
+    test("a section's pack.path renders into the built skill's references/ and copies the unit", () => {
+      const team = teamWith({}, { gates: "Read {{pack.path:widgets-gates/SKILL.md}} first.\n" });
+      const { result, skillMd } = compileMini({ packRoot: true, team, prep: gates("Rules:\n{{team.section:gates}}\n") });
+      expect(result.diagnostics).toEqual([]);
+      expect(skillMd).toContain("Read ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md first.");
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("gates\n");
+    });
+
+    test("a param value's pack.path resolves where it lands", () => {
+      const team = teamWith({ provision: "{{pack.path:provision/SKILL.md}}" });
+      const { result, skillMd } = compileMini({ packRoot: true, team, prep: gates("Provision with {{team.provision}}.\n") });
+      expect(result.diagnostics).toEqual([]);
+      expect(skillMd).toContain("Provision with ${CLAUDE_SKILL_DIR}/references/provision/SKILL.md.");
+      expect(contentOf(result.files, "references/provision/SKILL.md")).toBe("provision\n");
+    });
+
+    test("a section spliced into a base attachment copied into references/ resolves from that copy", () => {
+      const team = teamWith({}, { gates: "Read {{pack.path:widgets-gates/SKILL.md}} first.\n" });
+      const { result } = compileMini({
+        packRoot: true,
+        team,
+        prep: (s) => {
+          gates("See {{pack.path:acme-kit/SKILL.md}}.\n")(s);
+          mkdirSync(join(s.widgets, "..", "acme-kit"), { recursive: true });
+          writeFileSync(join(s.widgets, "..", "acme-kit", "SKILL.md"), "Kit.\n{{team.section:gates}}\n");
+        },
+        planned: (s) => Object.assign(new Map([["acme-kit", new Set(["SKILL.md"])]]), { sources: new Map([["acme-kit", { dir: join(s.widgets, "..", "acme-kit"), base: "acme-base" }]]) }),
+      });
+      expect(result.diagnostics).toEqual([]);
+      expect(contentOf(result.files, "references/acme-kit/SKILL.md")).toBe("Kit.\nRead ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md first.\n");
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("gates\n");
     });
   });
 

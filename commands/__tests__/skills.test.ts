@@ -1890,6 +1890,26 @@ describe("base pack attachments", () => {
       expect(payload.compileErrors).toEqual([]);
     });
 
+    test("a hand-typed path in a section or a param value fails compile and check at its own file and line", async () => {
+      const { packDir, mattstackDir, compile, setValues } = seedTeamValues();
+      writeFile(join(packDir, "attachments", "widgets-gates", "SKILL.md"), "gates\n");
+      setValues({ "linear-team": "Widgets", gates: "../../attachments/widgets-gates/SKILL.md" }, { "ci-extra": "- lint\n- read ../../attachments/widgets-gates/SKILL.md\n" });
+      const sectionLine = "pack/sections/ci-extra.md:2:8: hand-typed path ../../attachments/widgets-gates/SKILL.md breaks when its target moves; write {{pack.path:widgets-gates/SKILL.md}} instead";
+
+      const { exitCode, errors } = await compile();
+      expect(exitCode).toBe(1);
+      expect(errors.join("\n")).toContain(sectionLine);
+      expect(errors.join("\n")).toMatch(/pack\/params\.jsonc:1:\d+: hand-typed path \.\.\/\.\.\/attachments\/widgets-gates\/SKILL\.md/);
+      expect(existsSync(join(packDir, "skills"))).toBe(false);
+
+      const payload = await checkPack({ packDir, mattstackDir });
+      expect(payload.drift).toBe(true);
+      expect(payload.compileErrors).toContain(sectionLine);
+
+      setValues({ "linear-team": "Widgets", gates: "{{pack.path:widgets-gates/SKILL.md}}" }, { "ci-extra": "- lint\n- read {{pack.path:widgets-gates/SKILL.md}}\n" });
+      expect((await compile()).errors).toEqual([]);
+    });
+
     const DOMAIN_WITH_SECTION = DOMAIN_SKILL_MD + "Rules:\n{{team.section:ci-extra}}\nDone.\n";
 
     test("a section inlined into a prop value is its own anatomy part, and an edit to it is a team change", async () => {

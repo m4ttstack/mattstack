@@ -57,7 +57,7 @@ import { dedupePreserveOrder, hasCompiledHeader, isInlined, type CompileSkillOpt
 import { blockPropValues, compileBlockSkill, includeNamesIn, includeSitesIn, oldSlotBindingMessage, replacedSlots, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
 import { keptLayers, type LayerValue } from "../lib/skills/blocks/props.ts";
 import { BlockError, formatDiagnostic, type BlockDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
-import { brokenSkillPathDiagnostics } from "../lib/skills/hand-paths.ts";
+import { brokenSkillPathDiagnostics, teamInputPathDiagnostics } from "../lib/skills/hand-paths.ts";
 import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
 import { isBlockTree, walk } from "../lib/skills/blocks/tree.ts";
 import type { Block as BlockNode, BlockTree, PropSpec } from "../lib/skills/blocks/types.ts";
@@ -73,7 +73,7 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
-import { assertNoTeamMarkerInAllowedTools, findPlaceholders } from "../lib/skills/placeholders.ts";
+import { assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves } from "../lib/skills/placeholders.ts";
 import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
@@ -1122,6 +1122,14 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
   return { targets, verbSides, knownTargetDirs };
 }
 
+/** Sections and param values land in base text after its own check, so theirs runs on them where they are written. */
+function teamInputErrors(resolved: Resolved, verbSides: Record<string, Side>, planned: PlannedAttachments): string[] {
+  if (!resolved.teamContext) return [];
+  const view = { verbSides, packRoot: resolved.packDir, plannedAttachments: planned };
+  const fix = { verbs: new Set(Object.keys(verbSides)), packSource: (arg: string) => packPathResolves(view, arg) };
+  return teamInputPathDiagnostics(resolved.packDir, fix).map(formatDiagnostic);
+}
+
 /** A pack that extends a base only for its fills copies nothing, so it needs no plugin name; one that would copy an attachment does. */
 function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
   const pluginName = packPluginIdentity(resolved.packDir)?.name;
@@ -1249,6 +1257,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
   // A target that failed stopped partway, so the missing list is only whole once every target compiled.
   const missing = failures.length === 0 ? missingOf(resolved.teamContext) : [];
+  failures.push(...teamInputErrors(resolved, verbSides, planned));
   let fieldContract: string[] = [];
   if (verbFilter === null && failures.length === 0 && missing.length === 0) {
     const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(outcomes, plan.emits), resolved.stageEntries));
@@ -1816,6 +1825,9 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     anyStale = true;
     for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.status === "stale") rows.splice(i, 1);
   }
+  const teamPaths = teamInputErrors(resolved, verbSides, planned);
+  if (teamPaths.length > 0) anyStale = true;
+  compileErrors.push(...teamPaths);
 
   if (flags.verbs === null && !neverCompiled && !compileFailed && chainErrors.length === 0) {
     const unclaimed = unclaimedBlockKeyErrors(resolved);

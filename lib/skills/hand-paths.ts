@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
+import { teamInputs, type TeamInputIO } from "./team-params.ts";
 
 type Anchor = "relative" | "skill-dir" | "plugin-root";
 
@@ -113,6 +114,14 @@ export function handPathDiagnostics(
         : `hand-typed path ${p.path} breaks when its target moves; name it with {{pack.path:<attachment>/<file>}} or {{verb.path:<verb>}}`;
       return { file, line: p.line, col: p.col, code: "hand-typed-path", message, ...(fix ? { fix: { length: p.path.length, text: fix } } : {}) };
     });
+}
+
+/**
+ * Compile's rule over a team pack's sections and param values, each from its own file. They land at
+ * the compiled verb's root, so depth 0; checked here and never from the host text after the splice.
+ */
+export function teamInputPathDiagnostics(packDir: string, view: Omit<FixView, "teamValue">, io?: TeamInputIO): BlockDiagnostic[] {
+  return teamInputs(packDir, io).flatMap((input) => handPathDiagnostics(input.text, input.file, { startLine: input.startLine, indent: input.indent, ...view }));
 }
 
 /** For a hand-authored skill compile never reads: each path out of its folder must name something that exists. */

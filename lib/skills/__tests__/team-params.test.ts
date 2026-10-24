@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { hasTeamMarker, newTeamContext, readTeamValues, resolveTeamMarkers, type TeamValues } from "../team-params.ts";
+import { hasTeamMarker, newTeamContext, readTeamValues, resolveTeamMarkers, teamInputs, type TeamValues } from "../team-params.ts";
 
 const where = "acme-base:provision-flow";
 
@@ -163,6 +163,36 @@ describe("team-params", () => {
     );
   });
 
+  test("a section may carry pack.path and verb.path, which pass through for the host to resolve", () => {
+    const text = "Read {{pack.path:widgets-gates/SKILL.md}} and {{verb.path:ship}}.\n";
+    expect(resolveTeamMarkers("{{team.section:gates}}", ctx({}, { gates: text }), { where, sectionSeams: false })).toBe(
+      "Read {{pack.path:widgets-gates/SKILL.md}} and {{verb.path:ship}}.",
+    );
+  });
+
+  test("a value may carry pack.path and verb.path", () => {
+    expect(resolveTeamMarkers("See {{team.provision}}.", ctx({ provision: "{{pack.path:provision/SKILL.md}}" }), { where, sectionSeams: true })).toBe(
+      "See {{pack.path:provision/SKILL.md}}.",
+    );
+    expect(resolveTeamMarkers("See {{team.ship}}.", ctx({ ship: "{{verb.path:ship}}" }), { where, sectionSeams: true })).toBe("See {{verb.path:ship}}.");
+  });
+
+  test.each(["{{stage.dir}}/x.md", "{{props.x}}", "{{pack.path:{{team.y}}/SKILL.md}}", "{{pack.path:a/b}} then {{include:c}}", "{{pack.path:a/b"])(
+    "a section or a value carrying %s is still refused with today's words",
+    (text) => {
+      expect(() => resolveTeamMarkers("{{team.section:s}}", ctx({}, { s: text }), { where, sectionSeams: true })).toThrow(
+        `${where}: {{team.section:s}} has a section pack/sections/s.md containing {{ (line 1)`,
+      );
+      expect(() => resolveTeamMarkers("{{team.x}}", ctx({ x: text }), { where, sectionSeams: true })).toThrow(`${where}: {{team.x}} has a value containing {{ (line 1)`);
+    },
+  );
+
+  test("a value naming pack.path's attachment still may not carry braces", () => {
+    expect(() => resolveTeamMarkers("{{pack.path:{{team.x}}/SKILL.md}}", ctx({ x: "{{verb.path:ship}}" }), { where, sectionSeams: true })).toThrow(
+      `${where}: {{team.x}} has a value containing {{ (line 1)`,
+    );
+  });
+
   test("refuses key named section", () => {
     expect(() => resolveTeamMarkers("{{team.section}}", ctx(), { where, sectionSeams: true })).toThrow(new RegExp(`${where}.*line 1`));
   });
@@ -248,5 +278,31 @@ describe("readTeamValues", () => {
   ])("%s throws", (_name, text) => {
     const dir = packWith({ "pack/params.jsonc": text });
     expect(() => readTeamValues(dir, "widgets", "0.4.0")).toThrow(/pack\/params\.jsonc/);
+  });
+});
+
+describe("teamInputs", () => {
+  test("lists each section from its first line and each value at its column in params.jsonc", () => {
+    const dir = packWith({
+      "pack/params.jsonc": '// values\n{\n  "version": 1,\n  "params": {\n    "gates": "../widgets-gates/SKILL.md",\n    "n": "x"\n  }\n}\n',
+      "pack/sections/rules.md": "one\ntwo\n",
+      "pack/sections/notes.txt": "ignored",
+    });
+    expect(teamInputs(dir)).toEqual([
+      { file: "pack/sections/rules.md", text: "one\ntwo\n", startLine: 1, indent: 0 },
+      { file: "pack/params.jsonc", text: "../widgets-gates/SKILL.md", startLine: 5, indent: 14 },
+      { file: "pack/params.jsonc", text: "x", startLine: 6, indent: 10 },
+    ]);
+  });
+
+  test("a pack with neither file, or params that do not parse, has no inputs from them", () => {
+    expect(teamInputs(packWith({}))).toEqual([]);
+    expect(teamInputs(packWith({ "pack/params.jsonc": "{nope" }))).toEqual([]);
+  });
+
+  test("an open editor's text wins over the disk", () => {
+    const dir = packWith({ "pack/sections/rules.md": "disk\n" });
+    const read = (abs: string) => (abs === join(dir, "pack/sections/rules.md") ? "open\n" : null);
+    expect(teamInputs(dir, { read })).toEqual([{ file: "pack/sections/rules.md", text: "open\n", startLine: 1, indent: 0 }]);
   });
 });

@@ -3,7 +3,7 @@ import { delimiter, join } from 'node:path';
 import type { Executable } from 'vscode-languageclient/node';
 
 // Mirrors DOCUMENT_SELECTOR in lib/skills/lsp/server.ts.
-export const DOCUMENT_PATTERNS = ['**/*.block.md', '**/skills.jsonc', '**/attachments/**/*.md', '**/skills/**/*.md'];
+export const DOCUMENT_PATTERNS = ['**/*.block.md', '**/skills.jsonc', '**/attachments/**/*.md', '**/skills/**/*.md', '**/pack/sections/*.md', '**/pack/params.jsonc'];
 
 const DEFAULT_RT = 'rt';
 // TransportKind.stdio; the enum lives in a module that needs the vscode host at load.
