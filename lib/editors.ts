@@ -19,8 +19,9 @@ export interface DetectedEditor {
 
 /**
  * Known VS Code-family editors: the .app bundle scanned for in /Applications
- * and ~/Applications, its CLI, and its extensions folder under $HOME (null
- * where the editor's folder is not known).
+ * and ~/Applications, its CLI, and a fallback extensions folder under $HOME
+ * (null where not known), used only when the app's own product.json names no
+ * `dataFolderName`.
  */
 export const EDITOR_PATTERNS: Array<{ appName: string; cliBinary: string; displayName: string; extensionsDir: string | null }> = [
   { appName: "Cursor.app", cliBinary: "cursor", displayName: "Cursor", extensionsDir: ".cursor/extensions" },

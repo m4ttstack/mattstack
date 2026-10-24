@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { checkRtContextExtension } from "../verify.ts";
@@ -49,7 +49,14 @@ function ext(home: string, folder: string, ...ids: string[]): void {
 }
 
 function check(home: string) {
-  return checkRtContextExtension({ home, exists: existsSync, readDir: (d) => readdirSync(d) }, [join(home, "Applications")]);
+  const readFile = (f: string): string | null => {
+    try {
+      return readFileSync(f, "utf8");
+    } catch {
+      return null;
+    }
+  };
+  return checkRtContextExtension({ home, exists: existsSync, readDir: (d) => readdirSync(d), readFile }, [join(home, "Applications")]);
 }
 
 describe("checkRtContextExtension", () => {
@@ -112,6 +119,17 @@ describe("checkRtContextExtension", () => {
 
     expect(result.status).toBe("warn");
     expect(result.detail).toBe("Antigravity is missing skill-blocks. Run rt settings extension");
+  });
+
+  test("Antigravity with neither extension is reported, though VS Code has both", () => {
+    const home = fixtureHome();
+    installApps(home, "VS Code", "Antigravity");
+    ext(home, ".vscode", "local.rt-context", "local.skill-blocks");
+
+    const result = check(home);
+
+    expect(result.status).toBe("warn");
+    expect(result.detail).toBe("Not installed in Antigravity. Run rt settings extension");
   });
 
   test("Windsurf is checked through its own folder", () => {

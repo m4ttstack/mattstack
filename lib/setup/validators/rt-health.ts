@@ -41,7 +41,7 @@ import { memberPath } from "../member-path.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverOrgs } from "../team-settings.ts";
 import { BUNDLED_VSIX_FILES } from "../tools-install.ts";
-import { detectEditorsVia } from "../../editors.ts";
+import { detectEditorsVia, type DetectedEditorWithExtensions } from "../../editors.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
 import { named } from "./tools.ts";
 
@@ -60,6 +60,25 @@ const RT_EXTENSIONS = [
 ];
 
 /**
+ * The folder under $HOME an editor keeps its extensions in. Every VS Code
+ * fork names its data folder in `product.json`'s `dataFolderName`, and forks
+ * rename it between builds, so that wins; the editor table is only the
+ * fallback when the file can't be read or names none.
+ */
+function editorExtensionsDir(p: Pick<Probes, "readFile">, editor: DetectedEditorWithExtensions): string | null {
+  const raw = p.readFile(join(editor.appPath, "Contents", "Resources", "app", "product.json"));
+  if (raw !== null) {
+    try {
+      const folder = (JSON.parse(raw) as { dataFolderName?: unknown }).dataFolderName;
+      if (typeof folder === "string" && /^[^/\\]+$/.test(folder) && folder !== "." && folder !== "..") return join(folder, "extensions");
+    } catch {
+      // Unparseable product.json: fall back to the table.
+    }
+  }
+  return editor.extensionsDir;
+}
+
+/**
  * Directory reads only, no subprocess and no version comparison — the
  * extensions version independently of the CLI, so a version check is
  * underivable here. Every VS Code-family editor found in `appDirs` is
@@ -69,7 +88,7 @@ const RT_EXTENSIONS = [
  * re-export slots straight into its existing `results.push(...)`.
  */
 export function checkRtContextExtension(
-  p: Pick<Probes, "exists" | "readDir" | "home">,
+  p: Pick<Probes, "exists" | "readDir" | "readFile" | "home">,
   appDirs: string[] = ["/Applications", join(p.home, "Applications")],
 ): ExtensionCheckResult {
   const complete: string[] = [];
@@ -78,11 +97,12 @@ export function checkRtContextExtension(
   const unchecked: string[] = [];
 
   for (const editor of detectEditorsVia(p.exists, appDirs)) {
-    if (!editor.extensionsDir) {
+    const extensionsDir = editorExtensionsDir(p, editor);
+    if (!extensionsDir) {
       unchecked.push(editor.name);
       continue;
     }
-    const dir = join(p.home, editor.extensionsDir);
+    const dir = join(p.home, extensionsDir);
     let entries: string[] = [];
     try {
       if (p.exists(dir)) entries = p.readDir(dir).map((e) => e.toLowerCase());
@@ -97,9 +117,11 @@ export function checkRtContextExtension(
 
   const name = "rt-context extension";
   const uncheckedNote = unchecked.length > 0 ? `. rt can't check ${unchecked.join(", ")}` : "";
-  if (partial.length > 0) return { name, status: "warn", detail: `${partial.join("; ")}. Run rt settings extension`, severity: "warning" };
+  if (partial.length > 0 || bare.length > 0) {
+    const gaps = [...partial, ...(bare.length > 0 ? [`${partial.length > 0 ? "not" : "Not"} installed in ${bare.join(", ")}`] : [])];
+    return { name, status: "warn", detail: `${gaps.join("; ")}. Run rt settings extension`, severity: "warning" };
+  }
   if (complete.length > 0) return { name, status: "pass", detail: `Installed in ${complete.join(", ")}${uncheckedNote}`, severity: "warning" };
-  if (bare.length > 0) return { name, status: "warn", detail: `Not installed in ${bare.join(", ")}. Run rt settings extension`, severity: "warning" };
   if (unchecked.length > 0) return { name, status: "skip", detail: `rt can't check ${unchecked.join(", ")}`, severity: "info" };
   return { name, status: "skip", detail: "No VS Code-family editor found", severity: "info" };
 }
