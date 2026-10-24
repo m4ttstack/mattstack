@@ -23,7 +23,15 @@ export function CopyForClaude({
   block,
   trailing,
 }: CopyForClaudeProps) {
-  const [state, setState] = useState<'closed' | 'copied' | 'failed'>('closed');
+  // Keyed by the block, so moving to another one (back or forward) closes
+  // the popover instead of showing a brief the clipboard does not hold.
+  const [copied, setCopied] = useState<{
+    block: string;
+    state: 'copied' | 'failed';
+  } | null>(null);
+  const state = copied?.block === block.id ? copied.state : 'closed';
+  const setState = (next: 'closed' | 'copied' | 'failed') =>
+    setCopied(next === 'closed' ? null : { block: block.id, state: next });
   const brief = buildBlockContext({ payload, block });
   const lines = brief.split('\n');
   const last = lines.pop();

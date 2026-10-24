@@ -14,7 +14,9 @@ const BODY = 'var(--tk-text-1)';
 const ROW = { root: classes.siteRow, section: classes.siteSection };
 
 const siteAt = (site: UsedBySite) =>
-  site.line !== null ? `pastes it at L${site.line}` : 'pastes it in';
+  site.file !== null && site.line !== null
+    ? `pastes it at ${site.file} L${site.line}`
+    : 'pastes it in';
 
 function SiteFile({ site, here }: { site: UsedBySite; here: boolean }) {
   return (
@@ -131,15 +133,16 @@ export function UsedBy({
             ))}
           </Stack>
         ))}
-        {sites.length === 0 && (
+        {sites.length === 0 ? (
           <Text fz={12} lh="normal" c={MUTED}>
             No skill in this pack pastes {name} in directly.
           </Text>
+        ) : (
+          <Text fz={11} lh="normal" c={MUTED} data-parity="note">
+            One copy for every skill above: a change to it reaches each of them
+            on its next compile.
+          </Text>
         )}
-        <Text fz={11} lh="normal" c={MUTED} data-parity="note">
-          One copy for every skill above: a change to it reaches each of them on
-          its next compile.
-        </Text>
       </Stack>
     </Box>
   );

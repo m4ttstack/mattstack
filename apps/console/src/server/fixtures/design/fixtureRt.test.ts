@@ -813,6 +813,16 @@ describe('the skills routes on the fixture', () => {
     });
   });
 
+  it('refuses a blocks skill name that is not a skill name, reading no file', async () => {
+    const { runRt } = fixtureRt('blocks');
+    for (const skill of ['../composition', 'mini/../ship', '.mini']) {
+      const res = await runRt(pack('blocks', '--skill', skill, '--json'));
+      expect(res.code).toBe(1);
+      expect(res.stdout).toBe('');
+      expect(res.stderr).toContain(skill);
+    }
+  });
+
   it('answers blocks in every scenario, so a focused skill never 502s', async () => {
     for (const scenario of ['clean', 'unsynced', 'org-base'] as const) {
       const app = mount(scenario);

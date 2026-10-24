@@ -522,6 +522,46 @@ describe('BlockView: Used by and History', () => {
     ).toContain('review/SKILL.md');
   });
 
+  it('names the block file a skill pastes the shared block from, with its line', () => {
+    renderView(
+      { block: 'gate-protocol/ask' },
+      { payload: withShared, context }
+    );
+
+    const review = within(screen.getByTestId('block-used-by'))
+      .getAllByTestId('used-by-row')
+      .find(row => row.textContent?.startsWith('review/SKILL.md'))!;
+    expect(review).toHaveTextContent('pastes it at review/index.block.md L786');
+  });
+
+  it('says plainly when no skill pastes the block, with no note about the skills above', () => {
+    renderView(
+      { block: 'gate-protocol/ask' },
+      {
+        payload: withShared,
+        context: {
+          ...context,
+          composition: {
+            ...composition,
+            verbs: composition.verbs.map(verb => ({ ...verb, includes: [] })),
+            targets: composition.targets!.map(target => ({
+              ...target,
+              placeholders: target.placeholders.filter(
+                p => p.kind !== 'include'
+              ),
+            })),
+          },
+        },
+      }
+    );
+
+    const usedBy = screen.getByTestId('block-used-by');
+    expect(usedBy).toHaveTextContent(
+      'No skill in this pack pastes gate-protocol in directly.'
+    );
+    expect(usedBy).not.toHaveTextContent('One copy for every skill above');
+  });
+
   it('shows no Used by on a block of the skill itself', () => {
     renderView({ block: 'mini/gate' }, { payload: withShared, context });
 

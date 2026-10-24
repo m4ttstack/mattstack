@@ -46,4 +46,25 @@ describe('CopyForClaude', () => {
     expect(screen.queryByText('Copied. Paste it into Claude')).toBeNull();
     expect(screen.getByText(/Block: mini\/gate/)).toBeTruthy();
   });
+
+  it('closes when the view moves to another block, so it never shows a brief the clipboard does not hold', async () => {
+    mockClipboard(vi.fn().mockResolvedValue(undefined));
+    const other = miniPayload.blocks.find(
+      b => b.id !== block.id && b.parentId
+    )!;
+    const { rerender } = renderWithProviders(
+      <CopyForClaude payload={miniPayload} block={block} />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy for Claude' })
+    );
+    expect(
+      await screen.findByText('Copied. Paste it into Claude')
+    ).toBeTruthy();
+
+    rerender(<CopyForClaude payload={miniPayload} block={other} />);
+
+    expect(screen.queryByText('Copied. Paste it into Claude')).toBeNull();
+    expect(screen.queryByTestId('brief')).toBeNull();
+  });
 });

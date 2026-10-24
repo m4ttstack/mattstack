@@ -56,6 +56,7 @@ describe('usedBySites', () => {
     ]);
     expect(sites[0]!.focus).toBe('pipeline:feature');
     expect(sites[0]!.label).toBe('work/SKILL.md');
+    expect(sites[0]!.file).toBe('work/index.block.md');
     expect(sites[2]!.focus).toBe('stage-plan');
   });
 
@@ -77,6 +78,7 @@ describe('usedBySites', () => {
     expect(sites.find(site => site.skill === 'shepherdr')).toMatchObject({
       group: 'STANDALONE',
       line: null,
+      file: null,
       focus: 'shepherdr',
     });
   });
@@ -93,6 +95,7 @@ describe('usedBySites', () => {
       group: 'NOT WIRED INTO ANYTHING',
       skill: 'stage-provision',
       line: 154,
+      file: 'stage-provision/index.block.md',
       focus: null,
       label: 'stage-provision',
     });

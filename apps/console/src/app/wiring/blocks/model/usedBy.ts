@@ -4,6 +4,7 @@ import {
   type FocusGroups,
   type FocusItem,
 } from '../../graph/model/focusModel';
+import { fileLabelOf } from '../../graph/model/templateModel';
 import { stageCopyOf, type SkillsComposition } from '../../outline';
 
 export type UsedByGroup =
@@ -19,7 +20,9 @@ export const USED_BY_GROUPS: readonly UsedByGroup[] = [
 export type UsedBySite = {
   group: UsedByGroup;
   skill: string;
-  /** The template line the skill pastes it at; null where rt names none. */
+  /** The block file that pastes it, and the line in that file; null where
+      rt names no site. */
+  file: string | null;
   line: number | null;
   /** The focus key that opens the skill; null for a skill the focus list
       does not show, which nothing can focus. */
@@ -47,7 +50,7 @@ function placesOf(groups: FocusGroups): Map<string, Place> {
   return places;
 }
 
-type Site = { skill: string; line: number | null };
+type Site = { skill: string; file: string | null; line: number | null };
 
 /** A roster verb's own `includes` names what it pastes; the compile targets
     add the stages and the line. A stage copy pastes what its engine pastes,
@@ -60,11 +63,16 @@ function includeSites(composition: SkillsComposition, name: string): Site[] {
     const at = target.placeholders.find(
       p => p.kind === 'include' && p.arg === name
     );
-    if (at) sites.set(target.name, { skill: target.name, line: at.line });
+    if (at)
+      sites.set(target.name, {
+        skill: target.name,
+        file: fileLabelOf(at.file),
+        line: at.line,
+      });
   }
   for (const verb of composition.verbs) {
     if (verb.includes?.includes(name) && !sites.has(verb.name))
-      sites.set(verb.name, { skill: verb.name, line: null });
+      sites.set(verb.name, { skill: verb.name, file: null, line: null });
   }
   return [...sites.values()];
 }
@@ -95,6 +103,7 @@ export function usedBySites(
         site: {
           group: place?.group ?? 'NOT WIRED INTO ANYTHING',
           skill: site.skill,
+          file: site.file,
           line: site.line,
           focus: place
             ? focusUnder(

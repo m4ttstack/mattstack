@@ -59,7 +59,7 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
       >
         <Table.Thead className={classes.head} data-parity="thead">
           <Table.Tr>
-            <Table.Th className={classes.fileColumn}>
+            <Table.Th>
               <Text fz={10} fw={500} lh="normal" c={MUTED} data-parity="th">
                 file
               </Text>
@@ -74,7 +74,7 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
                 installed
               </Text>
             </Table.Th>
-            <Table.Th>
+            <Table.Th className={classes.statusColumn}>
               <VisuallyHidden>status</VisuallyHidden>
             </Table.Th>
           </Table.Tr>

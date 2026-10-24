@@ -818,6 +818,34 @@ describe('Graph tab: the block view', () => {
     ).toBeInTheDocument();
   });
 
+  it("gives rt's refusal to build a skill its own words, no retry, and a way to Health", async () => {
+    mockDesignPack();
+    blocksGet.mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        error: 'shepherdr.domain is required and nothing binds it',
+      }),
+    });
+    const user = userEvent.setup();
+    renderAt('?tab=graph&focus=shepherdr');
+
+    const refused = await screen.findByTestId('block-view-refused');
+    expect(refused).toHaveTextContent("rt won't build this skill");
+    expect(refused).toHaveTextContent(
+      'shepherdr.domain is required and nothing binds it'
+    );
+    expect(
+      within(refused).queryByRole('button', { name: 'Retry' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('block-view-error')).not.toBeInTheDocument();
+
+    await user.click(
+      within(refused).getByRole('button', { name: 'Open Health' })
+    );
+    expect(params().get('tab')).toBe('health');
+  });
+
   it('goes back to all skills from the block tree, clearing the focus', async () => {
     mockDesignPack();
     const user = userEvent.setup();

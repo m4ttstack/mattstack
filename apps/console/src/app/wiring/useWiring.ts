@@ -234,10 +234,12 @@ export function useAnatomy(pack: string | null, skill: string | null) {
   });
 }
 
-/** One skill as a tree of blocks. `retry: false` because a plain skill's 404
-    (not a block tree) is final. */
-/** `null` is rt's not-a-block-tree answer (the route's 404): a hand-written
-    skill, read from its headings instead. */
+/** rt declined to build the skill; its words say what to fix. */
+export class BlocksRefused extends Error {}
+
+/** One skill as a tree of blocks; `null` is rt's not-a-block-tree answer
+    (the route's 404). `retry: false` because that answer and a refusal
+    (422, `BlocksRefused`) are final. */
 export function useBlocks(pack: string | null, skill: string | null) {
   return useQuery({
     queryKey: ['skills', 'blocks', pack, skill],
@@ -246,6 +248,10 @@ export function useBlocks(pack: string | null, skill: string | null) {
         query: { pack: pack ?? '', skill: skill ?? '' },
       });
       if (res.status === 404) return null;
+      if (res.status === 422) {
+        const body = (await res.json()) as { error?: string };
+        throw new BlocksRefused(body.error ?? 'rt will not build this skill');
+      }
       return readOrThrow<SkillsBlocks>(res, 'skills blocks');
     },
     enabled: pack !== null && skill !== null,

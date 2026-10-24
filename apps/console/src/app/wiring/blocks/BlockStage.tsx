@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import {
   Alert,
+  Anchor,
   Box,
   Button,
   Skeleton,
@@ -125,6 +126,29 @@ export function BlockStage({
             <Text fz={13} c="dimmed" data-testid="block-view-note">
               {skill.message}
             </Text>
+          )}
+          {skill.state === 'refused' && (
+            <Alert
+              variant="light"
+              color="warn"
+              title="rt won't build this skill"
+              icon={<Icon name="warning" size={16} />}
+              data-testid="block-view-refused"
+            >
+              <Stack gap="xs" align="flex-start">
+                <Text size="sm" className={classes.refusal}>
+                  {skill.message}
+                </Text>
+                <Anchor
+                  component="button"
+                  type="button"
+                  size="sm"
+                  onClick={() => patch({ tab: 'health' })}
+                >
+                  Open Health
+                </Anchor>
+              </Stack>
+            </Alert>
           )}
           {skill.state === 'error' && (
             <Alert

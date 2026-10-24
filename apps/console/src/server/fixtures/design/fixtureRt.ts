@@ -50,6 +50,10 @@ const SKILLS_WITH_ANATOMY = new Set([
   'stage-evidence--accessibility',
 ]);
 
+/** The skill names a fixture file, so only a plain skill name reaches the
+    disk. */
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
 const NOT_A_BLOCK_TREE = JSON.stringify({
   contract: 1,
   at: '2026-10-22T00:00:00.000Z',
@@ -216,7 +220,7 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
       }
       case 'blocks': {
         const skill = flagValue(argv, '--skill');
-        if (!skill) return refuse(argv);
+        if (!skill || !SKILL_NAME.test(skill)) return refuse(argv);
         try {
           return answer(await readJsonText(`blocks.${skill}.json`));
         } catch {

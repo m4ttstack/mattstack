@@ -2132,8 +2132,24 @@ describe('skills blocks route', () => {
     });
   });
 
-  it('is 502 with rt stderr when rt prints nothing', async () => {
-    const rt = fakeRt({ code: 1, stdout: '', stderr: 'rt skills: boom' });
+  it("is 422 with rt's words when rt declines to build the skill", async () => {
+    const refusal =
+      'mini/gate.rules is required and nothing binds it\n  why: bind it in pack/skills.jsonc';
+    const rt = fakeRt({ code: 1, stdout: '', stderr: `${refusal}\n` });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toEqual({ error: refusal });
+  });
+
+  it('is 502 with rt stderr when rt fails unexpectedly', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt hit an unexpected error  boom',
+    });
     const app = mountSkills(new Hono(), rt.run);
 
     const res = await app.request(url);

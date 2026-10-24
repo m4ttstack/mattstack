@@ -47,7 +47,7 @@ function devPacksOnlyInDev(payload: SkillsPacksResponse): SkillsPacksResponse {
     value per layer that adds to it. */
 interface SkillsCompositionPropValue {
   boundTo: string;
-  /** "default", "base:<pack>", the pack name, or "override". */
+  /** "default", "base:<pack>", "pack" or "override". */
   layer: string;
   fillSourcePath: string | null;
   fillVersion: string | null;
@@ -510,6 +510,9 @@ const isPackPath = (path: string) =>
     `..` all mean something. Only an object name gets through, so the only
     revisions this route can name are ones the history route listed. */
 const COMMIT_SHA = /^[0-9a-f]{7,40}$/;
+
+/** The title rt's CLI gives a failure it did not expect. */
+const RT_UNEXPECTED = 'rt hit an unexpected error';
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 100;
@@ -1497,7 +1500,7 @@ export function mountSkills(
         return c.json({ error: 'pack and skill are required' }, 400);
       }
       try {
-        const { stdout, stderr } = await cachedRun([
+        const { code, stdout, stderr } = await cachedRun([
           'skills',
           'blocks',
           '--pack',
@@ -1507,11 +1510,20 @@ export function mountSkills(
           '--json',
         ]);
         const payload = parseJsonPayload(stdout);
+        // A skill rt will not build (an unbound required prop, a missing
+        // fill, a value it cannot resolve) exits 1 with its failure on
+        // stderr; a crash says it was unexpected.
+        const said = stderr.trim();
+        if (
+          payload === undefined &&
+          code === 1 &&
+          said &&
+          !said.startsWith(RT_UNEXPECTED)
+        ) {
+          return c.json({ error: said }, 422);
+        }
         if (payload === undefined) {
-          return c.json(
-            { error: stderr.trim() || 'rt produced no output' },
-            502
-          );
+          return c.json({ error: said || 'rt produced no output' }, 502);
         }
         // rt prints its failure envelope on stdout and exits 1
         const refusal = (payload as RtFailureEnvelope).error;

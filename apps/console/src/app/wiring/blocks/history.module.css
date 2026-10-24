@@ -35,17 +35,18 @@
   padding-left: 12px;
 }
 
-/* Each column is the board's width plus the 8px gap before the next. */
-.fileColumn {
-  width: 220px;
-}
-
+/* The file takes the room the others leave; built with fits an engine's
+   name and version on one line. */
 .builtColumn {
-  width: 98px;
+  width: 120px;
 }
 
 .installedColumn {
   width: 88px;
+}
+
+.statusColumn {
+  width: 96px;
 }
 
 /* Each body row's rule straddles the edge above it, as the board draws it,
