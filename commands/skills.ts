@@ -103,6 +103,7 @@ import {
   type PluginRoots,
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlannedAttachments, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
 
 export const NO_PACKS_WHY = "A pack is a folder with a surface file: a plugin from a directory marketplace, or a team's or the org's pack folder in your org repo.";
@@ -3986,7 +3987,8 @@ export async function skillsBind(args: string[]): Promise<void> {
 
     if (slotForm !== null) {
       if (tree.root.props.some((p) => p.name === slotForm)) {
-        const rootForm = `rt skills bind ${verbName} ${tree.root.id} ${slotForm} ${positionals[2]}`;
+        const words = [verbName, tree.root.id, slotForm, positionals[2]!, ...rest.filter((a) => a !== "--json")];
+        const rootForm = ["rt skills bind", ...words.map(shellQuote)].join(" ");
         throw new SkillsUsageError(`"${slotForm}" is a prop of ${verbName}'s root block "${tree.root.id}"; name the block too: ${rootForm}`, {
           title: `Name the block before the prop: ${slotForm} is a prop of ${verbName}'s root block`,
           next: out.cmd(rootForm),

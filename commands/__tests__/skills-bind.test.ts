@@ -691,6 +691,24 @@ describe("skillsBind: pipeline stages", () => {
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
   });
 
+  test("the root form it prints carries the flags the person passed, quoted", async () => {
+    const { packDir, mattstackDir, manifestPath } = makeStageFixture();
+    const spaced = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-"))), "my manifests", "skills.jsonc");
+    writeFile(spaced, readFileSync(manifestPath, "utf8"));
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsBind([
+        "stage-plan", "rules", "acme:plan-policy",
+        "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", spaced,
+      ]),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain(
+      `rt skills bind stage-plan stage-plan rules acme:plan-policy --pack t --pack-dir ${packDir} --mattstack-dir ${mattstackDir} --manifest '${spaced}'`,
+    );
+  });
+
   test("a prop the block does not declare errors with the block's props", async () => {
     const { packDir, mattstackDir, manifestPath } = makeStageFixture();
     const before = readFileSync(manifestPath, "utf8");
