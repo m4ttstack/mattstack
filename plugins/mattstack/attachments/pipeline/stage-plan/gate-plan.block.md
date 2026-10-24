@@ -16,7 +16,7 @@ form: the printed tier and why.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
-| `tier` (write-in) | the printed tier, its label ending ` (Recommended)`, then the other two | always |
+| `tier` (write-in) | the printed tier, its label ending ` (Recommended)`, then the other two; a write-in names one of the three, and any other is iterated | always |
 | `failing_test` | the FAILING TEST line to keep, or their rename as text | direct-tdd |
 | the domain's own | as the domain policy words them | the domain declares them |
 | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |

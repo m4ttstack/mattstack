@@ -85,7 +85,7 @@ flowchart TB
     mr_create_recalls{mr-create-recalls spent?}
     mr_update_squash[/"mr_update {mrUrl, squash: true}"/]
     stop_gitlab_shortcut[STOP: GitLab goes through gitlab_get, the read tools and mr_*]:::stop
-    gh_pr_create[/"gh pr create --base <resolved target> [--draft]"/]
+    gh_pr_create[/"gh pr create --fill --base <resolved target> [--draft]"/]
     gh_create_result{gh pr create result?}
     run_field_set_mr[/"run_field_set {key: mr, value: <url>, stage}"/]
     run_field_get_evidence[/"run_field_get {key: evidence}"/]
