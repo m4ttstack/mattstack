@@ -98,13 +98,13 @@ forge access, and refuses a copy behind `dataBranchTip`. The `org.main` row
 CI or other tooling on the host repo.
 `rt team branch use <name>` (`lib/team/trial-branch.ts`; org admins and
 owners) switches the clone in place to a trial branch and records it in
-the team-local record. On a layout 4 clone a missing branch is made from
+the team-local record. On a layout 4 or 5 clone a missing branch is made from
 the data branch's published tip; on a layout 3 clone only an existing
 branch holding the org store is accepted (a script `--no-pointer` trial),
 since there is no data branch to start from. A target is a trial unless it
 is the data branch origin `main`'s pointer names, or `main` itself when it
 names none, so `rt team branch use main` (layout 3) or `rt team branch use
-<dataBranch>` (layout 4) returns and clears the trial. The trial flow is
+<dataBranch>` (layout 4 or 5) returns and clears the trial. The trial flow is
 the script with `--data-branch <trial> --no-pointer --write`, then `rt team
 branch use <trial>` on the dev app's Mac. The daemon auto-commits only on an approved branch, the
 data branch or the recorded trial (`approvedBranches` in

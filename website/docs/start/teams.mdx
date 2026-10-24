@@ -254,10 +254,22 @@ Once every pack in your org is in block form, an org admin marks the org as layo
 
 | Step | What you do |
 | --- | --- |
-| 1 | [Switch to a trial branch](#switch-to-a-trial-branch) |
-| 2 | [Convert and publish every pack](#convert-and-publish-every-pack) |
-| 3 | [Mark the org](#mark-the-org) |
-| 4 | [Merge after the release](#merge-after-the-release) |
+| 1 | [Turn team sync off](#turn-team-sync-off) |
+| 2 | [Switch to a trial branch](#switch-to-a-trial-branch) |
+| 3 | [Convert and publish every pack](#convert-and-publish-every-pack) |
+| 4 | [Mark the org](#mark-the-org) |
+| 5 | [Merge after the release](#merge-after-the-release) |
+
+### Turn team sync off
+
+Team sync could publish the move before you review it, so the move script refuses while it is on. Turn it off on your Mac and restart the daemon:
+
+```bash
+rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine
+rt daemon restart
+```
+
+With sync off, nothing reaches the org repo until you run `rt team publish`.
 
 ### Switch to a trial branch
 
@@ -285,10 +297,17 @@ From a mattstack checkout:
 bun scripts/move-to-block-packs.ts ~/.mattstack/orgs/<org> --admin <username>
 ```
 
-On its own it checks every pack and prints the plan, and writes nothing. Run it again with `--write` to make the move. It sets `layout: 5` in the org's marker on the branch you have checked out, and keeps its data branch, in one commit. Review it with `git show`, then publish again and turn team sync back on:
+On its own it checks every pack and prints the plan, and writes nothing. Run it again with `--write` to make the move. It sets `layout: 5` in the org's marker on the branch you have checked out, and keeps its data branch, in one commit. Review it with `git show`, then publish again:
 
 ```bash
 rt team publish
+```
+
+Then turn team sync back on:
+
+```bash
+rt settings set rt.teamSnapshot '{"enabled": true}' --scope machine
+rt daemon restart
 ```
 
 The script refuses, and writes nothing, when:
@@ -296,7 +315,7 @@ The script refuses, and writes nothing, when:
 - any pack still has an old slot key, at the top level or in a pipeline. It names the pack and the key. Packs in the org's `mattstack/org/packs/` show as `org <folder>`.
 - a pack's `pack/skills.jsonc` cannot be read.
 - the clone has uncommitted changes, unpublished commits, or no branch checked out.
-- team sync is on for your Mac, because sync could publish the move before you review it. The refusal names the commands that turn it off.
+- team sync is on for your Mac.
 - the org is still on layout 3. Move it to a [data branch](#moving-to-a-data-branch) first.
 
 Each refusal names the command that fixes it.

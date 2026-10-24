@@ -176,7 +176,7 @@ flow below. The marker
 (`mattstack/mattstack.jsonc`) carries `layout`; `ORG_LAYOUT` in
 `lib/team/org-marker.ts` is the highest layout this rt reads, and it moves
 only with such a change, never with a release. A clone on a layout outside
-`READABLE_LAYOUTS` (3 and 4, which share every path) is
+`READABLE_LAYOUTS` (3, 4 and 5, which share every path) is
 `waiting`, not a failure: materialize writes nothing, the `rt skills`
 verbs refuse with the waiting sentence, the apps run as on a Mac with no
 org, and the `org.layout` row of `rt setup status` says why. The daemon
@@ -198,7 +198,7 @@ never merged into `main`, nor `main` into it. `rt team invite` reads
 the invite carries `dataBranch`, and a join clones that branch alone. An
 admin tries a change on a trial branch with `rt team branch use
 <name>` (org admins and owners): it switches the clone in place and
-records the trial so the daemon auto-commits there. On a layout 4 clone it
+records the trial so the daemon auto-commits there. On a layout 4 or 5 clone it
 makes the branch from the data branch's published tip when origin has
 none. On a layout 3 clone it switches only to an existing branch, such as
 one the conversion script made, because there is no data branch yet to
@@ -207,7 +207,7 @@ holds while the clone has unsaved changes or unpublished commits. Whether
 a target is a trial is decided by origin `main`'s pointer: the data branch
 is the `dataBranch` it names, or `main` itself when it names none.
 `rt team branch use main` (layout 3) or `rt team branch use <data
-branch>` (layout 4) switches back and clears the trial.
+branch>` (layout 4 or 5) switches back and clears the trial.
 
 In this order:
 
@@ -224,7 +224,8 @@ In this order:
    also writes `layout: <n>` in the marker. Every marker rt writes carries
    an explicit `layout` (`rt team create` writes `ORG_LAYOUT`, the layout 2
    script writes 2, the layout 3 script writes 3, the layout 4 script
-   writes 4 with `dataBranch`), and a `role: "org"`
+   writes 4 with `dataBranch`, the layout 5 script writes 5 and keeps
+   `dataBranch`), and a `role: "org"`
    marker with no field reads 2, a fixed default
    (`ORG_LAYOUT_ABSENT_DEFAULT`) that never follows the bump, so an
    unconverted clone never reads as ready.
