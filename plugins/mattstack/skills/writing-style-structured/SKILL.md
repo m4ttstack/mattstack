@@ -2,26 +2,26 @@
 name: "writing-style-structured"
 description: "Use only when the mattstack writing-style lookup names mattstack:writing-style-structured. The voice for review comments, replies, PR descriptions and commit messages posted under the operator's name: labelled lines and short bullets for teams that prefer formal write-ups."
 metadata:
-  compiled: "mattstack@0.32.27"
+  compiled: "mattstack@0.32.28"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: block:writing-style-structured source=mattstack:writing-style-structured version=0.32.27 path=attachments/writing-style/writing-style-structured/index.block.md lines=7-13 -->
+<!-- part: block:writing-style-structured source=mattstack:writing-style-structured version=0.32.28 path=attachments/writing-style/writing-style-structured/index.block.md lines=7-13 -->
 # Structured
 
 Clear and scannable, for teams that like formal write-ups. Every point is
 labelled so a reader can triage without reading the whole thing. Load this
 before the first draft and write in it from the first word.
 
-<!-- part: block:writing-style-floor source=mattstack:writing-style-floor version=0.32.27 path=attachments/writing-style-floor/index.block.md lines=6-10 -->
+<!-- part: block:writing-style-floor source=mattstack:writing-style-floor version=0.32.28 path=attachments/writing-style-floor/index.block.md lines=6-10 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
 review summary, replies on their own PR, PR descriptions, commit messages.
 The preset sets the voice; these set the floor.
 
-<!-- part: block:writing-style-floor/never source=mattstack:writing-style-floor version=0.32.27 path=attachments/writing-style-floor/never.block.md lines=5-20 -->
+<!-- part: block:writing-style-floor/never source=mattstack:writing-style-floor version=0.32.28 path=attachments/writing-style-floor/never.block.md lines=5-20 -->
 ### Never
 
 - **Em or en dashes.** Rephrase, or use parentheses, a colon, or an ellipsis
@@ -39,7 +39,7 @@ The preset sets the voice; these set the floor.
   noticed:", "Took a look", "I just wanted to". Start with the claim.
 - **Invented precision.** "most" beats "~96%" unless the number was measured.
 
-<!-- part: block:writing-style-floor/always source=mattstack:writing-style-floor version=0.32.27 path=attachments/writing-style-floor/always.block.md lines=5-35 -->
+<!-- part: block:writing-style-floor/always source=mattstack:writing-style-floor version=0.32.28 path=attachments/writing-style-floor/always.block.md lines=5-35 -->
 ### Always
 
 - **Compress before posting.** The first draft is a rough cut. Before posting
@@ -72,7 +72,7 @@ The preset sets the voice; these set the floor.
   notes. It never recaps a finding, lists strengths, or reports what you ran.
   A finding with no line to anchor to is its own top-level comment.
 
-<!-- part: block:writing-style-structured/voice source=mattstack:writing-style-structured version=0.32.27 path=attachments/writing-style/writing-style-structured/voice.block.md lines=5-15 -->
+<!-- part: block:writing-style-structured/voice source=mattstack:writing-style-structured version=0.32.28 path=attachments/writing-style/writing-style-structured/voice.block.md lines=5-15 -->
 ## Voice
 
 - **Sentence case**, complete but short sentences.
@@ -85,7 +85,7 @@ The preset sets the voice; these set the floor.
 Compression target: every line earns its label. Cut any line a reader could
 skip without missing the ask.
 
-<!-- part: block:writing-style-structured/review-findings source=mattstack:writing-style-structured version=0.32.27 path=attachments/writing-style/writing-style-structured/review-findings.block.md lines=5-22 -->
+<!-- part: block:writing-style-structured/review-findings source=mattstack:writing-style-structured version=0.32.28 path=attachments/writing-style/writing-style-structured/review-findings.block.md lines=5-22 -->
 ## Review findings
 
 Open with a bolded Conventional Comments label, never a code span, then
@@ -105,13 +105,13 @@ const pageCount = Math.ceil(total / pageSize);
 Use only the lines that carry something: a `nitpick` is the label and one
 line. A process ask is one line.
 
-<!-- part: block:writing-style-structured/review-summary source=mattstack:writing-style-structured version=0.32.27 path=attachments/writing-style/writing-style-structured/review-summary.block.md lines=5-8 -->
+<!-- part: block:writing-style-structured/review-summary source=mattstack:writing-style-structured version=0.32.28 path=attachments/writing-style/writing-style-structured/review-summary.block.md lines=5-8 -->
 ## Review summary
 
 One line: `No blockers. Inline notes on paging and tests.` Only a blocker
 joins it: `One blocker inline (page count).`
 
-<!-- part: block:writing-style-structured/replies-on-your-own-pr source=mattstack:writing-style-structured version=0.32.27 path=attachments/writing-style/writing-style-structured/replies-on-your-own-pr.block.md lines=6-12 -->
+<!-- part: block:writing-style-structured/replies-on-your-own-pr source=mattstack:writing-style-structured version=0.32.28 path=attachments/writing-style/writing-style-structured/replies-on-your-own-pr.block.md lines=6-12 -->
 ## Replies on your own PR
 
 One or two sentences, plain and direct. No thanks opener. State the outcome
@@ -120,12 +120,12 @@ first.
 - `Changed to Record<Status, string>.`
 - `Skipping the lock: the job runs on one worker, and a lock adds a round trip per write.`
 
-<!-- part: block:writing-style-structured/pr-descriptions source=mattstack:writing-style-structured version=0.32.27 path=attachments/writing-style/writing-style-structured/pr-descriptions.block.md lines=6-8 -->
+<!-- part: block:writing-style-structured/pr-descriptions source=mattstack:writing-style-structured version=0.32.28 path=attachments/writing-style/writing-style-structured/pr-descriptions.block.md lines=6-8 -->
 ## PR descriptions
 
 Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting.
 
-<!-- part: block:writing-style-structured/commit-messages source=mattstack:writing-style-structured version=0.32.27 path=attachments/writing-style/writing-style-structured/commit-messages.block.md lines=5-9 -->
+<!-- part: block:writing-style-structured/commit-messages source=mattstack:writing-style-structured version=0.32.28 path=attachments/writing-style/writing-style-structured/commit-messages.block.md lines=5-9 -->
 ## Commit messages
 
 - Subject: imperative, sentence case, under 72 characters, with the ticket
