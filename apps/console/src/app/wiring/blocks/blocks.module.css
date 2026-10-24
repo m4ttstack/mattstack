@@ -123,12 +123,6 @@
   border-radius: 3px;
 }
 
-.barRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .bar {
   display: flex;
   gap: 2px;
@@ -191,7 +185,6 @@
   min-width: 0;
 }
 
-/* A single block's own page reads its text at body size. */
 .blockText[data-size='lg'] {
   --gate-context-fz: 16px;
   --gate-context-lh: 1.6;
@@ -472,11 +465,16 @@
   fill: var(--tk-line-1);
 }
 
+/* React Flow stacks its label layer under the nodes; labels draw over them. */
+.aroundCanvas :global(.react-flow__edgelabel-renderer) {
+  z-index: 1;
+}
+
 .aroundEdgeLabel {
   position: absolute;
   top: 0;
   left: 0;
-  transform: translate(var(--label-x), var(--label-y)) translate(-50%, -50%);
+  transform: translate(var(--label-x), var(--label-y));
   padding: 0 4px;
   border-radius: 4px;
   background-color: var(--tk-inset);
@@ -485,6 +483,10 @@
   line-height: normal;
   white-space: nowrap;
   pointer-events: none;
+}
+
+.aroundEdgeLabel[data-side='left'] {
+  transform: translate(var(--label-x), var(--label-y)) translateX(-100%);
 }
 
 .aroundKey {
@@ -516,13 +518,10 @@
   background-color: var(--tk-inset);
 }
 
-/* The block view: a text column and the Layers rail. */
 .page {
   overflow-y: auto;
 }
 
-/* The header spans the page; the text column and the Layers rail sit
-   under it. */
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -846,15 +845,12 @@
   gap: 3px;
 }
 
+/* The boards draw a row's dots in the hue's text step, a shade apart from
+   the map's fill squares. */
 .dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-}
-
-/* The boards draw a row's dots in the hue's text step, a shade apart from
-   the map's fill squares. */
-.dot {
   background: currentColor;
 }
 
@@ -866,7 +862,6 @@
   color: var(--tk-text-cyan);
 }
 
-/* The block sidebar. */
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -965,7 +960,6 @@
   width: 13px;
 }
 
-/* Laid over the row's left section, where the chevron sits. */
 .treeToggle {
   display: inline-flex;
   position: absolute;
@@ -1016,4 +1010,8 @@
   gap: 4px;
   color: var(--tk-text-3);
   font-size: 11px;
+}
+
+.refusal {
+  white-space: pre-line;
 }

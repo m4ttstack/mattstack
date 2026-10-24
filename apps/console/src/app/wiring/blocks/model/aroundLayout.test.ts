@@ -379,7 +379,8 @@ describe('aroundLayout sizes nodes to their labels', () => {
       'Rebase status?',
       'Continue result?',
     ];
-    // The canvas's widths: the four at 150, the two wider ones at 160.
+    // dirty answer?, Commit named and Stash them at 150; Fix test-first,
+    // Rebase status? and Continue result? at 160.
     const sized = (label: string) => (label.length >= 14 ? 100 : 80);
     const graph = {
       nodes: [
@@ -425,5 +426,199 @@ describe('aroundLayout sizes nodes to their labels', () => {
     expect(topRow(690)).toBe(3);
     expect(topRow(330)).toBe(2);
     expect(topRow(100)).toBe(1);
+  });
+});
+
+describe('edge routes and labels', () => {
+  type Layout = ReturnType<typeof aroundLayout>;
+  type Box = { left: number; top: number; right: number; bottom: number };
+  const flow = shipPayload.graphs.find(g => g.blockId === 'ship/flow')!;
+  const measure = (label: string) => label.length * 7;
+  const layouts: [string, Layout][] = [
+    [
+      'the whole ship flow',
+      wholeLayout(flow, null, Infinity, { measure, room: 1000 }),
+    ],
+    [
+      'around Fast checks on the ship flow',
+      aroundLayout(
+        aroundBlock(flow, 'domain_fast_checks'),
+        'domain_fast_checks',
+        Infinity,
+        {
+          measure,
+          room: 760,
+        }
+      ),
+    ],
+    [
+      'around the ship-shaped graph',
+      aroundLayout(sub, 'fast_checks', 2, { measure }),
+    ],
+  ];
+  const boxOf = (node: AroundNode): Box => ({
+    left: node.position.x,
+    top: node.position.y,
+    right: node.position.x + node.width!,
+    bottom: node.position.y + AROUND.nodeH,
+  });
+  /** Whether an axis-aligned segment enters a box's interior. */
+  const crosses = (
+    [x1, y1]: readonly [number, number],
+    [x2, y2]: readonly [number, number],
+    box: Box
+  ) =>
+    Math.max(x1, x2) > box.left &&
+    Math.min(x1, x2) < box.right &&
+    Math.max(y1, y2) > box.top &&
+    Math.min(y1, y2) < box.bottom;
+  const overlaps = (a: Box, b: Box) =>
+    a.left < b.right &&
+    b.left < a.right &&
+    a.top < b.bottom &&
+    b.top < a.bottom;
+
+  it.each(layouts)(
+    'routes every edge of %s clear of every node box',
+    (_, layout) => {
+      expect(layout.edges.length).toBeGreaterThan(3);
+      for (const edge of layout.edges) {
+        const points = edge.data!.points!;
+        expect(points.length).toBeGreaterThan(1);
+        for (let i = 1; i < points.length; i++) {
+          const [a, b] = [points[i - 1]!, points[i]!];
+          expect(a[0] === b[0] || a[1] === b[1]).toBe(true);
+          for (const node of layout.nodes) {
+            if (crosses(a, b, boxOf(node)))
+              throw new Error(`${edge.id} crosses ${node.id}`);
+          }
+        }
+      }
+    }
+  );
+
+  it.each(layouts)(
+    'sets each label of %s beside its drop or its bend, clear of every node',
+    (_, layout) => {
+      const labelled = layout.edges.filter(edge => edge.label);
+      expect(labelled.length).toBeGreaterThan(0);
+      for (const edge of labelled) {
+        const at = edge.data!.labelAt!;
+        const [[dropX, sourceY], bend] = edge.data!.points!;
+        const box: Box = {
+          left: at.side === 'right' ? at.x : at.x - at.width,
+          right: at.side === 'right' ? at.x + at.width : at.x,
+          top: at.y,
+          bottom: at.y + at.height,
+        };
+        // Under its source beside the drop, or just under the bend beside
+        // the run toward the target.
+        const underBend = box.top > bend![1];
+        const [x, top] = underBend ? bend! : [dropX!, sourceY!];
+        if (at.side === 'right') expect(box.left).toBeGreaterThan(x);
+        else expect(box.right).toBeLessThan(x);
+        expect(box.top).toBeGreaterThanOrEqual(top);
+        if (!underBend) expect(box.bottom).toBeLessThanOrEqual(bend![1]);
+        for (const node of layout.nodes) {
+          if (overlaps(box, boxOf(node)))
+            throw new Error(`${edge.id}'s label covers ${node.id}`);
+        }
+      }
+    }
+  );
+
+  const labelBox = (edge: Layout['edges'][number]): Box => {
+    const at = edge.data!.labelAt!;
+    return {
+      left: at.side === 'right' ? at.x : at.x - at.width,
+      right: at.side === 'right' ? at.x + at.width : at.x,
+      top: at.y,
+      bottom: at.y + at.height,
+    };
+  };
+
+  it.each(layouts)('overlaps no two labels of %s', (_, layout) => {
+    const boxes = layout.edges
+      .filter(edge => edge.label)
+      .map(edge => [edge.id, labelBox(edge)] as const);
+    for (const [i, [id, box]] of boxes.entries())
+      for (const [other, next] of boxes.slice(i + 1))
+        if (overlaps(box, next)) throw new Error(`${id} overlaps ${other}`);
+  });
+
+  // The board's own case, a row of four: a wrapped row with a channel on
+  // each side can leave a label no clear side.
+  it.each([
+    layouts[1]!,
+    [
+      'around the ship-shaped graph in one row',
+      aroundLayout(sub, 'fast_checks', Infinity, { measure }),
+    ] as [string, Layout],
+  ])("keeps each label of %s off every other edge's line", (_, layout) => {
+    for (const edge of layout.edges.filter(e => e.label)) {
+      const box = labelBox(edge);
+      for (const other of layout.edges) {
+        if (other.id === edge.id) continue;
+        const points = other.data!.points!;
+        for (let i = 1; i < points.length; i++)
+          if (crosses(points[i - 1]!, points[i]!, box))
+            throw new Error(`${edge.id}'s label crosses ${other.id}`);
+      }
+    }
+  });
+
+  it('sets a label under its bend when a line runs close by on both sides of its drop', () => {
+    // The canvas's wrapped row: Continue result? sits in the gap between
+    // Commit named and Stash them, whose drops pass 90px either side.
+    const into = [
+      'dirty answer?',
+      'Commit named',
+      'Stash them',
+      'Fix test-first',
+      'Rebase status?',
+      'Continue result?',
+    ];
+    const sized = (label: string) => (label.length >= 14 ? 100 : 80);
+    const graph = {
+      nodes: [
+        ...into.map((label, i) => ({ ...sub.nodes[0], id: `n${i}`, label })),
+        { ...sub.nodes[0], id: 'other', label: 'Rebase this pass?' },
+        { ...sub.nodes[0], id: 'focus', label: 'Fast checks' },
+      ],
+      edges: [
+        ...into.slice(0, 5).map((_, i) => ({
+          ...sub.edges[0],
+          from: `n${i}`,
+          to: 'focus',
+          label: null,
+        })),
+        { ...sub.edges[0], from: 'focus', to: 'other', label: null },
+        {
+          ...sub.edges[0],
+          from: 'n5',
+          to: 'other',
+          label: 'rebase finished',
+        },
+      ],
+    };
+    const layout = aroundLayout(graph, 'focus', Infinity, {
+      measure: sized,
+      room: 700,
+    });
+    const edge = layout.edges.find(e => e.label === 'rebase finished')!;
+    const [, bend] = edge.data!.points!;
+    expect(edge.data!.labelAt!.y).toBeGreaterThan(bend![1]);
+  });
+
+  it('sends the edges out of one node from their own points, labels on either side', () => {
+    const layout = aroundLayout(sub, 'fast_checks');
+    const out = layout.edges.filter(edge => edge.source === 'fast_checks');
+    expect(out.length).toBeGreaterThan(1);
+    const drops = out.map(edge => edge.data!.points![0]![0]);
+    expect(new Set(drops).size).toBe(out.length);
+    const sides = out
+      .filter(edge => edge.label)
+      .map(edge => edge.data!.labelAt!.side);
+    if (sides.length > 1) expect(new Set(sides).size).toBe(2);
   });
 });

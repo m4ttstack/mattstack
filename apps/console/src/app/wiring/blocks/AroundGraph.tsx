@@ -20,7 +20,6 @@ import { useElementSize } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import {
   EdgeLabelRenderer,
-  getSmoothStepPath,
   Handle,
   PanOnScrollMode,
   Position,
@@ -38,7 +37,7 @@ import { aroundBlock } from './model/around';
 import {
   AROUND,
   aroundLayout,
-  LANES,
+  reachOf,
   wholeLayout,
   type AroundEdge,
   type AroundNode,
@@ -97,50 +96,27 @@ function useFontsLoaded(): boolean {
   return loaded;
 }
 
-/** Down to the row gap under the source, across to the channel, down past
-    the rows between, and across to land on the target from above. */
-function sideChannelPath(
-  sx: number,
-  sy: number,
-  tx: number,
-  ty: number,
-  channel: number,
-  lane: number
-): string {
-  // Each lane bends at its own height, below the drop labels that sit
-  // just under the row.
-  const step = (lane % LANES) * 6;
-  const busY = sy + 22 + step;
-  const landY = ty - 12 - step;
-  return `M${sx} ${sy}V${busY}H${channel}V${landY}H${tx}V${ty - MARKER.length}`;
-}
-
-/** How far left of the nodes the outermost side channel runs. */
-function channelReach(layout: { nodes: AroundNode[]; edges: AroundEdge[] }) {
-  const channels = layout.edges
-    .map(edge => edge.data?.channel)
-    .filter((x): x is number => typeof x === 'number');
-  if (channels.length === 0 || layout.nodes.length === 0) return 0;
-  const left = Math.min(...layout.nodes.map(node => node.position.x));
-  return Math.max(0, left - Math.min(...channels));
-}
-
 /** The canvas is as tall as the layout at the zoom fitView will pick, so a
     zoomed-out graph leaves no empty band above and below it. */
 function canvasHeight(
-  layout: { nodes: AroundNode[]; rows: number },
+  layout: { nodes: AroundNode[]; edges: AroundEdge[]; rows: number },
   width: number
 ): number {
-  const { rows } = layout;
-  const tall = rows * AROUND.nodeH + (rows - 1) * AROUND.rowGap;
+  // fitView pads by the reach in screen px, so the zoom it picks is the one
+  // that fits the nodes into what is left of the width.
+  const reach = reachOf(layout);
+  const tops = layout.nodes.map(node => node.position.y);
+  const tall =
+    tops.length > 0 ? Math.max(...tops) + AROUND.nodeH - Math.min(...tops) : 0;
   const lefts = layout.nodes.map(node => node.position.x);
   const rights = layout.nodes.map(
     node => node.position.x + (node.width ?? AROUND.nodeW)
   );
   const wide = lefts.length > 0 ? Math.max(...rights) - Math.min(...lefts) : 0;
-  const fit = width > 0 && wide > 0 ? (width - 2 * CANVAS_PADDING) / wide : 1;
+  const room = width - 2 * CANVAS_PADDING - reach.left - reach.right;
+  const fit = width > 0 && wide > 0 ? room / wide : 1;
   const zoom = Math.min(1, Math.max(MIN_ZOOM, fit));
-  return Math.ceil(tall * zoom) + 2 * CANVAS_PADDING;
+  return Math.ceil(tall * zoom) + 2 * CANVAS_PADDING + reach.top + reach.bottom;
 }
 
 /** The room a row of nodes has across a canvas `width` wide, at the zoom
@@ -236,51 +212,19 @@ function GraphOnlyNodeComponent({
   );
 }
 
-function AroundEdgeComponent({
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  label,
-  data,
-}: EdgeProps<AroundEdge>) {
-  const channel = data?.channel ?? null;
-  const landX = targetX + (data?.land ?? 0);
-  const [path, midX, midY] =
-    channel === null
-      ? getSmoothStepPath({
-          sourceX,
-          sourceY,
-          sourcePosition,
-          targetX: landX,
-          targetY: targetY - MARKER.length,
-          targetPosition,
-          borderRadius: 0,
-          // The bend sits just above the target, below any wrapped row between.
-          ...(targetY > sourceY
-            ? { centerY: targetY - AROUND.rowGap / 2 }
-            : {}),
-        })
-      : [
-          sideChannelPath(
-            sourceX,
-            sourceY,
-            landX,
-            targetY,
-            channel,
-            data?.lane ?? 0
-          ),
-          sourceX,
-          sourceY,
-        ];
-  // Edges converging on one target share its bend line, so a downward
-  // edge's label sits on its own drop, just under its source.
-  const down = targetY > sourceY;
-  const labelX = down ? sourceX : midX;
-  const labelY = down ? sourceY + 10 : midY;
+function AroundEdgeComponent({ label, data }: EdgeProps<AroundEdge>) {
+  const points = data?.points ?? [];
+  if (points.length < 2) return null;
+  const [landX, targetY] = points[points.length - 1]!;
+  const path = points
+    .map(([x, y], index) =>
+      index === points.length - 1
+        ? `L${x} ${y - MARKER.length}`
+        : `${index === 0 ? 'M' : 'L'}${x} ${y}`
+    )
+    .join('');
   const marker = `M${landX - MARKER.halfWidth} ${targetY - MARKER.length}l${MARKER.halfWidth} ${MARKER.length} ${MARKER.halfWidth}-${MARKER.length}z`;
+  const at = data?.labelAt;
   return (
     <>
       <path
@@ -289,14 +233,15 @@ function AroundEdgeComponent({
         data-dashed={data?.dashed || undefined}
       />
       <path d={marker} className={classes.aroundMarker} />
-      {label && (
+      {label && at && (
         <EdgeLabelRenderer>
           <div
             className={classes.aroundEdgeLabel}
+            data-side={at.side}
             style={
               {
-                '--label-x': `${labelX}px`,
-                '--label-y': `${labelY}px`,
+                '--label-x': `${at.x}px`,
+                '--label-y': `${at.y}px`,
               } as CSSProperties
             }
           >
@@ -354,20 +299,21 @@ function GraphFrame({
   const scheme = useComputedColorScheme('light');
   const { ref, width } = useElementSize();
   const fontsLoaded = useFontsLoaded();
-  // A layout whose side channels run left of its nodes is laid out again
+  // A layout whose channels and labels run past its nodes is laid out again
   // with that much less room, so its widest row still fits. It lays out
   // again once the fonts load, since the labels then measure differently.
   const { layout, room } = useMemo(() => {
     const wide = roomAt(width);
     const first = layoutFor(wide);
-    const reach = channelReach(first);
-    if (reach === 0) return { layout: first, room: wide };
-    const narrow = roomAt(width - reach);
+    const { left, right } = reachOf(first);
+    if (left + right === 0) return { layout: first, room: wide };
+    const narrow = roomAt(width - left - right);
     return { layout: layoutFor(narrow), room: narrow };
     // fontsLoaded only re-runs the layout; measure reads the fonts itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutFor, width, fontsLoaded]);
   const height = canvasHeight(layout, width);
+  const reach = reachOf(layout);
 
   return (
     <section className={classes.around} aria-label={label} data-testid={testId}>
@@ -391,9 +337,10 @@ function GraphFrame({
               fitView
               fitViewOptions={{
                 padding: {
-                  y: `${CANVAS_PADDING}px`,
-                  right: `${CANVAS_PADDING}px`,
-                  left: `${CANVAS_PADDING + channelReach(layout)}px`,
+                  top: `${CANVAS_PADDING + reach.top}px`,
+                  bottom: `${CANVAS_PADDING + reach.bottom}px`,
+                  right: `${CANVAS_PADDING + reach.right}px`,
+                  left: `${CANVAS_PADDING + reach.left}px`,
                 },
                 minZoom: MIN_ZOOM,
                 maxZoom: 1,
