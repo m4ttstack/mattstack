@@ -75,6 +75,12 @@ describe("findOldSlotKeys", () => {
         expect(known, `${engine} replaced-slot ${slot} is not in the table`).toBe(true);
       }
       expect(existsSync(join(dir, "domain-rules.block.md")), `${engine} domainRules`).toBe(entry!.domainRules);
+      const rootFile = join(dir, "index.block.md");
+      const rootProps = parseBlockFile(readFileSync(rootFile, "utf8"), rootFile, "index").props.map((p) => p.name);
+      for (const prop of entry!.kept) {
+        expect(rootProps, `${engine} keeps ${prop}, but its root block no longer declares it`).toContain(prop);
+      }
+      expect(rootProps.includes("rules"), `${engine} rootRules`).toBe(entry!.rootRules);
     }
     for (const [engine, entry] of Object.entries(OLD_SLOT_ENGINES)) {
       const listed = engines.get(engine)?.slots;

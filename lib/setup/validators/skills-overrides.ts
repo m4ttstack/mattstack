@@ -1,8 +1,8 @@
 import { join } from "path";
 import { row, type Action, type Row } from "../contract.ts";
 import type { Probes } from "../probes.ts";
-import { isBlankOverridesText, parseFragment, type Fragment } from "../../skills/manifest-merge.ts";
-import { findOldSlotKeys, hasDomainRulesBlock, type OldSlotKey } from "../../skills/old-slots.ts";
+import { FragmentError, isBlankOverridesText, parseFragment, type Fragment } from "../../skills/manifest-merge.ts";
+import { findOldSlotKeys, hasDomainRulesBlock, hasRootRulesProp, type OldSlotKey } from "../../skills/old-slots.ts";
 
 export const SKILLS_OVERRIDES_ROW_ID = "skills.overrides";
 
@@ -20,7 +20,11 @@ const DOMAIN_CAVEAT = "A rules prop adds to lower layers where domain replaced t
 function describeKey(k: OldSlotKey): string {
   const where = k.pipeline ? ` in pipeline ${k.pipeline}` : "";
   if (k.successor) return `${k.key} ${k.slot}${where} becomes ${k.successor}`;
-  const target = hasDomainRulesBlock(k.key) ? `${k.key}/domain-rules rules or a step's own rules prop, your choice` : "a step's own rules prop";
+  const target = hasDomainRulesBlock(k.key)
+    ? `${k.key}/domain-rules rules or a step's own rules prop, your choice`
+    : hasRootRulesProp(k.key)
+      ? `${k.key} rules`
+      : "a step's own rules prop";
   return `${k.key} ${k.slot}${where} becomes ${target}`;
 }
 
@@ -29,11 +33,8 @@ function oldKeysDetail(old: OldSlotKey[]): string {
   return old.some((k) => k.successor === null) ? `${list} ${DOMAIN_CAVEAT}` : list;
 }
 
-/** FragmentError reads "fragment <reason>: <path>"; the step already names the file. */
-function unreadableReason(err: unknown, file: string): string {
-  let reason = err instanceof Error ? err.message : String(err);
-  if (reason.endsWith(`: ${file}`)) reason = reason.slice(0, -`: ${file}`.length);
-  if (reason.startsWith("fragment ")) reason = reason.slice("fragment ".length);
+function unreadableReason(err: unknown): string {
+  const reason = err instanceof FragmentError ? err.reason : err instanceof Error ? err.message : String(err);
   return reason.startsWith("is ") ? `it ${reason}` : reason;
 }
 
@@ -53,7 +54,7 @@ export function skillsOverridesRow(input: { file: string; text: string | null })
     return row({
       ...BASE,
       status: "needs-you",
-      detail: `Could not read the file: ${unreadableReason(err, file)}.`,
+      detail: `Could not read the file: ${unreadableReason(err)}.`,
       action: steps(`Fix the problem above in ${file}`),
     });
   }

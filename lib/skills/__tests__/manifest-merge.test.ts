@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VALUE_FILE_RE } from "../sources.ts";
-import { FragmentError, layeredFromManifest, mergeLayers, parseFragment, readManifestDropped, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
+import { FragmentError, isBlankOverridesText, layeredFromManifest, mergeLayers, parseFragment, readManifestDropped, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
 
 const defaults = { label: "default", fragment: { bindings: { "mattstack:stage-gates": { domain: "mattstack:generic-gates" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } } };
 const base = { label: "base:acme-base", fragment: { skills: { enabled: ["acme-base:shared"] }, bindings: { "mattstack:stage-gates": { domain: "acme-base:gates" }, "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" } } } };
@@ -223,6 +223,27 @@ describe("parseFragment", () => {
   });
   test("throws FragmentError when the document is not an object", () => {
     expect(() => parseFragment("[]", "/f.jsonc")).toThrow(FragmentError);
+  });
+  test.each([
+    ["{ nope", "fragment is not valid JSONC: /f.jsonc", "is not valid JSONC"],
+    ["// only a comment\n", "fragment is not valid JSONC: /f.jsonc", "is not valid JSONC"],
+    ["[]", "fragment is not a JSON object: /f.jsonc", "is not a JSON object"],
+    ['{ "bindings": { "a:b": "x" } }', "fragment bindings.a:b is not an object: /f.jsonc", "bindings.a:b is not an object"],
+  ])("a FragmentError for %j carries the problem as reason and keeps its message", (text, message, reason) => {
+    let caught: unknown;
+    try {
+      parseFragment(text, "/f.jsonc");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FragmentError);
+    expect((caught as FragmentError).message).toBe(message);
+    expect((caught as FragmentError).reason).toBe(reason);
+  });
+  test("only the overrides file reads comment-only text as blank", () => {
+    expect(isBlankOverridesText("// off\n/* { } */\n")).toBe(true);
+    expect(isBlankOverridesText("{}")).toBe(false);
+    expect(() => parseFragment("// off\n", "/zone/packs/widgets/pack/skills.jsonc")).toThrow(FragmentError);
   });
   test.each([
     ["a null binding value", '{ "bindings": { "mattstack:stage-gates": null } }'],

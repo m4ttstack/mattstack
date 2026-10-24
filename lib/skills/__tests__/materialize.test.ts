@@ -277,13 +277,16 @@ describe("materializeRepo", () => {
     }
   });
 
-  test("a comment-only overrides file is still not valid JSONC", () => {
+  test("a comment-only overrides file materializes the packs as if there were none", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
-    write(join(root, "user", "skills", "overrides.jsonc"), "// nothing yet\n");
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: { pack: {} } } });
+    write(join(root, "user", "skills", "overrides.jsonc"), '// off for now\n/* { "bindings": {} } */\n');
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs.every((p) => !p.ok)).toBe(true);
+    for (const p of out.packs) {
+      if (!p.ok) throw new Error(p.detail);
+      expect(p.layers).not.toContain("override");
+    }
   });
 });
 

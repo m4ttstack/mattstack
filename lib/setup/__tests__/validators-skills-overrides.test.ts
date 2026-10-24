@@ -16,6 +16,7 @@ describe("skillsOverridesRow", () => {
   test("is ready when the file is empty or every key is in block form", () => {
     expect(at("").status).toBe("ready");
     expect(at("  \n").status).toBe("ready");
+    expect(at('// overrides off for now\n/* { "bindings": {} } */\n').status).toBe("ready");
     expect(at('{ "bindings": { "mattstack:work/sub-agent-tiering": { "tiering": "mattstack:model-tiering" } } }').status).toBe("ready");
   });
 
@@ -35,10 +36,16 @@ describe("skillsOverridesRow", () => {
     );
   });
 
-  test("shepherdr's domain names only a step's own rules prop, since it has no domain-rules block", () => {
+  test("shepherdr's domain names its root block's rules prop, since it has no domain-rules block", () => {
     const r = at('{ "bindings": { "mattstack:shepherdr": { "domain": "acme:fan-rules" } } }');
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("Old slot keys: mattstack:shepherdr domain becomes a step's own rules prop. A rules prop adds to lower layers where domain replaced them.");
+    expect(r.detail).toBe("Old slot keys: mattstack:shepherdr domain becomes mattstack:shepherdr rules. A rules prop adds to lower layers where domain replaced them.");
+  });
+
+  test("an engine with neither a domain-rules block nor a root rules prop names a step's own rules prop", () => {
+    expect(at('{ "bindings": { "mattstack:review": { "domain": "acme:r" } } }').detail).toBe(
+      "Old slot keys: mattstack:review domain becomes a step's own rules prop. A rules prop adds to lower layers where domain replaced them.",
+    );
   });
 
   test("states the domain caveat once, after the list", () => {
@@ -83,7 +90,6 @@ describe("skillsOverridesRow", () => {
       ["{ nope", "Could not read the file: it is not valid JSONC."],
       ["[]", "Could not read the file: it is not a JSON object."],
       ['{ "bindings": { "mattstack:work": "x" } }', "Could not read the file: bindings.mattstack:work is not an object."],
-      ["// nothing yet\n", "Could not read the file: it is not valid JSONC."],
     ];
     for (const [text, detail] of cases) {
       const r = at(text);

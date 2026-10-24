@@ -35,7 +35,14 @@ export type MergedManifest = {
   pipelineLayered: Record<string, LayeredBindings>;
 };
 
-export class FragmentError extends Error {}
+export class FragmentError extends Error {
+  /** The problem alone, without the "fragment" prefix or the path; `message` stays as compile diagnostics print it. */
+  readonly reason: string;
+  constructor(message: string, reason: string = message) {
+    super(message);
+    this.reason = reason;
+  }
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -87,9 +94,13 @@ function shapeError(doc: Record<string, unknown>): string | null {
   return null;
 }
 
-/** Only the user's overrides file may be blank and mean "no override"; pack and engine fragments still refuse blank text. */
+/** Only the user's overrides file may be blank (empty, whitespace or comments only) and mean "no override"; pack and engine fragments still refuse it. */
 export function isBlankOverridesText(text: string): boolean {
-  return text.trim() === "";
+  return stripJsonc(text).trim() === "";
+}
+
+function fragmentError(problem: string, path: string): FragmentError {
+  return new FragmentError(`fragment ${problem}: ${path}`, problem);
 }
 
 export function parseFragment(text: string, path: string): Fragment {
@@ -97,13 +108,13 @@ export function parseFragment(text: string, path: string): Fragment {
   try {
     parsed = JSON.parse(stripJsonc(text));
   } catch {
-    throw new FragmentError(`fragment is not valid JSONC: ${path}`);
+    throw fragmentError("is not valid JSONC", path);
   }
   if (!isObject(parsed)) {
-    throw new FragmentError(`fragment is not a JSON object: ${path}`);
+    throw fragmentError("is not a JSON object", path);
   }
   const problem = shapeError(parsed);
-  if (problem) throw new FragmentError(`fragment ${problem}: ${path}`);
+  if (problem) throw fragmentError(problem, path);
   return parsed as Fragment;
 }
 

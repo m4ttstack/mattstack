@@ -8,6 +8,7 @@ export type OldSlotEngine = {
   /** Slots `replaced-slots` lists that the root block still declares as props, so binding them is not old. */
   kept: string[];
   domainRules: boolean;
+  rootRules: boolean;
 };
 
 /**
@@ -16,11 +17,11 @@ export type OldSlotEngine = {
  * keeps it in step with plugins/mattstack/attachments.
  */
 export const OLD_SLOT_ENGINES: Record<string, OldSlotEngine> = {
-  work: { slots: { tiering: "mattstack:work/sub-agent-tiering tiering" }, kept: [], domainRules: false },
-  "watch-ci": { slots: { forge: "mattstack:watch-ci/forge forge" }, kept: [], domainRules: true },
-  "stage-watch-ci": { slots: { forge: "mattstack:stage-watch-ci/forge forge" }, kept: [], domainRules: true },
-  review: { slots: { criteria: "mattstack:review/criteria criteria", reviewer: "mattstack:review/reviewer reviewer" }, kept: [], domainRules: false },
-  "self-review": { slots: { criteria: "mattstack:self-review/criteria criteria", reviewer: "mattstack:self-review/reviewer reviewer" }, kept: [], domainRules: false },
+  work: { slots: { tiering: "mattstack:work/sub-agent-tiering tiering" }, kept: [], domainRules: false, rootRules: false },
+  "watch-ci": { slots: { forge: "mattstack:watch-ci/forge forge" }, kept: [], domainRules: true, rootRules: false },
+  "stage-watch-ci": { slots: { forge: "mattstack:stage-watch-ci/forge forge" }, kept: [], domainRules: true, rootRules: false },
+  review: { slots: { criteria: "mattstack:review/criteria criteria", reviewer: "mattstack:review/reviewer reviewer" }, kept: [], domainRules: false, rootRules: false },
+  "self-review": { slots: { criteria: "mattstack:self-review/criteria criteria", reviewer: "mattstack:self-review/reviewer reviewer" }, kept: [], domainRules: false, rootRules: false },
   "receive-review": {
     slots: {
       criteria: "mattstack:receive-review/criteria criteria",
@@ -29,15 +30,16 @@ export const OLD_SLOT_ENGINES: Record<string, OldSlotEngine> = {
     },
     kept: [],
     domainRules: false,
+    rootRules: false,
   },
-  shepherdr: { slots: {}, kept: ["tiering", "strategy", "accounts"], domainRules: false },
-  "stage-plan": { slots: {}, kept: [], domainRules: true },
-  "stage-self-review": { slots: {}, kept: [], domainRules: true },
-  "stage-evidence": { slots: {}, kept: [], domainRules: true },
-  "stage-provision": { slots: {}, kept: [], domainRules: true },
-  "stage-ship": { slots: {}, kept: [], domainRules: true },
-  ship: { slots: {}, kept: [], domainRules: true },
-  "stage-gates": { slots: {}, kept: [], domainRules: true },
+  shepherdr: { slots: {}, kept: ["tiering", "strategy", "accounts"], domainRules: false, rootRules: true },
+  "stage-plan": { slots: {}, kept: [], domainRules: true, rootRules: false },
+  "stage-self-review": { slots: {}, kept: [], domainRules: true, rootRules: false },
+  "stage-evidence": { slots: {}, kept: [], domainRules: true, rootRules: false },
+  "stage-provision": { slots: {}, kept: [], domainRules: true, rootRules: false },
+  "stage-ship": { slots: {}, kept: [], domainRules: true, rootRules: false },
+  ship: { slots: {}, kept: [], domainRules: true, rootRules: false },
+  "stage-gates": { slots: {}, kept: [], domainRules: true, rootRules: false },
 };
 
 const PREFIX = "mattstack:";
@@ -47,10 +49,19 @@ function engineOf(key: string): string | null {
   return key.slice(PREFIX.length);
 }
 
+function tableEntry(key: string): OldSlotEngine | undefined {
+  const engine = engineOf(key);
+  return engine !== null && Object.hasOwn(OLD_SLOT_ENGINES, engine) ? OLD_SLOT_ENGINES[engine] : undefined;
+}
+
 /** Whether `<key>/domain-rules` exists to take over an old `domain` binding on this engine key. */
 export function hasDomainRulesBlock(key: string): boolean {
-  const engine = engineOf(key);
-  return engine !== null && Object.hasOwn(OLD_SLOT_ENGINES, engine) && OLD_SLOT_ENGINES[engine]!.domainRules;
+  return tableEntry(key)?.domainRules === true;
+}
+
+/** Whether this engine key's root block declares a `rules` prop, the nearest successor to its old `domain`. */
+export function hasRootRulesProp(key: string): boolean {
+  return tableEntry(key)?.rootRules === true;
 }
 
 function oldIn(bindings: Record<string, Record<string, string>> | undefined, pipeline: string | null): OldSlotKey[] {
