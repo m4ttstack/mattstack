@@ -169,6 +169,21 @@ describe("init outcome", () => {
     expect(initFailureAfter(outcome)).toEqual([ui.verbatim(outcome.wrote, "written so far")]);
   });
 
+  test("a hand-written skill failure lists each file, line and reason under its own caption", () => {
+    const outcome: Extract<InitOutcome, { ok: false; refused: false }> = {
+      ok: false,
+      refused: false,
+      code: "hand-skill-failed",
+      detail: "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings\nskills/gizmos/SKILL.md:5:7: ../gone.md does not resolve to a file from the skill's folder",
+      wrote: ["/a"],
+      remedy: { commands: ["rt skills check --pack-dir /z/p", "rt team publish --team acme"] },
+    };
+    expect(renderPlain([ui.failure(initFailure(outcome))])).toBe(
+      "Hand-written skills in the new pack have problems a recompile cannot fix\n  next: Fix each file, then run rt skills check --pack-dir /z/p, then rt team publish --team acme\n",
+    );
+    expect(initFailureAfter(outcome)).toEqual([ui.verbatim(outcome.detail.split("\n"), "hand-written skill problems")]);
+  });
+
   test("with no remedy, the next step is the general one", () => {
     expect(renderPlain([ui.failure(initFailure({ ok: false, refused: false, code: "compile-failed", detail: "boom", wrote: [] }))])).toBe(
       "The new pack did not compile\n  next: Fix it, then run rt skills compile and rt skills check\n",

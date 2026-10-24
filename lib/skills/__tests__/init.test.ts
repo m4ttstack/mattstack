@@ -1225,6 +1225,21 @@ describe("initPack", () => {
     expect(out.wrote).toContain(`${ACME_PACK}/pack/stubs.jsonc`);
   });
 
+  for (const failure of [
+    "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
+    "skills/gadgets/SKILL.md:5:7: ${CLAUDE_SKILL_DIR}/../widgets/gone.md does not resolve to a file from the skill's folder",
+  ]) {
+    test(`a hand-written skill failure stops init before the install and share, naming the file: ${failure.split(": ")[1]}`, async () => {
+      const { deps, calls } = world({ check: async () => ({ drift: false, handErrors: [failure] }) });
+      const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+      expect(out).toMatchObject({ ok: false, refused: false, code: "hand-skill-failed", detail: failure });
+      if (out.ok || out.refused) return;
+      expect(out.remedy?.commands[0]).toBe(`rt skills check --pack-dir ${ACME_PACK}`);
+      expect(calls.shared).toEqual([]);
+      expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
+    });
+  }
+
   test("the share is remembered once the files are written, so a later failure ends with rt team publish", async () => {
     const { deps, calls } = world({ compile: async () => ({ ok: false, errors: ["boom"] }) });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);

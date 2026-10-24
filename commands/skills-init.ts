@@ -32,7 +32,8 @@ import { readFloor } from "../lib/engine-floor.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
-import { checkPack, compilePackAll } from "./skills.ts";
+import { checkPack, compilePackAll, handSkillFailures } from "./skills.ts";
+import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
@@ -95,6 +96,12 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
       next: o.next ? ui.cmd(o.next) : o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
     };
   }
+  if (o.code === "hand-skill-failed") {
+    return {
+      title: "Hand-written skills in the new pack have problems a recompile cannot fix",
+      next: ["Fix each file, then run ", ...(o.remedy?.commands ?? ["rt skills check"]).flatMap((c, i) => (i === 0 ? [ui.cmd(c)] : [", then ", ui.cmd(c)]))],
+    };
+  }
   const [title = o.detail, ...rest] = o.detail.split("\n");
   const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : [])];
   return {
@@ -107,6 +114,7 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
 
 export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
   if (o.refused) return [];
+  if (o.code === "hand-skill-failed") return [ui.verbatim(o.detail.split("\n"), "hand-written skill problems")];
   if (o.code !== "compile-failed") return o.wrote.length > 0 ? [ui.verbatim(o.wrote, "written so far")] : [];
   const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return [ui.verbatim(lines, "what did not compile")];
@@ -239,7 +247,8 @@ function realDeps(opts: { json: boolean }): InitDeps {
     },
     check: async (packDir, manifest) => {
       try {
-        return { drift: (await checkPack({ packDir, manifest })).drift };
+        const payload = await checkPack({ packDir, manifest });
+        return { drift: payload.drift, handErrors: handSkillFailures(payload).map(formatDiagnostic) };
       } catch (err) {
         ui.note(ui.line("warn", "The check could not run", message(err)));
         return { drift: true };
