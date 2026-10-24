@@ -5060,3 +5060,97 @@ describe("pack/pipelines.json and the field contract in compile and check", () =
     expect(existsSync(join(packDir, "pack", "pipelines.json"))).toBe(false);
   });
 });
+
+describe("skillsCompile: a fill that includes a block tree", () => {
+  const ENGINE = (after = "") => `---
+name: watch-ci
+description: "Watch CI until it goes green"
+type: pipeline-step
+props:
+  domain:
+    merge: replace
+    default: ""
+    contract: "watch-ci-domain@1"
+---
+
+# Watch CI
+
+Poll the pipeline.
+
+{{props.domain}}
+${after}`;
+
+  const TONE_TREE = `---
+props:
+  voice:
+    merge: replace
+    default: ""
+---
+
+# Tone lookup
+
+Read the tone.
+
+{{props.voice}}
+
+{{include:tone-note}}
+`;
+
+  function makeFixture(opts: { domainTail: string; engineAfter?: string; voiceBody?: string }) {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    const plugins = join(mattstackDir, "plugins");
+    writeFile(join(plugins, "mattstack", "skills", "pipeline", "watch-ci", "index.block.md"), ENGINE(opts.engineAfter));
+    writeFile(join(plugins, "mattstack", "attachments", "tone-lookup", "index.block.md"), TONE_TREE);
+    writeFile(join(plugins, "mattstack", "attachments", "tone-note", "SKILL.md"), "---\nname: tone-note\n---\n\nTone note body.\n");
+    writeFile(join(plugins, "acme", "attachments", "tone-voice", "SKILL.md"), `---\nname: tone-voice\ndescription: "Voice"\nmetadata:\n  provides: "tone-voice@1"\n---\n\n${opts.voiceBody ?? "Speak plainly."}\n`);
+    writeFile(join(plugins, "acme", "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD + opts.domainTail);
+    const manifestPath = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-manifest-"))), "skills.jsonc");
+    writeFile(manifestPath, `{
+  "bindings": {
+    "mattstack:watch-ci": { "domain": "acme:watch-ci-domain" },
+    "mattstack:tone-lookup": { "voice": "acme:tone-voice" }
+  }
+}
+`);
+    return { mattstackDir, packDir, manifestPath };
+  }
+
+  const compile = (f: ReturnType<typeof makeFixture>) =>
+    runExpectingCleanExit(() => skillsCompile(["--pack-dir", f.packDir, "--mattstack-dir", f.mattstackDir, "--manifest", f.manifestPath]));
+
+  test("renders the tree under the prop's heading, with the tree's own prop and nested include", async () => {
+    const f = makeFixture({ domainTail: "\n{{include:tone-lookup}}\n" });
+    const { exitCode, errors } = await compile(f);
+    expect(errors).toEqual([]);
+    expect(exitCode).toBeUndefined();
+    const md = readFileSync(join(f.packDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+    expect(md).toContain("\n## Tone lookup\n\nRead the tone.\n");
+    expect(md).toContain("Speak plainly.");
+    expect(md).toContain("Tone note body.");
+    expect(md).not.toContain("{{");
+  });
+
+  test("a fill that includes the tree it fills is refused as a self-include at the fill's line", async () => {
+    const f = makeFixture({ domainTail: "\n{{include:tone-lookup}}\n", voiceBody: "Speak plainly.\n\n{{include:tone-lookup}}" });
+    const { exitCode, errors } = await compile(f);
+    expect(exitCode).toBe(1);
+    const text = errors.join("\n");
+    expect(text).toContain("attachments/tone-voice/SKILL.md:10:1");
+    expect(text).toContain("{{include:tone-lookup}} would include itself: tone-lookup -> tone-lookup");
+  });
+
+  test("fill text after a tree include that carries headings is refused", async () => {
+    const f = makeFixture({ domainTail: "\n{{include:tone-lookup}}\n\nMore domain text.\n" });
+    const { exitCode, errors } = await compile(f);
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("text after {{include:tone-lookup}}: an include that carries headings must be the last thing in its fill");
+  });
+
+  test("block text after a prop whose fill ends with a tree include that carries headings is refused", async () => {
+    const f = makeFixture({ domainTail: "\n{{include:tone-lookup}}\n", engineAfter: "\nThen report.\n" });
+    const { exitCode, errors } = await compile(f);
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("text after {{include:tone-lookup}}: an include that carries headings must be the last thing in its block");
+  });
+});

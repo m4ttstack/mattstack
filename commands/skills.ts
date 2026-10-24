@@ -746,8 +746,7 @@ function stepText(step: StepSource): string {
 }
 
 /** Block text names includes, and an include tree's text names more, so the walk follows tree includes until none is new. */
-function loadBlockIncludes(tree: BlockTree, resolved: Resolved): Record<string, AttachmentSource> {
-  const loaded: Record<string, AttachmentSource> = {};
+function loadBlockIncludes(tree: BlockTree, resolved: Resolved, loaded: Record<string, AttachmentSource> = {}): Record<string, AttachmentSource> {
   const queue = includeSitesIn(tree);
   while (queue.length > 0) {
     const { name, ...at } = queue.shift()!;
@@ -764,9 +763,14 @@ function loadBlockIncludes(tree: BlockTree, resolved: Resolved): Record<string, 
   return loaded;
 }
 
-/** An inlined value's own `{{include}}` lines render as flat includes. */
-function loadValueIncludes(values: BlockValues, loaded: Record<string, AttachmentSource>, resolved: Resolved, where: string): void {
+/**
+ * An inlined value's own `{{include}}` lines name flat includes and trees
+ * alike; a tree it names is walked like a block's include. Returns whether
+ * anything new loaded, since a new tree's props need values of their own.
+ */
+function loadValueIncludes(values: BlockValues, loaded: Record<string, AttachmentSource>, resolved: Resolved, where: string): boolean {
   const bodies = [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources.filter((s) => s.mode === "inline").map((s) => s.fill.body)));
+  let grew = false;
   for (const name of includeNames(bodies)) {
     if (Object.hasOwn(loaded, name)) continue;
     try {
@@ -774,7 +778,19 @@ function loadValueIncludes(values: BlockValues, loaded: Record<string, Attachmen
     } catch (err) {
       throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
     }
+    grew = true;
+    const inner = loaded[name]!.tree;
+    if (inner) loadBlockIncludes(inner, resolved, loaded);
   }
+  return grew;
+}
+
+/** Values can name includes whose trees carry props of their own, so includes and values grow together until no value names anything new. */
+function loadIncludesAndValues(step: StepSource, resolved: Resolved, where: string, pipeline?: string): { includes: Record<string, AttachmentSource>; values: BlockValues } {
+  const includes = loadBlockIncludes(step.tree, resolved);
+  let values = loadPropValuesFor(step, resolved, where, pipeline, includes);
+  while (loadValueIncludes(values, includes, resolved, where)) values = loadPropValuesFor(step, resolved, where, pipeline, includes);
+  return { includes, values };
 }
 
 /** Every block's prop values, the engine's and its tree includes', from each layer the manifest records; keys come from `effectiveBindings`. */
@@ -828,7 +844,7 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
       seen.add(entry.name);
       const step = loadStepSource(entry.engine, resolved.pluginRoots);
       rules.push(...step.allowedTools);
-      const values = loadPropValuesFor(step, resolved, `stage "${entry.name}"`, type, loadBlockIncludes(step.tree, resolved));
+      const { values } = loadIncludesAndValues(step, resolved, `stage "${entry.name}"`, type);
       for (const props of values.values()) {
         for (const value of props.values()) {
           for (const { fill } of value.sources) {
@@ -910,9 +926,7 @@ function compileVerb(
   });
 
   try {
-    const includes = loadBlockIncludes(step.tree, resolved);
-    const values = loadPropValuesFor(step, resolved, where, isStage ? verb.pipeline : undefined, includes);
-    loadValueIncludes(values, includes, resolved, where);
+    const { includes, values } = loadIncludesAndValues(step, resolved, where, isStage ? verb.pipeline : undefined);
     const result = compileBlockSkill(verb, step, values, resolved.invocable, opts(includes));
     if (result.diagnostics.length > 0) throw new BlockError(result.diagnostics);
     return { ...result, anatomy: { step, includes, values } };

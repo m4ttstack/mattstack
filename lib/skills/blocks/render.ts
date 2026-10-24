@@ -60,31 +60,62 @@ export function propPartsDir(b: Block, prop: string, tree: BlockTree, engine: Bl
   return `${b.id.slice(tree.root.id.length + 1)}/${prop}`;
 }
 
-/** A fill's own include line draws a tree include the way a block's does, under the heading the prop sits beneath. */
-function fillTreeInclude(b: Block, fill: AttachmentSource, at: Heading, st: State): TreeIncludeText {
+/** A fill's own include line draws a tree include the way a block's does, under the heading the prop sits beneath; `headed` collects the fill lines whose tree rendered a heading. */
+function fillTreeInclude(fill: AttachmentSource, at: Heading, st: State, headed: { name: string; line: number }[]): TreeIncludeText {
   return (name, line) => {
-    const tree = st.includes(name, { file: fill.binding, line: fill.bodyStartLine + line - 1 });
+    const fileLine = fill.bodyStartLine + line - 1;
+    const tree = st.includes(name, { file: fill.srcPath, line: fileLine });
     if (!tree) return null;
     if (st.including.includes(tree.tree.root.id)) {
       const chain = [...st.including.slice(st.including.indexOf(tree.tree.root.id)), tree.tree.root.id].join(" -> ");
-      st.diagnostics.push({ file: b.relPath, line: 1, col: 1, message: `{{include:${name}}} in ${fill.binding} would include itself: ${chain}`, code: "bad-value" });
+      st.diagnostics.push({ ...fillSite(fill, line, "{{"), message: `{{include:${name}}} would include itself: ${chain}`, code: "bad-value" });
       return "";
     }
     st.used.includes.push(name);
-    return includeBody(tree, { depth: at.level, includingTitle: at.title }, st);
+    const rendered = includeBody(tree, { depth: at.level, includingTitle: at.title }, st);
+    if (lastHeading(rendered) !== null) headed.push({ name, line });
+    return rendered;
   };
 }
 
-function propText(b: Block, name: string, src: SourcedTree, at: Heading, st: State): string {
+/** `line` counts from 1 in the fill body; the col lands on `at`, or the first non-blank character when `at` is absent. */
+function fillSite(fill: AttachmentSource, line: number, at?: string): { file: string; line: number; col: number } {
+  const text = fill.body.split("\n")[line - 1] ?? "";
+  const col = Math.max(0, at === undefined ? text.search(/\S/) : text.indexOf(at)) + 1 + (line === 1 ? fill.bodyIndent ?? 0 : 0);
+  return { file: fill.srcPath, line: fill.bodyStartLine + line - 1, col };
+}
+
+function textAfterFillInclude(fill: AttachmentSource, line: number, name: string): BlockDiagnostic {
+  return {
+    ...fillSite(fill, line),
+    message: `text after {{include:${name}}}: an include that carries headings must be the last thing in its fill`,
+    code: "text-after-include",
+  };
+}
+
+/** `headedInclude` names a tree include that ends the prop's text with a heading, so the block's later text is refused as after a block's own include. */
+function propText(b: Block, name: string, src: SourcedTree, at: Heading, st: State): { text: string; headedInclude: string | null } {
   const value = st.values.get(b.id)?.get(name);
   if (!value) throw new Error(`${b.relPath}: prop "${name}" has no resolved value`);
   const key = `prop:${b.id}.${name}`;
-  return value.sources
-    .map(({ fill, mode }) =>
-      mode === "reference"
-        ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`
-        : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(b, fill, at, st)))
-    .join("\n\n");
+  let trailing: string | null = null;
+  const chunks = value.sources.map(({ fill, mode }) => {
+    if (trailing !== null) {
+      st.diagnostics.push(textAfterFillInclude(fill, 1, trailing));
+      trailing = null;
+    }
+    if (mode === "reference") return `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`;
+    const headed: { name: string; line: number }[] = [];
+    const text = inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(fill, at, st, headed));
+    const first = headed[0];
+    if (first) {
+      const after = fill.body.split("\n").findIndex((l, i) => i >= first.line && l.trim() !== "");
+      if (after >= 0) st.diagnostics.push(textAfterFillInclude(fill, after + 1, first.name));
+      else trailing = first.name;
+    }
+    return text;
+  });
+  return { text: chunks.join("\n\n"), headedInclude: trailing };
 }
 
 /** substituteLine's message names the placeholder it refused, by its text or by its quoted argument. */
@@ -178,7 +209,11 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
     const prop = PROP_LINE_RE.exec(trimmed);
     const inc = INCLUDE_LINE_RE.exec(trimmed);
     const tree = inc ? st.includes(inc[1]!, { file: b.relPath, line: fileLine }) : null;
-    if (prop) rendered = propText(b, prop[1]!, src, nearest, st);
+    if (prop) {
+      const drawn = propText(b, prop[1]!, src, nearest, st);
+      rendered = drawn.text;
+      if (drawn.headedInclude !== null) headedInclude = drawn.headedInclude;
+    }
     else if (line.includes("{{props.")) rendered = line.replace(PROP_ANY_RE, "");
     else if (tree && st.including.includes(tree.tree.root.id)) {
       const chain = [...st.including.slice(st.including.indexOf(tree.tree.root.id)), tree.tree.root.id].join(" -> ");
