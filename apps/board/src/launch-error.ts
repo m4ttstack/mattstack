@@ -16,7 +16,7 @@ function escapeRegExp(text: string): string {
 /** What a lane's row says when its pane never came up: the launch's own
     cause, since "failed to launch" alone sends the reader to the logs. */
 export function launchErrorMessage(
-  lane: 'review' | 're-review' | 'respond' | 'doctor',
+  lane: 'review' | 're-review' | 'respond' | 'doctor' | 'question',
   err: unknown,
   home: string = process.env.HOME ?? homedir()
 ): string {

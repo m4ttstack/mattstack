@@ -10,7 +10,7 @@ import {
   type AgentLaunchResult,
 } from './agent-launch.ts';
 import { respondReportPath } from './respond-state.ts';
-import { reviewReportPath } from './review-state.ts';
+import { reviewFilePath, reviewReportPath } from './review-state.ts';
 import { shellSingleQuote } from './shell-quote.ts';
 import { resolveSkillPath } from './skill-path.ts';
 
@@ -206,6 +206,14 @@ export interface SkillPromptOpts {
   /** Respond only: the username this response answers, as `--person <username>`
       right after `--round`. */
   person?: string;
+  /** Question only: the review finding the pane answers questions about, as
+      `--finding <id>`. */
+  findingId?: string;
+  /** Question only: the review-post gate the finding sits on, as `--gate <id>`. */
+  gateId?: string;
+  /** Question only: the structured review report (the json beside `reportPath`'s
+      markdown) the pane reads the finding from, as `--report-json <path>`. */
+  reportJsonPath?: string;
 }
 
 /** The trailing paragraph a launch note becomes. The framing tells the wrapper
@@ -256,6 +264,9 @@ function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
   flag('--state', o.statePath);
   flag('--status-bin', o.statusBin);
   flag('--report', o.reportPath);
+  flag('--finding', o.findingId);
+  flag('--gate', o.gateId);
+  flag('--report-json', o.reportJsonPath);
   flag('--skill', o.skill);
   flag('--resumed-gate', o.resumedGate);
   flag('--resumed-gate-kind', o.resumedGateKind);
@@ -600,6 +611,46 @@ export async function launchDoctor(
       prompt,
       workspaceLabel: opts.workspaceLabel,
       tabLabel,
+      subject: `mr:${opts.mrUrl}`,
+      account: opts.account,
+      model: opts.model,
+      effort: opts.effort,
+      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
+    },
+    io
+  );
+}
+
+/** Start the finding-question skill in a fresh rt-agent pane under the
+    questions workspace. `statePath` is the question row's handle, and the
+    report is the MR's review report, not anything under that handle: the pane
+    reads the finding the review wrote. No domain skill: the question agent is
+    read-only and generic, so there is nothing for `--skill` to delegate to. */
+export async function launchQuestion(
+  opts: LaunchPaneOpts & {
+    findingId: string;
+    gateId: string;
+    reportJsonPath: string;
+  },
+  io?: AgentIo
+): Promise<AgentLaunchResult> {
+  const prompt = await dispatchPrompt('board:question', {
+    mrUrl: opts.mrUrl,
+    statePath: opts.statePath,
+    statusBin: statusBinPath(),
+    reportPath: reviewReportPath(reviewFilePath(opts.mrUrl)),
+    findingId: opts.findingId,
+    gateId: opts.gateId,
+    reportJsonPath: opts.reportJsonPath,
+    note: opts.note,
+  });
+  return startAgentPane(
+    {
+      repo: opts.repo,
+      cwd: opts.cwd,
+      prompt,
+      workspaceLabel: opts.workspaceLabel,
+      tabLabel: mrTabLabel(opts.iid, opts.author, `Q ${opts.findingId}`),
       subject: `mr:${opts.mrUrl}`,
       account: opts.account,
       model: opts.model,

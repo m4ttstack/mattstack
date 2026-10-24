@@ -58,3 +58,7 @@ export const DOCTOR_IN_FLIGHT: ReadonlySet<string> = new Set([
   'fixing',
   'watching',
 ]);
+export const QUESTION_IN_FLIGHT: ReadonlySet<string> = new Set([
+  'queued',
+  'live',
+]);

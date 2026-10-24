@@ -175,6 +175,7 @@ import {
   dispatchPrompt,
   launchDoctor,
   launchLegacyResume,
+  launchQuestion,
   launchRespond,
   launchReview,
   mrTabLabel,
@@ -278,6 +279,8 @@ import {
   tickOnPeerInbox,
   tokenMissingNotice,
 } from './peer/runtime.ts';
+import { handleQuestionLaunch } from './question-launch.ts';
+import { readQuestionStates, writeQuestionState } from './question-state.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
@@ -310,6 +313,7 @@ import {
   readReviewReportJson,
   readReviewStates,
   reviewFilePath,
+  reviewReportJsonPath,
   reviewReportPath,
   writeReviewState,
   type ReviewState,
@@ -3047,6 +3051,51 @@ const httpServer = Bun.serve({
         return new Response(JSON.stringify({ ok: true }), {
           headers: { 'content-type': 'application/json' },
         });
+      }
+      case '/question': {
+        // Open a read-only question pane for one review finding in the
+        // questions workspace (see question-launch.ts).
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const result = await handleQuestionLaunch(body, {
+          findMr: async mrUrl =>
+            (await cache.get()).mrs.find(m => m.webUrl === mrUrl),
+          readReportJson: readReviewReportJson,
+          reportJsonPath: mrUrl => reviewReportJsonPath(reviewFilePath(mrUrl)),
+          config,
+          readQuestion: (mrUrl, findingId) =>
+            readQuestionStates().get(mrUrl)?.get(findingId),
+          writeQuestion: writeQuestionState,
+          launch: launchQuestion,
+          focusPane,
+          resolveRepo: (mr, mrUrl) =>
+            resolveLaunchRepo(
+              mr.rtRepo,
+              config.gitlabHost,
+              projectPathFromWebUrl(mrUrl, config.gitlabHost) ?? '',
+              mrUrl
+            ),
+          agentSettings: loadAgentSettings,
+          pack: launchPack,
+        });
+        return typeof result.body === 'string'
+          ? new Response(result.body, { status: result.status })
+          : new Response(JSON.stringify(result.body), {
+              status: result.status,
+              headers: { 'content-type': 'application/json' },
+            });
       }
       case '/drafts': {
         // The ONLY path from a held doctor draft to a GitLab note. The human

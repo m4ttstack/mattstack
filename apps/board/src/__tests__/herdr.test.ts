@@ -14,6 +14,7 @@ import {
   herdrBin,
   launchDoctor,
   launchLegacyResume,
+  launchQuestion,
   launchRespond,
   launchReview,
   mrTabLabel,
@@ -28,6 +29,7 @@ import {
   statusBinPath,
   type HerdrRunner,
 } from '../herdr.ts';
+import { questionHandle } from '../question-state.ts';
 import { respondResumeDispatchFields } from '../respond-state.ts';
 
 const runningStart = async () => ({
@@ -1382,5 +1384,107 @@ describe('sendPaneText', () => {
     expect(calls).toEqual([
       ['pane', 'run', 'pane-123', 'stand down, operator muted this stack'],
     ]);
+  });
+});
+
+describe('launchQuestion (a finding question pane)', () => {
+  const base = {
+    mrUrl: 'https://x/mr/1',
+    iid: 812,
+    cwd: '/repo',
+    repo: 'acme/webapp',
+    workspaceLabel: 'questions',
+    findingId: 'f2',
+    gateId: 'g1',
+    reportJsonPath: '/s/x.json',
+  };
+
+  test('sends the questions workspace, a Q tab and the finding flags', async () => {
+    const { io, startCalls } = fakeAgentIo();
+    const statePath = questionHandle('https://x/mr/1', 'f2');
+    await launchQuestion(
+      { ...base, statePath, author: 'Joel', pack: 'gadgets' },
+      io
+    );
+    expect(startCalls).toHaveLength(1);
+    expect(startCalls[0]).toMatchObject({
+      workspace: 'questions',
+      tab: 'Q f2 !812 Joel',
+      subject: 'mr:https://x/mr/1',
+      env: { MATTSTACK_PACK: 'gadgets' },
+    });
+    const prompt = startCalls[0]!.prompt as string;
+    expect(prompt.startsWith('/board:question https://x/mr/1')).toBe(true);
+    expect(prompt).toContain('--finding f2');
+    expect(prompt).toContain('--gate g1');
+    expect(prompt).toContain('--report-json /s/x.json');
+    expect(prompt).toContain('--status-bin ');
+    expect(prompt).toContain('--report ');
+    expect(prompt).not.toContain('--skill');
+    const state = /--state (\S+)/.exec(prompt)![1]!;
+    expect(state).toMatch(/\/questions\/.*--f2-[0-9a-f]{8}\.json$/);
+  });
+
+  test('the prompt carries the review markdown report beside the json one', async () => {
+    const { io, startCalls } = fakeAgentIo();
+    await launchQuestion(
+      { ...base, statePath: questionHandle(base.mrUrl, 'f2') },
+      io
+    );
+    const prompt = startCalls[0]!.prompt as string;
+    expect(prompt).toMatch(/--report \S+\.md\n/);
+    expect(prompt.indexOf('--report ')).toBeLessThan(
+      prompt.indexOf('--finding ')
+    );
+  });
+
+  test('keeps an author and finding id with spaces and slashes in the tab label only', async () => {
+    const { io, startCalls } = fakeAgentIo();
+    await launchQuestion(
+      {
+        ...base,
+        findingId: 'f 1',
+        statePath: questionHandle(base.mrUrl, 'f 1'),
+        author: "O'Brien / QA",
+      },
+      io
+    );
+    expect(startCalls[0]!.tab).toBe("Q f 1 !812 O'Brien / QA");
+    expect(startCalls[0]!.prompt as string).toContain('--finding f 1');
+  });
+
+  test('reviewPrompt with every existing flag is unchanged by the question flags', () => {
+    expect(
+      reviewPrompt({
+        mrUrl: 'https://x/mr/1',
+        statePath: '/s/1.json',
+        statusBin: '/b/status',
+        reportPath: '/s/1.md',
+        skill: 'myteam:review',
+        resumedGate: 'g9',
+        resumedGateKind: 'review-post',
+        round: 2,
+        person: 'ada',
+        reReview: true,
+        tier: 'api',
+        fixClasses: ['lint', 'types'],
+        draftBin: '/b/draft',
+        note: 'look at auth',
+      })
+    ).toBe(`/board:review https://x/mr/1
+  --state /s/1.json
+  --status-bin /b/status
+  --report /s/1.md
+  --skill myteam:review
+  --resumed-gate g9
+  --resumed-gate-kind review-post
+  --round 2
+  --person ada
+  --re-review
+  --tier api
+  --fix-classes lint,types
+  --draft-bin /b/draft
+
+Operator note (from the human who launched this pane): look at auth`);
   });
 });
