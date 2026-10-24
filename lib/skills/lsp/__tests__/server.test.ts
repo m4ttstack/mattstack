@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
-import { DOCUMENT_SELECTOR, isSkillFile, PUBLISH_DEBOUNCE_MS, startServer } from "../server.ts";
+import { DOCUMENT_SELECTOR, isSkillFile, PUBLISH_DEBOUNCE_MS, startServer, type PublishTimer } from "../server.ts";
 import { Workspace } from "../workspace.ts";
 
 const FIXTURES = join(import.meta.dir, "../../__tests__/fixtures/blocks");
@@ -22,7 +22,7 @@ class InProcess {
   private readonly input = new PassThrough();
   private raw = Buffer.alloc(0);
 
-  constructor(roots: string[], opts: { debounceMs?: number; home?: string } = {}) {
+  constructor(roots: string[], opts: { debounceMs?: number; home?: string; timer?: PublishTimer } = {}) {
     const output = new PassThrough();
     output.on("data", (chunk: Buffer) => {
       this.raw = Buffer.concat([this.raw, chunk]);
@@ -34,6 +34,7 @@ class InProcess {
       input: this.input,
       output,
       debounceMs: opts.debounceMs,
+      timer: opts.timer,
       workspace: (given) =>
         new (class extends Workspace {
           override analysis() {
@@ -92,6 +93,36 @@ class InProcess {
   }
 }
 
+/** Holds each armed publish until the test fires it, so a burst coalesces however slowly it arrives. */
+class FakeTimer implements PublishTimer {
+  readonly armed = new Map<number, () => void>();
+  readonly delays: number[] = [];
+
+  set(run: () => void, ms: number): number {
+    this.delays.push(ms);
+    this.armed.set(this.delays.length, run);
+    return this.delays.length;
+  }
+
+  clear(handle: unknown) {
+    this.armed.delete(handle as number);
+  }
+
+  fire() {
+    const runs = [...this.armed.values()];
+    this.armed.clear();
+    for (const run of runs) run();
+  }
+
+  async armedAfter(sets: number, ms = 10_000) {
+    const deadline = Date.now() + ms;
+    while (this.delays.length < sets) {
+      if (Date.now() > deadline) throw new Error(`armed ${this.delays.length} of ${sets} times`);
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  }
+}
+
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let tmp: string;
@@ -109,17 +140,25 @@ afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
 describe("rt skills lsp publishing", () => {
   test("two quick changes publish once, after the burst settles", async () => {
-    const server = new InProcess([plugin]);
+    const timer = new FakeTimer();
+    const server = new InProcess([plugin], { timer });
     await server.start();
     const uri = pathToFileURL(gate).href;
     const text = readFileSync(gate, "utf8");
     server.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text } } });
+    await timer.armedAfter(2);
+    timer.fire();
     await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri);
     const before = server.publishes(uri).length;
     const analyses = server.analyses;
+    const since = server.messages.length;
     server.send({ method: "textDocument/didChange", params: { textDocument: { uri, version: 2 }, contentChanges: [{ text: `${text}\n{{props.no}}\n` }] } });
     server.send({ method: "textDocument/didChange", params: { textDocument: { uri, version: 3 }, contentChanges: [{ text: `${text}\n{{props.nope}}\n` }] } });
-    await settle(PUBLISH_DEBOUNCE_MS * 4);
+    await timer.armedAfter(4);
+    expect(timer.delays.at(-1)).toBe(PUBLISH_DEBOUNCE_MS);
+    expect(timer.armed.size).toBe(1);
+    timer.fire();
+    await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri, since);
     const after = server.publishes(uri).slice(before);
     expect(after).toHaveLength(1);
     expect(after[0]!.params.diagnostics.map((d: { message: string }) => d.message)).toEqual([expect.stringContaining('"nope"')]);

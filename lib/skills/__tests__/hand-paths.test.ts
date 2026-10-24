@@ -188,6 +188,13 @@ describe("teamInputPathDiagnostics", () => {
     expect(teamInputPathDiagnostics(dir, SOURCE)).toMatchObject([{ file: "pack/params.jsonc", line: 2, col: 29, code: "hand-typed-path" }]);
   });
 
+  test("a params value with a JSON escape keeps its diagnostic and drops the fix", () => {
+    const dir = pack({ "pack/params.jsonc": '{\n  "params": { "gates": "say \\"hi\\" ../../attachments/widgets-gates/SKILL.md" }\n}\n' });
+    const [d] = teamInputPathDiagnostics(dir, SOURCE);
+    expect(d).toMatchObject({ file: "pack/params.jsonc", line: 2, code: "hand-typed-path" });
+    expect(d!.fix).toBeUndefined();
+  });
+
   test("pack.path and verb.path in a section are clean", () => {
     const dir = pack({ "pack/sections/gates.md": "Read {{pack.path:widgets-gates/SKILL.md}} and {{verb.path:ship}}.\n" });
     expect(teamInputPathDiagnostics(dir, SOURCE)).toEqual([]);

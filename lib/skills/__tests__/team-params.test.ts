@@ -295,6 +295,14 @@ describe("teamInputs", () => {
     ]);
   });
 
+  test("a value with a JSON escape gets no fix, since its columns no longer match the raw text", () => {
+    const dir = packWith({ "pack/params.jsonc": '{\n  "params": { "a": "say \\"hi\\" ../x/SKILL.md", "b": "../y/SKILL.md" }\n}\n' });
+    expect(teamInputs(dir)).toEqual([
+      { file: "pack/params.jsonc", text: 'say "hi" ../x/SKILL.md', startLine: 2, indent: 20, noFix: true },
+      { file: "pack/params.jsonc", text: "../y/SKILL.md", startLine: 2, indent: 53 },
+    ]);
+  });
+
   test("a pack with neither file, or params that do not parse, has no inputs from them", () => {
     expect(teamInputs(packWith({}))).toEqual([]);
     expect(teamInputs(packWith({ "pack/params.jsonc": "{nope" }))).toEqual([]);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rangeOf } from "../positions.ts";
@@ -240,6 +240,33 @@ describe("Workspace plugin discovery", () => {
     ws.refresh();
     ws.analysis();
     expect(walked.length).toBeGreaterThan(walks);
+  });
+
+  test("a new engine written to disk and then opened is discovered, with no watcher event", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.analysis();
+    const newkit = join(plugin, "attachments/newkit");
+    cpSync(mini, newkit, { recursive: true });
+    const index = join(newkit, "index.block.md");
+    const text = readFileSync(index, "utf8").replace("name: mini", "name: newkit");
+    writeFileSync(index, text);
+    ws.open(index, text);
+    expect(ws.engineDirs()).toContain(newkit);
+    ws.open(manifest, readFileSync(manifest, "utf8").replace('"mattstack:mini/gate"', '"mattstack:newkit/gate": { "tiering": "" },\n    "mattstack:mini/gate"'));
+    expect(allDiagnostics(ws)).toEqual([]);
+  });
+
+  test("an opened file's plugin root is never adopted when it is the home folder", () => {
+    const home = join(tmp, "home");
+    mkdirSync(join(home, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(home, ".claude-plugin/plugin.json"), JSON.stringify({ name: "gadgets", version: "0.1.0" }));
+    mkdirSync(join(home, "notes"), { recursive: true });
+    const walked: string[] = [];
+    const ws = new Workspace([], undefined, { walked: (dir) => walked.push(dir), home });
+    ws.open(join(home, "notes/stray.block.md"), "# Stray\n");
+    ws.analysis();
+    expect(walked).not.toContain(home);
+    expect(ws.plugins()).toEqual([]);
   });
 
   test("refresh follows a folder moved on disk, carrying its open documents to the new path", () => {

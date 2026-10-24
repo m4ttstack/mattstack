@@ -97,11 +97,19 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : String
 /** An analysis of a large workspace takes over 100 ms, so a typing burst publishes once, after it settles. */
 export const PUBLISH_DEBOUNCE_MS = 200;
 
+export type PublishTimer = { set: (run: () => void, ms: number) => unknown; clear: (handle: unknown) => void };
+
+const wallClock: PublishTimer = {
+  set: (run, ms) => setTimeout(run, ms),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
 export type ServerOpts = {
   roots: string[];
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
   debounceMs?: number;
+  timer?: PublishTimer;
   workspace?: (roots: string[]) => Workspace;
 };
 
@@ -125,8 +133,9 @@ export function startServer(opts: ServerOpts): void {
     });
   };
 
-  let pending: ReturnType<typeof setTimeout> | null = null;
+  let pending: unknown = null;
   const debounceMs = opts.debounceMs ?? PUBLISH_DEBOUNCE_MS;
+  const timer = opts.timer ?? wallClock;
 
   /** The workspace takes each change at once, so a request reads the newest text; only publishing waits. */
   const publishAll = (update: (ws: Workspace) => void = () => {}) => {
@@ -136,8 +145,8 @@ export function startServer(opts: ServerOpts): void {
     } catch (err) {
       logCliEvent("error", MODULE, "applying a change failed", { error: errorText(err) });
     }
-    if (pending) clearTimeout(pending);
-    pending = setTimeout(publishNow, debounceMs);
+    if (pending !== null) timer.clear(pending);
+    pending = timer.set(publishNow, debounceMs);
   };
 
   const publishNow = () => {
@@ -214,7 +223,7 @@ export function startServer(opts: ServerOpts): void {
   connection.onDidChangeWatchedFiles(() => publishAll((current) => current.refresh()));
 
   connection.onShutdown(() => {
-    if (pending) clearTimeout(pending);
+    if (pending !== null) timer.clear(pending);
     pending = null;
   });
 

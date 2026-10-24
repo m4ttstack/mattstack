@@ -81,7 +81,7 @@ function walkableRoot(root: string, home: string): boolean {
   return home !== dir && !home.startsWith(dir + sep);
 }
 
-/** What the folder walks found; only a structural change (a new file, a move, a plugin.json) drops it. */
+/** What the folder walks found; only a structural change (a file outside the walked folders, a move, a plugin.json) drops it. */
 type Discovery = { dirs: Map<string, string[]>; plugins?: Plugin[]; engines?: Engine[]; manifests?: string[] };
 
 export class Workspace {
@@ -90,6 +90,7 @@ export class Workspace {
   private cached: Analysis | null = null;
   private discovery: Discovery = { dirs: new Map() };
   private readonly walkable: string[];
+  private readonly home: string;
   private readonly openedPlugins: string[] = [];
 
   constructor(
@@ -97,12 +98,17 @@ export class Workspace {
     private readonly readFile: (p: string) => string = diskRead,
     private readonly hooks: WorkspaceHooks = {},
   ) {
-    const home = resolve(hooks.home ?? process.env.HOME ?? homedir());
-    this.walkable = roots.filter((r) => walkableRoot(r, home));
+    this.home = resolve(hooks.home ?? process.env.HOME ?? homedir());
+    this.walkable = roots.filter((r) => walkableRoot(r, this.home));
   }
 
+  /**
+   * A client with no file watchers (Claude Code) writes a file to disk and then opens it, so the first
+   * open of a file in a folder no cached walk holds is how a new engine or plugin gets found.
+   */
   open(file: string, text: string): void {
-    const structural = (!this.overlay.has(file) && !existsSync(file)) || file.endsWith(sep + PLUGIN_JSON);
+    const first = !this.overlay.has(file);
+    const structural = (first && (!existsSync(file) || !this.walkedDir(dirname(file)))) || file.endsWith(sep + PLUGIN_JSON);
     const adopted = this.adoptPluginOf(file);
     this.overlay.set(file, text);
     this.invalidate(structural || adopted);
@@ -113,10 +119,15 @@ export class Workspace {
     return [...this.walkable, ...this.openedPlugins];
   }
 
+  private walkedDir(dir: string): boolean {
+    for (const dirs of this.discovery.dirs.values()) if (dirs.includes(dir)) return true;
+    return false;
+  }
+
   private adoptPluginOf(file: string): boolean {
     if (this.walkRoots().some((r) => file.startsWith(r + sep))) return false;
     const root = pluginRootOf(file);
-    if (root === null || this.openedPlugins.includes(root)) return false;
+    if (root === null || !walkableRoot(root, this.home) || this.openedPlugins.includes(root)) return false;
     this.openedPlugins.push(root);
     return true;
   }

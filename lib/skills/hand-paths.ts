@@ -121,7 +121,7 @@ export function handPathDiagnostics(
  * the compiled verb's root, so depth 0; checked here and never from the host text after the splice.
  */
 export function teamInputPathDiagnostics(packDir: string, view: Omit<FixView, "teamValue">, io?: TeamInputIO): BlockDiagnostic[] {
-  return teamInputs(packDir, io).flatMap((input) => handPathDiagnostics(input.text, input.file, { startLine: input.startLine, indent: input.indent, ...view }));
+  return teamInputs(packDir, io).flatMap((input) => handPathDiagnostics(input.text, input.file, { startLine: input.startLine, indent: input.indent, noFix: input.noFix, ...view }));
 }
 
 /** For a hand-authored skill compile never reads: each path out of its folder must name something that exists. */

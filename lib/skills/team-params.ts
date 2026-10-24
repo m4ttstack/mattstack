@@ -176,7 +176,7 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
 }
 
 /** Team text compile splices into base text, with where it starts in its own file: `indent` is the 0-based column of its first character. */
-export type TeamInput = { file: string; text: string; startLine: number; indent: number };
+export type TeamInput = { file: string; text: string; startLine: number; indent: number; noFix?: true };
 
 /** `list` names a folder's files; an editor adds the open files not yet saved. */
 export type TeamInputIO = { read: (abs: string) => string | null; list?: (dir: string) => string[] };
@@ -203,9 +203,15 @@ export function teamInputs(packDir: string, io: TeamInputIO = { read: readIfPres
   }
   if (!params || typeof params !== "object" || Array.isArray(params)) return out;
   const sites = jsoncSites(raw);
+  const lines = raw.split("\n");
   for (const [key, value] of Object.entries(params)) {
     const at = sites.get(JSON.stringify(["params", key]))?.value;
-    if (typeof value === "string" && at) out.push({ file: PARAMS_FILE, text: value, startLine: at.line, indent: at.col });
+    if (typeof value !== "string" || !at) continue;
+    const input: TeamInput = { file: PARAMS_FILE, text: value, startLine: at.line, indent: at.col };
+    // An escape makes the parsed value shorter than its source, so a fix at the parsed column would edit the wrong span.
+    const literal = /^"(?:[^"\\]|\\.)*"/.exec((lines[at.line - 1] ?? "").slice(at.col - 1))?.[0] ?? "";
+    if (literal.includes("\\")) input.noFix = true;
+    out.push(input);
   }
   return out;
 }
