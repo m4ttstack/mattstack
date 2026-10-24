@@ -136,6 +136,14 @@ const ROWS: readonly SettingDef[] = [
     description: "When the daemon notifies about a Claude account's usage. Off until thresholds are set: thresholds are percentages of any limit, such as [80, 95] (monthly spend, 5-hour, weekly, per-model); accounts overrides them per account, keyed by email or org UUID, and an empty list silences that account; hint is appended to every notification, such as where to ask for more usage. Usage comes from every account cswap manages, when it is installed, plus the account Claude Code is signed into when cswap does not list it.",
   },
   {
+    key: "rt.notify.sounds",
+    type: "object",
+    scopes: ["machine"],
+    default: { neutral: "original", positive: "original", warning: "original" },
+    merge: "deep",
+    description: "Which sound the mattstack app plays on this Mac for each kind of notification: neutral, positive (passed, approved, merged) and warning (failed, conflicts). Each is a sound id: original (that tier's own tone), sober/101 to sober/104, macos/<name> for a sound in /System/Library/Sounds, custom/<file> for a file added in Settings > Notifications, or none for silence. Set it from the app's Notifications tab.",
+  },
+  {
     key: "rt.cron",
     type: "object",
     scopes: ["machine"],
@@ -356,7 +364,7 @@ const ROWS: readonly SettingDef[] = [
     type: "array",
     scopes: ["user", "machine"],
     default: [
-      "agent", "apps", "bg", "chat", "ci", "cron", "daemon", "deps", "endpoint", "events", "gate", "herd", "home", "intercept", "pane", "plugin", "reconciler", "release", "runs", "secrets", "services", "settings", "setup", "skills", "state", "team", "telemetry", "tools", "uninstall", "verify",
+      "agent", "apps", "bg", "chat", "ci", "cron", "daemon", "deps", "endpoint", "events", "gate", "herd", "home", "intercept", "pane", "plugin", "progress", "reconciler", "release", "runs", "secrets", "services", "settings", "setup", "skills", "state", "team", "telemetry", "tools", "uninstall", "verify",
       "settings source-path", "settings schema", "settings test-push", "settings extension",
     ],
     merge: "replace",

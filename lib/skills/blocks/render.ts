@@ -185,11 +185,15 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
   let resume = false;
   let fence: { marker: string; mermaid: boolean } | null = null;
   let headedInclude: string | null = null;
+  let collapseBlanks = false;
+  const endsBlank = () => out.length === 0 || out[out.length - 1]!.split("\n").pop()!.trim() === "";
 
   lines.forEach((line, i) => {
     const fileLine = b.textStartLine + i;
     const indent = i === 0 ? b.textIndent : 0;
     const trimmed = line.trim();
+    const collapsing = collapseBlanks;
+    collapseBlanks = false;
     if (headedInclude !== null && trimmed !== "") {
       st.diagnostics.push({
         file: b.relPath,
@@ -257,6 +261,16 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
         rendered = "";
       }
     }
+
+    const emptyProp = prop !== null && !fenced && rendered === "";
+    const blank = rendered.trim() === "";
+    // An empty prop renders as a blank line, so its blank neighbours would otherwise stack into a run; a dropped line shifts the seam's offsets, so the next text resumes.
+    if ((emptyProp || collapsing) && blank && endsBlank()) {
+      collapseBlanks = true;
+      resume = true;
+      return;
+    }
+    collapseBlanks = blank && (emptyProp || collapsing);
 
     if (rendered.startsWith(SEAM_START)) resume = true;
     else if (resume && rendered.trim() !== "") {

@@ -569,11 +569,11 @@ describe("invocableRoster", () => {
     const { roots } = makeFixtureRoots();
     const dir = roots.byName.mattstack!.dir;
     writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0", skills: ["./skills", "./plugin/skills"] }));
-    writeFile(join(dir, "plugin", "skills", "herd-progress", "SKILL.md"), "---\nname: herd-progress\n---\n");
+    writeFile(join(dir, "plugin", "skills", "work-progress", "SKILL.md"), "---\nname: work-progress\n---\n");
 
     const roster = invocableRoster(roots);
 
-    expect(roster.has("mattstack:herd-progress")).toBe(true);
+    expect(roster.has("mattstack:work-progress")).toBe(true);
     expect(roster.has("mattstack:hand-step")).toBe(true);
   });
 

@@ -145,4 +145,21 @@ describe("git-async", () => {
   test("findDesktopStashAsync returns null when no stash exists", async () => {
     expect(await findDesktopStashAsync(repo, "main")).toBeNull();
   });
+
+  test("runGit flags a command killed at its deadline as timed out", async () => {
+    const r = await runGit(repo, ["-c", "alias.nap=!sleep 5", "nap"], { timeoutMs: 200 });
+    expect(r.exitCode).toBe(-1);
+    expect(r.timedOut).toBe(true);
+  });
+
+  test("runGit leaves timedOut unset on a command that finishes", async () => {
+    const r = await runGit(repo, ["rev-parse", "HEAD"]);
+    expect(r.timedOut).toBeUndefined();
+  });
+
+  test("runGit never consults the repo's fsmonitor daemon", async () => {
+    execSync("git config core.fsmonitor true", { cwd: repo, shell: "/bin/zsh" });
+    const r = await runGit(repo, ["config", "--get", "core.fsmonitor"]);
+    expect(r.stdout.trim()).toBe("false");
+  });
 });

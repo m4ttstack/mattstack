@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.32.23 + mattstack:model-tiering@0.32.23 + mattstack:execution-strategy@0.32.23 + mattstack:cswap-accounts@0.32.23"
+  compiled: "mattstack@0.32.26 + mattstack:model-tiering@0.32.26 + mattstack:execution-strategy@0.32.26 + mattstack:cswap-accounts@0.32.26"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=25-81 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/index.block.md lines=25-81 -->
 # shepherdr
 
 You are the shepherd: a thin delegator, not a reviewer. You break work into jobs, spawn an agent per job (own herdr pane, own git worktree), present what the daemon pushes, and route small messages between the user and the herd. Model, method and account are policy, answered by the bound skills below; you are transport.
@@ -26,15 +26,15 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: prop:shepherdr.tiering binding=mattstack:model-tiering version=0.32.23 path=skills/model-tiering/SKILL.md lines=8-164 -->
-Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.23) -- invoke that skill when this flow needs it.
+<!-- part: prop:shepherdr.tiering binding=mattstack:model-tiering version=0.32.26 path=skills/model-tiering/SKILL.md lines=8-164 -->
+Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.26) -- invoke that skill when this flow needs it.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=43-81 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/index.block.md lines=43-81 -->
 ## Strategy
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: prop:shepherdr.strategy binding=mattstack:execution-strategy version=0.32.23 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
+<!-- part: prop:shepherdr.strategy binding=mattstack:execution-strategy version=0.32.26 path=attachments/execution-strategy/SKILL.md lines=8-96 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -125,7 +125,7 @@ for you -- name the strategy and pass it, nothing more. Either way, do not
 compose method prose per job; the bodies carry the worker-boundary rules
 and the report contract.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=49-81 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/index.block.md lines=49-81 -->
 `accounts` always has a fill: the pack's own, else mattstack's cswap
 accounts fill, which a `""` clear falls back to as well. That fill runs
 single-account mode itself when there is no cswap or only one account.
@@ -142,9 +142,7 @@ herd tools and the gate registry.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-
-
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=67-81 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/index.block.md lines=67-81 -->
 Rules sit above or in a step's own section. A **Domain hook**
 paragraph no rule names keeps the engine default as written.
 
@@ -152,7 +150,7 @@ paragraph no rule names keeps the engine default as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: prop:shepherdr.accounts binding=mattstack:cswap-accounts version=0.32.23 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
+<!-- part: prop:shepherdr.accounts binding=mattstack:cswap-accounts version=0.32.26 path=attachments/cswap-accounts/SKILL.md lines=11-78 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -222,7 +220,7 @@ cache is a shared symlink), so a worker pane missing a plugin's tools is a
 real failure: check the pane's plugin list and the shared cache instead of
 dismissing it.
 
-<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/index.block.md lines=76-81 -->
+<!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/index.block.md lines=76-81 -->
 When the section above is non-empty, follow it: it owns the pool
 question, the per-spawn pick (passed as `account` on `herd_spawn` or
 `herd_respawn`), and the exhaustion decision tree. Accounts in use are each
@@ -230,7 +228,7 @@ job's `account` in `herd_status`, never memory. Empty: single-account mode
 -- no account question, spawns omit the account, workers launch as plain
 `claude`.
 
-<!-- part: block:shepherdr/start-and-spawn source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/index.block.md lines=5-98 -->
+<!-- part: block:shepherdr/start-and-spawn source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/index.block.md lines=5-98 -->
 ## Start and spawn
 
 Walk this graph from the trigger; a move it does not show goes to the shepherd off-script gate.
@@ -329,7 +327,7 @@ digraph shepherdr_start {
 }
 ```
 
-<!-- part: block:shepherdr/start-and-spawn/specify-jobs source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/specify-jobs.block.md lines=9-38 -->
+<!-- part: block:shepherdr/start-and-spawn/specify-jobs source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/specify-jobs.block.md lines=9-38 -->
 ### Specify the jobs
 
 **Domain hook -- intake.** Unbound: the jobs are what the user hands you;
@@ -359,7 +357,7 @@ keep it out of the user's checkout, and the delegator rules then do not
 apply. Apply a bound domain part's single-worker exception if it names one.
 A later job for a live herd is never this case.
 
-<!-- part: block:shepherdr/start-and-spawn/ask-strategy-model source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/ask-strategy-model.block.md lines=11-37 -->
+<!-- part: block:shepherdr/start-and-spawn/ask-strategy-model source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/ask-strategy-model.block.md lines=11-37 -->
 ### Ask the strategy and model per job
 
 Strategy predicts the work shape, and the shape predicts the tier: one
@@ -386,13 +384,13 @@ the strategy (its method skill is the brief's Method); the recommendation
 starts at the floor, the pin is a fixed half, and a spawn below the floor
 is wrong.
 
-<!-- part: block:shepherdr/start-and-spawn/ask-account-pool source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/ask-account-pool.block.md lines=6-9 -->
+<!-- part: block:shepherdr/start-and-spawn/ask-account-pool source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/ask-account-pool.block.md lines=6-9 -->
 ### Ask the account pool question
 
 Ask it once per herd, after the models are chosen: per-model pools
 hide headroom until the model mix is known. A later job for a live herd keeps the herd's pool answer.
 
-<!-- part: block:shepherdr/start-and-spawn/collect-repo-conventions source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/collect-repo-conventions.block.md lines=9-31 -->
+<!-- part: block:shepherdr/start-and-spawn/collect-repo-conventions source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/collect-repo-conventions.block.md lines=9-31 -->
 ### Collect the repo conventions
 
 A herd pane is a real `claude` session in a git worktree: user-level
@@ -415,7 +413,7 @@ part's method skill owns the conventions, `Repo conventions` names only the
 branch; a brief that restates gates, process or evidence competes with the
 worker's skill chain.
 
-<!-- part: block:shepherdr/start-and-spawn/fix-refusal source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/fix-refusal.block.md lines=5-12 -->
+<!-- part: block:shepherdr/start-and-spawn/fix-refusal source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/fix-refusal.block.md lines=5-12 -->
 ### Fix what the refusal names
 
 - **An unfilled marker**: the refusal lists the leftover slots; add a `fill` entry for each.
@@ -425,7 +423,7 @@ worker's skill chain.
 Never copy the template or the strategies file elsewhere to get past a
 refusal; the retry budget hands a stubborn one to the off-script gate.
 
-<!-- part: block:shepherdr/start-and-spawn/shepherd-off-script source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/shepherd-off-script.block.md lines=7-25 -->
+<!-- part: block:shepherdr/start-and-spawn/shepherd-off-script source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/shepherd-off-script.block.md lines=7-25 -->
 ### Shepherd off-script gate: ask the user
 
 Every unresolved refusal and spent budget, in all three graphs, lands
@@ -446,13 +444,13 @@ never a count from memory. A
 same-turn retry count kept in your head, since no daemon budget covers it;
 it answers yes once two retries have run.
 
-<!-- part: block:shepherdr/start-and-spawn/make-recorded-move source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/start-and-spawn/make-recorded-move.block.md lines=5-8 -->
+<!-- part: block:shepherdr/start-and-spawn/make-recorded-move source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/start-and-spawn/make-recorded-move.block.md lines=5-8 -->
 ### Make the recorded move once
 
 Make exactly the move the user took, once, as its value spells it. If it
 fails too, that is a new off-script gate, never a retry of your own.
 
-<!-- part: block:shepherdr/what-the-start-graph-cannot-show source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/what-the-start-graph-cannot-show.block.md lines=9-84 -->
+<!-- part: block:shepherdr/what-the-start-graph-cannot-show source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/what-the-start-graph-cannot-show.block.md lines=9-84 -->
 ## What the start graph cannot show
 
 **The herd contract.** Every herd is an rt daemon registry row plus one
@@ -528,7 +526,7 @@ off-script gate.
 - **Stagger 4+ spawns**: spawn one, confirm it returned, spawn the next.
 - Agents never work in the user's checkout; skip isolation only for read-only jobs or when the user says to work in place. The worker's directory must be a **linked worktree**, which `herd_spawn` guarantees.
 
-<!-- part: block:shepherdr/the-watch-loop source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/index.block.md lines=5-171 -->
+<!-- part: block:shepherdr/the-watch-loop source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/index.block.md lines=5-171 -->
 ## The watch loop
 
 After the spawns, do nothing until something arrives.
@@ -700,7 +698,7 @@ digraph shepherdr_watch {
 }
 ```
 
-<!-- part: block:shepherdr/the-watch-loop/end-turn-wait source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/end-turn-wait.block.md lines=5-10 -->
+<!-- part: block:shepherdr/the-watch-loop/end-turn-wait source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/end-turn-wait.block.md lines=5-10 -->
 ### End the turn until something arrives
 
 The daemon pushes gates and room lines; nothing arms, and you never read a
@@ -708,7 +706,7 @@ pane or scrollback. Your room posts
 deliver as `@here` and wake every worker, so a question for one worker is a
 DM.
 
-<!-- part: block:shepherdr/the-watch-loop/present-open-gates source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/present-open-gates.block.md lines=6-27 -->
+<!-- part: block:shepherdr/the-watch-loop/present-open-gates source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/present-open-gates.block.md lines=6-27 -->
 ### Present the open gates
 
 Present up to 4 open gates in one AskUserQuestion call. Options are the
@@ -732,36 +730,36 @@ with `writeIn`, else ask them to pick. When the user parks a gate,
 from the job's `herd_status` row: `lastGate`, with `lastGateStatus:
 parked`; relay it verbatim.
 
-<!-- part: block:shepherdr/the-watch-loop/say-which-answer source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/say-which-answer.block.md lines=5-7 -->
+<!-- part: block:shepherdr/the-watch-loop/say-which-answer source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/say-which-answer.block.md lines=5-7 -->
 ### Say which answer won, in one line
 
 Name `winner.answers` and `winner.by`; never re-ask.
 
-<!-- part: block:shepherdr/the-watch-loop/fix-answers-verbatim source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/fix-answers-verbatim.block.md lines=5-7 -->
+<!-- part: block:shepherdr/the-watch-loop/fix-answers-verbatim source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/fix-answers-verbatim.block.md lines=5-7 -->
 ### Fix the answers: each value verbatim
 
 Resend each value from `invalid[].validValues`, verbatim.
 
-<!-- part: block:shepherdr/the-watch-loop/pick-account-by-rules source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/pick-account-by-rules.block.md lines=5-8 -->
+<!-- part: block:shepherdr/the-watch-loop/pick-account-by-rules source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/pick-account-by-rules.block.md lines=5-8 -->
 ### Pick the account per the accounts rules
 
 The Accounts section decides whether to respawn now or ask first; its
 pick is the `account` on `herd_respawn`. Announce the respawn.
 
-<!-- part: block:shepherdr/the-watch-loop/report-stall source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/report-stall.block.md lines=5-8 -->
+<!-- part: block:shepherdr/the-watch-loop/report-stall source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/report-stall.block.md lines=5-8 -->
 ### Report the stall to the user
 
 Single-account mode, or an expired login with no pool (only the user's
 `/login` fixes it). Name the job, its pane and the verdict.
 
-<!-- part: block:shepherdr/the-watch-loop/ask-attend-respawn source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/ask-attend-respawn.block.md lines=7-11 -->
+<!-- part: block:shepherdr/the-watch-loop/ask-attend-respawn source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/ask-attend-respawn.block.md lines=7-11 -->
 ### Ask: attend or respawn
 
 A dialog the watchdog could not clear parks the job (`stuck-at-modal`).
 **Attend** opens the pane for the user; **Respawn** reuses the stored
 brief.
 
-<!-- part: block:shepherdr/the-watch-loop/point-user-at-tab source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/point-user-at-tab.block.md lines=5-11 -->
+<!-- part: block:shepherdr/the-watch-loop/point-user-at-tab source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/point-user-at-tab.block.md lines=5-11 -->
 ### Point the user at the job's tab
 
 The job's pane in `herd_status` has no `bg:` prefix: the herd is visible,
@@ -770,27 +768,27 @@ which opens tabs only for a hidden herd's panes, would refuse. Tell the
 user in one message which job, its pane ref and tab, and what waits on
 them (the diagnosis reason, or the parked dialog).
 
-<!-- part: block:shepherdr/the-watch-loop/report-crash source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/report-crash.block.md lines=5-8 -->
+<!-- part: block:shepherdr/the-watch-loop/report-crash source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/report-crash.block.md lines=5-8 -->
 ### Report the crash with its job and pane
 
 The pane died with the job live. Tell the user both; never respawn
 silently.
 
-<!-- part: block:shepherdr/the-watch-loop/ask-finish-kill-hold source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/the-watch-loop/ask-finish-kill-hold.block.md lines=7-11 -->
+<!-- part: block:shepherdr/the-watch-loop/ask-finish-kill-hold source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/the-watch-loop/ask-finish-kill-hold.block.md lines=7-11 -->
 ### Ask: let them finish, kill and respawn, or hold
 
 One sentence naming the running agents, then the bare three options:
 **Let them finish** (recommended) / **Kill and respawn with the new
 briefs** / **Hold**. No restated heading, no per-option descriptions.
 
-<!-- part: block:shepherdr/what-the-watch-loop-cannot-show source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/what-the-watch-loop-cannot-show.block.md lines=5-32 -->
+<!-- part: block:shepherdr/what-the-watch-loop-cannot-show source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/what-the-watch-loop-cannot-show.block.md lines=5-32 -->
 ## What the watch loop cannot show
 
 - **The push is transport.** A gate push is one line, `[gate] <id> is now open; re-read the gate registry.`, carrying only an id. Its arrival proves the daemon, the subscription and the herd; the `herd_gates` read is the verification, made first. `herd_gates` defaults to `HERD_ID` or the sole active herd and also returns open pipeline-run gates in a herd job's worktree. Room lines arrive the same way (`<job> #<n>: <body>` a report, `<job> #<n>: milestone: <artifact>` a milestone). A stale id or an unrelated room line is normal, never a reason to reach for another command or distrust the push.
 - **Diagnosis and nudges.** `herd_diagnose {herd, job}` has the daemon read the pane and returns a verdict and budgets, never pane text. An `UNCONSUMED` gate in `herd_status`, or the watchdog's "answered Nm ago and unconsumed" line, is the arrival for a nudge; the nudge keys on the UNCONSUMED arrival's gate, never `lastGate.consumed`, which reads null for a gate the daemon does not track. `herd_nudge` sends a DM, then a typed line only into an idle pane with no form open, else `needsHuman`. No tool presses keys, and neither do you. A hidden (`bg:`) pane reaches the user only through `herd_attend {job, herd}`.
 - **The disposable reviewer.** Its spawn is `herd_spawn {tree}` into the job's own tree (a guest if another job holds it; the tree stays the host's); the result's `reviewerRound` echoes the ticked budget. Its brief reads the artifact, DMs findings, and reports a verdict; the daemon closes its pane. You never read the artifact. With the Accounts section non-empty it takes a per-spawn pick.
 - **A bare pane form.** A worker pane showing a structured question with no gate behind it (`herd_gates` returns nothing for it) is the banned bare pane-local form, unreachable from every channel. Flag it to the user; never answer it yourself. Covered panes deny it at source through the launch-injected gate-fork hook, so seeing one means the pane is uncovered or its daemon was unreachable.
-- **Progress.** When the user asks for progress, and after a job's report while other jobs still run, show the view from mattstack:herd-progress.
+- **Progress.** When the user asks for progress, and after a job's report while other jobs still run, show the view from mattstack:work-progress.
 
 **Budgets.** The daemon counts; you decide. A `... spent?` diamond reads
 `{used, cap, spent}` in this decision, before its move; a user's answer in
@@ -813,7 +811,7 @@ brief unless `brief` is new, and keeps the job's model, effort and account
 unless passed. The old session's open and parked gates close as abandoned so the new
 worker re-asks; answered ones are marked consumed.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/index.block.md lines=5-118 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/index.block.md lines=5-118 -->
 ## Lanes and wrap-up
 
 ```dot
@@ -932,13 +930,13 @@ digraph shepherdr_lanes {
 }
 ```
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/flag-drift-collision source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/flag-drift-collision.block.md lines=5-8 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/flag-drift-collision source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/flag-drift-collision.block.md lines=5-8 -->
 ### Flag the drift or collision to the user
 
 Files outside the job's write fence are drift; a file two jobs changed is
 a collision. Flag it now, not at integration.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/relay-measured-only source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/relay-measured-only.block.md lines=5-10 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/relay-measured-only source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/relay-measured-only.block.md lines=5-10 -->
 ### Relay only what you measured
 
 A worker's claims about its environment (servers up, ports free, CI green)
@@ -946,7 +944,7 @@ are routinely stale. Measure first
 (`rt_verb {args: ["endpoint", "lookup", "<role>", "--path", "<the job's worktree>"]}`,
 `curl`, `lsof`, a CI status call), or attribute it: "the worker reports X".
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/ask-integration-strategy source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/ask-integration-strategy.block.md lines=6-11 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/ask-integration-strategy source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/ask-integration-strategy.block.md lines=6-11 -->
 ### Ask the integration job's strategy and model
 
 One AskUserQuestion like every job's: the tier table's integration row is
@@ -954,14 +952,14 @@ the recommendation, the strategy half from the strategy table. With the
 Accounts section non-empty, keep the herd's pool answer and pass the
 per-spawn pick as `account`.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/gate-merge-lane source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-merge-lane.block.md lines=7-11 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/gate-merge-lane source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-merge-lane.block.md lines=7-11 -->
 ### Gate: merge this lane?
 
 Only when a bound domain part gives the shepherd the merge. One sentence
 with the PR or MR link, its state and its CI, then **Merge** / **Not yet** /
 **Hold**.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/flip-lane-ticket source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/flip-lane-ticket.block.md lines=5-11 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/flip-lane-ticket source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/flip-lane-ticket.block.md lines=5-11 -->
 ### Flip the lane's ticket, when it has one
 
 Flip it just before `herd_close`, for each lane an integration report
@@ -970,7 +968,7 @@ merges. Only you close a done job's pane. The watchdog nags past
 skipped; for a lane awaiting the integration job or a merge gate it is
 normal, so end the turn.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/show-status-table source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/show-status-table.block.md lines=5-14 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/show-status-table source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/show-status-table.block.md lines=5-14 -->
 ### Show the status table
 
 Reformat `herd_status {herd}`, flagging failures and the latest
@@ -982,7 +980,7 @@ Reformat `herd_status {herd}`, flagging failures and the latest
 | api tests | w3:p1 | 2 | direct-tdd | done | A1-A4 done, 12 tests, suite green |
 ```
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/gate-wrap-up-form source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-wrap-up-form.block.md lines=7-18 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/gate-wrap-up-form source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/gate-wrap-up-form.block.md lines=7-18 -->
 ### Gate wrap-up: the form contract
 
 One form, per the wrap-up form contract below:
@@ -996,7 +994,7 @@ One form, per the wrap-up form contract below:
 Never auto-remove a tree or job dir; `herd_wrap_up` executes exactly the
 form's answer.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/measure-running source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/measure-running.block.md lines=5-22 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/measure-running source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/measure-running.block.md lines=5-22 -->
 ### Measure what still runs
 
 The stop calls cover every job in the dispose list or with a closing pane:
@@ -1016,13 +1014,13 @@ Measure before you say a job's servers stopped (`lsof -ti tcp:<port>` or
 the endpoint lookup). Report a survivor as still running, never kill it by
 hand, and anything unmeasured as "not verified".
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/report-refusal source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/report-refusal.block.md lines=5-8 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/report-refusal source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/report-refusal.block.md lines=5-8 -->
 ### Report the refusal in the guard's words
 
 Quote the disposal refusal as the guard gave it. In hidden mode, also offer
 the Bash command `rt herd stop --hidden` (no tool runs it); never run it unprompted. <!-- mcp-lint: allow -->
 
-<!-- part: block:shepherdr/what-the-lanes-graph-cannot-show source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/what-the-lanes-graph-cannot-show.block.md lines=9-18 -->
+<!-- part: block:shepherdr/what-the-lanes-graph-cannot-show source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/what-the-lanes-graph-cannot-show.block.md lines=9-18 -->
 ## What the lanes graph cannot show
 
 - **The two objective checks.** `herd_lanes {herd}` returns a row per active job (`commits`; `drift.files`, committed and uncommitted work since the merge base; `collidesWith`) plus herd-wide `collisions`. Compare each job's `drift.files` against its write fence yourself; no fence is stored. A job whose tree is gone has no row (it is in `skipped` with a reason), and the drift check skips it.
@@ -1032,12 +1030,12 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 - **Domain hook: after the report.** Unbound: the integration job merges. A bound domain part may define what follows a report (the worker ships through its own skill chain, or the shepherd merges after a gate; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.
 - **Domain hook: wrap-up.** Unbound: as drawn. A bound domain part may state its own tree lifecycle (trees that dispose themselves on merge, what a disposal refusal means); follow it over the defaults here.
 
-<!-- part: block:shepherdr/wrap-up-form-contract source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/wrap-up-form-contract.block.md lines=6-10 -->
+<!-- part: block:shepherdr/wrap-up-form-contract source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/wrap-up-form-contract.block.md lines=6-10 -->
 ## wrap-up form contract
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: block:wrap-up-form source=mattstack:wrap-up-form version=0.32.23 path=attachments/wrap-up-form/index.block.md lines=7-33 -->
+<!-- part: block:wrap-up-form source=mattstack:wrap-up-form version=0.32.26 path=attachments/wrap-up-form/index.block.md lines=7-33 -->
 ### Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
@@ -1066,7 +1064,7 @@ next call after the answers return, never into the context sentence.
 | "I can hand them a default to save them answering" | Recommended options already do that in the form; a typed reply still costs more than a tap and leaves no record of the pick. |
 | "The context sentence, then a line introducing the form" | Two sentences. The form needs no introduction; the sentence is the whole preamble. |
 
-<!-- part: block:shepherdr/rationalizations source=mattstack:shepherdr version=0.32.23 path=attachments/orchestration/shepherdr/rationalizations.block.md lines=5-24 -->
+<!-- part: block:shepherdr/rationalizations source=mattstack:shepherdr version=0.32.26 path=attachments/orchestration/shepherdr/rationalizations.block.md lines=5-24 -->
 ## Rationalizations
 
 | Thought | Reality |

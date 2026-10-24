@@ -107,6 +107,7 @@ export function resolveTeamMarkers(
   const { where, sectionSeams, startLine = 1, dropped, lineMap } = opts;
   const { values } = team;
   const out: string[] = [];
+  let collapseBlanks = false;
 
   const split = hitOf(body, SPLIT_MARKER_RE.exec(body));
   if (split) throw new Error(`${where}: ${split.raw} breaks across lines; a team marker sits on one line (line ${split.lineIndex + startLine})`);
@@ -172,10 +173,14 @@ export function resolveTeamMarkers(
       return "";
     });
 
-    if (removeLine) {
+    // A removed line's surrounding blanks would otherwise stack into a run, so blanks after it go while a blank already precedes them.
+    const blankAfterRemoval = collapseBlanks && sectionText === null && resolved.trim() === "" && (out.length === 0 || out[out.length - 1]!.trim() === "");
+    if (removeLine || blankAfterRemoval) {
       if (dropped) dropped.lines++;
+      collapseBlanks = true;
       return;
     }
+    collapseBlanks = collapseBlanks && sectionText === null && resolved.trim() === "";
     const text = sectionText ?? resolved;
     if (lineMap) for (let n = text.split("\n").length; n > 0; n--) lineMap.push(i);
     out.push(text);

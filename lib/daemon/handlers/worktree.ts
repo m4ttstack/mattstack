@@ -56,9 +56,11 @@ import { isTreeLocked, withTreeLock } from "../../worktree/locks.ts";
 import {
   branchExistsLocalAsync,
   currentBranchAsync,
+  MUTATING_TIMEOUT_MS,
   remoteDefaultRef,
   remoteRefExists,
   runGit,
+  type GitResult,
 } from "../../worktree/git-async.ts";
 import { runGitOrigin } from "../../worktree/fetch-auth.ts";
 import {
@@ -129,6 +131,12 @@ export function createFailedError(
     .join("\n")
     .trim();
   return [`create-failed:${step}`, tail, note].filter((part) => part).join("\n");
+}
+
+/** The detail a `checkout-failed:` refusal carries for a failed git step. */
+export function gitFailureDetail(result: GitResult, step: string, timeoutMs: number): string {
+  if (result.timedOut) return `${step} timed out after ${Math.round(timeoutMs / 1000)}s`;
+  return (result.stderr + result.stdout).trim();
 }
 
 /**
@@ -490,7 +498,7 @@ export function createWorktreeHandlers(
         });
         let remoteHasBranch = true;
         if (fetch.exitCode !== 0) {
-          const detail = (fetch.stderr + fetch.stdout).trim();
+          const detail = gitFailureDetail(fetch, "git fetch", PROVISION_FETCH_TIMEOUT_MS);
           // The two non-zero outcomes mean opposite things: only git's
           // ref-not-found signature means "no such branch upstream". An
           // unreachable/auth-failed origin must NOT be read as absence — that
@@ -509,7 +517,7 @@ export function createWorktreeHandlers(
         if (localExists) {
           // (c)/(e) local branch wins, checked out untouched — never auto-ff,
           // never reset; divergence is reported, not reconciled.
-          checkout = await runGit(tree.path, ["checkout", branch]);
+          checkout = await runGit(tree.path, ["checkout", branch], { timeoutMs: MUTATING_TIMEOUT_MS });
           branchState = "existing-clean";
           if (checkout.exitCode === 0 && (await remoteRefExists(tree.path, branch))) {
             const counts = await divergence(tree.path, branch);
@@ -523,7 +531,7 @@ export function createWorktreeHandlers(
           const startPoint = (await remoteRefExists(tree.path, branch))
             ? `origin/${branch}`
             : "FETCH_HEAD";
-          checkout = await runGit(tree.path, ["checkout", "-b", branch, startPoint]);
+          checkout = await runGit(tree.path, ["checkout", "-b", branch, startPoint], { timeoutMs: MUTATING_TIMEOUT_MS });
           branchState = "tracking-remote";
         } else {
           // (a) nowhere: cut it from the default branch. The targeted fetch
@@ -540,12 +548,12 @@ export function createWorktreeHandlers(
             timeoutMs: PROVISION_FETCH_TIMEOUT_MS,
           });
           const defaultRef = await remoteDefaultRef(tree.path);
-          checkout = await runGit(tree.path, ["checkout", "-b", branch, defaultRef]);
+          checkout = await runGit(tree.path, ["checkout", "-b", branch, defaultRef], { timeoutMs: MUTATING_TIMEOUT_MS });
           branchState = "new";
         }
 
         if (checkout.exitCode !== 0) {
-          const detail = (checkout.stderr + checkout.stdout).trim();
+          const detail = gitFailureDetail(checkout, "git checkout", MUTATING_TIMEOUT_MS);
           await rollbackClaim(repoName, tree, onDeckBranch, `checkout-failed:${detail}`);
           return { ok: false, error: `checkout-failed:${detail}` };
         }

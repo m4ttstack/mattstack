@@ -454,3 +454,34 @@ test("a later fill after a fill that ends with a heading-carrying include is tex
     },
   ]);
 });
+
+const EMPTY_PROPS = "---\nprops:\n  extra:\n    merge: add\n    default: \"\"\n  more:\n    merge: add\n    default: \"\"\n---\n\n# a\n\n";
+const textOf = (body: string) => body.split("\n").filter((l) => !l.startsWith("<!-- part: ")).join("\n");
+
+test("empty props between blank lines leave exactly one blank line between their neighbours", () => {
+  const cases: [string, string][] = [
+    ["x\n\n{{props.extra}}\n\ny\n", "# a\n\nx\n\ny"],
+    ["x\n\n{{props.extra}}\n\n{{props.more}}\n\ny\n", "# a\n\nx\n\ny"],
+    ["x\n{{props.extra}}\n{{props.more}}\n\ny\n", "# a\n\nx\n\ny"],
+  ];
+  for (const [text, rendered] of cases) {
+    expect(textOf(render(plainTree({ "index.block.md": EMPTY_PROPS + text })).body)).toBe(rendered);
+  }
+});
+
+test.each([
+  ["a four-backtick fence holding a three-backtick line", "````md\n```\n\n{{props.extra}}\n\nx\n````\n", "````md\n```\n\n\n\nx\n````"],
+  ["a tilde fence", "~~~\n\n{{props.extra}}\n\nx\n~~~\n", "~~~\n\n\n\nx\n~~~"],
+])("an empty prop inside %s collapses nothing", (_, text, rendered) => {
+  expect(textOf(render(plainTree({ "index.block.md": EMPTY_PROPS + text })).body)).toBe(`# a\n\n${rendered}`);
+});
+
+test("blank lines away from an empty prop are untouched, code fences included", () => {
+  const text = "x\n\n\ny\n\n```\none\n\n\ntwo\n```\n\n{{props.extra}}\n\nz\n";
+  expect(textOf(render(plainTree({ "index.block.md": EMPTY_PROPS + text })).body)).toBe("# a\n\nx\n\n\ny\n\n```\none\n\n\ntwo\n```\n\nz");
+});
+
+test("text after the blanks an empty prop collapses maps back to its own line", () => {
+  const { body } = render(plainTree({ "index.block.md": EMPTY_PROPS + "x\n\n{{props.extra}}\n\n{{props.more}}\n\nAfter the props.\n" }));
+  expect(sourceOf(body, "After the props.")).toBe("a/index.block.md:19");
+});

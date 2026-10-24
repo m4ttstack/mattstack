@@ -2,14 +2,14 @@
  * GitLab read tools. Each asks the daemon for a live read from GitLab; none
  * reads the daemon's open-MR cache, so any MR the token can see is readable.
  */
-import { rtCommand } from "../../packages/rt-client/src/index.ts";
+import { latchKindOf, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion } from "../../packages/rt-client/src/index.ts";
 import { walkPipeline } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl } from "../ci/lease-guard.ts";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { sliceTrace, type TraceMode } from "./trace-slice.ts";
-import { checkOptional, checkPositiveInts, checkStringArray, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef } from "./shared.ts";
+import { checkOptional, checkPositiveInts, checkStringArray, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef } from "./shared.ts";
 
 export interface MrReadDeps {
   command: typeof rtCommand;
@@ -33,12 +33,13 @@ export function isBotUsername(username: string): boolean {
   return BOT_USERNAME.some((re) => re.test(username));
 }
 
-export function filterHumanThreads(discussions: Discussion[]): { discussions: Discussion[]; dropped: { resolved: number; system: number; bot: number } } {
-  const dropped = { resolved: 0, system: 0, bot: 0 };
+export function filterHumanThreads(discussions: Discussion[]): { discussions: Discussion[]; dropped: { resolved: number; system: number; bot: number; latch: number } } {
+  const dropped = { resolved: 0, system: 0, bot: 0, latch: 0 };
   const kept: Discussion[] = [];
   for (const d of discussions) {
     const first = d.notes[0];
     if (d.resolved === true) dropped.resolved++;
+    else if (first && latchKindOf(first.body ?? "") !== null) dropped.latch++;
     else if (!first || first.system) dropped.system++;
     else if (isBotUsername(first.author.username)) dropped.bot++;
     else kept.push({ ...d, notes: d.notes.filter((n) => !n.system) });
@@ -107,7 +108,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_list",
-      description: `GitLab only. A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus, mergedAt), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when GitLab had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. ${LIVE_NOTE}. ${REPO_NAME_RULE}`,
+      description: `GitLab only. A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus, mergedAt), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when GitLab had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. ${LIVE_NOTE}. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -158,7 +159,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_for_branch",
-      description: `GitLab only. The open MR (or null) for each named source branch, by any author. A null means GitLab has no open MR with that source branch. ${LIVE_NOTE}. ${REPO_NAME_RULE}`,
+      description: `GitLab only. The open MR (or null) for each named source branch, by any author. A null means GitLab has no open MR with that source branch. ${LIVE_NOTE}. ${REPO_TARGET_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, branches: { type: "array", items: { type: "string" }, minItems: 1 } }, required: ["branches"], additionalProperties: false },
       shellForms: [{ id: "subst", pattern: /\b[A-Za-z_][A-Za-z0-9_]*=\$\(\s*(rt|glab)\b/, example: "IID=$(glab mr list --json)", note: "a tool returns the value; nothing needs a shell variable (the inner call names the tool: glab mr list is mr_for_branch or mr_list, rt runs is run_*)" }],
       async handler(input) {
@@ -176,7 +177,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     {
       name: "mr_threads",
       description: `GitLab only. The MR's discussion threads, fetched from GitLab on every call. ${REPO_NAME_RULE}`,
-      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean", description: "Accepted and ignored; every read is live." }, filter: { type: "string", enum: ["unresolved-human"], description: "unresolved-human keeps unresolved threads started by a person, drops system notes, and adds dropped counts." } }, additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean", description: "Accepted and ignored; every read is live." }, filter: { type: "string", enum: ["unresolved-human"], description: "unresolved-human keeps unresolved threads started by a person, drops system notes and mattstack re-review latch threads, and adds dropped counts." } }, additionalProperties: false },
       shellForms: { none: "discussions have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkOptional(input, [{ name: "refresh", type: "boolean" }, { name: "filter", type: "string" }]);

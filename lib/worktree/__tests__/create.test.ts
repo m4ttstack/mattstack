@@ -9,6 +9,7 @@ import { closeStateDb } from "../../state/index.ts";
 import { GOLDEN_BRANCH, loadRegistry, saveRegistry, type TreeRecord } from "../registry.ts";
 import { branchExistsLocalAsync, listWorktreesAsync } from "../git-async.ts";
 import { createTree, scrapTree, type CreateDeps } from "../create.ts";
+import { fsmonitorOffInTree } from "../fsmonitor.ts";
 import { loadDopplerConfig } from "../../doppler-config.ts";
 import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
@@ -117,6 +118,18 @@ describe("createTree", () => {
     expect(entry!.branch).toBe(`on-deck/${result.tree.name}`);
 
     expect(events.some((e) => e.type === "worktree:created")).toBe(true);
+  });
+
+  test("a created tree carries core.fsmonitor=false in its own config.worktree", async () => {
+    execSync("git config core.fsmonitor true", { cwd: repo, shell: "/bin/zsh" });
+    const result = await createTree(makeDeps(repoName, repo, events));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(fsmonitorOffInTree(result.tree.path)).toBe(true);
+    expect(execSync("git config --get core.fsmonitor", { cwd: result.tree.path, encoding: "utf8" }).trim()).toBe("false");
+    // The user's own checkout keeps its setting; only the tree opts out.
+    expect(execSync("git config --get core.fsmonitor", { cwd: repo, encoding: "utf8" }).trim()).toBe("true");
   });
 
   test("a tree takes the pool name after the previous tree's, even once that tree is gone", async () => {

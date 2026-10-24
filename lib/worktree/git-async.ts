@@ -16,6 +16,8 @@ export interface GitResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /** Killed at its deadline: stdout and stderr are empty, so the output alone cannot explain the failure. */
+  timedOut?: boolean;
 }
 
 export interface WorktreeEntry {
@@ -34,7 +36,14 @@ export interface WorktreeEntry {
 // checkout exit non-zero *after* it already succeeded, surfacing as a spurious
 // "checkout-failed" even though the branch switched fine. Disable hooks on every
 // mutating command by pointing hooksPath at a nonexistent dir.
-const NO_HOOKS = ["-c", "core.hooksPath=/dev/null"];
+//
+// fsmonitor is off for the same reason: with `core.fsmonitor=true` in the
+// repo, every index-reading command (status, checkout, even fetch via its
+// .gitmodules lookup) queries a per-worktree `git fsmonitor--daemon`, starting
+// one when none runs. Under heavy filesystem churn that daemon stops answering
+// and the command blocks in the IPC read until rt's timeout kills it, which
+// surfaced as 5-minute "checkout failed" provisions with no reason.
+const NO_HOOKS = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -63,7 +72,9 @@ export async function runGit(
     signal: opts.signal,
     env: opts.env ? { ...childEnv(), ...opts.env } : undefined,
   });
-  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
+  const out: GitResult = { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
+  if (result.timedOut) out.timedOut = true;
+  return out;
 }
 
 /** Run a git command and report only whether it succeeded (exitCode === 0). */

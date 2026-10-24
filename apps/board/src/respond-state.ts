@@ -81,6 +81,10 @@ export interface RespondState {
       skill. Every launch and resume that resolves a skill rewrites it, so
       choosing a pack clears it; only a promptless reopen leaves it as it was. */
   noPack?: boolean;
+  /** Latch discussion ids the developer ticked at the respond-post gate for a
+      re-review once posting finishes; empty or absent means none. A fresh
+      launch writes [] so a stale pick never fires on the next run. */
+  pendingReReview?: string[];
   startedAt: number;
   updatedAt: number;
   /** Whether the fill has written its adjudication (verdict table + drafted
@@ -159,6 +163,7 @@ export function writeRespondState(
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,
     noPack: patch.noPack,
+    pendingReReview: patch.pendingReReview,
     startedAt: now,
     updatedAt: now,
   };

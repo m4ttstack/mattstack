@@ -37,7 +37,7 @@ struct GeneralPane: View {
                 }
             }
             Section("Startup") {
-                Toggle("Start mattstack at login", isOn: $startAtLogin).toggleStyle(.switch).controlSize(.small)
+                Toggle("Start mattstack at login", isOn: $startAtLogin).toggleStyle(.switch).controlSize(.mini)
                     .onChange(of: startAtLogin) { _, on in toggleLogin(on) }
                     .accessibilityIdentifier(AXID.settingsGeneralStartAtLogin)
             }
@@ -47,11 +47,11 @@ struct GeneralPane: View {
                            get: { UserDefaults.standard.object(forKey: "MSShellHandoff") == nil
                                   || UserDefaults.standard.bool(forKey: "MSShellHandoff") },
                            set: { UserDefaults.standard.set($0, forKey: "MSShellHandoff") }))
-                    .toggleStyle(.switch).controlSize(.small)
+                    .toggleStyle(.switch).controlSize(.mini)
                     .accessibilityIdentifier(AXID.settingsGeneralShellHandoff)
             }
             Section("Updates") {
-                Toggle("Check for updates automatically", isOn: $autoUpdates).toggleStyle(.switch).controlSize(.small)
+                Toggle("Check for updates automatically", isOn: $autoUpdates).toggleStyle(.switch).controlSize(.mini)
                     .disabled(!env.updater.isEnabled)
                     .onChange(of: autoUpdates) { _, on in env.updater.automaticallyChecks = on }
                     .accessibilityIdentifier(AXID.settingsGeneralAutoUpdates)
@@ -64,7 +64,7 @@ struct GeneralPane: View {
             Section("Privacy") {
                 Toggle("Share version info with the mattstack admin",
                        isOn: Binding(get: { telemetry.enabled }, set: { on in Task { await telemetry.setEnabled(on) } }))
-                    .toggleStyle(.switch).controlSize(.small)
+                    .toggleStyle(.switch).controlSize(.mini)
                     .disabled(telemetry.inFlight)
                     .accessibilityIdentifier(AXID.settingsTelemetryToggle)
                 Text("Sends your username for each team, a random install id, app, rt and plugin versions, app flavor, macOS version, setup progress, leftover legacy folder names, and your org names and layouts and team packs and their versions. Nothing about your repos, files or commands.")

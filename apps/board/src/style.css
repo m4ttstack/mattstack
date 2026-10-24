@@ -2453,6 +2453,19 @@ body {
   outline-offset: 2px;
   border-radius: 3px;
 }
+.tui-respond-rereview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 18px;
+}
+.tui-respond-rereview-heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+}
 .tui-post-tick .tui-gate-choice-input {
   width: 14px;
   height: 14px;
