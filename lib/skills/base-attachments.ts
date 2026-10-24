@@ -11,7 +11,7 @@ import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sou
 import type { CompiledFile, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = "compiled.json";
-const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+export const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 
 export type BaseRef = { name: string; dir: string; version: string | null };
 export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource };

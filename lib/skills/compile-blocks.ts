@@ -340,6 +340,7 @@ export function compileBlockSkill(
   const content = `${buildFrontmatter(verb, allowedTools, compiledParts)}\n\n${body}\n`;
 
   const copies = referenceCopies(rendered.used.references, ctx, { skillRel: `${ctx.side}/${verb.name}`, packName: opts.packName, loadInclude: opts.loadInclude });
+  diagnostics.push(...copies.diagnostics);
   const vendored = vendorBlockFiles(step, placed, values, engine, { ...includes, ...copies.includes }, copies, opts, diagnostics);
   if (diagnostics.length > 0) return { files: [], warnings: [], errors: [], diagnostics };
   const files: CompiledFile[] = [{ path: "SKILL.md", content }, ...vendored];
@@ -358,6 +359,7 @@ export function compileBlockSkill(
       emittedTargetDirs: opts.emittedTargetDirs ?? [],
       plannedAttachments: opts.plannedAttachments,
     }),
+    ...copies.warnings,
     ...transitionNotes,
   ];
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];

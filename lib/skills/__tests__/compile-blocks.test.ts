@@ -371,6 +371,90 @@ describe("compileBlockSkill", () => {
       })).toThrow("attachments/widgets-gates/SKILL.md: {{pack.path:gone-kit/SKILL.md}} -- gone-kit is not a directory under attachments/ or skills/");
     });
 
+    describe("a copied file's links to other units", () => {
+      const KITS = { "other-kit": { "SKILL.md": "other\n" } };
+
+      test("an attachment copy linking a sibling unit by hand fails with hand-typed-path and a pack.path fix", () => {
+        const gates = "---\nname: gates\n---\nRead ../other-kit/SKILL.md first.\n";
+        const { result } = compileMini({ packRoot: true, prep: withFill(READ_GATES, { ...KITS, "widgets-gates": { "SKILL.md": gates } }) });
+        expect(result.files).toEqual([]);
+        expect(result.diagnostics).toEqual([{
+          file: "attachments/widgets-gates/SKILL.md",
+          line: 4,
+          col: 6,
+          code: "hand-typed-path",
+          message: "hand-typed path ../other-kit/SKILL.md breaks when its target moves; write {{pack.path:other-kit/SKILL.md}} instead",
+          fix: { length: 21, text: "{{pack.path:other-kit/SKILL.md}}" },
+        }]);
+
+        const fixed = gates.replace("../other-kit/SKILL.md", "{{pack.path:other-kit/SKILL.md}}");
+        const again = compileMini({ packRoot: true, prep: withFill(READ_GATES, { ...KITS, "widgets-gates": { "SKILL.md": fixed } }) });
+        expect(again.result.diagnostics).toEqual([]);
+        expect(contentOf(again.result.files, "references/widgets-gates/SKILL.md")).toContain("Read ${CLAUDE_SKILL_DIR}/references/other-kit/SKILL.md first.");
+        expect(references(again.result.files)).toContain("references/other-kit/SKILL.md");
+      });
+
+      test("every spelling that leaves the unit is caught in a copy, nested files counted from their own depth", () => {
+        const { result } = compileMini({
+          packRoot: true,
+          prep: withFill(READ_GATES, {
+            ...KITS,
+            "widgets-gates": {
+              "SKILL.md": "See ../../attachments/other-kit/SKILL.md.\n",
+              "notes/deep.md": "See ../../other-kit/SKILL.md and ${CLAUDE_SKILL_DIR}/../../attachments/other-kit/SKILL.md.\n",
+            },
+          }),
+        });
+        expect(result.files).toEqual([]);
+        expect(result.diagnostics.map((d) => [d.file, d.code, d.fix?.text])).toEqual([
+          ["attachments/widgets-gates/SKILL.md", "hand-typed-path", "{{pack.path:other-kit/SKILL.md}}"],
+          ["attachments/widgets-gates/notes/deep.md", "hand-typed-path", "{{pack.path:other-kit/SKILL.md}}"],
+          ["attachments/widgets-gates/notes/deep.md", "hand-typed-path", "{{pack.path:other-kit/SKILL.md}}"],
+        ]);
+      });
+
+      test("links inside the unit stay clean", () => {
+        const { result } = compileMini({
+          packRoot: true,
+          prep: withFill(READ_GATES, {
+            "widgets-gates": { "SKILL.md": "See ./a.md and notes/deep.md.\n", "a.md": "a\n", "notes/deep.md": "Run ../scripts/x.sh, then ../a.md.\n", "scripts/x.sh": "echo x\n" },
+          }),
+        });
+        expect(result.diagnostics).toEqual([]);
+        expect(result.warnings).toEqual([]);
+      });
+
+      const withSkill = (files: Record<string, string>, extra: Record<string, Record<string, string>> = {}) => (s: ReturnType<typeof setup>) => {
+        withFill("Read {{pack.path:widgets-guide/SKILL.md}} first.\n", extra)(s);
+        for (const [rel, text] of Object.entries(files)) {
+          mkdirSync(join(s.widgets, "skills", "widgets-guide", rel, ".."), { recursive: true });
+          writeFileSync(join(s.widgets, "skills", "widgets-guide", rel), text);
+        }
+      };
+
+      test("a hand-authored skill's copy warns for each link that no longer resolves, and still compiles", () => {
+        const { result } = compileMini({
+          packRoot: true,
+          prep: withSkill({ "SKILL.md": "Read ../widgets-other/SKILL.md and ${CLAUDE_SKILL_DIR}/../../attachments/other-kit/SKILL.md.\n" }, KITS),
+        });
+        expect(result.diagnostics).toEqual([]);
+        expect(contentOf(result.files, "references/widgets-guide/SKILL.md")).toBeDefined();
+        expect(result.warnings).toEqual([
+          "skills/widgets-guide/SKILL.md: ../widgets-other/SKILL.md does not resolve from its copy in references/widgets-guide/",
+          "skills/widgets-guide/SKILL.md: ${CLAUDE_SKILL_DIR}/../../attachments/other-kit/SKILL.md does not resolve from its copy in references/widgets-guide/",
+        ]);
+      });
+
+      test("a hand-authored skill's copy keeps quiet about links inside it", () => {
+        const { result } = compileMini({
+          packRoot: true,
+          prep: withSkill({ "SKILL.md": "See ./a.md.\n", "a.md": "a\n", "notes/deep.md": "Run ../scripts/x.sh.\n", "scripts/x.sh": "echo x\n" }),
+        });
+        expect(result.diagnostics).toEqual([]);
+        expect(result.warnings).toEqual([]);
+      });
+    });
+
     test("a copy that would land on an engine's own references file is a vendor collision", () => {
       const { result } = compileMini({
         packRoot: true,

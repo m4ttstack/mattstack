@@ -1,9 +1,12 @@
-import { readFileSync } from "fs";
-import { join } from "path";
-import { walkAttachmentFiles } from "./base-attachments.ts";
+import { existsSync, readFileSync } from "fs";
+import { dirname, isAbsolute, join, relative } from "path";
+import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
+import { FRONTMATTER_RE, walkAttachmentFiles } from "./base-attachments.ts";
+import { findHandPaths, handPathDiagnostics } from "./hand-paths.ts";
 import {
   assertNoTeamMarkerInRawFile,
   includeText,
+  packPathResolves,
   readTextUnlessBinary,
   referencePath,
   referencesDir,
@@ -12,8 +15,16 @@ import {
 } from "./placeholders.ts";
 import type { AttachmentSource, CompiledFile, PlaceholderContext } from "./types.ts";
 
-/** `from` names where each file came from, so a collision with the skill's own files can say which two met. */
-export type ReferenceCopies = { files: { file: CompiledFile; from: string }[]; includes: Record<string, AttachmentSource> };
+/**
+ * `from` names where each file came from, so a collision with the skill's own files can say which two met.
+ * `diagnostics` are hand-typed paths in copied attachment text; `warnings` are links a copied hand-authored skill can no longer reach.
+ */
+export type ReferenceCopies = {
+  files: { file: CompiledFile; from: string }[];
+  includes: Record<string, AttachmentSource>;
+  diagnostics: BlockDiagnostic[];
+  warnings: string[];
+};
 
 export type ReferenceOpts = {
   /** The built skill's folder from the pack root, `<side>/<name>`, which a copy's `{{verb.path}}` is relative to. */
@@ -26,6 +37,8 @@ export type ReferenceOpts = {
 const COPIED = "a file copied into a built skill's references/";
 
 type UnitSource = { dir: string; label: string; base: boolean };
+
+type SkillLinks = { where: string; unit: string; name: string; body: string; startLine: number };
 
 function unitSource(target: PackTarget, ctx: PlaceholderContext): UnitSource {
   if (!target.planned) return { dir: join(ctx.packRoot!, target.side, target.unit), label: `${target.side}/${target.unit}`, base: false };
@@ -42,10 +55,11 @@ function unitSource(target: PackTarget, ctx: PlaceholderContext): UnitSource {
  * are copied as written.
  */
 export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, opts: ReferenceOpts): ReferenceCopies {
-  const out: ReferenceCopies = { files: [], includes: {} };
+  const out: ReferenceCopies = { files: [], includes: {}, diagnostics: [], warnings: [] };
   const queue = [...targets];
   const copiedUnits = new Set<string>();
   const copiedPaths = new Set<string>();
+  const skillLinks: SkillLinks[] = [];
   while (queue.length > 0) {
     const target = queue.shift()!;
     if (copiedUnits.has(`${target.side}/${target.unit}`)) continue;
@@ -65,11 +79,51 @@ export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, 
         out.files.push({ file: { path, copyFrom: abs }, from: abs });
         continue;
       }
-      const content = renderCopy(readFileSync(abs, "utf8"), { where, unit: target.unit, fileRel: `${opts.skillRel}/${path}`, base: source.base, ctx, queue, opts, includes: out.includes });
+      const raw = readFileSync(abs, "utf8");
+      const head = raw.match(FRONTMATTER_RE)?.[0] ?? "";
+      const at = { body: raw.slice(head.length), startLine: (head.match(/\n/g)?.length ?? 0) + 1 };
+      if (target.side === "skills") {
+        skillLinks.push({ where, unit: target.unit, name, ...at });
+      } else {
+        const handPaths = handPathDiagnostics(at.body, where, { ...copyFixView(ctx, source.base), startLine: at.startLine, depth: name.split("/").length - 1 });
+        if (handPaths.length > 0) {
+          out.diagnostics.push(...handPaths);
+          continue;
+        }
+      }
+      const content = renderCopy(raw, { where, unit: target.unit, fileRel: `${opts.skillRel}/${path}`, base: source.base, ctx, queue, opts, includes: out.includes });
       out.files.push({ file: { path, content }, from: abs });
     }
   }
+  for (const links of skillLinks) out.warnings.push(...deadSkillLinks(links, copiedPaths, join(ctx.packRoot!, opts.skillRel)));
   return out;
+}
+
+function copyFixView(ctx: PlaceholderContext, base: boolean) {
+  const team = base ? ctx.team ?? null : null;
+  return {
+    verbs: new Set(Object.keys(ctx.verbSides)),
+    packSource: (arg: string) => packPathResolves(ctx, arg),
+    teamValue: team ? (key: string) => (Object.hasOwn(team.values.params, key) ? team.values.params[key] : undefined) : undefined,
+  };
+}
+
+/**
+ * A hand-authored skill is also read in place, where a placeholder would read as text, so its
+ * links cannot be rewritten: each one judged from where the copy lands only warns.
+ */
+function deadSkillLinks(links: SkillLinks, copiedPaths: ReadonlySet<string>, skillDir: string): string[] {
+  const unitDir = join(skillDir, "references", links.unit);
+  const fileDir = dirname(join(unitDir, links.name));
+  const dead: string[] = [];
+  for (const p of findHandPaths(links.body, { startLine: links.startLine })) {
+    if (p.anchor === "plugin-root" || p.path.includes("{{") || p.path.includes("<")) continue;
+    const dest = join(p.anchor === "skill-dir" ? unitDir : fileDir, "../".repeat(p.ups), p.rest);
+    const inRefs = relative(join(skillDir, "references"), dest);
+    const reaches = inRefs.startsWith("..") || isAbsolute(inRefs) ? existsSync(dest) : copiedPaths.has(`references/${inRefs}`);
+    if (!reaches && !dead.includes(p.path)) dead.push(p.path);
+  }
+  return dead.map((path) => `${links.where}: ${path} does not resolve from its copy in references/${links.unit}/`);
 }
 
 type CopyRender = {
