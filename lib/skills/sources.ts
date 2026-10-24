@@ -41,6 +41,12 @@ function firstLineIndent(lead: string): number {
   return lead.length - (lead.lastIndexOf("\n") + 1);
 }
 
+/** The trimmed body after any frontmatter, found without parsing it, so a file whose YAML does not parse still has one. */
+export function bodyAfterFrontmatter(md: string): string {
+  const match = md.match(FRONTMATTER_RE);
+  return (match ? md.slice(match[0].length) : md).trim();
+}
+
 export function stripFrontmatter(
   md: string,
 ): { body: string; frontmatter: Record<string, unknown>; bodyStartLine: number; bodyIndent: number } {

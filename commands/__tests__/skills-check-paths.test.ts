@@ -50,3 +50,13 @@ test("a path that resolves, or a doc example holding a placeholder, keeps the ch
   expect(payload.skillPaths).toEqual([]);
   expect(payload.drift).toBe(false);
 });
+
+test("a hand-authored skill whose frontmatter is not valid YAML does not crash the check", async () => {
+  const dir = makePack("Read `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.");
+  writeFileSync(
+    join(dir, "plugin", "skills", "gadgets", "SKILL.md"),
+    "---\nname: gadgets\ndescription: Use when: x\n---\nRead `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.\n",
+  );
+  const payload = await checkPack({ packDir: dir });
+  expect(payload.skillPaths.map((d) => `${d.file}:${d.line}:${d.code}`)).toEqual(["plugin/skills/gadgets/SKILL.md:5:broken-skill-path"]);
+});

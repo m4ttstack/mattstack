@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { assertNoTeamMarkerInRawFile, readTextUnlessBinary } from "./placeholders.ts";
-import { stripFrontmatter } from "./sources.ts";
+import { bodyAfterFrontmatter } from "./sources.ts";
 import type { TeamContext } from "./team-params.ts";
 import type {
   AttachmentSource,
@@ -24,7 +24,7 @@ export const HEADER_COMMENT =
 export function hasCompiledHeader(dir: string): boolean {
   const skillMdPath = join(dir, "SKILL.md");
   if (!existsSync(skillMdPath)) return false;
-  return stripFrontmatter(readFileSync(skillMdPath, "utf8")).body.startsWith(HEADER_COMMENT);
+  return bodyAfterFrontmatter(readFileSync(skillMdPath, "utf8")).startsWith(HEADER_COMMENT);
 }
 
 const SKILL_DIR_PATH_RE = /\$\{CLAUDE_SKILL_DIR\}\/[^\s"'`)]+/g;
