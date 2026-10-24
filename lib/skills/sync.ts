@@ -708,14 +708,18 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const result = await deps.checkPack(pack.name);
     drift = result.drift;
     const handErrors = result.handErrors ?? [];
-    if (handErrors.length > 0) {
-      return refused(`Hand-written skills have ${plural(handErrors.length, "problem")} a recompile cannot fix, so rt stopped before the version bump: ${handErrors.join("; ")}. Fix each file, then sync again`);
+    if (handErrors.length > 0 && mayWritePack) {
+      const problems = plural(handErrors.length, "problem");
+      return refused([`Hand-written skills have ${problems} a recompile cannot fix, so rt stopped before the version bump. Fix each file, then sync again:`, ...handErrors].join("\n"));
     }
+    // A member who cannot write the pack still installs it; only its owners can fix the files.
+    warnings.push(...handErrors.map((e) => `For the pack's owners to fix: ${e}`));
     if (result.strict && result.lintHits > 0) {
       return refused(`This pack is strict, and mcp lint found ${hitCount(result.lintHits)}. Fix them before syncing`);
     }
     const lintNote = result.lintHits > 0 ? `; mcp lint found ${hitCount(result.lintHits)}, advisory for this pack` : "";
-    return ran(`${drift ? "the compiled skills are out of date" : "the compiled skills are current"}${lintNote}`);
+    const handNote = handErrors.length > 0 ? `; hand-written skills have ${plural(handErrors.length, "problem")} for the pack's owners, listed in the warnings` : "";
+    return ran(`${drift ? "the compiled skills are out of date" : "the compiled skills are current"}${lintNote}${handNote}`);
   });
   steps.push({ name: "check", ...checkStep });
   if (stops(checkStep)) return finish();

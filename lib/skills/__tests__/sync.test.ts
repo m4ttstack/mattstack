@@ -2964,13 +2964,42 @@ describe("hand-written skill failures", () => {
       expect(report.ok).toBe(false);
       const check = report.steps.find((s) => s.name === "check")!;
       expect(check.status).toBe("refused");
-      expect(check.detail).toContain(failure);
+      expect(check.detail.split("\n")).toContain(failure);
       expect(check.detail).toContain("rt stopped before the version bump");
       expect(stepNames(report.steps).at(-1)).toBe("check");
       expect(readVersion(pack.dir)).toBe("1.0.0");
       expect(world.calls.filter((c) => c.cmd === "checkPack")).toHaveLength(1);
     });
   }
+
+  test("each failing file is its own row of the refusal", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [false], handErrors: [[BAD_YAML, BROKEN_PATH]] };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+    const rows = report.steps.find((s) => s.name === "check")!.detail.split("\n");
+    expect(rows.slice(1)).toEqual([BAD_YAML, BROKEN_PATH]);
+    expect(rows[0]).not.toContain(BAD_YAML);
+  });
+
+  test("a member who cannot write the pack gets a warning per file and still installs the pack", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], handErrors: [[BAD_YAML, BROKEN_PATH]] };
+    const deps = { ...makeDeps(pack, engine, world), mayCompile: () => false };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("ran");
+    expect(check.detail).toContain("for the pack's owners");
+    expect(report.warnings).toEqual([`For the pack's owners to fix: ${BAD_YAML}`, `For the pack's owners to fix: ${BROKEN_PATH}`]);
+    expect(report.steps.find((s) => s.name === "bump")).toMatchObject({ status: "skipped" });
+    expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+  });
 
   test("the in-tree mattstack plugin refuses at check with the file, not at the bump", async () => {
     const engine = fixturePack("mattstack", "mattstack", "1.2.3");

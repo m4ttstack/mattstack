@@ -264,6 +264,18 @@ describe("syncBlocks", () => {
     expect(syncFailure(refused)).toBeNull();
   });
 
+  test("a hand-written skill refusal puts each file on its own why row", () => {
+    const detail = [
+      "Hand-written skills have 2 problems a recompile cannot fix, so rt stopped before the version bump. Fix each file, then sync again:",
+      "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
+      "skills/gizmos/SKILL.md:5:7: ../gone.md does not resolve to a file from the skill's folder",
+    ].join("\n");
+    const refused = report({ ok: false, steps: [{ name: "check", status: "refused", detail }] });
+    const rows = renderPlain(syncRefusal(refused)!).split("\n");
+    expect(rows.filter((r) => r.includes("SKILL.md:"))).toHaveLength(2);
+    expect(rows.some((r) => r.includes("skills/gadgets/SKILL.md:3:14") && r.includes("skills/gizmos"))).toBe(false);
+  });
+
   test("a step sync marks refused because a command failed reads as a failure, and the report keeps refused", () => {
     const pulled = report({
       ok: false,
