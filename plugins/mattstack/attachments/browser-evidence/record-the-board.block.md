@@ -4,8 +4,10 @@ order: 10
 
 # Record the board
 
-A board ready goes into the record through evidence-record's
-`evidence_record` call, which copies its whole bundle from
+A review never takes this step: it keeps no evidence record and cites the
+board where the driver drew it. Any other caller's board ready goes into
+the record through evidence-record's `evidence_record` call, which copies
+its whole bundle from
 `~/.fast-browser/screenshots/` into the run's evidence folder:
 
 - `annotated` is the board, `~/.fast-browser/screenshots/<stem>.png`, on

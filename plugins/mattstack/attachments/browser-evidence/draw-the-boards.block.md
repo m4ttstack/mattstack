@@ -147,7 +147,8 @@ at the redaction gate, which waits for the hand-off's boards and asks about
 them together. Get ready runs once per stage pass, before the first spawn.
 
 `Board ready` returns the board to the box that called this flow, which
-records it (Record the board, below). `Not drawn` returns with the reason;
+records it (Record the board, below); a review keeps no evidence record and
+records nothing. `Not drawn` returns with the reason;
 it is never a board drawn by hand. No retry can fix these reasons: the
 developer left it uncaptured, the doctor stayed red, no compose on PATH,
 the sign-in asks were spent, no driver to spawn, redaction rounds or
