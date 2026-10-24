@@ -1683,11 +1683,11 @@ describe('a block tree as rt reads it', () => {
     step: null,
   });
 
-  it('draws each block part as the skill text it renders', () => {
+  it('draws each block part as the skill text it renders, named by its block', () => {
     expect(rowsOf(view.rows)).toEqual([
-      ['rendered L1-10', '10 lines of verb text'],
+      ['rendered L1-10', 'ship · 10 lines'],
       ['rendered L11-20', '{{props.rules}}'],
-      ['rendered L21-30', '10 lines of verb text'],
+      ['rendered L21-30', 'flow · 10 lines'],
     ]);
     expect(view.output!.parts[0]).toMatchObject({ own: true, lines: 20 });
   });
@@ -1781,10 +1781,76 @@ describe('a block tree as rt reads it', () => {
     ]);
     expect(rowsOf(work.rows).at(-1)).toEqual([
       'rendered L1-824',
-      '824 lines of orchestrator text',
+      'work · 824 lines',
     ]);
     expect(work.inputs.map(card => card.id)).toEqual([
       'variable:run-start.flags:work',
+    ]);
+  });
+});
+
+describe("the pipeline map over rt's block tree", () => {
+  const WORK = 'attachments/pipeline/work';
+  /** work's placeholders where rt reports them for its block tree. */
+  const blockComposition: SkillsComposition = {
+    ...composition,
+    targets: composition.targets!.map(target =>
+      target.name === 'work'
+        ? {
+            ...target,
+            placeholders: [
+              ...target.placeholders
+                .filter(p => p.kind === 'verb.path')
+                .map(p => ({
+                  ...p,
+                  file: `${WORK}/stages/index.block.md`,
+                  line: 9,
+                })),
+              {
+                kind: 'run-start.flags',
+                arg: 'work',
+                file: `${WORK}/stages/index.block.md`,
+                line: 14,
+              },
+            ],
+          }
+        : target
+    ),
+  };
+  const view = () =>
+    buildTemplateView({
+      anatomy: designFixture('anatomy.work.rt'),
+      composition: blockComposition,
+      check,
+      changes: changesClean,
+      step: null,
+    });
+
+  it("seats each stage link after the block that holds it, at that block file's line", () => {
+    const rows = rowsOf(view().rows);
+    const stages = rows.findIndex(([, text]) => text === 'stages · 141 lines');
+    expect(stages).toBeGreaterThan(0);
+    expect(rows.slice(stages + 1, stages + 10)).toEqual([
+      ['stages L9', '{{verb.path:stage-provision}}'],
+      ['stages L9', '{{verb.path:stage-plan}}'],
+      ['stages L9', '{{verb.path:stage-gates}}'],
+      ['stages L9', '{{verb.path:stage-evidence}}'],
+      ['stages L9', '{{verb.path:stage-implement}}'],
+      ['stages L9', '{{verb.path:stage-self-review}}'],
+      ['stages L9', '{{verb.path:stage-ship}}'],
+      ['stages L9', '{{verb.path:stage-watch-ci}}'],
+      ['stages L14', '{{run-start.flags:work}}'],
+    ]);
+    expect(rows[0]).toEqual(['rendered L12-18', 'work · 7 lines']);
+  });
+
+  it('names each block row by its block, and counts the tree in blocks', () => {
+    const v = view();
+    expect(v.templateFile).toBe('work/index.block.md');
+    expect(v.templateMeta).toBe('50 blocks → renders 841');
+    expect(rowsOf(v.rows)).toContainEqual([
+      'rendered L469-590',
+      'gate-protocol · 122 lines',
     ]);
   });
 });

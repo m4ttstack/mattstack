@@ -161,6 +161,8 @@ type AnatomyPart = SkillsAnatomy['parts'][number];
     link (`verb.path`) or a run variable, which anatomy carries no part for. */
 type RowSource = Omit<AnatomyPart, 'kind'> & {
   kind: AnatomyPart['kind'] | 'verb.path' | 'variable';
+  /** The block whose file holds a composition placeholder, by block id. */
+  block?: string | null;
 };
 type BindingChange = SkillsChanges['bindings'][number];
 type DriftCause = SkillsAnatomy['staleBecause'][number];
@@ -335,13 +337,14 @@ const VARIABLE_KINDS = new Set(['stage.fields', 'run-start.flags']);
  */
 function placeholderSources(
   composition: Pick<SkillsComposition, 'targets'>,
-  skill: string
+  anatomy: SkillsAnatomy
 ): RowSource[] {
   const targets = composition.targets ?? [];
   const placeholders =
-    targets.find(target => target.name === skill)?.placeholders ?? [];
+    targets.find(target => target.name === anatomy.skill)?.placeholders ?? [];
   return placeholders.flatMap((placeholder): RowSource[] => {
     const at = {
+      block: blockIdOf(placeholder.file, anatomy),
       templateLines: [placeholder.line, placeholder.line] as LineRange,
       renderedLines: null,
       mode: null,
@@ -379,19 +382,62 @@ function placeholderSources(
   });
 }
 
+/** Whether rt reported the skill as a tree of blocks, one part per block. */
+export function isBlockTree(anatomy: SkillsAnatomy): boolean {
+  return anatomy.parts.some(part => part.kind === 'block');
+}
+
+const lastSegment = (id: string) => id.split('/').pop() ?? id;
+
+/**
+ * The block a file of the skill's tree holds, by rt's block id: the root's
+ * id, then the file's path inside the engine folder, an `index.block.md`
+ * naming its folder. `file` is relative to the plugin, so the engine folder
+ * is the longest folder of it the template's own folder ends with.
+ */
+function blockIdOf(file: string, anatomy: SkillsAnatomy): string | null {
+  const root = anatomy.parts.find(part => part.kind === 'block')?.name;
+  if (!root) return null;
+  const templateDir = anatomy.template.path.replace(/\/index\.block\.md$/, '');
+  const segments = file.split('/');
+  for (let at = segments.length - 1; at > 0; at--) {
+    if (!templateDir.endsWith(`/${segments.slice(0, at).join('/')}`)) continue;
+    const rest = segments
+      .slice(at)
+      .join('/')
+      .replace(/(^|\/)index\.block\.md$/, '')
+      .replace(/\.block\.md$/, '');
+    return rest ? `${root}/${rest}` : root;
+  }
+  return null;
+}
+
 /**
  * The anatomy parts with the composition-only placeholders among them. Where
  * anatomy traces template lines, each placeholder goes before the first part
- * at or past its line; rt's own anatomy places parts by rendered line only, which
- * a template line cannot be ordered against, so there they lead.
+ * at or past its line. A block tree's placeholders follow the block whose
+ * file holds them. Elsewhere rt places parts by rendered line only, which a
+ * template line cannot be ordered against, so there they lead.
  */
 function rowSourcesOf(
   anatomy: SkillsAnatomy,
   composition: Pick<SkillsComposition, 'targets'>
 ): RowSource[] {
-  const extra = placeholderSources(composition, anatomy.skill).sort(
+  const extra = placeholderSources(composition, anatomy).sort(
     (a, b) => a.templateLines![0] - b.templateLines![0]
   );
+  if (isBlockTree(anatomy)) {
+    const ids = new Set(anatomy.parts.map(part => part.name));
+    const placed = (source: RowSource) =>
+      source.block != null && ids.has(source.block);
+    const out: RowSource[] = extra.filter(source => !placed(source));
+    for (const part of anatomy.parts) {
+      out.push(part);
+      if (part.kind === 'block')
+        out.push(...extra.filter(source => source.block === part.name));
+    }
+    return out;
+  }
   if (!anatomy.parts.some(part => part.templateLines))
     return [...extra, ...anatomy.parts];
   const out: RowSource[] = [];
@@ -646,8 +692,11 @@ export function buildTemplateView(input: {
     const nth = (rowsAtLine.get(line) ?? 0) + 1;
     rowsAtLine.set(line, nth);
     const id = nth === 1 ? String(line) : `${line}.${nth}`;
+    // A placeholder in a block file counts its line in that file.
     const gutter = part.templateLines
-      ? gutterOf(part.templateLines)
+      ? part.block
+        ? `${lastSegment(part.block)} ${gutterOf(part.templateLines)}`
+        : gutterOf(part.templateLines)
       : `rendered ${gutterOf(anchor)}`;
 
     if (part.kind === 'text' || part.kind === 'block') {
@@ -656,7 +705,10 @@ export function buildTemplateView(input: {
         line,
         kind: 'text',
         gutter,
-        label: textLabel(spanOf(anchor), textNoun),
+        label:
+          part.kind === 'block' && part.name
+            ? `${lastSegment(part.name)} · ${countOf(spanOf(anchor), 'line', 'lines')}`
+            : textLabel(spanOf(anchor), textNoun),
         templateLines: part.templateLines,
         renderedLines: part.renderedLines,
       });
@@ -952,11 +1004,18 @@ function linkCard(
 
 function templateMeta(anatomy: SkillsAnatomy, links: boolean): string {
   const { template, rendered } = anatomy;
-  if (links && rendered.exists)
-    return `${template.lines} lines → renders ${rendered.lines}`;
+  // A block tree's root file is one of many; the tree is counted in blocks.
+  const size = isBlockTree(anatomy)
+    ? countOf(
+        anatomy.parts.filter(part => part.kind === 'block').length,
+        'block',
+        'blocks'
+      )
+    : `${template.lines} lines`;
+  if (links && rendered.exists) return `${size} → renders ${rendered.lines}`;
   if (!rendered.exists || template.builtVersion === null)
-    return `${template.lines} lines · never compiled`;
-  return `${template.lines} lines · ${pluginOf(template.ref)} ${template.builtVersion}`;
+    return `${size} · never compiled`;
+  return `${size} · ${pluginOf(template.ref)} ${template.builtVersion}`;
 }
 
 function outputCard(
