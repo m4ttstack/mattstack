@@ -8,13 +8,13 @@ import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, su
 import type { TeamContext } from "./team-params.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
-import type { CompiledFile, PlannedAttachments, Side } from "./types.ts";
+import type { CompiledFile, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = "compiled.json";
 const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 
 export type BaseRef = { name: string; dir: string; version: string | null };
-export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[] };
+export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource };
 export type StaleAttachment = { name: string; why: "dropped" | "no-base" };
 export type BaseAttachmentPlan = {
   base: BaseRef | null;
@@ -297,7 +297,7 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
       }
     }
     out.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
-    emits.push({ name, files: out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), warnings });
+    emits.push({ name, files: out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), warnings, source: { dir: srcDir, base: base.name } });
   }
 
   if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], errors };
@@ -305,8 +305,10 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
 }
 
 export function plannedAttachmentsOf(plan: BaseAttachmentPlan): PlannedAttachments {
-  return new Map<string, ReadonlySet<string>>([
+  const planned = new Map<string, ReadonlySet<string>>([
     ...plan.emits.map((e): [string, ReadonlySet<string>] => [e.name, new Set(e.files.map((f) => f.path))]),
     ...plan.stale.map((s): [string, ReadonlySet<string>] => [s.name, new Set<string>()]),
   ]);
+  const sources = new Map(plan.emits.flatMap((e): [string, PlannedSource][] => (e.source ? [[e.name, e.source]] : [])));
+  return Object.assign(planned, { sources });
 }

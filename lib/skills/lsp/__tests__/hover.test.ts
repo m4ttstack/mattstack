@@ -140,11 +140,11 @@ describe("hoverAt on an include", () => {
 });
 
 describe("hoverAt on a skill path", () => {
-  test("pack.path names its target from the pack's root and says it exists", () => {
+  test("pack.path names its source from the pack's root, says it exists and where each built skill reads its copy", () => {
     const ws = new Workspace([plugin, pack]);
     ws.open(gate, `${ws.text(gate).trimEnd()}\n\nRead {{pack.path:mini-rules/fast.md}} first.\n`);
     const h = hover(ws, gate, "{{pack.path:mini-rules/fast.md}}", 4);
-    expect(linesOf(h?.contents)).toEqual(["**pack.path** · widgets", "`attachments/mini-rules/fast.md` · exists"]);
+    expect(linesOf(h?.contents)).toEqual(["**pack.path** · widgets", "`attachments/mini-rules/fast.md` · exists", "copied into each built skill's `references/mini-rules/fast.md`"]);
     expect(covered(ws, gate, h!)).toBe("{{pack.path:mini-rules/fast.md}}");
   });
 
@@ -167,7 +167,7 @@ describe("hoverAt on a skill path", () => {
     const ws = new Workspace([plugin, pack]);
     ws.open(gate, `${ws.text(gate).trimEnd()}\n\nRead {{pack.path:{{team.gates-fill}}/fast.md}} first.\n`);
     const h = hover(ws, gate, "{{pack.path:", 4);
-    expect(linesOf(h?.contents)).toEqual(["**pack.path** · widgets", "`{{team.gates-fill}}` is `mini-rules`", "`attachments/mini-rules/fast.md` · exists"]);
+    expect(linesOf(h?.contents)).toEqual(["**pack.path** · widgets", "`{{team.gates-fill}}` is `mini-rules`", "`attachments/mini-rules/fast.md` · exists", "copied into each built skill's `references/mini-rules/fast.md`"]);
     expect(covered(ws, gate, h!)).toBe("{{pack.path:{{team.gates-fill}}/fast.md}}");
     expect(linesOf(hover(ws, gate, "{{team.gates-fill}}", 4)?.contents)).toEqual(linesOf(h?.contents));
   });

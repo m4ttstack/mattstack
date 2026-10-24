@@ -388,6 +388,8 @@ export type CompileSkillOpts = {
   plannedAttachments?: PlannedAttachments;
   pipeline?: string | null;
   team?: TeamContext | null;
+  /** Loads a flat include a file copied into references/ names that the built skill itself does not. */
+  loadInclude?: (name: string) => AttachmentSource;
 };
 
 /** `includes` is the flat includes a block's text and its inlined values place; tree includes render through their blocks. */

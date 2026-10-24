@@ -1148,7 +1148,12 @@ describe("base pack attachments", () => {
   });
 
   const kit = (packDir: string, ...rest: string[]) => join(packDir, "attachments", "review-kit", ...rest);
-  const PACK_PATH_DOMAIN = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:review-kit/references/guide.md}}.\n");
+  const notes = (packDir: string, ...rest: string[]) => join(packDir, "attachments", "notes-kit", ...rest);
+  const PACK_PATH_DOMAIN = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:notes-kit/references/guide.md}}.\n");
+  const NOTES_KIT = {
+    "attachments/notes-kit/SKILL.md": "---\nname: notes-kit\ndescription: shared notes\n---\nNotes. Back to {{verb.path:watch-ci}}.\n",
+    "attachments/notes-kit/references/guide.md": "See {{pack.path:notes-kit/SKILL.md}}.\n",
+  };
 
   test("emits a base attachment with compiled.json, renders the three placeholders by depth, and copies scripts byte for byte", async () => {
     const { baseDir, packDir, compile } = seedBaseAndTeam();
@@ -1186,27 +1191,57 @@ describe("base pack attachments", () => {
     expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
   });
 
-  test("a team verb reaches an emitted file through pack.path on a clean compile", async () => {
-    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+  test("a team verb reads a base attachment through its own rendered copy on a clean compile", async () => {
+    const { mattstackDir, packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: NOTES_KIT });
 
     const first = await compile();
     expect(first.errors).toEqual([]);
-    expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+    const verbDir = join(packDir, "skills", "watch-ci");
+    expect(readFileSync(join(verbDir, "SKILL.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/references/notes-kit/references/guide.md");
+    expect(readFileSync(join(verbDir, "references", "notes-kit", "SKILL.md"), "utf8")).toBe("---\nname: notes-kit\ndescription: shared notes\n---\nNotes. Back to ../../SKILL.md.\n");
+    expect(readFileSync(join(verbDir, "references", "notes-kit", "references", "guide.md"), "utf8")).toBe("See ${CLAUDE_SKILL_DIR}/references/notes-kit/SKILL.md.\n");
+    expect(existsSync(join(verbDir, "references", "notes-kit", "compiled.json"))).toBe(false);
+    expect((await checkPack({ packDir, mattstackDir })).verbs.map((row) => [row.name, row.status])).toEqual([["watch-ci", "in-sync"]]);
 
-    rmSync(kit(packDir), { recursive: true });
+    rmSync(notes(packDir), { recursive: true });
     const dry = await compile("--dry-run");
     expect(dry.errors).toEqual([]);
-    expect(existsSync(kit(packDir))).toBe(false);
+    expect(existsSync(notes(packDir))).toBe(false);
+  });
+
+  test("a base attachment a built skill copies may not carry {{pack.name}}", async () => {
+    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:review-kit/SKILL.md}}.\n");
+    const { compile } = seedBaseAndTeam({ domainBody: linked });
+
+    const { errors } = await compile();
+
+    expect(errors.join("\n")).toContain(
+      "acme-base:attachments/review-kit/SKILL.md: {{pack.name}} -- a file copied into a built skill's references/ may carry {{include}}, {{verb.path}} or {{pack.path}} only (line 5)",
+    );
+  });
+
+  test("a recompile clears what an earlier compile copied into references/", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: { ...NOTES_KIT, "attachments/other-kit/SKILL.md": "---\nname: other-kit\n---\nother\n" } });
+    expect((await compile()).errors).toEqual([]);
+    const refs = join(packDir, "skills", "watch-ci", "references");
+    expect(existsSync(join(refs, "notes-kit", "SKILL.md"))).toBe(true);
+    writeFile(join(refs, "notes-kit", "left-over.md"), "stale\n");
+
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:other-kit/SKILL.md}}.\n"));
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(refs, "notes-kit"))).toBe(false);
+    expect(readFileSync(join(refs, "other-kit", "SKILL.md"), "utf8")).toBe("---\nname: other-kit\n---\nother\n");
   });
 
   test("a pack.path link onto a base attachment does not warn on the compile that first writes it", async () => {
-    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nRead `{{pack.path:review-kit/SKILL.md}}` first.\n");
-    const { packDir, compile } = seedBaseAndTeam({ domainBody: linked });
+    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nRead `{{pack.path:notes-kit/SKILL.md}}` first.\n");
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: linked, baseFiles: NOTES_KIT });
     io.clear();
 
     expect((await compile()).errors).toEqual([]);
 
-    expect(existsSync(kit(packDir, "SKILL.md"))).toBe(true);
+    expect(existsSync(notes(packDir, "SKILL.md"))).toBe(true);
     expect(io.stdout() + io.stderr()).not.toContain("not an emitted file");
   });
 
@@ -1557,23 +1592,23 @@ describe("base pack attachments", () => {
   });
 
   test("a preview reaches an emitted file through pack.path on a clean tree", async () => {
-    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: NOTES_KIT });
 
     const { errors } = await compile("--preview", "--verb", "watch-ci");
 
     expect(errors).toEqual([]);
-    expect(io.stdout()).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
-    expect(existsSync(kit(packDir))).toBe(false);
+    expect(io.stdout()).toContain("${CLAUDE_SKILL_DIR}/references/notes-kit/references/guide.md");
+    expect(existsSync(notes(packDir))).toBe(false);
   });
 
   test("anatomy resolves pack.path to an emitted file on a clean tree", async () => {
-    const { mattstackDir, packDir } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+    const { mattstackDir, packDir } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN, baseFiles: NOTES_KIT });
 
     const { errors } = await runExpectingCleanExit(() =>
       skillsAnatomy(["--skill", "watch-ci", "--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]));
 
     expect(errors).toEqual([]);
-    expect(io.lines().join("\n")).toContain("attachments/review-kit/references/guide.md");
+    expect(io.lines().join("\n")).toContain("references/notes-kit/references/guide.md");
   });
 
   describe("check", () => {

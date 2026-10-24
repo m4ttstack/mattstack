@@ -62,13 +62,13 @@ function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
 
 /** Each line through substituteLine, the way a block's text renders. */
 function substitute(body: string, c: PlaceholderContext, where: string): { body: string; used: Used } {
-  const used: Used = { includes: [], packPaths: [] };
+  const used: Used = { includes: [], packPaths: [], references: [] };
   return { body: body.split("\n").map((line, i) => substituteLine(line, i, c, where, used)).join("\n"), used };
 }
 
 /** A fill inlined at a `domain` prop on the root of engine `x`, the way render places a value. */
 function inline(f: AttachmentSource, c: PlaceholderContext = ctx(), packPaths: string[] = []): string {
-  return inlineFillText("prop:x.domain", "domain", f, c, packPaths);
+  return inlineFillText("prop:x.domain", "domain", f, c, { packPaths, references: [] });
 }
 
 describe("team markers in inlined fills", () => {
@@ -402,24 +402,27 @@ describe("pack.path", () => {
     return root;
   }
 
-  test("renders the host-anchored path from an attachments-side and a skills-side target alike", () => {
+  test("renders to the built skill's own references copy, through the stage dir for a stage", () => {
     const root = packRoot();
-    const want = "run ${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh";
-    expect(substitute("run {{pack.path:evidence/scripts/capture.sh}}", ctx({ packRoot: root, side: "attachments" }), "stage-ship").body).toBe(want);
-    expect(substitute("run {{pack.path:evidence/scripts/capture.sh}}", ctx({ packRoot: root, side: "skills" }), "ship").body).toBe(want);
+    const stage = ctx({ packRoot: root, side: "attachments", stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-ship" });
+    expect(substitute("run {{pack.path:evidence/scripts/capture.sh}}", stage, "stage-ship").body)
+      .toBe("run ${CLAUDE_SKILL_DIR}/../../attachments/stage-ship/references/evidence/scripts/capture.sh");
+    expect(substitute("run {{pack.path:evidence/scripts/capture.sh}}", ctx({ packRoot: root, side: "skills" }), "ship").body)
+      .toBe("run ${CLAUDE_SKILL_DIR}/references/evidence/scripts/capture.sh");
   });
 
   test("an attachment that lives under skills/ renders under skills/", () => {
     const root = packRoot();
     mkdirSync(join(root, "skills", "helper"), { recursive: true });
     writeFileSync(join(root, "skills", "helper", "notes.md"), "notes\n");
-    expect(substitute("{{pack.path:helper/notes.md}}", ctx({ packRoot: root }), "ship").body).toBe("${CLAUDE_SKILL_DIR}/../../skills/helper/notes.md");
+    expect(substitute("{{pack.path:helper/notes.md}}", ctx({ packRoot: root }), "ship").body).toBe("${CLAUDE_SKILL_DIR}/references/helper/notes.md");
   });
 
   test("returns the rendered paths beside used", () => {
     const root = packRoot();
     const { used } = substitute("a {{pack.path:evidence/scripts/capture.sh}} b", ctx({ packRoot: root }), "ship");
-    expect(used.packPaths).toEqual(["${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh"]);
+    expect(used.packPaths).toEqual(["${CLAUDE_SKILL_DIR}/references/evidence/scripts/capture.sh"]);
+    expect(used.references).toEqual([{ side: "attachments", attachment: "evidence", file: "scripts/capture.sh", unit: "evidence", planned: false }]);
   });
 
   test("rejects a .. segment", () => {
@@ -469,8 +472,8 @@ describe("pack.path", () => {
     });
     const packPaths: string[] = [];
     const body = inline(withPath, inStage, packPaths);
-    expect(body).toContain("config ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/domain/ci.json; capture ${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh");
-    expect(packPaths).toEqual(["${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh"]);
+    expect(body).toContain("config ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/domain/ci.json; capture ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/references/evidence/scripts/capture.sh");
+    expect(packPaths).toEqual(["${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/references/evidence/scripts/capture.sh"]);
   });
 });
 
@@ -479,7 +482,7 @@ describe("pack.path with planned attachments", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
     const planned = new Map([["review-kit", new Set(["references/guide.md"])]]);
     expect(substitute("{{pack.path:review-kit/references/guide.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
-      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+      .toBe("${CLAUDE_SKILL_DIR}/references/review-kit/references/guide.md");
   });
 
   test("a planned attachment ignores what is on disk for that name", () => {
@@ -495,7 +498,7 @@ describe("pack.path with planned attachments", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
     const planned = new Map([["review/self-review", new Set(["SKILL.md", "references/guide.md"])]]);
     expect(substitute("{{pack.path:review/self-review/references/guide.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
-      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/references/guide.md");
+      .toBe("${CLAUDE_SKILL_DIR}/references/review/self-review/references/guide.md");
     expect(() => substitute("{{pack.path:review/self-review/old.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship"))
       .toThrow("ship: {{pack.path:review/self-review/old.md}} -- attachments/review/self-review/old.md does not exist");
     const gone = new Map([["review/old-review", new Set<string>()]]);
@@ -507,7 +510,7 @@ describe("pack.path with planned attachments", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
     const planned = new Map([["review", new Set<string>()], ["review/self-review", new Set(["x.md"])]]);
     expect(substitute("{{pack.path:review/self-review/x.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
-      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/x.md");
+      .toBe("${CLAUDE_SKILL_DIR}/references/review/self-review/x.md");
   });
 
   test("an attachment planned for removal is not a directory", () => {

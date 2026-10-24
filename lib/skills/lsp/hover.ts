@@ -70,6 +70,9 @@ function skillPathHover(ws: Workspace, file: string, token: SkillPathToken): str
             ? "takes <attachment>/<file>"
             : `\`${token.verb}\` is not a compiled verb of ${pack.plugin.name}`,
       );
+      if (token.kind === "pack-path" && target?.exists && !target.compiled) {
+        lines.push(`copied into each built skill's \`references/${attachment}/${token.file}\``);
+      }
       return lines.join("\n\n");
     })
     .join("\n\n");

@@ -905,6 +905,7 @@ function compileVerb(
     side: isPublic ? "skills" : "attachments",
     plannedAttachments: planned,
     pipeline,
+    loadInclude: (name) => loadInclude(name, resolved.pluginRoots),
   });
 
   try {

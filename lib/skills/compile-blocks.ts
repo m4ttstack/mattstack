@@ -19,6 +19,7 @@ import {
 import { handPathDiagnostics } from "./hand-paths.ts";
 import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves, skillDirFor } from "./placeholders.ts";
 import { effectiveBindings, type LayeredBindings } from "./pipelines.ts";
+import { referenceCopies, type ReferenceCopies } from "./references.ts";
 import { AttachmentLoadError } from "./sources.ts";
 import type { TeamContext } from "./team-params.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
@@ -338,7 +339,8 @@ export function compileBlockSkill(
   ]);
   const content = `${buildFrontmatter(verb, allowedTools, compiledParts)}\n\n${body}\n`;
 
-  const vendored = vendorBlockFiles(step, placed, values, engine, includes, opts, diagnostics);
+  const copies = referenceCopies(rendered.used.references, ctx, { skillRel: `${ctx.side}/${verb.name}`, loadInclude: opts.loadInclude });
+  const vendored = vendorBlockFiles(step, placed, values, engine, { ...includes, ...copies.includes }, copies, opts, diagnostics);
   if (diagnostics.length > 0) return { files: [], warnings: [], errors: [], diagnostics };
   const files: CompiledFile[] = [{ path: "SKILL.md", content }, ...vendored];
 
@@ -416,31 +418,34 @@ function vendorBlockFiles(
   values: BlockValues,
   engine: BlockTree,
   includes: Record<string, AttachmentSource>,
+  copies: ReferenceCopies,
   opts: CompileSkillOpts,
   diagnostics: BlockDiagnostic[],
 ): CompiledFile[] {
   const files: CompiledFile[] = [];
   const owner = new Map<string, string>();
-  const add = (path: string, copyFrom: string, file: string) => {
-    const first = owner.get(path);
-    if (first === copyFrom) return;
+  const add = (file: CompiledFile, from: string, at: string) => {
+    const first = owner.get(file.path);
+    if (first === from) return;
     if (first !== undefined) {
-      diagnostics.push({ file, line: 1, col: 1, code: "vendor-collision", message: `${first} and ${copyFrom} would both vendor to ${path}` });
+      diagnostics.push({ file: at, line: 1, col: 1, code: "vendor-collision", message: `${first} and ${from} would both vendor to ${file.path}` });
       return;
     }
-    owner.set(path, copyFrom);
-    files.push({ path, copyFrom });
+    owner.set(file.path, from);
+    files.push(file);
   };
+  const copy = (path: string, copyFrom: string, at: string) => add({ path, copyFrom }, copyFrom, at);
 
-  for (const entry of step.stepFiles) add(entry, `${step.dir}/${entry}`, step.tree!.root.relPath);
+  for (const entry of step.stepFiles) copy(entry, `${step.dir}/${entry}`, step.tree!.root.relPath);
   for (const { block, fill, dir } of propFills(placed, values, engine)) {
     for (const entry of fill.extraFiles) {
       assertNoTeamMarkerInVendoredFile(fill, entry, opts.team ?? null);
-      add(`parts/${dir}/${entry}`, `${fill.dir}/${entry}`, block.relPath);
+      copy(`parts/${dir}/${entry}`, `${fill.dir}/${entry}`, block.relPath);
     }
   }
   for (const [name, inc] of Object.entries(includes)) {
-    for (const entry of inc.extraFiles) add(`parts/include-${name}/${entry}`, `${inc.dir}/${entry}`, inc.srcPath);
+    for (const entry of inc.extraFiles) copy(`parts/include-${name}/${entry}`, `${inc.dir}/${entry}`, inc.srcPath);
   }
+  for (const { file, from } of copies.files) add(file, from, step.tree!.root.relPath);
   return files;
 }

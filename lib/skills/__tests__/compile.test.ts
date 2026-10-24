@@ -753,20 +753,19 @@ describe("compileBlockSkill with placeholders", () => {
       side: "attachments",
       emittedSiblingDirs: [host],
     });
-    expect(skillMd(r)).toContain(
-      `Config at ${host}/parts/domain/ci-config.json; capture with \${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh.`,
-    );
+    expect(skillMd(r)).toContain(`Config at ${host}/parts/domain/ci-config.json; capture with ${host}/references/evidence/scripts/capture.sh.`);
+    expect(r.files.map((f) => f.path)).toContain("references/evidence/scripts/capture.sh");
     expect(r.warnings).toEqual([]);
   });
 
-  test("pack.path in a public verb renders the same anchored path and lints clean", () => {
+  test("pack.path in a public verb renders its own references copy and lints clean", () => {
     const packRoot = packWithEvidence();
     const r = compile(verb, bare("Run {{pack.path:evidence/scripts/capture.sh}} after the diff."), {}, new Set(), {
       packRoot,
       compiledDir: join(packRoot, "skills", "watch-ci"),
       side: "skills",
     });
-    expect(skillMd(r)).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh after the diff.");
+    expect(skillMd(r)).toContain("Run ${CLAUDE_SKILL_DIR}/references/evidence/scripts/capture.sh after the diff.");
     expect(r.warnings).toEqual([]);
   });
 

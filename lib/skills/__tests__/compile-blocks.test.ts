@@ -7,7 +7,7 @@ import { blockPropValues, compileBlockSkill, includeNamesIn, includeSitesIn, unc
 import { loadBlockTree } from "../blocks/tree.ts";
 import { layeredFromManifest } from "../manifest-merge.ts";
 import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from "../sources.ts";
-import type { StepSource } from "../types.ts";
+import type { CompiledFile, StepSource } from "../types.ts";
 import type { BlockTree } from "../blocks/types.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
 
@@ -43,12 +43,31 @@ function valuesFor(step: StepSource, roots: PluginRoots, b: PropBindings, extra:
   return blockPropValues(trees, b, (binding, prop) => loadAttachment(binding, prop, roots), new Set());
 }
 
-function compileMini(opts: { manifest?: string; stageDir?: string | null; verbSides?: Record<string, "skills" | "attachments">; packRoot?: boolean; team?: TeamContext; prep?: (s: ReturnType<typeof setup>) => void } = {}) {
+type MiniOpts = {
+  manifest?: string;
+  stageDir?: string | null;
+  verbSides?: Record<string, "skills" | "attachments">;
+  packRoot?: boolean;
+  team?: TeamContext;
+  verb?: typeof VERB;
+  side?: "skills" | "attachments";
+  loadIncludes?: boolean;
+  prep?: (s: ReturnType<typeof setup>) => void;
+};
+
+function compileMini(opts: MiniOpts = {}) {
   const s = setup();
   opts.prep?.(s);
   const step = loadStepSource("mini", s.roots) as StepSource & { tree: BlockTree };
   const values = valuesFor(step, s.roots, bindingsOf(opts.manifest ?? readFileSync(MANIFEST, "utf8")));
-  const result = compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), { stageDir: opts.stageDir ?? null, verbSides: opts.verbSides, packRoot: opts.packRoot ? s.widgets : undefined, team: opts.team });
+  const result = compileBlockSkill(opts.verb ?? VERB, step, values, new Set(["mattstack:model-tiering"]), {
+    stageDir: opts.stageDir ?? null,
+    verbSides: opts.verbSides,
+    side: opts.side,
+    packRoot: opts.packRoot ? s.widgets : undefined,
+    team: opts.team,
+    loadInclude: opts.loadIncludes ? (name) => loadInclude(name, s.roots) : undefined,
+  });
   const skillMd = result.files.find((f) => f.path === "SKILL.md");
   return { ...s, result, skillMd: skillMd && "content" in skillMd ? skillMd.content : "" };
 }
@@ -165,7 +184,8 @@ describe("compileBlockSkill", () => {
     test("a fill's {{pack.path:{{team.<key>}}/<file>}} compiles to the attachment the team names", () => {
       const { result, skillMd } = compileMini({ packRoot: true, team: teamWith({ "gates-fill": "widgets-gates" }), prep: gatesFill("Read {{pack.path:{{team.gates-fill}}/SKILL.md}} first.\n") });
       expect(result.diagnostics).toEqual([]);
-      expect(skillMd).toContain("Read ${CLAUDE_SKILL_DIR}/../../attachments/widgets-gates/SKILL.md first.");
+      expect(skillMd).toContain("Read ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md first.");
+      expect(result.files).toContainEqual({ path: "references/widgets-gates/SKILL.md", content: "gates\n" });
     });
 
     test("a team value naming a missing attachment fails with pack.path's own error", () => {
@@ -184,13 +204,140 @@ describe("compileBlockSkill", () => {
       const fixed = hand.slice(0, 5) + fix.text + hand.slice(5 + fix.length);
       const again = compileMini({ packRoot: true, team: teamWith({ "gates-fill": "widgets-gates" }), prep: gatesFill(fixed) });
       expect(again.result.diagnostics).toEqual([]);
-      expect(again.skillMd).toContain("${CLAUDE_SKILL_DIR}/../../attachments/widgets-gates/SKILL.md");
+      expect(again.skillMd).toContain("${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md");
     });
 
     test("with no team value the hand-typed path gets no fix", () => {
       const { result } = compileMini({ packRoot: true, team: teamWith({}), prep: gatesFill("Read ../../attachments/{{team.gates-fill}}/SKILL.md first.\n") });
       expect(result.diagnostics).toMatchObject([{ code: "hand-typed-path" }]);
       expect(result.diagnostics[0]!.fix).toBeUndefined();
+    });
+  });
+
+  describe("a built skill reads its own rendered references", () => {
+    const unit = (widgets: string, name: string, files: Record<string, string>) => {
+      for (const [rel, text] of Object.entries(files)) {
+        mkdirSync(join(widgets, "attachments", name, rel, ".."), { recursive: true });
+        writeFileSync(join(widgets, "attachments", name, rel), text);
+      }
+    };
+    const withFill = (body: string, units: Record<string, Record<string, string>>) => ({ widgets }: ReturnType<typeof setup>) => {
+      for (const [name, files] of Object.entries(units)) unit(widgets, name, files);
+      writeFileSync(join(widgets, "attachments", "mini-rules", "fast.md"), body);
+    };
+    const contentOf = (files: CompiledFile[], path: string) => {
+      const file = files.find((f) => f.path === path);
+      return file && "content" in file ? file.content : undefined;
+    };
+    const references = (files: CompiledFile[]) => files.map((f) => f.path).filter((p) => p.startsWith("references/"));
+    const GATES = { "SKILL.md": "gates\n" };
+    const READ_GATES = "Read {{pack.path:widgets-gates/SKILL.md}} first.\n";
+
+    test("two built skills that pack.path one file each get their own rendered copy", () => {
+      const prep = withFill(READ_GATES, { "widgets-gates": GATES });
+      const one = compileMini({ packRoot: true, prep });
+      const two = compileMini({ packRoot: true, prep, verb: { ...VERB, name: "mini-two" } });
+      for (const { result, skillMd } of [one, two]) {
+        expect(result.diagnostics).toEqual([]);
+        expect(skillMd).toContain("Read ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md first.");
+        expect(references(result.files)).toEqual(["references/widgets-gates/SKILL.md"]);
+        expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("gates\n");
+      }
+    });
+
+    test("a stage reads its copy under its own folder", () => {
+      const { result, skillMd } = compileMini({
+        packRoot: true,
+        side: "attachments",
+        stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/mini",
+        prep: withFill(READ_GATES, { "widgets-gates": GATES }),
+      });
+      expect(result.diagnostics).toEqual([]);
+      expect(skillMd).toContain("Read ${CLAUDE_SKILL_DIR}/../../attachments/mini/references/widgets-gates/SKILL.md first.");
+      expect(references(result.files)).toEqual(["references/widgets-gates/SKILL.md"]);
+    });
+
+    test("a copied file's pack.path copies that unit into the same references and renders to its path", () => {
+      const { result } = compileMini({
+        packRoot: true,
+        prep: withFill(READ_GATES, {
+          "widgets-gates": { "SKILL.md": "Follow {{pack.path:widgets-conventions/SKILL.md}}.\n", "scripts/check.sh": "echo check\n" },
+          "widgets-conventions": { "SKILL.md": "Conventions. Back to {{pack.path:widgets-gates/SKILL.md}}.\n" },
+        }),
+      });
+      expect(result.diagnostics).toEqual([]);
+      expect(references(result.files)).toEqual(["references/widgets-gates/SKILL.md", "references/widgets-gates/scripts/check.sh", "references/widgets-conventions/SKILL.md"]);
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("Follow ${CLAUDE_SKILL_DIR}/references/widgets-conventions/SKILL.md.\n");
+      expect(contentOf(result.files, "references/widgets-conventions/SKILL.md")).toBe("Conventions. Back to ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md.\n");
+      expect(result.files.find((f) => f.path === "references/widgets-gates/scripts/check.sh")).toMatchObject({ copyFrom: expect.stringContaining("attachments/widgets-gates/scripts/check.sh") });
+    });
+
+    test("a copied python3 command renders to the script's copy", () => {
+      const { result } = compileMini({
+        packRoot: true,
+        prep: withFill(READ_GATES, {
+          "widgets-gates": { "SKILL.md": "Run `python3 {{pack.path:capture-evidence/backend-db.py}} --env qa`.\n" },
+          "capture-evidence": { "SKILL.md": "evidence\n", "backend-db.py": "print('{{not a placeholder}}')\n" },
+        }),
+      });
+      expect(result.diagnostics).toEqual([]);
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("Run `python3 ${CLAUDE_SKILL_DIR}/references/capture-evidence/backend-db.py --env qa`.\n");
+      expect(references(result.files)).toContain("references/capture-evidence/backend-db.py");
+      expect(references(result.files)).toContain("references/capture-evidence/SKILL.md");
+    });
+
+    test("no copied markdown file keeps a {{", () => {
+      const { result } = compileMini({
+        packRoot: true,
+        verbSides: { ship: "skills" },
+        loadIncludes: true,
+        prep: withFill(READ_GATES, {
+          "widgets-gates": {
+            "SKILL.md": "Then read {{verb.path:ship}}.\n\n{{include:style-floor}}\n",
+            "notes/deep.md": "Up to {{verb.path:ship}} and {{pack.path:widgets-gates/SKILL.md}}.\n",
+          },
+        }),
+      });
+      expect(result.diagnostics).toEqual([]);
+      const copies = result.files.filter((f) => f.path.startsWith("references/") && f.path.endsWith(".md"));
+      expect(copies.map((f) => f.path)).toEqual(["references/widgets-gates/SKILL.md", "references/widgets-gates/notes/deep.md"]);
+      for (const copy of copies) expect(contentOf(result.files, copy.path)).not.toContain("{{");
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toStartWith("Then read ../../../ship/SKILL.md.\n\n<!-- part: include:style-floor");
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toContain("Write short sentences.");
+      expect(contentOf(result.files, "references/widgets-gates/notes/deep.md")).toBe("Up to ../../../../ship/SKILL.md and ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md.\n");
+    });
+
+    test("a copied file may carry only what a prop value file may", () => {
+      const refused = (text: string) => () => compileMini({ packRoot: true, prep: withFill(READ_GATES, { "widgets-gates": { "SKILL.md": text } }) });
+      expect(refused("Keep {{slot:x}} here.\n")).toThrow(
+        "attachments/widgets-gates/SKILL.md: {{slot:x}} -- a file copied into a built skill's references/ may carry {{include}}, {{verb.path}} or {{pack.path}} only (line 1)",
+      );
+      expect(refused("ok\nUse ${{ secrets.TOKEN }}.\n")).toThrow(
+        "attachments/widgets-gates/SKILL.md: literal \"{{\" at line 2 -- a file copied into a built skill's references/ may not carry it",
+      );
+      expect(refused("Hi {{team.x}}.\n")).toThrow("attachments/widgets-gates/SKILL.md: {{team.x}} -- team markers only resolve in base pack text (line 1)");
+    });
+
+    test("a missing source in a copy fails with pack.path's error", () => {
+      expect(() => compileMini({
+        packRoot: true,
+        prep: withFill(READ_GATES, { "widgets-gates": { "SKILL.md": "See {{pack.path:gone-kit/SKILL.md}}.\n" } }),
+      })).toThrow("attachments/widgets-gates/SKILL.md: {{pack.path:gone-kit/SKILL.md}} -- gone-kit is not a directory under attachments/ or skills/");
+    });
+
+    test("a copy that would land on an engine's own references file is a vendor collision", () => {
+      const { result } = compileMini({
+        packRoot: true,
+        prep: (s) => {
+          withFill(READ_GATES, { "widgets-gates": GATES })(s);
+          const own = join(s.mattstack, "attachments", "pipeline", "mini", "references", "widgets-gates");
+          mkdirSync(own, { recursive: true });
+          writeFileSync(join(own, "SKILL.md"), "the engine's own\n");
+        },
+      });
+      expect(result.files).toEqual([]);
+      expect(result.diagnostics).toMatchObject([{ code: "vendor-collision" }]);
+      expect(result.diagnostics[0]!.message).toContain("would both vendor to references/widgets-gates/SKILL.md");
     });
   });
 
