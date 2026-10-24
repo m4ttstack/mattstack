@@ -44,6 +44,5 @@ order: 1
   comment to a line, verifying it landed, composing the summary body -- the
   caller owns. This part decides how to execute, not what posts or where.
 - **Callers:** the review verb's Deliver step, a domain adapter's
-  teammate-review skill (the harvest `review` skill, after its thinning
-  pass), or any session holding an engine draft, a decided selection, and a
-  postable target.
+  teammate-review skill, or any session holding a review draft, a decided
+  selection, and a postable target.

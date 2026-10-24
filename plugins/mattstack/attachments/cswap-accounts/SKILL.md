@@ -53,8 +53,9 @@ ACCT=$("${CLAUDE_SKILL_DIR}/scripts/pick-account.py" --pool 2,3 --model <model> 
 `--assigned` lists the account of every worker already launched this run,
 one entry per worker. The picker excludes accounts near their limits and
 answers with the healthiest account for that worker's model; a nonzero
-exit means no pool account qualifies -- surface that to the user as a
-structured question, never spawn anyway.
+exit means no pool account qualifies, or `cswap list` failed, and its
+message says which -- surface that to the user as a structured question,
+never spawn anyway.
 
 The launch command this provider hands to transport:
 `cswap run <account> --` (model and effort arguments are appended to it).

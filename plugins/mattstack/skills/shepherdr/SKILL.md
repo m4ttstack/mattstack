@@ -151,7 +151,7 @@ question, the per-spawn pick (passed as `account` on `herd_spawn` or
 `herd_respawn`), and the exhaustion decision tree. Accounts in use are
 each job's `account` in `herd_status`, never memory.
 
-<!-- part: prop:shepherdr.accounts binding=mattstack:cswap-accounts version=0.32.28 path=attachments/cswap-accounts/SKILL.md lines=11-76 -->
+<!-- part: prop:shepherdr.accounts binding=mattstack:cswap-accounts version=0.32.28 path=attachments/cswap-accounts/SKILL.md lines=11-77 -->
 ### cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -197,8 +197,9 @@ ACCT=$("${CLAUDE_SKILL_DIR}/parts/accounts/scripts/pick-account.py" --pool 2,3 -
 `--assigned` lists the account of every worker already launched this run,
 one entry per worker. The picker excludes accounts near their limits and
 answers with the healthiest account for that worker's model; a nonzero
-exit means no pool account qualifies -- surface that to the user as a
-structured question, never spawn anyway.
+exit means no pool account qualifies, or `cswap list` failed, and its
+message says which -- surface that to the user as a structured question,
+never spawn anyway.
 
 The launch command this provider hands to transport:
 `cswap run <account> --` (model and effort arguments are appended to it).

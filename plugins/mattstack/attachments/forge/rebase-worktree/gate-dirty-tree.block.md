@@ -15,6 +15,7 @@ Scope `clarify`. One sentence listing the uncommitted paths (the result's
 Selection `{"tree":"retry|abort","next":"proceed|hold"}`. Read `next` first: **Hold** ends the
 turn with nothing moved. Never stash and
 proceed: moving someone's uncommitted work is not this skill's call. The
-table under **Gate push** binds this form too.
+form rule in the table under **Gate push** (its second row) binds this
+form too.
 
 {{include:spawned-no-run-guard}}
