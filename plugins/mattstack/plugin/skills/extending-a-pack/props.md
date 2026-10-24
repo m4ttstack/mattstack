@@ -34,8 +34,8 @@ pipeline, the org base's included.
 `--dry-run` prints the change and writes nothing.
 
 To remove a pipeline's override, run the same call with no fill and
-`--pipeline <name> --unset`: the prop goes back to the pack's top-level
-value.
+`--pipeline <name> --unset`: the prop goes back to every layer's
+top-level value, the org base's included.
 
 The bind writes one key per block into `pack/skills.jsonc`, the plugin
 prefix and the block id, with one entry per prop:
