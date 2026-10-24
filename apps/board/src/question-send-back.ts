@@ -38,7 +38,12 @@ export interface SendBackIo {
     reason: 'revised';
   }): Promise<{ ok: boolean; error?: string }>;
   pendingRevision(mrUrl: string, now: number): FindingRevision | undefined;
-  insertPendingRevision(r: Omit<FindingRevision, 'status' | 'newGate'>): void;
+  /** Atomically takes the MR's pending-revision slot (see
+      claimPendingRevision); false when another send-back holds it. */
+  claimPendingRevision(
+    r: Omit<FindingRevision, 'status' | 'newGate'>,
+    now: number
+  ): boolean;
   deleteRevision(mrUrl: string, findingId: string, createdAt: number): void;
 }
 
@@ -47,6 +52,7 @@ const refuse = (message: string): SendBackResult => ({
   message,
 });
 
+const REBUILDING = 'the review is being rebuilt; send again once it reopens';
 const ALREADY_CLOSED = 'the review was already submitted or closed';
 
 /** Where the review agent reads the revision: beside the report json, under
@@ -92,8 +98,8 @@ function reportFinding(json: string, findingId: string): ReportFinding | null {
     current review gate as `revised`, which is what wakes the review agent to
     rebuild the gate. The gate is the MR's current one, not the one the
     question was asked from, because a question follows its MR across
-    rebuilds. Every refusal happens before anything is written, except the
-    close, which cleans up after itself. */
+    rebuilds. Every refusal happens before anything is claimed or written,
+    except a failed write or close, which cleans up after itself. */
 export async function sendBack(
   input: SendBackInput,
   io: SendBackIo
@@ -105,6 +111,11 @@ export async function sendBack(
   if ('finding' in revision && revision.finding.id !== findingId)
     return refuse(`the revision must keep finding id ${findingId}`);
 
+  // Before the gate lookup: once an earlier send-back has closed the gate,
+  // the lookup finds none, and "already submitted" would be the wrong thing
+  // to tell this one.
+  if (io.pendingRevision(mrUrl, now)) return refuse(REBUILDING);
+
   const gate = await io.openReviewGate(mrUrl);
   if (gate === 'parked')
     return refuse(
@@ -113,8 +124,6 @@ export async function sendBack(
   if (!gate) return refuse(ALREADY_CLOSED);
   if (!gateHasFinding(gate, findingId))
     return refuse('this finding is no longer in the review');
-  if (io.pendingRevision(mrUrl, now))
-    return refuse('the review is being rebuilt; send again once it reopens');
 
   const reportPath = io.reportJsonPath(mrUrl);
   const report = io.readFile(reportPath);
@@ -128,20 +137,29 @@ export async function sendBack(
 
   const revised = 'finding' in revision ? revision.finding : null;
   const filePath = revisionFilePath(reportPath);
+  // The claim comes before the file: the file is one per MR, so only the
+  // send-back holding the slot may write, close, or (on failure) remove it.
+  // The check above only saves work; this is the one that decides.
+  if (
+    !io.claimPendingRevision(
+      {
+        mrUrl,
+        findingId,
+        original,
+        revised,
+        closedGate: gate.id,
+        createdAt: now,
+      },
+      now
+    )
+  )
+    return refuse(REBUILDING);
   const undo = () => {
     io.deleteRevision(mrUrl, findingId, now);
     io.removeFile(filePath);
   };
-  io.writeFile(filePath, JSON.stringify({ findingId, revised, original }));
   try {
-    io.insertPendingRevision({
-      mrUrl,
-      findingId,
-      original,
-      revised,
-      closedGate: gate.id,
-      createdAt: now,
-    });
+    io.writeFile(filePath, JSON.stringify({ findingId, revised, original }));
     const closed = await io.gateClose({ id: gate.id, reason: 'revised' });
     if (!closed.ok) {
       undo();

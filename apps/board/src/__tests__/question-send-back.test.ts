@@ -12,6 +12,7 @@ import {
   type SendBackIo,
 } from '../question-send-back.ts';
 import {
+  claimPendingRevision,
   deleteRevision,
   insertPendingRevision,
   pendingRevision,
@@ -72,11 +73,17 @@ function harness(
     openGate?: GateRow | 'parked' | null;
     report?: string | null;
     close?: () => Promise<{ ok: boolean; error?: string }>;
+    /** Shared with another harness to model two panes on one board. */
+    shared?: Pick<Harness, 'files' | 'closes'>;
+    /** Replaces the early pending check, to model one that read the db
+        before the other send-back claimed. */
+    staleEarlyCheck?: boolean;
   } = {}
 ): Harness {
-  const files = new Map<string, string>();
-  if (opts.report !== null) files.set(REPORT_PATH, opts.report ?? reportText);
-  const closes: Array<{ id: string; reason: string }> = [];
+  const files = opts.shared?.files ?? new Map<string, string>();
+  if (opts.report !== null && !opts.shared)
+    files.set(REPORT_PATH, opts.report ?? reportText);
+  const closes = opts.shared?.closes ?? [];
   const io: SendBackIo = {
     question: handle => readQuestionByHandle(handle, db),
     reportJsonPath: () => REPORT_PATH,
@@ -89,8 +96,9 @@ function harness(
       closes.push(payload);
       return opts.close ? opts.close() : { ok: true };
     },
-    pendingRevision: (mrUrl, now) => pendingRevision(mrUrl, now, db),
-    insertPendingRevision: r => insertPendingRevision(r, db),
+    pendingRevision: (mrUrl, now) =>
+      opts.staleEarlyCheck ? undefined : pendingRevision(mrUrl, now, db),
+    claimPendingRevision: (r, now) => claimPendingRevision(r, now, db),
     deleteRevision: (mrUrl, findingId, createdAt) =>
       deleteRevision(mrUrl, findingId, createdAt, db),
   };
@@ -184,8 +192,10 @@ describe('sendBack refusals', () => {
     expect(h.closes).toEqual([]);
   });
 
-  test('a rebuild already in flight', async () => {
-    const h = harness();
+  test('a rebuild already in flight, with the gate already closed by it', async () => {
+    // The earlier send-back closed the gate, so the lookup finds none: the
+    // answer must still be "being rebuilt", not "already submitted".
+    const h = harness({ openGate: null });
     insertPendingRevision(
       {
         mrUrl: MR,
@@ -283,6 +293,41 @@ describe('sendBack refusals', () => {
     expect(r.kind).toBe('refused');
     expect(revisionRows()).toBe(0);
     expect(h.files.has(REVISION_PATH)).toBe(false);
+  });
+});
+
+describe('sendBack racing another send-back', () => {
+  test('the loser of the claim is refused, closes nothing and leaves the winner its file', async () => {
+    const first = harness();
+    const second = harness({ shared: first, staleEarlyCheck: true });
+    const a = await sendBack(input(seed('f1')), first.io);
+    // The second pane read the db before the first claimed, so only the
+    // atomic claim can stop it.
+    const b = await sendBack(
+      input(seed('f2'), {
+        revision: { finding: finding('f2', 'other') },
+      }),
+      second.io
+    );
+    expect(a).toEqual({ kind: 'sent' });
+    expect(b).toEqual({
+      kind: 'refused',
+      message: 'the review is being rebuilt; send again once it reopens',
+    });
+    expect(first.closes).toEqual([{ id: 'g-open', reason: 'revised' }]);
+    expect(JSON.parse(first.files.get(REVISION_PATH)!).findingId).toBe('f1');
+    expect(revisionRows()).toBe(1);
+  });
+
+  test('a failed file write gives the slot back', async () => {
+    const h = harness();
+    h.io.writeFile = () => {
+      throw new Error('disk full');
+    };
+    const r = await sendBack(input(seed()), h.io);
+    expect(r.kind).toBe('refused');
+    expect(h.closes).toEqual([]);
+    expect(revisionRows()).toBe(0);
   });
 });
 

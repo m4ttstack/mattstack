@@ -8,8 +8,8 @@ import {
   type SendBackIo,
 } from '../src/question-send-back.ts';
 import {
+  claimPendingRevision,
   deleteRevision,
-  insertPendingRevision,
   pendingRevision,
   readQuestionByHandle,
   writeQuestionStateByHandle,
@@ -143,7 +143,7 @@ if (verb === 'status') {
     openReviewGate,
     gateClose,
     pendingRevision: (mrUrl, now) => pendingRevision(mrUrl, now, db),
-    insertPendingRevision: r => insertPendingRevision(r, db),
+    claimPendingRevision: (r, now) => claimPendingRevision(r, now, db),
     deleteRevision: (mrUrl, findingId, createdAt) =>
       deleteRevision(mrUrl, findingId, createdAt, db),
   };

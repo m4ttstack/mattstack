@@ -275,6 +275,24 @@ export function insertPendingRevision(
   );
 }
 
+/** Claims the MR's one pending-revision slot: checks for a live pending row
+    and inserts this one in a single IMMEDIATE transaction, so two panes
+    sending at once (separate processes, one db) cannot both win. False when
+    a pending revision already holds the slot; nothing is written then. */
+export function claimPendingRevision(
+  r: Omit<FindingRevision, 'status' | 'newGate'>,
+  now: number,
+  db: Database = getStateDb()
+): boolean {
+  return db
+    .transaction(() => {
+      if (pendingRevision(r.mrUrl, now, db)) return false;
+      insertPendingRevision(r, db);
+      return true;
+    })
+    .immediate();
+}
+
 /** The newest pending revision on the MR that is still inside the TTL. */
 export function pendingRevision(
   mrUrl: string,

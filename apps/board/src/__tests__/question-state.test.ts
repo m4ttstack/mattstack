@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  claimPendingRevision,
   deleteQuestionStates,
   deleteRevision,
   deleteRevisions,
@@ -221,6 +222,27 @@ describe('finding revisions', () => {
     expect(
       pendingRevision(URL_A, 1000 + PENDING_REVISION_TTL_MS, db)
     ).toBeUndefined();
+  });
+
+  test('claimPendingRevision takes the slot once per MR and writes nothing when refused', () => {
+    expect(claimPendingRevision(rev('f1', 1000), 1000, db)).toBe(true);
+    expect(claimPendingRevision(rev('f2', 1001), 1001, db)).toBe(false);
+    expect(count()).toEqual({ n: 1 });
+    expect(pendingRevision(URL_A, 1002, db)?.findingId).toBe('f1');
+    // Another MR has its own slot.
+    expect(
+      claimPendingRevision({ ...rev('f1', 1002), mrUrl: URL_B }, 1002, db)
+    ).toBe(true);
+  });
+
+  test('claimPendingRevision frees the slot once the pending row is stale or settled', () => {
+    expect(claimPendingRevision(rev('f1', 1000), 1000, db)).toBe(true);
+    const later = 1000 + PENDING_REVISION_TTL_MS;
+    expect(claimPendingRevision(rev('f2', later), later, db)).toBe(true);
+    markRevisionsApplied(URL_A, 'g2', db);
+    expect(claimPendingRevision(rev('f3', later + 1), later + 1, db)).toBe(
+      true
+    );
   });
 
   test('pendingRevision returns the newest pending row', () => {
