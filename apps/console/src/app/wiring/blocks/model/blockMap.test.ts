@@ -10,6 +10,7 @@ import {
   type MapLink,
 } from './blockMap';
 import { cutLabel } from './labels';
+import { mapLayout } from './mapLayout';
 
 type Graph = BlocksPayload['graphs'][number];
 type Shape = Graph['nodes'][number]['shape'];
@@ -853,6 +854,23 @@ describe('blockMap on ship flow', () => {
       'capture_after_browser',
       'capture_after_case',
     ]);
+  });
+
+  it('a link never folds a map node, so one that only passes a split is solid', () => {
+    const onMap = new Set(map.nodes.map(node => node.id));
+    for (const link of map.links) {
+      expect({
+        link: link.id,
+        folded: link.folded.filter(id => onMap.has(id)),
+      }).toEqual({ link: link.id, folded: [] });
+    }
+    const through = linkTo(map, 'gate_which_forge', 'mr_create');
+    expect(through).toMatchObject({ kind: 'line', folded: [] });
+    const edge = mapLayout(map, graph, {
+      dotsOf: () => [],
+      measure: text => text.length * 7,
+    }).edges.find(each => each.id === through.id)!;
+    expect(edge.folded).toBe(false);
   });
 
   it("every_case_tried keeps its short trunk while the forge split's long links jump", () => {

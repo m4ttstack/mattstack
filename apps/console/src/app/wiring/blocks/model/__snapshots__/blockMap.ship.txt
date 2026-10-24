@@ -24,7 +24,7 @@ node gate_mark_ready · gate · layer 19 · Mark ready
 node resolve_conflict_files · step · layer 6 · Resolve conflicts
 node shipped · end · layer 20 · Shipped
 link reopened_recapture → domain_steps_before_gate · line · folded 6 · git_status_recapture, nothing_to_push, git_branch_current, on_default_branch, own_run_identity, run_field_set_branch
-link reopened_recapture → capture_after_case, capture_after_browser · jump-forward · "yes" · fork browser_case · folded 4 · git_status_recapture, nothing_to_push, run_field_get_evidence, browser_case
+link reopened_recapture → capture_after_case, capture_after_browser · jump-forward · "yes" · fork browser_case · folded 3 · git_status_recapture, nothing_to_push, run_field_get_evidence
 link domain_steps_before_gate → gate_ship · line · folded 3 · git_status_log, branch_stack, stack_parent_read
 link gate_ship → domain_steps_before_gate · jump-back · "iterate" · fork gate_rounds_spent · folded 3 · run_field_set_target_iterate, run_budget_gate_rounds, gate_rounds_spent
 link gate_ship → stash_them · line · "stash" · trunk branch off → commit_named_files at dirty_answer · folded 2 · run_field_set_target, dirty_answer
@@ -48,19 +48,19 @@ link confirm_human_push → gate_push_refused · jump-back · fork landing_check
 link confirm_human_push → create_forge_host · line · folded 2 · push_landed, git_remote_origin
 link create_forge_host → gate_which_forge · line · "anything else" · folded 2 · run_budget_forge_clarify, forge_clarify_spent
 link create_forge_host → mr_create · line · "GitLab" · folded 0
-link create_forge_host → capture_after_case, capture_after_browser · jump-forward · "GitHub" · fork browser_case · folded 6 · gh_pr_create, gh_create_result, own_run_mr, run_field_set_mr, run_field_get_evidence, browser_case
-link gate_which_forge → gate_which_forge · jump-back · "answered" · fork forge_clarify_spent · folded 3 · create_forge_host, run_budget_forge_clarify, forge_clarify_spent
-link gate_which_forge → mr_create · line · trunk main, first split at create_forge_host · folded 1 · create_forge_host
-link gate_which_forge → browser_case · line · "GitHub" · trunk branch off → mr_create at create_forge_host · folded 6 · create_forge_host, gh_pr_create, gh_create_result, own_run_mr, run_field_set_mr, run_field_get_evidence
+link create_forge_host → capture_after_case, capture_after_browser · jump-forward · "GitHub" · fork browser_case · folded 5 · gh_pr_create, gh_create_result, own_run_mr, run_field_set_mr, run_field_get_evidence
+link gate_which_forge → gate_which_forge · jump-back · "answered" · fork forge_clarify_spent · folded 2 · run_budget_forge_clarify, forge_clarify_spent
+link gate_which_forge → mr_create · line · trunk main, first split at create_forge_host · folded 0
+link gate_which_forge → browser_case · line · "GitHub" · trunk branch off → mr_create at create_forge_host · folded 5 · gh_pr_create, gh_create_result, own_run_mr, run_field_set_mr, run_field_get_evidence
 link mr_create → mr_create · jump-back · fork mr_recalls_spent · folded 4 · mr_create_result, stop_gitlab_shortcut, run_budget_mr_recalls, mr_recalls_spent
 link mr_create → browser_case · line · folded 5 · mr_create_result, mr_update_squash, own_run_mr, run_field_set_mr, run_field_get_evidence
 link browser_case → capture_after_case · line · "no" · folded 0
 link browser_case → capture_after_browser · line · "yes" · folded 0
-link capture_after_case → capture_after_case · jump-back · fork browser_case · folded 5 · browser_case, after_result, run_budget_after_attempts, after_attempts_spent, every_case_tried
+link capture_after_case → capture_after_case · jump-back · fork browser_case · folded 3 · after_result, run_budget_after_attempts, after_attempts_spent
 link capture_after_case → every_case_tried · line · folded 3 · after_result, run_budget_after_attempts, after_attempts_spent
-link capture_after_browser → capture_after_case, capture_after_browser · jump-back · fork browser_case · folded 5 · browser_case, after_result, run_budget_after_attempts, after_attempts_spent, every_case_tried
+link capture_after_browser → capture_after_case, capture_after_browser · jump-back · fork browser_case · folded 3 · after_result, run_budget_after_attempts, after_attempts_spent
 link capture_after_browser → every_case_tried · line · folded 3 · after_result, run_budget_after_attempts, after_attempts_spent
-link every_case_tried → capture_after_browser · jump-back · "no" · fork browser_case · folded 1 · browser_case
+link every_case_tried → capture_after_browser · jump-back · "no" · fork browser_case · folded 0
 link every_case_tried → record_evidence · line · "yes" · trunk main, first split at after_captured · folded 1 · after_captured
 link every_case_tried → attach_evidence · line · "no" · trunk branch off → record_evidence at after_captured · folded 2 · after_captured, run_has_evidence
 link every_case_tried → write_title_description · jump-forward · "yes" · fork mr_view_url · folded 6 · after_captured, run_has_evidence, domain_owns_title, read_forge_host, gh_pr_view_body, mr_view_url

@@ -318,6 +318,9 @@ export function blockMap(
   links.push(...mergeSiblings(jumps, links, byRank));
   for (const link of links) {
     if (link.trunk === null) link.id = linkId(link.from, link.to);
+    // A split is drawn on the map, so no link folds it; trunks have already
+    // used it to find where they part.
+    link.folded = link.folded.filter(id => !isSplit.has(id));
   }
   links.sort((a, b) => byRank(a.from, b.from) || byRank(a.to[0]!, b.to[0]!));
 
