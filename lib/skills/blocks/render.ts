@@ -1,5 +1,5 @@
-import { fillReference, inlineFillText, PLACEHOLDER_RE, spanOf, substituteLine, type Used } from "../placeholders.ts";
-import type { PlaceholderContext } from "../types.ts";
+import { fillReference, inlineFillText, PLACEHOLDER_RE, spanOf, substituteLine, type TreeIncludeText, type Used } from "../placeholders.ts";
+import type { AttachmentSource, PlaceholderContext } from "../types.ts";
 import { BlockError, type BlockDiagnostic } from "./diagnostics.ts";
 import { toDot } from "./dot.ts";
 import type { PropValue } from "./props.ts";
@@ -60,7 +60,22 @@ export function propPartsDir(b: Block, prop: string, tree: BlockTree, engine: Bl
   return `${b.id.slice(tree.root.id.length + 1)}/${prop}`;
 }
 
-function propText(b: Block, name: string, src: SourcedTree, st: State): string {
+/** A fill's own include line draws a tree include the way a block's does, under the heading the prop sits beneath. */
+function fillTreeInclude(b: Block, fill: AttachmentSource, at: Heading, st: State): TreeIncludeText {
+  return (name, line) => {
+    const tree = st.includes(name, { file: fill.binding, line: fill.bodyStartLine + line - 1 });
+    if (!tree) return null;
+    if (st.including.includes(tree.tree.root.id)) {
+      const chain = [...st.including.slice(st.including.indexOf(tree.tree.root.id)), tree.tree.root.id].join(" -> ");
+      st.diagnostics.push({ file: b.relPath, line: 1, col: 1, message: `{{include:${name}}} in ${fill.binding} would include itself: ${chain}`, code: "bad-value" });
+      return "";
+    }
+    st.used.includes.push(name);
+    return includeBody(tree, { depth: at.level, includingTitle: at.title }, st);
+  };
+}
+
+function propText(b: Block, name: string, src: SourcedTree, at: Heading, st: State): string {
   const value = st.values.get(b.id)?.get(name);
   if (!value) throw new Error(`${b.relPath}: prop "${name}" has no resolved value`);
   const key = `prop:${b.id}.${name}`;
@@ -68,7 +83,7 @@ function propText(b: Block, name: string, src: SourcedTree, st: State): string {
     .map(({ fill, mode }) =>
       mode === "reference"
         ? `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`
-        : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used))
+        : inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(b, fill, at, st)))
     .join("\n\n");
 }
 
@@ -163,7 +178,7 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
     const prop = PROP_LINE_RE.exec(trimmed);
     const inc = INCLUDE_LINE_RE.exec(trimmed);
     const tree = inc ? st.includes(inc[1]!, { file: b.relPath, line: fileLine }) : null;
-    if (prop) rendered = propText(b, prop[1]!, src, st);
+    if (prop) rendered = propText(b, prop[1]!, src, nearest, st);
     else if (line.includes("{{props.")) rendered = line.replace(PROP_ANY_RE, "");
     else if (tree && st.including.includes(tree.tree.root.id)) {
       const chain = [...st.including.slice(st.including.indexOf(tree.tree.root.id)), tree.tree.root.id].join(" -> ");

@@ -104,10 +104,17 @@ export function fillReference(name: string, fill: AttachmentSource): string {
 }
 
 /** `key` is the seam's part key (`prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under. */
-export function inlineFillText(key: string, partsName: string, fill: AttachmentSource, ctx: PlaceholderContext, used: Pick<Used, "packPaths" | "references">): string {
+export function inlineFillText(
+  key: string,
+  partsName: string,
+  fill: AttachmentSource,
+  ctx: PlaceholderContext,
+  used: Pick<Used, "packPaths" | "references">,
+  treeInclude?: TreeIncludeText,
+): string {
   const resolved = resolveFillTeamMarkers(fill, ctx.team);
   const rewritten = atSkillDir(resolved.body, skillDirFor(fill, ctx, partsName));
-  const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding);
+  const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding, treeInclude);
   used.packPaths.push(...inlined.packPaths);
   used.references.push(...inlined.references);
   return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
@@ -118,12 +125,20 @@ export function includeText(name: string, inc: AttachmentSource, ctx: Placeholde
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
 }
 
+/** The rendered text of a block-tree include, or null when `name` is no tree include. `line` counts from 1 in the fill body. */
+export type TreeIncludeText = (name: string, line: number) => string | null;
+
 /**
  * loadInclude enforces that a flat include target is placeholder-free, so a
  * fill body carrying {{include}} lines cannot recurse --
  * `where` is the fill's own binding, matching how a step body names itself.
  */
-export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, where: string): { body: string; packPaths: string[]; references: PackTarget[] } {
+export function substituteIncludesOnly(
+  body: string,
+  ctx: PlaceholderContext,
+  where: string,
+  treeInclude?: TreeIncludeText,
+): { body: string; packPaths: string[]; references: PackTarget[] } {
   const packPaths: string[] = [];
   const references: PackTarget[] = [];
   const out = body.split("\n").map((line, i) =>
@@ -132,8 +147,10 @@ export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, wh
         case "include": {
           if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
           const inc = arg ? ctx.includes[arg] : undefined;
-          if (!arg || !inc) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
-          return includeText(arg, inc, ctx);
+          if (arg && inc) return includeText(arg, inc, ctx);
+          const tree = arg ? treeInclude?.(arg, i + 1) ?? null : null;
+          if (tree === null) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
+          return tree;
         }
         case "verb.path": return verbPath(ctx, arg, raw, where);
         case "pack.path": {

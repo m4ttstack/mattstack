@@ -731,4 +731,36 @@ describe("tree includes", () => {
     expect(md).toContain("Run ${CLAUDE_SKILL_DIR}/parts/+gate-protocol/rules/lint.sh first.");
     expect(result.files.map((f) => f.path)).toEqual(["SKILL.md", "parts/+gate-protocol/rules/lint.sh", "parts/include-gate-protocol/gate.sh"]);
   });
+
+  test("a fill's include of a block-tree attachment renders the tree where the include line was", () => {
+    const s = setup();
+    const inc = join(s.mattstack, "attachments", "tone-lookup");
+    mkdirSync(inc, { recursive: true });
+    writeFileSync(join(inc, "index.block.md"), "---\n---\n\n# Tone lookup\n\nRead the tone from ${CLAUDE_SKILL_DIR}/tone.txt.\n");
+    writeFileSync(join(inc, "tone.txt"), "plain\n");
+    const fast = join(s.widgets, "attachments", "mini-rules", "fast.md");
+    writeFileSync(fast, `${readFileSync(fast, "utf8")}\n{{include:tone-lookup}}\n`);
+
+    const step = loadStepSource("mini", s.roots) as StepSource & { tree: BlockTree };
+    const tl = loadInclude("tone-lookup", s.roots);
+    expect(tl.tree).toBeDefined();
+    const values = valuesFor(step, s.roots, bindingsOf(readFileSync(MANIFEST, "utf8")), [{ tree: tl.tree!, plugin: tl.plugin, version: tl.version }]);
+    const result = compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), { includes: { "tone-lookup": tl } });
+    const md = (result.files[0] as { content: string }).content;
+
+    expect(result.diagnostics).toEqual([]);
+    expect(md).toContain("Run ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.\n");
+    expect(md).toContain("Tone lookup\n\nRead the tone from ${CLAUDE_SKILL_DIR}/parts/include-tone-lookup/tone.txt.");
+    expect(md).not.toContain("{{include:tone-lookup}}");
+    expect(result.files.map((f) => f.path)).toContain("parts/include-tone-lookup/tone.txt");
+  });
+
+  test("a fill's include of a name that is no attachment is still refused", () => {
+    const s = setup();
+    const fast = join(s.widgets, "attachments", "mini-rules", "fast.md");
+    writeFileSync(fast, `${readFileSync(fast, "utf8")}\n{{include:gone-lookup}}\n`);
+    const step = loadStepSource("mini", s.roots) as StepSource & { tree: BlockTree };
+    const values = valuesFor(step, s.roots, bindingsOf(readFileSync(MANIFEST, "utf8")));
+    expect(() => compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), {})).toThrow('include "gone-lookup" is not a loaded attachment');
+  });
 });
