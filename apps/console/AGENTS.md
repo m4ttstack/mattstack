@@ -99,6 +99,14 @@ The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
   paste in). A skill not built from blocks, such as a board skill (its installed `SKILL.md`,
   composition's `binders[].skillFile`), is read from its file's headings (`model/headingTree.ts`)
   into the same view, read-only. Pure models live in `blocks/model/*`.
+- **Block graphs** (`blocks/`). A parent block's View graph opens `BlockMap.tsx`, the block map:
+  blocks only, other steps folded into dotted links, shared forks as small dots. `FlowGraph.tsx`
+  draws Every step and Around this block, and `graphCanvas.tsx` holds the canvas, header and
+  loading, error and empty states they share. The pure models in `blocks/model/` decide what they
+  draw: `blockMap`, `splits`, `mapLayout`, `bandLayout`, `foldBand`, `mapFocus`, `flowLayout`,
+  `labels` and `elkGraph`. Layout runs elkjs through `blocks/layoutEngine.ts`, lazy-loaded and
+  run in a web worker. The open graph lives in the URL as `select=graph` (the block map) or
+  `select=graph-steps` (Every step).
 - **Template model** (`graph/model/*`). Pure functions from rt's payloads (composition, check,
   anatomy, changes) to what the tab draws: `focusModel` (the focus list), `templateModel` (rows,
   input cards, link cards, output card), `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
