@@ -48,10 +48,10 @@ An org whose packs are all in block form moves to org layout 5. An org admin doe
 1. turn team sync off on your Mac: `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`, then `rt daemon restart`
 2. switch your clone to a trial branch: `rt team branch use <name>`
 3. convert every pack (the org's base packs and each team's pack) on that branch, then publish it: `rt team publish`
-4. mark the org: `bun scripts/move-to-block-packs.ts <clone-dir> --admin <you> --write`
-5. publish again: `rt team publish`, then turn team sync back on: `rt settings set rt.teamSnapshot '{"enabled": true}' --scope machine`, then `rt daemon restart`
+4. mark the org: run `bun scripts/move-to-block-packs.ts <clone-dir> --admin <you>` once to see the plan, then again with `--write`
+5. publish again: `rt team publish`, then turn team sync back on: `rt settings unset rt.teamSnapshot --scope machine`, then `rt daemon restart`
 6. after the release, merge the trial branch into the data branch; members on the new app follow on their next pull
 
 - without `--write` the script prints the plan and writes nothing
-- it refuses, writing nothing, while any pack still has an old slot key (it names the pack and the key), while the clone has uncommitted changes or unpublished commits, or while team sync is on; each refusal names the command that fixes it
+- it refuses, writing nothing, while any pack still has an old slot key (it names the pack and the key), while the clone has uncommitted changes or unpublished commits, or while team sync is on; each refusal says why it stopped, and most name a command to run next
 - an org still on layout 3 moves to layout 4 first, with `scripts/move-to-data-branch.ts`

@@ -300,6 +300,24 @@ that touch paths outside the org's data or clash hold the move. The
 clash shows only when the move tries, in `rt team pull`, the setup update
 and the daemon log.
 
+Layout 5's conversion runs on a data-branch org, so steps 2, 3 and 6 above
+do not apply to it either; the admin order in the docs' Teams and invites
+page ("Moving to block packs") is the runbook. Never merge into `main` or
+switch the clone to `main`: `main` holds only the pointer, and org data
+merged there is what the `org.main` row says to revert. Instead: turn team
+sync off; `rt team branch use <trial>` (made from the data branch's
+published tip); convert every pack there and `rt team publish`; run
+`bun scripts/move-to-block-packs.ts <clone-dir> --admin <username>`, then
+again with `--write` (it sets `layout: 5` in the branch's marker, keeps
+`dataBranch`, writes no pointer on `main`); review with `git show`;
+`rt team publish`; turn sync back on. After the release, merge the trial
+branch into the data branch and switch back with `rt team branch use
+<data branch>`. Order against the release: merge after it. Since
+`READABLE_LAYOUTS` still includes 4, a member on the new app reads either
+layout and never sees a waiting row; a member on an app that reads only up
+to 4 holds its pull at the last layout 4 commit until it updates, so a
+merge before the release would hold every member's pull.
+
 The gate itself reached the old line as v2.21.1, a patch release tagged from
 `release/v2.21.x`, a branch cut from the v2.21.0 tag because main already
 carried the breaking change; a fix that must reach Macs before the next

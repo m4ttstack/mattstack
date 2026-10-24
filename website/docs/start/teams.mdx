@@ -306,11 +306,11 @@ rt team publish
 Then turn team sync back on:
 
 ```bash
-rt settings set rt.teamSnapshot '{"enabled": true}' --scope machine
+rt settings unset rt.teamSnapshot --scope machine
 rt daemon restart
 ```
 
-The script refuses, and writes nothing, when:
+The script refuses, and writes nothing, in a few cases. The most common are when:
 
 - any pack still has an old slot key, at the top level or in a pipeline. It names the pack and the key. Packs in the org's `mattstack/org/packs/` show as `org <folder>`.
 - a pack's `pack/skills.jsonc` cannot be read.
@@ -318,7 +318,7 @@ The script refuses, and writes nothing, when:
 - team sync is on for your Mac.
 - the org is still on layout 3. Move it to a [data branch](#moving-to-a-data-branch) first.
 
-Each refusal names the command that fixes it.
+Each refusal says why it stopped, and most name a command to run next.
 
 ### Merge after the release
 
