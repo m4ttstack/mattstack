@@ -148,6 +148,25 @@ describe("hoverAt on a skill path", () => {
     expect(covered(ws, gate, h!)).toBe("{{pack.path:mini-rules/fast.md}}");
   });
 
+  test("the copy line shows only in a block file: a prop value file gets no pack.path hover", () => {
+    mkdirSync(join(pack, "attachments/widgets-kit"), { recursive: true });
+    writeFileSync(join(pack, "attachments/widgets-kit/guide.md"), "guide\n");
+    const fast = join(pack, "attachments/mini-rules/fast.md");
+    const ws = new Workspace([plugin, pack]);
+    ws.open(fast, `${ws.text(fast).trimEnd()}\nSee {{pack.path:widgets-kit/guide.md}}.\n`);
+    expect(hover(ws, fast, "{{pack.path:", 4)).toBeNull();
+  });
+
+  test("a base-pack attachment file gets no pack.path hover, so never the copy line", () => {
+    mkdirSync(join(pack, "attachments/widgets-kit"), { recursive: true });
+    writeFileSync(join(pack, "attachments/widgets-kit/guide.md"), "guide\n");
+    const notes = join(pack, "attachments/widgets-kit/SKILL.md");
+    writeFileSync(notes, "---\nname: widgets-kit\ndescription: shared notes\n---\n");
+    const ws = new Workspace([plugin, pack]);
+    ws.open(notes, `${ws.text(notes)}See {{pack.path:widgets-kit/guide.md}}.\n`);
+    expect(hover(ws, notes, "{{pack.path:", 4)).toBeNull();
+  });
+
   test("a missing pack.path target says so", () => {
     const ws = new Workspace([plugin, pack]);
     ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:mini-rules/gone.md}}\n`);

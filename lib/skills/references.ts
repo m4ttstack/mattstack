@@ -6,6 +6,7 @@ import {
   includeText,
   readTextUnlessBinary,
   referencePath,
+  referencesDir,
   substituteAttachmentPlaceholders,
   type PackTarget,
 } from "./placeholders.ts";
@@ -64,7 +65,7 @@ export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, 
         out.files.push({ file: { path, copyFrom: abs }, from: abs });
         continue;
       }
-      const content = renderCopy(readFileSync(abs, "utf8"), { where, fileRel: `${opts.skillRel}/${path}`, base: source.base, ctx, queue, opts, includes: out.includes });
+      const content = renderCopy(readFileSync(abs, "utf8"), { where, unit: target.unit, fileRel: `${opts.skillRel}/${path}`, base: source.base, ctx, queue, opts, includes: out.includes });
       out.files.push({ file: { path, content }, from: abs });
     }
   }
@@ -74,6 +75,7 @@ export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, 
 type CopyRender = {
   where: string;
   fileRel: string;
+  unit: string;
   base: boolean;
   ctx: PlaceholderContext;
   queue: PackTarget[];
@@ -92,6 +94,7 @@ function renderCopy(text: string, r: CopyRender): string {
     where: r.where,
     team: r.base ? r.ctx.team ?? null : null,
     copy: {
+      skillDir: referencesDir(r.ctx, r.unit),
       packPath: (target) => {
         r.queue.push(target);
         return referencePath(r.ctx, target);

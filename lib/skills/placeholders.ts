@@ -48,6 +48,16 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
   return ctx.stageDir ?? SKILL_DIR_TOKEN;
 }
 
+/** Points a text's `${CLAUDE_SKILL_DIR}` at `dir`, the folder its own files land in. */
+export function atSkillDir(text: string, dir: string): string {
+  return text.split(SKILL_DIR_TOKEN).join(dir);
+}
+
+/** A unit's folder inside a built skill's references/, as the reading skill reaches it. */
+export function referencesDir(ctx: Pick<PlaceholderContext, "stageDir">, unit: string): string {
+  return `${ctx.stageDir ?? SKILL_DIR_TOKEN}/references/${unit}`;
+}
+
 /**
  * Only an org base's text may carry team markers. A base fill's markers
  * resolve before any other substitution, so a value is never read as an
@@ -96,7 +106,7 @@ export function fillReference(name: string, fill: AttachmentSource): string {
 /** `key` is the seam's part key (`prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under. */
 export function inlineFillText(key: string, partsName: string, fill: AttachmentSource, ctx: PlaceholderContext, used: Pick<Used, "packPaths" | "references">): string {
   const resolved = resolveFillTeamMarkers(fill, ctx.team);
-  const rewritten = resolved.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, partsName));
+  const rewritten = atSkillDir(resolved.body, skillDirFor(fill, ctx, partsName));
   const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding);
   used.packPaths.push(...inlined.packPaths);
   used.references.push(...inlined.references);
@@ -104,7 +114,7 @@ export function inlineFillText(key: string, partsName: string, fill: AttachmentS
 }
 
 export function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {
-  const body = inc.body.split(SKILL_DIR_TOKEN).join(skillDirFor(inc, ctx, `include-${name}`));
+  const body = atSkillDir(inc.body, skillDirFor(inc, ctx, `include-${name}`));
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
 }
 
@@ -155,6 +165,8 @@ export type AttachmentRenderOpts = {
 
 /** `line` counts from 1 in the text after team markers resolve; `alone` says whether the placeholder is its line's only text. */
 export type CopyHooks = {
+  /** The copy's own folder as the reading skill reaches it; its `${CLAUDE_SKILL_DIR}` points there, as a fill's points at its parts dir. */
+  skillDir: string;
   packPath: (target: PackTarget) => string;
   include: (arg: string | undefined, raw: string, at: { line: number; alone: boolean }) => string;
 };
@@ -210,7 +222,8 @@ export function resolveAttachmentTeamMarkers(text: string, where: string, team: 
  */
 export function substituteAttachmentPlaceholders(body: string, opts: AttachmentRenderOpts): string {
   const { where, copy } = opts;
-  const text = resolveAttachmentTeamMarkers(body, where, opts.team);
+  const resolved = resolveAttachmentTeamMarkers(body, where, opts.team);
+  const text = copy ? atSkillDir(resolved, copy.skillDir) : resolved;
   return text.replace(PLACEHOLDER_RE, (raw: string, kind: string, arg: string | undefined, offset: number) => {
     switch (kind) {
       case "pack.name":
@@ -387,7 +400,7 @@ function sourcePackPath(target: PackTarget): string {
  * unrendered. A stage or internal verb reaches its folder through stageDir.
  */
 export function referencePath(ctx: Pick<PlaceholderContext, "stageDir">, target: PackTarget): string {
-  return `${ctx.stageDir ?? SKILL_DIR_TOKEN}/references/${target.attachment}/${target.file}`;
+  return `${referencesDir(ctx, target.attachment)}/${target.file}`;
 }
 
 /** Whether `{{pack.path:<arg>}}` would render in this view, without throwing. */

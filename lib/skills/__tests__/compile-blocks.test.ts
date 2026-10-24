@@ -309,6 +309,35 @@ describe("compileBlockSkill", () => {
       expect(contentOf(result.files, "references/widgets-gates/notes/deep.md")).toBe("Up to ../../../../ship/SKILL.md and ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md.\n");
     });
 
+    test("a copied prop value's own ${CLAUDE_SKILL_DIR} points at its copy, and its inlined parts path is unchanged", () => {
+      const pointAtRules = ({ mattstack }: ReturnType<typeof setup>) => {
+        const run = join(mattstack, "attachments", "pipeline", "mini", "run", "index.block.md");
+        writeFileSync(run, readFileSync(run, "utf8").replace("Do the work for the widget.", "Do the work; the rules are in {{pack.path:mini-rules/fast.md}}."));
+      };
+      const pub = compileMini({ packRoot: true, prep: pointAtRules });
+      expect(pub.result.diagnostics).toEqual([]);
+      expect(pub.skillMd).toContain("the rules are in ${CLAUDE_SKILL_DIR}/references/mini-rules/fast.md.");
+      expect(pub.skillMd).toContain("Run ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.");
+      expect(contentOf(pub.result.files, "references/mini-rules/fast.md")).toBe("Follow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/references/mini-rules/lint.sh first.\n");
+      expect(references(pub.result.files)).toContain("references/mini-rules/lint.sh");
+
+      const stage = compileMini({ packRoot: true, side: "attachments", stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/mini", prep: pointAtRules });
+      expect(stage.skillMd).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/mini/parts/rules/lint.sh first.");
+      expect(contentOf(stage.result.files, "references/mini-rules/fast.md")).toBe(
+        "Follow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/../../attachments/mini/references/mini-rules/lint.sh first.\n",
+      );
+    });
+
+    test("a copied file names its own siblings under its copy", () => {
+      const { result } = compileMini({
+        packRoot: true,
+        prep: withFill(READ_GATES, { "widgets-gates": { "SKILL.md": "Run `bash ${CLAUDE_SKILL_DIR}/scripts/x.sh`.\n", "scripts/x.sh": "echo x\n" } }),
+      });
+      expect(result.diagnostics).toEqual([]);
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("Run `bash ${CLAUDE_SKILL_DIR}/references/widgets-gates/scripts/x.sh`.\n");
+      expect(references(result.files)).toContain("references/widgets-gates/scripts/x.sh");
+    });
+
     test("a copied file renders like a base attachment: other braces pass through as text", () => {
       const { result } = compileMini({ packRoot: true, prep: withFill(READ_GATES, { "widgets-gates": { "SKILL.md": "Keep {{slot:x}} and ${{ secrets.TOKEN }} here.\n" } }) });
       expect(result.diagnostics).toEqual([]);
