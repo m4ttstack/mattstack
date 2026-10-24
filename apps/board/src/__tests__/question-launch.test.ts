@@ -341,7 +341,7 @@ describe('handleQuestionLaunch', () => {
     expect(f.focused).toEqual([]);
   });
 
-  test('a launch that finishes after the row left queued writes nothing back', async () => {
+  test('a launch that finishes after the row is done writes nothing back', async () => {
     let release!: (r: AgentLaunchResult) => void;
     const f = fake({
       launch: () => new Promise<AgentLaunchResult>(r => (release = r)),
@@ -355,6 +355,49 @@ describe('handleQuestionLaunch', () => {
       status: 'done',
     });
     release(LAUNCHED);
+    await f.settle();
+    expect(f.writes.map(w => w.status)).toEqual(['queued']);
+  });
+
+  test('a launch that finishes after the agent marked its own row live still records the pane', async () => {
+    let release!: (r: AgentLaunchResult) => void;
+    const f = fake({
+      launch: () => new Promise<AgentLaunchResult>(r => (release = r)),
+    });
+    await handleQuestionLaunch(BODY, f.io);
+    f.io.readQuestion = () => ({
+      mrUrl: MR_URL,
+      iid: 812,
+      findingId: 'f2',
+      gateId: 'g1',
+      status: 'live',
+    });
+    release(LAUNCHED);
+    await f.settle();
+    expect(f.writes[1]).toEqual({
+      status: 'live',
+      agentId: 'agent-1',
+      paneId: 'pane-1',
+      tabId: 'tab-1',
+      workspaceId: 'ws-1',
+    });
+    expect(f.focused).toEqual([{ paneId: 'pane-1', tabId: 'tab-1' }]);
+  });
+
+  test('a launch that rejects after the row went live writes no error row', async () => {
+    let fail!: (e: Error) => void;
+    const f = fake({
+      launch: () => new Promise<AgentLaunchResult>((_r, j) => (fail = j)),
+    });
+    await handleQuestionLaunch(BODY, f.io);
+    f.io.readQuestion = () => ({
+      mrUrl: MR_URL,
+      iid: 812,
+      findingId: 'f2',
+      gateId: 'g1',
+      status: 'live',
+    });
+    fail(new Error('boom'));
     await f.settle();
     expect(f.writes.map(w => w.status)).toEqual(['queued']);
   });

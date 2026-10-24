@@ -8,9 +8,11 @@ import {
   deleteRevisions,
   deleteSheetDraft,
   latestRevisions,
+  markQuestionsGone,
   markRevisionsApplied,
   PENDING_REVISION_TTL_MS,
   pendingRevision,
+  questionAgentIds,
   readQuestionStates,
 } from './question-state.ts';
 import { getStateDb } from './state/db.ts';
@@ -216,4 +218,22 @@ export function withoutQuestionExecutors(
     if (e.state === 'gone') goneQuestionAgents.add(e.agentId);
   }
   return { executors: kept, goneQuestionAgents };
+}
+
+/** The writer's periodic sweep runs this before it reads `liveQuestionMrs()`
+    for `planSweep`: a question pane the reconciler reports gone has its row
+    marked done, so the MR's review gate can park on that same pass even
+    with no board UI open to drive the request path. Returns the executors
+    with every question pane dropped. */
+export function retireGoneQuestions(
+  executors: ExecutorView[],
+  now: number,
+  db: Database = getStateDb()
+): ExecutorView[] {
+  const { executors: kept, goneQuestionAgents } = withoutQuestionExecutors(
+    executors,
+    questionAgentIds(db)
+  );
+  if (goneQuestionAgents.size) markQuestionsGone(goneQuestionAgents, now, db);
+  return kept;
 }

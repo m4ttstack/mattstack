@@ -287,6 +287,7 @@ import {
   pruneOffBoardQuestions,
   questionInfoFor,
   questionMrUrls,
+  retireGoneQuestions,
   settleStaleRevisions,
   withoutQuestionExecutors,
   type LifecycleIo,
@@ -1149,6 +1150,20 @@ async function withRowState(mrs: BoardMR[]) {
     readDoctorStates()
   );
   runOwners.poke();
+  // A question pane shares its MR's subject; it is never the row's lane.
+  // Its gone rows are marked before withQuestions reads them, so this same
+  // response does not report a closed pane as live. The writer's sweep does
+  // the same on its own clock; this is the request path's copy.
+  const { executors, goneQuestionAgents } = withoutQuestionExecutors(
+    reconciler.executors,
+    questionAgentIds()
+  );
+  // Best-effort on the request path: a busy db leaves the row live until
+  // the next read, which must not fail the response.
+  if (goneQuestionAgents.size)
+    persistOrWarn('question gone write', () =>
+      markQuestionsGone(goneQuestionAgents)
+    );
   const now = Date.now();
   const withQuestionMrs = questionMrUrls();
   const memory = readMemory();
@@ -1198,17 +1213,6 @@ async function withRowState(mrs: BoardMR[]) {
       ...withQuestions(mr.webUrl, now, withQuestionMrs),
     })
   );
-  // A question pane shares its MR's subject; it is never the row's lane.
-  const { executors, goneQuestionAgents } = withoutQuestionExecutors(
-    reconciler.executors,
-    questionAgentIds()
-  );
-  // Best-effort on the request path: a busy db leaves the row live until
-  // the next read, which must not fail the response.
-  if (goneQuestionAgents.size)
-    persistOrWarn('question gone write', () =>
-      markQuestionsGone(goneQuestionAgents)
-    );
   return joinExecutorOrphans(rows, executors);
 }
 
@@ -5214,6 +5218,15 @@ async function runGateSweep(): Promise<void> {
   } catch (err) {
     console.error(
       `revision expiry failed: ${err instanceof Error ? err.message : err}`
+    );
+  }
+  // Also before the plan: a closed question tab must stop holding its review
+  // gate off parking even when no board UI is open to drive /data.json.
+  try {
+    retireGoneQuestions((await fetchReconcilerView()).executors, Date.now());
+  } catch (err) {
+    console.error(
+      `question gone sweep failed: ${err instanceof Error ? err.message : err}`
     );
   }
   const states = {

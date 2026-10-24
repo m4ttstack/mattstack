@@ -134,9 +134,17 @@ export async function handleQuestionLaunch(
   // The pane comes up after the route has answered, and a submit can settle
   // the MR's questions in between (deleting this row). The outcome writes
   // are merges, so writing them anyway would bring back a row with no iid
-  // or gateId; they land only while the row is still the queued one.
-  const stillQueued = () =>
-    io.readQuestion(mrUrl, findingId)?.status === 'queued';
+  // or gateId. The pane ids still land on a row the agent already marked
+  // `live` itself (its first step, which usually beats agent:start's
+  // return): without them gone-detection, submit's tab close and the
+  // sheet's focus all miss the pane. A launch error lands only on a row
+  // still queued, since a live row means the pane did come up.
+  const rowStatus = () => io.readQuestion(mrUrl, findingId)?.status;
+  const stillQueued = () => rowStatus() === 'queued';
+  const stillRunning = () => {
+    const status = rowStatus();
+    return status === 'queued' || status === 'live';
+  };
   // Two-argument then: a failure to record or focus a pane that did come up
   // is not a launch failure, and must not turn the row into an error.
   void io
@@ -156,7 +164,7 @@ export async function handleQuestionLaunch(
     })
     .then(
       async (result: AgentLaunchResult) => {
-        if (result.focusedExisting || !stillQueued()) return;
+        if (result.focusedExisting || !stillRunning()) return;
         io.writeQuestion(mrUrl, findingId, {
           status: 'live',
           agentId: result.agentId,

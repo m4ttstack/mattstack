@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import type { GateRow } from '@mattstack/rt-client';
 import type { ExecutorView } from '../client/types.ts';
+import { planSweep } from '../gates/sweep.ts';
 import {
   clearMrQuestions,
   onReviewGateEvent,
   openReviewGates,
   pruneOffBoardQuestions,
   questionInfoFor,
+  retireGoneQuestions,
   settleStaleRevisions,
   withoutQuestionExecutors,
   type LifecycleIo,
@@ -367,6 +369,59 @@ describe('settleStaleRevisions', () => {
     expect(settleStaleRevisions(at, new Map(), db)).toBe(1);
     expect(statusOf(URL_A).status).toBe('failed');
     expect(statusOf(URL_B).status).toBe('pending');
+  });
+});
+
+describe('retireGoneQuestions', () => {
+  const GRACE = 60_000;
+  const sweepOnce = (executors: ExecutorView[]) => {
+    retireGoneQuestions(executors, NOW, db);
+    return planSweep(
+      [gateRow({ openedAt: NOW - GRACE - 1 })],
+      {
+        reviews: new Map(),
+        responds: new Map(),
+        doctors: new Map(),
+        questionMrs: liveQuestionMrs(db),
+      },
+      NOW,
+      GRACE
+    );
+  };
+
+  test('a gone question executor releases the MR so its review gate parks within one sweep', () => {
+    seedMr(URL_A);
+    const actions = sweepOnce([
+      executor({ agentId: 'a1' }),
+      executor({ agentId: 'a2' }),
+    ]);
+    expect(actions.map(a => [a.kind, a.mrUrl])).toEqual([['park', URL_A]]);
+  });
+
+  test('one question still running keeps the gate held', () => {
+    seedMr(URL_A);
+    const actions = sweepOnce([
+      executor({ agentId: 'a1' }),
+      executor({ agentId: 'a2', state: 'live' }),
+    ]);
+    expect(actions).toEqual([]);
+    expect(readQuestionStates(db).get(URL_A)?.get('f1')?.status).toBe('done');
+  });
+
+  test('returns the executors with every question pane dropped', () => {
+    seedMr(URL_A);
+    const lane = executor({ agentId: 'review-1' });
+    expect(
+      retireGoneQuestions(
+        [
+          executor({ agentId: 'a1' }),
+          lane,
+          executor({ agentId: 'a2', state: 'live' }),
+        ],
+        NOW,
+        db
+      )
+    ).toEqual([lane]);
   });
 });
 
