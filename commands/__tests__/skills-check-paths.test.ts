@@ -51,12 +51,34 @@ test("a path that resolves, or a doc example holding a placeholder, keeps the ch
   expect(payload.drift).toBe(false);
 });
 
-test("a hand-authored skill whose frontmatter is not valid YAML does not crash the check", async () => {
+test("a hand-authored skill whose frontmatter is not valid YAML fails the check by name, and its paths are still checked", async () => {
   const dir = makePack("Read `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.");
   writeFileSync(
     join(dir, "plugin", "skills", "gadgets", "SKILL.md"),
     "---\nname: gadgets\ndescription: Use when: x\n---\nRead `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.\n",
   );
   const payload = await checkPack({ packDir: dir });
+  expect(payload.drift).toBe(true);
+  expect(payload.skillFrontmatter).toEqual([
+    {
+      file: "plugin/skills/gadgets/SKILL.md",
+      line: 3,
+      col: 14,
+      code: "bad-frontmatter",
+      message: "frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
+    },
+  ]);
   expect((payload.skillPaths ?? []).map((d) => `${d.file}:${d.line}:${d.code}`)).toEqual(["plugin/skills/gadgets/SKILL.md:5:broken-skill-path"]);
+  expect(renderPlain(checkBlocks(payload, false))).toContain(
+    [
+      "hand-authored skills:",
+      "  plugin/skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
+      "[failed] skill frontmatter: 1 file does not parse as YAML  quote a value that holds a colon",
+    ].join("\n"),
+  );
+});
+
+test("a hand-authored skill with valid frontmatter reports no frontmatter failure", async () => {
+  const payload = await checkPack({ packDir: makePack("Nothing to read.") });
+  expect(payload.skillFrontmatter).toEqual([]);
 });

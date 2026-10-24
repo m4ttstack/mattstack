@@ -81,6 +81,7 @@ import { defaultPipeline, effectiveBindings, engineRefOf, lastWinsBindings, pipe
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
+  frontmatterYamlError,
   installedVersionFor,
   invocableRoster,
   loadAttachment,
@@ -1675,18 +1676,30 @@ export type CheckPayload = {
   extendsBase: boolean;
   /** Cross-skill paths in hand-authored skills that resolve to nothing; they fail the check. In check --json only when non-empty. */
   skillPaths?: BlockDiagnostic[];
+  /** Hand-authored skills whose frontmatter does not parse as YAML; they fail the check. In check --json only when non-empty. */
+  skillFrontmatter?: BlockDiagnostic[];
 };
 
 /** The registered skills compile does not produce, each checked from its own folder. */
-function brokenSkillPaths(packDir: string, compiledNames: ReadonlySet<string>): BlockDiagnostic[] {
-  const found: BlockDiagnostic[] = [];
+function handWrittenSkills(packDir: string, compiledNames: ReadonlySet<string>): { dir: string; file: string; text: string }[] {
+  const found: { dir: string; file: string; text: string }[] = [];
   for (const entry of enumerateRegistered(packDir).values()) {
     const skillMd = join(entry.dir, "SKILL.md");
     if (compiledNames.has(entry.name) || isCompiledDir(entry.dir) || !existsSync(skillMd)) continue;
-    const file = relativePath(packDir, skillMd).split(sep).join("/");
-    found.push(...brokenSkillPathDiagnostics(readFileSync(skillMd, "utf8"), file, { skillDir: entry.dir, pluginRoot: packDir }));
+    found.push({ dir: entry.dir, file: relativePath(packDir, skillMd).split(sep).join("/"), text: readFileSync(skillMd, "utf8") });
   }
   return found;
+}
+
+function brokenSkillPaths(skills: { dir: string; file: string; text: string }[], packDir: string): BlockDiagnostic[] {
+  return skills.flatMap((s) => brokenSkillPathDiagnostics(s.text, s.file, { skillDir: s.dir, pluginRoot: packDir }));
+}
+
+function badSkillFrontmatter(skills: { file: string; text: string }[]): BlockDiagnostic[] {
+  return skills.flatMap((s) => {
+    const bad = frontmatterYamlError(s.text);
+    return bad ? [{ file: s.file, line: bad.line, col: bad.col, code: "bad-frontmatter", message: `frontmatter is not valid YAML: ${bad.reason}` }] : [];
+  });
 }
 
 /** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
@@ -1883,10 +1896,12 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
   if (staleCopies.length > 0) anyStale = true;
   const droppedOverrides = resolved.manifestPath ? readManifestDropped(readFileSync(resolved.manifestPath, "utf8")) : [];
-  const skillPaths = flags.verbs === null ? brokenSkillPaths(resolved.packDir, new Set(Object.keys(verbSides))) : [];
-  if (skillPaths.length > 0) anyStale = true;
+  const handSkills = flags.verbs === null ? handWrittenSkills(resolved.packDir, new Set(Object.keys(verbSides))) : [];
+  const skillPaths = brokenSkillPaths(handSkills, resolved.packDir);
+  const skillFrontmatter = badSkillFrontmatter(handSkills);
+  if (skillPaths.length > 0 || skillFrontmatter.length > 0) anyStale = true;
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1956,6 +1971,11 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
   blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
   if (payload.compileErrors.length > 0) stale = true;
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
+  const skillFrontmatter = payload.skillFrontmatter ?? [];
+  if (skillFrontmatter.length > 0) {
+    blocks.push(out.verbatim(skillFrontmatter.map(formatDiagnostic), "hand-authored skills"));
+    blocks.push(out.line("failed", `skill frontmatter: ${countOf(skillFrontmatter.length, "file does", "files do")} not parse as YAML`, "quote a value that holds a colon"));
+  }
   const skillPaths = payload.skillPaths ?? [];
   if (skillPaths.length > 0) {
     blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "hand-authored skills"));
@@ -1991,13 +2011,14 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [] } = payload;
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [], skillFrontmatter = [] } = payload;
       // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
       out.json({
         pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract,
         ...(staleCopies.length > 0 ? { staleCopies } : {}),
         ...(droppedOverrides.length > 0 ? { droppedOverrides } : {}),
         ...(skillPaths.length > 0 ? { skillPaths } : {}),
+        ...(skillFrontmatter.length > 0 ? { skillFrontmatter } : {}),
       });
       return;
     }

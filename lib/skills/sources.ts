@@ -47,6 +47,20 @@ export function bodyAfterFrontmatter(md: string): string {
   return (match ? md.slice(match[0].length) : md).trim();
 }
 
+/** Where and why a file's frontmatter fails to parse as YAML, in file lines; null when it parses or there is none. */
+export function frontmatterYamlError(md: string): { line: number; col: number; reason: string } | null {
+  const match = md.match(FRONTMATTER_RE);
+  if (!match) return null;
+  try {
+    parseYaml(match[1] ?? "");
+    return null;
+  } catch (err) {
+    const at = (err as { linePos?: { line: number; col: number }[] }).linePos?.[0];
+    const reason = ((err as Error).message.split("\n")[0] ?? "").replace(/ at line \d+, column \d+:?$/, "");
+    return { line: (at?.line ?? 1) + 1, col: at?.col ?? 1, reason };
+  }
+}
+
 export function stripFrontmatter(
   md: string,
 ): { body: string; frontmatter: Record<string, unknown>; bodyStartLine: number; bodyIndent: number } {
