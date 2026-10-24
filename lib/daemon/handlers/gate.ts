@@ -697,7 +697,7 @@ export function createGateHandlers(
       const id = typeof payload?.id === "string" ? payload.id.trim() : "";
       const reason = payload?.reason;
       if (!id) return { ok: false as const, error: "missing id" };
-      if (reason !== "abandoned" && reason !== "superseded" && reason !== "pruned") {
+      if (reason !== "abandoned" && reason !== "superseded" && reason !== "pruned" && reason !== "revised") {
         return { ok: false as const, error: "invalid reason" };
       }
       const result = store.close(id, reason);

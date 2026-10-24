@@ -183,7 +183,7 @@ export function planSweep(
 export interface PruneOffBoardGatesIo {
   gateClose(payload: {
     id: string;
-    reason: 'abandoned' | 'superseded' | 'pruned';
+    reason: 'abandoned' | 'superseded' | 'pruned' | 'revised';
   }): Promise<unknown>;
   logError(message: string): void;
 }

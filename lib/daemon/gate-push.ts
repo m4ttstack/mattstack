@@ -80,7 +80,9 @@ export { answeredBySession };
 export const GATE_CLOSED_PHRASE = (id: string, reason: GateRow["closedReason"]) =>
   reason === "superseded"
     ? `[gate] ${id} superseded by a newer gate; re-read the registry and proceed.`
-    : `[gate] ${id} closed; re-read the registry and proceed.`;
+    : reason === "revised"
+      ? `[gate] ${id} closed for a revised finding from the board; re-read the registry and proceed.`
+      : `[gate] ${id} closed; re-read the registry and proceed.`;
 
 /** Fan-out notification: push text is data, never instructions, and carries
     no opener-controlled content -- `subject` is opener-set and must never
