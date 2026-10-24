@@ -27,8 +27,7 @@ function packFolders(clone: string): { name: string; rel: string }[] {
   return [...org, ...teams].filter(({ rel }) => existsSync(join(clone, rel, FRAGMENT_REL)));
 }
 
-/** Returns the marker's data branch. */
-function checkMarker(clone: string, markerPath: string, admin: string | undefined): string {
+function checkMarker(clone: string, markerPath: string, admin: string | undefined): void {
   const quoted = shellQuote(clone);
   if (!existsSync(markerPath) && existsSync(join(clone, POINTER_REL))) {
     throw new BlockPacksRefusal("This branch holds only the org's pointer", "Switch to the branch that holds the org's data and the converted packs.");
@@ -51,23 +50,22 @@ function checkMarker(clone: string, markerPath: string, admin: string | undefine
   if (marker.dataBranch === null) {
     throw new BlockPacksRefusal(
       "This org's marker names no data branch",
-      `A layout ${DATA_LAYOUT} marker says which branch holds the org's data. Main's pointer names it: add it to mattstack/mattstack.jsonc as dataBranch, publish that, then run this again.`,
-      `git -C ${quoted} show origin/main:${POINTER_REL}`,
+      `A layout ${DATA_LAYOUT} marker says which branch holds the org's data. Find that branch on origin, add it to mattstack/mattstack.jsonc as dataBranch, publish that, then run this again.`,
+      `git -C ${quoted} branch -r`,
     );
   }
-  return marker.dataBranch;
 }
 
 export function planBlockPacksMove(cloneDir: string, admin?: string): BlockPacksPlan {
   const { path: clone, git } = cloneRoot(cloneDir);
   assertNoLink(clone, ORG_MARKER_REL);
   const markerPath = join(clone, ORG_MARKER_REL);
-  const dataBranch = checkMarker(clone, markerPath, admin);
+  checkMarker(clone, markerPath, admin);
   let branch: string;
   try {
     branch = git("symbolic-ref", "-q", "--short", "HEAD").trim();
   } catch {
-    throw new BlockPacksRefusal("The clone has no branch checked out", "Check out the published branch that holds the converted packs.", `git -C ${shellQuote(clone)} switch ${shellQuote(dataBranch)}`);
+    throw new BlockPacksRefusal("The clone has no branch checked out", "Check out the published trial branch that holds the converted packs.", `git -C ${shellQuote(clone)} switch <trial-branch>`);
   }
   assertNoLink(clone, ORG_PACKS_REL);
   assertNoLink(clone, TEAMS_REL);

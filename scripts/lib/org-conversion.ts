@@ -7,10 +7,10 @@ import { getSetting } from "../../lib/settings/resolve.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { readForgeUsername, sameUser } from "../../packages/rt-client/src/index.ts";
 
-/** A conversion that declines by policy; the script shell prints it with `refuse` and exits 2. */
 /** The layout whose data lives on its own branch, the data-branch move writes. */
 export const DATA_LAYOUT = 4;
 
+/** A conversion that declines by policy; the script shell prints it with `refuse` and exits 2. */
 export class ConversionRefusal extends Error {
   constructor(message: string, readonly why?: string, readonly next?: string | string[]) {
     super(message);

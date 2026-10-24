@@ -227,7 +227,7 @@ test("refuses a layout 4 marker that names no data branch", () => {
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("This org's marker names no data branch");
   expect(result.stderr.toString()).not.toContain("on layout 4");
-  expect(result.stderr.toString()).toContain(`git -C ${dir} show origin/main:.mattstack.jsonc`);
+  expect(result.stderr.toString()).toContain(`git -C ${dir} branch -r`);
   expect(snapshot(dir)).toBe(before);
 });
 
@@ -238,7 +238,7 @@ test("refuses a detached HEAD", () => {
   const result = run(dir, "--write");
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("The clone has no branch checked out");
-  expect(result.stderr.toString()).toContain(`git -C ${dir} switch mattstack`);
+  expect(result.stderr.toString()).toContain(`git -C ${dir} switch <trial-branch>`);
   expect(snapshot(dir)).toBe(before);
 });
 
