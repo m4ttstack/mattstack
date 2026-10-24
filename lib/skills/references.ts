@@ -67,6 +67,12 @@ export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, 
     const source = unitSource(target, ctx);
     const { files, symlinks } = walkAttachmentFiles(source.dir);
     if (symlinks.length > 0) throw new Error(`${source.label}/${symlinks[0]}: a symlink cannot be ${COPIED}; compile copies regular files only`);
+    const block = files.find((name) => name.endsWith(".block.md"));
+    if (block) {
+      throw new Error(
+        `{{pack.path:${target.attachment}/${target.file}}} -- ${source.label} holds a block tree (${block}); ${COPIED} ships as written, so its blocks would reach the agent unrendered`,
+      );
+    }
     for (const name of files) {
       const path = `references/${target.unit}/${name}`;
       if (copiedPaths.has(path)) continue;

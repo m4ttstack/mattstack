@@ -455,6 +455,15 @@ describe("compileBlockSkill", () => {
       });
     });
 
+    test("a pack.path into a block tree is refused, since its blocks would ship unrendered", () => {
+      const tree = { "SKILL.md": "gates\n", "index.block.md": "---\nid: gates\n---\n# Gates\n\n{{props.rule}}\n" };
+      expect(() => compileMini({ packRoot: true, prep: withFill(READ_GATES, { "widgets-gates": tree }) })).toThrow(
+        "{{pack.path:widgets-gates/SKILL.md}} -- attachments/widgets-gates holds a block tree (index.block.md); a file copied into a built skill's references/ ships as written, so its blocks would reach the agent unrendered",
+      );
+      const nested = { "SKILL.md": "gates\n", "deep/index.block.md": "---\nid: deep\n---\n# Deep\n" };
+      expect(() => compileMini({ packRoot: true, prep: withFill(READ_GATES, { "widgets-gates": nested }) })).toThrow("attachments/widgets-gates holds a block tree (deep/index.block.md)");
+    });
+
     test("a copy that would land on an engine's own references file is a vendor collision", () => {
       const { result } = compileMini({
         packRoot: true,
