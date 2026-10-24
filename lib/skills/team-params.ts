@@ -29,6 +29,8 @@ const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;
 const FIRST_MARKER_RE = /\{\{\s*team\.[^}\n]*(?:\}\}?)?/;
 const SPLIT_MARKER_RE = /\{\{[^\S\n]*\r?\n\s*team\.[^}\n]*(?:\}\}?)?/;
 const NAME_RE = /^[a-z][a-z0-9-]*$/;
+/** The one nesting allowed: a value marker as pack.path's whole attachment segment. */
+const PACK_PATH_TEAM_RE = /\{\{pack\.path:(\{\{team\.([^}\s?:]*)(\?)?\}\})(\/[^{}\s]*)\}\}/g;
 
 export function newTeamContext(values: TeamValues, basePlugins: ReadonlySet<string>): TeamContext {
   return { values, basePlugins, missing: new Map(), used: new Set(), sawMarker: false };
@@ -98,12 +100,28 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
   const split = hitOf(body, SPLIT_MARKER_RE.exec(body));
   if (split) throw new Error(`${where}: ${split.raw} breaks across lines; a team marker sits on one line (line ${split.lineIndex + startLine})`);
 
-  body.split("\n").forEach((line, i) => {
+  body.split("\n").forEach((source, i) => {
     const fail = (raw: string, why: string): never => {
       throw new Error(`${where}: ${raw} ${why} (line ${i + startLine})`);
     };
-    const stray = line.replace(TEAM_MARKER_RE, "").match(/\{\{[^\S\n]*team\.[^}]*(\}\}?|$)/);
+    const stray = source.replace(TEAM_MARKER_RE, "").match(/\{\{[^\S\n]*team\.[^}]*(\}\}?|$)/);
     if (stray) fail(stray[0], "is not a well-formed team marker");
+    const line = source.replace(PACK_PATH_TEAM_RE, (_whole, raw: string, name: string, optional: string | undefined, file: string) => {
+      if (name === "section") fail(raw, "uses the reserved name section as a key");
+      if (!NAME_RE.test(name)) fail(raw, "has a name that is not lowercase letters, digits and hyphens");
+      if (optional) fail(raw, "is optional, but pack.path needs a value");
+      team.sawMarker = true;
+      team.used.add(name);
+      const value = Object.hasOwn(values.params, name) ? values.params[name] : undefined;
+      // The missing list refuses the compile, so the dropped placeholder never ships; leaving it would let pack.path fail first and hide that list.
+      if (!value) {
+        recordMissing(team, "param", name, where);
+        return "";
+      }
+      if (value.includes("{{")) fail(raw, "has a value containing {{");
+      if (/[\s{}]/.test(value)) fail(raw, "has a value pack.path cannot take");
+      return `{{pack.path:${value}${file}}}`;
+    });
     let removeLine = false;
     let sectionText: string | null = null;
 

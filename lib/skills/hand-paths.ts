@@ -45,14 +45,17 @@ function isPlaceholderLike(path: string): boolean {
   return path.includes("{{") || path.includes("<");
 }
 
-type FixView = { verbs: ReadonlySet<string>; packSource?: (arg: string) => boolean };
+/** `teamValue` is the compile's value for a team param, given only where team markers resolve. */
+type FixView = { verbs: ReadonlySet<string>; packSource?: (arg: string) => boolean; teamValue?: (key: string) => string | undefined };
+
+const TEAM_VALUE_RE = /^\{\{team\.([a-z][a-z0-9-]*)\}\}$/;
 
 /**
  * verb.path only for a compiled verb, pack.path only for a target the pack
  * holds as source: anything else would fail compile, so it gets no fix.
  */
 function replacementFor(p: HandPath, view: FixView): string | null {
-  if (isPlaceholderLike(p.path)) return null;
+  if (isPlaceholderLike(p.path)) return teamReplacementFor(p, view);
   const segs = p.rest.split("/");
   const sibling = p.anchor !== "plugin-root" && p.ups === 1;
   let unit: string[];
@@ -65,6 +68,18 @@ function replacementFor(p: HandPath, view: FixView): string | null {
   const verbFix = p.anchor === "relative" ? `{{verb.path:${name}}}` : `${SKILL_DIR}/{{verb.path:${name}}}`;
   if (view.verbs.has(name)) return file === "SKILL.md" ? verbFix : null;
   return view.packSource?.(`${name}/${file}`) ? `{{pack.path:${name}/${file}}}` : null;
+}
+
+/** An attachment segment that is one team value marker, checked against the value the compile will substitute. */
+function teamReplacementFor(p: HandPath, view: FixView): string | null {
+  const [side, unit, ...fileSegs] = p.rest.split("/");
+  if (side !== "attachments" && side !== "skills") return null;
+  const key = TEAM_VALUE_RE.exec(unit ?? "")?.[1];
+  const file = fileSegs.join("/");
+  if (!key || fileSegs.length === 0 || isPlaceholderLike(file) || fileSegs.some((s) => s === "" || s === "." || s === "..")) return null;
+  const value = view.teamValue?.(key);
+  if (!value || /[\s{}]/.test(value)) return null;
+  return view.packSource?.(`${value}/${file}`) ? `{{pack.path:{{team.${key}}}/${file}}}` : null;
 }
 
 /** Into attachments/ or skills/, or one level up into a sibling skill's folder; other escapes are the output lint's. */
@@ -82,7 +97,7 @@ function reachesAnotherSkill(p: HandPath): boolean {
 export function handPathDiagnostics(
   text: string,
   file: string,
-  opts: { startLine?: number; indent?: number; verbs: ReadonlySet<string>; packSource?: (arg: string) => boolean; noFix?: boolean },
+  opts: { startLine?: number; indent?: number; noFix?: boolean } & FixView,
 ): BlockDiagnostic[] {
   return findHandPaths(text, opts)
     .filter(reachesAnotherSkill)

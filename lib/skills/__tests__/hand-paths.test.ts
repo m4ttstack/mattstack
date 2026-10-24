@@ -103,6 +103,28 @@ describe("handPathDiagnostics", () => {
     );
   });
 
+  test("an attachment segment that is one team value gets a pack.path fix when the value resolves", () => {
+    const text = "Read ../../attachments/{{team.gates-fill}}/SKILL.md.";
+    const teamValue = (key: string) => (key === "gates-fill" ? "widgets-gates" : undefined);
+    const [d] = handPathDiagnostics(text, FILE, { verbs: VERBS, packSource: (arg) => arg === "widgets-gates/SKILL.md", teamValue });
+    expect(d).toMatchObject({ code: "hand-typed-path", fix: { length: 46, text: "{{pack.path:{{team.gates-fill}}/SKILL.md}}" } });
+    expect(d!.message).toBe(
+      "hand-typed path ../../attachments/{{team.gates-fill}}/SKILL.md breaks when its target moves; write {{pack.path:{{team.gates-fill}}/SKILL.md}} instead",
+    );
+  });
+
+  test("a team value the compile cannot resolve to pack source gets no fix", () => {
+    const text = "Read ../../attachments/{{team.gates-fill}}/SKILL.md.";
+    const unknown = handPathDiagnostics(text, FILE, { verbs: VERBS, packSource: () => true, teamValue: () => undefined });
+    const missing = handPathDiagnostics(text, FILE, { verbs: VERBS, packSource: () => false, teamValue: () => "widgets-gates" });
+    const optional = handPathDiagnostics("Read ../../attachments/{{team.gates-fill?}}/SKILL.md.", FILE, { verbs: VERBS, packSource: () => true, teamValue: () => "widgets-gates" });
+    const mixed = handPathDiagnostics("Read ../../attachments/{{team.gates-fill}}/<file>.", FILE, { verbs: VERBS, packSource: () => true, teamValue: () => "widgets-gates" });
+    for (const [d] of [unknown, missing, optional, mixed]) {
+      expect(d).toMatchObject({ code: "hand-typed-path" });
+      expect(d!.fix).toBeUndefined();
+    }
+  });
+
   test("a compiled verb's file other than SKILL.md has no form to name it, so no fix", () => {
     const [d] = handPathDiagnostics("Read ../ship/notes.md.", FILE, { verbs: VERBS });
     expect(d!.fix).toBeUndefined();

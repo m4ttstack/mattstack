@@ -162,6 +162,37 @@ describe("hoverAt on a skill path", () => {
     expect(linesOf(hover(ws, gate, "{{pack.path:", 4)?.contents)).toEqual(["**pack.path** · widgets", "`attachments/stage-x/SKILL.md` · compiled output, not pack source"]);
   });
 
+  test("pack.path picking its attachment by team value names the target the pack's value resolves to", () => {
+    writeFileSync(join(pack, "pack/params.jsonc"), '{\n  // the fill each team picks\n  "params": { "gates-fill": "mini-rules" }\n}\n');
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\nRead {{pack.path:{{team.gates-fill}}/fast.md}} first.\n`);
+    const h = hover(ws, gate, "{{pack.path:", 4);
+    expect(linesOf(h?.contents)).toEqual(["**pack.path** · widgets", "`{{team.gates-fill}}` is `mini-rules`", "`attachments/mini-rules/fast.md` · exists"]);
+    expect(covered(ws, gate, h!)).toBe("{{pack.path:{{team.gates-fill}}/fast.md}}");
+    expect(linesOf(hover(ws, gate, "{{team.gates-fill}}", 4)?.contents)).toEqual(linesOf(h?.contents));
+  });
+
+  test("an open params.jsonc buffer is what the team value reads", () => {
+    writeFileSync(join(pack, "pack/params.jsonc"), '{ "params": { "gates-fill": "mini-rules" } }\n');
+    const ws = new Workspace([plugin, pack]);
+    ws.open(join(pack, "pack/params.jsonc"), '{ "params": { "gates-fill": "other-rules" } }\n');
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:{{team.gates-fill}}/fast.md}}\n`);
+    expect(linesOf(hover(ws, gate, "{{pack.path:", 4)?.contents)).toEqual([
+      "**pack.path** · widgets",
+      "`{{team.gates-fill}}` is `other-rules`",
+      "`attachments/other-rules/fast.md` · does not exist",
+    ]);
+  });
+
+  test("with no value for the team key the target depends on it", () => {
+    const ws = new Workspace([plugin, pack]);
+    ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{pack.path:{{team.gates-fill}}/fast.md}}\n`);
+    expect(linesOf(hover(ws, gate, "{{pack.path:", 4)?.contents)).toEqual([
+      "**pack.path** · widgets",
+      "the target depends on the team value `gates-fill`, which widgets does not set",
+    ]);
+  });
+
   test("verb.path names the compiled verb's SKILL.md", () => {
     const ws = new Workspace([plugin, pack]);
     ws.open(gate, `${ws.text(gate).trimEnd()}\n\n{{verb.path:mini}}\n`);

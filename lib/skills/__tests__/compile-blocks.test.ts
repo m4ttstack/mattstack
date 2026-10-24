@@ -9,6 +9,7 @@ import { layeredFromManifest } from "../manifest-merge.ts";
 import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from "../sources.ts";
 import type { StepSource } from "../types.ts";
 import type { BlockTree } from "../blocks/types.ts";
+import { newTeamContext, type TeamContext } from "../team-params.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "blocks");
 const MANIFEST = join(FIX, "mattstack-home", "repos", "my-repo", "skills.jsonc");
@@ -42,12 +43,12 @@ function valuesFor(step: StepSource, roots: PluginRoots, b: PropBindings, extra:
   return blockPropValues(trees, b, (binding, prop) => loadAttachment(binding, prop, roots), new Set());
 }
 
-function compileMini(opts: { manifest?: string; stageDir?: string | null; verbSides?: Record<string, "skills" | "attachments">; packRoot?: boolean; prep?: (s: ReturnType<typeof setup>) => void } = {}) {
+function compileMini(opts: { manifest?: string; stageDir?: string | null; verbSides?: Record<string, "skills" | "attachments">; packRoot?: boolean; team?: TeamContext; prep?: (s: ReturnType<typeof setup>) => void } = {}) {
   const s = setup();
   opts.prep?.(s);
   const step = loadStepSource("mini", s.roots) as StepSource & { tree: BlockTree };
   const values = valuesFor(step, s.roots, bindingsOf(opts.manifest ?? readFileSync(MANIFEST, "utf8")));
-  const result = compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), { stageDir: opts.stageDir ?? null, verbSides: opts.verbSides, packRoot: opts.packRoot ? s.widgets : undefined });
+  const result = compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), { stageDir: opts.stageDir ?? null, verbSides: opts.verbSides, packRoot: opts.packRoot ? s.widgets : undefined, team: opts.team });
   const skillMd = result.files.find((f) => f.path === "SKILL.md");
   return { ...s, result, skillMd: skillMd && "content" in skillMd ? skillMd.content : "" };
 }
@@ -151,6 +152,46 @@ describe("compileBlockSkill", () => {
       message: "hand-typed path ../../attachments/capture-evidence/SKILL.md breaks when its target moves; write {{pack.path:capture-evidence/SKILL.md}} instead",
       fix: { length: 43, text: "{{pack.path:capture-evidence/SKILL.md}}" },
     }]);
+  });
+
+  describe("pack.path takes a team value", () => {
+    const teamWith = (params: Record<string, string>) => newTeamContext({ plugin: "widgets", version: "0.1.0", params, sections: {} }, new Set(["widgets"]));
+    const gatesFill = (body: string) => ({ widgets }: ReturnType<typeof setup>) => {
+      mkdirSync(join(widgets, "attachments", "widgets-gates"), { recursive: true });
+      writeFileSync(join(widgets, "attachments", "widgets-gates", "SKILL.md"), "gates\n");
+      writeFileSync(join(widgets, "attachments", "mini-rules", "fast.md"), body);
+    };
+
+    test("a fill's {{pack.path:{{team.<key>}}/<file>}} compiles to the attachment the team names", () => {
+      const { result, skillMd } = compileMini({ packRoot: true, team: teamWith({ "gates-fill": "widgets-gates" }), prep: gatesFill("Read {{pack.path:{{team.gates-fill}}/SKILL.md}} first.\n") });
+      expect(result.diagnostics).toEqual([]);
+      expect(skillMd).toContain("Read ${CLAUDE_SKILL_DIR}/../../attachments/widgets-gates/SKILL.md first.");
+    });
+
+    test("a team value naming a missing attachment fails with pack.path's own error", () => {
+      expect(() => compileMini({ packRoot: true, team: teamWith({ "gates-fill": "gone-gates" }), prep: gatesFill("Read {{pack.path:{{team.gates-fill}}/SKILL.md}} first.\n") })).toThrow(
+        "widgets:mini-rules/fast: {{pack.path:gone-gates/SKILL.md}} -- gone-gates is not a directory under attachments/ or skills/",
+      );
+    });
+
+    test("a hand-typed path picking its attachment by team value gets a fix that compiles", () => {
+      const team = teamWith({ "gates-fill": "widgets-gates" });
+      const hand = "Read ../../attachments/{{team.gates-fill}}/SKILL.md first.\n";
+      const { result } = compileMini({ packRoot: true, team, prep: gatesFill(hand) });
+      expect(result.files).toEqual([]);
+      expect(result.diagnostics).toMatchObject([{ code: "hand-typed-path", fix: { length: 46, text: "{{pack.path:{{team.gates-fill}}/SKILL.md}}" } }]);
+      const fix = result.diagnostics[0]!.fix!;
+      const fixed = hand.slice(0, 5) + fix.text + hand.slice(5 + fix.length);
+      const again = compileMini({ packRoot: true, team: teamWith({ "gates-fill": "widgets-gates" }), prep: gatesFill(fixed) });
+      expect(again.result.diagnostics).toEqual([]);
+      expect(again.skillMd).toContain("${CLAUDE_SKILL_DIR}/../../attachments/widgets-gates/SKILL.md");
+    });
+
+    test("with no team value the hand-typed path gets no fix", () => {
+      const { result } = compileMini({ packRoot: true, team: teamWith({}), prep: gatesFill("Read ../../attachments/{{team.gates-fill}}/SKILL.md first.\n") });
+      expect(result.diagnostics).toMatchObject([{ code: "hand-typed-path" }]);
+      expect(result.diagnostics[0]!.fix).toBeUndefined();
+    });
   });
 
   test("a hand-typed path on a fill's indented first line is placed at its real column", () => {

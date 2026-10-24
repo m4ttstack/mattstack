@@ -20,6 +20,7 @@ import { handPathDiagnostics } from "./hand-paths.ts";
 import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves, skillDirFor } from "./placeholders.ts";
 import { effectiveBindings, type LayeredBindings } from "./pipelines.ts";
 import { AttachmentLoadError } from "./sources.ts";
+import type { TeamContext } from "./team-params.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
 
 const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
@@ -313,7 +314,7 @@ export function compileBlockSkill(
   const handPaths = handPathsIn(step, includes, sources.filter(({ mode }) => mode === "inline").map(({ fill }) => fill), {
     verbs: new Set(Object.keys(ctx.verbSides)),
     packSource: (arg) => packPathResolves(ctx, arg),
-  });
+  }, opts.team ?? null);
   let rendered;
   const diagnostics: BlockDiagnostic[] = [];
   try {
@@ -372,6 +373,7 @@ function handPathsIn(
   includes: Record<string, AttachmentSource>,
   fills: AttachmentSource[],
   view: { verbs: ReadonlySet<string>; packSource: (arg: string) => boolean },
+  team: TeamContext | null,
 ): BlockDiagnostic[] {
   const out: BlockDiagnostic[] = [];
   const seen = new Set<string>();
@@ -391,7 +393,8 @@ function handPathsIn(
     const key = `${fill.plugin}:${fill.srcPath}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(...handPathDiagnostics(fill.body, fill.srcPath, { startLine: fill.bodyStartLine, indent: fill.bodyIndent, ...view }));
+    const teamValue = team?.basePlugins.has(fill.plugin) ? (key: string) => (Object.hasOwn(team.values.params, key) ? team.values.params[key] : undefined) : undefined;
+    out.push(...handPathDiagnostics(fill.body, fill.srcPath, { startLine: fill.bodyStartLine, indent: fill.bodyIndent, ...view, teamValue }));
   }
   return out;
 }

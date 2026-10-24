@@ -109,8 +109,43 @@ describe("team-params", () => {
   });
 
   test("refuses nested marker", () => {
-    expect(() => resolveTeamMarkers("{{pack.path:{{team.x}}/a}}", ctx({ x: "y" }), { where, sectionSeams: true })).toThrow(
-      new RegExp(`${where}.*line 1`),
+    for (const line of ["{{verb.path:{{team.x}}}}", "{{props.{{team.x}}}}", "{{pack.path:a/{{team.x}}}}", "{{pack.path:{{team.x}}}}", "{{pack.path:{{team.x}}/{{team.y}}}}"]) {
+      expect(() => resolveTeamMarkers(line, ctx({ x: "y", y: "z" }), { where, sectionSeams: true })).toThrow(
+        new RegExp(`${where}: \\{\\{team\\.[xy]\\}\\} sits inside another marker; markers do not nest \\(line 1\\)`),
+      );
+    }
+  });
+
+  test("a value marker picks pack.path's attachment", () => {
+    const team = ctx({ "gates-fill": "widgets-gates" });
+    expect(resolveTeamMarkers("Read {{pack.path:{{team.gates-fill}}/SKILL.md}} first.", team, { where, sectionSeams: true })).toBe(
+      "Read {{pack.path:widgets-gates/SKILL.md}} first.",
+    );
+    expect(team.used.has("gates-fill")).toBe(true);
+    expect(team.sawMarker).toBe(true);
+  });
+
+  test("a missing value in pack.path records missing and drops the placeholder", () => {
+    const team = ctx();
+    expect(resolveTeamMarkers("Read {{pack.path:{{team.gates-fill}}/SKILL.md}} first.", team, { where, sectionSeams: true })).toBe("Read  first.");
+    expect([...team.missing.keys()]).toEqual(["param:gates-fill"]);
+  });
+
+  test("an optional marker or a section marker cannot pick pack.path's attachment", () => {
+    expect(() => resolveTeamMarkers("{{pack.path:{{team.x?}}/SKILL.md}}", ctx({ x: "y" }), { where, sectionSeams: true })).toThrow(
+      `${where}: {{team.x?}} is optional, but pack.path needs a value (line 1)`,
+    );
+    expect(() => resolveTeamMarkers("{{pack.path:{{team.section:x}}/SKILL.md}}", ctx({}, { x: "y" }), { where, sectionSeams: true })).toThrow(
+      `${where}: {{team.section:x}} sits inside another marker; markers do not nest (line 1)`,
+    );
+  });
+
+  test("a pack.path value must be one path without spaces or braces", () => {
+    expect(() => resolveTeamMarkers("{{pack.path:{{team.x}}/SKILL.md}}", ctx({ x: "{{y}}" }), { where, sectionSeams: true })).toThrow(
+      `${where}: {{team.x}} has a value containing {{ (line 1)`,
+    );
+    expect(() => resolveTeamMarkers("{{pack.path:{{team.x}}/SKILL.md}}", ctx({ x: "a b" }), { where, sectionSeams: true })).toThrow(
+      `${where}: {{team.x}} has a value pack.path cannot take (line 1)`,
     );
   });
 

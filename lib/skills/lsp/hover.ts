@@ -7,7 +7,7 @@ import { loadInclude, stripFrontmatter } from "../sources.ts";
 import type { AttachmentSource } from "../types.ts";
 import { blockIn, loadFill } from "./lookup.ts";
 import { tokenAt, type Position, type Range, type SkillPathToken, type Token } from "./positions.ts";
-import { packsFor, packTarget, verbTarget } from "./skill-paths.ts";
+import { packsFor, packTarget, teamValue, verbTarget } from "./skill-paths.ts";
 import type { Workspace } from "./workspace.ts";
 
 export type Hover = { contents: string; range: Range };
@@ -53,13 +53,24 @@ function skillPathHover(ws: Workspace, file: string, token: SkillPathToken): str
   const marker = token.kind === "pack-path" ? "pack.path" : "verb.path";
   return packs
     .map((pack) => {
-      const target = token.kind === "pack-path" ? packTarget(pack, token.attachment, token.file) : verbTarget(pack, token.verb);
-      const line = target
-        ? `\`${target.rel}\` · ${target.compiled ? "compiled output, not pack source" : target.exists ? "exists" : "does not exist"}`
-        : token.kind === "pack-path"
-          ? "takes <attachment>/<file>"
-          : `\`${token.verb}\` is not a compiled verb of ${pack.plugin.name}`;
-      return `**${marker}** · ${pack.plugin.name}\n\n${line}`;
+      const header = `**${marker}** · ${pack.plugin.name}`;
+      const lines = [header];
+      let attachment = token.kind === "pack-path" ? token.attachment : "";
+      if (token.kind === "pack-path" && token.team !== undefined) {
+        const picked = teamValue(ws, pack, token.team);
+        if (picked === null) return `${header}\n\nthe target depends on the team value \`${token.team}\`, which ${pack.plugin.name} does not set`;
+        lines.push(`\`${token.attachment}\` is \`${picked}\``);
+        attachment = picked;
+      }
+      const target = token.kind === "pack-path" ? packTarget(pack, attachment, token.file) : verbTarget(pack, token.verb);
+      lines.push(
+        target
+          ? `\`${target.rel}\` · ${target.compiled ? "compiled output, not pack source" : target.exists ? "exists" : "does not exist"}`
+          : token.kind === "pack-path"
+            ? "takes <attachment>/<file>"
+            : `\`${token.verb}\` is not a compiled verb of ${pack.plugin.name}`,
+      );
+      return lines.join("\n\n");
     })
     .join("\n\n");
 }

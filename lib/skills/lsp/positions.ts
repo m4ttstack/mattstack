@@ -15,13 +15,15 @@ export type Token =
   | { kind: "binding-key"; engineRef: string; blockPath: string | null; range: Range }
   | { kind: "binding-prop"; key: string; prop: string; range: Range }
   | { kind: "binding-value"; key: string; prop: string; value: string; range: Range }
-  | { kind: "pack-path"; attachment: string; file: string; range: Range }
+  /** `team`: the attachment segment is that team param's value marker, and `attachment` holds the marker as written. */
+  | { kind: "pack-path"; attachment: string; file: string; team?: string; range: Range }
   | { kind: "verb-path"; verb: string; range: Range };
 
 export type SkillPathToken = Extract<Token, { kind: "pack-path" | "verb-path" }>;
 
 const MARKER_RE = /\{\{props\.([a-z][a-z0-9-]*)\}\}/g;
-const SKILL_PATH_RE = /\{\{(pack|verb)\.path:([^}\s]*)\}\}/g;
+const SKILL_PATH_RE = /\{\{(pack|verb)\.path:((?:\{\{team\.[a-z][a-z0-9-]*\}\}(?=\/))?[^}\s]*)\}\}/g;
+const TEAM_SEGMENT_RE = /^\{\{team\.([a-z][a-z0-9-]*)\}\}\//;
 const INCLUDE_LINE_RE = /^\{\{include:([^}\s]+)\}\}$/;
 const FRONTMATTER_FENCE_RE = /^---\s*$/;
 const YAML_KEY_RE = /^(\s*)([A-Za-z0-9_][\w-]*)\s*:/;
@@ -145,6 +147,11 @@ function pathTokens(row: string, line: number, tokens: Token[]): void {
     const arg = m[2]!;
     if (m[1] === "verb") {
       tokens.push({ kind: "verb-path", verb: arg, range });
+      continue;
+    }
+    const team = TEAM_SEGMENT_RE.exec(arg);
+    if (team) {
+      tokens.push({ kind: "pack-path", attachment: team[0].slice(0, -1), file: arg.slice(team[0].length), team: team[1]!, range });
       continue;
     }
     const slash = arg.indexOf("/");

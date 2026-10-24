@@ -114,6 +114,17 @@ export function packsFor(ws: Workspace, file: string): Pack[] {
   return own ? [own] : [];
 }
 
+/** The pack's own value for a team param, read from `pack/params.jsonc` as the workspace holds it; null when unset or unreadable. */
+export function teamValue(ws: Workspace, pack: Pack, key: string): string | null {
+  try {
+    const params = (JSON.parse(stripJsonc(ws.text(join(pack.plugin.dir, "pack", "params.jsonc")))) as { params?: Record<string, unknown> } | null)?.params;
+    const value = params && typeof params === "object" && Object.hasOwn(params, key) ? params[key] : undefined;
+    return typeof value === "string" && value !== "" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Where `{{pack.path:<attachment>/<file>}}` points from the pack's root, on whichever side holds the folder. */
 export function packTarget(pack: Pack, attachment: string, file: string): PathTarget | null {
   if (attachment === "" || file === "") return null;
