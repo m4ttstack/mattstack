@@ -227,7 +227,7 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 
 ---
 
-> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them.
+> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them. Task 14 (lawson's pack conversion, 2026-10-23) runs after Task 10 and before Task 11.
 
 ### Task 12: Hand-typed paths fail compile
 
@@ -272,6 +272,22 @@ A compiled source that reaches into another skill or attachment by a hand-typed 
 - [ ] **Step 3: Implement and register `textDocument/codeAction` and `workspace/willRenameFiles`**
 - [ ] **Step 4: Run → PASS**
 - [ ] **Step 5: Commit: `lsp: fix, complete and follow skill paths`**
+
+---
+
+### Task 14: `pack.path` takes a team value
+
+The org base pack picks a fill by team param: `../../attachments/{{team.gates-fill}}/SKILL.md`. Task 12 refuses that path and no placeholder can say it, because team markers never nest (`lib/skills/team-params.ts`, "sits inside another marker").
+
+**Files:**
+- Modify: `lib/skills/team-params.ts` (a `{{team.<key>}}` value marker is allowed inside the argument of `{{pack.path:…}}`, and only there; every other nesting is still refused), `lib/skills/hand-paths.ts` (a hand-typed path whose attachment segment is one team value marker gets the fix `{{pack.path:{{team.<key>}}/<file>}}` when the compile can resolve it), the language server's pack.path hover, definition and completion (resolve the team value from the pack's `pack/params.jsonc` when it is open; otherwise say the target depends on that team value), `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` and the website docs section from Task 12 (the param-chosen form)
+- Test: `lib/skills/__tests__/team-params.test.ts`, `hand-paths.test.ts`, a compile test, and lsp hover/definition cases
+
+- [ ] **Step 1: Write the failing tests** (`{{pack.path:{{team.gates-fill}}/SKILL.md}}` compiles to the resolved path when the team sets `gates-fill` to an attachment that exists, and fails with pack.path's own error when it names a missing one; `{{verb.path:{{team.x}}}}` and a team marker inside any other marker are still refused; `../../attachments/{{team.gates-fill}}/SKILL.md` is `hand-typed-path` with that fix; hover on the placeholder names the resolved target)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: pack.path takes a team value`**
 
 ---
 
