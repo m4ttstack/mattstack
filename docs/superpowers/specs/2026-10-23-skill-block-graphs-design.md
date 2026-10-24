@@ -182,8 +182,9 @@ model's output on ship's Flow (see Boards).
   - **A block after the split.** A block whose forward links pass a split
     that sits before it in flow order reaches back into that split with
     one link. Like any back link it is a jump pill beside the block, never
-    a line up the side; it names the question by its short label, with no
-    exit label (Which forge's "↩ Forge host (ship, create)?").
+    a line up the side; it names the question without its trailing
+    parenthetical and with no exit label (Which forge's "↩ Forge host?").
+    The dot's tooltip keeps the full question.
   - **Nothing folds a split.** A split is drawn on the map, so no link
     folds it. A link that passed only the split draws solid, with nothing
     to unfold (the forge split → Create MR).
