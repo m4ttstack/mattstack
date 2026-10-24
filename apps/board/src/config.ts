@@ -215,6 +215,7 @@ export interface BoardConfig {
   doctorCwd: string;
   /** herdr workspace label doctor sessions are grouped under. */
   doctorsWorkspace: string;
+  /** herdr workspace label question panes are grouped under. */
   questionsWorkspace: string;
   /** Command that starts claude in every pane the board launches, composed from the board.agent.* settings by composeAgentCommand. Empty = plain "claude". */
   claudeCommand: string;
