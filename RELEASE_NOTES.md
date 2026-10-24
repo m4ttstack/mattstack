@@ -19,6 +19,12 @@ A skills release. Every mattstack engine and include is now a tree of blocks, so
   - a `## At:` section whose step has no prop folds into the stage's `domain-rules` block
   - rebind each file under its v2 key with `rt skills bind`, and delete the old slot keys from `pack/skills.jsonc`
   - run `rt skills compile`, then `rt skills check --strict`
+- a pack compiled on this release needs the mattstack plugin at 0.32.27 or later, because compile writes that floor into the pack's `pack/requires.json`
+- a hand-typed path to another skill's file now fails compile and check with `hand-typed-path`, and the error names the placeholder to use; this covers block skills, includes, prop values, copied base attachments, team sections and params
+- `{{pack.path:widgets/rules.md}}` renders to a copy in each built skill's own `references/` folder
+- `{{pack.path:{{team.<key>}}/<file>}}` takes a team value as its folder
+- team sections and params may carry `{{pack.path:...}}` and `{{verb.path:...}}`
+- hand-written plugin skills get a `broken-skill-path` check: a path that points at no file fails `rt skills check`
 - the extending-a-pack, creating-a-pack, editing-skills and process-digraphs skills teach the block model, and `props.md` lists every block and prop
 - CI compiles every graph-bearing engine, runs check-dot on the compiled graphs, and checks the props signature against the last release tag
 
