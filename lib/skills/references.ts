@@ -3,13 +3,10 @@ import { join } from "path";
 import { walkAttachmentFiles } from "./base-attachments.ts";
 import {
   assertNoTeamMarkerInRawFile,
-  fileVerbPath,
   includeText,
-  PLACEHOLDER_RE,
   readTextUnlessBinary,
   referencePath,
-  resolveAttachmentTeamMarkers,
-  resolvePackPath,
+  substituteAttachmentPlaceholders,
   type PackTarget,
 } from "./placeholders.ts";
 import type { AttachmentSource, CompiledFile, PlaceholderContext } from "./types.ts";
@@ -20,6 +17,8 @@ export type ReferenceCopies = { files: { file: CompiledFile; from: string }[]; i
 export type ReferenceOpts = {
   /** The built skill's folder from the pack root, `<side>/<name>`, which a copy's `{{verb.path}}` is relative to. */
   skillRel: string;
+  /** What a copy's `{{pack.name}}` renders to: the pack's plugin name. */
+  packName?: string;
   loadInclude?: (name: string) => AttachmentSource;
 };
 
@@ -38,7 +37,7 @@ function unitSource(target: PackTarget, ctx: PlaceholderContext): UnitSource {
  * Copies every unit a built skill's `{{pack.path}}` names into its
  * references/, then every unit a copy names in turn; a unit is copied once
  * however often it is named, so two units naming each other end. A copied
- * `.md` file is rendered and may carry what a prop value may; other files
+ * `.md` file is rendered the way a base attachment copied into the pack is; other files
  * are copied as written.
  */
 export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, opts: ReferenceOpts): ReferenceCopies {
@@ -82,37 +81,31 @@ type CopyRender = {
   includes: Record<string, AttachmentSource>;
 };
 
-/** Team markers resolve only in a unit the org base supplies, the rule a prop value follows. */
+/** Rendered like a base attachment copied into the pack; team markers resolve only in a unit the org base supplies. */
 function renderCopy(text: string, r: CopyRender): string {
-  const resolved = resolveAttachmentTeamMarkers(text, r.where, r.base ? r.ctx.team ?? null : null);
-  return resolved
-    .split("\n")
-    .map((line, i) => {
-      const out = line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
-        switch (kind) {
-          case "include": {
-            if (line.trim() !== raw) throw new Error(`${r.where}: ${raw} must be alone on its line (line ${i + 1})`);
-            return includeText(arg!, copyInclude(arg, raw, i, r), r.ctx);
-          }
-          case "verb.path":
-            return fileVerbPath(r.ctx.verbSides, arg, raw, r.where, r.fileRel);
-          case "pack.path": {
-            const target = resolvePackPath(r.ctx, arg, raw, r.where);
-            r.queue.push(target);
-            return referencePath(r.ctx, target);
-          }
-          default:
-            throw new Error(`${r.where}: ${raw} -- ${COPIED} may carry {{include}}, {{verb.path}} or {{pack.path}} only (line ${i + 1})`);
-        }
-      });
-      if (out.includes("{{")) throw new Error(`${r.where}: literal "{{" at line ${i + 1} -- ${COPIED} may not carry it`);
-      return out;
-    })
-    .join("\n");
+  return substituteAttachmentPlaceholders(text, {
+    packName: r.opts.packName ?? "",
+    fileRel: r.fileRel,
+    verbSides: r.ctx.verbSides,
+    packRoot: r.ctx.packRoot!,
+    plannedAttachments: r.ctx.plannedAttachments,
+    where: r.where,
+    team: r.base ? r.ctx.team ?? null : null,
+    copy: {
+      packPath: (target) => {
+        r.queue.push(target);
+        return referencePath(r.ctx, target);
+      },
+      include: (arg, raw, at) => {
+        if (!at.alone) throw new Error(`${r.where}: ${raw} must be alone on its line (line ${at.line})`);
+        return includeText(arg!, copyInclude(arg, raw, at.line, r), r.ctx);
+      },
+    },
+  });
 }
 
 /** An include the built skill has not loaded is loaded here, and returned so its files vendor under parts/. */
-function copyInclude(arg: string | undefined, raw: string, i: number, r: CopyRender): AttachmentSource {
+function copyInclude(arg: string | undefined, raw: string, line: number, r: CopyRender): AttachmentSource {
   const known = arg ? (Object.hasOwn(r.ctx.includes, arg) ? r.ctx.includes[arg] : r.includes[arg]) : undefined;
   let inc = known;
   if (!inc && arg && r.opts.loadInclude) {
@@ -123,7 +116,7 @@ function copyInclude(arg: string | undefined, raw: string, i: number, r: CopyRen
     }
   }
   if (!arg || !inc) throw new Error(`${r.where}: include "${arg}" is not a loaded attachment`);
-  if (inc.tree) throw new Error(`${r.where}: ${raw} -- ${COPIED} may include a flat attachment only, not a block tree (line ${i + 1})`);
+  if (inc.tree) throw new Error(`${r.where}: ${raw} -- ${COPIED} may include a flat attachment only, not a block tree (line ${line})`);
   if (!known) r.includes[arg] = inc;
   return inc;
 }

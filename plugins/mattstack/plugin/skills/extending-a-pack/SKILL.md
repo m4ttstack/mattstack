@@ -618,10 +618,11 @@ it into the team pack. When a team pack `extends` a base, each compile:
   folder once the pack stops extending a base.
 
 A built skill never reads those copies. Its `{{pack.path:<attachment>/<file>}}`
-copies the whole attachment, rendered, into its own
-`references/<attachment>/` and points there; the copy may carry only what a
-fill may (`{{include}}`, `{{verb.path}}`, `{{pack.path}}`, `{{team.*}}`),
-so a `{{pack.name}}` or a literal `{{` in it fails the compile.
+copies the whole attachment into its own `references/<attachment>/` and
+points there. The copy renders like the team pack's copy, plus a flat
+`{{include}}`; its `{{pack.path}}` points into the same `references/`. A
+placeholder that depends on the reading skill (`{{stage.dir}}`,
+`{{pipeline.table}}` and the like) fails the compile.
 
 Every compile also writes `pack/requires.json`, the engine floor
 (`minEngine`) copied from the mattstack it compiled against. It is compile

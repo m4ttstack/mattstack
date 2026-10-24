@@ -52,6 +52,7 @@ type MiniOpts = {
   verb?: typeof VERB;
   side?: "skills" | "attachments";
   loadIncludes?: boolean;
+  packName?: string;
   prep?: (s: ReturnType<typeof setup>) => void;
 };
 
@@ -67,6 +68,7 @@ function compileMini(opts: MiniOpts = {}) {
     packRoot: opts.packRoot ? s.widgets : undefined,
     team: opts.team,
     loadInclude: opts.loadIncludes ? (name) => loadInclude(name, s.roots) : undefined,
+    packName: opts.packName,
   });
   const skillMd = result.files.find((f) => f.path === "SKILL.md");
   return { ...s, result, skillMd: skillMd && "content" in skillMd ? skillMd.content : "" };
@@ -307,15 +309,30 @@ describe("compileBlockSkill", () => {
       expect(contentOf(result.files, "references/widgets-gates/notes/deep.md")).toBe("Up to ../../../../ship/SKILL.md and ${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md.\n");
     });
 
-    test("a copied file may carry only what a prop value file may", () => {
+    test("a copied file renders like a base attachment: other braces pass through as text", () => {
+      const { result } = compileMini({ packRoot: true, prep: withFill(READ_GATES, { "widgets-gates": { "SKILL.md": "Keep {{slot:x}} and ${{ secrets.TOKEN }} here.\n" } }) });
+      expect(result.diagnostics).toEqual([]);
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("Keep {{slot:x}} and ${{ secrets.TOKEN }} here.\n");
+    });
+
+    test("a copied file refuses a placeholder whose value depends on the skill reading it", () => {
       const refused = (text: string) => () => compileMini({ packRoot: true, prep: withFill(READ_GATES, { "widgets-gates": { "SKILL.md": text } }) });
-      expect(refused("Keep {{slot:x}} here.\n")).toThrow(
-        "attachments/widgets-gates/SKILL.md: {{slot:x}} -- a file copied into a built skill's references/ may carry {{include}}, {{verb.path}} or {{pack.path}} only (line 1)",
+      expect(refused("ok\nRun {{stage.dir}}/x.sh.\n")).toThrow(
+        "attachments/widgets-gates/SKILL.md: {{stage.dir}} -- its value depends on the skill reading it, so a file copied into a built skill's references/ cannot carry it (line 2)",
       );
-      expect(refused("ok\nUse ${{ secrets.TOKEN }}.\n")).toThrow(
-        "attachments/widgets-gates/SKILL.md: literal \"{{\" at line 2 -- a file copied into a built skill's references/ may not carry it",
-      );
+      for (const raw of ["{{stage.fields}}", "{{pipeline.stages}}", "{{pipeline.table}}", "{{run-list.pipelines}}", "{{work-type}}", "{{run-start.flags}}", "{{compiled-from}}"]) {
+        expect(refused(`${raw}\n`)).toThrow(`attachments/widgets-gates/SKILL.md: ${raw} -- its value depends on the skill reading it`);
+      }
       expect(refused("Hi {{team.x}}.\n")).toThrow("attachments/widgets-gates/SKILL.md: {{team.x}} -- team markers only resolve in base pack text (line 1)");
+      expect(refused("{{include:gone-floor}}\n")).toThrow('attachments/widgets-gates/SKILL.md: include "gone-floor" is not a loaded attachment');
+      expect(refused("See {{include:style-floor}} here.\n")).toThrow("attachments/widgets-gates/SKILL.md: {{include:style-floor}} must be alone on its line (line 1)");
+    });
+
+    test("a copied file's {{pack.name}} needs the pack's plugin name", () => {
+      const prep = withFill(READ_GATES, { "widgets-gates": { "SKILL.md": "Invoke {{pack.name}}:ship.\n" } });
+      expect(() => compileMini({ packRoot: true, prep })).toThrow("attachments/widgets-gates/SKILL.md: {{pack.name}} -- the pack has no .claude-plugin/plugin.json name to give it");
+      const { result } = compileMini({ packRoot: true, prep, packName: "widgets" });
+      expect(contentOf(result.files, "references/widgets-gates/SKILL.md")).toBe("Invoke widgets:ship.\n");
     });
 
     test("a missing source in a copy fails with pack.path's error", () => {

@@ -906,6 +906,7 @@ function compileVerb(
     plannedAttachments: planned,
     pipeline,
     loadInclude: (name) => loadInclude(name, resolved.pluginRoots),
+    packName: packPluginIdentity(resolved.packDir)?.name ?? resolved.team,
   });
 
   try {

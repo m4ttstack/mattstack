@@ -149,7 +149,24 @@ export type AttachmentRenderOpts = {
   plannedAttachments?: PlannedAttachments;
   where: string;
   team: TeamContext | null;
+  /** Set for a file copied into a built skill's references/, which resolves includes and points pack.path at its own copies. */
+  copy?: CopyHooks;
 };
+
+/** `line` counts from 1 in the text after team markers resolve; `alone` says whether the placeholder is its line's only text. */
+export type CopyHooks = {
+  packPath: (target: PackTarget) => string;
+  include: (arg: string | undefined, raw: string, at: { line: number; alone: boolean }) => string;
+};
+
+/** Each of these renders from the skill that reads it, which a file shared by path cannot know. */
+const READER_PLACEHOLDERS = new Set(["stage.dir", "stage.fields", "pipeline.stages", "pipeline.table", "run-list.pipelines", "work-type", "run-start.flags", "compiled-from"]);
+
+function lineAt(text: string, offset: number, raw: string): { line: number; alone: boolean } {
+  const start = text.lastIndexOf("\n", offset - 1) + 1;
+  const end = text.indexOf("\n", offset);
+  return { line: lineCount(text.slice(0, offset)) + 1, alone: text.slice(start, end < 0 ? text.length : end).trim() === raw };
+}
 
 const FRONTMATTER_BLOCK_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 
@@ -186,22 +203,32 @@ export function resolveAttachmentTeamMarkers(text: string, where: string, team: 
 }
 
 /**
- * An emitted base attachment is read as a plain file, so it gets only what
- * makes sense outside a compiled verb; every other brace passes through so
- * template examples in the text survive.
+ * An emitted base attachment, and a file copied into a built skill's
+ * references/, is read as a plain file, so it gets only what makes sense
+ * outside a compiled verb; every other brace passes through so template
+ * examples in the text survive.
  */
 export function substituteAttachmentPlaceholders(body: string, opts: AttachmentRenderOpts): string {
-  const { where } = opts;
-  return resolveAttachmentTeamMarkers(body, where, opts.team).replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
+  const { where, copy } = opts;
+  const text = resolveAttachmentTeamMarkers(body, where, opts.team);
+  return text.replace(PLACEHOLDER_RE, (raw: string, kind: string, arg: string | undefined, offset: number) => {
     switch (kind) {
       case "pack.name":
         if (arg !== undefined) throw new Error(`${where}: ${raw} -- pack.name takes no argument`);
+        if (!opts.packName) throw new Error(`${where}: ${raw} -- the pack has no .claude-plugin/plugin.json name to give it`);
         return opts.packName;
       case "verb.path":
         return fileVerbPath(opts.verbSides, arg, raw, where, opts.fileRel);
-      case "pack.path":
-        return sourcePackPath(resolvePackPath(opts, arg, raw, where));
+      case "pack.path": {
+        const target = resolvePackPath(opts, arg, raw, where);
+        return copy ? copy.packPath(target) : sourcePackPath(target);
+      }
+      case "include":
+        return copy ? copy.include(arg, raw, lineAt(text, offset, raw)) : raw;
       default:
+        if (copy && READER_PLACEHOLDERS.has(kind)) {
+          throw new Error(`${where}: ${raw} -- its value depends on the skill reading it, so a file copied into a built skill's references/ cannot carry it (line ${lineAt(text, offset, raw).line})`);
+        }
         return raw;
     }
   });

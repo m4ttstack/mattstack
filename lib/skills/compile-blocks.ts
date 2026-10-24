@@ -339,7 +339,7 @@ export function compileBlockSkill(
   ]);
   const content = `${buildFrontmatter(verb, allowedTools, compiledParts)}\n\n${body}\n`;
 
-  const copies = referenceCopies(rendered.used.references, ctx, { skillRel: `${ctx.side}/${verb.name}`, loadInclude: opts.loadInclude });
+  const copies = referenceCopies(rendered.used.references, ctx, { skillRel: `${ctx.side}/${verb.name}`, packName: opts.packName, loadInclude: opts.loadInclude });
   const vendored = vendorBlockFiles(step, placed, values, engine, { ...includes, ...copies.includes }, copies, opts, diagnostics);
   if (diagnostics.length > 0) return { files: [], warnings: [], errors: [], diagnostics };
   const files: CompiledFile[] = [{ path: "SKILL.md", content }, ...vendored];

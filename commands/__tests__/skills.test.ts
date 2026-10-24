@@ -1209,15 +1209,16 @@ describe("base pack attachments", () => {
     expect(existsSync(notes(packDir))).toBe(false);
   });
 
-  test("a base attachment a built skill copies may not carry {{pack.name}}", async () => {
+  test("a built skill's copy of a base attachment resolves {{pack.name}} and keeps other braces as text", async () => {
     const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:review-kit/SKILL.md}}.\n");
-    const { compile } = seedBaseAndTeam({ domainBody: linked });
+    const { baseDir, packDir, compile } = seedBaseAndTeam({ domainBody: linked });
 
-    const { errors } = await compile();
+    expect((await compile()).errors).toEqual([]);
 
-    expect(errors.join("\n")).toContain(
-      "acme-base:attachments/review-kit/SKILL.md: {{pack.name}} -- a file copied into a built skill's references/ may carry {{include}}, {{verb.path}} or {{pack.path}} only (line 5)",
-    );
+    const copy = join(packDir, "skills", "watch-ci", "references", "review-kit");
+    expect(readFileSync(join(copy, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\ndescription: shared review notes\n---\nInvoke widgets:watch-ci. Read ../../SKILL.md.\n");
+    expect(readFileSync(join(copy, "references", "guide.md"), "utf8")).toBe("Back to ../../../SKILL.md. Keep {{slot:x}} and ${{ secrets.TOKEN }}.\n");
+    expect(readFileSync(join(copy, "scripts", "run.sh")).equals(readFileSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh")))).toBe(true);
   });
 
   test("a recompile clears what an earlier compile copied into references/", async () => {

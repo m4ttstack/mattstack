@@ -390,6 +390,8 @@ export type CompileSkillOpts = {
   team?: TeamContext | null;
   /** Loads a flat include a file copied into references/ names that the built skill itself does not. */
   loadInclude?: (name: string) => AttachmentSource;
+  /** The pack's plugin name, which `{{pack.name}}` renders to in a file copied into references/. */
+  packName?: string;
 };
 
 /** `includes` is the flat includes a block's text and its inlined values place; tree includes render through their blocks. */
