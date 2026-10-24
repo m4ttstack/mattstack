@@ -213,11 +213,13 @@ describe('BlockMap', () => {
     expect(
       await screen.findByText("The graph didn't lay out")
     ).toBeInTheDocument();
+    expect(screen.queryByTestId('map-key')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(
       await screen.findAllByTestId('map-card', {}, LAID_OUT)
     ).not.toHaveLength(0);
+    expect(screen.getByTestId('map-key')).toBeInTheDocument();
     expect(calls).toBe(2);
   }, 20_000);
 
@@ -226,6 +228,7 @@ describe('BlockMap', () => {
     try {
       renderMap({ engine: () => new Promise(() => {}) });
       expect(screen.getByTestId('map-loading')).toBeInTheDocument();
+      expect(screen.queryByTestId('map-key')).toBeNull();
 
       act(() => vi.advanceTimersByTime(LAYOUT_TIMEOUT_MS));
 

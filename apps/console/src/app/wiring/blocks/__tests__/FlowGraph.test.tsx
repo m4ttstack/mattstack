@@ -245,12 +245,42 @@ describe('FlowGraph', () => {
           plane,
         })
       );
-      expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrolled).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'center',
+      });
       expect(scrolled.mock.contexts[0]).toHaveAttribute('data-id', FAST_CHECKS);
     } finally {
       // @ts-expect-error jsdom has no scrollIntoView of its own.
       delete Element.prototype.scrollIntoView;
     }
+  }, 30_000);
+
+  it('Every step shows its key only once the graph is laid out', async () => {
+    canvas.width = 560;
+    let fail = true;
+    renderWithProviders(
+      <EveryStep
+        payload={shipPayload}
+        graph={ship}
+        highlight={null}
+        onSelect={() => {}}
+        onView={() => {}}
+        onClose={() => {}}
+        engine={() =>
+          fail ? Promise.reject(new Error('worker failed')) : engine()
+        }
+      />
+    );
+
+    expect(await screen.findByText("The graph didn't lay out")).toBeVisible();
+    expect(screen.queryByTestId('flow-key')).toBeNull();
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await screen.findByTestId('flow-canvas', {}, LAID_OUT);
+    expect(screen.getByTestId('flow-key')).toBeInTheDocument();
   }, 30_000);
 
   it('a canvas of fractional width fits a graph that fits above the zoom floor', async () => {

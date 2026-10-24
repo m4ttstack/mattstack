@@ -3,7 +3,7 @@ import { Text, UnstyledButton } from '@mattstack/app-kit/core';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import classes from './blocks.module.css';
-import { FlowGraph, FlowKey } from './FlowGraph';
+import { FlowGraph } from './FlowGraph';
 import { aroundBlock, aroundOrder } from './model/around';
 import { flowOrder } from './model/blockMap';
 import type { LayoutEngine } from './model/elkGraph';
@@ -65,7 +65,6 @@ export function AroundGraph({
         engine={engine}
         loadingHeight={240}
       />
-      <FlowKey />
     </section>
   );
 }

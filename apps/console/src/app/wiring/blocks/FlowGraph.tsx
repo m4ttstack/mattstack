@@ -7,6 +7,7 @@ import {
   useRef,
 } from 'react';
 import { Text } from '@mattstack/app-kit/core';
+import { useReducedMotion } from '@mattstack/app-kit/hooks';
 import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
@@ -129,6 +130,7 @@ function FlowCanvas({
     [layout, laidOut, focus]
   );
   const start = focus ?? layout.order[0] ?? null;
+  const reduceMotion = useReducedMotion();
   const shown = useRef(false);
   useEffect(() => {
     const scroller = element.current;
@@ -146,9 +148,24 @@ function FlowCanvas({
     if (focus) {
       [...scroller.querySelectorAll('.react-flow__node')]
         .find(node => node.getAttribute('data-id') === focus)
-        ?.scrollIntoView?.({ block: 'nearest' });
+        ?.scrollIntoView?.({
+          behavior: reduceMotion ? 'instant' : 'smooth',
+          block: 'center',
+          inline: 'center',
+        });
     }
-  }, [element, startInView, start, focus, laidOut, width, zoom, x, plane]);
+  }, [
+    element,
+    startInView,
+    start,
+    focus,
+    laidOut,
+    width,
+    zoom,
+    x,
+    plane,
+    reduceMotion,
+  ]);
   return (
     <GraphCanvas
       canvas={canvas}
@@ -237,6 +254,7 @@ export function FlowGraph({
         focus={focus}
         startInView={startInView}
       />
+      <FlowKey />
     </OnSelect.Provider>
   );
 }
@@ -301,7 +319,6 @@ export function EveryStep({
         onSelect={onSelect}
         engine={engine}
       />
-      <FlowKey />
     </section>
   );
 }

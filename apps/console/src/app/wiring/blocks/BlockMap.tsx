@@ -431,7 +431,10 @@ export function BlockMap({
       ) : state === 'error' ? (
         <GraphError onRetry={retry} />
       ) : laidOut && shown ? (
-        <MapCanvas layout={shown} laidOut={laidOut} actions={actions} />
+        <>
+          <MapCanvas layout={shown} laidOut={laidOut} actions={actions} />
+          <MapKey />
+        </>
       ) : (
         <GraphLoading
           height={320}
@@ -439,7 +442,6 @@ export function BlockMap({
           label="Laying out the map"
         />
       )}
-      {layout !== null && <MapKey />}
     </section>
   );
 }
