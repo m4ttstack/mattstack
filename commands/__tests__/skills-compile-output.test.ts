@@ -48,7 +48,7 @@ test("a compile that met an engine with no block tree names the plugin update", 
   const line = 'verb "ship": loadStepSource: engine "ship" at /x/ship has no index.block.md; an engine is a block tree';
   expect(renderPlain([out.failure(compileFailure([line], true))])).toBe(
     "1 verb did not compile\n" +
-      "  why: Its engines are single SKILL.md files, and this rt compiles only block trees. Update the plugin, or update the mattstack app, which updates it.\n" +
+      "  why: Its skills are single SKILL.md files, and this rt compiles only block trees. Update the plugin, or update the mattstack app, which updates it.\n" +
       "  next: claude plugin update mattstack@mattstack\n" +
       `  ${line}\n`,
   );
