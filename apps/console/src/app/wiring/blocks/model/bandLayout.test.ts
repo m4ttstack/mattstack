@@ -106,6 +106,31 @@ describe('openBand', () => {
     expect(push.rows.map(row => row.to)).not.toContain('gate_push_refused');
   });
 
+  it('a command is never wider than the widest card', () => {
+    const widest = Math.max(
+      ...opened
+        .band!.boxes.filter(box => box.node.kind !== 'command')
+        .map(box => box.width)
+    );
+    const command = opened.band!.boxes.find(
+      box => box.node.id === 'git_rebase_onto'
+    )!;
+    expect(command.width).toBeLessThanOrEqual(widest);
+  });
+
+  it("the band takes the link's place in input order", () => {
+    const ids = opened.input.nodes.map(node => node.id);
+    const source = ids.indexOf('domain_rebases_unfinished');
+    expect(ids.slice(source + 1, source + 5)).toEqual([
+      bandId,
+      'git_rebase_onto',
+      'rebase_status',
+      'run_budget_conflict_rounds',
+    ]);
+    const before = layout.input.edges.findIndex(edge => edge.id === link.id);
+    expect(opened.input.edges[before]!.id).toBe(`${bandId}:in:git_rebase_onto`);
+  });
+
   it('keeps the main column straight through the band', () => {
     const main = linkTo('domain_rebases_unfinished', 'create_forge_host');
     const trunk = openBand(layout, map, graph, main, measure);

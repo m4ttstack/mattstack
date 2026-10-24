@@ -1,5 +1,5 @@
 import { memo, useContext } from 'react';
-import { UnstyledButton } from '@mattstack/app-kit/core';
+import { Tooltip, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 
@@ -16,19 +16,24 @@ export type BandStepFlowNode = Node<{ box: BandBox }, 'bandStep'>;
 /** The open band's frame: a tint behind its steps, headed by their count
     and the Fold button. */
 function BandFrame({ data: { band } }: NodeProps<BandFlowNode>) {
-  const { fold } = useContext(MapActionsContext);
+  const { fold, nodeView } = useContext(MapActionsContext);
   const count = `${band.boxes.length} steps`;
   return (
     <div
       className={classes.foldBand}
       data-testid="fold-band"
       data-link={band.link.id}
+      data-dim={nodeView(band.id).dim || undefined}
       role="group"
       aria-label={count}
     >
       <div className={classes.foldBandHead}>
         <span className={classes.foldBandCount}>{count}</span>
-        <UnstyledButton className={classes.foldBandFold} onClick={fold}>
+        <UnstyledButton
+          className={classes.foldBandFold}
+          data-fold
+          onClick={fold}
+        >
           <Icon name="chevronUp" size={12} strokeWidth={2} />
           Fold
         </UnstyledButton>
@@ -82,17 +87,20 @@ function BandStep({ data: { box } }: NodeProps<BandStepFlowNode>) {
   const { nodeView } = useContext(MapActionsContext);
   const { node } = box;
   const view = nodeView(node.id);
+  const dim = view.dim || undefined;
   if (node.kind === 'command') {
     return (
       <>
-        <div
-          className={classes.foldCommand}
-          data-testid="band-step"
-          data-node={node.id}
-          title={node.text}
-        >
-          {node.text}
-        </div>
+        <Tooltip label={node.text} multiline maw={480} withinPortal>
+          <div
+            className={classes.foldCommand}
+            data-testid="band-step"
+            data-node={node.id}
+            data-dim={dim}
+          >
+            {node.text}
+          </div>
+        </Tooltip>
         <Handles />
       </>
     );
@@ -103,6 +111,7 @@ function BandStep({ data: { box } }: NodeProps<BandStepFlowNode>) {
         className={classes.foldStepBox}
         data-testid="band-step"
         data-node={node.id}
+        data-dim={dim}
       >
         <div className={classes.foldCard} data-ring={view.ring || undefined}>
           <div className={classes.foldCardHead}>

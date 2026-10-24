@@ -101,6 +101,10 @@ export function mapFocus(
       litNodes.add(id);
     }
   }
+  if (layout.band && hotLinks.has(layout.band.link.id)) {
+    litNodes.add(layout.band.id);
+    for (const box of layout.band.boxes) litNodes.add(box.node.id);
+  }
   for (const edge of layout.edges) {
     const own = owners.get(edge.id) ?? [];
     if (

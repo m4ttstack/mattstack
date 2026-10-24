@@ -87,11 +87,46 @@ function MapDots({ dots }: { dots: Dot[] }) {
   );
 }
 
+const STEP_ICON: Record<BandNode['kind'], IconName> = {
+  command: 'terminal',
+  question: 'diamond',
+  budget: 'diamond',
+  step: 'circle',
+};
+
+/** A folded link's steps as its hover card lists them. */
+export function FoldSteps({
+  steps,
+  hint,
+}: {
+  steps: BandNode[];
+  hint?: string;
+}) {
+  return (
+    <div className={classes.foldTip} data-testid="fold-steps">
+      <div className={classes.foldTipTitle}>
+        {`${steps.length} steps folded`}
+      </div>
+      <ul className={classes.foldTipList}>
+        {steps.map(step => (
+          <li key={step.id}>
+            <Icon name={STEP_ICON[step.kind]} size={12} strokeWidth={2} />
+            {step.kind === 'command' ? step.text : step.label}
+          </li>
+        ))}
+      </ul>
+      {hint && <div className={classes.foldTipHint}>{hint}</div>}
+    </div>
+  );
+}
+
 export type JumpPillProps = {
   label: string | null;
   target: string;
   direction: 'back' | 'forward';
   pressed?: boolean;
+  /** The graph-only steps the jump passes, listed on hover. */
+  steps?: BandNode[];
   onClick: () => void;
 };
 
@@ -100,16 +135,22 @@ export function JumpPill({
   target,
   direction,
   pressed,
+  steps = [],
   onClick,
 }: JumpPillProps) {
+  const [hovered, setHovered] = useState(false);
   const way = direction === 'back' ? 'back to' : 'on to';
-  return (
+  const pill = (
     <UnstyledButton
       className={classes.mapPill}
       data-testid="jump-pill"
       aria-label={`${label ? `${label}: ` : ''}${way} ${target}`}
       aria-pressed={pressed}
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
     >
       {label && <span className={classes.mapPillLabel}>{label}</span>}
       <Icon
@@ -120,6 +161,18 @@ export function JumpPill({
       />
       <span className={classes.mapPillTarget}>{target}</span>
     </UnstyledButton>
+  );
+  if (steps.length === 0) return pill;
+  return (
+    <Tooltip
+      label={<FoldSteps steps={steps} />}
+      opened={hovered}
+      multiline
+      w={280}
+      withinPortal
+    >
+      {pill}
+    </Tooltip>
   );
 }
 
@@ -356,13 +409,14 @@ export function Handles() {
 }
 
 function usePills(box: MapBox, fromLabel: string): JumpPillProps[] {
-  const { jump, nodeView } = useContext(MapActionsContext);
+  const { jump, nodeView, linkInfo } = useContext(MapActionsContext);
   const jumped = nodeView(box.node.id).jumped?.join('\u0000');
   return box.pills.map(pill => ({
     label: pill.label,
     target: pill.target,
     direction: pill.direction,
     pressed: jumped === pill.targets.join('\u0000') || undefined,
+    steps: linkInfo(pill.id)?.steps,
     onClick: () => jump(pill.targets, box.node.id, fromLabel),
   }));
 }

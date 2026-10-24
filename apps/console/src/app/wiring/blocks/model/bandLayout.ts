@@ -18,23 +18,26 @@ export const BAND = {
 } as const;
 
 export const BAND_CARD = {
+  border: 1,
   padX: 12,
   padY: 10,
   title: 20,
   badge: 20,
   badgeGap: 8,
   row: 20,
+  rowIndent: 28,
   rowGap: 6,
   icon: 11,
   pills: 20,
   pillsGap: 6,
   pillPadX: 8,
+  pillBorder: 1,
   between: 6,
   minWidth: 200,
 } as const;
 
-/** 12px mono, one line, ellipsed past `maxWidth`. */
-export const BAND_COMMAND = { height: 20, charWidth: 7.2, maxWidth: 360 };
+/** 12px mono, one line, never wider than the band's widest card. */
+export const BAND_COMMAND = { height: 20, charWidth: 7.2 };
 
 export type BandRow = {
   label: string;
@@ -58,24 +61,16 @@ export type BandedLayout = MapLayout & { band: OpenBand | null };
 
 export const bandIdOf = (link: MapLink) => `band:${link.id}`;
 
-function boxSize(
-  node: BandNode,
+function cardSize(
+  node: Exclude<BandNode, { kind: 'command' }>,
   rows: BandRow[],
   measure: Measure
 ): { width: number; height: number } {
-  if (node.kind === 'command') {
-    return {
-      width: Math.min(
-        BAND_COMMAND.maxWidth,
-        Math.ceil(node.text.length * BAND_COMMAND.charWidth)
-      ),
-      height: BAND_COMMAND.height,
-    };
-  }
   const C = BAND_CARD;
   const title = C.badge + C.badgeGap + measure(node.label, 13, 500);
   const rowWidths = rows.map(
     row =>
+      C.rowIndent +
       measure(row.label, 12, 400) +
       C.rowGap +
       (row.to === null ? 0 : C.icon + C.rowGap) +
@@ -85,17 +80,18 @@ function boxSize(
     node.pills.length === 0
       ? 0
       : node.pills.reduce(
-          (sum, pill) => sum + measure(pill, 11, 400) + 2 * C.pillPadX,
+          (sum, pill) =>
+            sum + measure(pill, 11, 400) + 2 * (C.pillPadX + C.pillBorder),
           0
         ) +
         C.between * (node.pills.length - 1);
   return {
     width: Math.max(
       C.minWidth,
-      Math.ceil(Math.max(title, pills, ...rowWidths) + 2 * C.padX)
+      Math.ceil(Math.max(title, pills, ...rowWidths) + 2 * (C.padX + C.border))
     ),
     height:
-      2 * C.padY +
+      2 * (C.padY + C.border) +
       C.title +
       rows.length * C.row +
       (node.pills.length > 0 ? C.pillsGap + C.pills : 0),
@@ -211,29 +207,46 @@ export function openBand(
     }
   }
 
-  const boxes = band.nodes.map((node): BandBox => {
-    const rows =
-      node.kind === 'command'
-        ? []
-        : node.jumps
-            .filter(jump => !drawn.has(`${node.id}\u0000${jump.target}`))
-            .map(jump => ({
-              label: jump.label,
-              target: nameOf(jump.target),
-              to: mapNodes.has(jump.target) ? jump.target : null,
-              direction: jump.direction,
-            }));
-    return { node, rows, ...boxSize(node, rows, measure) };
-  });
+  const cards = new Map<string, BandBox>();
+  for (const node of band.nodes) {
+    if (node.kind === 'command') continue;
+    const rows = node.jumps
+      .filter(jump => !drawn.has(`${node.id}\u0000${jump.target}`))
+      .map(jump => ({
+        label: jump.label,
+        target: nameOf(jump.target),
+        to: mapNodes.has(jump.target) ? jump.target : null,
+        direction: jump.direction,
+      }));
+    cards.set(node.id, { node, rows, ...cardSize(node, rows, measure) });
+  }
+  const widest = Math.max(
+    BAND_CARD.minWidth,
+    ...[...cards.values()].map(card => card.width)
+  );
+  const boxes = band.nodes.map(
+    (node): BandBox =>
+      cards.get(node.id) ?? {
+        node,
+        rows: [],
+        width:
+          node.kind === 'command'
+            ? Math.min(
+                widest,
+                Math.ceil(node.text.length * BAND_COMMAND.charWidth)
+              )
+            : widest,
+        height: BAND_COMMAND.height,
+      }
+  );
 
+  // The band takes the dropped link's place in input order, so ELK's model
+  // order keeps the rest of the map where it was.
   const junctions = layout.junctions.filter(
     junction => group === null || !junction.startsWith(`${group}@`)
   );
   const keptJunctions = new Set(junctions);
-  const nodes: LayoutNode[] = [
-    ...layout.input.nodes.filter(
-      node => !layout.junctions.includes(node.id) || keptJunctions.has(node.id)
-    ),
+  const bandNodes: LayoutNode[] = [
     { id, width: 0, height: 0, padding: { ...BAND.padding } },
     ...boxes.map(box => ({
       id: box.node.id,
@@ -243,8 +256,18 @@ export function openBand(
       anchorX: box.width / 2,
     })),
   ];
-  const keptEdges = layout.edges.filter(edge => !isDropped(edge.id));
-  const keptInput = layout.input.edges.filter(edge => !isDropped(edge.id));
+  const nodes = layout.input.nodes
+    .filter(
+      node => !layout.junctions.includes(node.id) || keptJunctions.has(node.id)
+    )
+    .flatMap(node => (node.id === link.from ? [node, ...bandNodes] : [node]));
+  if (!nodes.some(node => node.id === id)) nodes.push(...bandNodes);
+  const inPlace = <T extends { id: string }>(list: T[], inserted: T[]) => {
+    const first = list.findIndex(each => isDropped(each.id));
+    const kept = list.filter(each => !isDropped(each.id));
+    const at = first < 0 ? kept.length : first;
+    return [...kept.slice(0, at), ...inserted, ...kept.slice(at)];
+  };
   const addedInput = added.map(({ edge, priority }): LayoutEdge => ({
     id: edge.id,
     source: edge.from,
@@ -263,9 +286,12 @@ export function openBand(
 
   return {
     ...layout,
-    edges: [...keptEdges, ...added.map(each => each.edge)],
+    edges: inPlace(
+      layout.edges,
+      added.map(each => each.edge)
+    ),
     junctions,
-    input: { nodes, edges: [...keptInput, ...addedInput] },
+    input: { nodes, edges: inPlace(layout.input.edges, addedInput) },
     band: { id, link, boxes },
   };
 }

@@ -5,7 +5,6 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Tooltip } from '@mattstack/app-kit/core';
-import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import {
   EdgeLabelRenderer,
   type Edge,
@@ -14,9 +13,8 @@ import {
 } from '@xyflow/react';
 
 import classes from './blocks.module.css';
-import { MapActionsContext } from './graphCards';
+import { FoldSteps, MapActionsContext } from './graphCards';
 import type { Box } from './model/elkGraph';
-import type { BandNode } from './model/foldBand';
 
 type Point = [number, number];
 
@@ -77,33 +75,6 @@ function withArrow(points: Point[]): { line: Point[]; head: string } {
   return { line: [...points.slice(0, -1), base], head };
 }
 
-const STEP_ICON: Record<BandNode['kind'], IconName> = {
-  command: 'terminal',
-  question: 'diamond',
-  budget: 'diamond',
-  step: 'circle',
-};
-
-/** A folded link's steps as its hover card lists them. */
-export function FoldSteps({ steps }: { steps: BandNode[] }) {
-  return (
-    <div className={classes.foldTip} data-testid="fold-steps">
-      <div
-        className={classes.foldTipTitle}
-      >{`${steps.length} steps folded`}</div>
-      <ul className={classes.foldTipList}>
-        {steps.map(step => (
-          <li key={step.id}>
-            <Icon name={STEP_ICON[step.kind]} size={12} strokeWidth={2} />
-            {step.kind === 'command' ? step.text : step.label}
-          </li>
-        ))}
-      </ul>
-      <div className={classes.foldTipHint}>Click to unfold</div>
-    </div>
-  );
-}
-
 /** The wide invisible stroke that takes a folded link's hover and click. */
 function LinkHit({
   d,
@@ -149,10 +120,12 @@ function LinkHit({
   if (!button) return hit;
   return (
     <Tooltip
-      label={<FoldSteps steps={info.steps} />}
+      label={<FoldSteps steps={info.steps} hint="Click to unfold" />}
       opened={tip}
       multiline
       w={280}
+      position="right"
+      offset={16}
       withinPortal
     >
       {hit}

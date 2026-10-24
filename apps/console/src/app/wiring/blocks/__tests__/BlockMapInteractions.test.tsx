@@ -291,6 +291,137 @@ describe('BlockMap interactions', () => {
   );
 
   it(
+    'hovering a jump pill lists its folded steps',
+    async () => {
+      await renderMap();
+
+      fireEvent.mouseEnter(
+        screen.getByRole('button', { name: 'iterate: back to Domain steps' })
+      );
+
+      const tip = await screen.findByTestId('fold-steps');
+      expect(
+        within(tip)
+          .getAllByRole('listitem')
+          .map(row => row.textContent)
+      ).toEqual([
+        'run_field_set {key: shipTarget, value: -, stage} (iterate)',
+        'Ship gate rounds left? · 2',
+      ]);
+      expect(tip).not.toHaveTextContent('Click to unfold');
+    },
+    SLOW
+  );
+
+  it(
+    'Enter and Space on a dotted link open its band',
+    async () => {
+      await renderMap();
+
+      fireEvent.keyDown(linkButton(REBASE_TO_RESOLVE), { key: 'Enter' });
+      const band = await screen.findByTestId('fold-band', {}, LAID_OUT);
+      fireEvent.click(within(band).getByRole('button', { name: 'Fold' }));
+      await vi.waitFor(
+        () => expect(screen.queryByTestId('fold-band')).toBeNull(),
+        LAID_OUT
+      );
+      fireEvent.keyDown(linkButton(REBASE_TO_RESOLVE), { key: ' ' });
+
+      expect(
+        await screen.findByTestId('fold-band', {}, LAID_OUT)
+      ).toBeInTheDocument();
+    },
+    SLOW
+  );
+
+  it(
+    'opening a band focuses its Fold button, and Fold gives focus back to the link',
+    async () => {
+      await renderMap();
+
+      const band = await openFold(REBASE_TO_RESOLVE);
+      const fold = within(band).getByRole('button', { name: 'Fold' });
+      await vi.waitFor(() => expect(fold).toHaveFocus(), LAID_OUT);
+      fireEvent.click(fold);
+
+      await vi.waitFor(
+        () => expect(linkButton(REBASE_TO_RESOLVE)).toHaveFocus(),
+        LAID_OUT
+      );
+    },
+    SLOW
+  );
+
+  it(
+    "band steps and the band fade on another block's hover, not on its own link's",
+    async () => {
+      await renderMap();
+      const band = await openFold(REBASE_TO_RESOLVE);
+
+      fireEvent.mouseEnter(cardNamed('Ship gate'));
+      expect(band).toHaveAttribute('data-dim');
+      expect(stepNamed('rebase_status')).toHaveAttribute('data-dim');
+
+      fireEvent.mouseLeave(cardNamed('Ship gate'));
+      fireEvent.mouseEnter(cardNamed('Rebases unfinished'));
+      expect(band).not.toHaveAttribute('data-dim');
+      expect(stepNamed('rebase_status')).not.toHaveAttribute('data-dim');
+    },
+    SLOW
+  );
+
+  it(
+    "Back from a band row's jump, once the band has folded, goes to the link's source block",
+    async () => {
+      await renderMap();
+      await openFold(REBASE_TO_RESOLVE);
+      fireEvent.click(
+        within(stepNamed('rebase_status')).getByRole('button', {
+          name: 'clean: back to Fast checks',
+        })
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Fold' }));
+      await vi.waitFor(
+        () => expect(screen.queryByTestId('band-step')).toBeNull(),
+        LAID_OUT
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(scrolled.mock.contexts.at(-1)).toBe(boxOf('Rebases unfinished'));
+      expect(
+        screen.getByRole('button', { name: 'Rebases unfinished' })
+      ).toHaveFocus();
+    },
+    SLOW
+  );
+
+  it(
+    'Back after a second jump returns to the second source',
+    async () => {
+      await renderMap();
+      fireEvent.click(
+        within(boxOf('Resolve conflicts') as HTMLElement).getByRole('button', {
+          name: 'back to Fast checks',
+        })
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'iterate: back to Domain steps' })
+      );
+
+      expect(screen.getAllByTestId('jump-from')).toHaveLength(1);
+      expect(
+        within(boxOf('Domain steps') as HTMLElement).getByTestId('jump-from')
+      ).toHaveTextContent('from Ship gate');
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(scrolled.mock.contexts.at(-1)).toBe(boxOf('Ship gate'));
+      expect(screen.getByRole('button', { name: 'Ship gate' })).toHaveFocus();
+    },
+    SLOW
+  );
+
+  it(
     'cards, pills and dotted links are buttons with names, reachable by Tab',
     async () => {
       await renderMap();

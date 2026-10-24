@@ -327,11 +327,24 @@ export function BlockMap({
   const [jumped, setJumped] = useState<{
     targets: string[];
     from: string;
+    /** Back's target once `from`, a band step, has folded away. */
+    fallback: string | null;
     fromLabel: string;
     ring: boolean;
   } | null>(null);
   const reduceMotion = useReducedMotion();
   const sectionRef = useRef<HTMLElement>(null);
+  /** Where focus goes once the layout that holds it has drawn. */
+  const pendingFocus = useRef<string | null>(null);
+
+  useEffect(() => {
+    const selector = pendingFocus.current;
+    if (!selector) return;
+    const target = sectionRef.current?.querySelector<HTMLElement>(selector);
+    if (!target) return;
+    pendingFocus.current = null;
+    target.focus({ preventScroll: true });
+  });
 
   const banded = useMemo(() => {
     if (!layout) return null;
@@ -375,27 +388,43 @@ export function BlockMap({
           buttons: new Map(),
         };
     const steps = new Map<string, ReturnType<typeof foldBand>['nodes']>();
-    const scrollTo = (id: string) => {
-      sectionRef.current?.querySelector(`[data-node="${id}"]`)?.scrollIntoView({
+    const nodeAt = (id: string) =>
+      sectionRef.current?.querySelector<HTMLElement>(`[data-node="${id}"]`);
+    const scrollTo = (element: HTMLElement | null | undefined) => {
+      element?.scrollIntoView({
         behavior: reduceMotion ? 'instant' : 'smooth',
         block: 'center',
         inline: 'center',
       });
     };
+    const inBand = (id: string) =>
+      shown?.band?.boxes.some(box => box.node.id === id) ?? false;
     return {
       select: onSelect,
       jump: (targets, from, fromLabel) => {
-        scrollTo(targets[0]!);
-        setJumped({ targets, from, fromLabel, ring: true });
+        scrollTo(nodeAt(targets[0]!));
+        setJumped({
+          targets,
+          from,
+          fallback: inBand(from) ? shown!.band!.link.from : null,
+          fromLabel,
+          ring: true,
+        });
       },
       highlight,
       questionOf,
       hover: setHover,
       open: id => {
         setHover(null);
+        pendingFocus.current = '[data-fold]';
         setOpen(id);
       },
-      fold: () => setOpen(null),
+      fold: () => {
+        if (open) {
+          pendingFocus.current = `[data-testid="map-link"][data-link="${open}"]`;
+        }
+        setOpen(null);
+      },
       nodeView: id => ({
         hot: id === highlight || (hover?.kind === 'node' && hover.id === id),
         dim: focus.litNodes !== null && !focus.litNodes.has(id),
@@ -405,7 +434,13 @@ export function BlockMap({
             ? {
                 label: jumped.fromLabel,
                 onBack: () => {
-                  scrollTo(jumped.from);
+                  const source =
+                    nodeAt(jumped.from) ??
+                    (jumped.fallback ? nodeAt(jumped.fallback) : null);
+                  scrollTo(source);
+                  source
+                    ?.querySelector<HTMLElement>('button')
+                    ?.focus({ preventScroll: true });
                   setJumped(null);
                 },
               }
@@ -435,7 +470,17 @@ export function BlockMap({
         };
       },
     };
-  }, [graph, map, shown, hover, jumped, highlight, onSelect, reduceMotion]);
+  }, [
+    graph,
+    map,
+    shown,
+    open,
+    hover,
+    jumped,
+    highlight,
+    onSelect,
+    reduceMotion,
+  ]);
 
   return (
     <section
