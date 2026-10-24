@@ -17,10 +17,3 @@ jobs, then the failed job's `projects/<downstream project id>/jobs/<jobId>/trace
 256 KiB; a log whose end is out of reach is unreadable.
 Other pipelines on the branch come from `pipeline_list`, a pipeline's jobs
 from `pipeline_jobs`.
-
-## Reading a GitLab fact no read tool returns
-
-Read it with `gitlab_get {mrUrl: <mr>, path}`, `path` relative to the API
-root with `:id` for this project (`projects/:id/jobs/<jobId>`), as part of
-the step, not off-script. Quote a GitLab error as written; its refusal of a
-credential path is final.
