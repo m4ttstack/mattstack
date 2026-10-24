@@ -610,9 +610,10 @@ Writing a fill:
   alone on its own line (it gets its own seam marker). A sibling verb is
   named with `{{verb.path:<name>}}` (renders the reading path from the
   compiled file, whichever side each lands on), and a file in ANOTHER
-  attachment with `{{pack.path:<attachment>/<file>}}` (renders a
-  host-anchored path; the file must exist at compile time, and a compiled
-  verb's output is not addressable this way). Nothing else
+  attachment with `{{pack.path:<attachment>/<file>}}` (compile copies that
+  whole attachment, rendered, into the built skill's own `references/` and
+  renders the path to the copy; the file must exist at compile time, and a
+  compiled verb's output is not addressable this way). Nothing else
   placeholder-shaped belongs in a fill.
 - The bare Bash `rt skills check --pack <pack>` names what moved on each stale line <!-- mcp-lint: allow -->
   (source, fill, include, vendored, frontmatter, structure); through

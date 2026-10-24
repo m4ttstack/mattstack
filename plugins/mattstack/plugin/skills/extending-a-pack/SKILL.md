@@ -605,9 +605,9 @@ it into the team pack. When a team pack `extends` a base, each compile:
   drift;
 - expands, in a copied `.md` file only, `{{pack.name}}` to the team pack's
   plugin name (`{{pack.name}}:watch-ci` becomes `widgets:watch-ci`), plus
-  `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` as in a
-  fill and `{{team.*}}` markers (next section); any other `{{...}}` and
-  every non-`.md` file copies as written;
+  `{{verb.path:<verb>}}`, `{{pack.path:<attachment>/<file>}}` (a path
+  into the pack) and `{{team.*}}` markers (next section); any other
+  `{{...}}` and every non-`.md` file copies as written;
 - leaves a team's own `attachments/<name>/` (no `compiled.json` in
   compile's shape) alone and
   copies nothing for that name: to override a base attachment, delete the
@@ -616,6 +616,12 @@ it into the team pack. When a team pack `extends` a base, each compile:
   skill, or a team attachment at another path, naming both;
 - removes a copied folder whose base attachment is gone, or every copied
   folder once the pack stops extending a base.
+
+A built skill never reads those copies. Its `{{pack.path:<attachment>/<file>}}`
+copies the whole attachment, rendered, into its own
+`references/<attachment>/` and points there; the copy may carry only what a
+fill may (`{{include}}`, `{{verb.path}}`, `{{pack.path}}`, `{{team.*}}`),
+so a `{{pack.name}}` or a literal `{{` in it fails the compile.
 
 Every compile also writes `pack/requires.json`, the engine floor
 (`minEngine`) copied from the mattstack it compiled against. It is compile
