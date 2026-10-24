@@ -29,6 +29,7 @@ describe('the registry defaults are what the board parsers fill in', () => {
       reviews: minimal.reviewsWorkspace,
       responds: minimal.respondsWorkspace,
       doctors: minimal.doctorsWorkspace,
+      questions: minimal.questionsWorkspace,
     });
     const { channel: _fromTheDirectory, ...slack } = minimal.slack;
     expect(def('board.slack')).toEqual({ reviewKind: 'review', ...slack });

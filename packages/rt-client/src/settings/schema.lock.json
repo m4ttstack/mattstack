@@ -483,6 +483,9 @@
         },
         "doctors": {
           "type": "string"
+        },
+        "questions": {
+          "type": "string"
         }
       },
       "additionalProperties": {}

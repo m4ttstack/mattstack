@@ -215,6 +215,7 @@ export interface BoardConfig {
   doctorCwd: string;
   /** herdr workspace label doctor sessions are grouped under. */
   doctorsWorkspace: string;
+  questionsWorkspace: string;
   /** Command that starts claude in every pane the board launches, composed from the board.agent.* settings by composeAgentCommand. Empty = plain "claude". */
   claudeCommand: string;
   /** Domain skill the doctor wrapper delegates to. Empty = generic. */
@@ -345,6 +346,12 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     throw new Error(`${source} "doctorsWorkspace" must be a string`);
   }
   if (
+    cfg.questionsWorkspace !== undefined &&
+    typeof cfg.questionsWorkspace !== 'string'
+  ) {
+    throw new Error(`${source} "questionsWorkspace" must be a string`);
+  }
+  if (
     cfg.claudeCommand !== undefined &&
     typeof cfg.claudeCommand !== 'string'
   ) {
@@ -384,6 +391,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     respondsWorkspace: cfg.respondsWorkspace ?? 'responses',
     doctorCwd: cfg.doctorCwd ?? '',
     doctorsWorkspace: cfg.doctorsWorkspace ?? 'doctors',
+    questionsWorkspace: cfg.questionsWorkspace ?? 'questions',
     claudeCommand: cfg.claudeCommand ?? '',
     doctorSkill: cfg.doctorSkill ?? '',
     teamPack: '',
@@ -714,6 +722,7 @@ export function loadConfig(resolve: GetSettingFn = getSetting): BoardConfig {
     reviews?: string;
     responds?: string;
     doctors?: string;
+    questions?: string;
   }>('board.workspaces');
   const cwds = read<{ review?: string; respond?: string; doctor?: string }>(
     'board.cwds'
@@ -754,6 +763,7 @@ export function loadConfig(resolve: GetSettingFn = getSetting): BoardConfig {
     reviewsWorkspace: workspaces.reviews,
     respondsWorkspace: workspaces.responds,
     doctorsWorkspace: workspaces.doctors,
+    questionsWorkspace: workspaces.questions,
     defaultMember: read<string>('board.defaultMember'),
     claudeCommand: composeAgentCommand(loadAgentSettings(resolve)),
     reviewCwd: cwds.review,

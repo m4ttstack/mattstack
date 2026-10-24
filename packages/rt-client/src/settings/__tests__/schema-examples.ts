@@ -335,7 +335,7 @@ export const EXAMPLES: Record<string, Example> = {
     ],
   },
   "board.workspaces": {
-    good: [{}, { reviews: "reviews", responds: "responses", doctors: "doctors" }],
+    good: [{}, { reviews: "reviews", responds: "responses", doctors: "doctors", questions: "questions" }],
     bad: [{ value: { reviews: 1 }, path: ["reviews"] }],
     layer: [{ doctors: "doctors" }],
   },
