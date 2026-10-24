@@ -27,7 +27,6 @@ const REPORT = JSON.stringify({
       body: 'b',
       comment: 'c',
     },
-    { id: 'f 1', tier: 'Minor', title: 't', body: 'b', comment: 'c' },
   ],
 });
 const LAUNCHED: AgentLaunchResult = {
@@ -231,10 +230,7 @@ describe('handleQuestionLaunch', () => {
     const f = fake({
       launch: () => new Promise<AgentLaunchResult>(r => (release = r)),
     });
-    const res = await handleQuestionLaunch(
-      { ...BODY, boardTabId: 'mine' },
-      f.io
-    );
+    const res = await handleQuestionLaunch({ ...BODY, tabId: 'mine' }, f.io);
     expect(res).toEqual({ status: 200, body: { ok: true } });
     expect(f.writes).toEqual([{ status: 'queued', iid: 812, gateId: 'g1' }]);
     expect(f.focused).toEqual([]);
@@ -254,7 +250,7 @@ describe('handleQuestionLaunch', () => {
     const f = fake({
       config: cfg({ reviewCwd: '/repo/acme', questionsWorkspace: 'ask' }),
     });
-    await handleQuestionLaunch({ ...BODY, boardTabId: 'mine' }, f.io);
+    await handleQuestionLaunch({ ...BODY, tabId: 'mine' }, f.io);
     await f.settle();
     const opts = f.launches[0] as LaunchPaneOpts & {
       findingId: string;
@@ -278,15 +274,26 @@ describe('handleQuestionLaunch', () => {
     expect(opts.skill).toBeUndefined();
   });
 
-  test('a finding id and author with spaces and slashes still get a plain handle', async () => {
+  test('a finding id the prompt could not carry is a 400', async () => {
+    const f = fake();
+    for (const findingId of ['f 1', "f'1", 'f/1', 'f\n1']) {
+      expect(await handleQuestionLaunch({ ...BODY, findingId }, f.io)).toEqual({
+        status: 400,
+        body: 'findingId must be letters, digits, dot, dash, underscore or colon',
+      });
+    }
+    expect(f.writes).toEqual([]);
+    expect(f.launches).toEqual([]);
+  });
+
+  test('an author with spaces and slashes still launches, with a plain handle', async () => {
     const f = fake({ author: { username: 'ob', name: "O'Brien / QA" } });
-    await handleQuestionLaunch({ ...BODY, findingId: 'f 1' }, f.io);
+    await handleQuestionLaunch({ ...BODY, findingId: 'f2' }, f.io);
     await f.settle();
     const opts = f.launches[0]!;
-    expect(opts.findingId).toBe('f 1');
     expect(opts.author).toBe("O'Brien / QA");
     const tail = opts.statePath.split('/questions/')[1]!;
-    expect(tail).toMatch(/^[^/\s]+--f-1-[0-9a-f]{8}\.json$/);
+    expect(tail).toMatch(/^[^/\s]+--f2-[0-9a-f]{8}\.json$/);
   });
 
   test('a launch that reuses an existing pane records nothing further', async () => {

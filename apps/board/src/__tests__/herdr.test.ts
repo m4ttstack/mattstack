@@ -1438,19 +1438,19 @@ describe('launchQuestion (a finding question pane)', () => {
     );
   });
 
-  test('keeps an author and finding id with spaces and slashes in the tab label only', async () => {
+  test('an author with spaces, quotes and slashes lands in the tab label only', async () => {
     const { io, startCalls } = fakeAgentIo();
     await launchQuestion(
       {
         ...base,
-        findingId: 'f 1',
-        statePath: questionHandle(base.mrUrl, 'f 1'),
+        findingId: 'f1',
+        statePath: questionHandle(base.mrUrl, 'f1'),
         author: "O'Brien / QA",
       },
       io
     );
-    expect(startCalls[0]!.tab).toBe("Q f 1 !812 O'Brien / QA");
-    expect(startCalls[0]!.prompt as string).toContain('--finding f 1');
+    expect(startCalls[0]!.tab).toBe("Q f1 !812 O'Brien / QA");
+    expect(startCalls[0]!.prompt as string).not.toContain("O'Brien");
   });
 
   test('reviewPrompt with every existing flag is unchanged by the question flags', () => {

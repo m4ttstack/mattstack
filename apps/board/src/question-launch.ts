@@ -4,6 +4,7 @@ import type { BoardMR } from './data.ts';
 import type { launchQuestion } from './herdr.ts';
 import { dedupInFlight, QUESTION_IN_FLIGHT } from './launch-dedup.ts';
 import { launchErrorMessage } from './launch-error.ts';
+import { requestBoardTab } from './manifest-bindings.ts';
 import {
   questionHandle,
   type QuestionPatch,
@@ -41,6 +42,13 @@ export interface QuestionLaunchResult {
 
 const BAD_BODY = 'expected { mrUrl, iid, gateId, findingId }';
 
+/** The id rides the slash-command prompt as an unquoted `--finding <id>`, so
+    anything the wrapper's arg parse would split (a space, a quote) is refused
+    here rather than launched into a pane that reads half an id. */
+const FINDING_ID = /^[A-Za-z0-9._:-]+$/;
+const BAD_FINDING_ID =
+  'findingId must be letters, digits, dot, dash, underscore or colon';
+
 function parseBody(body: unknown): {
   mrUrl: string;
   iid: number;
@@ -68,10 +76,7 @@ function parseBody(body: unknown): {
     gateId: b.gateId,
     findingId: b.findingId,
     focusOnly: b.focus === true,
-    boardTabId:
-      typeof b.boardTabId === 'string' && b.boardTabId
-        ? b.boardTabId
-        : undefined,
+    boardTabId: requestBoardTab(body),
   };
 }
 
@@ -100,6 +105,8 @@ export async function handleQuestionLaunch(
 ): Promise<QuestionLaunchResult> {
   const parsed = parseBody(body);
   if (!parsed) return { status: 400, body: BAD_BODY };
+  if (!FINDING_ID.test(parsed.findingId))
+    return { status: 400, body: BAD_FINDING_ID };
   const { mrUrl, iid, gateId, findingId, focusOnly, boardTabId } = parsed;
   const mr = await io.findMr(mrUrl);
   if (!mr) return { status: 400, body: `unknown MR "${mrUrl}"` };
