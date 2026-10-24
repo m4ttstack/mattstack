@@ -2,7 +2,7 @@
 order: 4
 ---
 
-# Quick reference
+# Dispatch quick reference
 
 | | Reviewer shape | Adjudicator shape |
 |---|---|---|

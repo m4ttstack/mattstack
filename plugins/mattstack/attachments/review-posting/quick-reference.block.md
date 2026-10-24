@@ -2,7 +2,7 @@
 order: 9
 ---
 
-# Quick reference
+# Posting quick reference
 
 | Signal | Action |
 |---|---|

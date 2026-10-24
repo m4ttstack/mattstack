@@ -2,7 +2,7 @@
 order: 8
 ---
 
-# Red flags
+# Posting red flags
 
 | Thought | Reality |
 |---|---|

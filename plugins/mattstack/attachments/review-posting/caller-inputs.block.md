@@ -2,7 +2,7 @@
 order: 1
 ---
 
-# Caller inputs
+# Posting caller inputs
 
 - A decided selection: `{findings: [ids], disposition: "comment" |
   "approve" | "request_changes"}`. `findings` names ids from the report
