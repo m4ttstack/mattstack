@@ -8,6 +8,9 @@ label: Graph notes
 - **Force** only on the "yes" edge of "Push needs force-with-lease
   (ship)?": a rebase finished this pass and the upstream already held the
   commits it rewrote.
+- **The lease.** The pushes' `<mr>` is the `mr` field when the run
+  already records one (a reopened run, a repair push): then both pushes
+  pass `leaseMrUrl: <mr>`.
 - **`targetBranch`** is the target `branch_stack` resolved before the
   gate (on `stackStore: "unavailable"` or an error, the default branch),
   never guessed. A GitHub PR takes it as `--base`. The domain rebase goes
