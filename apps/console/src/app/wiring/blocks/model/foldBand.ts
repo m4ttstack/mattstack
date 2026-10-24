@@ -1,4 +1,5 @@
 import type { BlocksPayload } from '../../../../server/blocksPayload';
+import { shortLabel } from './aroundLayout';
 import { adjacency, exitNodes, type BlockMap, type MapLink } from './blockMap';
 import { cutLabel } from './labels';
 
@@ -34,15 +35,6 @@ export function budgetLabel(key: string, limit: number): string {
   const parts = key.split(':');
   const name = (parts.length > 1 ? parts[1] : parts[0]).replaceAll('-', ' ');
   return `${name.charAt(0).toUpperCase()}${name.slice(1)} left? · ${limit}`;
-}
-
-/** A graph-only label drops a trailing parenthetical that only names the
-    skill: `Rebase status (ship)?` reads `Rebase status?` on ship. */
-function stepLabel(label: string, skill: string): string {
-  const named = new RegExp(
-    `\\s*\\(${skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)(\\??)$`
-  );
-  return label.replace(named, '$1');
 }
 
 /** The card asks "left?", the opposite of the "spent?" question it replaces. */
@@ -140,7 +132,7 @@ export function foldBand(graph: Graph, link: MapLink, map: BlockMap): Band {
       nodes.push({
         id,
         kind: node.shape === 'diamond' ? 'question' : 'step',
-        label: stepLabel(node.label ?? id, skill),
+        label: shortLabel(node.label ?? id, skill),
         ...exitsOf(id, false),
       });
     }

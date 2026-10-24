@@ -80,25 +80,26 @@ const branching = g(
   ]
 );
 
+const shipGraph = shipPayload.graphs.find(
+  each => each.blockId === 'ship/flow'
+)!;
+const shipMap = blockMap(shipGraph, blockId => {
+  const block = shipPayload.blocks.find(each => each.id === blockId)!;
+  return {
+    label: block.label,
+    kind: block.kind as Exclude<MapKind, 'end'>,
+  };
+});
+
 describe('foldBand', () => {
   it('foldBand merges a budget pair', () => {
-    const graph = shipPayload.graphs.find(
-      each => each.blockId === 'ship/flow'
-    )!;
-    const map = blockMap(graph, blockId => {
-      const block = shipPayload.blocks.find(each => each.id === blockId)!;
-      return {
-        label: block.label,
-        kind: block.kind as Exclude<MapKind, 'end'>,
-      };
-    });
-    const link = map.links.find(
+    const link = shipMap.links.find(
       l =>
         l.from === 'domain_rebases_unfinished' &&
         l.to.includes('resolve_conflict_files')
     )!;
 
-    const band = foldBand(graph, link, map);
+    const band = foldBand(shipGraph, link, shipMap);
 
     expect(band.nodes).toEqual([
       {
@@ -170,6 +171,32 @@ describe('foldBand', () => {
         { label: 'error', target: 'which_exit', direction: 'forward' },
       ],
     });
+  });
+
+  it('on ship, jumps that find no block target the exit node they enter', () => {
+    const blocks = new Set(shipMap.nodes.map(each => each.id));
+    const exitJumps: string[] = [];
+    for (const link of shipMap.links) {
+      for (const each of foldBand(shipGraph, link, shipMap).nodes) {
+        if (each.kind === 'command') continue;
+        for (const jump of each.jumps) {
+          if (blocks.has(jump.target) || jump.target === 'which_exit') continue;
+          exitJumps.push(
+            `${link.from} → ${link.to.join(', ')} · ${each.id} · ${jump.label} → ${jump.target} · ${jump.direction}`
+          );
+        }
+      }
+    }
+
+    expect(exitJumps).toEqual([
+      'reopened_recapture → domain_steps_before_gate · on_default_branch · yes → own_run_default_branch · forward',
+      'gate_ship → domain_steps_before_gate · run_budget_gate_rounds · no → rebase_in_progress · forward',
+      'domain_fast_checks → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · forward',
+      'domain_rebases_unfinished → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · forward',
+      'run_watch_ci → gate_mark_ready · watch_ci_result · held → held_in_watch_ci · forward',
+      'resolve_conflict_files → gate_ship, domain_fast_checks, resolve_conflict_files · run_budget_gate_reopenings · no → rebase_in_progress · back',
+      'resolve_conflict_files → gate_ship, domain_fast_checks, resolve_conflict_files · continue_result · error → git_rebase_abort · forward',
+    ]);
   });
 
   it('keeps only the edges between band nodes', () => {
