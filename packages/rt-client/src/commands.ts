@@ -225,8 +225,9 @@ export interface GateRow {
   openedAt: number; parkedAt: number | null; closedAt: number | null;
   /** "resolved" is stamped only by the reconciler's auto-recovery close
       (a blocked/gone pane came back); every other closer uses one of the
-      other three. */
-  closedReason: "abandoned" | "superseded" | "pruned" | "resolved" | null;
+      other four ("revised" is the board closing a review gate for a
+      finding that came back changed). */
+  closedReason: "abandoned" | "superseded" | "pruned" | "resolved" | "revised" | null;
   /** Set only when `closedReason` is "superseded": the id of the gate that superseded this one. */
   supersededBy: string | null;
   agent: string | null; pane: string | null;

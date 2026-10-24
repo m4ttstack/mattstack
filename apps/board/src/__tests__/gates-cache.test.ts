@@ -495,6 +495,20 @@ describe('GateCache.applyEvent', () => {
     expect(cached.closedReason).toBe('abandoned');
   });
 
+  test('closed frame with reason revised sets closedReason revised', () => {
+    const cache = new GateCache();
+    cache.applyRow(row());
+
+    cache.applyEvent({
+      topic: 'gate/closed/gate-1',
+      payload: { id: 'gate-1', subject: SUBJECT_A, kind: 'review-post', reason: 'revised' },
+    });
+
+    const cached = cache.get(SUBJECT_A, 'review-post')!;
+    expect(cached.status).toBe('closed');
+    expect(cached.closedReason).toBe('revised');
+  });
+
   test.each(['answered', 'parked', 'closed', 'released', 'escalated'] as const)(
     '%s frame for an unknown id is dropped silently, no throw, no phantom entry',
     kind => {
