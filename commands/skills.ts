@@ -89,7 +89,6 @@ import {
   NotABlockTreeError,
   orgBasePackRoots,
   orgOfPackDir,
-  parseStageQualifiedName,
   readManifestBindings,
   readManifestLayered,
   readManifestPipelineBindings,
@@ -3073,7 +3072,7 @@ export function computeRows(
   surface: SurfaceConfig | null,
   stageNames: Set<string>,
 ): { source: string; rows: SurfaceRow[] } {
-  const { skillsNames, attachmentNames, allNames, skillEntries, attachmentEntries } = collectRegistry(packDir, verbNames);
+  const { skillsNames, allNames, skillEntries, attachmentEntries } = collectRegistry(packDir, verbNames);
   const publicSet = surface ? new Set(surface.public) : defaultPublicSet(skillsNames, verbNames);
   const surfacePath = surfaceFileFor(packDir);
   const source = surface && surfacePath
