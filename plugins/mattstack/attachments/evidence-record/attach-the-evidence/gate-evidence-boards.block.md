@@ -17,7 +17,8 @@ Structured context): the source's `context` is a `boards@1` object.
   one; `path` the absolute path in `value`; `caption` the image's caption,
   or `Waived: <its waiver>` for a waived capture, which goes up as shot.
 
-`gate_open` refuses a `boards@1` source with more than 12 boards. Each
+`gate_open` refuses a `boards@1` source with more than 12 boards, or
+one whose boards do not fit the pane prose budget. Each
 opening's budget is keyed by its first file's name, so a long upload's
 later openings are not charged to the first.
 
