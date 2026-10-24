@@ -185,6 +185,8 @@ export interface VersionTimelineProps {
   sourcePath: string | null;
   artifactPath: string | null;
   props: PropOutlineNode[];
+  /** A block's own files, relative to the pack: the log covers only them. */
+  paths?: string[];
 }
 
 /**
@@ -205,6 +207,7 @@ export function VersionTimeline({
   sourcePath,
   artifactPath,
   props,
+  paths,
 }: VersionTimelineProps) {
   const { bg, text } = useSchemeColors();
   const [selected, setSelected] = useState<string[]>([]);
@@ -215,12 +218,13 @@ export function VersionTimeline({
 
   // A selection is about one verb's commits; carrying it to the next verb
   // would offer a compare between shas that never appeared in this list.
+  const scopeKey = paths?.join('\n') ?? '';
   useEffect(() => {
     setSelected([]);
     setComparing(null);
-  }, [verb]);
+  }, [verb, scopeKey]);
 
-  const history = useSkillsHistory(pack, verb);
+  const history = useSkillsHistory(pack, verb, paths);
   const commits = useMemo(() => history.data?.commits ?? [], [history.data]);
   const runtime = history.data?.runtime;
 

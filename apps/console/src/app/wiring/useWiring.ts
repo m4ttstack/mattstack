@@ -178,13 +178,18 @@ export function useCompilePreview(
  */
 export function useSkillsHistory(
   pack: string | undefined,
-  verb: string | null
+  verb: string | null,
+  paths?: string[]
 ) {
   return useQuery({
-    queryKey: ['skills', 'history', pack ?? null, verb],
+    queryKey: ['skills', 'history', pack ?? null, verb, paths ?? null],
     queryFn: async () => {
       const res = await client.api.skills.history.$get({
-        query: { pack: pack ?? '', verb: verb ?? undefined },
+        query: {
+          pack: pack ?? '',
+          verb: verb ?? undefined,
+          ...(paths?.length ? { path: paths } : {}),
+        },
       });
       return readOrThrow<SkillsHistory>(res, 'skills history');
     },

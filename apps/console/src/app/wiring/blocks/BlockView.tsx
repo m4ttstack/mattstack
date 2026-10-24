@@ -581,8 +581,7 @@ export function BlockView({
                 check={context.check}
                 pipeline={context.pipeline}
                 onOpen={context.onFocus}
-                onOpenSkill={() => patch({ block: null, select: null })}
-                file={block ? block.path : null}
+                block={block}
               />
             ) : (
               <Text fz={13} c="dimmed" data-testid="history-unavailable">

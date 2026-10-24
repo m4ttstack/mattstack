@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import {
-  Anchor,
   Box,
   Code,
   CopyActionIcon,
@@ -25,8 +24,9 @@ import { VersionTimeline } from '../VersionTimeline';
 import { BuiltFromTable } from './BuiltFromTable';
 import classes from './history.module.css';
 import {
+  blockBuiltFrom,
+  blockNote,
   builtFrom,
-  fileNote,
   staleSteps,
   stampNote,
   type StaleStep,
@@ -140,6 +140,8 @@ function HistoryNote({ children }: { children: string }) {
   );
 }
 
+type HistoryBlock = { id: string; path: string };
+
 type HistoryProps = {
   pack: string;
   anatomy: SkillsAnatomy;
@@ -151,46 +153,62 @@ type HistoryProps = {
   onOpen: (focus: string) => void;
 };
 
-/** One file's copy in the open skill: the version the skill was built with,
-    the one installed, and whether the copy is current. */
-function FileHistory({
+/** The open skill's roster entry, whose pack history a timeline reads;
+    null for a skill that is not a roster verb. */
+function useRosterEntry(
+  composition: SkillsComposition,
+  check: SkillsCheck | undefined,
+  skill: string
+) {
+  return useMemo(
+    () =>
+      spineRows(buildSpine(composition, check ?? { verbs: [] })).find(
+        candidate => candidate.verb === skill
+      ) ?? null,
+    [composition, check, skill]
+  );
+}
+
+/** One block's copy in the open skill: its engine text and the files its
+    props paste in, with the versions built and installed, and the pack's
+    commits that touched those files. */
+function BlockHistory({
+  pack,
   anatomy,
+  composition,
   check,
-  file,
-  onOpenSkill,
-}: Pick<HistoryProps, 'anatomy' | 'check'> & {
-  file: string;
-  onOpenSkill?: () => void;
+  block,
+}: Pick<HistoryProps, 'pack' | 'anatomy' | 'composition' | 'check'> & {
+  block: HistoryBlock;
 }) {
   const row = check?.verbs.find(verb => verb.name === anatomy.skill);
-  const own = builtFrom(anatomy, row).find(source => source.path === file);
+  const rows = blockBuiltFrom(anatomy, row, block);
+  const entry = useRosterEntry(composition, check, anatomy.skill);
+  const inPack = `${composition.packDir}/`;
+  const paths = rows
+    .filter(source => source.path.startsWith(inPack))
+    .map(source => source.path.slice(inPack.length));
   return (
     <>
       <TabHeading parity="h1" testId="history-heading">
         In {anatomy.skill}
       </TabHeading>
-      {own ? (
-        <>
-          <BuiltFromTable rows={[own]} />
-          <HistoryNote>{fileNote(own, anatomy.skill)}</HistoryNote>
-        </>
-      ) : (
-        <Text fz={12} lh="normal" c={MUTED} data-testid="history-no-copy">
-          {'No history for this block. '}
-          {onOpenSkill ? (
-            <Anchor
-              component="button"
-              type="button"
-              fz={12}
-              onClick={onOpenSkill}
-            >
-              {`Open ${anatomy.skill}`}
-            </Anchor>
-          ) : (
-            `Open ${anatomy.skill}`
-          )}
-          {' for its build history.'}
-        </Text>
+      <BuiltFromTable rows={rows} />
+      <HistoryNote>{blockNote(rows, anatomy.skill)}</HistoryNote>
+      {entry?.verb && paths.length > 0 && (
+        <Box className={classes.timeline}>
+          <VersionTimeline
+            pack={pack}
+            verb={entry.verb}
+            refName={entry.ref}
+            health={entry.health}
+            staleFiles={entry.staleFiles}
+            sourcePath={entry.sourcePath}
+            artifactPath={entry.artifactPath}
+            props={entry.props}
+            paths={paths}
+          />
+        </Box>
       )}
     </>
   );
@@ -215,13 +233,7 @@ function SkillHistory({
     stale.length > 0 ||
     row?.status === 'stale' ||
     row?.status === 'never-compiled';
-  const entry = useMemo(
-    () =>
-      spineRows(buildSpine(composition, check ?? { verbs: [] })).find(
-        candidate => candidate.verb === anatomy.skill
-      ) ?? null,
-    [composition, check, anatomy.skill]
-  );
+  const entry = useRosterEntry(composition, check, anatomy.skill);
 
   return (
     <>
@@ -272,28 +284,26 @@ function SkillHistory({
 }
 
 /**
- * A block's History. On a block it is that block file's copy in the open
- * skill; on the skill itself it is the whole compiled skill.
+ * A block's History: on a block, that block's copy in the open skill; on the
+ * skill itself, the whole compiled skill.
  */
 export function HistoryTab({
-  file,
-  onOpenSkill,
+  block,
   ...props
 }: HistoryProps & {
-  /** The block's own file; null for the skill as a whole. */
-  file: string | null;
-  /** Opens the skill itself, whose History covers its build. */
-  onOpenSkill?: () => void;
+  /** The open block; null for the skill as a whole. */
+  block: HistoryBlock | null;
 }) {
   return (
     <Box data-parity="history" data-testid="block-history">
       <Stack gap={12}>
-        {file ? (
-          <FileHistory
+        {block ? (
+          <BlockHistory
+            pack={props.pack}
             anatomy={props.anatomy}
+            composition={props.composition}
             check={props.check}
-            file={file}
-            onOpenSkill={onOpenSkill}
+            block={block}
           />
         ) : (
           <SkillHistory {...props} />

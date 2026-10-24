@@ -17,7 +17,7 @@ export type BuiltFromRow = {
   /** The folder that names the file: `gate-protocol`. */
   name: string;
   file: string;
-  kind: 'template' | 'partial' | 'pack text' | 'team values';
+  kind: 'template' | 'engine' | 'partial' | 'pack text' | 'team values';
   /** Owner and version the skill was built with; null when never built. */
   builtWith: string | null;
   installed: string;
@@ -117,6 +117,50 @@ export function builtFrom(
   return rows;
 }
 
+/**
+ * One block's share of the build: an engine row for the block's own text,
+ * which the template's version covers, then the files its props paste in
+ * (rt names those parts `<block id>.<prop>`).
+ */
+export function blockBuiltFrom(
+  anatomy: SkillsAnatomy,
+  row: CheckRow | undefined,
+  block: { id: string; path: string }
+): BuiltFromRow[] {
+  const [template, ...props] = builtFrom(
+    {
+      ...anatomy,
+      parts: anatomy.parts.filter(
+        part => part.kind === 'prop' && part.name?.startsWith(`${block.id}.`)
+      ),
+    },
+    row
+  );
+  const file = fileLabelOf(block.path);
+  return [
+    {
+      ...template!,
+      path: block.path,
+      name: file.split('/')[0] ?? file,
+      file,
+      kind: 'engine',
+    },
+    ...props,
+  ];
+}
+
+/** Whether a skill's copy of one block is current, in one plain sentence. */
+export function blockNote(rows: BuiltFromRow[], skill: string): string {
+  const changed = rows.filter(row => row.status === 'changed');
+  if (changed.length > 0)
+    return `${changed.map(row => row.file).join(', ')} changed after ${skill} was built, so this block is out of date until a sync rebuilds it.`;
+  if (rows.some(row => row.status === 'not built'))
+    return `${skill} has never been built, so it holds no copy of this block yet.`;
+  if (rows.some(row => row.status === 'unmeasured'))
+    return `rt skills check said nothing about ${skill}, so whether this block is current is unmeasured.`;
+  return `None of these files changed since ${skill} was built, so this block is current.`;
+}
+
 /** The plain answer to an old version stamp on a skill check calls in sync;
     null whenever the stamp needs no explaining. */
 export function stampNote(
@@ -127,29 +171,6 @@ export function stampNote(
   if (row?.status !== 'in-sync' || template?.status !== 'unchanged')
     return null;
   return `Its version stamp says ${template.builtWith}, but none of these files changed since. The text the agent reads is current; a rebuild would only update the stamp.`;
-}
-
-/** Whether the copy of one file in a skill is current, in a plain sentence
-    named for that skill. */
-export function fileNote(row: BuiltFromRow, skill: string): string {
-  if (
-    row.owner.kind === 'base' &&
-    row.status !== 'not built' &&
-    row.status !== 'unmeasured'
-  )
-    return `${skill} was built from the org's ${row.owner.name} base pack. rt check says whether it is current.`;
-  switch (row.status) {
-    case 'unchanged':
-      return `This ${row.kind} has not changed since ${skill} was built with ${row.builtWith}, so the copy in ${skill} is current.`;
-    case 'current':
-      return `${skill} was built with the installed copy, ${row.builtWith}, so the copy in ${skill} is current.`;
-    case 'changed':
-      return `This ${row.kind} changed after ${skill} was built with ${row.builtWith}, so the copy in ${skill} is out of date until a sync rebuilds it.`;
-    case 'not built':
-      return `${skill} has never been built, so it holds no copy of this ${row.kind} yet.`;
-    case 'unmeasured':
-      return `rt skills check said nothing about ${skill}, so whether its copy of this ${row.kind} is current is unmeasured.`;
-  }
 }
 
 /** The pipeline's other steps check calls stale, in run order. */

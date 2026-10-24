@@ -418,7 +418,8 @@ interface SkillsHistoryResponse {
       demo pack, `packDir` sits three levels under this root. Reported
       so a reader can see what the history was actually taken over. */
   repoRoot: string;
-  /** The pathspec the log was scoped to, relative to `packDir`. */
+  /** The pathspec the log was scoped to, relative to `packDir`; a block's
+      files, space-separated, when the request named them. */
   scope: string;
   /** The `:(top,literal)` pathspecs of the org base fill folders the verb binds,
       added after `scope`. Absent when there are none. */
@@ -461,12 +462,23 @@ interface SkillsDiffResponse {
 
 const historyQuery = validator(
   'query',
-  (value): { pack?: string; verb?: string; limit?: string } => {
-    const v = value as { pack?: unknown; verb?: unknown; limit?: unknown };
+  (
+    value
+  ): { pack?: string; verb?: string; limit?: string; path?: string[] } => {
+    const v = value as {
+      pack?: unknown;
+      verb?: unknown;
+      limit?: unknown;
+      path?: unknown;
+    };
+    const paths = typeof v?.path === 'string' ? [v.path] : v?.path;
     return {
       pack: typeof v?.pack === 'string' ? v.pack : undefined,
       verb: typeof v?.verb === 'string' ? v.verb : undefined,
       limit: typeof v?.limit === 'string' ? v.limit : undefined,
+      path: Array.isArray(paths)
+        ? paths.filter((p): p is string => typeof p === 'string')
+        : undefined,
     };
   }
 );
@@ -487,6 +499,12 @@ const diffQuery = validator(
     gives a verb rather than escaped: this rejects `../`, an absolute path,
     and a leading `:` (which would make it one of git's magic pathspecs). */
 const VERB_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** A block file reaches git as a literal pathspec relative to the pack, so
+    it is held to plain segments: no `..`, no leading `/` or `:`. */
+const PACK_PATH = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+const isPackPath = (path: string) =>
+  PACK_PATH.test(path) && !path.split('/').some(segment => segment === '..');
 
 /** A commit reaches git as a revision, where a branch name, `HEAD@{1}` and
     `..` all mean something. Only an object name gets through, so the only
@@ -1224,10 +1242,15 @@ export function mountSkills(
       }
     })
     .get('/api/skills/history', historyQuery, async c => {
-      const { pack, verb, limit: rawLimit } = c.req.valid('query');
+      const { pack, verb, limit: rawLimit, path } = c.req.valid('query');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
       if (verb !== undefined && !VERB_NAME.test(verb)) {
         return c.json({ error: `invalid verb name: ${verb}` }, 400);
+      }
+      const files = path ?? [];
+      const outside = files.find(file => !isPackPath(file));
+      if (outside !== undefined) {
+        return c.json({ error: `not a path inside the pack: ${outside}` }, 400);
       }
       const limit = clampLimit(rawLimit);
 
@@ -1262,15 +1285,19 @@ export function mountSkills(
         }
 
         const repoRoot = root.stdout.trim();
-        const scope = verb ? `skills/${verb}` : '.';
-        const baseScopes = await baseScopesOf(
-          pack,
-          packDir,
-          verb ?? null,
-          repoRoot
-        );
+        const scope =
+          files.length > 0 ? files.join(' ') : verb ? `skills/${verb}` : '.';
+        // A block's files name exactly what to log; the verb's base folders
+        // would widen it back to the whole skill.
+        const baseScopes =
+          files.length > 0
+            ? []
+            : await baseScopesOf(pack, packDir, verb ?? null, repoRoot);
         const basePathspecs = baseScopes.map(basePathspec);
-        const pathspecs = [scope, ...basePathspecs];
+        const pathspecs =
+          files.length > 0
+            ? files.map(file => `:(literal)${file}`)
+            : [scope, ...basePathspecs];
         const toCoordinate = (path: string) =>
           toBaseCoordinate(path, baseScopes, repoRoot);
         // One over the bound, so "there is more history" is observed rather

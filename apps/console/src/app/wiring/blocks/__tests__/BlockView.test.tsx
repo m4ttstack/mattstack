@@ -17,12 +17,16 @@ import { headingTree } from '../model/headingTree';
 import { miniPayload, shipPayload } from './blocksFixture';
 
 const sourceGet = vi.fn();
+const historyGet = vi.fn<(...args: unknown[]) => Promise<never>>(
+  () => new Promise(() => {})
+);
 
 vi.mock('../../../api', () => ({
   client: {
     api: {
       skills: {
         source: { $get: (...args: unknown[]) => sourceGet(...args) },
+        history: { $get: (...args: unknown[]) => historyGet(...args) },
       },
       settings: {
         'default-editor': {
@@ -524,24 +528,79 @@ describe('BlockView: Used by and History', () => {
     expect(screen.queryByTestId('block-used-by')).not.toBeInTheDocument();
   });
 
-  it("shows the block file's History, and the skill's on the skill", () => {
-    renderView({ block: 'mini/gate' }, { context });
-    expect(screen.getByTestId('block-history')).toBeInTheDocument();
-    expect(screen.getByTestId('history-heading')).toHaveTextContent('In work');
+  const shipContext = { ...context, anatomy: designFixture('anatomy.ship') };
+  const fileCells = () =>
+    screen
+      .getAllByTestId('built-from-row')
+      .map(row => row.querySelector('[data-parity="f"]')?.textContent);
+
+  it("lists a block's History from its prop files, after one engine row", () => {
+    renderView(
+      { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
+      { payload: shipPayload, context: shipContext }
+    );
+
+    expect(screen.getByTestId('history-heading')).toHaveTextContent('In ship');
+    expect(fileCells()).toEqual([
+      'flow/domain-fast-checks.block.md',
+      'ship-lint/base-checks.md',
+      'ship-lint/fast-checks.md',
+    ]);
+    const [engine] = screen.getAllByTestId('built-from-row');
+    expect(engine).toHaveTextContent('engine');
+    expect(engine).toHaveTextContent('mattstack 0.32.23');
+    expect(screen.queryByTestId('history-no-copy')).not.toBeInTheDocument();
   });
 
-  it('says plainly that a block file has no history of its own, and links to where to look', async () => {
-    const patch = renderView({ block: 'mini/gate' }, { context });
+  it('gives a block with no props its engine row alone', () => {
+    renderView(
+      { focus: 'ship', block: 'ship/flow/stash-them' },
+      { payload: shipPayload, context: shipContext }
+    );
 
-    expect(screen.getByTestId('history-no-copy')).toHaveTextContent(
-      'No history for this block. Open work for its build history.'
+    expect(fileCells()).toEqual(['flow/stash-them.block.md']);
+  });
+
+  it('keeps the whole build on the skill itself', () => {
+    renderView(
+      { focus: 'ship' },
+      { payload: shipPayload, context: shipContext }
     );
-    await userEvent.click(
-      within(screen.getByTestId('history-no-copy')).getByRole('button', {
-        name: 'Open work',
-      })
+
+    expect(screen.getByTestId('history-heading')).toHaveTextContent(
+      'Built from'
     );
-    expect(patch).toHaveBeenCalledWith({ block: null, select: null });
+    expect(fileCells()).toContain('ship/index.block.md');
+  });
+
+  it("scopes a block's commit timeline to its files inside the pack", () => {
+    const anatomy = designFixture('anatomy.ship');
+    for (const part of anatomy.parts)
+      if (part.source?.path.endsWith('/fast-checks.md'))
+        part.source.path =
+          '/fixture/packs/acme/attachments/ship-lint/fast-checks.md';
+    renderView(
+      { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
+      { payload: shipPayload, context: { ...context, anatomy } }
+    );
+
+    expect(screen.getByTestId('version-timeline')).toBeInTheDocument();
+    expect(historyGet).toHaveBeenCalledWith({
+      query: {
+        pack: 'acme',
+        verb: 'ship',
+        path: ['attachments/ship-lint/fast-checks.md'],
+      },
+    });
+  });
+
+  it('draws no timeline for a block whose files all live outside the pack', () => {
+    renderView(
+      { focus: 'ship', block: 'ship/flow/domain-fast-checks' },
+      { payload: shipPayload, context: shipContext }
+    );
+
+    expect(screen.queryByTestId('version-timeline')).not.toBeInTheDocument();
   });
 
   it("gives each Shared row its include's name, length and the skills that paste it", () => {

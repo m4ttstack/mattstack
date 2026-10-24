@@ -549,6 +549,48 @@ describe('skills history route', () => {
     });
   });
 
+  it("scopes the log to a block's own files when given their pack paths", async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const git = defaultGit(1);
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(
+      '/api/skills/history?pack=demo&verb=ship&path=attachments%2Flint%2Fa.md&path=attachments%2Flint%2Fb.md'
+    );
+
+    const log = git.calls.find(argv => argv.includes('log'));
+    expect(log?.slice(-3)).toEqual([
+      '--',
+      ':(literal)attachments/lint/a.md',
+      ':(literal)attachments/lint/b.md',
+    ]);
+    await expect(res.json()).resolves.toMatchObject({
+      verb: 'ship',
+      scope: 'attachments/lint/a.md attachments/lint/b.md',
+    });
+  });
+
+  it.each([
+    '..%2Fsecrets.md',
+    '%2Fetc%2Fpasswd',
+    '%3A(glob)*',
+    'a%2F..%2F..%2Fb',
+  ])(
+    'refuses a block path that is not plainly inside the pack (%s), and spawns no git',
+    async path => {
+      const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+      const git = defaultGit(1);
+      const app = mountGit(rt.run, git.run);
+
+      const res = await app.request(
+        `/api/skills/history?pack=demo&verb=ship&path=${path}`
+      );
+
+      expect(res.status).toBe(400);
+      expect(git.run).not.toHaveBeenCalled();
+    }
+  );
+
   it('refuses a verb that would walk out of the pack, and spawns no git', async () => {
     const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
     const git = defaultGit(1);

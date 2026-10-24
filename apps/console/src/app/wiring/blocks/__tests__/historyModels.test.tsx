@@ -8,7 +8,7 @@ import { designFixture } from '../../graph/__tests__/designFixtures';
 import { buildFocusGroups } from '../../graph/model/focusModel';
 import type { SkillsComposition } from '../../outline';
 import { BuiltFromTable } from '../BuiltFromTable';
-import { builtFrom, fileNote, staleSteps } from '../model/history';
+import { blockNote, builtFrom, staleSteps } from '../model/history';
 import { usedBySites } from '../model/usedBy';
 
 /** The design composition with stage-provision run by no pipeline, so the
@@ -247,12 +247,43 @@ describe('builtFrom', () => {
       installed: 'org base',
       owner: { kind: 'base', name: 'acme-base', version: '0.1.0' },
     });
-    expect(fileNote(base, 'stage-plan')).toBe(
-      "stage-plan was built from the org's acme-base base pack. rt check says whether it is current."
+  });
+
+  describe("a block's note", () => {
+    const rows = builtFrom(
+      designFixture('anatomy.stage-plan'),
+      designFixture('check').verbs.find(row => row.name === 'stage-plan')
     );
-    expect(fileNote({ ...base, status: 'not built' }, 'stage-plan')).toBe(
-      'stage-plan has never been built, so it holds no copy of this partial yet.'
-    );
+
+    it('names the files that changed since the build', () => {
+      const changed = rows.map((row, i) =>
+        i === 1 ? { ...row, status: 'changed' as const } : row
+      );
+      expect(blockNote(changed, 'stage-plan')).toBe(
+        `${rows[1]!.file} changed after stage-plan was built, so this block is out of date until a sync rebuilds it.`
+      );
+    });
+
+    it('says a never-built skill holds no copy, and an unmeasured one is unmeasured', () => {
+      expect(
+        blockNote([{ ...rows[0]!, status: 'not built' }], 'stage-plan')
+      ).toBe(
+        'stage-plan has never been built, so it holds no copy of this block yet.'
+      );
+      expect(
+        blockNote([{ ...rows[0]!, status: 'unmeasured' }], 'stage-plan')
+      ).toBe(
+        'rt skills check said nothing about stage-plan, so whether this block is current is unmeasured.'
+      );
+    });
+
+    it('calls the block current when nothing changed', () => {
+      expect(
+        blockNote([{ ...rows[0]!, status: 'unchanged' }], 'stage-plan')
+      ).toBe(
+        'None of these files changed since stage-plan was built, so this block is current.'
+      );
+    });
   });
 
   describe('a base file takes its status from rt check, never the org token', () => {
