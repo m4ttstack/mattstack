@@ -32,14 +32,21 @@ import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
 import { shortLabel } from './model/aroundLayout';
 import { dotsOf, labelOf } from './model/blockFacts';
 import { blockMap, type MapKind } from './model/blockMap';
-import type { LaidOut, LayoutEngine } from './model/elkGraph';
-import { mapLayout, skillOf, type MapLayout } from './model/mapLayout';
+import type { LaidOut, LayoutEngine, LayoutInput } from './model/elkGraph';
+import {
+  fitZoom,
+  mapLayout,
+  MIN_MAP_ZOOM,
+  skillOf,
+  type MapLayout,
+} from './model/mapLayout';
 import { useGraphLayout } from './useGraphLayout';
 
 type Graph = BlocksPayload['graphs'][number];
 
-/** The map never shrinks past this to fit a narrow column. */
-const MIN_ZOOM = 0.5;
+/** Each layout by the ELK input built from it, so the canvas keeps drawing
+    the last finished layout while a newer one runs. */
+const layoutOf = new WeakMap<LayoutInput, MapLayout>();
 
 const handlesAt = (anchorX: number, height: number) => [
   {
@@ -134,11 +141,11 @@ function MapKey() {
         gate
       </li>
       <li>
-        <span className={classes.dot} data-layer="org" />
+        <span className={classes.mapDot} data-layer="org" />
         org base adds
       </li>
       <li>
-        <span className={classes.dot} data-layer="team" />
+        <span className={classes.mapDot} data-layer="team" />
         team adds
       </li>
       <li>
@@ -178,51 +185,51 @@ function MapCanvas({
     () => flowOf(layout, laidOut),
     [layout, laidOut]
   );
-  const zoom =
-    width > 0 && laidOut.width > 0
-      ? Math.min(1, Math.max(MIN_ZOOM, width / laidOut.width))
-      : 1;
-  const x = width > 0 ? Math.max(0, (width - laidOut.width * zoom) / 2) : 0;
+  const zoom = fitZoom(width, laidOut.width);
+  const drawn = laidOut.width * zoom;
+  const plane = Math.max(width, Math.ceil(drawn));
+  const x = Math.max(0, (plane - drawn) / 2);
   return (
     <MapActionsContext.Provider value={actions}>
-      <Box
-        ref={ref}
-        className={classes.mapCanvas}
-        h={Math.ceil(laidOut.height * zoom)}
-        data-testid="map-canvas"
-      >
-        <ReactFlow
-          key={`${width}:${zoom}`}
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={MAP_NODE_TYPES}
-          edgeTypes={MAP_EDGE_TYPES}
-          defaultViewport={{ x, y: 0, zoom }}
-          minZoom={MIN_ZOOM}
-          maxZoom={1}
-          panOnDrag={false}
-          panOnScroll={false}
-          zoomOnScroll={false}
-          zoomOnPinch={false}
-          zoomOnDoubleClick={false}
-          preventScrolling={false}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          nodesFocusable={false}
-          edgesFocusable={false}
-          elementsSelectable={false}
-          proOptions={{ hideAttribution: true }}
-          colorMode={scheme}
+      <div ref={ref} className={classes.mapCanvas} data-testid="map-canvas">
+        <Box
+          className={classes.mapPlane}
+          w={plane > 0 ? plane : '100%'}
+          h={Math.ceil(laidOut.height * zoom)}
         >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={16}
-            size={1}
-            color="var(--tk-line-2)"
-            bgColor="var(--tk-panel)"
-          />
-        </ReactFlow>
-      </Box>
+          <ReactFlow
+            key={`${plane}:${zoom}`}
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={MAP_NODE_TYPES}
+            edgeTypes={MAP_EDGE_TYPES}
+            defaultViewport={{ x, y: 0, zoom }}
+            minZoom={MIN_MAP_ZOOM}
+            maxZoom={1}
+            panOnDrag={false}
+            panOnScroll={false}
+            zoomOnScroll={false}
+            zoomOnPinch={false}
+            zoomOnDoubleClick={false}
+            preventScrolling={false}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            nodesFocusable={false}
+            edgesFocusable={false}
+            elementsSelectable={false}
+            proOptions={{ hideAttribution: true }}
+            colorMode={scheme}
+          >
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={16}
+              size={1}
+              color="var(--tk-line-2)"
+              bgColor="var(--tk-panel)"
+            />
+          </ReactFlow>
+        </Box>
+      </div>
     </MapActionsContext.Provider>
   );
 }
@@ -264,20 +271,23 @@ export function BlockMap({
   const layout = useMemo(() => {
     if (blocks === 0) return null;
     const byId = new Map(payload.blocks.map(block => [block.id, block]));
-    return mapLayout(map, graph, {
+    const laid = mapLayout(map, graph, {
       dotsOf: blockId => {
         const block = byId.get(blockId);
         return block ? dotsOf(block) : [];
       },
       measure: measureText,
     });
+    layoutOf.set(laid.input, laid);
+    return laid;
     // fontsLoaded only re-runs the layout; measureText reads the fonts itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, graph, payload, blocks, fontsLoaded]);
-  const { state, laidOut, retry } = useGraphLayout(
+  const { state, laidOut, laidFor, retry } = useGraphLayout(
     layout?.input ?? null,
     engine
   );
+  const shown = laidFor ? layoutOf.get(laidFor) : undefined;
 
   const actions = useMemo<MapActions>(() => {
     const skill = skillOf(graph);
@@ -320,15 +330,15 @@ export function BlockMap({
             Retry
           </UnstyledButton>
         </div>
-      ) : state === 'loading' || !laidOut ? (
+      ) : laidOut && shown ? (
+        <MapCanvas layout={shown} laidOut={laidOut} actions={actions} />
+      ) : (
         <Skeleton
           h={320}
           radius={12}
           data-testid="map-loading"
           aria-label="Laying out the map"
         />
-      ) : (
-        <MapCanvas layout={layout} laidOut={laidOut} actions={actions} />
       )}
       {layout !== null && <MapKey />}
     </section>

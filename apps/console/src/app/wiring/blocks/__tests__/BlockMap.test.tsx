@@ -191,6 +191,29 @@ describe('BlockMap', () => {
     }
   });
 
+  it('keeps drawing the last layout while a new one runs', async () => {
+    let calls = 0;
+    const slowAfterFirst = () =>
+      calls++ === 0 ? Promise.resolve(shared) : new Promise<never>(() => {});
+    const props = {
+      payload: shipPayload,
+      highlight: null,
+      onSelect: vi.fn(),
+      onClose: vi.fn(),
+      engine: slowAfterFirst,
+    };
+    const { rerender } = renderWithProviders(
+      <BlockMap {...props} graph={graph} />
+    );
+    const before = await screen.findAllByTestId('map-card', {}, LAID_OUT);
+
+    rerender(<BlockMap {...props} graph={{ ...graph }} />);
+
+    expect(calls).toBe(2);
+    expect(screen.getAllByTestId('map-card')).toHaveLength(before.length);
+    expect(screen.queryByTestId('map-loading')).not.toBeInTheDocument();
+  }, 20_000);
+
   it('Close calls onClose', () => {
     const { onClose } = renderMap({ engine: () => new Promise(() => {}) });
 

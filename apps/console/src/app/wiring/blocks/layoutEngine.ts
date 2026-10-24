@@ -10,19 +10,22 @@ let loading: Promise<LayoutEngine> | null = null;
 let running: ELK | null = null;
 
 export function loadLayoutEngine(): Promise<LayoutEngine> {
-  loading ??= Promise.all([
+  if (loading) return loading;
+  const mine: Promise<LayoutEngine> = Promise.all([
     import('elkjs/lib/elk-api'),
     import('elkjs/lib/elk-worker.min.js?worker'),
   ])
     .then(([{ default: ElkApi }, { default: ElkWorker }]) => {
-      running = new ElkApi({ workerFactory: () => new ElkWorker() });
-      return engineOver(running);
+      const elk = new ElkApi({ workerFactory: () => new ElkWorker() });
+      if (loading === mine) running = elk;
+      return engineOver(elk);
     })
     .catch((error: unknown) => {
-      forgetLayoutEngine();
+      if (loading === mine) forgetLayoutEngine();
       throw error;
     });
-  return loading;
+  loading = mine;
+  return mine;
 }
 
 /** Drops the cached engine and stops its worker, so the next load starts

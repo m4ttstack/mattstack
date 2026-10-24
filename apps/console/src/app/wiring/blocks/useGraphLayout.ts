@@ -18,11 +18,15 @@ export function useGraphLayout(
   engine: () => Promise<LayoutEngine> = loadLayoutEngine
 ): {
   state: 'loading' | 'ready' | 'error';
+  /** While loading, the last layout that finished, so a view can keep
+      drawing it; `laidFor` names the input it belongs to. */
   laidOut: LaidOut | null;
+  laidFor: LayoutInput | null;
   retry: () => void;
 } {
   const [attempt, setAttempt] = useState(0);
   const [settled, setSettled] = useState<Settled | null>(null);
+  const [lastReady, setLastReady] = useState<Settled | null>(null);
 
   useEffect(() => {
     if (!input) return;
@@ -32,7 +36,9 @@ export function useGraphLayout(
       live = false;
       clearTimeout(timer);
       if (!laidOut) forgetLayoutEngine();
-      setSettled({ input, attempt, laidOut });
+      const result = { input, attempt, laidOut };
+      setSettled(result);
+      if (laidOut) setLastReady(result);
     };
     const timer = setTimeout(() => settle(null), LAYOUT_TIMEOUT_MS);
     engine()
@@ -49,8 +55,15 @@ export function useGraphLayout(
     settled && settled.input === input && settled.attempt === attempt
       ? settled
       : null;
-  if (!current) return { state: 'loading', laidOut: null, retry };
+  if (!current) {
+    return {
+      state: 'loading',
+      laidOut: lastReady?.laidOut ?? null,
+      laidFor: lastReady?.input ?? null,
+      retry,
+    };
+  }
   return current.laidOut
-    ? { state: 'ready', laidOut: current.laidOut, retry }
-    : { state: 'error', laidOut: null, retry };
+    ? { state: 'ready', laidOut: current.laidOut, laidFor: input, retry }
+    : { state: 'error', laidOut: null, laidFor: null, retry };
 }

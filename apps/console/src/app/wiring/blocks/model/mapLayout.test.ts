@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { shipPayload } from '../__tests__/blocksFixture';
 import { blockMap, type MapKind } from './blockMap';
-import { mainColumn, mapLayout, pillTarget } from './mapLayout';
+import {
+  CARD,
+  fitZoom,
+  mainColumn,
+  mapLayout,
+  MIN_MAP_ZOOM,
+  pillTarget,
+} from './mapLayout';
 
 const graph = shipPayload.graphs.find(each => each.blockId === 'ship/flow')!;
 const map = blockMap(graph, blockId => {
@@ -68,10 +75,13 @@ describe('mapLayout', () => {
   });
 
   it('gives a split trunk main its exit label and no arrow into a split', () => {
-    const main = layout.edges.find(
-      edge => edge.id === 'every_case_tried->record_evidence'
-    )!;
-    expect(main.label).toBe('yes');
+    const trunk = layout.edges.filter(edge =>
+      edge.id.startsWith('every_case_tried->record_evidence')
+    );
+    expect(trunk.map(edge => [edge.from, edge.label])).toEqual([
+      ['every_case_tried', 'yes'],
+      ['every_case_tried->record_evidence@after_captured', null],
+    ]);
     const intoSplit = layout.edges.find(
       edge => edge.id === 'mr_create->browser_case'
     )!;
@@ -95,5 +105,31 @@ describe('mapLayout', () => {
       e => e.id === 'stash_them->domain_fast_checks'
     )!;
     expect(side.priority).toBeUndefined();
+  });
+});
+
+describe('cards', () => {
+  it('a side card is as wide as its text plus padding, badge and both borders', () => {
+    const box = layout.boxes.get('stash_them')!;
+    expect(box.main).toBe(false);
+    expect(box.width).toBe(
+      Math.ceil(
+        2 * CARD.border +
+          CARD.padLeft +
+          CARD.badge +
+          CARD.badgeGap +
+          measure('Stash them', 13) +
+          CARD.padRight
+      )
+    );
+  });
+});
+
+describe('fitZoom', () => {
+  it('fits a wide map down to the floor, and never past full size', () => {
+    expect(fitZoom(1000, 800)).toBe(1);
+    expect(fitZoom(900, 1000)).toBe(0.9);
+    expect(fitZoom(500, 1000)).toBe(MIN_MAP_ZOOM);
+    expect(fitZoom(0, 1000)).toBe(1);
   });
 });

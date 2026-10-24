@@ -1049,10 +1049,15 @@
   --xy-node-border-selected: none;
   --xy-node-color: inherit;
   position: relative;
-  overflow: hidden;
-  border: 1px solid var(--tk-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--tk-border-soft);
   border-radius: 12px;
   background: var(--tk-panel);
+}
+
+.mapPlane {
+  position: relative;
 }
 
 .mapBox,
@@ -1085,7 +1090,7 @@
   width: var(--card-w);
   height: 40px;
   padding: 0 14px 0 10px;
-  border: 1px solid var(--tk-border);
+  border: 1px solid var(--tk-border-soft);
   border-radius: 9px;
   background-color: var(--tk-card);
   box-shadow: var(--tk-shadow-card);
@@ -1122,7 +1127,7 @@
 .mapBadge {
   width: 20px;
   height: 20px;
-  border-radius: 5px;
+  border-radius: 6px;
 }
 
 .mapKeyBadge {
@@ -1151,16 +1156,16 @@
 .mapKeyBadge[data-badge='gate'] {
   background-color: color-mix(
     in srgb,
-    var(--tk-fill-warn) var(--ui-wash),
+    var(--tk-dot-warn) var(--ui-wash),
     transparent
   );
-  color: var(--tk-text-warn);
+  color: var(--tk-dot-warn);
 }
 
 .mapBadge[data-badge='end'] {
   background-color: color-mix(
     in srgb,
-    var(--tk-fill-ok) var(--ui-wash),
+    var(--tk-dot-ok) var(--ui-wash),
     transparent
   );
   color: var(--tk-text-ok);
@@ -1206,7 +1211,7 @@
 }
 
 .mapPillLabel {
-  color: var(--tk-text-3);
+  color: var(--tk-text-2);
 }
 
 .mapPillIcon {
@@ -1216,6 +1221,26 @@
 .mapPillTarget {
   color: var(--tk-text-accent);
   font-weight: 500;
+}
+
+.mapDots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.mapDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.mapDot[data-layer='org'] {
+  background-color: var(--tk-fill-purple);
+}
+
+.mapDot[data-layer='team'] {
+  background-color: var(--tk-fill-cyan);
 }
 
 .mapSplit {

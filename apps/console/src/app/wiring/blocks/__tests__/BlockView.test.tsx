@@ -363,6 +363,15 @@ describe('BlockView: a single block', () => {
     expect(patch).toHaveBeenCalledWith({ select: null });
   });
 
+  it('drops the Layers panel while the block map is open', () => {
+    renderView({ block: 'mini/gate', select: 'graph' });
+
+    expect(screen.getByTestId('block-map')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('region', { name: 'Layers' })
+    ).not.toBeInTheDocument();
+  });
+
   it('shows its path in the skill beside the ⋯ menu, which holds Open file', async () => {
     renderView({ block: 'mini/gate' });
 

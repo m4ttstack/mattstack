@@ -215,17 +215,27 @@ export function graphOfBlock(
   return null;
 }
 
+/** One labelled graph per payload and graph, so a view that memoises on
+    the graph keeps its work across renders. */
+const labelled = new WeakMap<BlocksPayload, WeakMap<Graph, Graph>>();
+
 /** A node that opens a block reads as that block's short label, not the
     graph's own wording. */
 export function labelledGraph(payload: BlocksPayload, graph: Graph): Graph {
+  const known = labelled.get(payload)?.get(graph);
+  if (known) return known;
   const byId = new Map(payload.blocks.map(block => [block.id, block]));
-  return {
+  const result = {
     ...graph,
     nodes: graph.nodes.map(node => {
       const block = node.blockId ? byId.get(node.blockId) : undefined;
       return block ? { ...node, label: labelOf(block) } : node;
     }),
   };
+  const byGraph = labelled.get(payload) ?? new WeakMap<Graph, Graph>();
+  byGraph.set(graph, result);
+  labelled.set(payload, byGraph);
+  return result;
 }
 
 /** Every block under the root, an include's shared tree counted once by

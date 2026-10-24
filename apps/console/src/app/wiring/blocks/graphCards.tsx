@@ -16,7 +16,6 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 
-import { LayerDots } from './BlockRow';
 import classes from './blocks.module.css';
 import type { Dot } from './model/blockFacts';
 import type { MapKind } from './model/blockMap';
@@ -64,6 +63,27 @@ export function useFontsLoaded(): boolean {
     };
   }, [fonts, loaded]);
   return loaded;
+}
+
+/** A card's layer dots: the sidebar's rule, drawn in the map's fills. */
+function MapDots({ dots }: { dots: Dot[] }) {
+  if (dots.length === 0) return null;
+  return (
+    <span className={classes.mapDots} data-testid="layer-dots">
+      {dots.map(dot => (
+        <span
+          key={dot}
+          className={classes.mapDot}
+          data-layer={dot}
+          title={
+            dot === 'org'
+              ? 'The org base passes a value'
+              : 'The team passes a value'
+          }
+        />
+      ))}
+    </span>
+  );
 }
 
 export type JumpPillProps = {
@@ -141,7 +161,7 @@ export function BlockCard({
         <Icon name={BADGE_ICON[kind]} size={12} strokeWidth={ICON_STROKE} />
       </span>
       <span className={classes.mapCardLabel}>{label}</span>
-      <LayerDots dots={dots} />
+      <MapDots dots={dots} />
     </>
   );
   const shared = {

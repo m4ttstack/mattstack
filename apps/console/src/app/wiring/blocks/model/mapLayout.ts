@@ -11,13 +11,14 @@ export type Measure = (text: string, size: number, weight: number) => number;
 
 export const CARD = {
   height: 40,
+  border: 1,
   padLeft: 10,
   badge: 20,
   badgeGap: 9,
   padRight: 14,
   dotsGap: 9,
-  dot: 7,
-  dotGap: 3,
+  dot: 6,
+  dotGap: 4,
   pillsGap: 8,
 } as const;
 
@@ -28,6 +29,16 @@ export const SPLIT = { size: 10, pillsGap: 9 } as const;
 export const CHIP = { height: 16, padX: 7 } as const;
 
 const MAIN_PRIORITY = 20;
+
+/** The map is never drawn smaller than this; past it the canvas scrolls. */
+export const MIN_MAP_ZOOM = 0.85;
+
+/** The zoom that fits a map `mapWidth` wide into `available` px, between
+    MIN_MAP_ZOOM and full size; full size until the canvas is measured. */
+export function fitZoom(available: number, mapWidth: number): number {
+  if (available <= 0 || mapWidth <= 0) return 1;
+  return Math.min(1, Math.max(MIN_MAP_ZOOM, available / mapWidth));
+}
 
 export type Pill = {
   id: string;
@@ -124,7 +135,8 @@ function cardWidth(label: string, dots: number, measure: Measure): number {
   const dotsWidth =
     dots > 0 ? CARD.dotsGap + dots * CARD.dot + (dots - 1) * CARD.dotGap : 0;
   return Math.ceil(
-    CARD.padLeft +
+    2 * CARD.border +
+      CARD.padLeft +
       CARD.badge +
       CARD.badgeGap +
       measure(label, 13, 500) +
@@ -244,6 +256,10 @@ export function mapLayout(
     ].sort((a, b) => rank.get(a)! - rank.get(b)!);
     const junction = (splitAt: string) => `${group}@${splitAt}`;
     const straight = main.links.has(trunkMain.id);
+    // A split's exit label sits under the dot, on the trunk's first drop,
+    // not down at the junction beside the branches' labels.
+    const exitAtTop =
+      kindOf.get(trunkMain.from) === 'split' && splitsAt.length > 0;
     let previous = trunkMain.from;
     for (const splitAt of splitsAt) {
       const id = `${group}>${splitAt}`;
@@ -254,12 +270,14 @@ export function mapLayout(
         to: junction(splitAt),
         folded: links.some(link => link.folded.length > 0),
         arrow: false,
-        label: null,
+        label:
+          exitAtTop && previous === trunkMain.from ? trunkMain.label : null,
       });
       if (straight) priority.add(id);
       previous = junction(splitAt);
     }
     lineEdge(trunkMain.id, previous, trunkMain);
+    if (exitAtTop) edges.at(-1)!.label = null;
     if (straight) priority.add(trunkMain.id);
     for (const branch of branches) {
       lineEdge(branch.id, junction(branch.trunk!.splitAt), branch);

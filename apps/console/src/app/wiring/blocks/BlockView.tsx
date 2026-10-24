@@ -418,6 +418,8 @@ export function BlockView({
   const block = zoom.level === 'skill' ? null : zoom.block;
   const root = rootOf(payload);
   const rendered = url.view === 'rendered';
+  const mapOpen = url.select === 'graph' && !rendered;
+  const showRail = !readOnly && !mapOpen;
 
   const shared = block ? sharedRootOf(payload, block) : null;
   const sharedName = shared ? includeNameOf(payload, shared) : null;
@@ -490,7 +492,7 @@ export function BlockView({
   return (
     <div
       className={classes.layout}
-      data-rail={readOnly ? 'none' : undefined}
+      data-rail={showRail ? undefined : 'none'}
       data-testid="block-view"
     >
       <div className={classes.head}>
@@ -591,7 +593,7 @@ export function BlockView({
         )}
       </div>
 
-      {!readOnly && (
+      {showRail && (
         <aside className={classes.rail}>
           <Text fz={15} fw={700} lh="normal" c="var(--tk-text-1)">
             Layers
