@@ -1,6 +1,6 @@
 ---
 name: work-progress
-description: Use when asked for progress, status, "where is it at" or "where is my plan at" on long-running work: a shepherdr herd, a superpowers plan running under subagent-driven development (its SDD ledger), or an epic made of several plans.
+description: 'Use when asked for progress, status, "where is it at" or "where is my plan at" on long-running work: a shepherdr herd, a superpowers plan running under subagent-driven development (its SDD ledger), or an epic made of several plans.'
 allowed-tools:
   - "Bash(python3 */scripts/work_progress.py:*)"
 ---
