@@ -2,7 +2,6 @@ import { FENCE_RE } from "./tree.ts";
 
 const HEADING_RE = /^(#{1,6})(\s.*)$/;
 
-/** Calls `visit` with each line and whether it is a `#` heading outside a code fence. */
 function eachLine(text: string, visit: (line: string, heading: RegExpExecArray | null) => string): string {
   let fence: string | null = null;
   return text.split("\n").map((line) => {
@@ -19,8 +18,7 @@ function eachLine(text: string, visit: (line: string, heading: RegExpExecArray |
   }).join("\n");
 }
 
-/** The level of the shallowest heading across `texts`, or null when none has one. */
-export function shallowestHeading(texts: string[]): number | null {
+function shallowestHeading(texts: string[]): number | null {
   let min: number | null = null;
   for (const text of texts) {
     eachLine(text, (line, h) => {
@@ -37,7 +35,6 @@ export function shiftHeadings(text: string, delta: number): string {
   return eachLine(text, (line, h) => (h ? "#".repeat(Math.max(1, Math.min(h[1]!.length + delta, 6))) + h[2]! : line));
 }
 
-/** The shift that lands the shallowest heading of `texts` at `level`, capped at 6. */
 export function relevelDelta(texts: string[], level: number): number {
   const min = shallowestHeading(texts);
   return min === null ? 0 : Math.min(level, 6) - min;
