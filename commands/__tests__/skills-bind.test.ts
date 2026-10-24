@@ -1573,7 +1573,7 @@ describe("skillsBind --pipeline", () => {
     expect(exitCode).toBeUndefined();
 
     for (const verb of ["work", "work-a11y"]) {
-      expect(readFileSync(join(pack, "skills", verb, "SKILL.md"), "utf8")).toContain("Prop tiering is bound to `mattstack:model-tiering`");
+      expect(readFileSync(join(pack, "skills", verb, "SKILL.md"), "utf8")).toContain("For tiering, invoke the `mattstack:model-tiering` skill");
     }
   }, 30_000);
 

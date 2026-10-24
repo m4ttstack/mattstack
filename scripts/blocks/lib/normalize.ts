@@ -3,7 +3,7 @@ import { parseDot, splitStatements } from "../../../lib/skills/blocks/dot.ts";
 const SEAM_LINE = /^<!-- (?:part: .*|compiled by rt skills compile .*) -->$/;
 const FENCE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
-const SLOT_REFERENCE = /^Slot (\S+) is bound to /;
+const OLDER_REFERENCE = /^(?:Slot|Prop) (\S+) is bound to `([^`]+)` \(([^)]+)\) -- invoke that skill when this flow needs it\.$/;
 const GRAPH_LEVEL = /^(?:(?:graph|node|edge)\s*\[.*\]|[\w-]+\s*=\s*.+)$/s;
 
 /**
@@ -89,7 +89,8 @@ export function normalizeCompiled(md: string): string {
       lastHeading = { level, title };
       continue;
     }
-    prose(line.replace(SLOT_REFERENCE, "Prop $1 is bound to "));
+    prose(line.replace(OLDER_REFERENCE, (_all, name: string, binding: string, version: string) =>
+      `For ${name.replaceAll("-", " ")}, invoke the \`${binding}\` skill (${version}) when this flow needs it.`));
   }
   if (fence) out.push(`${fence.indent}${fence.marker}${fence.info}`, ...fence.body);
   while (out[out.length - 1] === "") out.pop();

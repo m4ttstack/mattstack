@@ -7,7 +7,7 @@ metadata:
   compiled: "mattstack@0.32.28 + mattstack:model-tiering@0.32.28 + mattstack:execution-strategy@0.32.28 + mattstack:cswap-accounts@0.32.28"
 ---
 
-<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
 <!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=25-79 -->
 # shepherdr
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
 <!-- part: prop:shepherdr.tiering binding=mattstack:model-tiering version=0.32.28 path=skills/model-tiering/SKILL.md lines=8-164 -->
-Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@0.32.28) -- invoke that skill when this flow needs it.
+For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@0.32.28) when this flow needs it.
 
 <!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=43-79 -->
 ## Strategy

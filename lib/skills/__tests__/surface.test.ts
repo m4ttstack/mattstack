@@ -118,7 +118,7 @@ describe("compileBlockSkill with internalRoster", () => {
     if (!skillFile || !("content" in skillFile)) throw new Error("expected files[0] to have content");
 
     expect(skillFile.content).toContain("Domain rules inlined from qa-gates.");
-    expect(skillFile.content).not.toContain("invoke that skill when this flow needs it");
+    expect(skillFile.content).not.toContain("when this flow needs it");
     expect(result.warnings).toContain("note: acme:qa-gates is surface-internal; inlined");
   });
 
@@ -145,7 +145,7 @@ describe("compileBlockSkill with internalRoster", () => {
     const skillFile = result.files[0];
     if (!skillFile || !("content" in skillFile)) throw new Error("expected files[0] to have content");
 
-    expect(skillFile.content).toContain("invoke that skill when this flow needs it");
+    expect(skillFile.content).toContain("skill (acme:qa-gates@0.3.0) when this flow needs it");
     expect(skillFile.content).not.toContain("Domain rules for qa-gates.");
     expect(result.warnings).not.toContain("note: acme:qa-gates is surface-internal; inlined");
   });
@@ -255,6 +255,18 @@ describe("skillsCompile with a surface config", () => {
     expect(existsSync(join(packDir, "skills", "old-verb"))).toBe(false);
     expect(existsSync(join(packDir, "attachments", "old-verb", "SKILL.md"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
+  });
+
+  test("a stale skills/ dir an older compile wrote, under the older header, is still replaced", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir(STUBS_TWO_VERBS, `{ "public": ["watch-ci"] }\n`);
+    const older = "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->";
+    writeFile(join(packDir, "skills", "old-verb", "SKILL.md"), `${older}\nstale compiled output\n`);
+
+    await skillsCompile(["--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", makeManifest("t")]);
+
+    expect(existsSync(join(packDir, "skills", "old-verb"))).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "old-verb", "SKILL.md"))).toBe(true);
   });
 
   test("placement verification flags a non-public dir left under skills/ and sets a nonzero exit", async () => {
@@ -405,7 +417,7 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
 
     const content = readFileSync(join(acmeDir, "skills", "watch-ci", "SKILL.md"), "utf8");
     expect(content).toContain("Domain rules inlined from qa-gates for the transition window.");
-    expect(content).not.toContain("invoke that skill when this flow needs it");
+    expect(content).not.toContain("when this flow needs it");
 
     expect(io.lines().some((l) => l.endsWith("acme:qa-gates is surface-internal; inlined"))).toBe(true);
     expect(io.stdout()).not.toContain("note: note:");

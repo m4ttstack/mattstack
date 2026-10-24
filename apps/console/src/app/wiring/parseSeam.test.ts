@@ -6,7 +6,7 @@ import { parseSeam, splitCompiledBody } from './parseSeam';
     would pass this file's header test for the wrong reason -- every line
     that is not `<!-- part: ` returns null -- and pin nothing. */
 const HEADER_COMMENT =
-  '<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->';
+  '<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->';
 
 const STEP_SEAM =
   '<!-- part: step source=mattstack:work version=0.8.0 path=attachments/pipeline/work/SKILL.md lines=17-135 -->';

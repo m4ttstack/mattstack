@@ -2,7 +2,7 @@ import { lstatSync, readdirSync, readFileSync } from "fs";
 import { join, sep } from "path";
 import type { ShellForms } from "../mcp/shared.ts";
 import { isEmittedAttachmentText, PROVENANCE_FILE } from "./base-attachments.ts";
-import { HEADER_COMMENT } from "./compile.ts";
+import { HEADER_COMMENTS } from "./compile.ts";
 
 export interface LintRule { id: string; pattern: RegExp; tool: string | null; note?: string; example: string; source: "tool" | "leaf" | "script" }
 export interface LintHit { file: string; line: number; text: string; rule: string; tool: string | null; note?: string }
@@ -172,14 +172,14 @@ function lintedSources(dir: string, deps: LintDeps, exts: readonly string[]): Ar
     if (segments.length < 2) return false;
     const dir = join(root, segments[0]!);
     const skillMd = read(join(dir, "SKILL.md"));
-    if (isEmittedAttachmentText(read(join(dir, PROVENANCE_FILE))) || (skillMd?.includes(HEADER_COMMENT) ?? false)) return true;
+    if (isEmittedAttachmentText(read(join(dir, PROVENANCE_FILE))) || HEADER_COMMENTS.some((h) => skillMd?.includes(h) ?? false)) return true;
     return root === attachmentsRoot && segments.length >= 3 && skillMd === null && isEmittedAttachmentText(read(join(dir, segments[1]!, PROVENANCE_FILE)));
   };
   const out: Array<{ path: string; text: string }> = [];
   for (const path of deps.list(dir).filter((p) => exts.some((e) => p.endsWith(e)) && roots.some((r) => p.startsWith(r))).sort()) {
     if (compiledDir(path)) continue;
     const text = read(path);
-    if (text !== null && !text.includes(HEADER_COMMENT)) out.push({ path, text });
+    if (text !== null && !HEADER_COMMENTS.some((h) => text.includes(h))) out.push({ path, text });
   }
   return out;
 }

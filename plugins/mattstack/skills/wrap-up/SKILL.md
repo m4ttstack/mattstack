@@ -5,7 +5,7 @@ metadata:
   compiled: "mattstack@0.32.28"
 ---
 
-<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
 <!-- part: block:wrap-up-form source=mattstack:wrap-up-form version=0.32.28 path=attachments/wrap-up-form/index.block.md lines=7-33 -->
 # Wrap-up

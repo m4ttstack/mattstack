@@ -46,8 +46,11 @@ export type PartExtent = { key: string; version: string | null; start: number; e
 
 const EXTENT_RE = /^<!-- part: (include:\S+|section:\S+|block:\S+|prop:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
 const MARKER_VERSION_RE = /^(<!-- part: .*?\bversion=)\S+/gm;
-/** The one line `fillReference` renders for a prop bound by reference; its seam's `lines=` spans the skill it names. */
-const PROP_REFERENCE_RE = /^Prop \S+ is bound to `/;
+/**
+ * The one line `fillReference` renders for a prop bound by reference; its seam's `lines=` spans the skill it names.
+ * The second form is the line an older compile wrote, which on-disk output still carries until it recompiles.
+ */
+const PROP_REFERENCE_RE = /^(?:For [^,`]+, invoke the `[^`]+` skill \(|Prop \S+ is bound to `)/;
 
 export function isPropReference(text: string): boolean {
   return PROP_REFERENCE_RE.test(text);

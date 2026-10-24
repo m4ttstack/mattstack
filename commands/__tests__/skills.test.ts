@@ -1955,7 +1955,7 @@ describe("base pack attachments", () => {
       const domain = partExtents(rendered).find((x) => x.key === "prop:watch-ci.domain")!;
       expect(lines[domain.end]).toBe("Done.");
 
-      const forgeAt = lines.findIndex((l) => l.startsWith("Prop forge is bound to"));
+      const forgeAt = lines.findIndex((l) => l.startsWith("For forge, invoke the"));
       expect(forgeAt).toBeGreaterThan(domain.end);
       lines[forgeAt] += " edited";
       expect([...changedPartKeys(lines.join("\n"), rendered)]).toEqual(["prop:watch-ci.forge"]);

@@ -18,13 +18,20 @@ const CLAUDE_SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
 
 /** Exported so `rt skills surface` can classify a directory as compiled by checking its SKILL.md body prefix. */
 export const HEADER_COMMENT =
+  "<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->";
+
+/** Output compiled before the header changed still sits in packs and installed caches, and must still read as compiled. */
+const OLDER_HEADER_COMMENT =
   "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->";
+
+export const HEADER_COMMENTS: readonly string[] = [HEADER_COMMENT, OLDER_HEADER_COMMENT];
 
 /** True when the folder's SKILL.md body opens with the compiler header, which marks it as compile output rather than hand-written. */
 export function hasCompiledHeader(dir: string): boolean {
   const skillMdPath = join(dir, "SKILL.md");
   if (!existsSync(skillMdPath)) return false;
-  return bodyAfterFrontmatter(readFileSync(skillMdPath, "utf8")).startsWith(HEADER_COMMENT);
+  const body = bodyAfterFrontmatter(readFileSync(skillMdPath, "utf8"));
+  return HEADER_COMMENTS.some((h) => body.startsWith(h));
 }
 
 const SKILL_DIR_PATH_RE = /\$\{CLAUDE_SKILL_DIR\}\/[^\s"'`)]+/g;
@@ -274,7 +281,7 @@ export function assertNoTeamMarkerInVendoredFile(fill: AttachmentSource, entry: 
 
 function isCompilerCommentLine(line: string): boolean {
   const trimmed = line.trim();
-  return trimmed === HEADER_COMMENT || trimmed.startsWith("<!-- part: ");
+  return HEADER_COMMENTS.includes(trimmed) || trimmed.startsWith("<!-- part: ");
 }
 
 // Seam/header comments carry deliberately non-invocable names (e.g. an internal

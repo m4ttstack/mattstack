@@ -117,7 +117,7 @@ describe("compileBlockSkill", () => {
     ]);
 
     expect(content).toContain(
-      "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->",
+      "<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->",
     );
     expect(content).toMatch(/<!-- part: block:watch-ci source=mattstack:watch-ci version=1\.2\.0 path=skills\/pipeline\/watch-ci\/index\.block\.md lines=\d+-\d+ -->/);
     expect(content).toContain(
@@ -203,7 +203,7 @@ describe("compileBlockSkill", () => {
 
       const content = skillFileContent(compile(verb, step, { domain: domainFill, forge }, refRoster, { team }).files);
 
-      expect(content).toContain("Prop forge is bound to `acme-base:gitlab-forge`");
+      expect(content).toContain("For forge, invoke the `acme-base:gitlab-forge` skill");
     });
 
     test("refuses when an inlined base fill carries it", () => {
@@ -297,7 +297,7 @@ describe("compileBlockSkill", () => {
     const content = skillFileContent(result.files);
 
     expect(content).toContain(
-      "Prop forge is bound to `mattstack:gitlab-forge` (mattstack:gitlab-forge@1.2.0) -- invoke that skill when this flow needs it.",
+      "For forge, invoke the `mattstack:gitlab-forge` skill (mattstack:gitlab-forge@1.2.0) when this flow needs it.",
     );
     expect(content).not.toContain("Talk to GitLab via glab.");
 

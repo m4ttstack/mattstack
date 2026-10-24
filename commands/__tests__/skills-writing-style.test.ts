@@ -176,13 +176,13 @@ describe("new", () => {
       'description: "Use only when the mattstack writing-style lookup names mattstack:writing-style-sparse. Terse."',
       "---",
       "",
-      "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->",
+      "<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->",
       "<!-- part: step source=mattstack:writing-style-sparse version=0.18.0 path=x lines=1-9 -->",
       "# Sparse",
       "",
     ].join("\n"));
     writeFileSync(join(dir, "pr-description.md"), [
-      "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->",
+      "<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->",
       "<!-- part: step source=mattstack:writing-style-sparse version=0.18.0 path=x lines=1-9 -->",
       "# PR descriptions (sparse)",
       "",

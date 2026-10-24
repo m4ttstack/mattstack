@@ -633,7 +633,7 @@ describe("block-tree engines end to end", () => {
     expect(md).toContain('compiled: "mattstack@1.0.0 + widgets:mini-rules/fast@0.1.0 + mattstack:model-tiering@1.0.0 + mattstack:style-floor@1.0.0"');
     expect(md.split("\n").filter((l) => l.startsWith("#"))).toEqual(["# mini", "## Run the step", "### Check the result", "## Ask the gate", "## Notes"]);
     expect(md).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/mini/parts/rules/lint.sh first.");
-    expect(md).toContain("Prop tiering is bound to `mattstack:model-tiering`");
+    expect(md).toContain("For tiering, invoke the `mattstack:model-tiering` skill");
     expect(md).not.toContain("{{");
     expect(treeOf(join(pack, "attachments", "mini"))["parts/rules/lint.sh"]).toBe("#!/bin/sh\necho lint\n");
   });

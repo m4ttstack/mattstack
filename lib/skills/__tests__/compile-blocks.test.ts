@@ -105,7 +105,7 @@ describe("compileBlockSkill", () => {
 
   test("the pack's empty tiering falls back to its default, a public skill bound by reference", () => {
     const { skillMd } = compileMini();
-    expect(skillMd).toContain("Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.");
+    expect(skillMd).toContain("For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.");
   });
 
   test("a per-file value's sibling files vendor under parts/<prop>; no block file is vendored", () => {

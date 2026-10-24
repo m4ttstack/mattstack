@@ -106,7 +106,7 @@ export function assertNoTeamMarkerInAllowedTools(fill: AttachmentSource): void {
 }
 
 export function fillReference(name: string, fill: AttachmentSource): string {
-  return `Prop ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
+  return `For ${name.replaceAll("-", " ")}, invoke the \`${fill.binding}\` skill (${fill.binding}@${fill.version}) when this flow needs it.`;
 }
 
 /**

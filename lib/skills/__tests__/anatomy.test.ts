@@ -19,7 +19,7 @@ describe("partsFromMarkers", () => {
     const md = [
       "<!-- part: block:x source=mattstack:x version=1 path=a/index.block.md lines=5-6 -->", "body",
       "<!-- part: prop:x.tiering binding=mattstack:model-tiering version=1 path=skills/model-tiering/SKILL.md lines=8-30 -->",
-      "Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1) -- invoke that skill when this flow needs it.",
+      "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1) when this flow needs it.",
     ].join("\n");
     expect(partsFromMarkers(md, {}, new Set()).at(-1)).toMatchObject({ kind: "prop", name: "x.tiering", renderedLines: [3, 4], mode: "reference" });
   });

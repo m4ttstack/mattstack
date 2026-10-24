@@ -146,7 +146,7 @@ test("text is the block's own rendered markdown with values inlined and its grap
   expect(root.text).not.toContain("## Run the step");
   expect(root.text).not.toContain("part: block:");
   const gate = payload.blocks.find((b) => b.id === "mini/gate")!;
-  expect(gate.text).toContain("Prop tiering is bound to `mattstack:model-tiering`");
+  expect(gate.text).toContain("For tiering, invoke the `mattstack:model-tiering` skill");
 });
 
 test("props carry their spec, marker and each value with its layer and line count", () => {

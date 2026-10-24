@@ -124,7 +124,7 @@ describe("partExtents on a block-compiled body", () => {
     "",
     seam("mini/gate", "a/gate.block.md", "11-15"), "## Ask the gate", "", gate, "",
     "<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering version=1.0.0 path=skills/model-tiering/SKILL.md lines=8-30 -->",
-    "Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.",
+    "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.",
     "",
     "<!-- part: include:note source=mattstack:note version=1.0.0 path=attachments/note/SKILL.md lines=7-7 -->", "note body",
   ].join("\n") + "\n";
@@ -141,7 +141,16 @@ describe("partExtents on a block-compiled body", () => {
     expect(extents[0]!.text).toBe("# mini\n\nRuns the step.\n\nRoot text after the prop.");
     expect(extents[1]!.text).toBe("Follow the rules.\nRun lint first.");
     expect(extents[2]!.text).toBe("## Ask the gate\n\nAsk the human.");
-    expect(extents[3]!.text).toBe("Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.");
+    expect(extents[3]!.text).toBe("For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.");
+  });
+
+  test("a reference line an older compile wrote is still one line", () => {
+    const old = md().replace(
+      "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.",
+      "Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.",
+    );
+    const tiering = partExtents(old).find((e) => e.key === "prop:mini/gate.tiering")!;
+    expect([tiering.start, tiering.end]).toEqual([20, 21]);
   });
 
   test("a value edit changes only its prop; a block edit only its block", () => {

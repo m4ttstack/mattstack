@@ -41,6 +41,14 @@ test("Slot reference compares equal to the Prop reference, an inlined body does 
   expect(residualDiff(`# A\n\n${ref("Slot")}\n`, "# A\n\nPick the cheapest model.\n", none)).not.toBe("");
 });
 
+test("today's reference line compares equal to the Prop and Slot lines older compiles wrote", () => {
+  const today = "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.";
+  for (const noun of ["Prop", "Slot"]) {
+    const older = `${noun} tiering is bound to \`mattstack:model-tiering\` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.`;
+    expect(residualDiff(`# A\n\n${older}\n`, `# A\n\n${today}\n`, none)).toBe("");
+  }
+});
+
 test("a repeated title collapses to one heading", () => {
   const before = "## Gate protocol\n\n# Gate protocol\n\nAsk.\n";
   const after = "## Gate protocol\n\nAsk.\n";

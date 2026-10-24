@@ -135,7 +135,7 @@ test("the mini tree renders one body with a seam per block and prop", () => {
   expect(body).toContain("\n### Check the result\n");
   expect(body).toContain(
     "<!-- part: prop:mini/gate.tiering binding=mattstack:model-tiering version=1.0.0 path=skills/model-tiering/SKILL.md lines=8-8 -->\n" +
-      "Prop tiering is bound to `mattstack:model-tiering` (mattstack:model-tiering@1.0.0) -- invoke that skill when this flow needs it.",
+      "For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.",
   );
   expect(body).toContain("<!-- part: prop:mini/notes.style binding=mattstack:style-floor version=1.0.0 path=attachments/style-floor/SKILL.md lines=8-8 -->\nWrite short sentences.");
   expect(body).toContain(
