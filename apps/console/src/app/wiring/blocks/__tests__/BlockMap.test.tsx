@@ -23,6 +23,17 @@ const map = blockMap(graph, blockId => {
     kind: block.kind as Exclude<MapKind, 'end' | 'split'>,
   };
 });
+const canvas = vi.hoisted(() => ({ width: 0 }));
+
+vi.mock('@mattstack/app-kit/hooks', async importOriginal => ({
+  ...(await importOriginal<typeof import('@mattstack/app-kit/hooks')>()),
+  useElementSize: () => ({
+    ref: () => {},
+    width: canvas.width,
+    height: 0,
+  }),
+}));
+
 const shared = bundledEngine();
 const engine = () => Promise.resolve(shared);
 const LAID_OUT = { timeout: 15_000 };
@@ -246,6 +257,20 @@ describe('BlockMap', () => {
     expect(calls).toBe(2);
     expect(screen.getAllByTestId('map-card')).toHaveLength(before.length);
     expect(screen.queryByTestId('map-loading')).not.toBeInTheDocument();
+  }, 20_000);
+
+  it('a canvas of fractional width fits a map that fits', async () => {
+    canvas.width = 1400.6;
+    try {
+      renderMap();
+
+      const scroller = await screen.findByTestId('map-canvas', {}, LAID_OUT);
+      const plane = scroller.firstElementChild as HTMLElement;
+      expect(Number(scroller.getAttribute('data-zoom'))).toBe(1);
+      expect(Number(plane.getAttribute('data-plane'))).toBe(1400);
+    } finally {
+      canvas.width = 0;
+    }
   }, 20_000);
 
   it('Close calls onClose', () => {

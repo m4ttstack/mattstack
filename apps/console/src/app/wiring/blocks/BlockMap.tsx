@@ -1,33 +1,28 @@
-import '@xyflow/react/dist/base.css';
-
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Box,
-  Skeleton,
-  Text,
-  UnstyledButton,
-  useComputedColorScheme,
-} from '@mattstack/app-kit/core';
-import { useElementSize, useReducedMotion } from '@mattstack/app-kit/hooks';
+import { Text, UnstyledButton } from '@mattstack/app-kit/core';
+import { useReducedMotion } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
-import {
-  Background,
-  BackgroundVariant,
-  Position,
-  ReactFlow,
-  type NodeTypes,
-} from '@xyflow/react';
+import type { NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
-import { GraphViews } from './FlowGraph';
 import {
   BAND_NODE_TYPES,
   RING_MS,
   type BandFlowNode,
   type BandStepFlowNode,
 } from './FoldBand';
+import {
+  edgesOf,
+  GraphCanvas,
+  GraphError,
+  GraphHead,
+  GraphLoading,
+  handlesAt,
+  useCanvasLayout,
+  useCanvasPlane,
+} from './graphCanvas';
 import {
   MAP_NODE_TYPES,
   MapActionsContext,
@@ -37,41 +32,17 @@ import {
   type MapActions,
   type MapFlowNode,
 } from './graphCards';
-import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
+import type { MapFlowEdge } from './graphEdges';
 import { openBand, type BandedLayout } from './model/bandLayout';
 import { dotsOf, labelOf } from './model/blockFacts';
 import { blockMap, type MapKind } from './model/blockMap';
-import type { LaidOut, LayoutEngine, LayoutInput } from './model/elkGraph';
+import type { LaidOut, LayoutEngine } from './model/elkGraph';
 import { foldBand } from './model/foldBand';
 import { shortLabel } from './model/labels';
 import { mapFocus, type MapHover } from './model/mapFocus';
-import { fitZoom, mapLayout, MIN_MAP_ZOOM, skillOf } from './model/mapLayout';
-import { useGraphLayout } from './useGraphLayout';
+import { mapLayout, skillOf } from './model/mapLayout';
 
 type Graph = BlocksPayload['graphs'][number];
-
-/** Each layout by the ELK input built from it, so the canvas keeps drawing
-    the last finished layout while a newer one runs. */
-const layoutOf = new WeakMap<LayoutInput, BandedLayout>();
-
-const handlesAt = (anchorX: number, height: number) => [
-  {
-    type: 'target' as const,
-    position: Position.Top,
-    x: anchorX,
-    y: 0,
-    width: 1,
-    height: 1,
-  },
-  {
-    type: 'source' as const,
-    position: Position.Bottom,
-    x: anchorX,
-    y: height,
-    width: 1,
-    height: 1,
-  },
-];
 
 type FlowNode =
   MapFlowNode | JunctionFlowNode | BandFlowNode | BandStepFlowNode;
@@ -136,26 +107,7 @@ function flowOf(
       data: {},
     });
   }
-  const edges = layout.edges.flatMap((edge): MapFlowEdge[] => {
-    const routed = laidOut.edges[edge.id];
-    if (!routed) return [];
-    return [
-      {
-        id: edge.id,
-        source: edge.from,
-        target: edge.to,
-        type: 'map',
-        data: {
-          points: routed.points,
-          folded: edge.folded,
-          arrow: edge.arrow,
-          label: edge.label,
-          labelBox: routed.label,
-        },
-      },
-    ];
-  });
-  return { nodes, edges };
+  return { nodes, edges: edgesOf(layout.edges, laidOut) };
 }
 
 function MapKey() {
@@ -217,57 +169,21 @@ function MapCanvas({
   laidOut: LaidOut;
   actions: MapActions;
 }) {
-  const scheme = useComputedColorScheme('light');
-  const { ref, width } = useElementSize();
+  const canvas = useCanvasPlane(laidOut.width);
   const { nodes, edges } = useMemo(
     () => flowOf(layout, laidOut),
     [layout, laidOut]
   );
-  const zoom = fitZoom(width, laidOut.width);
-  const drawn = laidOut.width * zoom;
-  const plane = Math.max(width, Math.ceil(drawn));
-  const x = Math.max(0, (plane - drawn) / 2);
   return (
     <MapActionsContext.Provider value={actions}>
-      <div ref={ref} className={classes.mapCanvas} data-testid="map-canvas">
-        <Box
-          className={classes.mapPlane}
-          w={plane > 0 ? plane : '100%'}
-          h={Math.ceil(laidOut.height * zoom)}
-        >
-          <ReactFlow
-            key={`${plane}:${zoom}`}
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={NODE_TYPES}
-            edgeTypes={MAP_EDGE_TYPES}
-            defaultViewport={{ x, y: 0, zoom }}
-            minZoom={MIN_MAP_ZOOM}
-            maxZoom={1}
-            panOnDrag={false}
-            panOnScroll={false}
-            zoomOnScroll={false}
-            zoomOnPinch={false}
-            zoomOnDoubleClick={false}
-            preventScrolling={false}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            nodesFocusable={false}
-            edgesFocusable={false}
-            elementsSelectable={false}
-            proOptions={{ hideAttribution: true }}
-            colorMode={scheme}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={16}
-              size={1}
-              color="var(--tk-line-2)"
-              bgColor="var(--tk-panel)"
-            />
-          </ReactFlow>
-        </Box>
-      </div>
+      <GraphCanvas
+        canvas={canvas}
+        laidOut={laidOut}
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={NODE_TYPES}
+        testId="map-canvas"
+      />
     </MapActionsContext.Provider>
   );
 }
@@ -349,17 +265,14 @@ export function BlockMap({
   const banded = useMemo(() => {
     if (!layout) return null;
     const link = open ? map.links.find(each => each.id === open) : undefined;
-    const laid: BandedLayout = link
+    return link
       ? openBand(layout, map, graph, link, measureText)
       : { ...layout, band: null };
-    layoutOf.set(laid.input, laid);
-    return laid;
   }, [layout, open, map, graph]);
-  const { state, laidOut, laidFor, retry } = useGraphLayout(
-    banded?.input ?? null,
+  const { state, laidOut, shown, retry } = useCanvasLayout<BandedLayout>(
+    banded,
     engine
   );
-  const shown = laidFor ? layoutOf.get(laidFor) : undefined;
   const stepsOf = useMemo(
     () =>
       new Map(
@@ -496,20 +409,13 @@ export function BlockMap({
       aria-label="Block map"
       data-testid="block-map"
     >
-      <div className={classes.mapHead}>
-        <Text fz={15} fw={600} lh="normal" c="var(--tk-text-1)">
-          Block map
-        </Text>
-        <Text fz={13} lh="normal" c="dimmed">
-          {`${blocks} blocks · ${map.foldedSteps} steps folded`}
-        </Text>
-        <div className={classes.mapTools}>
-          <GraphViews value="graph" onChange={onView} />
-          <UnstyledButton className={classes.mapClose} onClick={onClose}>
-            Close
-          </UnstyledButton>
-        </div>
-      </div>
+      <GraphHead
+        title="Block map"
+        count={`${blocks} blocks · ${map.foldedSteps} steps folded`}
+        view="graph"
+        onView={onView}
+        onClose={onClose}
+      />
       {layout === null ? (
         <div className={classes.mapNote}>
           <Text fz={13} c="dimmed">
@@ -523,22 +429,14 @@ export function BlockMap({
           </UnstyledButton>
         </div>
       ) : state === 'error' ? (
-        <div className={classes.mapNote} role="alert">
-          <Text fz={13} c="dimmed">
-            The graph didn&apos;t lay out
-          </Text>
-          <UnstyledButton className={classes.graphLink} onClick={retry}>
-            Retry
-          </UnstyledButton>
-        </div>
+        <GraphError onRetry={retry} />
       ) : laidOut && shown ? (
         <MapCanvas layout={shown} laidOut={laidOut} actions={actions} />
       ) : (
-        <Skeleton
-          h={320}
-          radius={12}
-          data-testid="map-loading"
-          aria-label="Laying out the map"
+        <GraphLoading
+          height={320}
+          testId="map-loading"
+          label="Laying out the map"
         />
       )}
       {layout !== null && <MapKey />}

@@ -278,6 +278,33 @@ export function BlockCard({
   );
 }
 
+/** A graph-only step: muted, no shadow, never a button. */
+export function StepCard({
+  label,
+  title,
+  badge,
+  width,
+}: {
+  label: string;
+  title?: string | null;
+  badge: MapKind;
+  width: number;
+}) {
+  return (
+    <div
+      className={classes.flowStep}
+      data-testid="flow-step"
+      title={title ?? undefined}
+      style={{ '--card-w': `${width}px` } as CSSProperties}
+    >
+      <span className={classes.flowStepBadge} data-badge={badge}>
+        <Icon name={BADGE_ICON[badge]} size={10} strokeWidth={ICON_STROKE} />
+      </span>
+      <span className={classes.flowStepLabel}>{label}</span>
+    </div>
+  );
+}
+
 /** A shared split: a dot where several blocks' paths part, with its long
     exits as pills beside it. The dot has no name until it is hovered. */
 export function SplitDot({
