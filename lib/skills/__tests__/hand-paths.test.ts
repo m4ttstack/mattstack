@@ -125,6 +125,16 @@ describe("handPathDiagnostics", () => {
     }
   });
 
+  test("a file below its unit's root measures relative paths from its own depth", () => {
+    const inside = "Run `../scripts/run.sh`, then read ../SKILL.md.";
+    expect(handPathDiagnostics(inside, "references/guide.md", { verbs: VERBS, depth: 1 })).toEqual([]);
+    expect(handPathDiagnostics(inside, "references/guide.md", { verbs: VERBS })).toMatchObject([{ code: "hand-typed-path" }]);
+    const [d] = handPathDiagnostics("Read ../../other-kit/SKILL.md.", "references/guide.md", { verbs: VERBS, packSource: (arg) => arg === "other-kit/SKILL.md", depth: 1 });
+    expect(d).toMatchObject({ code: "hand-typed-path", fix: { length: 24, text: "{{pack.path:other-kit/SKILL.md}}" } });
+    expect(handPathDiagnostics("Read ../../../attachments/x/y.md.", "a/b/c.md", { verbs: VERBS, depth: 2 })).toMatchObject([{ code: "hand-typed-path" }]);
+    expect(handPathDiagnostics("Read ${CLAUDE_SKILL_DIR}/../x/y.md.", "references/guide.md", { verbs: VERBS, depth: 1 })).toMatchObject([{ code: "hand-typed-path" }]);
+  });
+
   test("a compiled verb's file other than SKILL.md has no form to name it, so no fix", () => {
     const [d] = handPathDiagnostics("Read ../ship/notes.md.", FILE, { verbs: VERBS });
     expect(d!.fix).toBeUndefined();

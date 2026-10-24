@@ -90,16 +90,21 @@ function reachesAnotherSkill(p: HandPath): boolean {
 }
 
 /**
- * Compile's rule over its own input text. The stage-dir and vendoring rewrites emit
+ * Compile's rule over its own input text. `depth` is how many folders the file sits below its unit's
+ * root (0 for inlined text, which lands at the compiled verb's root): a relative path climbing no
+ * higher stays inside its own unit. The stage-dir and vendoring rewrites emit
  * `${CLAUDE_SKILL_DIR}/../../attachments/...` into the output on purpose, so
  * this must never run on compiled text.
  */
 export function handPathDiagnostics(
   text: string,
   file: string,
-  opts: { startLine?: number; indent?: number; noFix?: boolean } & FixView,
+  opts: { startLine?: number; indent?: number; noFix?: boolean; depth?: number } & FixView,
 ): BlockDiagnostic[] {
+  const depth = opts.depth ?? 0;
   return findHandPaths(text, opts)
+    .map((p) => (p.anchor === "relative" ? { ...p, ups: p.ups - depth } : p))
+    .filter((p) => p.anchor !== "relative" || p.ups > 0)
     .filter(reachesAnotherSkill)
     .map((p) => {
       const fix = opts.noFix ? null : replacementFor(p, opts);

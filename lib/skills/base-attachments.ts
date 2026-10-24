@@ -11,6 +11,7 @@ import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sou
 import type { CompiledFile, PlannedAttachments, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = "compiled.json";
+const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 
 export type BaseRef = { name: string; dir: string; version: string | null };
 export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[] };
@@ -266,7 +267,12 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
       const where = `${base.name}:attachments/${name}/${file}`;
       const raw = readFileSync(abs, "utf8");
       // Read before team markers resolve, so a path built from a team value is still the hand-typed text the author wrote.
-      const handPaths = handPathDiagnostics(raw, file, fixView);
+      const head = raw.match(FRONTMATTER_RE)?.[0] ?? "";
+      const handPaths = handPathDiagnostics(raw.slice(head.length), file, {
+        ...fixView,
+        startLine: (head.match(/\n/g)?.length ?? 0) + 1,
+        depth: file.split("/").length - 1,
+      });
       if (handPaths.length > 0) {
         errors.push(...handPaths.map((d) => `${where}: ${d.message} (line ${d.line})`));
         continue;

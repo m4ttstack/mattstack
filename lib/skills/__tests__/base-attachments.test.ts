@@ -70,6 +70,28 @@ describe("planBaseAttachments", () => {
     expect(result.emits.map((e) => [e.name, e.warnings])).toEqual([["review-kit", []], ["stage-gates", []]]);
   });
 
+  test("a nested file's paths into its own kit are not hand-typed, and one into another kit is", () => {
+    const kit = join(baseDir(), "attachments", "review-kit");
+    put(join(kit, "SKILL.md"), "kit\n");
+    put(join(kit, "scripts", "x.sh"), "echo x\n");
+    put(join(kit, "references", "guide.md"), "Run `../scripts/x.sh`, then reread ../SKILL.md.\n");
+    expect(plan().errors).toEqual([]);
+    put(join(kit, "references", "guide.md"), "ok\nSee ../../other-kit/SKILL.md.\n");
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/references/guide.md: hand-typed path ../../other-kit/SKILL.md breaks when its target moves; name it with {{pack.path:<attachment>/<file>}} or {{verb.path:<verb>}} (line 2)",
+    ]);
+  });
+
+  test("frontmatter is not scanned for hand-typed paths, and body lines count from the top of the file", () => {
+    const skill = join(baseDir(), "attachments", "review-kit", "SKILL.md");
+    put(skill, "---\nname: review-kit\ndescription: pairs with ../other/SKILL.md\n---\nBody.\n");
+    expect(plan().errors).toEqual([]);
+    put(skill, "---\nname: review-kit\ndescription: pairs with ../other/SKILL.md\n---\nBody.\nSee ../other/SKILL.md.\n");
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: hand-typed path ../other/SKILL.md breaks when its target moves; name it with {{pack.path:<attachment>/<file>}} or {{verb.path:<verb>}} (line 6)",
+    ]);
+  });
+
   test("a hand-typed path onto a compiled verb is a plan error naming verb.path", () => {
     put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "Then run `../../skills/ship/SKILL.md`.\n");
     expect(plan().errors).toEqual([
