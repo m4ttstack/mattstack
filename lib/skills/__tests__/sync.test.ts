@@ -48,6 +48,8 @@ type World = {
   drift?: boolean[];
   lintHits?: number[];
   lintStrict?: boolean[];
+  /** Per check call, the hand-written skill failures it reports. */
+  handErrors?: string[][];
   checkThrows?: boolean;
   compileOk?: boolean;
   compileErrors?: string[];
@@ -91,6 +93,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
   const driftAnswers = [...(world.drift ?? [])];
   const lintHitsAnswers = [...(world.lintHits ?? [])];
   const lintStrictAnswers = [...(world.lintStrict ?? [])];
+  const handErrorAnswers = [...(world.handErrors ?? [])];
 
   function installDirFor(id: string): string {
     let dir = installDirs.get(id);
@@ -256,7 +259,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (world.checkThrows) throw new Error("checkPack: manifest discovery found nothing");
       const next = driftAnswers.shift();
       if (next === undefined) throw new Error("checkPack: fixture ran out of configured drift answers");
-      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false };
+      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false, handErrors: handErrorAnswers.shift() ?? [] };
     },
     compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [], written: world.compileWrites?.written ?? [], removed: world.compileWrites?.removed ?? [] }),
     materialize: async () => ({ ok: true, detail: "materialized 1" }),
@@ -2943,5 +2946,43 @@ describe("git that talks to origin", () => {
 
     expect(report.steps.find((s) => s.name === "commit-push")!.status).toBe("ran");
     expect(origin).toContainEqual({ args: ["push"], cwd: pack.dir, push: true });
+  });
+});
+
+describe("hand-written skill failures", () => {
+  const BAD_YAML = "plugin/skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings";
+  const BROKEN_PATH = "plugin/skills/gadgets/SKILL.md:5:7: ${CLAUDE_SKILL_DIR}/../widgets/gone.md does not resolve to a file from the skill's folder";
+
+  for (const [what, failure] of [["bad frontmatter", BAD_YAML], ["a broken skill path", BROKEN_PATH]] as const) {
+    test(`a team pack with ${what} refuses at check, before the bump, naming the file`, async () => {
+      const pack = fixturePack("acme", "local", "1.0.0");
+      const engine = fixturePack("beacon", "local", "2.0.0");
+      const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], handErrors: [[failure]] };
+
+      const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+      expect(report.ok).toBe(false);
+      const check = report.steps.find((s) => s.name === "check")!;
+      expect(check.status).toBe("refused");
+      expect(check.detail).toContain(failure);
+      expect(check.detail).toContain("rt stopped before the version bump");
+      expect(stepNames(report.steps).at(-1)).toBe("check");
+      expect(readVersion(pack.dir)).toBe("1.0.0");
+      expect(world.calls.filter((c) => c.cmd === "checkPack")).toHaveLength(1);
+    });
+  }
+
+  test("the in-tree mattstack plugin refuses at check with the file, not at the bump", async () => {
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.2" }, drift: [true], handErrors: [[BAD_YAML]] };
+    const deps = { ...makeDeps(engine, engine, world), inTreeRoot: engine.dir };
+
+    const report = await syncPack(engine, engine, deps);
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("refused");
+    expect(check.detail).toContain(BAD_YAML);
+    expect(stepNames(report.steps)).not.toContain("bump");
+    expect(readVersion(engine.dir)).toBe("1.2.3");
   });
 });

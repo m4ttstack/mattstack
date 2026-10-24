@@ -1680,6 +1680,11 @@ export type CheckPayload = {
   skillFrontmatter?: BlockDiagnostic[];
 };
 
+/** A hand-written skill's own fault: no compile fixes it, so it fails check apart from `drift`, which sync reads as "recompile". */
+export function handSkillFailures(payload: Pick<CheckPayload, "skillPaths" | "skillFrontmatter">): BlockDiagnostic[] {
+  return [...(payload.skillFrontmatter ?? []), ...(payload.skillPaths ?? [])];
+}
+
 /** The registered skills compile does not produce, each checked from its own folder. */
 function handWrittenSkills(packDir: string, compiledNames: ReadonlySet<string>): { dir: string; file: string; text: string }[] {
   const found: { dir: string; file: string; text: string }[] = [];
@@ -1899,7 +1904,6 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const handSkills = flags.verbs === null ? handWrittenSkills(resolved.packDir, new Set(Object.keys(verbSides))) : [];
   const skillPaths = brokenSkillPaths(handSkills, resolved.packDir);
   const skillFrontmatter = badSkillFrontmatter(handSkills);
-  if (skillPaths.length > 0 || skillFrontmatter.length > 0) anyStale = true;
 
   return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter };
 }
@@ -1973,12 +1977,12 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
   const skillFrontmatter = payload.skillFrontmatter ?? [];
   if (skillFrontmatter.length > 0) {
-    blocks.push(out.verbatim(skillFrontmatter.map(formatDiagnostic), "hand-authored skills"));
-    blocks.push(out.line("failed", `skill frontmatter: ${countOf(skillFrontmatter.length, "file does", "files do")} not parse as YAML`, "quote a value that holds a colon"));
+    blocks.push(out.verbatim(skillFrontmatter.map(formatDiagnostic), "hand-authored skills, frontmatter"));
+    blocks.push(out.line("failed", `skill frontmatter: ${countOf(skillFrontmatter.length, "file does", "files do")} not parse as YAML`, "fix the YAML at that line"));
   }
   const skillPaths = payload.skillPaths ?? [];
   if (skillPaths.length > 0) {
-    blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "hand-authored skills"));
+    blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "hand-authored skills, paths"));
     blocks.push(out.line("failed", `skill paths: ${countOf(skillPaths.length, "path points", "paths point")} at nothing`, "fix the path in the skill"));
   }
   blocks.push(...fieldContractBlocks(payload.fieldContract, "advisory; it never fails a check"));
@@ -2007,7 +2011,7 @@ export async function skillsCheck(args: string[]): Promise<void> {
     const flags = parseFlags(args);
     const payload = await computeCheck(flags);
 
-    if (payload.drift) process.exitCode = 1;
+    if (payload.drift || handSkillFailures(payload).length > 0) process.exitCode = 1;
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {

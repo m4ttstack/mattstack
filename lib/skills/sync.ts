@@ -19,7 +19,8 @@ export type SyncDeps = {
   /** A git command that reaches the pack's origin. An https org clone has no credential helper of its own, so the real one retries with rt's forge token; without it, `run` is used. */
   runOrigin?: (args: string[], opts: { cwd: string; push?: boolean }) => Promise<RunResult>;
   claudeBin: string | null;
-  checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean }>;
+  /** `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`. */
+  checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean; handErrors?: string[] }>;
   /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[]; written: string[]; removed: string[] }>;
   /** Regenerates every registered repo's per-pack files; a base pack the pack extends may have moved since the last install. Only the named pack's failures fail the step. */
@@ -706,6 +707,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const checkStep = await tryStep(async () => {
     const result = await deps.checkPack(pack.name);
     drift = result.drift;
+    const handErrors = result.handErrors ?? [];
+    if (handErrors.length > 0) {
+      return refused(`Hand-written skills have ${plural(handErrors.length, "problem")} a recompile cannot fix, so rt stopped before the version bump: ${handErrors.join("; ")}. Fix each file, then sync again`);
+    }
     if (result.strict && result.lintHits > 0) {
       return refused(`This pack is strict, and mcp lint found ${hitCount(result.lintHits)}. Fix them before syncing`);
     }

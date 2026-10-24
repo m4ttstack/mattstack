@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { checkBlocks, checkPack } from "../skills.ts";
+import { checkBlocks, checkPack, handSkillFailures } from "../skills.ts";
 
 const made: string[] = [];
 afterEach(() => {
@@ -25,7 +25,8 @@ function makePack(body: string): string {
 test("a hand-authored skill's cross-skill path to a missing file fails the check, at its line", async () => {
   const dir = makePack("Read `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.");
   const payload = await checkPack({ packDir: dir });
-  expect(payload.drift).toBe(true);
+  expect(payload.drift).toBe(false);
+  expect(handSkillFailures(payload).map((d) => d.code)).toEqual(["broken-skill-path"]);
   expect(payload.skillPaths).toEqual([
     {
       file: "plugin/skills/gadgets/SKILL.md",
@@ -37,7 +38,7 @@ test("a hand-authored skill's cross-skill path to a missing file fails the check
   ]);
   expect(renderPlain(checkBlocks(payload, false))).toContain(
     [
-      "hand-authored skills:",
+      "hand-authored skills, paths:",
       "  plugin/skills/gadgets/SKILL.md:4:7: ${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md does not resolve to a file from the skill's folder",
       "[failed] skill paths: 1 path points at nothing  fix the path in the skill",
     ].join("\n"),
@@ -58,7 +59,8 @@ test("a hand-authored skill whose frontmatter is not valid YAML fails the check 
     "---\nname: gadgets\ndescription: Use when: x\n---\nRead `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.\n",
   );
   const payload = await checkPack({ packDir: dir });
-  expect(payload.drift).toBe(true);
+  expect(payload.drift).toBe(false);
+  expect(handSkillFailures(payload).map((d) => d.code)).toEqual(["bad-frontmatter", "broken-skill-path"]);
   expect(payload.skillFrontmatter).toEqual([
     {
       file: "plugin/skills/gadgets/SKILL.md",
@@ -71,9 +73,9 @@ test("a hand-authored skill whose frontmatter is not valid YAML fails the check 
   expect((payload.skillPaths ?? []).map((d) => `${d.file}:${d.line}:${d.code}`)).toEqual(["plugin/skills/gadgets/SKILL.md:5:broken-skill-path"]);
   expect(renderPlain(checkBlocks(payload, false))).toContain(
     [
-      "hand-authored skills:",
+      "hand-authored skills, frontmatter:",
       "  plugin/skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
-      "[failed] skill frontmatter: 1 file does not parse as YAML  quote a value that holds a colon",
+      "[failed] skill frontmatter: 1 file does not parse as YAML  fix the YAML at that line",
     ].join("\n"),
   );
 });

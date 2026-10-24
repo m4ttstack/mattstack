@@ -12,7 +12,8 @@ import { TREE } from "../../lib/command-tree-def.ts";
 import { LAYOUT_HOLD, type SyncDeps, type SyncReport } from "../../lib/skills/sync.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
-import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
+import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncCheckOf, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
+import { checkPack } from "../skills.ts";
 import * as syncCommand from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
@@ -468,6 +469,41 @@ describe("a Mac with two org clones", () => {
       seam.mockRestore(); discovery.mockRestore(); io.restore();
       process.env.HOME = savedHome; process.exitCode = 0;
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("syncCheckOf", () => {
+  function teamPack(skillMd: string): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-hand-")));
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0", skills: ["./skills"] }));
+    mkdirSync(join(dir, "skills", "gadgets"), { recursive: true });
+    writeFileSync(join(dir, "skills", "gadgets", "SKILL.md"), skillMd);
+    return dir;
+  }
+
+  test("a hand-written skill with bad frontmatter reaches sync as a named failure, not drift", async () => {
+    const dir = teamPack("---\nname: gadgets\ndescription: Use when: x\n---\nDo the gadget thing.\n");
+    try {
+      const result = syncCheckOf(await checkPack({ packDir: dir }));
+      expect(result.drift).toBe(false);
+      expect(result.handErrors).toEqual(["skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a hand-written skill with a broken path reaches sync as a named failure, not drift", async () => {
+    const dir = teamPack("---\nname: gadgets\ndescription: \"Use when x\"\n---\nRead `${CLAUDE_SKILL_DIR}/../../attachments/widgets/gone.md` first.\n");
+    try {
+      const result = syncCheckOf(await checkPack({ packDir: dir }));
+      expect(result.drift).toBe(false);
+      expect(result.handErrors).toHaveLength(1);
+      expect(result.handErrors![0]).toStartWith("skills/gadgets/SKILL.md:5:");
+      expect(result.handErrors![0]).toContain("does not resolve to a file");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

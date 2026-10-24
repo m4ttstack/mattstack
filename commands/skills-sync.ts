@@ -21,7 +21,8 @@ import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
-import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
+import { checkPack, compilePackAll, handSkillFailures, NO_PACKS_WHY, type CheckPayload } from "./skills.ts";
+import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { runSkillsOrigin, spawnCapture } from "../lib/skills/origin-git.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
@@ -191,6 +192,11 @@ export function claudeMissingBlocks(): Block[] {
   return [out.line("needs-you", "Claude Code is not installed", "rt installs and syncs packs through it"), out.callout("next", "Install Claude Code, then run this again")];
 }
 
+/** What sync's check step reads from a check: hand-written skill failures ride apart from drift, so sync refuses on them instead of recompiling. */
+export function syncCheckOf(payload: CheckPayload): Awaited<ReturnType<SyncDeps["checkPack"]>> {
+  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors: handSkillFailures(payload).map(formatDiagnostic) };
+}
+
 export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {
   const json = args.includes("--json");
   const packFlag = flagValue(args, "--pack");
@@ -243,10 +249,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     run: (cmd, cmdArgs, opts) => spawnCapture([cmd, ...cmdArgs], opts?.cwd),
     runOrigin: (gitArgs, opts) => runSkillsOrigin(gitArgs, opts),
     claudeBin: resolveClaudeBin(),
-    checkPack: async (name) => {
-      const payload = await checkPack({ pack: name, ...target });
-      return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint };
-    },
+    checkPack: async (name) => syncCheckOf(await checkPack({ pack: name, ...target })),
     compilePack: (name) => compilePackAll({ pack: name, ...target }),
     materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
