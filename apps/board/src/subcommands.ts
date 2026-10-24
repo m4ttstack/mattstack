@@ -14,6 +14,7 @@ const VERBS: Record<string, () => Promise<unknown>> = {
   'doctor-draft': () => import('../bin/doctor-draft.ts'),
   triage: () => import('../bin/triage.ts'),
   gate: () => import('../bin/gate.ts'),
+  question: () => import('../bin/question.ts'),
 };
 
 export const SUBCOMMANDS = Object.keys(VERBS);
