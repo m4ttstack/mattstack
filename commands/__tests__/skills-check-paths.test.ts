@@ -3,11 +3,13 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { checkBlocks, checkPack, handSkillFailures } from "../skills.ts";
+import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
+import { checkBlocks, checkPack, handSkillFailures, skillsCheck } from "../skills.ts";
 
 const made: string[] = [];
 afterEach(() => {
   for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
+  process.exitCode = 0;
 });
 
 function makePack(body: string): string {
@@ -83,4 +85,39 @@ test("a hand-authored skill whose frontmatter is not valid YAML fails the check 
 test("a hand-authored skill with valid frontmatter reports no frontmatter failure", async () => {
   const payload = await checkPack({ packDir: makePack("Nothing to read.") });
   expect(payload.skillFrontmatter).toEqual([]);
+});
+
+for (const [what, skillMd] of [
+  ["bad frontmatter", "---\nname: gadgets\ndescription: Use when: x\n---\nNothing to read.\n"],
+  ["a broken skill path", "---\nname: gadgets\n---\nRead `${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md` first.\n"],
+] as const) {
+  test(`rt skills check exits 1 on ${what} alone, with no drift`, async () => {
+    const dir = makePack("Nothing to read.");
+    writeFileSync(join(dir, "plugin", "skills", "gadgets", "SKILL.md"), skillMd);
+    const payload = await checkPack({ packDir: dir });
+    expect(payload.drift).toBe(false);
+    expect(handSkillFailures(payload)).toHaveLength(1);
+
+    const io = captureSkills();
+    try {
+      process.exitCode = 0;
+      await skillsCheck(["--pack-dir", dir]);
+      expect(process.exitCode).toBe(1);
+      expect(io.stdout()).toContain("[failed] skill");
+    } finally {
+      io.restore();
+    }
+  });
+}
+
+test("rt skills check exits 0 on a clean hand-authored skill", async () => {
+  const dir = makePack("Nothing to read.");
+  const io = captureSkills();
+  try {
+    process.exitCode = 0;
+    await skillsCheck(["--pack-dir", dir]);
+    expect(process.exitCode).toBe(0);
+  } finally {
+    io.restore();
+  }
 });
