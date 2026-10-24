@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { BlockError, type BlockDiagnostic } from "../blocks/diagnostics.ts";
 import type { SourcedTree } from "../blocks/render.ts";
 import { collectBlockTree, walk } from "../blocks/tree.ts";
@@ -63,7 +64,22 @@ function walkDirs(root: string): string[] {
 const toPosix = (p: string) => p.split(sep).join("/");
 
 /** `walked` is told of each folder tree actually read from disk, so a caller can see when discovery runs. */
-export type WorkspaceHooks = { walked?: (root: string) => void };
+export type WorkspaceHooks = { walked?: (root: string) => void; home?: string };
+
+/** The nearest folder above `file` holding `.claude-plugin/plugin.json`. */
+export function pluginRootOf(file: string): string | null {
+  for (let dir = dirname(file); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, PLUGIN_JSON))) return dir;
+    if (dirname(dir) === dir) return null;
+  }
+}
+
+/** A client started in the home folder (Claude Code in `~`) names it as the workspace; walking it, or `/`, reads the whole disk. */
+function walkableRoot(root: string, home: string): boolean {
+  const dir = resolve(root);
+  if (dir === parse(dir).root) return false;
+  return home !== dir && !home.startsWith(dir + sep);
+}
 
 /** What the folder walks found; only a structural change (a new file, a move, a plugin.json) drops it. */
 type Discovery = { dirs: Map<string, string[]>; plugins?: Plugin[]; engines?: Engine[]; manifests?: string[] };
@@ -73,17 +89,36 @@ export class Workspace {
   private readonly lastGood = new Map<string, BlockTree>();
   private cached: Analysis | null = null;
   private discovery: Discovery = { dirs: new Map() };
+  private readonly walkable: string[];
+  private readonly openedPlugins: string[] = [];
 
   constructor(
     private readonly roots: string[],
     private readonly readFile: (p: string) => string = diskRead,
     private readonly hooks: WorkspaceHooks = {},
-  ) {}
+  ) {
+    const home = resolve(hooks.home ?? process.env.HOME ?? homedir());
+    this.walkable = roots.filter((r) => walkableRoot(r, home));
+  }
 
   open(file: string, text: string): void {
     const structural = (!this.overlay.has(file) && !existsSync(file)) || file.endsWith(sep + PLUGIN_JSON);
+    const adopted = this.adoptPluginOf(file);
     this.overlay.set(file, text);
-    this.invalidate(structural);
+    this.invalidate(structural || adopted);
+  }
+
+  /** The folders discovery walks: the walkable workspace roots, then the plugin of each opened file outside them. */
+  private walkRoots(): string[] {
+    return [...this.walkable, ...this.openedPlugins];
+  }
+
+  private adoptPluginOf(file: string): boolean {
+    if (this.walkRoots().some((r) => file.startsWith(r + sep))) return false;
+    const root = pluginRootOf(file);
+    if (root === null || this.openedPlugins.includes(root)) return false;
+    this.openedPlugins.push(root);
+    return true;
   }
 
   change(file: string, text: string): void {
@@ -172,7 +207,7 @@ export class Workspace {
 
   private discoverPlugins(): Plugin[] {
     const out: Plugin[] = [];
-    for (const root of this.roots) {
+    for (const root of this.walkRoots()) {
       for (const dir of this.dirsUnder(root)) {
         if (!this.exists(join(dir, PLUGIN_JSON))) continue;
         try {
@@ -195,13 +230,13 @@ export class Workspace {
   /** Every `*.block.md` under the roots, open or on disk, whether or not its tree loads. */
   blockFiles(): string[] {
     const found = new Set<string>();
-    for (const root of this.roots) {
+    for (const root of this.walkRoots()) {
       for (const dir of this.dirsUnder(root)) {
         for (const e of listDir(dir)) if (e.isFile() && e.name.endsWith(BLOCK_SUFFIX)) found.add(join(dir, e.name));
       }
     }
     for (const file of this.overlay.keys()) {
-      if (file.endsWith(BLOCK_SUFFIX) && this.roots.some((r) => file.startsWith(r + sep))) found.add(file);
+      if (file.endsWith(BLOCK_SUFFIX) && this.walkRoots().some((r) => file.startsWith(r + sep))) found.add(file);
     }
     return [...found];
   }
@@ -242,13 +277,13 @@ export class Workspace {
 
   private discoverManifests(): string[] {
     const found = new Set<string>();
-    for (const root of this.roots) {
+    for (const root of this.walkRoots()) {
       for (const dir of this.dirsUnder(root)) {
         if (this.exists(join(dir, MANIFEST))) found.add(join(dir, MANIFEST));
       }
     }
     for (const file of this.overlay.keys()) {
-      if (basename(file) === MANIFEST && this.roots.some((r) => file.startsWith(r + sep))) found.add(file);
+      if (basename(file) === MANIFEST && this.walkRoots().some((r) => file.startsWith(r + sep))) found.add(file);
     }
     return [...found];
   }

@@ -1,4 +1,4 @@
-import { basename, sep } from "node:path";
+import { basename, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
@@ -23,16 +23,26 @@ import { publishable } from "./diagnostics.ts";
 import { hoverAt } from "./hover.ts";
 import { referencesAt, toLocations } from "./references.ts";
 import { prepareRename, RenameRefused, renameAt, willRenameEdits } from "./rename.ts";
-import { Workspace } from "./workspace.ts";
+import { pluginRootOf, Workspace } from "./workspace.ts";
 
 export const DOCUMENT_SELECTOR = [{ pattern: "**/*.block.md" }, { pattern: "**/skills.jsonc" }, { pattern: "**/attachments/**/*.md" }, { pattern: "**/skills/**/*.md" }];
 
 const MODULE = "skills-lsp";
 
+/** Only a file a compile can read: inside a plugin, outside its dot folders, which discovery never walks. */
 export function isSkillFile(file: string): boolean {
-  if (file.endsWith(".block.md") || basename(file) === "skills.jsonc") return true;
-  return file.endsWith(".md") && (file.includes(`${sep}attachments${sep}`) || file.includes(`${sep}skills${sep}`));
+  const name = basename(file);
+  if (!name.endsWith(".md") && name !== "skills.jsonc") return false;
+  const root = pluginRootOf(file);
+  if (root === null) return false;
+  const dirs = relative(root, file).split(sep).slice(0, -1);
+  if (dirs.some((d) => d.startsWith("."))) return false;
+  if (name.endsWith(".block.md") || name === "skills.jsonc") return true;
+  return dirs.includes("attachments") || dirs.includes("skills");
 }
+
+/** A move a skill file could name: something inside a plugin, after a skill file has woken the server. */
+const inPlugin = (path: string) => pluginRootOf(path) !== null;
 
 function pathOf(uri: string): string | null {
   if (!uri.startsWith("file:")) return null;
@@ -179,14 +189,15 @@ export function startServer(opts: ServerOpts): void {
   });
 
   connection.workspace.onWillRenameFiles(({ files }) => {
-    if (!ws) return null;
-    const { changes } = willRenameEdits(ws, movesOf(files));
+    const moves = movesOf(files).filter(({ from }) => inPlugin(from));
+    if (!ws || !active || moves.length === 0) return null;
+    const { changes } = willRenameEdits(ws, moves);
     return Object.keys(changes).length > 0 ? { changes } : null;
   });
 
   connection.onCodeAction(({ textDocument, range, context }) => {
     const file = pathOf(textDocument.uri);
-    if (!ws || !file) return [];
+    if (!ws || !file || !isSkillFile(file)) return [];
     if (context.only && !context.only.some((kind) => CodeActionKind.QuickFix.startsWith(kind))) return [];
     return codeActionsAt(ws, file, range).map(({ title, edit, diagnostic }) => ({ title, kind: CodeActionKind.QuickFix, diagnostics: [diagnostic], isPreferred: true, edit }));
   });

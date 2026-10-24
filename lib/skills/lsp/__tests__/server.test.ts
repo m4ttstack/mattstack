@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
-import { PUBLISH_DEBOUNCE_MS, startServer } from "../server.ts";
+import { isSkillFile, PUBLISH_DEBOUNCE_MS, startServer } from "../server.ts";
 import { Workspace } from "../workspace.ts";
 
 const FIXTURES = join(import.meta.dir, "../../__tests__/fixtures/blocks");
@@ -22,7 +22,7 @@ class InProcess {
   private readonly input = new PassThrough();
   private raw = Buffer.alloc(0);
 
-  constructor(roots: string[], opts: { debounceMs?: number } = {}) {
+  constructor(roots: string[], opts: { debounceMs?: number; home?: string } = {}) {
     const output = new PassThrough();
     output.on("data", (chunk: Buffer) => {
       this.raw = Buffer.concat([this.raw, chunk]);
@@ -41,7 +41,7 @@ class InProcess {
             counted.seen.add(a);
             return a;
           }
-        })(given, undefined, { walked: (dir) => counted.walked.push(dir) }),
+        })(given, undefined, { walked: (dir) => counted.walked.push(dir), home: opts.home }),
     });
   }
 
@@ -148,5 +148,85 @@ describe("rt skills lsp publishing", () => {
     await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri, since);
     expect(server.walked.length).toBeGreaterThan(walks);
     await server.stop();
+  });
+});
+
+const put = (file: string, text: string) => {
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, text);
+};
+
+describe("isSkillFile", () => {
+  test("needs a plugin above the file, outside any dot folder", () => {
+    const outside = join(tmp, "repo");
+    put(join(outside, ".claude/skills/notes/SKILL.md"), "# notes\n");
+    expect(isSkillFile(join(outside, ".claude/skills/notes/SKILL.md"))).toBe(false);
+    expect(isSkillFile(join(outside, "docs/skills/guide.md"))).toBe(false);
+    expect(isSkillFile(join(outside, "attachments/x/SKILL.md"))).toBe(false);
+    expect(isSkillFile(join(outside, "skills.jsonc"))).toBe(false);
+    expect(isSkillFile(join(outside, "notes/a.block.md"))).toBe(false);
+
+    expect(isSkillFile(gate)).toBe(true);
+    expect(isSkillFile(join(plugin, "attachments/style-floor/SKILL.md"))).toBe(true);
+    expect(isSkillFile(join(plugin, "skills/model-tiering/SKILL.md"))).toBe(true);
+    expect(isSkillFile(join(plugin, "pack/skills.jsonc"))).toBe(true);
+    expect(isSkillFile(join(plugin, "README.md"))).toBe(false);
+    expect(isSkillFile(join(plugin, ".claude/skills/notes/SKILL.md"))).toBe(false);
+  });
+});
+
+describe("rt skills lsp stays idle", () => {
+  test("a skill under .claude/skills/ with no plugin above it never wakes the server", async () => {
+    const repo = join(tmp, "repo");
+    const skill = join(repo, ".claude/skills/notes/SKILL.md");
+    put(skill, "# notes\n");
+    const server = new InProcess([repo], { debounceMs: 20 });
+    await server.start();
+    const uri = pathToFileURL(skill).href;
+    server.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text: "# notes\n" } } });
+    server.send({ method: "textDocument/didChange", params: { textDocument: { uri, version: 2 }, contentChanges: [{ text: "# notes\nmore\n" }] } });
+    server.send({ id: 2, method: "textDocument/hover", params: { textDocument: { uri }, position: { line: 0, character: 1 } } });
+    expect((await server.waitFor((m) => m.id === 2)).result).toBeNull();
+    await settle(200);
+    expect(server.messages.filter((m) => m.method === "textDocument/publishDiagnostics")).toEqual([]);
+    expect(server.walked).toEqual([]);
+    expect(server.analyses).toBe(0);
+    await server.stop();
+  });
+
+  test("a code action on a plain markdown file and a rename before any skill file opens run no analysis", async () => {
+    const readme = join(plugin, "README.md");
+    put(readme, "# mattstack\n");
+    const server = new InProcess([plugin], { debounceMs: 20 });
+    await server.start();
+    const uri = pathToFileURL(readme).href;
+    const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
+    server.send({ id: 2, method: "textDocument/codeAction", params: { textDocument: { uri }, range, context: { diagnostics: [] } } });
+    expect((await server.waitFor((m) => m.id === 2)).result).toEqual([]);
+    const files = [{ oldUri: pathToFileURL(join(plugin, "attachments/style-floor")).href, newUri: pathToFileURL(join(plugin, "attachments/style-base")).href }];
+    server.send({ id: 3, method: "workspace/willRenameFiles", params: { files } });
+    expect((await server.waitFor((m) => m.id === 3)).result).toBeNull();
+    expect(server.analyses).toBe(0);
+    expect(server.walked).toEqual([]);
+    await server.stop();
+  });
+
+  test("a workspace root that is the home folder is never walked; an opened skill file's plugin is", async () => {
+    const home = join(tmp, "home");
+    const inHome = join(home, "work/mattstack");
+    cpSync(join(FIXTURES, "plugins/mattstack"), inHome, { recursive: true });
+    const file = join(inHome, "attachments/pipeline/mini/gate.block.md");
+    for (const root of [home, "/"]) {
+      const server = new InProcess([root], { debounceMs: 20, home });
+      await server.start();
+      const uri = pathToFileURL(file).href;
+      server.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text: `${readFileSync(file, "utf8")}\n{{props.nope}}\n` } } });
+      const published = await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri && m.params.diagnostics.length > 0);
+      expect(published.params.diagnostics[0]).toMatchObject({ code: "unknown-prop" });
+      expect(server.walked).not.toContain(home);
+      expect(server.walked).not.toContain("/");
+      expect(server.walked).toContain(inHome);
+      await server.stop();
+    }
   });
 });

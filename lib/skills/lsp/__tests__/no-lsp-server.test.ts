@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -99,6 +99,15 @@ beforeEach(() => {
 });
 
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+
+/** A manifest is a skill file only inside a plugin, so the test's manifest sits in a pack of its own. */
+function packManifest(root: string): string {
+  const pack = join(root, "widgets");
+  mkdirSync(join(pack, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(pack, ".claude-plugin/plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+  mkdirSync(join(pack, "pack"), { recursive: true });
+  return join(pack, "pack/skills.jsonc");
+}
 
 async function unknownPropRoundTrip(client: Client, initialize: Record<string, unknown>) {
   try {
@@ -228,7 +237,7 @@ describe("rt skills lsp", () => {
     const plugins = join(root, "plugins/mattstack");
     cpSync(plugin, plugins, { recursive: true });
     const mini = join(plugins, "attachments/pipeline/mini");
-    const manifest = join(root, "skills.jsonc");
+    const manifest = packManifest(root);
     writeFileSync(manifest, '{\n  "version": 2,\n  "bindings": {\n    "mattstack:mini/gate": { "tiering": "" }\n  }\n}\n');
     const uri = pathToFileURL(manifest).href;
     const position = { line: 3, character: 22 };
@@ -268,7 +277,7 @@ describe("rt skills lsp", () => {
     const plugins = join(root, "plugins/mattstack");
     cpSync(plugin, plugins, { recursive: true });
     const mini = join(plugins, "attachments/pipeline/mini");
-    const manifest = join(root, "skills.jsonc");
+    const manifest = packManifest(root);
     const keyed = (id: string) => `{\n  "version": 2,\n  "bindings": {\n    "mattstack:mini/${id}": { "tiering": "" }\n  }\n}\n`;
     writeFileSync(manifest, keyed("gate"));
     const uri = pathToFileURL(manifest).href;
