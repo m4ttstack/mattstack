@@ -1,5 +1,5 @@
 ---
-order: 2
+order: 3
 ---
 
 # Red flags
@@ -13,4 +13,4 @@ order: 2
 | "I will just note anything obvious" | An inline opinion IS the verdict, whatever it is labeled. |
 | "I will point the reviewer at what actually matters here" | Choosing the reviewer's focus is the authoring bias re-entering through the template. Fill placeholders; the checklist is not yours to rewrite. |
 | "The author is a colleague I want to back up" | Judge each claim against the code, in both directions. |
-| "Nothing is bound to the reviewer slot, so I will review it" | Unbound means the superpowers default, not a fallback to inline. |
+| "No reviewer is bound, so I will review it" | Unbound means the superpowers default, not a fallback to inline. |

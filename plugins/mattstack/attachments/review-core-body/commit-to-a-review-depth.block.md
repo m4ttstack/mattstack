@@ -11,7 +11,7 @@ checkout is touched, or the diff is read. A commitment, not reasoning.
 
 > REVIEW DEPTH: read | verify | repro -- \<one-line reason\>
 > EVIDENCE CHECK: screenshot | data-shape | none -- \<why\>
-> \<provider triage lines, when the criteria slot is bound\>
+> \<provider triage lines, when the pack binds criteria\>
 
 - **read** -- diff only, no build or run: small, self-contained, or
   pure-logic changes with clear requirements.

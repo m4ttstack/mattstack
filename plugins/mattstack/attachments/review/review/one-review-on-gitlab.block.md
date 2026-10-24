@@ -1,9 +1,9 @@
 ---
-order: 16
+order: 17
 label: One review on GitLab
 ---
 
-# On GitLab that one review is `mr_review_submit`
+# The one review on GitLab and GitHub
 
 On GitLab that one review is `mr_review_submit` (comments, summary,
 outcome; `replies` on a re-review): `published: true` with `mrUrl`, the

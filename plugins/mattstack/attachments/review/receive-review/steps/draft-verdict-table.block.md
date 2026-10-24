@@ -10,9 +10,10 @@ written to code or posted yet. Bucket each thread by verdict (`valid` /
 `pushback` / `needs-clarification`) and recommended action (`fix` /
 `reply` / `skip`); gate respond-plan reads this bucketing.
 
-**Reply content is a seam.** **No Reply rules section below** (the slot is
-unbound): **REQUIRED SUB-SKILL** `superpowers:receiving-code-review`. **A
-Reply rules section below**: follow it. Compose in the voice the Writing
+**Reply content is a seam.** **No reply rules bound** (the Reply rules
+section below carries none): **REQUIRED SUB-SKILL**
+`superpowers:receiving-code-review`. **Reply rules bound** (in the Reply
+rules section below): follow them. Compose in the voice the Writing
 style section below names. On top of either branch:
 
 - **Per verdict.** `valid` -> a technical acknowledgment of the fix.

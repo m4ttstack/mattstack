@@ -13,8 +13,8 @@ GitHub).
 
 **The json carries drafts** (its `summary` has `comments`): every text
 below is taken as it stands, never written here. On GitHub the same texts
-and the same summary build the `gh pr review` body (the paragraph after
-review-posting, below).
+and the same summary build the `gh pr review` body (The one review on
+GitLab and GitHub, below).
 
 - A finding's text: the `texts` entry at its id (from any `findings-<n>`
   answer, or the caller's `texts`), else its `comment` in the report json
