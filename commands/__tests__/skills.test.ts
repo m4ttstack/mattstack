@@ -5153,4 +5153,67 @@ Read the tone.
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).toContain("text after {{include:tone-lookup}}: an include that carries headings must be the last thing in its block");
   });
+
+  describe("in a base-pack fill that carries team sections", () => {
+    const BASE_ENGINE = `---
+name: watch-ci
+description: "Watch CI until it goes green"
+type: pipeline-step
+props:
+  forge:
+    merge: replace
+    contract: "ci-forge@1"
+  domain:
+    merge: replace
+    default: ""
+    contract: "watch-ci-domain@1"
+---
+
+# Watch CI
+
+{{props.forge}}
+
+{{props.domain}}
+`;
+
+    function seedBase(domainTail: string, sections: Record<string, string> = {}) {
+      const mattstackDir = makeMattstackDir();
+      seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+      const plugins = join(mattstackDir, "plugins", "mattstack");
+      writeFile(join(plugins, "skills", "pipeline", "watch-ci", "index.block.md"), BASE_ENGINE);
+      writeFile(join(plugins, "attachments", "tone-lookup", "index.block.md"), TONE_TREE);
+      writeFile(join(plugins, "attachments", "tone-note", "SKILL.md"), "---\nname: tone-note\n---\n\nTone note body.\n");
+      const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
+      const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+      writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+      writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD + domainTail);
+      writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+      writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+      writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+      writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+      writeFile(join(packDir, "pack", "params.jsonc"), JSON.stringify({ version: 1, params: {} }));
+      for (const [name, text] of Object.entries(sections)) writeFile(join(packDir, "pack", "sections", `${name}.md`), text);
+      const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: plugins }, "https://gitlab.example.com/acme/widgets.git");
+      if (out.kind !== "written" || !out.packs[0]?.ok) throw new Error("materialize failed");
+      return { packDir, compile: () => runExpectingCleanExit(() => skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir])) };
+    }
+
+    test("an optional section the team leaves empty above the include compiles", async () => {
+      const { packDir, compile } = seedBase("\n{{team.section:extra?}}\n\n{{include:tone-lookup}}\n");
+      const { exitCode, errors } = await compile();
+      expect(errors).toEqual([]);
+      expect(exitCode).toBeUndefined();
+      expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("\n## Tone lookup\n\nRead the tone.\n");
+    });
+
+    test("text after the include is refused at its source line when a section above it expands", async () => {
+      // DOMAIN_SKILL_MD ends on file line 10, so the tail's lines are 11 (blank), 12 (section), 13, 14 (include), 15, 16.
+      const { compile } = seedBase("\n{{team.section:extra}}\n\n{{include:tone-lookup}}\n\nMore domain text.\n", { extra: "Extra one.\nExtra two.\n" });
+      const { exitCode, errors } = await compile();
+      expect(exitCode).toBe(1);
+      const text = errors.join("\n");
+      expect(text).toContain("attachments/watch-ci-domain/SKILL.md:16:1");
+      expect(text).toContain("text after {{include:tone-lookup}}: an include that carries headings must be the last thing in its fill");
+    });
+  });
 });

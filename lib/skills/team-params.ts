@@ -95,9 +95,16 @@ function recordMissing(team: TeamContext, kind: "param" | "section", name: strin
   team.missing.set(key, entry);
 }
 
-/** `dropped` counts the lines an absent optional section removes, which a prop seam's source-line count must leave out. */
-export function resolveTeamMarkers(body: string, team: TeamContext, opts: { where: string; sectionSeams: boolean; startLine?: number; dropped?: { lines: number } }): string {
-  const { where, sectionSeams, startLine = 1, dropped } = opts;
+/**
+ * `dropped` counts the lines an absent optional section removes, which a prop seam's source-line count must leave out.
+ * `lineMap` gets, for each output line in order, the 0-based body line it came from.
+ */
+export function resolveTeamMarkers(
+  body: string,
+  team: TeamContext,
+  opts: { where: string; sectionSeams: boolean; startLine?: number; dropped?: { lines: number }; lineMap?: number[] },
+): string {
+  const { where, sectionSeams, startLine = 1, dropped, lineMap } = opts;
   const { values } = team;
   const out: string[] = [];
 
@@ -169,7 +176,9 @@ export function resolveTeamMarkers(body: string, team: TeamContext, opts: { wher
       if (dropped) dropped.lines++;
       return;
     }
-    out.push(sectionText ?? resolved);
+    const text = sectionText ?? resolved;
+    if (lineMap) for (let n = text.split("\n").length; n > 0; n--) lineMap.push(i);
+    out.push(text);
   });
 
   return out.join("\n");

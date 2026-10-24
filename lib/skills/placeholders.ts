@@ -65,16 +65,21 @@ export function referencesDir(ctx: Pick<PlaceholderContext, "stageDir">, unit: s
  * from where the fill's body starts in its source file. `span` is the prop
  * seam's: source lines less those an absent optional section drops, since
  * the seam walkers consume one rendered line per counted source line.
+ * `sourceLine` maps a 1-based line of the resolved body to the fill body line it came from.
  */
-export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): { body: string; span: string } {
+export function resolveFillTeamMarkers(
+  fill: AttachmentSource,
+  team: TeamContext | null | undefined,
+): { body: string; span: string; sourceLine: (resolvedLine: number) => number } {
   assertNoTeamMarkerInFrontmatter(fill);
   assertNoTeamMarkerInAllowedTools(fill);
   const hit = firstTeamMarker(fill.body);
-  if (!hit) return { body: fill.body, span: spanOf(fill) };
+  if (!hit) return { body: fill.body, span: spanOf(fill), sourceLine: (n) => n };
   if (team && team.basePlugins.has(fill.plugin)) {
     const dropped = { lines: 0 };
-    const body = resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine, dropped });
-    return { body, span: spanOf(fill, dropped.lines) };
+    const lineMap: number[] = [];
+    const body = resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine, dropped, lineMap });
+    return { body, span: spanOf(fill, dropped.lines), sourceLine: (n) => (lineMap[n - 1] ?? n - 1) + 1 };
   }
   const line = fill.bodyStartLine + hit.lineIndex;
   if (!team) throw new Error(`${fill.binding}: ${hit.raw} -- the pack has no .claude-plugin/plugin.json name to give team markers (line ${line})`);
@@ -114,7 +119,9 @@ export function inlineFillText(
 ): string {
   const resolved = resolveFillTeamMarkers(fill, ctx.team);
   const rewritten = atSkillDir(resolved.body, skillDirFor(fill, ctx, partsName));
-  const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding, treeInclude);
+  const toSource: TreeIncludeText | undefined = treeInclude
+    && ((name, at) => treeInclude(name, { line: resolved.sourceLine(at.line), textAfter: at.textAfter === null ? null : resolved.sourceLine(at.textAfter) }));
+  const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding, toSource);
   used.packPaths.push(...inlined.packPaths);
   used.references.push(...inlined.references);
   return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
@@ -125,8 +132,11 @@ export function includeText(name: string, inc: AttachmentSource, ctx: Placeholde
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
 }
 
-/** The rendered text of a block-tree include, or null when `name` is no tree include. `line` counts from 1 in the fill body. */
-export type TreeIncludeText = (name: string, line: number) => string | null;
+/**
+ * The rendered text of a block-tree include, or null when `name` is no tree include. `line` is the
+ * include's line and `textAfter` the first non-blank line after it (null when none follows), both counting from 1 in the fill body.
+ */
+export type TreeIncludeText = (name: string, at: { line: number; textAfter: number | null }) => string | null;
 
 /**
  * loadInclude enforces that a flat include target is placeholder-free, so a
@@ -141,14 +151,19 @@ export function substituteIncludesOnly(
 ): { body: string; packPaths: string[]; references: PackTarget[] } {
   const packPaths: string[] = [];
   const references: PackTarget[] = [];
-  const out = body.split("\n").map((line, i) =>
+  const lines = body.split("\n");
+  const textAfter = (i: number): number | null => {
+    const next = lines.findIndex((l, j) => j > i && l.trim() !== "");
+    return next < 0 ? null : next + 1;
+  };
+  const out = lines.map((line, i) =>
     line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
       switch (kind) {
         case "include": {
           if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
           const inc = arg ? ctx.includes[arg] : undefined;
           if (arg && inc) return includeText(arg, inc, ctx);
-          const tree = arg ? treeInclude?.(arg, i + 1) ?? null : null;
+          const tree = arg ? treeInclude?.(arg, { line: i + 1, textAfter: textAfter(i) }) ?? null : null;
           if (tree === null) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
           return tree;
         }

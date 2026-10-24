@@ -432,3 +432,25 @@ test("an include that is not a block tree renders as today's flat include", () =
   expect(body).toContain("<!-- part: include:flat source=mattstack:flat version=1.0.0 path=attachments/flat/SKILL.md lines=5-6 -->\nflat A\nflat B");
   expect(used.includes).toEqual(["flat"]);
 });
+
+test("a later fill after a fill that ends with a heading-carrying include is text-after-include at its first text, naming the earlier fill", () => {
+  const fillMd = (name: string, body: string) => `---\nname: ${name}\ndescription: "${name}"\nmetadata:\n  provides: "mini-rules@1"\n---\n\n${body}\n`;
+  const widgets = tmpDir({
+    "attachments/gp-rules/SKILL.md": fillMd("gp-rules", "{{include:gp}}"),
+    "attachments/more-rules/SKILL.md": fillMd("more-rules", "\nMore rules."),
+  });
+  const roots: PluginRoots = { byName: { mattstack: { dir: MATTSTACK, version: "1.0.0" }, widgets: { dir: widgets, version: "0.1.0" } }, list: [] };
+  const tree = plainTree({ "index.block.md": "---\nprops:\n  rules:\n    merge: add\n---\n\n# a\n\n{{props.rules}}\n" });
+  const layers = { a: { rules: [{ layer: "base:acme-base", value: "widgets:gp-rules" }, { layer: "pack", value: "widgets:more-rules" }] } };
+  const gp = gpInclude();
+  const values = new Map([...valuesFor(tree, roots, layers), ...valuesFor(gp.tree, roots)]);
+  expect(diagnosticsOf(() => renderTree({ tree, source: SOURCE, values, includes: resolver({ gp }), ctx: ctx() }))).toEqual([
+    {
+      file: "attachments/more-rules/SKILL.md",
+      line: 9,
+      col: 1,
+      code: "text-after-include",
+      message: "text after {{include:gp}}, which ends widgets:gp-rules: an include that carries headings must be the last thing in its prop, so no later fill can add to it",
+    },
+  ]);
+});

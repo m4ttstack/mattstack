@@ -61,8 +61,8 @@ export function propPartsDir(b: Block, prop: string, tree: BlockTree, engine: Bl
 }
 
 /** A fill's own include line draws a tree include the way a block's does, under the heading the prop sits beneath; `headed` collects the fill lines whose tree rendered a heading. */
-function fillTreeInclude(fill: AttachmentSource, at: Heading, st: State, headed: { name: string; line: number }[]): TreeIncludeText {
-  return (name, line) => {
+function fillTreeInclude(fill: AttachmentSource, at: Heading, st: State, headed: HeadedInclude[]): TreeIncludeText {
+  return (name, { line, textAfter }) => {
     const fileLine = fill.bodyStartLine + line - 1;
     const tree = st.includes(name, { file: fill.srcPath, line: fileLine });
     if (!tree) return null;
@@ -73,10 +73,12 @@ function fillTreeInclude(fill: AttachmentSource, at: Heading, st: State, headed:
     }
     st.used.includes.push(name);
     const rendered = includeBody(tree, { depth: at.level, includingTitle: at.title }, st);
-    if (lastHeading(rendered) !== null) headed.push({ name, line });
+    if (lastHeading(rendered) !== null) headed.push({ name, textAfter });
     return rendered;
   };
 }
+
+type HeadedInclude = { name: string; textAfter: number | null };
 
 /** `line` counts from 1 in the fill body; the col lands on `at`, or the first non-blank character when `at` is absent. */
 function fillSite(fill: AttachmentSource, line: number, at?: string): { file: string; line: number; col: number } {
@@ -93,29 +95,39 @@ function textAfterFillInclude(fill: AttachmentSource, line: number, name: string
   };
 }
 
+/** A later fill of the same prop would render under the heading `ended`'s include left open. */
+function fillAfterFillInclude(fill: AttachmentSource, ended: { name: string; binding: string }): BlockDiagnostic {
+  const first = fill.body.split("\n").findIndex((l) => l.trim() !== "");
+  return {
+    ...fillSite(fill, first < 0 ? 1 : first + 1),
+    message: `text after {{include:${ended.name}}}, which ends ${ended.binding}: an include that carries headings must be the last thing in its prop, so no later fill can add to it`,
+    code: "text-after-include",
+  };
+}
+
 /** `headedInclude` names a tree include that ends the prop's text with a heading, so the block's later text is refused as after a block's own include. */
 function propText(b: Block, name: string, src: SourcedTree, at: Heading, st: State): { text: string; headedInclude: string | null } {
   const value = st.values.get(b.id)?.get(name);
   if (!value) throw new Error(`${b.relPath}: prop "${name}" has no resolved value`);
   const key = `prop:${b.id}.${name}`;
-  let trailing: string | null = null;
-  const chunks = value.sources.map(({ fill, mode }) => {
+  let trailing: { name: string; binding: string } | null = null;
+  const chunks: string[] = [];
+  for (const { fill, mode } of value.sources) {
     if (trailing !== null) {
-      st.diagnostics.push(textAfterFillInclude(fill, 1, trailing));
+      st.diagnostics.push(fillAfterFillInclude(fill, trailing));
       trailing = null;
     }
-    if (mode === "reference") return `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`;
-    const headed: { name: string; line: number }[] = [];
-    const text = inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(fill, at, st, headed));
-    const first = headed[0];
-    if (first) {
-      const after = fill.body.split("\n").findIndex((l, i) => i >= first.line && l.trim() !== "");
-      if (after >= 0) st.diagnostics.push(textAfterFillInclude(fill, after + 1, first.name));
-      else trailing = first.name;
+    if (mode === "reference") {
+      chunks.push(`${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`);
+      continue;
     }
-    return text;
-  });
-  return { text: chunks.join("\n\n"), headedInclude: trailing };
+    const headed: HeadedInclude[] = [];
+    chunks.push(inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(fill, at, st, headed)));
+    const first = headed[0];
+    if (first?.textAfter != null) st.diagnostics.push(textAfterFillInclude(fill, first.textAfter, first.name));
+    else if (first) trailing = { name: first.name, binding: fill.binding };
+  }
+  return { text: chunks.join("\n\n"), headedInclude: trailing?.name ?? null };
 }
 
 /** substituteLine's message names the placeholder it refused, by its text or by its quoted argument. */
