@@ -19,7 +19,7 @@ A skills release. Every mattstack engine and include is now a tree of blocks, so
   - a `## At:` section whose step has no prop folds into the stage's `domain-rules` block
   - rebind each file under its v2 key with `rt skills bind`, and delete the old slot keys from `pack/skills.jsonc`
   - run `rt skills compile`, then `rt skills check --strict`
-- a pack compiled on this release needs the mattstack app from this release or later, because compile writes that floor into the pack's `pack/requires.json`; an older app holds the pack until it updates
+- a pack compiled on this release needs the mattstack app from this release or later, because compile writes that floor (0.32.27) into the pack's `pack/requires.json`; an older app holds the pack until it updates
 - a hand-typed path to another skill's file now fails compile and check with `hand-typed-path`, and the error names the placeholder to use; this covers block skills, includes, prop values, copied base attachments, team sections and params
 - `{{pack.path:widgets/rules.md}}` renders to a copy in each built skill's own `references/` folder
 - `{{pack.path:{{team.<key>}}/<file>}}` takes a team value as its folder
