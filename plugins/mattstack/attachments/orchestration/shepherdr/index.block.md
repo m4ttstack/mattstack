@@ -73,9 +73,7 @@ paragraph no rule names keeps the engine default as written.
 
 {{props.accounts}}
 
-When the section above is non-empty, follow it: it owns the pool
-question, the per-spawn pick (passed as `account` on `herd_spawn` or
-`herd_respawn`), and the exhaustion decision tree. Accounts in use are each
-job's `account` in `herd_status`, never memory. Empty: single-account mode
--- no account question, spawns omit the account, workers launch as plain
-`claude`.
+Follow the section above: it owns the pool question, the per-spawn pick
+(passed as `account` on `herd_spawn` or `herd_respawn`), and the exhaustion
+decision tree. Accounts in use are each job's `account` in `herd_status`,
+never memory.
