@@ -38,7 +38,7 @@ export function reportPathForHandle(handle: string): string {
   return handle.replace(/\.json$/, '') + '.md';
 }
 
-function definedFields(patch: object): object {
+export function definedFields(patch: object): object {
   return Object.fromEntries(
     Object.entries(patch).filter(([, v]) => v !== undefined)
   );

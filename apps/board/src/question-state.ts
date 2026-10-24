@@ -3,7 +3,12 @@ import { join } from 'path';
 import { Database } from 'bun:sqlite';
 
 import type { ReportFinding } from './review-finding.ts';
-import { slug } from './state/agent-states.ts';
+import {
+  definedFields,
+  FRESH_RUN_PANE,
+  slug,
+  type PaneClearable,
+} from './state/agent-states.ts';
 import { boardStateRoot, getStateDb } from './state/db.ts';
 
 export type QuestionStatus = 'queued' | 'live' | 'done' | 'error';
@@ -49,17 +54,17 @@ function parseRow(row: QuestionRow): QuestionState {
   return JSON.parse(row.state) as QuestionState;
 }
 
-function definedFields(patch: object): object {
-  return Object.fromEntries(
-    Object.entries(patch).filter(([, v]) => v !== undefined)
-  );
-}
+/** A question write: the pane keys and message also take null, which
+    removes them (undefined leaves a key alone). */
+export type QuestionPatch = Omit<PaneClearable<QuestionState>, 'message'> & {
+  message?: string | null;
+};
 
 /** Upserts a finding's question row, merging the patch into its state. */
 export function writeQuestionState(
   mrUrl: string,
   findingId: string,
-  patch: Partial<QuestionState>,
+  patch: QuestionPatch,
   now: number = Date.now(),
   db: Database = getStateDb()
 ): void {
@@ -69,8 +74,29 @@ export function writeQuestionState(
         'SELECT state FROM question_states WHERE mr_url = ? AND finding_id = ?'
       )
       .get(mrUrl, findingId) as { state: string } | null;
-    const prev = row ? (JSON.parse(row.state) as object) : {};
-    const next = { ...prev, mrUrl, findingId, ...definedFields(patch) };
+    const prev = (row ? JSON.parse(row.state) : {}) as Record<string, unknown>;
+    const given = definedFields(patch) as Record<string, unknown>;
+    // A message explains the status it was written with, so a status change
+    // without its own message must not inherit the old one.
+    if (
+      given.status !== undefined &&
+      given.status !== prev.status &&
+      !('message' in given)
+    )
+      delete prev.message;
+    // A queued write starts a fresh run: the dead run's pane keys must not
+    // survive it (dedup would focus a dead tab, and markQuestionsGone would
+    // end the new row by the old agent id) unless the patch sets them.
+    if (given.status === 'queued')
+      for (const k of Object.keys(FRESH_RUN_PANE)) delete prev[k];
+    const next: Record<string, unknown> = {
+      ...prev,
+      mrUrl,
+      findingId,
+      ...given,
+    };
+    // null is the only way a write drops a key a prior run set.
+    for (const [k, v] of Object.entries(given)) if (v === null) delete next[k];
     db.query(
       `INSERT INTO question_states (mr_url, finding_id, handle, state, updated_at)
        VALUES (?, ?, ?, ?, ?)
@@ -90,7 +116,7 @@ export function writeQuestionState(
     handle). False when no row has that handle. */
 export function writeQuestionStateByHandle(
   handle: string,
-  patch: Partial<QuestionState>,
+  patch: QuestionPatch,
   now: number = Date.now(),
   db: Database = getStateDb()
 ): boolean {

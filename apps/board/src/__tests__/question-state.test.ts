@@ -93,6 +93,83 @@ describe('question states', () => {
     expect(readQuestionByHandle('nope', db)).toBeUndefined();
   });
 
+  test('re-asking after an error leaves no message, agent or tab from the dead run', () => {
+    writeQuestionState(
+      URL_A,
+      'f1',
+      {
+        iid: 1,
+        gateId: 'g1',
+        status: 'error',
+        agentId: 'a1',
+        tabId: 't1',
+        paneId: 'p1',
+        workspaceId: 'w1',
+        message: 'boom',
+      },
+      1,
+      db
+    );
+    writeQuestionState(
+      URL_A,
+      'f1',
+      { status: 'queued', iid: 1, gateId: 'g2' },
+      2,
+      db
+    );
+    const q = readQuestionStates(db).get(URL_A)!.get('f1')!;
+    expect(q.status).toBe('queued');
+    expect(q.gateId).toBe('g2');
+    for (const k of ['message', 'agentId', 'tabId', 'paneId', 'workspaceId'])
+      expect(k in q).toBe(false);
+  });
+
+  test('a queued write keeps pane keys the patch itself sets', () => {
+    writeQuestionState(URL_A, 'f1', { status: 'error', agentId: 'a1' }, 1, db);
+    writeQuestionState(URL_A, 'f1', { status: 'queued', agentId: 'a2' }, 2, db);
+    expect(readQuestionStates(db).get(URL_A)!.get('f1')?.agentId).toBe('a2');
+  });
+
+  test('a status change drops the old message, a same-status write keeps it', () => {
+    writeQuestionState(URL_A, 'f1', { status: 'live', message: 'm' }, 1, db);
+    writeQuestionState(URL_A, 'f1', { agentId: 'a1' }, 2, db);
+    expect(readQuestionStates(db).get(URL_A)!.get('f1')?.message).toBe('m');
+    writeQuestionState(URL_A, 'f1', { status: 'done' }, 3, db);
+    expect(readQuestionStates(db).get(URL_A)!.get('f1')?.message).toBe(
+      undefined
+    );
+  });
+
+  test('a null patch value removes the key, by key and by handle', () => {
+    writeQuestionState(
+      URL_A,
+      'f1',
+      { status: 'live', tabId: 't1', paneId: 'p1' },
+      1,
+      db
+    );
+    writeQuestionState(URL_A, 'f1', { tabId: null }, 2, db);
+    const q = readQuestionStates(db).get(URL_A)!.get('f1')!;
+    expect('tabId' in q).toBe(false);
+    expect(q.paneId).toBe('p1');
+    writeQuestionStateByHandle(
+      questionHandle(URL_A, 'f1'),
+      { paneId: null },
+      3,
+      db
+    );
+    expect('paneId' in readQuestionStates(db).get(URL_A)!.get('f1')!).toBe(
+      false
+    );
+  });
+
+  test('markQuestionsGone with the old agent id leaves a re-queued row alone', () => {
+    writeQuestionState(URL_A, 'f1', { status: 'error', agentId: 'a1' }, 1, db);
+    writeQuestionState(URL_A, 'f1', { status: 'queued' }, 2, db);
+    expect(markQuestionsGone(new Set(['a1']), 3, db)).toBe(0);
+    expect(readQuestionStates(db).get(URL_A)!.get('f1')?.status).toBe('queued');
+  });
+
   test('liveQuestionMrs includes only queued and live rows', () => {
     writeQuestionState(URL_A, 'f1', { status: 'queued' }, 1, db);
     writeQuestionState(URL_B, 'f1', { status: 'done' }, 1, db);
