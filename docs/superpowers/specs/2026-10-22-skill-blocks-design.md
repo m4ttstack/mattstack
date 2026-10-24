@@ -448,7 +448,9 @@ compile's own parser and checks so the two never disagree.
   plugin skills, which compile never reads, get a `rt skills check` lint
   that each such path resolves. The server shows the error with a quick
   fix, completes and hovers both placeholders, opens their targets, and
-  rewrites them when a target is renamed or moved.
+  rewrites them when a target is renamed or moved. A file a built skill
+  opens through `{{pack.path:…}}` is a rendered copy in that skill's own
+  `references/` folder, so no agent reads unrendered pack source.
 - **Not in scope:** renaming contracts, and other editors (Zed).
 
 ## Console

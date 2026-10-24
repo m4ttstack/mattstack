@@ -227,7 +227,7 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 
 ---
 
-> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them. Task 14 (lawson's pack conversion, 2026-10-23) runs after Task 10 and before Task 11.
+> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them. Task 14 (lawson's pack conversion, 2026-10-23) runs after Task 10 and before Task 11. Task 15 (Matt, 2026-10-23) runs after Task 11, before the final review.
 
 ### Task 12: Hand-typed paths fail compile
 
@@ -288,6 +288,28 @@ The org base pack picks a fill by team param: `../../attachments/{{team.gates-fi
 - [ ] **Step 3: Implement**
 - [ ] **Step 4: Run → PASS**
 - [ ] **Step 5: Commit: `skills: pack.path takes a team value`**
+
+---
+
+### Task 15: A built skill reads its own rendered references
+
+`{{pack.path:…}}` renders to a path into the pack's source (`${CLAUDE_SKILL_DIR}/../../attachments/<a>/<f>`). A team's own files ship as written, so when a built skill tells the agent to open one, the agent reads unrendered text: a `{{pack.path:…}}` inside it stays literal (team packs hold five such files today, one with a `python3 {{pack.path:…}}` command). Matt's call (2026-10-23): every file a built skill opens is a rendered copy in that skill's own `references/` folder, never pack source. Copies are per skill, not shared: a skill stays self-contained and a copy may differ by skill later; the duplication is generated output.
+
+**The rule:**
+- In a built skill's output, `{{pack.path:<a>/<f>}}` copies the whole source unit `attachments/<a>/` (or `skills/<a>/`, or a planned base attachment) into `<built skill>/references/<a>/` and renders to `${CLAUDE_SKILL_DIR}/references/<a>/<f>`. The whole unit is copied so links inside it (`../scripts/x.sh`) keep working.
+- Copied `.md` files are rendered: team values, `{{include}}`, `{{verb.path}}` (relative to the copy's own location) and `{{pack.path}}` (into the same `references/`, copying that unit too). Other files are copied as they are. No `{{` placeholder survives in a copy; anything a prop value file may not carry is refused in a copy too.
+- Compile owns `references/`: it clears and rewrites it on every compile, and a missing source fails compile as `pack.path` does today.
+- `parts/` for inlined prop values, `{{verb.path}}`, and base attachments copied into a team pack keep their current behaviour.
+
+**Files:**
+- Modify: `lib/skills/placeholders.ts` (`packPath` and its callers), the compile write path in `lib/skills/compile-blocks.ts` / `commands/skills.ts`, the output lint (`lintReferences`) so `references/` paths resolve, the language server's pack-path hover (show the source and where the copy lands), `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md` and `editing-skills` where they describe what `pack.path` renders to (load superpowers:writing-skills and mattstack:editing-skills first), the website "Paths into another skill" section
+- Test: compile tests in `lib/skills/__tests__/`, the hand-path and base-attachment tests that pin `pack.path` output
+
+- [ ] **Step 1: Write the failing tests** (two built skills that both `{{pack.path:widgets-gates/SKILL.md}}` each get their own rendered `references/widgets-gates/`; a copied file's `{{pack.path:widgets-conventions/SKILL.md}}` copies that unit into the same `references/` and renders to its path; a copied `python3 {{pack.path:capture-evidence/backend-db.py}}` line renders to `${CLAUDE_SKILL_DIR}/references/capture-evidence/backend-db.py`; no copy contains `{{`; a stale `references/` file from an earlier compile is gone after a recompile; a missing source fails compile with pack.path's error; a team value (`{{pack.path:{{team.gates-fill}}/SKILL.md}}`) copies the chosen unit)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: built skills read rendered copies in their own references`**
 
 ---
 
