@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath, orgDir } from "../../lib/rt-paths.ts";
@@ -34,7 +34,7 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-const env = () => ({ ...childEnv(), HOME: home, ...GIT_ENV });
+const env = () => ({ ...childEnv(), HOME: process.env.HOME!, ...GIT_ENV });
 const git = (dir: string, ...argv: string[]) => execFileSync("git", ["-C", dir, ...argv], { encoding: "utf8", env: env(), stdio: "pipe" });
 
 function put(dir: string, rel: string, value: unknown): void {
@@ -98,11 +98,14 @@ test("plans the bump when every pack is in block form", () => {
   expect(plan.exitCode).toBe(0);
   for (const name of ["org acme-base", "widgets", "gadgets"]) expect(plan.stdout.toString()).toContain(`${name}: block form`);
   expect(plan.stdout.toString()).toContain(`marker: layout 5 on ${TRIAL}`);
+  expect(plan.stdout.toString()).toContain(`bun scripts/move-to-block-packs.ts ${dir} --admin me --write`);
+  expect(plan.stdout.toString()).not.toContain("<clone-dir>");
 
   const head = git(dir, "rev-parse", "HEAD").trim();
   const result = run(dir, "--write");
   expect(result.stderr.toString()).not.toContain("refused");
   expect(result.exitCode).toBe(0);
+  expect(result.stdout.toString()).toContain(`git -C ${dir} show`);
   expect(JSON.parse(readFileSync(join(dir, MARKER), "utf8"))).toEqual({ role: "org", org: "acme", layout: 5, dataBranch: "mattstack" });
   expect(git(dir, "branch", "--show-current").trim()).toBe(TRIAL);
   expect(git(dir, "rev-parse", "HEAD~1").trim()).toBe(head);
@@ -259,4 +262,104 @@ test("an org pack and a team with the same name are reported apart", () => {
   const lines = result.stdout.toString().split("\n").map((line) => line.trim());
   expect(lines).toContain("org widgets: block form");
   expect(lines).toContain("widgets: block form");
+});
+
+test("the old-keys refusal names the run to repeat with this clone and admin", () => {
+  const dir = org({ packs: { [teamPack("widgets")]: { extends: "acme-base", bindings: { "mattstack:work": { tiering: "widgets:t" } } } } });
+  const result = run(dir);
+  expect(result.exitCode).toBe(2);
+  const stderr = result.stderr.toString();
+  expect(stderr).toContain(`bun scripts/move-to-block-packs.ts ${dir} --admin me`);
+  expect(stderr).not.toContain("<clone-dir>");
+});
+
+test("checks the packs HEAD holds, even when the sparse cone leaves a team folder out", () => {
+  const dir = org({ packs: { [teamPack("widgets")]: { extends: "acme-base", bindings: { "mattstack:stage-ship": { domain: "widgets:ship" } } } } });
+  git(dir, "sparse-checkout", "set", "mattstack/org", "mattstack/teams/gadgets");
+  expect(existsSync(join(dir, "mattstack/teams/widgets"))).toBe(false);
+  const before = snapshot(dir);
+  const result = run(dir, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("widgets: mattstack:stage-ship domain");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("refuses a fragment HEAD holds as a symbolic link", () => {
+  const dir = org();
+  rmSync(join(dir, teamPack("gadgets")));
+  symlinkSync("../../../widgets/plugin/pack/skills.jsonc", join(dir, teamPack("gadgets")));
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "link");
+  git(dir, "push", "-q", "origin", TRIAL);
+  git(dir, "sparse-checkout", "set", "mattstack/org", "mattstack/teams/widgets");
+  const before = snapshot(dir);
+  const result = run(dir, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("The move paths contain a symbolic link");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("refuses a clone other than the one rt reads", () => {
+  const dir = org();
+  const other = join(home, "elsewhere", "acme");
+  mkdirSync(dirname(other), { recursive: true });
+  execFileSync("git", ["clone", "-q", dir, other], { env: env() });
+  const before = snapshot(other);
+  const result = run(other, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("Run this on the org clone rt reads");
+  expect(result.stderr.toString()).toContain("bun scripts/move-to-block-packs.ts ~/.mattstack/orgs/acme --admin me");
+  expect(snapshot(other)).toBe(before);
+});
+
+test("on a layout 5 clone, a plan run still checks every pack and says the org is already on layout 5", () => {
+  const dir = org({ layout: 5 });
+  const before = snapshot(dir);
+  const result = run(dir);
+  expect(result.exitCode).toBe(0);
+  const stdout = result.stdout.toString();
+  for (const name of ["org acme-base", "widgets", "gadgets"]) expect(stdout).toContain(`${name}: block form`);
+  expect(stdout).toContain("already on layout 5");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("on a layout 5 clone, a plan run names an old binding the merge brought back", () => {
+  const dir = org({ layout: 5, packs: { [teamPack("gadgets")]: { extends: "acme-base", bindings: { "mattstack:review": { criteria: "gadgets:c" } } } } });
+  const before = snapshot(dir);
+  const result = run(dir);
+  expect(result.exitCode).toBe(2);
+  const stderr = result.stderr.toString();
+  expect(stderr).toContain("The gadgets pack still uses old slot keys");
+  expect(stderr).toContain("gadgets: mattstack:review criteria.");
+  expect(stderr).toContain("already on layout 5");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("on a layout 5 clone, --write still refuses", () => {
+  const dir = org({ layout: 5 });
+  const before = snapshot(dir);
+  const result = run(dir, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("This org is already on block packs");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("a rollback that fails names the clone quoted", () => {
+  const spaced = join(home, "a b");
+  mkdirSync(spaced);
+  process.env.HOME = spaced;
+  const dir = org();
+  const hook = join(dir, ".git", "hooks", "pre-commit");
+  mkdirSync(dirname(hook), { recursive: true });
+  writeFileSync(hook, `#!/bin/sh\nchmod a-w "${join(dir, "mattstack")}"\nexit 1\n`);
+  chmodSync(hook, 0o755);
+  try {
+    const result = run(dir, "--write");
+    expect(result.exitCode).toBe(1);
+    const stderr = result.stderr.toString();
+    expect(stderr).toContain("the clone could not be put back");
+    expect(stderr).toContain(`git -C '${dir}' status`);
+  } finally {
+    chmodSync(join(dir, "mattstack"), 0o755);
+  }
 });

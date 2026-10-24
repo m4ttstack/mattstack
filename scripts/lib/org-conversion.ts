@@ -27,6 +27,10 @@ export function cloneRoot(cloneArg: string): Clone {
   return { path, git };
 }
 
+export function linkRefusal(): ConversionRefusal {
+  return new ConversionRefusal("The move paths contain a symbolic link", "Use ordinary files and folders so the move stays inside this clone.");
+}
+
 /** Refuses when any segment of `rel` under the clone is a symbolic link. */
 export function assertNoLink(clone: string, rel: string): void {
   let path = clone;
@@ -37,7 +41,7 @@ export function assertNoLink(clone: string, rel: string): void {
       if (["ENOENT", "ENOTDIR"].includes((err as NodeJS.ErrnoException).code ?? "")) break;
       throw err;
     }
-    if (stat.isSymbolicLink()) throw new ConversionRefusal("The move paths contain a symbolic link", "Use ordinary files and folders so the move stays inside this clone.");
+    if (stat.isSymbolicLink()) throw linkRefusal();
   }
 }
 
