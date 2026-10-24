@@ -150,7 +150,20 @@ export interface ScenarioDef {
   files?: Record<string, ((text: string) => string) | null>;
   /** `rt skills surface list`; every scenario without one refuses it. */
   surface?: Surface;
+  /** rt's refusal to build a skill's blocks, where it differs from the
+      clean pack's. */
+  blocks?: Record<string, Failure>;
 }
+
+/** What rt refuses to build in the clean pack: release-notes requires a
+    changelog prop nothing binds. Exit 1, the failure on stderr. */
+export const BLOCKS_REFUSED: Record<string, Failure> = {
+  'release-notes': {
+    code: 1,
+    stderr:
+      'attachments/release-notes/index.block.md:9:1: prop "changelog" is required and has no default; no layer passes a value\n',
+  },
+};
 
 const PLAN_FILE = 'anatomy.stage-plan.json';
 const PLAN_RENDERED = '/fixture/packs/acme/attachments/stage-plan/SKILL.md';
@@ -631,6 +644,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
     subject: 'release-notes',
     composition: failingChangelog,
     anatomy: { 'release-notes': { file: 'anatomy.release-notes.json' } },
+    blocks: { 'release-notes': { code: 1, stderr: `${CHANGELOG_ERROR}\n` } },
   },
   legacy: {
     subject: 'stage-plan',

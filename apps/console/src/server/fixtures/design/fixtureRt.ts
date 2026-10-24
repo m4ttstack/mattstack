@@ -5,7 +5,8 @@
  * `CONSOLE_FIXTURE_SCENARIO=unsynced` serves the pack after a rebind that has
  * not been synced yet; `scenarios.ts` lists the others, each a state no board
  * draws. Every scenario answers `rt skills blocks` from `blocks.<skill>.json`,
- * and any skill without one as not a block tree.
+ * with rt's refusal for a skill it will not build (`BLOCKS_REFUSED`), and
+ * any other skill as not a block tree.
  *
  * Files the routes read live under `files/`, at their path below `/fixture`.
  * Everything is read at call time, so nothing here is bundled into the app.
@@ -19,6 +20,7 @@ import { GIT_LOG_FORMAT, type GitCommit } from '../../gitLog';
 import type { RunRt } from '../../rt-bin';
 import type { ReadPackFile } from '../../skills';
 import {
+  BLOCKS_REFUSED,
   isFailure,
   isScenario,
   scenarioOf,
@@ -221,6 +223,8 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
       case 'blocks': {
         const skill = flagValue(argv, '--skill');
         if (!skill || !SKILL_NAME.test(skill)) return refuse(argv);
+        const refused = def.blocks?.[skill] ?? BLOCKS_REFUSED[skill];
+        if (refused) return fail(refused);
         try {
           return answer(await readJsonText(`blocks.${skill}.json`));
         } catch {

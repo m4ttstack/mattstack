@@ -75,7 +75,7 @@
       "plugin": "mattstack",
       "description": "Fans work out across parallel agents and keeps track of them.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/shepherdr/index.block.md",
+      "sourcePath": "/fixture/mattstack/attachments/orchestration/shepherdr/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/shepherdr",
       "props": {
         "shepherdr": [
@@ -124,7 +124,7 @@
       "plugin": "mattstack",
       "description": "Reviews a teammate's merge request and drafts the comments.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/review/index.block.md",
+      "sourcePath": "/fixture/mattstack/attachments/review/review/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/review",
       "props": {
         "review": [
@@ -284,7 +284,7 @@
       "plugin": "mattstack",
       "description": "Checks out a merge request's branch in a worktree of its own.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/checkout/index.block.md",
+      "sourcePath": "/fixture/mattstack/attachments/forge/checkout/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/checkout",
       "props": {},
       "includes": ["gate-protocol"]
@@ -296,7 +296,7 @@
       "plugin": "mattstack",
       "description": "Rebases every open merge request onto the latest main.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/sync-open-mrs/index.block.md",
+      "sourcePath": "/fixture/mattstack/attachments/forge/sync-open-mrs/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/sync-open-mrs",
       "props": {},
       "includes": ["gate-protocol"]
@@ -308,7 +308,7 @@
       "plugin": "mattstack",
       "description": "Rebases one worktree's branch onto the latest main.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/rebase-worktree/index.block.md",
+      "sourcePath": "/fixture/mattstack/attachments/forge/rebase-worktree/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/rebase-worktree",
       "props": {},
       "includes": ["gate-protocol"]
@@ -320,7 +320,7 @@
       "plugin": "mattstack",
       "description": "Drafts release notes from the work merged since the last tag.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/release-notes/index.block.md",
+      "sourcePath": "/fixture/mattstack/attachments/release-notes/index.block.md",
       "artifactPath": "/fixture/packs/acme/skills/release-notes",
       "props": {
         "release-notes": [
@@ -339,14 +339,15 @@
     {
       "name": "standup",
       "engine": "standup",
-      "engineRef": "mattstack:standup",
-      "plugin": "mattstack",
+      "engineRef": null,
+      "plugin": null,
       "description": "Summarizes yesterday's merged work for a standup.",
       "public": true,
-      "sourcePath": "/fixture/mattstack/skills/standup/index.block.md",
+      "sourcePath": null,
       "artifactPath": "/fixture/packs/acme/skills/standup",
       "props": {},
-      "includes": []
+      "includes": [],
+      "engineError": "loadStepSource: engine \"standup\" at /fixture/mattstack/skills/standup has no index.block.md; an engine is a block tree"
     }
   ],
   "fills": [
@@ -759,18 +760,18 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/shepherdr/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/shepherdr/index.block.md",
+      "templatePath": "/fixture/mattstack/attachments/orchestration/shepherdr/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
           "arg": "shepherdr.tiering",
-          "file": "attachments/pipeline/shepherdr/index.block.md",
+          "file": "attachments/orchestration/shepherdr/index.block.md",
           "line": 38
         },
         {
           "kind": "prop",
           "arg": "shepherdr.domain",
-          "file": "attachments/pipeline/shepherdr/index.block.md",
+          "file": "attachments/orchestration/shepherdr/index.block.md",
           "line": 52
         }
       ],
@@ -799,18 +800,18 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/review/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/review/index.block.md",
+      "templatePath": "/fixture/mattstack/attachments/review/review/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
           "arg": "review.tiering",
-          "file": "attachments/pipeline/review/index.block.md",
+          "file": "attachments/review/review/index.block.md",
           "line": 44
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/review/index.block.md",
+          "file": "attachments/review/review/index.block.md",
           "line": 786
         }
       ],
@@ -837,13 +838,13 @@
         {
           "kind": "prop",
           "arg": "self-review.tiering",
-          "file": "attachments/pipeline/self-review/index.block.md",
+          "file": "attachments/review/self-review/index.block.md",
           "line": 31
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/self-review/index.block.md",
+          "file": "attachments/review/self-review/index.block.md",
           "line": 442
         }
       ],
@@ -870,13 +871,13 @@
         {
           "kind": "prop",
           "arg": "receive-review.tiering",
-          "file": "attachments/pipeline/receive-review/index.block.md",
+          "file": "attachments/review/receive-review/index.block.md",
           "line": 52
         },
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/receive-review/index.block.md",
+          "file": "attachments/review/receive-review/index.block.md",
           "line": 1376
         }
       ],
@@ -964,12 +965,12 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/checkout/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/checkout/index.block.md",
+      "templatePath": "/fixture/mattstack/attachments/forge/checkout/index.block.md",
       "placeholders": [
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/checkout/index.block.md",
+          "file": "attachments/forge/checkout/index.block.md",
           "line": 271
         }
       ],
@@ -981,12 +982,12 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/sync-open-mrs/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/sync-open-mrs/index.block.md",
+      "templatePath": "/fixture/mattstack/attachments/forge/sync-open-mrs/index.block.md",
       "placeholders": [
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/sync-open-mrs/index.block.md",
+          "file": "attachments/forge/sync-open-mrs/index.block.md",
           "line": 416
         }
       ],
@@ -998,12 +999,12 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/rebase-worktree/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/rebase-worktree/index.block.md",
+      "templatePath": "/fixture/mattstack/attachments/forge/rebase-worktree/index.block.md",
       "placeholders": [
         {
           "kind": "include",
           "arg": "gate-protocol",
-          "file": "attachments/pipeline/rebase-worktree/index.block.md",
+          "file": "attachments/forge/rebase-worktree/index.block.md",
           "line": 451
         }
       ],
@@ -1015,12 +1016,12 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/release-notes/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/release-notes/index.block.md",
+      "templatePath": "/fixture/mattstack/attachments/release-notes/index.block.md",
       "placeholders": [
         {
           "kind": "prop",
           "arg": "release-notes.changelog",
-          "file": "skills/release-notes/index.block.md",
+          "file": "attachments/release-notes/index.block.md",
           "line": 22
         }
       ],
@@ -1042,10 +1043,10 @@
       "kind": "verb",
       "public": true,
       "artifactPath": "/fixture/packs/acme/skills/standup/SKILL.md",
-      "templatePath": "/fixture/mattstack/skills/standup/index.block.md",
+      "templatePath": null,
       "placeholders": [],
       "props": {},
-      "engineError": null
+      "engineError": "loadStepSource: engine \"standup\" at /fixture/mattstack/skills/standup has no index.block.md; an engine is a block tree"
     },
     {
       "name": "stage-provision",

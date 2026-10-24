@@ -446,7 +446,7 @@ describe('Graph tab: the focus list', () => {
     mockDesignPack();
     const composition = designFixture('composition');
     composition.verbs = composition.verbs.filter(
-      verb => verb.name !== 'release-notes'
+      verb => verb.name !== 'release-notes' && verb.name !== 'standup'
     );
     compositionGet.mockResolvedValue(ok(composition));
     checkGet.mockResolvedValue({
@@ -466,7 +466,7 @@ describe('Graph tab: the focus list', () => {
     mockDesignPack();
     const composition = designFixture('composition');
     composition.verbs = composition.verbs.filter(
-      verb => verb.name !== 'release-notes'
+      verb => verb.name !== 'release-notes' && verb.name !== 'standup'
     );
     compositionGet.mockResolvedValue(ok(composition));
     const check = designFixture('check');
@@ -785,10 +785,10 @@ describe('Graph tab: the block view', () => {
 
   it('says a roster verb rt cannot read as blocks has no file to read', async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=release-notes');
+    renderAt('?tab=graph&focus=standup');
 
     expect(await screen.findByTestId('block-view-note')).toHaveTextContent(
-      'release-notes is not built from blocks, and rt names no file of it to read its headings from.'
+      'standup is not built from blocks, and rt names no file of it to read its headings from.'
     );
     expect(sourceGet).not.toHaveBeenCalled();
   });

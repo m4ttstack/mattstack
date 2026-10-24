@@ -829,9 +829,56 @@ describe('the skills routes on the fixture', () => {
       const mini = await app.request('/api/skills/blocks?pack=acme&skill=mini');
       expect(mini.status).toBe(200);
       const plain = await app.request(
-        '/api/skills/blocks?pack=acme&skill=release-notes'
+        '/api/skills/blocks?pack=acme&skill=standup'
       );
       expect(plain.status).toBe(404);
+    }
+  });
+
+  it('pairs a not-a-block-tree answer only with an engine rt could not load', async () => {
+    for (const c of [composition, compositionUnsynced]) {
+      const standup = c.verbs.find(v => v.name === 'standup')!;
+      expect(standup).toMatchObject({
+        sourcePath: null,
+        engineRef: null,
+        engineError: expect.stringContaining('has no index.block.md'),
+      });
+      const target = c.targets.find(t => t.name === 'standup')!;
+      expect(target).toMatchObject({ templatePath: null, placeholders: [] });
+    }
+  });
+
+  it("answers release-notes, whose required changelog nothing binds, with rt's refusal", async () => {
+    const res = await mount('clean').request(
+      '/api/skills/blocks?pack=acme&skill=release-notes'
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toContain(
+      'prop "changelog" is required and has no default'
+    );
+  });
+
+  it('places each engine where its placeholders sit, as rt lays the plugin out', () => {
+    const ENGINE = '/fixture/mattstack/';
+    for (const c of [composition, compositionUnsynced]) {
+      for (const verb of c.verbs) {
+        if (verb.sourcePath === null) continue;
+        const target = c.targets.find(t => t.name === verb.name)!;
+        expect(target.templatePath).toBe(verb.sourcePath);
+      }
+      for (const target of c.targets) {
+        if (!target.templatePath) continue;
+        expect(target.templatePath.startsWith(ENGINE)).toBe(true);
+        const dir = target.templatePath
+          .slice(ENGINE.length)
+          .replace(/\/index\.block\.md$/, '');
+        expect(dir.startsWith('attachments/')).toBe(true);
+        for (const p of target.placeholders)
+          expect([target.name, p.file]).toEqual([
+            target.name,
+            expect.stringMatching(new RegExp(`^${dir}/`)),
+          ]);
+      }
     }
   });
 

@@ -61,7 +61,7 @@ describe('buildFocusGroups on the design pack', () => {
     ]);
   });
 
-  it('lists the standalone verbs, propless ones included, with internal ones locked and review flagged', () => {
+  it('lists the standalone verbs, propless ones included, with internal ones locked, review and standup flagged', () => {
     expect(
       groups.standalone.map(item => [item.label, item.key, item.icon])
     ).toEqual([
@@ -76,7 +76,8 @@ describe('buildFocusGroups on the design pack', () => {
       ['rebase-worktree', 'rebase-worktree', 'squareTerminal'],
       ['standup', 'standup', 'squareTerminal'],
     ]);
-    expect(flagged(groups.standalone)).toEqual(['review']);
+    // standup's engine is no block tree, which rt reports as an engine error.
+    expect(flagged(groups.standalone)).toEqual(['review', 'standup']);
   });
 
   it('lists the board skills this pack binds', () => {
@@ -172,7 +173,7 @@ describe('buildFocusGroups on other packs', () => {
   it('flags nothing from drift when check has not answered', () => {
     const groups = buildFocusGroups(composition, undefined);
     expect(groups.pipelines[0]!.attention).toBe(false);
-    expect(flagged(groups.standalone)).toEqual([]);
+    expect(flagged(groups.standalone)).toEqual(['standup']);
     expect(groups.unwired.attention).toBe(true);
   });
 });
@@ -196,8 +197,8 @@ describe('onlyAttention', () => {
     ]);
   });
 
-  it('keeps review and unwired, and drops the board group', () => {
-    expect(labels(filtered.standalone)).toEqual(['review']);
+  it('keeps review, standup and unwired, and drops the board group', () => {
+    expect(labels(filtered.standalone)).toEqual(['review', 'standup']);
     expect(filtered.board).toEqual([]);
     expect(labels(filtered.unwired.items)).toEqual(['release-notes']);
   });
