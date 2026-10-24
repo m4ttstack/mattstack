@@ -3001,6 +3001,21 @@ describe("hand-written skill failures", () => {
     expect(readVersion(pack.dir)).toBe("1.0.0");
   });
 
+  test("a member whose current pack has only hand-written problems gets the warnings and an ok sync", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false], handErrors: [[BAD_YAML]] };
+    const deps = { ...makeDeps(pack, engine, world), mayCompile: () => false };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(report.steps.find((s) => s.name === "check")).toMatchObject({ status: "ran" });
+    expect(report.warnings).toEqual([`For the pack's owners to fix: ${BAD_YAML}`]);
+    expect(stepNames(report.steps)).not.toContain("bump");
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+  });
+
   test("the in-tree mattstack plugin refuses at check with the file, not at the bump", async () => {
     const engine = fixturePack("mattstack", "mattstack", "1.2.3");
     const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.2" }, drift: [true], handErrors: [[BAD_YAML]] };
