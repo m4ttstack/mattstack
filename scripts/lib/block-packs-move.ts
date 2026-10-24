@@ -7,28 +7,29 @@ import { ORG_MARKER_REL, POINTER_REL, parseMarker } from "../../lib/team/org-mar
 import { shellQuote } from "../../lib/team/org-branch.ts";
 import { teamPackRel } from "../../lib/team/team-pack-path.ts";
 import { markerWithLayout } from "./move-team-packs.ts";
-import { ConversionRefusal, assertNoLink, cloneRoot } from "./org-conversion.ts";
+import { ConversionRefusal, DATA_LAYOUT, assertNoLink, cloneRoot } from "./org-conversion.ts";
 
 export const BLOCK_PACKS_LAYOUT = 5;
-const DATA_LAYOUT = 4;
 const ORG_PACKS_REL = "mattstack/org/packs";
 const TEAMS_REL = "mattstack/teams";
 const FRAGMENT_REL = "pack/skills.jsonc";
 
 export class BlockPacksRefusal extends ConversionRefusal {}
 
-export type BlockPacksPlan = { branch: string; markerPath: string; packs: { name: string; ok: boolean; oldBindings: string[] }[] };
+export type BlockPacksPlan = { cloneDir: string; branch: string; markerPath: string; packs: { name: string; ok: boolean; oldBindings: string[] }[] };
 
 const folders = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort() : []);
 
-/** Every org pack and every team pack the clone holds, base or not; a folder without a fragment is not a pack. */
+/** Every org pack and every team pack the clone holds, base or not; a folder without a fragment is not a pack. Org packs are named "org <folder>" so one cannot share a name with a team. */
 function packFolders(clone: string): { name: string; rel: string }[] {
-  const org = folders(join(clone, ORG_PACKS_REL)).map((name) => ({ name, rel: `${ORG_PACKS_REL}/${name}` }));
+  const org = folders(join(clone, ORG_PACKS_REL)).map((name) => ({ name: `org ${name}`, rel: `${ORG_PACKS_REL}/${name}` }));
   const teams = folders(join(clone, TEAMS_REL)).map((team) => ({ name: team, rel: teamPackRel(team) }));
   return [...org, ...teams].filter(({ rel }) => existsSync(join(clone, rel, FRAGMENT_REL)));
 }
 
-function checkMarker(clone: string, markerPath: string, admin: string | undefined): void {
+/** Returns the marker's data branch. */
+function checkMarker(clone: string, markerPath: string, admin: string | undefined): string {
+  const quoted = shellQuote(clone);
   if (!existsSync(markerPath) && existsSync(join(clone, POINTER_REL))) {
     throw new BlockPacksRefusal("This branch holds only the org's pointer", "Switch to the branch that holds the org's data and the converted packs.");
   }
@@ -40,25 +41,33 @@ function checkMarker(clone: string, markerPath: string, admin: string | undefine
     throw new BlockPacksRefusal("This is not a mattstack org repo", "mattstack/mattstack.jsonc does not say role: org.");
   }
   if (marker.layout >= BLOCK_PACKS_LAYOUT) throw new BlockPacksRefusal("This org is already on block packs");
-  if (marker.layout < DATA_LAYOUT || marker.dataBranch === null) {
+  if (marker.layout < DATA_LAYOUT) {
     throw new BlockPacksRefusal(
       `This org is on layout ${marker.layout}`,
-      "Move it to layout 4 first, so its data lives on a data branch.",
-      marker.layout === 3 ? `bun scripts/move-to-data-branch.ts ${shellQuote(clone)} --admin ${admin === undefined ? "<username>" : shellQuote(admin)}` : undefined,
+      `Move it to layout ${DATA_LAYOUT} first, so its data lives on a data branch.`,
+      marker.layout === 3 ? `bun scripts/move-to-data-branch.ts ${quoted} --admin ${admin === undefined ? "<username>" : shellQuote(admin)}` : undefined,
     );
   }
+  if (marker.dataBranch === null) {
+    throw new BlockPacksRefusal(
+      "This org's marker names no data branch",
+      `A layout ${DATA_LAYOUT} marker says which branch holds the org's data. Main's pointer names it: add it to mattstack/mattstack.jsonc as dataBranch, publish that, then run this again.`,
+      `git -C ${quoted} show origin/main:${POINTER_REL}`,
+    );
+  }
+  return marker.dataBranch;
 }
 
 export function planBlockPacksMove(cloneDir: string, admin?: string): BlockPacksPlan {
   const { path: clone, git } = cloneRoot(cloneDir);
   assertNoLink(clone, ORG_MARKER_REL);
   const markerPath = join(clone, ORG_MARKER_REL);
-  checkMarker(clone, markerPath, admin);
+  const dataBranch = checkMarker(clone, markerPath, admin);
   let branch: string;
   try {
     branch = git("symbolic-ref", "-q", "--short", "HEAD").trim();
   } catch {
-    throw new BlockPacksRefusal("The clone has no branch checked out", "Check out the published trial branch that holds the converted packs.");
+    throw new BlockPacksRefusal("The clone has no branch checked out", "Check out the published branch that holds the converted packs.", `git -C ${shellQuote(clone)} switch ${shellQuote(dataBranch)}`);
   }
   assertNoLink(clone, ORG_PACKS_REL);
   assertNoLink(clone, TEAMS_REL);
@@ -75,13 +84,12 @@ export function planBlockPacksMove(cloneDir: string, admin?: string): BlockPacks
     const oldBindings = findOldSlotKeys(fragment).map((k) => `${k.key} ${k.slot}${k.pipeline === null ? "" : ` in pipeline ${k.pipeline}`}`);
     return { name, ok: oldBindings.length === 0, oldBindings };
   });
-  return { branch, markerPath, packs };
+  return { cloneDir: clone, branch, markerPath, packs };
 }
 
 /** Writes layout 5 to the marker and commits it on the checked-out branch; the caller has run preflight. */
 export function applyBlockPacksMove(plan: BlockPacksPlan): void {
-  const clone = plan.markerPath.slice(0, -ORG_MARKER_REL.length - 1);
-  const { git } = cloneRoot(clone);
+  const { git } = cloneRoot(plan.cloneDir);
   writeFileSync(plan.markerPath, markerWithLayout(readFileSync(plan.markerPath, "utf8"), BLOCK_PACKS_LAYOUT));
   git("add", "--", ORG_MARKER_REL);
   git("commit", "-q", "-m", `org: every pack is a block pack (layout ${BLOCK_PACKS_LAYOUT})`);

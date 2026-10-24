@@ -8,6 +8,9 @@ import { childEnv } from "../../lib/subprocess.ts";
 import { readForgeUsername, sameUser } from "../../packages/rt-client/src/index.ts";
 
 /** A conversion that declines by policy; the script shell prints it with `refuse` and exits 2. */
+/** The layout whose data lives on its own branch, the data-branch move writes. */
+export const DATA_LAYOUT = 4;
+
 export class ConversionRefusal extends Error {
   constructor(message: string, readonly why?: string, readonly next?: string | string[]) {
     super(message);
@@ -49,7 +52,7 @@ export function preflight(clone: Clone, admin: string, opts: { managedFolders: r
   if (recorded === null || !sameUser(recorded, admin)) {
     throw new ConversionRefusal(recorded === null ? "This Mac has no recorded forge username" : `This Mac is recorded as ${recorded}`, `The recorded username must match ${admin} so you can publish as this org's admin.`, recorded === null ? "rt setup apply --only team.identity" : opts.usage);
   }
-  if (git("status", "--porcelain", "--untracked-files=all").trim() !== "") throw new ConversionRefusal("The clone has uncommitted changes", "Commit or discard them before moving.");
+  if (git("status", "--porcelain", "--untracked-files=all").trim() !== "") throw new ConversionRefusal("The clone has uncommitted changes", "Commit or discard them before moving.", `git -C ${quoted} status`);
   if (git("status", "--porcelain", "--untracked-files=all", "--ignored", "--", ...opts.managedFolders).trim() !== "") throw new ConversionRefusal("The clone has ignored files in its managed folders", "Move them aside before moving so a failed move can restore the clean start.");
   let branch: string | null;
   try {

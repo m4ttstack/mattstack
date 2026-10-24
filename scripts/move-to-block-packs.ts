@@ -4,7 +4,7 @@ import { join } from "path";
 import { rolesFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { isOrgAdmin, roleOf } from "../packages/rt-client/src/settings/org-roles.ts";
 import { ORG_STORE_REL } from "../packages/rt-client/src/settings/paths.ts";
-import { parseStoreText } from "../packages/rt-client/src/settings/stores.ts";
+import { parseStoreTextStrict } from "../packages/rt-client/src/settings/stores.ts";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
 import { ORG_CLONE_FOLDERS } from "../lib/team/org-clone.ts";
 import * as out from "../lib/ui/out.ts";
@@ -54,10 +54,12 @@ function main(): void {
     process.exit(2);
   }
   const adminName = admin;
-  const plan = guarded(() => planBlockPacksMove(cloneArg, adminName));
-  const storePath = join(guarded(() => cloneRoot(cloneArg)).path, ORG_STORE_REL);
-  const roles = rolesFrom(parseStoreText(ORG_STORE_REL, existsSync(storePath) ? readFileSync(storePath, "utf8") : ""));
-  if (!isOrgAdmin(roleOf(adminName, roles))) refuse(`${adminName} is not an admin of this org`);
+  const repo = guarded(() => cloneRoot(cloneArg));
+  const plan = guarded(() => planBlockPacksMove(repo.path, adminName));
+  const storePath = join(repo.path, ORG_STORE_REL);
+  const store = parseStoreTextStrict(ORG_STORE_REL, existsSync(storePath) ? readFileSync(storePath, "utf8") : "");
+  if (store === null) refuse("The org store cannot be read", `${ORG_STORE_REL} has a syntax error. Fix it, then run this again.`);
+  if (!isOrgAdmin(roleOf(adminName, rolesFrom(store)))) refuse(`${adminName} is not an admin of this org`);
 
   const packLines = plan.packs.map((pack) => (pack.ok ? `${pack.name}: block form` : `${pack.name}: old slot keys`));
   out.print(out.section("Move plan", undefined, ...[...packLines, `marker: layout ${BLOCK_PACKS_LAYOUT} on ${plan.branch}`].map((line) => out.paragraph(line))));
@@ -73,7 +75,6 @@ function main(): void {
     out.print(out.line("off", "Nothing was written", "Review the plan, then run again with --write"), out.callout("next", out.cmd(USAGE)));
     return;
   }
-  const repo = guarded(() => cloneRoot(cloneArg));
   const { start } = guarded(() => preflight(repo, adminName, { managedFolders: ORG_CLONE_FOLDERS, usage: USAGE }));
   try {
     applyBlockPacksMove(plan);

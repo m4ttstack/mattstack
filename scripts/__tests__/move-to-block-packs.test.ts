@@ -96,7 +96,7 @@ test("plans the bump when every pack is in block form", () => {
   const dir = org();
   const plan = run(dir);
   expect(plan.exitCode).toBe(0);
-  for (const name of ["acme-base", "widgets", "gadgets"]) expect(plan.stdout.toString()).toContain(`${name}: block form`);
+  for (const name of ["org acme-base", "widgets", "gadgets"]) expect(plan.stdout.toString()).toContain(`${name}: block form`);
   expect(plan.stdout.toString()).toContain(`marker: layout 5 on ${TRIAL}`);
 
   const head = git(dir, "rev-parse", "HEAD").trim();
@@ -146,7 +146,7 @@ test("refuses on a pack whose fragment does not parse, and skips a folder with n
   const before = snapshot(dir);
   const result = run(dir, "--write");
   expect(result.exitCode).toBe(2);
-  expect(result.stderr.toString()).toContain("The acme-base pack cannot be read");
+  expect(result.stderr.toString()).toContain("The org acme-base pack cannot be read");
   expect(result.stderr.toString()).toContain("not valid JSONC");
   expect(result.stderr.toString()).not.toContain("notes");
   expect(snapshot(dir)).toBe(before);
@@ -180,6 +180,7 @@ test("refuses with uncommitted changes", () => {
   const result = run(dir, "--write");
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("The clone has uncommitted changes");
+  expect(result.stderr.toString()).toContain(`git -C ${dir} status`);
   expect(snapshot(dir)).toBe(before);
 });
 
@@ -192,6 +193,7 @@ test("refuses with unpublished commits", () => {
   const result = run(dir, "--write");
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("The clone has commits origin does not have");
+  expect(result.stderr.toString()).toContain(`git -C ${dir} log --oneline origin/${TRIAL}..HEAD`);
   expect(snapshot(dir)).toBe(before);
 });
 
@@ -204,4 +206,57 @@ test("refuses when --admin is not an org admin", () => {
     expect(result.stderr.toString()).toContain(`${admin} is not an admin of this org`);
   }
   expect(snapshot(dir)).toBe(before);
+});
+
+test("refuses an org store with a syntax error, naming the store", () => {
+  const dir = org({ packs: { "mattstack/org/settings.org.jsonc": '{ "mattstack.org": ' } });
+  const before = snapshot(dir);
+  const result = run(dir, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("The org store cannot be read");
+  expect(result.stderr.toString()).toContain("mattstack/org/settings.org.jsonc has a syntax error. Fix it, then run this again.");
+  expect(result.stderr.toString()).not.toContain("not an admin");
+  expect(result.stderr.toString()).not.toContain("malformed settings store");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("refuses a layout 4 marker that names no data branch", () => {
+  const dir = org({ dataBranch: null });
+  const before = snapshot(dir);
+  const result = run(dir, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("This org's marker names no data branch");
+  expect(result.stderr.toString()).not.toContain("on layout 4");
+  expect(result.stderr.toString()).toContain(`git -C ${dir} show origin/main:.mattstack.jsonc`);
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("refuses a detached HEAD", () => {
+  const dir = org();
+  git(dir, "switch", "-q", "--detach");
+  const before = snapshot(dir);
+  const result = run(dir, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("The clone has no branch checked out");
+  expect(result.stderr.toString()).toContain(`git -C ${dir} switch mattstack`);
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("refuses an old slot binding in an org pack, naming it as the org's", () => {
+  const dir = org({ packs: { [BASE_PACK]: { base: true, bindings: { "mattstack:work": { tiering: "acme:tiering" } } } } });
+  const before = snapshot(dir);
+  const result = run(dir, "--write");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr.toString()).toContain("The org acme-base pack still uses old slot keys");
+  expect(result.stderr.toString()).toContain("org acme-base: mattstack:work tiering.");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("an org pack and a team with the same name are reported apart", () => {
+  const dir = org({ packs: { "mattstack/org/packs/widgets/pack/skills.jsonc": { base: true } } });
+  const result = run(dir);
+  expect(result.exitCode).toBe(0);
+  const lines = result.stdout.toString().split("\n").map((line) => line.trim());
+  expect(lines).toContain("org widgets: block form");
+  expect(lines).toContain("widgets: block form");
 });
