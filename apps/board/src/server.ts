@@ -293,6 +293,7 @@ import {
   type LifecycleIo,
 } from './question-lifecycle.ts';
 import {
+  deleteSheetDraft,
   liveQuestionMrs,
   markQuestionsGone,
   questionAgentIds,
@@ -2676,6 +2677,9 @@ const httpServer = Bun.serve({
             return new Response(dedup.reason, { status: 409 });
         }
         const statePath = reviewFilePath(parsed.mrUrl);
+        // A fresh run's gate is not a rebuild of the last run's, so the
+        // sheet's saved ticks and edits do not carry over.
+        deleteSheetDraft(parsed.mrUrl);
         writeReviewState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,

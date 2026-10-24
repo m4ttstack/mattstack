@@ -303,6 +303,7 @@ describe('sheet drafts', () => {
   test('a draft round-trips and deleteSheetDraft removes it', () => {
     const d = {
       ticked: ['f1'],
+      known: ['f1', 'f2'],
       texts: { f1: 'edited' },
       outcome: 'approve',
       notes: { f1: 'n' },

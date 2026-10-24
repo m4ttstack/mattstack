@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
 import { parseSheetDraft } from '../../../sheet-draft-shape.ts';
-import { restoreOps, snapshotSheet } from '../sheet-draft.ts';
+import { canonicalDraft, restoreOps, snapshotSheet } from '../sheet-draft.ts';
 
 const draft = {
   ticked: ['f1', 'f3', 'gone'],
+  known: ['f1', 'f2', 'f3', 'gone'],
   texts: {
     'comment:f1': 'edit one',
     'comment:f3': 'edit three',
@@ -58,6 +59,42 @@ describe('restoreOps', () => {
     });
   });
 
+  test('a finding new to the rebuilt gate keeps its default: no tick op, no comment text', () => {
+    const ops = restoreOps(
+      { ...draft, texts: { ...draft.texts, 'comment:f9': 'stale' } },
+      ['f1', 'f2', 'f3', 'f9'],
+      []
+    );
+    expect(ops.some(o => o.op === 'tick' && o.id === 'f9')).toBe(false);
+    expect(ops).not.toContainEqual(
+      expect.objectContaining({ key: 'comment:f9' })
+    );
+    expect(ops).toContainEqual({ op: 'tick', id: 'f1', on: true });
+  });
+
+  test('ids outside known get no ops even when the draft ticked or edited them', () => {
+    const ops = restoreOps(
+      {
+        ...draft,
+        known: ['f1'],
+        ticked: ['f1', 'f2'],
+        texts: { 'comment:f2': 'edit two' },
+      },
+      ['f1', 'f2'],
+      []
+    );
+    expect(ops.filter(o => o.op === 'tick')).toEqual([
+      { op: 'tick', id: 'f1', on: true },
+    ]);
+    expect(ops.some(o => o.op === 'text')).toBe(false);
+  });
+
+  test('a draft with no known restores nothing', () => {
+    expect(restoreOps({ ...draft, known: [] }, ['f1', 'f2', 'f3'], [])).toEqual(
+      []
+    );
+  });
+
   test('a draft with no outcome sets none', () => {
     const rest = { ...draft, outcome: undefined };
     expect(restoreOps(rest, ['f1'], []).some(o => o.op === 'outcome')).toBe(
@@ -80,8 +117,10 @@ describe('snapshotSheet', () => {
         texts: {},
         notes: {},
       },
-      { findings: 'findings', outcome: 'outcome' }
+      { findings: 'findings', outcome: 'outcome' },
+      ['f1', 'f2', 'f5', 'f9']
     );
+    expect(snap.known).toEqual(['f1', 'f2', 'f5', 'f9']);
     expect(snap.ticked.sort()).toEqual(['f1', 'f2', 'f5', 'f9']);
     expect(snap.outcome).toBe('comment');
   });
@@ -97,7 +136,8 @@ describe('snapshotSheet', () => {
         },
         notes: { outcome: 'n' },
       },
-      { findings: 'findings', outcome: 'outcome' }
+      { findings: 'findings', outcome: 'outcome' },
+      ['f1']
     );
     expect(snap.texts).toEqual({ 'comment:f1': 'a', 'summary:approve': 'b' });
     expect(snap.notes).toEqual({ outcome: 'n' });
@@ -110,7 +150,11 @@ describe('snapshotSheet', () => {
       notes: {},
     };
     const ops = restoreOps(
-      snapshotSheet(form, { findings: 'findings', outcome: 'outcome' }),
+      snapshotSheet(form, { findings: 'findings', outcome: 'outcome' }, [
+        'f1',
+        'f2',
+        'f3',
+      ]),
       ['f1', 'f2', 'f3'],
       []
     );
@@ -119,11 +163,46 @@ describe('snapshotSheet', () => {
   });
 });
 
+describe('canonicalDraft', () => {
+  test('ignores ordering of ids and keys', () => {
+    expect(
+      canonicalDraft({
+        ticked: ['b', 'a'],
+        known: ['b', 'a'],
+        texts: { y: '1', x: '2' },
+        notes: {},
+      })
+    ).toBe(
+      canonicalDraft({
+        ticked: ['a', 'b'],
+        known: ['a', 'b'],
+        texts: { x: '2', y: '1' },
+        notes: {},
+      })
+    );
+  });
+});
+
 describe('parseSheetDraft', () => {
   test('accepts a draft, drops unknown fields and keeps an absent outcome absent', () => {
     expect(
-      parseSheetDraft({ ticked: ['f1'], texts: {}, notes: {}, extra: 1 })
-    ).toEqual({ ticked: ['f1'], texts: {}, notes: {} });
+      parseSheetDraft({
+        ticked: ['f1'],
+        known: ['f1', 'f2'],
+        texts: {},
+        notes: {},
+        extra: 1,
+      })
+    ).toEqual({ ticked: ['f1'], known: ['f1', 'f2'], texts: {}, notes: {} });
+  });
+
+  test('a draft without known parses with none, so it restores nothing', () => {
+    expect(parseSheetDraft({ ticked: ['f1'], texts: {}, notes: {} })).toEqual({
+      ticked: ['f1'],
+      known: [],
+      texts: {},
+      notes: {},
+    });
   });
 
   test.each([
@@ -131,6 +210,7 @@ describe('parseSheetDraft', () => {
     [[]],
     [{ texts: {}, notes: {} }],
     [{ ticked: [1], texts: {}, notes: {} }],
+    [{ ticked: [], known: [1], texts: {}, notes: {} }],
     [{ ticked: [], texts: { a: 1 }, notes: {} }],
     [{ ticked: [], texts: {}, notes: [] }],
     [{ ticked: [], texts: {}, notes: {}, outcome: 3 }],

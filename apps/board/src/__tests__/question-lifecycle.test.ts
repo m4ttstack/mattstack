@@ -80,7 +80,12 @@ function seedMr(mrUrl: string): void {
     NOW,
     db
   );
-  writeSheetDraft(mrUrl, { ticked: ['f1'], texts: {}, notes: {} }, NOW, db);
+  writeSheetDraft(
+    mrUrl,
+    { ticked: ['f1'], known: ['f1'], texts: {}, notes: {} },
+    NOW,
+    db
+  );
   insertPendingRevision(
     {
       mrUrl,
@@ -189,7 +194,12 @@ describe('pruneOffBoardQuestions', () => {
   });
 
   test('an MR with only a sheet draft left is still cleared', async () => {
-    writeSheetDraft(URL_A, { ticked: [], texts: {}, notes: {} }, NOW, db);
+    writeSheetDraft(
+      URL_A,
+      { ticked: [], known: [], texts: {}, notes: {} },
+      NOW,
+      db
+    );
     await pruneOffBoardQuestions(new Set(), fakeIo());
     expect(readSheetDraft(URL_A, db)).toBeUndefined();
   });

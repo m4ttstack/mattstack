@@ -39,6 +39,7 @@ const FINDINGS = [
   { id: 'f1', severity: 'critical', title: 'First finding' },
   { id: 'f2', severity: 'important', title: 'Second finding' },
   { id: 'f3', severity: 'important', title: 'Third finding' },
+  { id: 'f4', severity: 'important', title: 'Fourth finding' },
 ].map(f => ({
   ...f,
   body: `${f.title} body.`,
@@ -46,8 +47,10 @@ const FINDINGS = [
   fix: 'fix it',
 }));
 
-/** One gate for the MR; `drafts` are the agent's comment texts per finding. */
+/** One gate for the MR; `drafts` are the agent's comment texts, and name
+    the findings the gate carries. */
 function gateFor(gateId: string, drafts: Record<string, string>): GateRow {
+  const findings = FINDINGS.filter(f => f.id in drafts);
   return {
     gateId,
     subject: `mr:${MR_URL.replace('https://', '')}`,
@@ -60,7 +63,7 @@ function gateFor(gateId: string, drafts: Record<string, string>): GateRow {
       reviewer: 'renee',
       readiness: 'with-fixes',
       summary: 'Three findings.',
-      findings: { critical: 1, important: 2 },
+      findings: { critical: 1, important: findings.length - 1 },
       editable: true,
       summaryComments: { approve: 'Looks fine.', comment: 'Some notes.' },
     }),
@@ -71,9 +74,9 @@ function gateFor(gateId: string, drafts: Record<string, string>): GateRow {
         multi: true,
         context: j({
           'gate-ctx': 'findings@1',
-          findings: FINDINGS.map(f => ({ ...f, comment: drafts[f.id] })),
+          findings: findings.map(f => ({ ...f, comment: drafts[f.id] })),
         }),
-        options: FINDINGS.map(f => ({
+        options: findings.map(f => ({
           value: f.id,
           label: `[${f.severity}] ${f.title}`,
           description: `lib/${f.id}.ts:3 · fix it`,
@@ -262,6 +265,41 @@ describe('a rebuilt review gate', () => {
       mrWith({ f3: { newGate: 'g-earlier' } })
     );
     expect(commentBox('Third finding')!.value).toBe('my own wording');
+  });
+
+  test('a finding new to the rebuilt gate keeps its default tick and draft', async () => {
+    await userEditsGateA();
+    await show(gateFor('g-b', { ...DRAFTS_A, f4: 'draft four' }), mrWith());
+    expect(checkbox('Second finding').checked).toBe(false);
+    expect(checkbox('Fourth finding').checked).toBe(true);
+    expect(commentBox('Fourth finding')!.value).toBe('draft four');
+  });
+
+  test('a draft saved before known existed restores nothing', async () => {
+    saved = {
+      ticked: ['f1'],
+      texts: { 'comment:f3': 'old edit' },
+      notes: {},
+    };
+    await show(gateFor('g-b', DRAFTS_A), mrWith());
+    expect(checkbox('Second finding').checked).toBe(true);
+    expect(commentBox('Third finding')!.value).toBe('draft three');
+  });
+
+  test('a dropped revised comment is saved, so a later gate does not bring the old edit back', async () => {
+    await userEditsGateA();
+    // Gate B revises f3: the edit is dropped for the new draft.
+    await show(gateFor('g-b', DRAFTS_B), mrWith({ f3: { newGate: 'g-b' } }));
+    expect(commentBox('Third finding')!.value).toBe('REVISED three');
+    await settle(700);
+    // Gate C revises f1; f3's revised text from B must stand, not A's edit.
+    await show(
+      gateFor('g-c', { ...DRAFTS_B, f1: 'REVISED one' }),
+      mrWith({ f1: { newGate: 'g-c' }, f3: { newGate: 'g-b' } })
+    );
+    expect(commentBox('Third finding')!.value).toBe('REVISED three');
+    expect(commentBox('First finding')!.value).toBe('REVISED one');
+    expect(checkbox('Second finding').checked).toBe(false);
   });
 
   test('opening a gate with nothing saved writes nothing', async () => {

@@ -16,6 +16,7 @@ import {
   packForLaunch,
   resolveLaunchSkill,
 } from './manifest-bindings.ts';
+import { deleteSheetDraft } from './question-state.ts';
 import {
   readRespondStates,
   respondFilePath,
@@ -110,6 +111,7 @@ export interface ReReviewIo {
   writeReviewState: typeof writeReviewState;
   readReviewStates: typeof readReviewStates;
   reviewFilePath: typeof reviewFilePath;
+  deleteSheetDraft: typeof deleteSheetDraft;
 }
 
 export const defaultReReviewIo: ReReviewIo = {
@@ -119,6 +121,7 @@ export const defaultReReviewIo: ReReviewIo = {
   writeReviewState,
   readReviewStates,
   reviewFilePath,
+  deleteSheetDraft,
 };
 
 /** Start a re-review of an MR: resume the prior session if there is one, else
@@ -163,6 +166,10 @@ export async function launchReReview(
     },
     resolvePath
   );
+
+  // Every arm below starts a new review run, whose gate is not a rebuild of
+  // the last run's: its ticks and edits must not carry over.
+  io.deleteSheetDraft(mrUrl);
 
   if (existing?.agentId) {
     io.writeReviewState(statePath, {

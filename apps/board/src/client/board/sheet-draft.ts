@@ -8,7 +8,8 @@ import { commentKey, summaryKey } from './review-drafts.ts';
     gate rebuilt after a finding revision (the old gate closes `revised`, a
     fresh one opens) comes back the way the reviewer left it. The form state
     lives only in React and the per-gate localStorage draft, neither of which
-    follows the reviewer to the new gate. */
+    follows the reviewer to the new gate. A fresh review run starts clean:
+    its launch deletes the draft (server side), so one never crosses runs. */
 
 const SAVE_DEBOUNCE_MS = 500;
 const ENDPOINT = '/review/sheet-draft';
@@ -24,7 +25,13 @@ export interface SheetNames {
   outcome?: string;
 }
 
-export function snapshotSheet(form: FormSlice, names: SheetNames): SheetDraft {
+/** The form as a draft. `findingIds` are every finding the sheet shows, so a
+    later restore can tell an unticked finding from one it never saw. */
+export function snapshotSheet(
+  form: FormSlice,
+  names: SheetNames,
+  findingIds: string[]
+): SheetDraft {
   const ticked = new Set<string>();
   const base = names.findings;
   if (base !== undefined) {
@@ -42,6 +49,7 @@ export function snapshotSheet(form: FormSlice, names: SheetNames): SheetDraft {
     names.outcome !== undefined ? form.selections[names.outcome] : undefined;
   return {
     ticked: [...ticked],
+    known: [...findingIds],
     texts,
     ...(typeof outcome === 'string' ? { outcome } : {}),
     notes: { ...form.notes },
@@ -55,19 +63,24 @@ export type RestoreOp =
   | { op: 'note'; key: string; value: string };
 
 /** What to apply to a freshly seeded form to bring a saved draft back.
-    `revisedIds` are the findings the gate on screen carries a revision for:
-    they keep their tick but lose the saved comment text, so the agent's new
-    draft shows instead of the edit it replaces. Ids the gate no longer has
-    are skipped. */
+    Only findings the draft knew (`known`) and the gate still has are
+    touched: a finding new to this gate keeps its default tick and draft, and
+    a draft with no `known` restores nothing. `revisedIds` are the findings
+    the gate on screen carries a revision for: they keep their tick but lose
+    the saved comment text, so the agent's new draft shows instead of the
+    edit it replaces. */
 export function restoreOps(
   draft: SheetDraft,
   findingIds: string[],
   revisedIds: string[]
 ): RestoreOp[] {
-  const known = new Set(findingIds);
+  const known = new Set(draft.known);
+  const ids = findingIds.filter(id => known.has(id));
+  if (ids.length === 0) return [];
+  const restorable = new Set(ids);
   const revised = new Set(revisedIds);
   const ticked = new Set(draft.ticked);
-  const ops: RestoreOp[] = findingIds.map(id => ({
+  const ops: RestoreOp[] = ids.map(id => ({
     op: 'tick',
     id,
     on: ticked.has(id),
@@ -75,7 +88,7 @@ export function restoreOps(
   for (const [key, value] of Object.entries(draft.texts)) {
     if (key.startsWith(commentKey(''))) {
       const id = key.slice(commentKey('').length);
-      if (!known.has(id) || revised.has(id)) continue;
+      if (!restorable.has(id) || revised.has(id)) continue;
     } else if (!key.startsWith(summaryKey(''))) continue;
     ops.push({ op: 'text', key, value });
   }
@@ -86,17 +99,35 @@ export function restoreOps(
   return ops;
 }
 
+const byKey = (a: [string, string], b: [string, string]) =>
+  a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+
+/** A draft as one string that ignores ordering, so a snapshot compares equal
+    to the saved draft it was restored from. */
+export function canonicalDraft(d: SheetDraft): string {
+  return JSON.stringify({
+    ticked: [...d.ticked].sort(),
+    known: [...d.known].sort(),
+    texts: Object.fromEntries(Object.entries(d.texts).sort(byKey)),
+    ...(d.outcome !== undefined ? { outcome: d.outcome } : {}),
+    notes: Object.fromEntries(Object.entries(d.notes).sort(byKey)),
+  });
+}
+
 /** Restores the MR's saved draft once per gate, then saves each change
     (debounced) so the next rebuilt gate can do the same.
 
-    Saving waits for the restore: the first render after it is the baseline,
-    and only a snapshot that differs from the baseline is sent. That keeps a
-    fresh gate's seeded defaults from overwriting the draft before the
-    restore reads it, and an untouched gate from writing a row at all. A
-    failed read leaves saving off for that gate rather than risk replacing a
-    draft it could not see. Saving stops at a submit (until one fails): the
-    board deletes the draft once the review is submitted, and a late write
-    would bring it back. */
+    The save baseline is the draft as fetched, not the form after the
+    restore: whatever the restore changed (a revised comment dropped, a
+    finding new to the gate added) differs from it and is saved, so the next
+    gate does not bring the dropped edit back. A gate with nothing saved
+    takes its first post-restore render as the baseline, so it writes
+    nothing until the reviewer changes something. Saving waits for the
+    restore, which keeps a fresh gate's seeded defaults from overwriting the
+    draft before it is read; a failed read leaves saving off for that gate
+    rather than risk replacing a draft it could not see. Saving stops at a
+    submit (until one fails): the board deletes the draft once the review is
+    submitted, and a late write would bring it back. */
 export function useSheetDraft(
   mrUrl: string | undefined,
   form: FormSlice &
@@ -112,7 +143,9 @@ export function useSheetDraft(
   gateId: string
 ): void {
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
-  const baseline = useRef<{ gateId: string; json: string } | null>(null);
+  // `json` is null until the first post-restore render fills it in (a gate
+  // with nothing saved).
+  const baseline = useRef<{ gateId: string; json: string | null } | null>(null);
   const submitted = useRef(false);
   const pending = useRef<{ mrUrl: string; draft: SheetDraft } | null>(null);
   // Read at restore time, not at effect-dependency time: the ids belong to
@@ -153,6 +186,11 @@ export function useSheetDraft(
             else if (o.op === 'note') cur.form.setNote(o.key, o.value);
           }
         }
+        baseline.current = {
+          gateId,
+          json: draft ? canonicalDraft(draft) : null,
+        };
+        submitted.current = false;
         setRestoredFor(gateId);
       })
       .catch(() => {});
@@ -161,19 +199,20 @@ export function useSheetDraft(
     };
   }, [mrUrl, gateId]);
 
-  const json = JSON.stringify(snapshotSheet(form, names));
+  const snapshot = snapshotSheet(form, names, findingIds);
+  const json = canonicalDraft(snapshot);
   useEffect(() => {
-    if (!mrUrl || restoredFor !== gateId) return;
-    if (baseline.current?.gateId !== gateId) {
-      baseline.current = { gateId, json };
-      submitted.current = false;
+    const base = baseline.current;
+    if (!mrUrl || restoredFor !== gateId || base?.gateId !== gateId) return;
+    if (base.json === null) {
+      base.json = json;
       return;
     }
     // A submit stops saving for good unless it fails: the answer was sent (or
     // lost to another), and the board deletes the draft either way.
     if (form.busy) submitted.current = true;
     else if (form.failed) submitted.current = false;
-    if (submitted.current || json === baseline.current.json) {
+    if (submitted.current || json === base.json) {
       pending.current = null;
       return;
     }
@@ -181,7 +220,7 @@ export function useSheetDraft(
     pending.current = { mrUrl, draft };
     const timer = setTimeout(() => {
       pending.current = null;
-      baseline.current = { gateId, json };
+      base.json = json;
       put(mrUrl, draft);
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
