@@ -63,6 +63,7 @@ flowchart TB
     who_merges_lane -->|no domain rule: the integration job merges| all_lane_jobs_done
     who_merges_lane -->|domain: the worker ships its own lane| chat_dm_ship_chain
     who_merges_lane -->|domain: the shepherd merges after a gate| gate_merge_lane
+    who_merges_lane -->|domain: a human merges on the forge| back_to_watch_loop
     report_claims_merge -->|tempted to merge, fix or push it yourself| stop_hand_merge
     stop_hand_merge --> who_merges_lane
     all_lane_jobs_done -->|no| back_to_watch_loop
@@ -87,7 +88,7 @@ flowchart TB
     merged_on_repo -->|unknown: quote the read's error| shepherd_off_script
     merged_on_repo -->|no row: quote the skipped reason| shepherd_off_script
     lane_claimed_merge -->|yes| unmerged_reports_spent
-    lane_claimed_merge -->|no: it waits on the integration job or the gate| back_to_watch_loop
+    lane_claimed_merge -->|no: it waits on the integration job, the gate or a human's merge| back_to_watch_loop
     lane_claimed_merge -->|no: your own merge call did not land| shepherd_off_script
     unmerged_reports_spent -->|no| chat_dm_merge_state
     unmerged_reports_spent -->|yes: budget spent| shepherd_off_script

@@ -796,7 +796,7 @@ brief unless `brief` is new, and keeps the job's model, effort and account
 unless passed. The old session's open and parked gates close as abandoned so the new
 worker re-asks; answered ones are marked consumed.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/index.block.md lines=5-118 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/index.block.md lines=5-119 -->
 ## Lanes and wrap-up
 
 ```dot
@@ -860,6 +860,7 @@ digraph shepherdr_lanes {
     who_merges_lane -> all_lane_jobs_done [label="no domain rule: the integration job merges"];
     who_merges_lane -> chat_dm_ship_chain [label="domain: the worker ships its own lane"];
     who_merges_lane -> gate_merge_lane [label="domain: the shepherd merges after a gate"];
+    who_merges_lane -> back_to_watch_loop [label="domain: a human merges on the forge"];
     report_claims_merge -> stop_hand_merge [label="tempted to merge, fix or push it yourself"];
     stop_hand_merge -> who_merges_lane;
     all_lane_jobs_done -> back_to_watch_loop [label="no"];
@@ -884,7 +885,7 @@ digraph shepherdr_lanes {
     merged_on_repo -> shepherd_off_script [label="unknown: quote the read's error"];
     merged_on_repo -> shepherd_off_script [label="no row: quote the skipped reason"];
     lane_claimed_merge -> unmerged_reports_spent [label="yes"];
-    lane_claimed_merge -> back_to_watch_loop [label="no: it waits on the integration job or the gate"];
+    lane_claimed_merge -> back_to_watch_loop [label="no: it waits on the integration job, the gate or a human's merge"];
     lane_claimed_merge -> shepherd_off_script [label="no: your own merge call did not land"];
     unmerged_reports_spent -> chat_dm_merge_state [label="no"];
     unmerged_reports_spent -> shepherd_off_script [label="yes: budget spent"];
@@ -1012,7 +1013,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 - **A report is a claim, not a merge.** Answer "Merged on the repo?" from the job's row `merge.state` (GitHub or GitLab) alone, never the report or a forge read of your own: `merged` is yes; `open`, `closed` or `none` is no; `unknown` goes to the off-script gate with the read's error. A lane with no row (a merge can dispose its tree) goes there with its `skipped` reason, and the proposed move closes the lane once the user confirms the merge. The row's `unmergedReports` feeds `Unmerged reports for this lane spent?` (see **Budgets**).
 - **Job state is the daemon's.** It marks a job `done` when its report is published.
 - **The integration job.** Its brief merges or cherry-picks the job branches, runs full verification, carries the shipping conventions, and reports. The first is `integration-1`; a lane that joined after it spawned gets the next number, and that brief covers only the lanes no integration job has merged.
-- **Domain hook: after the report.** Unbound: the integration job merges. Bound domain rules may define what follows a report (the worker ships through its own skill chain, or the shepherd merges after a gate; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.
+- **Domain hook: after the report.** Unbound: the integration job merges. Bound domain rules may define what follows a report (the worker ships through its own skill chain, the shepherd merges after a gate, or a human merges on the forge and the lane closes when `herd_lanes` reads `merged`; how jobs feeding one deliverable integrate) and whether it waits for the user to ask. Fixing and pushing stay with workers.
 - **Domain hook: wrap-up.** Unbound: as drawn. Bound domain rules may state their own tree lifecycle (trees that dispose themselves on merge, what a disposal refusal means); follow it over the defaults here.
 
 <!-- part: block:shepherdr/wrap-up-form-contract source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/wrap-up-form-contract.block.md lines=6-10 -->
