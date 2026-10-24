@@ -306,14 +306,13 @@ describe('blockMap', () => {
   it('sibling sources with the same jump share one link', () => {
     const map = blockMap(
       g(
-        [['T'], ['S1'], ['S2'], ['x', null], ['y', null]],
+        [['T'], ['S1'], ['S2'], ['x', null]],
         [
           ['T', 'S1'],
           ['T', 'S2'],
           ['S1', 'x', 'retry: once more'],
+          ['S2', 'x', 'retry'],
           ['x', 'T'],
-          ['S2', 'y', 'retry'],
-          ['y', 'T'],
         ]
       ),
       asStep
@@ -326,8 +325,163 @@ describe('blockMap', () => {
       alsoFrom: ['S2'],
       to: ['T'],
       label: 'retry',
+      fork: 'x',
     });
-    expect([...back[0]!.folded].sort()).toEqual(['x', 'y']);
+  });
+
+  it('identical jumps from sources that are not siblings stay apart', () => {
+    const map = blockMap(
+      g(
+        [['T'], ['S1'], ['S2'], ['x', null]],
+        [
+          ['T', 'S1'],
+          ['S1', 'S2'],
+          ['S1', 'x', 'retry'],
+          ['S2', 'x', 'retry'],
+          ['x', 'T'],
+        ]
+      ),
+      asStep
+    );
+
+    expect(
+      map.links
+        .filter(link => link.kind === 'jump-back')
+        .map(link => [link.from, link.alsoFrom])
+    ).toEqual([
+      ['S1', []],
+      ['S2', []],
+    ]);
+  });
+
+  it('a question several blocks pass on the way to several targets becomes one shared split', () => {
+    const map = blockMap(
+      g(
+        [
+          ['A'],
+          ['B'],
+          ['p', null],
+          ['r', null],
+          ['f', null, 'diamond'],
+          ['C'],
+          ['D'],
+        ],
+        [
+          ['A', 'B'],
+          ['A', 'p'],
+          ['B', 'r'],
+          ['p', 'f'],
+          ['r', 'f'],
+          ['f', 'C', 'left: go'],
+          ['f', 'D', 'right'],
+        ]
+      ),
+      asStep
+    );
+
+    expect(map.nodes.find(node => node.id === 'f')).toEqual({
+      id: 'f',
+      blockId: null,
+      label: 'f',
+      kind: 'split',
+    });
+    expect(pairs(map).sort()).toEqual([
+      'A → B',
+      'A → f',
+      'B → f',
+      'f → C',
+      'f → D',
+    ]);
+    expect(linkTo(map, 'A', 'f').folded).toEqual(['p']);
+    expect(linkTo(map, 'f', 'C')).toMatchObject({
+      kind: 'line',
+      label: 'left',
+      folded: [],
+    });
+    expect(linkTo(map, 'f', 'D').label).toBe('right');
+    expect(map.foldedSteps).toBe(2);
+  });
+
+  it("a split's long links leave its trunk for the jump rule, main included", () => {
+    const map = blockMap(
+      g(
+        [
+          ['A'],
+          ['B'],
+          ['p', null],
+          ['r', null],
+          ['f', null, 'diamond'],
+          ['s', null, 'diamond'],
+          ['E'],
+          ['G'],
+          ['H'],
+          ['C'],
+          ['D'],
+        ],
+        [
+          ['A', 'B'],
+          ['A', 'p'],
+          ['B', 'r'],
+          ['p', 'f'],
+          ['r', 'f'],
+          ['f', 's', 'left: the far side'],
+          ['f', 'E', 'right'],
+          ['s', 'C', 'x'],
+          ['s', 'D', 'y'],
+          ['E', 'G'],
+          ['G', 'H'],
+          ['H', 'C'],
+          ['H', 'D'],
+        ]
+      ),
+      asStep
+    );
+
+    expect(map.layers.C! - map.layers.f!).toBeGreaterThanOrEqual(3);
+    const far = linkTo(map, 'f', 'C');
+    expect(far).toMatchObject({
+      kind: 'jump-forward',
+      label: 'left',
+      fork: 's',
+      trunk: null,
+    });
+    expect([...far.to].sort()).toEqual(['C', 'D']);
+    expect(linkTo(map, 'f', 'E')).toMatchObject({
+      kind: 'line',
+      label: 'right',
+    });
+  });
+
+  it('a budget question and a merge point are never splits', () => {
+    const map = blockMap(
+      g(
+        [
+          ['A'],
+          ['B'],
+          ['budget', null, 'plaintext'],
+          ['spent', null, 'diamond'],
+          ['m', null, 'diamond'],
+          ['n', null],
+          ['C'],
+          ['D'],
+        ],
+        [
+          ['A', 'B'],
+          ['A', 'budget'],
+          ['B', 'budget'],
+          ['budget', 'spent'],
+          ['spent', 'm', 'no'],
+          ['spent', 'C', 'yes'],
+          ['m', 'n', 'yes'],
+          ['m', 'D', 'no'],
+          ['n', 'D'],
+          ['n', 'C'],
+        ]
+      ),
+      () => ({ label: 'block', kind: 'step' as const })
+    );
+
+    expect(map.nodes.filter(node => node.kind === 'split')).toEqual([]);
   });
 
   it('a trunk splits where the branch leaves the main path; the main line follows first-declared edges', () => {
@@ -526,20 +680,28 @@ describe('blockMap on ship flow', () => {
     if (block.kind === 'note' || block.kind === 'shared') {
       throw new Error(`${blockId} is not a flow kind`);
     }
-    return { label: block.label, kind: block.kind as Exclude<MapKind, 'end'> };
+    return {
+      label: block.label,
+      kind: block.kind as Exclude<MapKind, 'end' | 'split'>,
+    };
   };
   const map = blockMap(graph, blockOf);
 
-  it('one node per block with a node, plus Shipped', () => {
+  it('one node per block with a node, plus Shipped and the shared splits', () => {
     const named = shipPayload.blocks.filter(
       block => block.parentId === 'ship/flow' && block.node !== null
     );
 
-    expect(map.nodes).toHaveLength(named.length + 1);
+    expect(map.nodes.filter(node => node.blockId !== null)).toHaveLength(
+      named.length
+    );
     expect(map.nodes.filter(node => node.kind === 'end')).toEqual([
       { id: 'shipped', blockId: null, label: 'Shipped', kind: 'end' },
     ]);
-    expect(map.foldedSteps).toBe(graph.nodes.length - map.nodes.length);
+    expect(
+      map.nodes.filter(node => node.kind === 'split').map(node => node.id)
+    ).toEqual(['create_forge_host', 'browser_case', 'every_case_tried']);
+    expect(map.foldedSteps).toBe(graph.nodes.length - named.length - 1 - 3);
   });
 
   it('the links the spec names', () => {
@@ -548,8 +710,8 @@ describe('blockMap on ship flow', () => {
       folded: ['checks_pass', 'run_budget_fix_rounds', 'fix_rounds_spent'],
     });
     expect(linkTo(map, 'fix_test_first', 'domain_fast_checks')).toMatchObject({
-      from: 'resolve_conflict_files',
-      alsoFrom: ['fix_test_first'],
+      from: 'fix_test_first',
+      alsoFrom: [],
       kind: 'jump-back',
       label: null,
     });
@@ -557,9 +719,11 @@ describe('blockMap on ship flow', () => {
       kind: 'jump-back',
       label: 'iterate',
     });
-    expect(linkTo(map, 'domain_fast_checks', 'gate_ship').kind).toBe(
-      'jump-back'
-    );
+    expect(linkTo(map, 'domain_fast_checks', 'gate_ship')).toMatchObject({
+      from: 'domain_fast_checks',
+      alsoFrom: [],
+      kind: 'jump-back',
+    });
 
     const captures = linkTo(map, 'reopened_recapture', 'capture_after_browser');
     expect(captures).toMatchObject({ kind: 'jump-forward', label: 'yes' });
@@ -590,25 +754,50 @@ describe('blockMap on ship flow', () => {
     }
   });
 
-  it('Rebases unfinished keeps one trunk: main to Create MR, branches at the push and forge questions', () => {
-    const main = linkTo(map, 'domain_rebases_unfinished', 'mr_create');
-    expect(main).toMatchObject({ kind: 'line', label: null });
-    expect(main.trunk).toMatchObject({ main: true });
+  it('the forge question is one shared split', () => {
+    const into = map.links.filter(link =>
+      link.to.includes('create_forge_host')
+    );
+    expect(into.map(link => link.from)).toEqual([
+      'domain_rebases_unfinished',
+      'gate_push_refused',
+      'confirm_human_push',
+    ]);
+    expect(linkTo(map, 'create_forge_host', 'mr_create').label).toBe('GitLab');
+    expect(linkTo(map, 'create_forge_host', 'gate_which_forge').label).toBe(
+      'anything else'
+    );
+    const github = linkTo(map, 'create_forge_host', 'capture_after_browser');
+    expect(github).toMatchObject({ kind: 'jump-forward', label: 'GitHub' });
+    expect([...github.to].sort()).toEqual([
+      'capture_after_browser',
+      'capture_after_case',
+    ]);
+  });
 
-    const group = main.trunk!.group;
+  it("every_case_tried keeps its short trunk while the forge split's long links jump", () => {
+    const main = linkTo(map, 'every_case_tried', 'record_evidence');
+    expect(main).toMatchObject({ kind: 'line', trunk: { main: true } });
+    expect(linkTo(map, 'every_case_tried', 'attach_evidence')).toMatchObject({
+      kind: 'line',
+      label: 'no',
+      trunk: {
+        group: main.trunk!.group,
+        splitAt: 'after_captured',
+        main: false,
+      },
+    });
+  });
+
+  it('Rebases unfinished keeps its trunk branch to Push refused at push_result', () => {
+    const main = linkTo(map, 'domain_rebases_unfinished', 'create_forge_host');
+    expect(main.trunk).toMatchObject({ main: true });
     expect(
       linkTo(map, 'domain_rebases_unfinished', 'gate_push_refused')
     ).toMatchObject({
       kind: 'line',
       label: 'refused or errored',
-      trunk: { group, splitAt: 'push_result', main: false },
-    });
-    expect(
-      linkTo(map, 'domain_rebases_unfinished', 'gate_which_forge')
-    ).toMatchObject({
-      kind: 'line',
-      label: 'anything else',
-      trunk: { group, splitAt: 'create_forge_host', main: false },
+      trunk: { group: main.trunk!.group, splitAt: 'push_result', main: false },
     });
   });
 

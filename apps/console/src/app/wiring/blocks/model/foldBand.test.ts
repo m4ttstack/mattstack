@@ -87,7 +87,7 @@ const shipMap = blockMap(shipGraph, blockId => {
   const block = shipPayload.blocks.find(each => each.id === blockId)!;
   return {
     label: block.label,
-    kind: block.kind as Exclude<MapKind, 'end'>,
+    kind: block.kind as Exclude<MapKind, 'end' | 'split'>,
   };
 });
 
@@ -191,6 +191,7 @@ describe('foldBand', () => {
     expect(exitJumps).toEqual([
       'reopened_recapture → domain_steps_before_gate · on_default_branch · yes → own_run_default_branch · forward',
       'gate_ship → domain_steps_before_gate · run_budget_gate_rounds · no → rebase_in_progress · forward',
+      'domain_fast_checks → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · forward',
       'domain_rebases_unfinished → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · forward',
       'run_watch_ci → gate_mark_ready · watch_ci_result · held → held_in_watch_ci · forward',
       'resolve_conflict_files → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · back',
