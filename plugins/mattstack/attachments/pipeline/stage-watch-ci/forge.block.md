@@ -12,7 +12,7 @@ props:
 If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
 
 `<scripts>` is `{{stage.dir}}/scripts/`. `<scripts>/ci-triage.sh` and
-`<forge> jobs` name a fill's old script calls; nothing is vendored for
-them, and the redirects above send each to its tool.
+`<forge> jobs` name a fill's old script calls; the redirects above send
+each to its tool.
 
 {{props.forge}}
