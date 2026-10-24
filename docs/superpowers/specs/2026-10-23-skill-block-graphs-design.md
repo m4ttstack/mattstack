@@ -73,7 +73,10 @@ Board: `docs/apps/design/console/skill-blocks/block-map.light.png` (frame
 ### Where it opens
 
 It replaces today's full-graph view, in the same place in the main column,
-from the same two entry points.
+from the same two entry points. While a graph is open, the Layers panel
+hides and the graph takes the stage's full content width, in a read-only
+view too. The map draws at full size when it fits and shrinks to fit down
+to 0.85; past that the canvas scrolls sideways instead of shrinking further.
 
 ### Header
 
@@ -146,7 +149,7 @@ model's output on ship's Flow (see Boards).
   - **One target or several:** when a jump reaches several blocks through
     one folded question, it is one pill. It is named by the targets' shared
     leading word when they have one ("Capture"), else by that question's
-    short label. Clicking it pans to fit all its targets and rings each one.
+    short label. Clicking it scrolls to its first target and rings each one.
   - **Several sources:** sibling blocks (reached by lines from the same
     block or split) with the same jump (same label, same targets) share
     one pill, beside the last sibling. Jumps that differ in
@@ -167,14 +170,23 @@ model's output on ship's Flow (see Boards).
 - **Shared splits.** When forward links from two or more blocks pass the
   same folded question and part there toward two or more blocks, that
   question becomes one split on the map, drawn as a small dot. Each block
-  draws one dotted line into it, and the split draws one line per exit,
-  labelled with the exit ("GitLab", "anything else"). Its long exits become
-  pills beside the dot ("GitHub → Capture"). Budget questions never split,
-  and a block whose line into the split would skip three or more layers
-  keeps its own links unless that line is its main line. On ship's Flow the
-  forge question, the browser-or-case question and "every named case
-  tried?" become splits. Matt chose this over per-block trunks, which
-  tangled where three blocks reach the forge question.
+  before it in flow order draws one line into it, dotted when it folds
+  steps, and the split draws one line per exit, labelled with the exit
+  ("GitLab", "anything else"). Its long exits become pills beside the dot
+  ("GitHub → Capture"). Budget questions never split, and a block whose
+  line into the split would skip three or more layers keeps its own links
+  unless that line is its main line. On ship's Flow the forge question, the
+  browser-or-case question and "every named case tried?" become splits.
+  Matt chose this over per-block trunks, which tangled where three blocks
+  reach the forge question.
+  - **A block after the split.** A block whose forward links pass a split
+    that sits before it in flow order reaches back into that split with
+    one link. Like any back link it is a jump pill beside the block, never
+    a line up the side; it names the question by its short label, with no
+    exit label (Which forge's "↩ Forge host (ship, create)?").
+  - **Nothing folds a split.** A split is drawn on the map, so no link
+    folds it. A link that passed only the split draws solid, with nothing
+    to unfold (the forge split → Create MR).
 - **Main column.** It follows each block's main line and, from a split,
   the split's first-declared exit. It is not the longest path, which runs
   through the side branches.
@@ -212,15 +224,20 @@ Board: `docs/apps/design/console/skill-blocks/block-map-interactions.light.png`
    (the two pushes) keeps its shape.
 3. **Every step.** This is the real full graph: all of a skill's steps, with
    blocks as cards and graph-only steps as muted cards. It uses the new look
-   and ELK routing, and exit labels follow the board convention. It is not
-   every band open at once, which would repeat the steps that folds share.
+   and ELK routing, and exit labels follow the board convention. Mermaid's
+   dashed edges draw solid here, since a dotted line means steps folded. It
+   is not every band open at once, which would repeat the steps that folds
+   share.
 4. **Hover a block.** Its links and their dotted markers turn accent, and
    its border turns accent. Every other node and link fades to 40%.
 5. **Click a block.** It opens that block's page (zoom level L3), as today.
-6. **Click a jump pill.** The view pans to the target. An accent ring marks
-   the target for about two seconds, and a "from <source> · Back" pill sits
-   beside it. Back pans to the source. With reduced motion, the view moves
-   without animating.
+6. **Click a jump pill.** The page scrolls the target into view; the canvas
+   itself never pans or zooms. An accent ring marks the target for about two
+   seconds (a split's dot gets the same ring, sized for the dot), and a
+   "from <source> · Back" pill sits under it. Back scrolls to the source.
+   With reduced motion, the page moves without animating. A pill whose
+   target is its own card only rings that card, with no "from" pill, since
+   Back would lead nowhere.
 
 Blocks, dotted links and pills are buttons with labels, and you can reach
 them with the keyboard.
