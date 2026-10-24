@@ -39,6 +39,7 @@ import {
   includeNameOf,
   labelledGraph,
   leadOf,
+  mapGraphOf,
   renderedRangeOf,
   scopeStats,
   sharedRootOf,
@@ -49,6 +50,8 @@ import { usedBySites } from './model/usedBy';
 import { crumbsOf, zoomOf, type Zoom } from './model/zoom';
 import { SectionBand } from './SectionBand';
 import { UsedBy } from './UsedBy';
+
+type Graph = BlocksPayload['graphs'][number];
 
 /** The skill's own facts for the header at the skill level. */
 export type SkillHeader = {
@@ -280,7 +283,7 @@ function ZoomBody({
   payload,
   zoom,
   patch,
-  wholeGraph,
+  map,
   lead,
   expanded,
   usedByCount,
@@ -288,7 +291,8 @@ function ZoomBody({
   payload: BlocksPayload;
   zoom: Zoom;
   patch: Patch;
-  wholeGraph: boolean;
+  /** The block map's graph when the map is open here, else null. */
+  map: { graph: Graph; highlight: string | null } | null;
   /** Every folded row shows its text. */
   expanded: boolean;
   /** The line the header shows under the title. */
@@ -313,17 +317,17 @@ function ZoomBody({
           level="block"
           size="lg"
         />
-        {graph &&
-          at &&
-          (wholeGraph ? (
-            <BlockMap
-              payload={payload}
-              graph={graph}
-              highlight={at.node}
-              onSelect={open}
-              onClose={closeGraph}
-            />
-          ) : (
+        {map ? (
+          <BlockMap
+            payload={payload}
+            graph={map.graph}
+            highlight={map.highlight}
+            onSelect={open}
+            onClose={closeGraph}
+          />
+        ) : (
+          graph &&
+          at && (
             <AroundGraph
               graph={graph}
               skill={payload.skill}
@@ -332,7 +336,8 @@ function ZoomBody({
               onSelect={open}
               onViewWholeGraph={viewGraph}
             />
-          ))}
+          )
+        )}
       </>
     );
   }
@@ -345,9 +350,6 @@ function ZoomBody({
     ) : null;
   };
   const owner = zoom.level === 'parent' ? zoom.block : rootOf(payload);
-  const own = owner
-    ? payload.graphs.find(graph => graph.blockId === owner.id)
-    : undefined;
   const ownText = owner ? withoutLead(bodyOf(owner), lead) : null;
   // A parent's graph card sits close over its children's list, as the
   // board sets it; the skill's bands keep the column's wider gap.
@@ -362,11 +364,11 @@ function ZoomBody({
           onViewGraph={viewGraph}
         />
       )}
-      {wholeGraph && own && (
+      {map && (
         <BlockMap
           payload={payload}
-          graph={labelledGraph(payload, own)}
-          highlight={null}
+          graph={map.graph}
+          highlight={map.highlight}
           onSelect={open}
           onClose={closeGraph}
         />
@@ -418,8 +420,12 @@ export function BlockView({
   const block = zoom.level === 'skill' ? null : zoom.block;
   const root = rootOf(payload);
   const rendered = url.view === 'rendered';
-  const mapOpen = url.select === 'graph' && !rendered;
-  const showRail = !readOnly && !mapOpen;
+  const map = useMemo(
+    () =>
+      url.select === 'graph' && !rendered ? mapGraphOf(payload, zoom) : null,
+    [url.select, rendered, payload, zoom]
+  );
+  const showRail = !readOnly && map === null;
 
   const shared = block ? sharedRootOf(payload, block) : null;
   const sharedName = shared ? includeNameOf(payload, shared) : null;
@@ -492,7 +498,7 @@ export function BlockView({
   return (
     <div
       className={classes.layout}
-      data-rail={showRail ? undefined : 'none'}
+      data-rail={map ? 'map' : readOnly ? 'none' : undefined}
       data-testid="block-view"
     >
       <div className={classes.head}>
@@ -553,7 +559,7 @@ export function BlockView({
             payload={payload}
             zoom={zoom}
             patch={patch}
-            wholeGraph={url.select === 'graph'}
+            map={map}
             lead={description}
             expanded={expanded && canExpand}
             usedByCount={usedByCount}

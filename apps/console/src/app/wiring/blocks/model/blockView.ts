@@ -7,8 +7,10 @@ import {
   insideSharedTop,
   isIncludedTree,
   labelOf,
+  rootOf,
 } from './blockFacts';
 import { plain } from './headingTree';
+import type { Zoom } from './zoom';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -236,6 +238,26 @@ export function labelledGraph(payload: BlocksPayload, graph: Graph): Graph {
   byGraph.set(graph, result);
   labelled.set(payload, byGraph);
   return result;
+}
+
+/** The graph a block map at this zoom level draws, labelled, and the node
+    it lights: a block's own graph and node, or a parent's or the skill's
+    own graph; null where there is none. */
+export function mapGraphOf(
+  payload: BlocksPayload,
+  zoom: Zoom
+): { graph: Graph; highlight: string | null } | null {
+  if (zoom.level === 'block') {
+    const at = graphOfBlock(payload, zoom.block);
+    return at
+      ? { graph: labelledGraph(payload, at.graph), highlight: at.node }
+      : null;
+  }
+  const owner = zoom.level === 'parent' ? zoom.block : rootOf(payload);
+  const own = owner
+    ? payload.graphs.find(graph => graph.blockId === owner.id)
+    : undefined;
+  return own ? { graph: labelledGraph(payload, own), highlight: null } : null;
 }
 
 /** Every block under the root, an include's shared tree counted once by

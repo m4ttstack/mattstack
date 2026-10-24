@@ -16,6 +16,7 @@ import {
   includeNameOf,
   labelledGraph,
   leadOf,
+  mapGraphOf,
   renderedRangeOf,
   scopeStats,
   sharedRootOf,
@@ -112,6 +113,32 @@ describe('graphs', () => {
       'Gate',
       'Finished',
     ]);
+  });
+
+  it('returns the same labelled graph for the same payload and graph', () => {
+    const graph = miniPayload.graphs[0]!;
+    expect(labelledGraph(miniPayload, graph)).toBe(
+      labelledGraph(miniPayload, graph)
+    );
+    expect(labelledGraph(miniPayload, { ...graph })).not.toBe(
+      labelledGraph(miniPayload, graph)
+    );
+  });
+
+  it("finds the graph a zoom level's block map draws", () => {
+    expect(
+      mapGraphOf(miniPayload, { level: 'block', block: byId('mini/gate') })
+    ).toMatchObject({ highlight: 'ask_gate', graph: { blockId: 'mini' } });
+    expect(
+      mapGraphOf(miniPayload, { level: 'block', block: byId('mini/notes') })
+    ).toBeNull();
+    expect(mapGraphOf(miniPayload, { level: 'skill' })).toMatchObject({
+      highlight: null,
+      graph: { blockId: 'mini' },
+    });
+    expect(
+      mapGraphOf(miniPayload, { level: 'parent', block: byId('mini/run') })
+    ).toBeNull();
   });
 
   it('counts every block under the root', () => {

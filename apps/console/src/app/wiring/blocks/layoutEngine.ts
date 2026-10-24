@@ -17,7 +17,11 @@ export function loadLayoutEngine(): Promise<LayoutEngine> {
   ])
     .then(([{ default: ElkApi }, { default: ElkWorker }]) => {
       const elk = new ElkApi({ workerFactory: () => new ElkWorker() });
-      if (loading === mine) running = elk;
+      if (loading !== mine) {
+        elk.terminateWorker();
+        throw new Error('The layout engine was dropped while it loaded');
+      }
+      running = elk;
       return engineOver(elk);
     })
     .catch((error: unknown) => {

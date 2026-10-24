@@ -372,6 +372,23 @@ describe('BlockView: a single block', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('keeps the Layers panel when the URL asks for a map where no graph is', () => {
+    renderView({ block: 'mini/notes', select: 'graph' });
+
+    expect(screen.queryByTestId('block-map')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Layers' })).toBeInTheDocument();
+    expect(screen.getByTestId('block-view')).not.toHaveAttribute('data-rail');
+  });
+
+  it('gives the open map the stage width, not the read-only cap', () => {
+    renderView({ block: 'mini/gate', select: 'graph' });
+
+    expect(screen.getByTestId('block-view')).toHaveAttribute(
+      'data-rail',
+      'map'
+    );
+  });
+
   it('shows its path in the skill beside the ⋯ menu, which holds Open file', async () => {
     renderView({ block: 'mini/gate' });
 

@@ -536,6 +536,10 @@
   max-width: 880px;
 }
 
+.layout[data-rail='map'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 @media (max-width: 960px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
