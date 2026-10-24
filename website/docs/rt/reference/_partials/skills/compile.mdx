@@ -21,7 +21,7 @@ A key naming a block the engine does not have, or a prop the block does not decl
   <manifest>/skills.jsonc:8:25: "mattstack:ship" no longer has slot "domain", bound by this pack; its props are: ship/flow/domain-steps-before-gate.rules (add), ship/flow/gate-ship.rules (add), ship/flow/commit-named-files.rules (add), ship/flow/domain-fast-checks.rules (add), ship/flow/fix-test-first.rules (add), ship/flow/domain-rebases-unfinished.rules (add), ship/flow/resolve-conflict-files.rules (add), ship/flow/mr-create.rules (add), ship/flow/capture-after-case.rules (add), ship/flow/attach-evidence.rules (add), ship/flow/write-title-description.rules (add), ship/flow/domain-runs-ci.rules (add), ship/flow/run-watch-ci.rules (add), ship/domain-rules.rules (add)
 ```
 
-Move the fill to the block where the rule belongs, with [`rt skills bind`](/rt/reference/skills/bind), and delete the old key from `pack/skills.jsonc`. A rule for one step binds to that step's block; a rule for the whole verb binds to its `domain-rules` block. When the message says the org base pack bound the key, that pack converts first: your own `pack/skills.jsonc` has nothing to delete.
+Move the fill to the block where the rule belongs, with [`rt skills bind`](/rt/reference/skills/bind), and delete the old key from `pack/skills.jsonc`. A rule for one step binds to that step's block; a rule for the whole verb binds to its `domain-rules` block. When the message says the org base pack bound the key, that pack converts first. If the base pack is the only one it names, your own `pack/skills.jsonc` has nothing to delete. If it also names this pack, delete your own key too.
 
 ### Work verbs and their pipelines
 
