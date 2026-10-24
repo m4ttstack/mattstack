@@ -27,6 +27,7 @@ import {
   MAP_NODE_TYPES,
   MapActionsContext,
   measureText,
+  roomOf,
   useFontsLoaded,
   type JunctionFlowNode,
   type MapActions,
@@ -38,7 +39,7 @@ import { dotsOf, labelOf } from './model/blockFacts';
 import { blockMap, type MapKind } from './model/blockMap';
 import type { LaidOut, LayoutEngine } from './model/elkGraph';
 import { foldBand } from './model/foldBand';
-import { shortLabel } from './model/labels';
+import { countOf, shortLabel } from './model/labels';
 import { mapFocus, type MapHover } from './model/mapFocus';
 import { mapLayout, skillOf } from './model/mapLayout';
 
@@ -48,6 +49,9 @@ type FlowNode =
   MapFlowNode | JunctionFlowNode | BandFlowNode | BandStepFlowNode;
 
 const NODE_TYPES: NodeTypes = { ...MAP_NODE_TYPES, ...BAND_NODE_TYPES };
+
+/** How many frames a pending focus waits for its target to draw. */
+const FOCUS_FRAMES = 30;
 
 function flowOf(
   layout: BandedLayout,
@@ -77,7 +81,7 @@ function flowOf(
         width: placed.width,
         height: placed.height,
         handles: handlesAt(box.width / 2, placed.height),
-        data: { box },
+        data: { box, room: roomOf(placed, laidOut) },
       });
     }
   }
@@ -91,7 +95,7 @@ function flowOf(
       width: placed.width,
       height: placed.height,
       handles: handlesAt(box.width / 2, placed.height),
-      data: { box },
+      data: { box, room: roomOf(placed, laidOut) },
     });
   }
   for (const id of layout.junctions) {
@@ -170,10 +174,28 @@ function MapCanvas({
   actions: MapActions;
 }) {
   const canvas = useCanvasPlane(laidOut.width);
+  const { element, width } = canvas;
   const { nodes, edges } = useMemo(
     () => flowOf(layout, laidOut),
     [layout, laidOut]
   );
+  const { highlight } = actions;
+  const reduceMotion = useReducedMotion(false, {
+    getInitialValueInEffect: false,
+  });
+  const shown = useRef(false);
+  useEffect(() => {
+    const target = highlight
+      ? element.current?.querySelector(`[data-node="${highlight}"]`)
+      : null;
+    if (shown.current || width <= 0 || !target) return;
+    shown.current = true;
+    target.scrollIntoView({
+      behavior: reduceMotion ? 'instant' : 'smooth',
+      block: 'center',
+      inline: 'center',
+    });
+  }, [element, highlight, width, nodes, reduceMotion]);
   return (
     <MapActionsContext.Provider value={actions}>
       <GraphCanvas
@@ -247,19 +269,31 @@ export function BlockMap({
     fallback: string | null;
     fromLabel: string;
     ring: boolean;
+    /** The pill's target is its own card, which only rings. */
+    self: boolean;
   } | null>(null);
   const reduceMotion = useReducedMotion();
   const sectionRef = useRef<HTMLElement>(null);
   /** Where focus goes once the layout that holds it has drawn. */
   const pendingFocus = useRef<string | null>(null);
 
+  // React Flow draws changed nodes a commit after it gets them, so the target
+  // can be missing for a frame or two after the layout that holds it lands.
   useEffect(() => {
     const selector = pendingFocus.current;
     if (!selector) return;
-    const target = sectionRef.current?.querySelector<HTMLElement>(selector);
-    if (!target) return;
-    pendingFocus.current = null;
-    target.focus({ preventScroll: true });
+    let frame = 0;
+    const attempt = (left: number) => {
+      const target = sectionRef.current?.querySelector<HTMLElement>(selector);
+      if (target) {
+        pendingFocus.current = null;
+        target.focus({ preventScroll: true });
+      } else if (left > 0) {
+        frame = requestAnimationFrame(() => attempt(left - 1));
+      }
+    };
+    attempt(FOCUS_FRAMES);
+    return () => cancelAnimationFrame(frame);
   });
 
   const banded = useMemo(() => {
@@ -284,7 +318,8 @@ export function BlockMap({
   useEffect(() => {
     if (!jumped?.ring) return;
     const timer = setTimeout(
-      () => setJumped(now => now && { ...now, ring: false }),
+      () =>
+        setJumped(now => now && (now.self ? null : { ...now, ring: false })),
       RING_MS
     );
     return () => clearTimeout(timer);
@@ -321,13 +356,15 @@ export function BlockMap({
     return {
       select: onSelect,
       jump: (targets, from, fromLabel) => {
-        scrollTo(nodeAt(targets[0]!));
+        const self = targets.length === 1 && targets[0] === from;
+        if (!self) scrollTo(nodeAt(targets[0]!));
         setJumped({
           targets,
           from,
           fallback: inBand(from) ? shown!.band!.link.from : null,
           fromLabel,
           ring: true,
+          self,
         });
       },
       highlight,
@@ -349,7 +386,7 @@ export function BlockMap({
         dim: focus.litNodes !== null && !focus.litNodes.has(id),
         ring: !!jumped?.ring && jumped.targets.includes(id),
         from:
-          jumped && jumped.targets[0] === id
+          jumped && !jumped.self && jumped.targets[0] === id
             ? {
                 label: jumped.fromLabel,
                 onBack: () => {
@@ -384,7 +421,7 @@ export function BlockMap({
         const folded = stepsOf.get(id);
         if (!folded || folded.length === 0) return null;
         return {
-          name: `Unfold ${folded.length} steps: ${nameOf(link.from)} to ${link.to.map(nameOf).join(', ')}`,
+          name: `Unfold ${countOf(folded.length, 'step')}: ${nameOf(link.from)} to ${link.to.map(nameOf).join(', ')}`,
           steps: folded,
         };
       },
@@ -411,7 +448,7 @@ export function BlockMap({
     >
       <GraphHead
         title="Block map"
-        count={`${blocks} blocks · ${map.foldedSteps} steps folded`}
+        count={`${countOf(blocks, 'block')} · ${countOf(map.foldedSteps, 'step')} folded`}
         view="graph"
         onView={onView}
         onClose={onClose}

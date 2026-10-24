@@ -485,6 +485,86 @@ describe('BlockMap interactions', () => {
   );
 
   it(
+    'Which forge\'s pill back into the forge split scrolls to the dot, rings it and shows "from Which forge" with Back',
+    async () => {
+      await renderMap();
+      vi.useFakeTimers();
+      const split = () =>
+        screen
+          .getAllByTestId('map-split')
+          .find(dot => dot.closest('[data-node="create_forge_host"]'))!;
+
+      fireEvent.click(
+        within(boxOf('Which forge') as HTMLElement).getByRole('button', {
+          name: 'back to Forge host (ship, create)?',
+        })
+      );
+
+      const dotBox = split().closest('[data-node]') as HTMLElement;
+      expect(scrolled.mock.contexts.at(-1)).toBe(dotBox);
+      expect(split()).toHaveAttribute('data-ring');
+      const from = within(dotBox).getByTestId('jump-from');
+      expect(from).toHaveTextContent('from Which forge');
+      expect(
+        within(from).getByRole('button', { name: 'Back' })
+      ).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(RING_MS));
+      expect(split()).not.toHaveAttribute('data-ring');
+    },
+    SLOW
+  );
+
+  it(
+    'a pill whose target is its own card rings that card and shows no "from" chip',
+    async () => {
+      await renderMap();
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'iterate: back to Push refused' })
+      );
+
+      expect(cardNamed('Push refused')).toHaveAttribute('data-ring');
+      expect(screen.queryByTestId('jump-from')).toBeNull();
+    },
+    SLOW
+  );
+
+  it(
+    'the "from" chip sits under its card, kept inside the canvas',
+    async () => {
+      await renderMap();
+
+      fireEvent.click(
+        within(boxOf('Resolve conflicts') as HTMLElement).getByRole('button', {
+          name: 'back to Fast checks',
+        })
+      );
+
+      const from = screen.getByTestId('jump-from');
+      expect(from).toHaveAttribute('data-place', 'below');
+      expect(parseFloat(from.style.maxWidth)).toBeGreaterThan(0);
+    },
+    SLOW
+  );
+
+  it(
+    'a link that folds one step says "1 step"',
+    async () => {
+      await renderMap();
+      const id = 'record_evidence->attach_evidence';
+
+      expect(linkButton(id)).toHaveAccessibleName(
+        'Unfold 1 step: Record evidence to Attach evidence'
+      );
+      fireEvent.mouseEnter(linkButton(id));
+      const tip = await screen.findByTestId('fold-steps');
+      expect(within(tip).getByText('1 step folded')).toBeInTheDocument();
+    },
+    SLOW
+  );
+
+  it(
     'cards, pills and dotted links are buttons with names, reachable by Tab',
     async () => {
       await renderMap();

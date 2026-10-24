@@ -20,6 +20,7 @@ import classes from './blocks.module.css';
 import type { Dot } from './model/blockFacts';
 import type { MapKind } from './model/blockMap';
 import type { BandNode } from './model/foldBand';
+import { countOf } from './model/labels';
 import type { MapBox } from './model/mapLayout';
 
 const ICON_STROKE = 2;
@@ -105,7 +106,7 @@ export function FoldSteps({
   return (
     <div className={classes.foldTip} data-testid="fold-steps">
       <div className={classes.foldTipTitle}>
-        {`${steps.length} steps folded`}
+        {`${countOf(steps.length, 'step')} folded`}
       </div>
       <ul className={classes.foldTipList}>
         {steps.map(step => (
@@ -121,6 +122,7 @@ export function FoldSteps({
 }
 
 export type JumpPillProps = {
+  id: string;
   label: string | null;
   target: string;
   direction: 'back' | 'forward';
@@ -181,22 +183,43 @@ function Pills({ pills }: { pills: JumpPillProps[] }) {
   return (
     <span className={classes.mapPills}>
       {pills.map(pill => (
-        <JumpPill key={`${pill.label}:${pill.target}`} {...pill} />
+        <JumpPill key={pill.id} {...pill} />
       ))}
     </span>
   );
 }
 
-/** Beside a jump's target: where the jump came from, and the way back. */
-export function JumpFrom({
-  label,
-  onBack,
-}: {
-  label: string;
-  onBack: () => void;
-}) {
+/** How far a node's left edge sits from the canvas's right edge, and its
+    bottom edge from the canvas's bottom, in layout px. */
+export type Room = { right: number; below: number };
+
+export const roomOf = (
+  placed: { x: number; y: number; height: number },
+  canvas: { width: number; height: number }
+): Room => ({
+  right: canvas.width - placed.x,
+  below: canvas.height - placed.y - placed.height,
+});
+
+/** The chip's height and its gap from the node, as blocks.module.css draws
+    them. */
+const FROM_CHIP = { height: 24, gap: 6 } as const;
+
+export type JumpFromProps = { label: string; onBack: () => void; room: Room };
+
+/** Under a jump's target, or over it with no room below: where the jump came
+    from, and the way back. It is kept inside the canvas, so it never takes
+    room from the layout. */
+export function JumpFrom({ label, onBack, room }: JumpFromProps) {
   return (
-    <span className={classes.mapFrom} data-testid="jump-from">
+    <span
+      className={classes.mapFrom}
+      data-testid="jump-from"
+      data-place={
+        room.below >= FROM_CHIP.height + FROM_CHIP.gap ? 'below' : 'above'
+      }
+      style={{ maxWidth: room.right }}
+    >
       <span className={classes.mapFromLabel}>from {label}</span>
       <UnstyledButton className={classes.mapFromBack} onClick={onBack}>
         <Icon name="arrowDown" size={11} strokeWidth={ICON_STROKE} />
@@ -229,7 +252,7 @@ export function BlockCard({
   hot?: boolean;
   dim?: boolean;
   ring?: boolean;
-  from?: { label: string; onBack: () => void } | null;
+  from?: JumpFromProps | null;
   /** Opens the block; the end card opens nothing. */
   onClick?: () => void;
   onHover?: (on: boolean) => void;
@@ -320,7 +343,7 @@ export function SplitDot({
   pills: JumpPillProps[];
   dim?: boolean;
   ring?: boolean;
-  from?: { label: string; onBack: () => void } | null;
+  from?: JumpFromProps | null;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -413,7 +436,7 @@ export const MapActionsContext = createContext<MapActions>({
   linkInfo: () => null,
 });
 
-export type MapFlowNode = Node<{ box: MapBox }, 'card' | 'split'>;
+export type MapFlowNode = Node<{ box: MapBox; room: Room }, 'card' | 'split'>;
 export type JunctionFlowNode = Node<Record<string, never>, 'junction'>;
 
 export function Handles() {
@@ -439,6 +462,7 @@ function usePills(box: MapBox, fromLabel: string): JumpPillProps[] {
   const { jump, nodeView, linkInfo } = useContext(MapActionsContext);
   const jumped = nodeView(box.node.id).jumped?.join('\u0000');
   return box.pills.map(pill => ({
+    id: pill.id,
     label: pill.label,
     target: pill.target,
     direction: pill.direction,
@@ -448,7 +472,7 @@ function usePills(box: MapBox, fromLabel: string): JumpPillProps[] {
   }));
 }
 
-function CardNode({ data: { box } }: NodeProps<MapFlowNode>) {
+function CardNode({ data: { box, room } }: NodeProps<MapFlowNode>) {
   const { select, hover, nodeView } = useContext(MapActionsContext);
   const pills = usePills(box, box.node.label);
   const view = nodeView(box.node.id);
@@ -465,7 +489,7 @@ function CardNode({ data: { box } }: NodeProps<MapFlowNode>) {
         hot={view.hot}
         dim={view.dim}
         ring={view.ring}
-        from={view.from}
+        from={view.from && { ...view.from, room }}
         onClick={blockId ? () => select(blockId) : undefined}
         onHover={on => hover(on ? { kind: 'node', id } : null)}
       />
@@ -474,7 +498,7 @@ function CardNode({ data: { box } }: NodeProps<MapFlowNode>) {
   );
 }
 
-function SplitNode({ data: { box } }: NodeProps<MapFlowNode>) {
+function SplitNode({ data: { box, room } }: NodeProps<MapFlowNode>) {
   const { questionOf, nodeView } = useContext(MapActionsContext);
   const question = questionOf(box.node.id);
   const pills = usePills(box, question);
@@ -487,7 +511,7 @@ function SplitNode({ data: { box } }: NodeProps<MapFlowNode>) {
         pills={pills}
         dim={view.dim}
         ring={view.ring}
-        from={view.from}
+        from={view.from && { ...view.from, room }}
       />
       <Handles />
     </>

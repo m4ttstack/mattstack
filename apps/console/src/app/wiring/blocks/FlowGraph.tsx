@@ -41,6 +41,7 @@ import {
   type FlowCard,
   type FlowLayout,
 } from './model/flowLayout';
+import { countOf } from './model/labels';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -305,7 +306,7 @@ export function EveryStep({
     >
       <GraphHead
         title="Every step"
-        count={`${graph.nodes.length} steps · ${blocks} blocks`}
+        count={`${countOf(graph.nodes.length, 'step')} · ${countOf(blocks, 'block')}`}
         view="graph-steps"
         onView={onView}
         onClose={onClose}

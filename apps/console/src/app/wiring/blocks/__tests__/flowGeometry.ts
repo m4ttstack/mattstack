@@ -53,6 +53,19 @@ export function labelClashes(laidOut: LaidOut): string[] {
   return clashes;
 }
 
+/** Each label that reaches past the laid-out canvas. */
+export function labelsOutside(laidOut: LaidOut): string[] {
+  return Object.entries(laidOut.edges).flatMap(([id, { label }]) =>
+    label &&
+    (label.x < 0 ||
+      label.y < 0 ||
+      label.x + label.width > laidOut.width ||
+      label.y + label.height > laidOut.height)
+      ? [id]
+      : []
+  );
+}
+
 const distance = (box: Box, [x, y]: Point) =>
   Math.hypot(
     Math.max(box.x - x, 0, x - (box.x + box.width)),

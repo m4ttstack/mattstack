@@ -1010,6 +1010,7 @@
 .mapBox,
 .mapSplitBox {
   display: flex;
+  position: relative;
   align-items: center;
   height: 100%;
   pointer-events: auto;
@@ -1315,6 +1316,8 @@
 
 .mapSplit[data-ring] {
   border-color: var(--tk-fill-accent);
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
   box-shadow: 0 0 0 4px
     color-mix(in srgb, var(--tk-fill-accent) var(--ui-wash), transparent);
 }
@@ -1329,9 +1332,14 @@
   color: var(--tk-on-fill-accent);
 }
 
+/* Under its node, out of the layout, so a node's box never makes room for
+   it; JumpFrom flips it above when the canvas has no room below. */
 .mapFrom {
   display: inline-flex;
-  flex-shrink: 0;
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 6px);
+  left: 0;
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
@@ -1345,12 +1353,20 @@
   white-space: nowrap;
 }
 
+.mapFrom[data-place='above'] {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .mapFromLabel {
+  overflow: hidden;
   color: var(--tk-text-2);
+  text-overflow: ellipsis;
 }
 
 .mapFromBack {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 3px;
   height: 18px;
@@ -1470,6 +1486,7 @@
 
 .foldStepBox {
   display: flex;
+  position: relative;
   align-items: flex-start;
   gap: 8px;
   height: 100%;

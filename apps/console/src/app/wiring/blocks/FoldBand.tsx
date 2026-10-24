@@ -4,20 +4,21 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 
 import classes from './blocks.module.css';
-import { Handles, JumpFrom, MapActionsContext } from './graphCards';
+import { Handles, JumpFrom, MapActionsContext, type Room } from './graphCards';
 import type { BandBox, BandRow, OpenBand } from './model/bandLayout';
+import { countOf } from './model/labels';
 
 /** How long a jump's target stays ringed. */
 export const RING_MS = 2000;
 
 export type BandFlowNode = Node<{ band: OpenBand }, 'band'>;
-export type BandStepFlowNode = Node<{ box: BandBox }, 'bandStep'>;
+export type BandStepFlowNode = Node<{ box: BandBox; room: Room }, 'bandStep'>;
 
 /** The open band's frame: a tint behind its steps, headed by their count
     and the Fold button. */
 function BandFrame({ data: { band } }: NodeProps<BandFlowNode>) {
   const { fold, nodeView } = useContext(MapActionsContext);
-  const count = `${band.boxes.length} steps`;
+  const count = countOf(band.boxes.length, 'step');
   return (
     <div
       className={classes.foldBand}
@@ -83,7 +84,7 @@ function Row({
 
 /** One step inside the band: a command as a mono line, anything else as a
     card with its exits. */
-function BandStep({ data: { box } }: NodeProps<BandStepFlowNode>) {
+function BandStep({ data: { box, room } }: NodeProps<BandStepFlowNode>) {
   const { nodeView } = useContext(MapActionsContext);
   const { node } = box;
   const view = nodeView(node.id);
@@ -145,7 +146,7 @@ function BandStep({ data: { box } }: NodeProps<BandStepFlowNode>) {
             </div>
           )}
         </div>
-        {view.from && <JumpFrom {...view.from} />}
+        {view.from && <JumpFrom {...view.from} room={room} />}
       </div>
       <Handles />
     </>

@@ -2,16 +2,20 @@ import '../../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { act, fireEvent, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { BlocksPayload } from '../../../../server/blocksPayload';
 import { BlockMap } from '../BlockMap';
+import { measureText } from '../graphCards';
 import { bundledEngine } from '../layoutEngine';
+import { openBand } from '../model/bandLayout';
+import { dotsOf as blockDots } from '../model/blockFacts';
 import { blockMap, type MapKind } from '../model/blockMap';
 import type { LayoutEngine } from '../model/elkGraph';
 import { mainColumn, mapLayout } from '../model/mapLayout';
 import { LAYOUT_TIMEOUT_MS } from '../useGraphLayout';
 import { shipPayload } from './blocksFixture';
+import { labelClashes, labelsOutside } from './flowGeometry';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -23,6 +27,10 @@ const map = blockMap(graph, blockId => {
     kind: block.kind as Exclude<MapKind, 'end' | 'split'>,
   };
 });
+const dotsOf = (blockId: string) => {
+  const block = shipPayload.blocks.find(each => each.id === blockId);
+  return block ? blockDots(block) : [];
+};
 const canvas = vi.hoisted(() => ({ width: 0 }));
 
 vi.mock('@mattstack/app-kit/hooks', async importOriginal => ({
@@ -275,6 +283,134 @@ describe('BlockMap', () => {
       canvas.width = 0;
     }
   }, 20_000);
+
+  it('the loading placeholder is a status', () => {
+    renderMap({ engine: () => new Promise(() => {}) });
+
+    expect(
+      screen.getByRole('status', { name: 'Laying out the map' })
+    ).toBeInTheDocument();
+  });
+
+  describe('opened on a lit block', () => {
+    const native = Element.prototype.scrollIntoView;
+    afterEach(() => {
+      Element.prototype.scrollIntoView = native;
+      canvas.width = 0;
+      vi.restoreAllMocks();
+    });
+
+    async function openOn(highlight: string) {
+      const scrolled = vi.fn<Element['scrollIntoView']>();
+      Element.prototype.scrollIntoView = scrolled;
+      canvas.width = 1100;
+      const props = {
+        payload: shipPayload,
+        graph,
+        highlight,
+        onSelect: vi.fn(),
+        onView: vi.fn(),
+        onClose: vi.fn(),
+        engine,
+      };
+      const view = renderWithProviders(<BlockMap {...props} />);
+      await screen.findAllByTestId('map-card', {}, LAID_OUT);
+      await vi.waitFor(() => expect(scrolled).toHaveBeenCalled(), LAID_OUT);
+      return {
+        scrolled,
+        rerender: () => view.rerender(<BlockMap {...props} />),
+      };
+    }
+
+    it('scrolls the lit block into view once', async () => {
+      const { scrolled, rerender } = await openOn('gate_mark_ready');
+
+      expect(scrolled).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'center',
+      });
+      expect(scrolled.mock.contexts[0]).toHaveAttribute(
+        'data-node',
+        'gate_mark_ready'
+      );
+      rerender();
+      expect(scrolled).toHaveBeenCalledOnce();
+    }, 20_000);
+
+    it('scrolls instantly under reduced motion', async () => {
+      const real = window.matchMedia;
+      vi.spyOn(window, 'matchMedia').mockImplementation(query =>
+        query.includes('prefers-reduced-motion')
+          ? { ...real(query), matches: true }
+          : real(query)
+      );
+
+      const { scrolled } = await openOn('gate_mark_ready');
+
+      expect(scrolled).toHaveBeenCalledWith(
+        expect.objectContaining({ behavior: 'instant', block: 'center' })
+      );
+    }, 20_000);
+  });
+
+  it('a resize that keeps the zoom keeps the canvas mounted and recentres the map', async () => {
+    canvas.width = 1400;
+    try {
+      const props = {
+        payload: shipPayload,
+        graph,
+        highlight: null,
+        onSelect: vi.fn(),
+        onView: vi.fn(),
+        onClose: vi.fn(),
+        engine,
+      };
+      const { rerender } = renderWithProviders(<BlockMap {...props} />);
+      const card = (await screen.findAllByTestId('map-card', {}, LAID_OUT))[0]!;
+      const viewport = () =>
+        document.querySelector<HTMLElement>('.react-flow__viewport')!;
+      const before = viewport().style.transform;
+      const zoom = screen.getByTestId('map-canvas').getAttribute('data-zoom');
+
+      canvas.width = 1300;
+      rerender(<BlockMap {...props} />);
+
+      expect(screen.getByTestId('map-canvas')).toHaveAttribute(
+        'data-zoom',
+        zoom
+      );
+      expect(card.isConnected).toBe(true);
+      await vi.waitFor(() =>
+        expect(viewport().style.transform).not.toBe(before)
+      );
+    } finally {
+      canvas.width = 0;
+    }
+  }, 20_000);
+
+  describe('label geometry', () => {
+    const layout = mapLayout(map, graph, { dotsOf, measure: measureText });
+    const bands = map.links.flatMap(link => {
+      const banded = openBand(layout, map, graph, link, measureText);
+      return banded.band ? [{ name: link.id, input: banded.input }] : [];
+    });
+    const states = [{ name: 'closed', input: layout.input }, ...bands];
+
+    it('every openable band is checked', () => {
+      expect(bands.length).toBeGreaterThan(20);
+    });
+
+    it.each(states)(
+      '$name: no label over another line, card or label, and none outside the canvas',
+      async ({ input }) => {
+        const laidOut = await shared.layout(input);
+        expect(labelClashes(laidOut)).toEqual([]);
+        expect(labelsOutside(laidOut)).toEqual([]);
+      },
+      20_000
+    );
+  });
 
   it('Close calls onClose', () => {
     const { onClose } = renderMap({ engine: () => new Promise(() => {}) });

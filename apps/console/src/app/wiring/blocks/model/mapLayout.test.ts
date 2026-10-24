@@ -58,6 +58,22 @@ describe('pillTarget', () => {
   it('names several targets by their shared leading word', () => {
     expect(pillTarget(jump('reopened_recapture'), map, graph)).toBe('Capture');
   });
+
+  it("names a split by its short label, as the dot's tooltip does", () => {
+    const named = {
+      ...map,
+      nodes: map.nodes.map(node =>
+        node.id === 'create_forge_host'
+          ? { ...node, label: 'Forge host (ship)?' }
+          : node
+      ),
+    };
+    const into = map.links.find(
+      link =>
+        link.from === 'gate_which_forge' && link.to[0] === 'create_forge_host'
+    )!;
+    expect(pillTarget(into, named, graph)).toBe('Forge host?');
+  });
 });
 
 describe('mapLayout', () => {

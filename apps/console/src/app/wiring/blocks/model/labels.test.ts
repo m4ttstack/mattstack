@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { cutLabel, shortLabel } from './labels';
+import { countOf, cutLabel, shortLabel } from './labels';
+
+describe('countOf', () => {
+  it('names one thing in the singular and any other count in the plural', () => {
+    expect(countOf(1, 'step')).toBe('1 step');
+    expect(countOf(0, 'step')).toBe('0 steps');
+    expect(countOf(27, 'block')).toBe('27 blocks');
+  });
+});
 
 describe('shortLabel', () => {
   it('drops a trailing parenthetical that names the skill in view', () => {

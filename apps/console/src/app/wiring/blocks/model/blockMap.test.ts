@@ -532,7 +532,7 @@ describe('blockMap', () => {
     expect(linkTo(map, 'C', 'T1').folded).toEqual(['c', 'F']);
   });
 
-  it('a link into a split stays a line, however far it spans', () => {
+  it('a forward link into a split stays a line, however far it spans', () => {
     const map = blockMap(
       g(
         [
@@ -867,25 +867,35 @@ describe('blockMap on ship flow', () => {
     }
   });
 
-  it('a block after a split that its forward links pass loops up into the split with one line', () => {
+  it('a block after a split that its forward links pass loops back into the split with one jump pill naming the question', () => {
     const own = map.links.filter(link => link.from === 'gate_which_forge');
 
     expect(own.map(link => [link.to.join(', '), link.kind])).toEqual([
-      ['create_forge_host', 'line'],
+      ['create_forge_host', 'jump-back'],
       ['gate_which_forge', 'jump-back'],
     ]);
     expect(linkTo(map, 'gate_which_forge', 'create_forge_host')).toMatchObject({
       folded: [],
       trunk: null,
+      label: null,
     });
     expect(linkTo(map, 'gate_which_forge', 'gate_which_forge').label).toBe(
       'answered'
     );
-    const edge = mapLayout(map, graph, {
+    const layout = mapLayout(map, graph, {
       dotsOf: () => [],
       measure: text => text.length * 7,
-    }).edges.find(each => each.from === 'gate_which_forge')!;
-    expect(edge).toMatchObject({ to: 'create_forge_host', folded: false });
+    });
+    expect(
+      layout.edges.filter(each => each.from === 'gate_which_forge')
+    ).toEqual([]);
+    expect(layout.boxes.get('gate_which_forge')!.pills).toContainEqual({
+      id: 'gate_which_forge->create_forge_host',
+      label: null,
+      target: 'Forge host (ship, create)?',
+      targets: ['create_forge_host'],
+      direction: 'back',
+    });
   });
 
   it("every_case_tried keeps its short trunk while the forge split's long links jump", () => {

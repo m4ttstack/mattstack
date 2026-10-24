@@ -288,20 +288,20 @@ export function blockMap(
     const byFork = new Map<string, MapLink>();
     for (const reach of own) {
       if (inTrunk.has(reach)) continue;
-      const kind = isSplit.has(reach.to)
-        ? 'line'
-        : !isForward(reach)
-          ? 'jump-back'
-          : span(reach) >= JUMP_LAYERS
-            ? 'jump-forward'
-            : 'line';
+      const kind = !isForward(reach)
+        ? 'jump-back'
+        : isSplit.has(reach.to) || span(reach) < JUMP_LAYERS
+          ? 'line'
+          : 'jump-forward';
       const link = newLink(reach, kind);
       if (kind === 'line') {
         if (isSplit.has(node.id)) link.label = cut(reach.firstEdge);
         links.push(link);
         continue;
       }
-      link.label = cut(reach.firstEdge);
+      // A pill back into a split names the question, which says more than
+      // the exit that left for it.
+      link.label = isSplit.has(reach.to) ? null : cut(reach.firstEdge);
       link.fork = reach.fork;
       const key = `${kind}\u0000${link.label}\u0000${reach.fork}`;
       const twin = reach.fork === null ? undefined : byFork.get(key);

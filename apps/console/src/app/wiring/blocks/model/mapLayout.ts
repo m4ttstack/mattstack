@@ -91,11 +91,16 @@ export type MapLayout = {
 /** The skill a graph belongs to: its block id's first segment. */
 export const skillOf = (graph: Graph) => graph.blockId.split('/')[0]!;
 
-/** A jump pill's target: one target's label, else the targets' shared
-    leading word, else the fork question's short label. */
+/** A jump pill's target: one target's label (a split's short label), else
+    the targets' shared leading word, else the fork question's short label. */
 export function pillTarget(link: MapLink, map: BlockMap, graph: Graph): string {
-  const labelOf = (id: string) =>
-    map.nodes.find(node => node.id === id)?.label ?? id;
+  const labelOf = (id: string) => {
+    const node = map.nodes.find(each => each.id === id);
+    if (!node) return id;
+    return node.kind === 'split'
+      ? shortLabel(node.label, skillOf(graph))
+      : node.label;
+  };
   if (link.to.length === 1) return labelOf(link.to[0]!);
   const words = link.to.map(id => labelOf(id).split(' ')[0]!);
   if (words.every(word => word === words[0])) return words[0]!;

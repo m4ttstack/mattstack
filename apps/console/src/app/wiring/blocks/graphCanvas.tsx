@@ -1,6 +1,6 @@
 import '@xyflow/react/dist/base.css';
 
-import { useRef, type RefCallback, type RefObject } from 'react';
+import { useMemo, useRef, type RefCallback, type RefObject } from 'react';
 import {
   Box,
   SegmentedControl,
@@ -128,8 +128,6 @@ export interface GraphCanvasProps {
   className?: string;
 }
 
-// The frame draws the border, so the scroller inside it measures exactly the
-// room the plane has.
 export function GraphCanvas({
   canvas: { ref, zoom, plane, offset },
   laidOut,
@@ -140,6 +138,9 @@ export function GraphCanvas({
   className,
 }: GraphCanvasProps) {
   const scheme = useComputedColorScheme('light');
+  // Controlled, so a resize moves the map without remounting React Flow and
+  // dropping an open tooltip or focus inside it.
+  const viewport = useMemo(() => ({ x: offset, y: 0, zoom }), [offset, zoom]);
   return (
     <div className={classes.graphFrame}>
       <div
@@ -159,12 +160,11 @@ export function GraphCanvas({
           h={Math.ceil(laidOut.height * zoom)}
         >
           <ReactFlow
-            key={`${plane}:${zoom}`}
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={MAP_EDGE_TYPES}
-            defaultViewport={{ x: offset, y: 0, zoom }}
+            viewport={viewport}
             minZoom={MIN_MAP_ZOOM}
             maxZoom={1}
             panOnDrag={false}
@@ -205,7 +205,13 @@ export function GraphLoading({
   label: string;
 }) {
   return (
-    <Skeleton h={height} radius={12} data-testid={testId} aria-label={label} />
+    <Skeleton
+      h={height}
+      radius={12}
+      role="status"
+      data-testid={testId}
+      aria-label={label}
+    />
   );
 }
 
