@@ -184,6 +184,14 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "waivable": false,
         },
         {
+          "action": null,
+          "id": "skills.overrides",
+          "kind": "tool",
+          "recheck": "on-change",
+          "required": false,
+          "status": "skipped",
+        },
+        {
           "action": {
             "fields": [
               {
@@ -425,6 +433,10 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "perm.notifications.title": "Notifications",
   "perm.notifications.why": "Shows menu-bar notifications when something needs your attention.",
   "rt.title": "rt on this Mac",
+  "skills.overrides.detail": "No overrides file",
+  "skills.overrides.optionalNote": null,
+  "skills.overrides.title": "Skill overrides",
+  "skills.overrides.why": "Old slot keys in your own overrides file stop the mattstack skills from compiling.",
   "skills.writing-style.detail": "You choose this after Install",
   "skills.writing-style.optionalNote": null,
   "skills.writing-style.title": "Writing style",
@@ -716,6 +728,14 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "waivable": false,
         },
         {
+          "action": null,
+          "id": "skills.overrides",
+          "kind": "tool",
+          "recheck": "on-change",
+          "required": false,
+          "status": "skipped",
+        },
+        {
           "action": {
             "fields": [
               {
@@ -960,6 +980,10 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "perm.notifications.title": "Notifications",
   "perm.notifications.why": "Shows menu-bar notifications when something needs your attention.",
   "rt.title": "rt on this Mac",
+  "skills.overrides.detail": "No overrides file",
+  "skills.overrides.optionalNote": null,
+  "skills.overrides.title": "Skill overrides",
+  "skills.overrides.why": "Old slot keys in your own overrides file stop the mattstack skills from compiling.",
   "skills.writing-style.detail": "You choose this after Install",
   "skills.writing-style.optionalNote": null,
   "skills.writing-style.title": "Writing style",

@@ -608,6 +608,18 @@ describe("blockPropValues", () => {
     expect(d!.message).toStartWith('"mattstack:ship" no longer has slot "domain", bound by the org base pack acme-base and this pack; its props are: ');
   });
 
+  test("an old slot key the override layer bound names the overrides file", () => {
+    const mattstack = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack");
+    const roots: PluginRoots = { byName: { mattstack: { dir: mattstack, version: "1.0.0" } }, list: [] };
+    const step = loadStepSource("ship", roots);
+    const text =
+      '{\n  "bindings": { "mattstack:ship": { "domain": "w:y" } },\n' +
+      '  "layered": { "mattstack:ship": { "domain": [{ "layer": "override", "value": "w:y" }] } }\n}\n';
+    const [d] = diagnosticsOf(() => valuesFor(step, roots, bindingsOf(text)));
+    expect(d!.message).toStartWith('"mattstack:ship" no longer has slot "domain", bound by your overrides file (~/.mattstack/user/skills/overrides.jsonc); its props are: ');
+    expect(d!.message).not.toContain("the repo override");
+  });
+
   test("a value that loads nothing is fill-missing at that layer's value, naming the binding key", () => {
     const { roots } = setup();
     const step = loadStepSource("mini", roots);

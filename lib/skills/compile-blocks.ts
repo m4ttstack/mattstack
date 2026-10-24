@@ -195,7 +195,7 @@ export function replacedSlots(tree: BlockTree): string[] {
 function layerWords(label: string): string {
   if (label.startsWith("base:")) return `the org base pack ${label.slice("base:".length)}`;
   if (label === "pack") return "this pack";
-  if (label === "override") return "the repo override";
+  if (label === "override") return "your overrides file (~/.mattstack/user/skills/overrides.jsonc)";
   if (label === "default") return "mattstack's defaults";
   return label;
 }
