@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
-import { UnstyledButton } from '@mattstack/app-kit/core';
+import { Tooltip, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import {
   Handle,
@@ -19,6 +19,7 @@ import {
 import classes from './blocks.module.css';
 import type { Dot } from './model/blockFacts';
 import type { MapKind } from './model/blockMap';
+import type { BandNode } from './model/foldBand';
 import type { MapBox } from './model/mapLayout';
 
 const ICON_STROKE = 2;
@@ -133,7 +134,27 @@ function Pills({ pills }: { pills: JumpPillProps[] }) {
   );
 }
 
+/** Beside a jump's target: where the jump came from, and the way back. */
+export function JumpFrom({
+  label,
+  onBack,
+}: {
+  label: string;
+  onBack: () => void;
+}) {
+  return (
+    <span className={classes.mapFrom} data-testid="jump-from">
+      <span className={classes.mapFromLabel}>from {label}</span>
+      <UnstyledButton className={classes.mapFromBack} onClick={onBack}>
+        <Icon name="arrowDown" size={11} strokeWidth={ICON_STROKE} />
+        Back
+      </UnstyledButton>
+    </span>
+  );
+}
+
 export function BlockCard({
+  id,
   label,
   kind,
   dots,
@@ -142,8 +163,11 @@ export function BlockCard({
   hot,
   dim,
   ring,
+  from,
   onClick,
+  onHover,
 }: {
+  id?: string;
   label: string;
   kind: MapKind;
   dots: Dot[];
@@ -152,8 +176,10 @@ export function BlockCard({
   hot?: boolean;
   dim?: boolean;
   ring?: boolean;
+  from?: { label: string; onBack: () => void } | null;
   /** Opens the block; the end card opens nothing. */
   onClick?: () => void;
+  onHover?: (on: boolean) => void;
 }) {
   const face = (
     <>
@@ -170,11 +196,20 @@ export function BlockCard({
     'data-hot': hot || undefined,
     'data-ring': ring || undefined,
     style: { '--card-w': `${width}px` } as CSSProperties,
+    ...(onHover
+      ? {
+          onMouseEnter: () => onHover(true),
+          onMouseLeave: () => onHover(false),
+          onFocus: () => onHover(true),
+          onBlur: () => onHover(false),
+        }
+      : {}),
   };
   return (
     <div
       className={classes.mapBox}
       data-testid="map-box"
+      data-node={id}
       data-dim={dim || undefined}
     >
       {onClick ? (
@@ -185,42 +220,104 @@ export function BlockCard({
         <div {...shared}>{face}</div>
       )}
       <Pills pills={pills} />
+      {from && <JumpFrom {...from} />}
     </div>
   );
 }
 
 /** A shared split: a dot where several blocks' paths part, with its long
-    exits as pills beside it. */
+    exits as pills beside it. The dot has no name until it is hovered. */
 export function SplitDot({
+  id,
   question,
   pills,
   dim,
+  ring,
+  from,
 }: {
+  id?: string;
   question: string;
   pills: JumpPillProps[];
   dim?: boolean;
+  ring?: boolean;
+  from?: { label: string; onBack: () => void } | null;
 }) {
+  const [hovered, setHovered] = useState(false);
   return (
-    <div className={classes.mapSplitBox} data-dim={dim || undefined}>
-      <span
-        className={classes.mapSplit}
-        data-testid="map-split"
-        role="img"
-        aria-label={question}
-      />
+    <div
+      className={classes.mapSplitBox}
+      data-node={id}
+      data-dim={dim || undefined}
+    >
+      <Tooltip label={question} opened={hovered} withinPortal>
+        <span
+          className={classes.mapSplit}
+          data-testid="map-split"
+          data-ring={ring || undefined}
+          role="img"
+          aria-label={question}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        />
+      </Tooltip>
       <Pills pills={pills} />
+      {from && <JumpFrom {...from} />}
     </div>
   );
 }
 
-/** What a map node needs from the view around it. */
+export type NodeView = {
+  hot: boolean;
+  dim: boolean;
+  ring: boolean;
+  from: { label: string; onBack: () => void } | null;
+  /** The targets of the jump this node's pill made, while it shows Back. */
+  jumped: string[] | null;
+};
+
+export type EdgeView = {
+  hot: boolean;
+  dim: boolean;
+  /** The folded link this edge draws, which opens on click. */
+  link: string | null;
+  /** The one edge per link that carries its button; the rest only hover. */
+  button: boolean;
+  /** The link itself is hovered, so its button shows its steps. */
+  tip: boolean;
+};
+
+export type LinkInfo = { name: string; steps: BandNode[] };
+
+const QUIET_NODE: NodeView = {
+  hot: false,
+  dim: false,
+  ring: false,
+  from: null,
+  jumped: null,
+};
+const QUIET_EDGE: EdgeView = {
+  hot: false,
+  dim: false,
+  link: null,
+  button: false,
+  tip: false,
+};
+
+/** What a map node or edge needs from the view around it. */
 export type MapActions = {
   select: (blockId: string) => void;
-  jump: (linkId: string) => void;
+  /** Scrolls to `targets` and marks them, remembering `from` for Back. */
+  jump: (targets: string[], from: string, fromLabel: string) => void;
   /** The open block's node, drawn lit. */
   highlight: string | null;
   /** A split question's label as the map shows it. */
   questionOf: (nodeId: string) => string;
+  hover: (target: { kind: 'node' | 'link'; id: string } | null) => void;
+  open: (linkId: string) => void;
+  fold: () => void;
+  nodeView: (nodeId: string) => NodeView;
+  edgeView: (edgeId: string) => EdgeView;
+  linkInfo: (linkId: string) => LinkInfo | null;
 };
 
 export const MapActionsContext = createContext<MapActions>({
@@ -228,12 +325,18 @@ export const MapActionsContext = createContext<MapActions>({
   jump: () => {},
   highlight: null,
   questionOf: id => id,
+  hover: () => {},
+  open: () => {},
+  fold: () => {},
+  nodeView: () => QUIET_NODE,
+  edgeView: () => QUIET_EDGE,
+  linkInfo: () => null,
 });
 
 export type MapFlowNode = Node<{ box: MapBox }, 'card' | 'split'>;
 export type JunctionFlowNode = Node<Record<string, never>, 'junction'>;
 
-function Handles() {
+export function Handles() {
   return (
     <>
       <Handle
@@ -252,30 +355,38 @@ function Handles() {
   );
 }
 
-function usePills(box: MapBox): JumpPillProps[] {
-  const { jump } = useContext(MapActionsContext);
+function usePills(box: MapBox, fromLabel: string): JumpPillProps[] {
+  const { jump, nodeView } = useContext(MapActionsContext);
+  const jumped = nodeView(box.node.id).jumped?.join('\u0000');
   return box.pills.map(pill => ({
     label: pill.label,
     target: pill.target,
     direction: pill.direction,
-    onClick: () => jump(pill.id),
+    pressed: jumped === pill.targets.join('\u0000') || undefined,
+    onClick: () => jump(pill.targets, box.node.id, fromLabel),
   }));
 }
 
 function CardNode({ data: { box } }: NodeProps<MapFlowNode>) {
-  const { select, highlight } = useContext(MapActionsContext);
-  const pills = usePills(box);
-  const { blockId } = box.node;
+  const { select, hover, nodeView } = useContext(MapActionsContext);
+  const pills = usePills(box, box.node.label);
+  const view = nodeView(box.node.id);
+  const { blockId, id } = box.node;
   return (
     <>
       <BlockCard
+        id={id}
         label={box.node.label}
         kind={box.node.kind}
         dots={box.dots}
         width={box.width}
         pills={pills}
-        hot={box.node.id === highlight}
+        hot={view.hot}
+        dim={view.dim}
+        ring={view.ring}
+        from={view.from}
         onClick={blockId ? () => select(blockId) : undefined}
+        onHover={on => hover(on ? { kind: 'node', id } : null)}
       />
       <Handles />
     </>
@@ -283,11 +394,20 @@ function CardNode({ data: { box } }: NodeProps<MapFlowNode>) {
 }
 
 function SplitNode({ data: { box } }: NodeProps<MapFlowNode>) {
-  const { questionOf } = useContext(MapActionsContext);
-  const pills = usePills(box);
+  const { questionOf, nodeView } = useContext(MapActionsContext);
+  const question = questionOf(box.node.id);
+  const pills = usePills(box, question);
+  const view = nodeView(box.node.id);
   return (
     <>
-      <SplitDot question={questionOf(box.node.id)} pills={pills} />
+      <SplitDot
+        id={box.node.id}
+        question={question}
+        pills={pills}
+        dim={view.dim}
+        ring={view.ring}
+        from={view.from}
+      />
       <Handles />
     </>
   );

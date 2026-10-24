@@ -47,6 +47,21 @@ describe('toElk', () => {
     expect(fold?.children?.map(c => c.id)).toEqual(['inner1', 'inner2']);
   });
 
+  it("toElk gives a parent its padding, so a band's header has room", () => {
+    const root = toElk({
+      ...compound,
+      nodes: compound.nodes.map(each =>
+        each.id === 'fold'
+          ? { ...each, padding: { top: 40, right: 16, bottom: 16, left: 16 } }
+          : each
+      ),
+    });
+    const fold = root.children?.find(c => c.id === 'fold');
+    expect(fold?.layoutOptions?.['org.eclipse.elk.padding']).toBe(
+      '[top=40,left=16,bottom=16,right=16]'
+    );
+  });
+
   it('toElk gives a node fixed top and bottom ports at anchorX', () => {
     const root = toElk({
       nodes: [node('a', { anchorX: 30 }), node('b')],

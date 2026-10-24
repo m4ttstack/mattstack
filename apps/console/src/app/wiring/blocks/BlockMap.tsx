@@ -1,6 +1,6 @@
 import '@xyflow/react/dist/base.css';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Skeleton,
@@ -8,19 +8,26 @@ import {
   UnstyledButton,
   useComputedColorScheme,
 } from '@mattstack/app-kit/core';
-import { useElementSize } from '@mattstack/app-kit/hooks';
+import { useElementSize, useReducedMotion } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import {
   Background,
   BackgroundVariant,
   Position,
   ReactFlow,
+  type NodeTypes,
 } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import { GraphViews } from './FlowGraph';
+import {
+  BAND_NODE_TYPES,
+  RING_MS,
+  type BandFlowNode,
+  type BandStepFlowNode,
+} from './FoldBand';
 import {
   MAP_NODE_TYPES,
   MapActionsContext,
@@ -31,24 +38,21 @@ import {
   type MapFlowNode,
 } from './graphCards';
 import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
+import { openBand, type BandedLayout } from './model/bandLayout';
 import { dotsOf, labelOf } from './model/blockFacts';
 import { blockMap, type MapKind } from './model/blockMap';
 import type { LaidOut, LayoutEngine, LayoutInput } from './model/elkGraph';
+import { foldBand } from './model/foldBand';
 import { shortLabel } from './model/labels';
-import {
-  fitZoom,
-  mapLayout,
-  MIN_MAP_ZOOM,
-  skillOf,
-  type MapLayout,
-} from './model/mapLayout';
+import { mapFocus, type MapHover } from './model/mapFocus';
+import { fitZoom, mapLayout, MIN_MAP_ZOOM, skillOf } from './model/mapLayout';
 import { useGraphLayout } from './useGraphLayout';
 
 type Graph = BlocksPayload['graphs'][number];
 
 /** Each layout by the ELK input built from it, so the canvas keeps drawing
     the last finished layout while a newer one runs. */
-const layoutOf = new WeakMap<LayoutInput, MapLayout>();
+const layoutOf = new WeakMap<LayoutInput, BandedLayout>();
 
 const handlesAt = (anchorX: number, height: number) => [
   {
@@ -69,11 +73,43 @@ const handlesAt = (anchorX: number, height: number) => [
   },
 ];
 
+type FlowNode =
+  MapFlowNode | JunctionFlowNode | BandFlowNode | BandStepFlowNode;
+
+const NODE_TYPES: NodeTypes = { ...MAP_NODE_TYPES, ...BAND_NODE_TYPES };
+
 function flowOf(
-  layout: MapLayout,
+  layout: BandedLayout,
   laidOut: LaidOut
-): { nodes: (MapFlowNode | JunctionFlowNode)[]; edges: MapFlowEdge[] } {
-  const nodes: (MapFlowNode | JunctionFlowNode)[] = [];
+): { nodes: FlowNode[]; edges: MapFlowEdge[] } {
+  const nodes: FlowNode[] = [];
+  const band = layout.band;
+  const frame = band ? laidOut.nodes[band.id] : undefined;
+  if (band && frame) {
+    // Behind the edges, so the lines into and inside the band stay drawn.
+    nodes.push({
+      id: band.id,
+      type: 'band',
+      position: { x: frame.x, y: frame.y },
+      width: frame.width,
+      height: frame.height,
+      zIndex: -1,
+      data: { band },
+    });
+    for (const box of band.boxes) {
+      const placed = laidOut.nodes[box.node.id];
+      if (!placed) continue;
+      nodes.push({
+        id: box.node.id,
+        type: 'bandStep',
+        position: { x: placed.x, y: placed.y },
+        width: placed.width,
+        height: placed.height,
+        handles: handlesAt(box.width / 2, placed.height),
+        data: { box },
+      });
+    }
+  }
   for (const box of layout.boxes.values()) {
     const placed = laidOut.nodes[box.node.id];
     if (!placed) continue;
@@ -177,7 +213,7 @@ function MapCanvas({
   laidOut,
   actions,
 }: {
-  layout: MapLayout;
+  layout: BandedLayout;
   laidOut: LaidOut;
   actions: MapActions;
 }) {
@@ -203,7 +239,7 @@ function MapCanvas({
             key={`${plane}:${zoom}`}
             nodes={nodes}
             edges={edges}
-            nodeTypes={MAP_NODE_TYPES}
+            nodeTypes={NODE_TYPES}
             edgeTypes={MAP_EDGE_TYPES}
             defaultViewport={{ x, y: 0, zoom }}
             minZoom={MIN_MAP_ZOOM}
@@ -275,37 +311,135 @@ export function BlockMap({
   const layout = useMemo(() => {
     if (blocks === 0) return null;
     const byId = new Map(payload.blocks.map(block => [block.id, block]));
-    const laid = mapLayout(map, graph, {
+    return mapLayout(map, graph, {
       dotsOf: blockId => {
         const block = byId.get(blockId);
         return block ? dotsOf(block) : [];
       },
       measure: measureText,
     });
-    layoutOf.set(laid.input, laid);
-    return laid;
     // fontsLoaded only re-runs the layout; measureText reads the fonts itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, graph, payload, blocks, fontsLoaded]);
+
+  const [open, setOpen] = useState<string | null>(null);
+  const [hover, setHover] = useState<MapHover>(null);
+  const [jumped, setJumped] = useState<{
+    targets: string[];
+    from: string;
+    fromLabel: string;
+    ring: boolean;
+  } | null>(null);
+  const reduceMotion = useReducedMotion();
+  const sectionRef = useRef<HTMLElement>(null);
+
+  const banded = useMemo(() => {
+    if (!layout) return null;
+    const link = open ? map.links.find(each => each.id === open) : undefined;
+    const laid: BandedLayout = link
+      ? openBand(layout, map, graph, link, measureText)
+      : { ...layout, band: null };
+    layoutOf.set(laid.input, laid);
+    return laid;
+  }, [layout, open, map, graph]);
   const { state, laidOut, laidFor, retry } = useGraphLayout(
-    layout?.input ?? null,
+    banded?.input ?? null,
     engine
   );
   const shown = laidFor ? layoutOf.get(laidFor) : undefined;
 
+  useEffect(() => {
+    if (!jumped?.ring) return;
+    const timer = setTimeout(
+      () => setJumped(now => now && { ...now, ring: false }),
+      RING_MS
+    );
+    return () => clearTimeout(timer);
+  }, [jumped]);
+
   const actions = useMemo<MapActions>(() => {
     const skill = skillOf(graph);
     const labels = new Map(graph.nodes.map(node => [node.id, node.label]));
+    const questionOf = (id: string) => shortLabel(labels.get(id) ?? id, skill);
+    const kinds = new Map(map.nodes.map(node => [node.id, node]));
+    const nameOf = (id: string) => {
+      const node = kinds.get(id);
+      return node && node.kind !== 'split' ? node.label : questionOf(id);
+    };
+    const focus = shown
+      ? mapFocus(shown, map, hover)
+      : {
+          hotEdges: new Set<string>(),
+          litNodes: null,
+          opens: new Map(),
+          buttons: new Map(),
+        };
+    const steps = new Map<string, ReturnType<typeof foldBand>['nodes']>();
+    const scrollTo = (id: string) => {
+      sectionRef.current?.querySelector(`[data-node="${id}"]`)?.scrollIntoView({
+        behavior: reduceMotion ? 'instant' : 'smooth',
+        block: 'center',
+        inline: 'center',
+      });
+    };
     return {
       select: onSelect,
-      jump: () => {},
+      jump: (targets, from, fromLabel) => {
+        scrollTo(targets[0]!);
+        setJumped({ targets, from, fromLabel, ring: true });
+      },
       highlight,
-      questionOf: id => shortLabel(labels.get(id) ?? id, skill),
+      questionOf,
+      hover: setHover,
+      open: id => {
+        setHover(null);
+        setOpen(id);
+      },
+      fold: () => setOpen(null),
+      nodeView: id => ({
+        hot: id === highlight || (hover?.kind === 'node' && hover.id === id),
+        dim: focus.litNodes !== null && !focus.litNodes.has(id),
+        ring: !!jumped?.ring && jumped.targets.includes(id),
+        from:
+          jumped && jumped.targets[0] === id
+            ? {
+                label: jumped.fromLabel,
+                onBack: () => {
+                  scrollTo(jumped.from);
+                  setJumped(null);
+                },
+              }
+            : null,
+        jumped: jumped && jumped.from === id ? jumped.targets : null,
+      }),
+      edgeView: id => {
+        const hot = focus.hotEdges.has(id);
+        const link = focus.opens.get(id) ?? null;
+        const button = link !== null && focus.buttons.get(link) === id;
+        return {
+          hot,
+          dim: focus.litNodes !== null && !hot,
+          link,
+          button,
+          tip: button && hover?.kind === 'link' && hover.id === link,
+        };
+      },
+      linkInfo: id => {
+        const link = map.links.find(each => each.id === id);
+        if (!link) return null;
+        if (!steps.has(id)) steps.set(id, foldBand(graph, link, map).nodes);
+        const folded = steps.get(id)!;
+        return {
+          name: `Unfold ${folded.length} steps: ${nameOf(link.from)} to ${link.to.map(nameOf).join(', ')}`,
+          steps: folded,
+        };
+      },
     };
-  }, [graph, highlight, onSelect]);
+  }, [graph, map, shown, hover, jumped, highlight, onSelect, reduceMotion]);
 
   return (
     <section
+      ref={sectionRef}
       className={classes.map}
       aria-label="Block map"
       data-testid="block-map"

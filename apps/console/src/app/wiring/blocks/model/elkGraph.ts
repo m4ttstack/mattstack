@@ -6,6 +6,8 @@ export type LayoutNode = {
   height: number;
   parent?: string;
   anchorX?: number;
+  /** A parent's room around its children. */
+  padding?: { top: number; right: number; bottom: number; left: number };
 };
 export type LayoutEdge = {
   id: string;
@@ -57,7 +59,23 @@ export function toElk(input: LayoutInput): ElkNode {
   );
   const elkNodes = new Map<string, ElkNode>(
     input.nodes.map(n => {
-      if (parents.has(n.id)) return [n.id, { id: n.id, children: [] }];
+      if (parents.has(n.id)) {
+        const pad = n.padding;
+        return [
+          n.id,
+          {
+            id: n.id,
+            children: [],
+            ...(pad
+              ? {
+                  layoutOptions: {
+                    'org.eclipse.elk.padding': `[top=${pad.top},left=${pad.left},bottom=${pad.bottom},right=${pad.right}]`,
+                  },
+                }
+              : {}),
+          },
+        ];
+      }
       const x = n.anchorX ?? n.width / 2;
       const port = (id: string, side: string, y: number) => ({
         id,

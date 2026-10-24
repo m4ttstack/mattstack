@@ -1,4 +1,11 @@
-import { memo, type CSSProperties } from 'react';
+import {
+  memo,
+  useContext,
+  type CSSProperties,
+  type KeyboardEvent,
+} from 'react';
+import { Tooltip } from '@mattstack/app-kit/core';
+import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import {
   EdgeLabelRenderer,
   type Edge,
@@ -7,7 +14,9 @@ import {
 } from '@xyflow/react';
 
 import classes from './blocks.module.css';
+import { MapActionsContext } from './graphCards';
 import type { Box } from './model/elkGraph';
+import type { BandNode } from './model/foldBand';
 
 type Point = [number, number];
 
@@ -68,30 +77,130 @@ function withArrow(points: Point[]): { line: Point[]; head: string } {
   return { line: [...points.slice(0, -1), base], head };
 }
 
+const STEP_ICON: Record<BandNode['kind'], IconName> = {
+  command: 'terminal',
+  question: 'diamond',
+  budget: 'diamond',
+  step: 'circle',
+};
+
+/** A folded link's steps as its hover card lists them. */
+export function FoldSteps({ steps }: { steps: BandNode[] }) {
+  return (
+    <div className={classes.foldTip} data-testid="fold-steps">
+      <div
+        className={classes.foldTipTitle}
+      >{`${steps.length} steps folded`}</div>
+      <ul className={classes.foldTipList}>
+        {steps.map(step => (
+          <li key={step.id}>
+            <Icon name={STEP_ICON[step.kind]} size={12} strokeWidth={2} />
+            {step.kind === 'command' ? step.text : step.label}
+          </li>
+        ))}
+      </ul>
+      <div className={classes.foldTipHint}>Click to unfold</div>
+    </div>
+  );
+}
+
+/** The wide invisible stroke that takes a folded link's hover and click. */
+function LinkHit({
+  d,
+  link,
+  button,
+  tip,
+}: {
+  d: string;
+  link: string;
+  button: boolean;
+  tip: boolean;
+}) {
+  const { hover, open, linkInfo } = useContext(MapActionsContext);
+  const info = linkInfo(link);
+  if (!info) return null;
+  const on = () => hover({ kind: 'link', id: link });
+  const off = () => hover(null);
+  const hit = (
+    <path
+      d={d}
+      className={classes.mapEdgeHit}
+      onMouseEnter={on}
+      onMouseLeave={off}
+      onClick={() => open(link)}
+      {...(button
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            'aria-label': info.name,
+            'data-testid': 'map-link',
+            'data-link': link,
+            onFocus: on,
+            onBlur: off,
+            onKeyDown: (event: KeyboardEvent<SVGPathElement>) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              open(link);
+            },
+          }
+        : { 'aria-hidden': true })}
+    />
+  );
+  if (!button) return hit;
+  return (
+    <Tooltip
+      label={<FoldSteps steps={info.steps} />}
+      opened={tip}
+      multiline
+      w={280}
+      withinPortal
+    >
+      {hit}
+    </Tooltip>
+  );
+}
+
 function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
+  const { edgeView } = useContext(MapActionsContext);
   if (!data || data.points.length < 2) return null;
+  const view = edgeView(id);
   const { line, head } = data.arrow
     ? withArrow(data.points)
     : { line: data.points, head: null };
   const box = data.labelBox;
+  const d = roundedPath(line);
+  const state = {
+    'data-hot': view.hot || undefined,
+    'data-dim': view.dim || undefined,
+  };
   return (
     <>
       <path
-        d={roundedPath(line)}
+        d={d}
         className={classes.mapEdge}
         data-testid="map-edge"
         data-edge={id}
+        {...state}
         strokeWidth={data.folded ? 2.4 : 1.5}
         {...(data.folded
           ? { strokeDasharray: '0 5', strokeLinecap: 'round' as const }
           : {})}
       />
-      {head && <path d={head} className={classes.mapArrow} />}
+      {head && <path d={head} className={classes.mapArrow} {...state} />}
+      {view.link && (
+        <LinkHit
+          d={roundedPath(data.points)}
+          link={view.link}
+          button={view.button}
+          tip={view.tip}
+        />
+      )}
       {data.label && box && (
         <EdgeLabelRenderer>
           <div
             className={classes.mapChip}
             data-testid="map-chip"
+            {...state}
             style={
               {
                 '--chip-x': `${box.x}px`,
