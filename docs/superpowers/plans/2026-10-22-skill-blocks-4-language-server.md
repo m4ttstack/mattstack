@@ -227,7 +227,7 @@ Tests: `lib/skills/lsp/__tests__/*.test.ts` against a temp copy of the `mini` fi
 
 ---
 
-> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them. Task 14 (lawson's pack conversion, 2026-10-23) runs after Task 10 and before Task 11. Task 15 (Matt, 2026-10-23) runs after Task 11, before the final review.
+> **Order:** Tasks 12 and 13 were added after the plan was written (Matt, via lawson, 2026-10-23). They run after Task 8 and before Task 9, so the extension ships with them. Task 14 (lawson's pack conversion, 2026-10-23) runs after Task 10 and before Task 11. Task 15 (Matt, 2026-10-23) runs after Task 11, before the final review. Task 16 (the team-pack conversion's cutover prerequisite) runs beside the final review and joins its fix wave's re-review.
 
 ### Task 12: Hand-typed paths fail compile
 
@@ -310,6 +310,27 @@ The org base pack picks a fill by team param: `../../attachments/{{team.gates-fi
 - [ ] **Step 3: Implement**
 - [ ] **Step 4: Run → PASS**
 - [ ] **Step 5: Commit: `skills: built skills read rendered copies in their own references`**
+
+---
+
+### Task 16: Team sections and params take `{{pack.path}}`
+
+A team's `pack/sections/*.md` text and `pack/params.jsonc` values are spliced into a built skill by team markers, after the hand-typed-path check runs. Both refuse `{{` outright (`lib/skills/team-params.ts`, "has a section … containing {{" and "has a value containing {{"), so their cross-skill pointers stay hand-typed relative paths. Two things break: a section spliced into a copied base attachment points from the wrong folder once Task 15 copies that attachment into `references/`, and a pointer to a file holding placeholders opens unrendered source. The team-pack conversion found nine such pointers and treats this as its cutover prerequisite.
+
+**The rule:**
+- Section text and param values may carry `{{pack.path:<a>/<f>}}` and `{{verb.path:<verb>}}`, and nothing else in braces; every other `{{` is still refused with today's words. After the splice they resolve in the text they land in, the same way that text's own placeholders do (a built skill copies into its `references/`; a copied base attachment renders like a base attachment, R60).
+- The hand-typed-path check runs on section text and param values too, as compile input, with the same fix rules (R41, R44, R55 at depth 0); positions point at the section file or the `params.jsonc` value.
+- `rt skills check` and the language server see the same: hand-typed-path diagnostics on `pack/sections/*.md` and on `params.jsonc` values when those files are open.
+
+**Files:**
+- Modify: `lib/skills/team-params.ts`, `lib/skills/hand-paths.ts` callers in compile (`compile-blocks.ts`, `base-attachments.ts`) and `rt skills check`, `lib/skills/lsp/workspace.ts` (check section files and params values; the server's file gate and the extension selector add `**/pack/sections/*.md` and `**/pack/params.jsonc`), `extensions/vscode/skill-blocks/src/server.ts` patterns, the website "Paths into another skill" section and `extending-a-pack` (sections and params may use pack.path; load superpowers:writing-skills and mattstack:editing-skills first)
+- Test: team-params, base-attachments, compile tests, `lib/skills/lsp`
+
+- [ ] **Step 1: Write the failing tests** (a section line `{{pack.path:widgets-gates/SKILL.md}}` spliced into a built skill renders to `${CLAUDE_SKILL_DIR}/references/widgets-gates/SKILL.md` and copies it; the same section spliced into a copied base attachment renders correctly in that copy; a param value carrying `{{pack.path:provision/SKILL.md}}` resolves where it lands; a section carrying `{{stage.dir}}` or `{{props.x}}` is refused with today's words; a section line `../../attachments/widgets-gates/SKILL.md` is `hand-typed-path` with the fix and the section file's own line; the language server publishes that diagnostic on the open section file)
+- [ ] **Step 2: Run → FAIL**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run → PASS**
+- [ ] **Step 5: Commit: `skills: team sections and params take pack.path`**
 
 ---
 
