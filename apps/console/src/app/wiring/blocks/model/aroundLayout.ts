@@ -334,11 +334,11 @@ export function aroundLayout(
   const shifted = shiftRows(nodes, labels.levels);
   const levelsUnder = (source: AroundNode) =>
     labels.levels.get(rowKey(nodes, source.id)) ?? 1;
+  const routed = fanned.map(edge => withRoute(shifted, edge, levelsUnder));
+  const placed = resolveLabels(shifted, routed, labels.placed);
   return {
     nodes: shifted,
-    edges: fanned.map(edge =>
-      withLabel(withRoute(shifted, edge, levelsUnder), labels.placed)
-    ),
+    edges: routed.map(edge => withLabel(edge, placed)),
     rows,
   };
 }
@@ -412,19 +412,36 @@ type PlacedLabel = {
   side: LabelAt['side'];
   level: number;
   width: number;
-  /** Under the bend, beside the run toward the target, instead of under
-      the source. */
-  bend?: boolean;
+  /** Under a horizontal run of the edge's own route, `offset` px along it
+      from its start, instead of beside the drop. */
+  run?: { segment: number; offset: number };
+  /** On its own drop, centred: the last place, where every other one meets
+      another edge's line. */
+  centred?: boolean;
 };
 type Span = { left: number; right: number; top: number; bottom: number };
+type Line = { id: string; from: Point; to: Point };
 
 /** The rows by their top, so a label's row and a node's row share a key. */
 const rowKey = (nodes: AroundNode[], id: string) =>
   nodes.find(node => node.id === id)?.position.y ?? 0;
 
 function spanOf(points: Point[], label: PlacedLabel): Span {
-  const [x, y] = label.bend ? points[1]! : points[0]!;
+  const [x, y] = label.run
+    ? [
+        points[label.run.segment]![0] +
+          (label.side === 'right' ? 1 : -1) * label.run.offset,
+        points[label.run.segment]![1],
+      ]
+    : points[0]!;
   const top = y + LABEL_GAP + label.level * LABEL_STEP;
+  if (label.centred)
+    return {
+      left: x - label.width / 2,
+      right: x + label.width / 2,
+      top,
+      bottom: top + LABEL_H,
+    };
   return label.side === 'right'
     ? {
         left: x + LABEL_GAP,
@@ -440,23 +457,53 @@ function spanOf(points: Point[], label: PlacedLabel): Span {
       };
 }
 
-/** The side a drop's run heads after its bend, for an edge that bends just
-    above its target; null for any other route. */
-function bendSide(points: Point[]): LabelAt['side'] | null {
-  if (points.length !== 4) return null;
-  const [, bend, next] = points as [Point, Point, Point, Point];
-  if (next[1] !== bend[1] || next[0] === bend[0]) return null;
-  return next[0] < bend[0] ? 'left' : 'right';
+const linesOf = (edges: AroundEdge[]): Line[] =>
+  edges.flatMap(edge => {
+    const points = edge.data?.points ?? [];
+    return points
+      .slice(1)
+      .map((to, i) => ({ id: edge.id, from: points[i]!, to }));
+  });
+
+/** Whether a label's box, with a gap either side, touches another edge's
+    line: the canvas measures labels in its own font, a few px off. */
+function crossesLine(lines: Line[], id: string, span: Span): boolean {
+  return lines.some(
+    ({ id: other, from: [x1, y1], to: [x2, y2] }) =>
+      other !== id &&
+      Math.max(x1, x2) > span.left - LABEL_GAP &&
+      Math.min(x1, x2) < span.right + LABEL_GAP &&
+      Math.max(y1, y2) > span.top &&
+      Math.min(y1, y2) < span.bottom
+  );
 }
+
+/** The canvas's left and right edges: the nodes and every route. */
+function boundsOf(nodes: AroundNode[], edges: AroundEdge[]) {
+  const xs = edges.flatMap(edge => (edge.data?.points ?? []).map(([x]) => x));
+  return {
+    left: Math.min(...nodes.map(node => node.position.x), ...xs),
+    right: Math.max(
+      ...nodes.map(node => node.position.x + (node.width ?? AROUND.nodeW)),
+      ...xs
+    ),
+  };
+}
+
+const dropOf = (edge: AroundEdge) => edge.data!.points![0]!;
+
+/** Labelled edges top to bottom, then left to right by their drops. */
+const labelledOf = (edges: AroundEdge[]) =>
+  edges
+    .filter(edge => edge.label && edge.data?.points?.length)
+    .sort((a, b) => dropOf(a)[1] - dropOf(b)[1] || dropOf(a)[0] - dropOf(b)[0]);
 
 /**
  * Each label sits beside its drop, just under its source: the leftmost of a
- * node's labelled drops takes the left side, the rest the right. A label
- * that would cross another edge's line, or run off the canvas, takes the
- * other side where that one does better; the canvas widens for a label
- * past its nodes. Where both sides cross a line, the label sits under the
- * bend instead, when that is clear. A label that would cover another label
- * in its row stacks under it; `levels` counts each row's stack.
+ * node's labelled drops takes the left side, the rest the right, or the
+ * other side where that one is clear of the lines passing it. A label that
+ * would cover another label in its row stacks under it; `levels` counts
+ * each row's stack, which the rows below make room for.
  */
 function placeLabels(
   nodes: AroundNode[],
@@ -466,46 +513,16 @@ function placeLabels(
   const placed = new Map<string, PlacedLabel>();
   const levels = new Map<number, number>();
   if (nodes.length === 0) return { placed, levels };
-  const xs = edges.flatMap(edge => (edge.data?.points ?? []).map(([x]) => x));
-  const left = Math.min(...nodes.map(node => node.position.x), ...xs);
-  const right = Math.max(
-    ...nodes.map(node => node.position.x + (node.width ?? AROUND.nodeW)),
-    ...xs
-  );
-  const lines = edges.flatMap(edge => {
-    const points = edge.data?.points ?? [];
-    return points
-      .slice(1)
-      .map((to, i) => ({ id: edge.id, from: points[i]!, to }));
-  });
-  const crossesLine = (id: string, span: Span) =>
-    lines.some(
-      ({ id: other, from: [x1, y1], to: [x2, y2] }) =>
-        other !== id &&
-        Math.max(x1, x2) > span.left &&
-        Math.min(x1, x2) < span.right &&
-        Math.max(y1, y2) > span.top &&
-        Math.min(y1, y2) < span.bottom
-    );
+  const { left, right } = boundsOf(nodes, edges);
+  // A drop's label band holds only the lines passing down through it.
+  const lines = linesOf(edges).filter(({ from, to }) => from[0] === to[0]);
   const fits = (span: Span) => span.left >= left && span.right <= right;
-  const dropOf = (edge: AroundEdge) => edge.data!.points![0]!;
-  const labelled = edges
-    .filter(edge => edge.label && edge.data?.points?.length)
-    .sort((a, b) => dropOf(a)[1] - dropOf(b)[1] || dropOf(a)[0] - dropOf(b)[0]);
+  const labelled = labelledOf(edges);
   const count = new Map<string, number>();
   for (const edge of labelled)
     count.set(edge.source, (count.get(edge.source) ?? 0) + 1);
   const seen = new Set<string>();
   const inRow = new Map<number, { span: Span; level: number }[]>();
-  const all: Span[] = [];
-  const coversAny = (span: Span) =>
-    all.some(
-      box =>
-        span.left < box.right + LABEL_GAP &&
-        box.left < span.right + LABEL_GAP &&
-        span.top < box.bottom &&
-        box.top < span.bottom
-    );
   for (const edge of labelled) {
     const points = edge.data!.points!;
     const width = labelWidth(String(edge.label), measure);
@@ -517,23 +534,11 @@ function placeLabels(
     // the canvas, else where it was meant to go.
     const score = (s: LabelAt['side']) => {
       const span = spanOf(points, { side: s, level: 0, width });
-      if (crossesLine(edge.id, span)) return 0;
+      if (crossesLine(lines, edge.id, span)) return 0;
       return fits(span) ? 2 : 1;
     };
     const other = side === 'left' ? 'right' : 'left';
     if (score(other) > score(side)) side = other;
-    // Where both sides of the drop cross a line, the board sets the label
-    // under the bend, beside the run toward the target.
-    const toward = bendSide(points);
-    if (score(side) === 0 && toward) {
-      const under: PlacedLabel = { side: toward, level: 0, width, bend: true };
-      const span = spanOf(points, under);
-      if (!crossesLine(edge.id, span) && !coversAny(span)) {
-        all.push(span);
-        placed.set(edge.id, under);
-        continue;
-      }
-    }
     const row = rowKey(nodes, edge.source);
     const taken = inRow.get(row) ?? [];
     let level = 0;
@@ -547,14 +552,85 @@ function placeLabels(
       );
     };
     while (covers(level)) level += 1;
-    const span = spanOf(points, { side, level, width });
-    taken.push({ span, level });
-    all.push(span);
+    taken.push({ span: spanOf(points, { side, level, width }), level });
     inRow.set(row, taken);
     levels.set(row, Math.max(levels.get(row) ?? 1, level + 1));
     placed.set(edge.id, { side, level, width });
   }
   return { placed, levels };
+}
+
+/** Every place under a horizontal run of the route a label can take, each
+    8px further along it, pointing the way the run heads. */
+function runPlaces(points: Point[], width: number): PlacedLabel[] {
+  const places: PlacedLabel[] = [];
+  for (let segment = 1; segment < points.length - 1; segment++) {
+    const [x0, y0] = points[segment]!;
+    const [x1, y1] = points[segment + 1]!;
+    if (y0 !== y1 || x0 === x1) continue;
+    const side: LabelAt['side'] = x1 > x0 ? 'right' : 'left';
+    for (let offset = 0; offset <= Math.abs(x1 - x0); offset += 8)
+      places.push({ side, level: 0, width, run: { segment, offset } });
+  }
+  return places;
+}
+
+/**
+ * On the final routes, a label that sits on another edge's line, another
+ * label or a node moves: to the drop's other side, else under a run of its
+ * own route, as the board sets a label at a bend, else centred on its own
+ * drop, where it covers only its own line. The first place clear of
+ * everything and on the canvas wins, then one clear past the canvas; a
+ * label with neither stays put.
+ */
+function resolveLabels(
+  nodes: AroundNode[],
+  edges: AroundEdge[],
+  placed: Map<string, PlacedLabel>
+): Map<string, PlacedLabel> {
+  const resolved = new Map<string, PlacedLabel>();
+  if (nodes.length === 0) return resolved;
+  const lines = linesOf(edges);
+  const { left, right } = boundsOf(nodes, edges);
+  const boxes = nodes.map(node => ({
+    left: node.position.x,
+    right: node.position.x + (node.width ?? AROUND.nodeW),
+    top: node.position.y,
+    bottom: node.position.y + AROUND.nodeH,
+  }));
+  const done: Span[] = [];
+  const meets = (a: Span, b: Span, gap: number) =>
+    a.left < b.right + gap &&
+    b.left < a.right + gap &&
+    a.top < b.bottom &&
+    b.top < a.bottom;
+  for (const edge of labelledOf(edges)) {
+    const base = placed.get(edge.id);
+    if (!base) continue;
+    const points = edge.data!.points!;
+    const places = [
+      base,
+      { ...base, side: base.side === 'left' ? 'right' : 'left' },
+      ...runPlaces(points, base.width),
+      { side: 'right', level: base.level, width: base.width, centred: true },
+    ] satisfies PlacedLabel[];
+    const clear = (place: PlacedLabel, onCanvas: boolean) => {
+      const span = spanOf(points, place);
+      return (
+        !crossesLine(lines, edge.id, span) &&
+        !done.some(box => meets(span, box, LABEL_GAP)) &&
+        !boxes.some(box => meets(span, box, 0)) &&
+        (!onCanvas || (span.left >= left && span.right <= right))
+      );
+    };
+    const pick =
+      places.find(place => clear(place, true)) ??
+      places.find(place => clear(place, false)) ??
+      base;
+    done.push(spanOf(points, pick));
+    resolved.set(edge.id, pick);
+  }
+  return resolved;
 }
 
 /** Each row moves down by the stacked labels of the rows above it. */

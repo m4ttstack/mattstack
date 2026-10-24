@@ -498,27 +498,39 @@ describe('edge routes and labels', () => {
   );
 
   it.each(layouts)(
-    'sets each label of %s beside its drop or its bend, clear of every node',
+    'sets each label of %s beside its drop or under a run of its route, clear of every node',
     (_, layout) => {
       const labelled = layout.edges.filter(edge => edge.label);
       expect(labelled.length).toBeGreaterThan(0);
       for (const edge of labelled) {
         const at = edge.data!.labelAt!;
-        const [[dropX, sourceY], bend] = edge.data!.points!;
+        const points = edge.data!.points!;
+        const [[dropX, sourceY], bend] = points;
         const box: Box = {
           left: at.side === 'right' ? at.x : at.x - at.width,
           right: at.side === 'right' ? at.x + at.width : at.x,
           top: at.y,
           bottom: at.y + at.height,
         };
-        // Under its source beside the drop, or just under the bend beside
-        // the run toward the target.
-        const underBend = box.top > bend![1];
-        const [x, top] = underBend ? bend! : [dropX!, sourceY!];
-        if (at.side === 'right') expect(box.left).toBeGreaterThan(x);
-        else expect(box.right).toBeLessThan(x);
-        expect(box.top).toBeGreaterThanOrEqual(top);
-        if (!underBend) expect(box.bottom).toBeLessThanOrEqual(bend![1]);
+        // Beside the drop under its source, just under one of its route's
+        // horizontal runs, or, where both meet a line, on its own drop.
+        const besideDrop =
+          box.top >= sourceY! &&
+          box.bottom <= bend![1] &&
+          (at.side === 'right' ? box.left > dropX! : box.right < dropX!);
+        const underRun = points.slice(1, -1).some((from, i) => {
+          const to = points[i + 2]!;
+          if (from[1] !== to[1]) return false;
+          const [lo, hi] = [Math.min(from[0], to[0]), Math.max(from[0], to[0])];
+          return box.top > from[1] && at.x >= lo - 4 && at.x <= hi + 4;
+        });
+        const onDrop =
+          box.top >= sourceY! &&
+          box.bottom <= bend![1] &&
+          box.left < dropX! &&
+          box.right > dropX!;
+        if (!besideDrop && !underRun && !onDrop)
+          throw new Error(`${edge.id}'s label sits off its own route`);
         for (const node of layout.nodes) {
           if (overlaps(box, boxOf(node)))
             throw new Error(`${edge.id}'s label covers ${node.id}`);
@@ -564,6 +576,83 @@ describe('edge routes and labels', () => {
           if (crosses(points[i - 1]!, points[i]!, box))
             throw new Error(`${edge.id}'s label crosses ${other.id}`);
       }
+    }
+  });
+
+  /** Every label that sits on, or within 3px of, another edge's line, as
+      `label > line`: the canvas measures labels in its own font, a few px
+      off the layout's estimate. */
+  const labelsOnLines = (layout: Layout): string[] =>
+    layout.edges
+      .filter(edge => edge.label)
+      .flatMap(edge => {
+        const tight = labelBox(edge);
+        const box = { ...tight, left: tight.left - 3, right: tight.right + 3 };
+        return layout.edges
+          .filter(
+            other =>
+              other.id !== edge.id &&
+              other.data!.points!.some(
+                (to, i, points) => i > 0 && crosses(points[i - 1]!, to, box)
+              )
+          )
+          .map(other => `${edge.id} > ${other.id}`);
+      });
+
+  // From the narrowest canvas that holds two nodes a row (a window about
+  // 700 wide) past the 1440 canvas's 760: the 900 canvas gets about 560.
+  const ROOMS = Array.from({ length: 56 }, (_, i) => 340 + i * 20);
+
+  it.each(
+    [5.8, 6, 6.2, 6.4, 6.6, 6.8, 7, 7.2, 7.4].map(
+      px => [`${px}px`, (label: string) => label.length * px] as const
+    )
+  )(
+    'keeps every Fast checks label off the other lines at every room, %s a letter',
+    (_, measureAt) => {
+      const around = aroundBlock(flow, 'domain_fast_checks');
+      for (const room of ROOMS) {
+        const layout = aroundLayout(around, 'domain_fast_checks', Infinity, {
+          measure: measureAt,
+          room,
+        });
+        expect([room, labelsOnLines(layout)]).toEqual([room, []]);
+      }
+    }
+  );
+
+  // The whole graph has no board. Fan-outs with long labels (AFTER result?
+  // and its six answers) leave some labels no clear place; this holds the
+  // count to what the fix wave left, at the 900 and 1440 canvases.
+  it.each([
+    [560, 16],
+    [760, 11],
+  ])(
+    'leaves at most a known few whole-graph labels on other lines at room %i',
+    (room, most) => {
+      const layout = wholeLayout(flow, null, Infinity, {
+        measure: (label: string) => label.length * 6.6,
+        room,
+      });
+      const on = new Set(
+        labelsOnLines(layout).map(pair => pair.split(' > ')[0])
+      );
+      expect(on.size).toBeLessThanOrEqual(most);
+      // The re-review's case: "yes: no push, no mr_create" over the drop of
+      // Reopened's "no".
+      expect([...on].some(id => id.startsWith('nothing_to_push->'))).toBe(
+        false
+      );
+    }
+  );
+
+  it('keeps every ship-shaped label off the other lines at every room', () => {
+    for (const room of ROOMS) {
+      const layout = aroundLayout(sub, 'fast_checks', Infinity, {
+        measure,
+        room,
+      });
+      expect([room, labelsOnLines(layout)]).toEqual([room, []]);
     }
   });
 
