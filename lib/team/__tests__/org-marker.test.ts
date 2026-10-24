@@ -28,7 +28,7 @@ describe("the root pointer", () => {
     const text = pointerText("acme", "mattstack");
     expect(text).toContain("Never delete it or merge it into main.");
     expect(text).toContain("the mattstack branch");
-    expect(parseMarker(text)).toEqual({ kind: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+    expect(parseMarker(text)).toEqual({ kind: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" });
   });
 });
 
@@ -77,24 +77,24 @@ describe("layout", () => {
   test("parseMarker of null is none", () => {
     expect(parseMarker(null)).toEqual({ kind: "none" });
   });
-  test("ORG_LAYOUT is 4 and layouts 3 and 4 are readable", () => {
-    expect(ORG_LAYOUT).toBe(4);
-    expect(READABLE_LAYOUTS).toEqual([3, 4]);
+  test("ORG_LAYOUT is 5 and layouts 3, 4 and 5 are readable", () => {
+    expect(ORG_LAYOUT).toBe(5);
+    expect(READABLE_LAYOUTS).toEqual([3, 4, 5]);
   });
   test("the absent default is the literal 2, apart from ORG_LAYOUT", () => {
     expect(ORG_LAYOUT_ABSENT_DEFAULT).toBe(2);
   });
-  test("after ORG_LAYOUT moves to 5, a marker without the field still reads 2 for an org and 1 for one team", async () => {
+  test("after ORG_LAYOUT moves to 6, a marker without the field still reads 2 for an org and 1 for one team", async () => {
     const source = readFileSync(join(import.meta.dir, "..", "org-marker.ts"), "utf8");
     const bumped = source
-      .replace(/^export const ORG_LAYOUT = 4;$/m, "export const ORG_LAYOUT = 5;")
+      .replace(/^export const ORG_LAYOUT = 5;$/m, "export const ORG_LAYOUT = 6;")
       .replaceAll('from "../', `from "${join(import.meta.dir, "..", "..")}/`);
-    expect(bumped).toContain("export const ORG_LAYOUT = 5;");
+    expect(bumped).toContain("export const ORG_LAYOUT = 6;");
     const scratch = mkdtempSync(join(tmpdir(), "org-marker-bump-"));
     try {
       writeFileSync(join(scratch, "org-marker.ts"), bumped);
       const next = (await import(join(scratch, "org-marker.ts"))) as typeof import("../org-marker.ts");
-      expect(next.ORG_LAYOUT).toBe(5);
+      expect(next.ORG_LAYOUT).toBe(6);
       expect(next.parseMarker('{ "role": "org", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 2, dataBranch: null });
       expect(next.parseMarker('{ "role": "team", "org": "acme" }')).toEqual({ kind: "org", org: "acme", layout: 1, dataBranch: null });
       expect(next.parseMarker('{ "role": "org", "org": "acme", "layout": 3 }')).toEqual({ kind: "org", org: "acme", layout: 3, dataBranch: null });

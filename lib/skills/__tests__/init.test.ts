@@ -75,8 +75,8 @@ describe("readZones", () => {
   });
 
   test("a clone whose marker is on a layout above ORG_LAYOUT throws the update sentence", () => {
-    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 5 }' });
-    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 5 and this app reads up to 4. Update the app.");
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 6 }' });
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 6 and this app reads up to 5. Update the app.");
   });
 
   test("a one-team marker throws the waiting sentence rather than skipping the clone", () => {

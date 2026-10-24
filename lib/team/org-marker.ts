@@ -27,10 +27,10 @@ export function pointerText(org: string, dataBranch: string, layout: number = OR
 }
 
 /** The highest org layout this rt reads. Moves only with a breaking change to the org repo's shape or to the shared settings' shape, never with a release. */
-export const ORG_LAYOUT = 4;
+export const ORG_LAYOUT = 5;
 
-/** Layouts this rt reads. 3 and 4 share every path; 4 only adds the data branch. */
-export const READABLE_LAYOUTS: readonly number[] = [3, 4];
+/** Layouts this rt reads. 3, 4 and 5 share every path; 4 adds the data branch, and 5 says every pack is a block pack, whose bindings an older rt cannot merge. */
+export const READABLE_LAYOUTS: readonly number[] = [3, 4, 5];
 
 /** What a `role: "org"` marker without `layout` reads as. Fixed, never ORG_LAYOUT: a bump must not turn an unconverted repo ready. */
 export const ORG_LAYOUT_ABSENT_DEFAULT = 2;

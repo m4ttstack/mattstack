@@ -30,7 +30,7 @@ describe("orgLayoutState", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("team", "acme") } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 1 });
   });
   test("waiting for a layout above ORG_LAYOUT", () => {
-    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 5), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 5 });
+    expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 6), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 6 });
   });
   test("a layout 2 marker reads waiting, a layout 3 marker reads ready", () => {
     expect(orgLayoutState(home({ acme: { marker: marker("org", "acme", 2), orgStore: true } }))).toEqual({ kind: "waiting", slug: "acme", dir: `${orgs}/acme`, layout: 2 });
@@ -54,8 +54,8 @@ describe("orgLayoutState", () => {
     expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "bbb", layout: 3 });
   });
   test("a store-holding waiting clone sorting first wins over a later ready one", () => {
-    const p = home({ aaa: { marker: marker("org", "aaa", 5), orgStore: true }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
-    expect(orgLayoutState(p)).toEqual({ kind: "waiting", slug: "aaa", dir: `${orgs}/aaa`, layout: 5 });
+    const p = home({ aaa: { marker: marker("org", "aaa", 6), orgStore: true }, bbb: { marker: marker("org", "bbb", 3), orgStore: true } });
+    expect(orgLayoutState(p)).toEqual({ kind: "waiting", slug: "aaa", dir: `${orgs}/aaa`, layout: 6 });
   });
   test("a folder without .git/config or without a marker is not a clone", () => {
     const p = fakeProbes({ home: H, dirs: { [orgs]: ["stray", "half"] }, files: { [`${orgs}/half/.git/config`]: "" } });
@@ -68,8 +68,8 @@ describe("sentences", () => {
     expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 1 })).toBe(WAITING_SENTENCE);
   });
   test("above names both numbers", () => {
-    expect(updateSentence(5)).toBe("Your org uses layout 5 and this app reads up to 4. Update the app.");
-    expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 5 })).toBe(updateSentence(5));
+    expect(updateSentence(6)).toBe("Your org uses layout 6 and this app reads up to 5. Update the app.");
+    expect(layoutSentence({ kind: "waiting", slug: "acme", dir: "/x", layout: 6 })).toBe(updateSentence(6));
   });
   test("the error carries the sentence and no next command", () => {
     const err = orgLayoutWaitingError({ kind: "waiting", slug: "acme", dir: "/x", layout: 1 });
@@ -86,16 +86,18 @@ describe("layout 4 with layout 3 readable", () => {
   test("the readable layouts contain ORG_LAYOUT", () => {
     expect(READABLE_LAYOUTS).toContain(ORG_LAYOUT);
   });
-  test("layouts 3 and 4 are both ready; 2 and 5 wait", () => {
+  test("layouts 3, 4 and 5 are ready; 2 and 6 wait", () => {
     expect(pickedCloneReady({ layout: 3, hasStore: true })).toBe(true);
     expect(pickedCloneReady({ layout: 4, hasStore: true })).toBe(true);
+    expect(pickedCloneReady({ layout: 5, hasStore: true })).toBe(true);
     expect(pickedCloneReady({ layout: 2, hasStore: true })).toBe(false);
-    expect(pickedCloneReady({ layout: 5, hasStore: true })).toBe(false);
+    expect(pickedCloneReady({ layout: 6, hasStore: true })).toBe(false);
     expect(pickedCloneReady({ layout: 4, hasStore: false })).toBe(false);
   });
-  test("a tip on layout 4 is not above this rt; 5 is", () => {
+  test("a tip on layout 5 is not above this rt; 6 is", () => {
     expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":4}', stderr: "" })).toBeNull();
-    expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":5}', stderr: "" })).toEqual({ layout: 5 });
+    expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":5,"dataBranch":"mattstack"}', stderr: "" })).toBeNull();
+    expect(layoutAbove({ code: 0, stdout: '{"role":"org","org":"acme","layout":6}', stderr: "" })).toEqual({ layout: 6 });
   });
 });
 
@@ -113,8 +115,8 @@ describe("gateVerdict", () => {
     expect(gateVerdict(shown(pointer), "mattstack-layout-5", "mattstack")).toBeNull();
   });
   test("a layout above this rt still holds as before", () => {
-    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 5 }), "main", null)).toEqual({ kind: "above", layout: 5 });
-    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 5, dataBranch: "mattstack" }), "main", null)).toEqual({ kind: "above", layout: 5 });
+    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 6 }), "main", null)).toEqual({ kind: "above", layout: 6 });
+    expect(gateVerdict(shown({ role: "org", org: "acme", layout: 6, dataBranch: "mattstack" }), "main", null)).toEqual({ kind: "above", layout: 6 });
   });
   test("no dataBranch on layout 4 or below passes", () => {
     expect(gateVerdict(shown({ role: "org", org: "acme", layout: 3 }), "main", null)).toBeNull();
