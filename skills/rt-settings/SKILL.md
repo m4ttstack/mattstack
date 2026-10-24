@@ -216,8 +216,10 @@ In this order:
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
    layout 3's is
    `bun scripts/move-to-team-directory.ts <clone-dir> --admin <username>`
-   and layout 4's is
+   layout 4's is
    `bun scripts/move-to-data-branch.ts <clone-dir> --admin <username>`
+   and layout 5's (every pack in block form) is
+   `bun scripts/move-to-block-packs.ts <clone-dir> --admin <username>`
    (each plans; `--write` acts). A conversion to layout 3 or later
    also writes `layout: <n>` in the marker. Every marker rt writes carries
    an explicit `layout` (`rt team create` writes `ORG_LAYOUT`, the layout 2

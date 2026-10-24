@@ -21,3 +21,36 @@ A skills release. Every mattstack engine and include is now a tree of blocks, so
   - run `rt skills compile`, then `rt skills check --strict`
 - the extending-a-pack, creating-a-pack, editing-skills and process-digraphs skills teach the block model, and `props.md` lists every block and prop
 - CI compiles every graph-bearing engine, runs check-dot on the compiled graphs, and checks the props signature against the last release tag
+
+### Macs already set up
+
+- update the app before your org moves its packs to block packs; an older app keeps working on the old packs and holds its org pull until it updates
+- until your team's pack update lands, `rt skills check` and `rt skills sync` on it report old slot bindings; your team's verbs keep working
+- if you hand-wrote `~/.mattstack/user/skills/overrides.jsonc`, setup's **Skill overrides** row lists each old key and what replaces it; edit the file, then run `rt skills materialize`
+- a pack you made yourself needs its bindings moved to block form; `rt skills check` lists each old binding, and this table gives each one's new key:
+
+| Old key and slot | New key and prop | Contract |
+|---|---|---|
+| `mattstack:work` tiering | `mattstack:work/sub-agent-tiering` tiering | model-tiering@1 |
+| `mattstack:watch-ci`, `mattstack:stage-watch-ci` forge | `<engine>/forge` forge | ci-forge@1 |
+| `mattstack:review`, `mattstack:self-review`, `mattstack:receive-review` criteria | `<engine>/criteria` criteria | review-criteria@1 |
+| the same three engines, reviewer | `<engine>/reviewer` reviewer | reviewer-dispatch@1 |
+| `mattstack:receive-review` reply-rules | `mattstack:receive-review/reply-rules` reply-rules | reply-rules@1 |
+| `mattstack:shepherdr` tiering, strategy, accounts | unchanged: the root block still declares them | same |
+| any engine's `domain` | a person decides: `<engine>/domain-rules` rules, or a step's own `rules` prop; `rules` adds to lower layers where `domain` replaced them | none |
+
+- `mattstack:shepherdr` has no `domain-rules` block, so its `domain` moves to a step's own `rules` prop
+
+### Moving an org to block packs
+
+An org whose packs are all in block form moves to org layout 5. An org admin does it in this order:
+
+1. switch your clone to a trial branch: `rt team branch use <name>`
+2. convert every pack (the org's base packs and each team's pack) on that branch, then publish it: `rt team publish`
+3. mark the org: `bun scripts/move-to-block-packs.ts <clone-dir> --admin <you> --write`
+4. publish again: `rt team publish`
+5. after the release, merge the trial branch into the data branch; members on the new app follow on their next pull
+
+- without `--write` the script prints the plan and writes nothing
+- it refuses, writing nothing, while any pack still has an old slot key (it names the pack and the key), while the clone has uncommitted changes or unpublished commits, or while team sync is on; each refusal names the command that fixes it
+- an org still on layout 3 moves to layout 4 first, with `scripts/move-to-data-branch.ts`

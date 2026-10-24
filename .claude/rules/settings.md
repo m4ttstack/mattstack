@@ -126,9 +126,11 @@ marker rt writes carries an explicit `layout`: `rt team create` writes
 `scripts/move-to-team-directory.ts` writes 3, and
 `scripts/move-to-data-branch.ts` writes 4 with `dataBranch`
 (`--data-branch <name>`; `--no-pointer` leaves `main` alone for a trial;
-a pointer `main` refuses lands on `<data branch>-pointer`).
-`ORG_LAYOUT` in `lib/team/org-marker.ts` is 4; layouts 3 and 4
-(`READABLE_LAYOUTS`) share every path, so both are readable. It moves only with a breaking change to the repo's shape or to the shared settings' shape, never with a
+a pointer `main` refuses lands on `<data branch>-pointer`), and
+`scripts/move-to-block-packs.ts` writes 5 on the checked-out branch, keeping
+`dataBranch`, once every pack is in block form (no pointer on `main`).
+`ORG_LAYOUT` in `lib/team/org-marker.ts` is 5 (block packs); layouts 3, 4
+and 5 (`READABLE_LAYOUTS`) share every path, so all three are readable. It moves only with a breaking change to the repo's shape or to the shared settings' shape, never with a
 release; the admin's runbook for such a change is the `rt-settings` skill
 (`skills/rt-settings/SKILL.md`, "Changing the org repo's layout"). `orgLayoutState` (`lib/team/org-layout.ts`) is the one classifier
 every reader uses, and it shares `pickOrgClone` with `readZonesFrom`: a clone
