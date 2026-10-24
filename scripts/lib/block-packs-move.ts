@@ -28,7 +28,7 @@ function packFolders(clone: string): { name: string; rel: string }[] {
   return [...org, ...teams].filter(({ rel }) => existsSync(join(clone, rel, FRAGMENT_REL)));
 }
 
-function checkMarker(clone: string, markerPath: string): void {
+function checkMarker(clone: string, markerPath: string, admin: string | undefined): void {
   if (!existsSync(markerPath) && existsSync(join(clone, POINTER_REL))) {
     throw new BlockPacksRefusal("This branch holds only the org's pointer", "Switch to the branch that holds the org's data and the converted packs.");
   }
@@ -44,16 +44,16 @@ function checkMarker(clone: string, markerPath: string): void {
     throw new BlockPacksRefusal(
       `This org is on layout ${marker.layout}`,
       "Move it to layout 4 first, so its data lives on a data branch.",
-      marker.layout === 3 ? `bun scripts/move-to-data-branch.ts ${shellQuote(clone)} --admin <username>` : undefined,
+      marker.layout === 3 ? `bun scripts/move-to-data-branch.ts ${shellQuote(clone)} --admin ${admin === undefined ? "<username>" : shellQuote(admin)}` : undefined,
     );
   }
 }
 
-export function planBlockPacksMove(cloneDir: string): BlockPacksPlan {
+export function planBlockPacksMove(cloneDir: string, admin?: string): BlockPacksPlan {
   const { path: clone, git } = cloneRoot(cloneDir);
   assertNoLink(clone, ORG_MARKER_REL);
   const markerPath = join(clone, ORG_MARKER_REL);
-  checkMarker(clone, markerPath);
+  checkMarker(clone, markerPath, admin);
   let branch: string;
   try {
     branch = git("symbolic-ref", "-q", "--short", "HEAD").trim();

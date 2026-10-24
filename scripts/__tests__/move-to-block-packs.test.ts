@@ -53,7 +53,7 @@ function org(opts: { layout?: number; dataBranch?: string | null; packs?: Record
   seedOrg({
     layout: opts.layout ?? 4,
     username: "me",
-    roles: { admins: ["me"], teams: { widgets: { owners: ["me"] }, gadgets: { owners: ["me"] } } },
+    roles: { admins: ["me"], teams: { widgets: { owners: ["owner1"] }, gadgets: { owners: ["me"] } } },
     roster: [{ username: "me", teams: ["widgets"] }],
     teams: { widgets: { "board.title": "Widgets" }, gadgets: { "board.title": "Gadgets" } },
   });
@@ -75,7 +75,8 @@ function org(opts: { layout?: number; dataBranch?: string | null; packs?: Record
   return dir;
 }
 
-const run = (dir: string, ...extra: string[]) => Bun.spawnSync(["bun", script, dir, "--admin", "me", ...extra], { env: env(), stdout: "pipe", stderr: "pipe" });
+const runAs = (admin: string, dir: string, ...extra: string[]) => Bun.spawnSync(["bun", script, dir, "--admin", admin, ...extra], { env: env(), stdout: "pipe", stderr: "pipe" });
+const run = (dir: string, ...extra: string[]) => runAs("me", dir, ...extra);
 
 function snapshot(dir: string): string {
   const files: string[][] = [];
@@ -157,7 +158,7 @@ test("refuses on a layout 3 org", () => {
   const result = run(dir, "--write");
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("This org is on layout 3");
-  expect(result.stderr.toString()).toContain("scripts/move-to-data-branch.ts");
+  expect(result.stderr.toString()).toContain(`bun scripts/move-to-data-branch.ts ${dir} --admin me`);
   expect(snapshot(dir)).toBe(before);
 });
 
@@ -191,5 +192,16 @@ test("refuses with unpublished commits", () => {
   const result = run(dir, "--write");
   expect(result.exitCode).toBe(2);
   expect(result.stderr.toString()).toContain("The clone has commits origin does not have");
+  expect(snapshot(dir)).toBe(before);
+});
+
+test("refuses when --admin is not an org admin", () => {
+  const dir = org();
+  const before = snapshot(dir);
+  for (const admin of ["stranger", "owner1"]) {
+    const result = runAs(admin, dir, "--write");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain(`${admin} is not an admin of this org`);
+  }
   expect(snapshot(dir)).toBe(before);
 });
