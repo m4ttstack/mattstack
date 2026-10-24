@@ -204,6 +204,8 @@ export type AttachmentRenderOpts = {
   team: TeamContext | null;
   /** Set for a file copied into a built skill's references/, which resolves includes and points pack.path at its own copies. */
   copy?: CopyHooks;
+  /** For an emitted base attachment, which points pack.path at its own copies of the team's source; without it, pack.path names the unit in the pack. */
+  packPath?: (target: PackTarget, raw: string) => string;
 };
 
 /** `line` counts from 1 in the text after team markers resolve; `alone` says whether the placeholder is its line's only text. */
@@ -277,7 +279,8 @@ export function substituteAttachmentPlaceholders(body: string, opts: AttachmentR
         return fileVerbPath(opts.verbSides, arg, raw, where, opts.fileRel);
       case "pack.path": {
         const target = resolvePackPath(opts, arg, raw, where);
-        return copy ? copy.packPath(target) : sourcePackPath(target);
+        if (copy) return copy.packPath(target);
+        return opts.packPath ? opts.packPath(target, raw) : sourcePackPath(target);
       }
       case "include":
         return copy ? copy.include(arg, raw, lineAt(text, offset, raw)) : raw;
@@ -433,7 +436,7 @@ export function resolvePackPath(view: PackPathView, arg: string | undefined, raw
  * Anchored on the invoking skill's dir rather than this file's, so the same
  * text works inside a shell command from any public skill in the pack.
  */
-function sourcePackPath(target: PackTarget): string {
+export function sourcePackPath(target: PackTarget): string {
   return `${SKILL_DIR_TOKEN}/../../${target.side}/${target.attachment}/${target.file}`;
 }
 

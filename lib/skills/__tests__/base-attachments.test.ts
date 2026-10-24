@@ -243,6 +243,55 @@ describe("planBaseAttachments", () => {
   });
 });
 
+describe("pointers from a base copy to the team's own source", () => {
+  const kit = () => join(baseDir(), "attachments", "review-kit");
+  const emitOf = (result: ReturnType<typeof plan>, name = "review-kit") => result.emits.find((e) => e.name === name)!;
+  const fileOf = (result: ReturnType<typeof plan>, path: string, name = "review-kit") => emitOf(result, name).files.find((f) => f.path === path);
+  const COPY = "${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references";
+
+  test("the target unit is vendored into the copy's references/ and rendered there", () => {
+    put(join(kit(), "SKILL.md"), "See `{{pack.path:widgets-evidence/rules.md}}`.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "Run `python3 {{pack.path:widgets-evidence/probe.py}}`.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "probe.py"), "print('probe')\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect((fileOf(result, "SKILL.md") as { content: string }).content).toBe(`See \`${COPY}/widgets-evidence/rules.md\`.\n`);
+    expect((fileOf(result, "references/widgets-evidence/rules.md") as { content: string }).content).toBe(`Run \`python3 ${COPY}/widgets-evidence/probe.py\`.\n`);
+    expect(fileOf(result, "references/widgets-evidence/probe.py")).toEqual({
+      path: "references/widgets-evidence/probe.py",
+      copyFrom: join(packDir(), "attachments", "widgets-evidence", "probe.py"),
+    });
+  });
+
+  test("a pointer to another base copy still names that copy", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:stage-gates/SKILL.md}}.\n");
+    put(join(baseDir(), "attachments", "stage-gates", "SKILL.md"), "gates\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect((fileOf(result, "SKILL.md") as { content: string }).content).toBe("See ${CLAUDE_SKILL_DIR}/../../attachments/stage-gates/SKILL.md.\n");
+    expect(emitOf(result).files.map((f) => f.path)).toEqual(["SKILL.md", "compiled.json"]);
+  });
+
+  test("a pointer whose target still holds {{ is refused, whether vendored or another base copy", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-evidence/rules.md}} and {{pack.path:stage-gates/SKILL.md}}.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "Intro.\nName the {{ticket}} here.\n");
+    put(join(baseDir(), "attachments", "stage-gates", "SKILL.md"), "{{include:gate-protocol}}\n");
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{pack.path:widgets-evidence/rules.md}} points at a copy that still holds {{ at its line 2, which a reader would meet unrendered",
+      "acme-base:attachments/review-kit/SKILL.md: {{pack.path:stage-gates/SKILL.md}} points at a copy that still holds {{ at its line 1, which a reader would meet unrendered",
+    ]);
+  });
+
+  test("a vendored file that lands on one of the copy's own files is refused", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-evidence/rules.md}}.\n");
+    put(join(kit(), "references", "widgets-evidence", "rules.md"), "the kit's own\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "team rules\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment review-kit has its own references/widgets-evidence/rules.md, where its copy of widgets-evidence/rules.md would land; rename one of them",
+    ]);
+  });
+});
+
 describe("grouped base attachments", () => {
   const unit = (...rest: string[]) => join(baseDir(), "attachments", "review", ...rest);
 
@@ -507,7 +556,7 @@ describe("team markers in copied base attachments", () => {
     const team = teamWith({ provision: "{{verb.path:ship}}" }, { gates: "Read {{pack.path:widgets-gates/SKILL.md}} first.\n" });
     const result = plan({ ship: "skills" }, team);
     expect(result.errors).toEqual([]);
-    expect(textOf(result, "SKILL.md")).toBe("Rules:\nRead ${CLAUDE_SKILL_DIR}/../../attachments/widgets-gates/SKILL.md first.\n");
+    expect(textOf(result, "SKILL.md")).toBe("Rules:\nRead ${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/widgets-gates/SKILL.md first.\n");
     expect(textOf(result, "references/guide.md")).toBe("Also ../../../skills/ship/SKILL.md.\n");
   });
 
@@ -541,7 +590,7 @@ describe("team markers in copied base attachments", () => {
     test("a value naming the team's own attachment resolves to it", () => {
       const result = plan({ ship: "skills" }, teamWith({ "gates-fill": "own-gates" }));
       expect(result.errors).toEqual([]);
-      expect(shipText(result)).toBe("Read ${CLAUDE_SKILL_DIR}/../../attachments/own-gates/SKILL.md first.\n");
+      expect(shipText(result)).toBe("Read ${CLAUDE_SKILL_DIR}/../../attachments/ship-rules/references/own-gates/SKILL.md first.\n");
     });
 
     test("a value naming a missing attachment fails with pack.path's error", () => {

@@ -4,11 +4,13 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { hasCompiledHeader, unresolvedRelativePaths } from "./compile.ts";
 import { handPathDiagnostics } from "./hand-paths.ts";
-import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, substituteAttachmentPlaceholders } from "./placeholders.ts";
+import { hostDir } from "./layout.ts";
+import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, referencePath, sourcePackPath, substituteAttachmentPlaceholders, type PackTarget } from "./placeholders.ts";
+import { referenceCopies } from "./references.ts";
 import type { TeamContext } from "./team-params.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
-import type { CompiledFile, PlannedAttachments, PlannedSource, Side } from "./types.ts";
+import type { CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = "compiled.json";
 export const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
@@ -236,12 +238,13 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
 
   const recorded = new Set(records.map((r) => r.name));
   const stale = onDiskEmitted.filter((name) => !recorded.has(name)).map((name) => ({ name, why: "dropped" as const }));
-  const planned = new Map<string, Set<string>>([
+  const planned = Object.assign(new Map<string, Set<string>>([
     ...records.map((r): [string, Set<string>] => [r.name, new Set([...r.files, PROVENANCE_FILE])]),
     ...stale.map((s): [string, Set<string>] => [s.name, new Set()]),
-  ]);
+  ]), { sources: new Map(records.map((r): [string, PlannedSource] => [r.name, { dir: r.srcDir, base: base.name }])) });
 
   const emits: EmittedAttachment[] = [];
+  const pointers: Pointer[] = [];
   const verbDirs = Object.entries(verbSides).map(([verb, side]) => join(packDir, side, verb));
   const pathView = { verbSides, packRoot: packDir, plannedAttachments: planned };
   const fixView = {
@@ -252,6 +255,14 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
   for (const { name, srcDir, files } of records) {
     const out: CompiledFile[] = [];
     const warnings: string[] = [];
+    const vendored: PackTarget[] = [];
+    const copyDir = hostDir(name, "attachments");
+    const packPath = (where: string) => (target: PackTarget, raw: string): string => {
+      pointers.push({ where, raw, unit: name, target });
+      if (target.planned) return sourcePackPath(target);
+      vendored.push(target);
+      return referencePath({ stageDir: copyDir }, target);
+    };
     for (const file of files) {
       const abs = join(srcDir, file);
       if (!file.endsWith(".md")) {
@@ -286,6 +297,7 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
           plannedAttachments: planned,
           where,
           team,
+          packPath: packPath(where),
         });
         out.push({ path: file, content });
         const layout = { packRoot: packDir, compiledDir: dirname(join(attachmentsDir, name, file)) };
@@ -296,12 +308,65 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
         errors.push(err instanceof Error ? err.message : String(err));
       }
     }
+    if (vendored.length > 0) errors.push(...vendorTeamSources(vendored, out, { name, label: `${base.name} attachment ${name}`, copyDir, packDir, packName, verbSides, planned, team }));
     out.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
     emits.push({ name, files: out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), warnings, source: { dir: srcDir, base: base.name } });
   }
 
+  errors.push(...unrenderedPointers(pointers, emits));
   if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], errors };
   return { base, emits, kept, stale, retired, errors };
+}
+
+/** `unit` is the base copy the pointer sits in; `target` is what its `{{pack.path}}` named. */
+type Pointer = { where: string; raw: string; unit: string; target: PackTarget };
+
+type VendorInput = {
+  name: string;
+  label: string;
+  copyDir: string;
+  packDir: string;
+  packName: string;
+  verbSides: Record<string, Side>;
+  planned: PlannedAttachments;
+  team: TeamContext | null;
+};
+
+/** The team's source ships as written, so a base copy reads its own rendered copy of each unit it names, as a built skill does. */
+function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): string[] {
+  const ctx: PlaceholderContext = {
+    partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "", mattstackSha: "", mattstackDirty: 0, packSha: "",
+    stageDir: v.copyDir, stageMeta: null, compiledFrom: "", verbSides: v.verbSides, side: "attachments", packRoot: v.packDir,
+    plannedAttachments: v.planned, pipeline: null, team: v.team,
+  };
+  let copies;
+  try {
+    copies = referenceCopies(targets, ctx, { skillRel: `attachments/${v.name}`, packName: v.packName });
+  } catch (err) {
+    return [err instanceof Error ? err.message : String(err)];
+  }
+  const errors = copies.diagnostics.map((d) => `${d.file}: ${d.message} (line ${d.line})`);
+  const own = new Set(out.map((f) => f.path));
+  for (const { file } of copies.files) {
+    if (own.has(file.path)) errors.push(`${v.label} has its own ${file.path}, where its copy of ${file.path.slice("references/".length)} would land; rename one of them`);
+    else out.push(file);
+  }
+  return errors;
+}
+
+/** A reader follows a base copy's pointer to the file it names, so that file must carry no placeholder left unrendered. */
+function unrenderedPointers(pointers: Pointer[], emits: EmittedAttachment[]): string[] {
+  const errors: string[] = [];
+  for (const p of pointers) {
+    const { unit, path } = p.target.planned
+      ? { unit: p.target.unit, path: p.target.unit === p.target.attachment ? p.target.file : p.target.file.slice(p.target.unit.length - p.target.attachment.length) }
+      : { unit: p.unit, path: `references/${p.target.attachment}/${p.target.file}` };
+    const file = emits.find((e) => e.name === unit)?.files.find((f) => f.path === path);
+    if (!file || !("content" in file) || !path.endsWith(".md")) continue;
+    const line = file.content.split("\n").findIndex((l) => l.includes("{{"));
+    if (line >= 0) errors.push(`${p.where}: ${p.raw} points at a copy that still holds {{ at its line ${line + 1}, which a reader would meet unrendered`);
+  }
+  return errors;
 }
 
 export function plannedAttachmentsOf(plan: BaseAttachmentPlan): PlannedAttachments {
