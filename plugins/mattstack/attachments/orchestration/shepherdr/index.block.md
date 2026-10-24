@@ -48,16 +48,16 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 ## Domain rules
 
-Domain rules are optional: a pack binds them to the `rules` prop, here or
-on a step's own block. Bound rules win over this skill's default only at
-the **Domain hook** paragraphs below: intake, the model floor and strategy
+Domain rules are optional: a pack binds them here or at a step. Bound
+rules win over this skill's default only at the **Domain hook** paragraphs
+below: intake, the model floor and strategy
 pin, provisioning (the `Domain provisions the tree?` branch), the Method
 copy, conventions, what follows a job's report, and wrap-up. They never
 change the herd contract: questions and reports still flow through the
 herd tools and the gate registry. A **Domain hook** paragraph no rule
 names keeps this skill's default as written.
 
-*If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
+*A domain rule sits here or in its step's own section; if one asks for a move this graph marks STOP, take the off-script edge instead.*
 
 {{props.rules}}
 
