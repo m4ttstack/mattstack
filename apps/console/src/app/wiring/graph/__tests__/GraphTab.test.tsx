@@ -846,6 +846,21 @@ describe('Graph tab: the block view', () => {
     expect(params().get('tab')).toBe('health');
   });
 
+  it("drops the sidebar's Blocks heading when rt will not build the skill", async () => {
+    mockDesignPack();
+    blocksGet.mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: async () => ({ error: 'shepherdr.domain is required' }),
+    });
+    renderAt('?tab=graph&focus=shepherdr');
+
+    await screen.findByTestId('block-view-refused');
+    expect(
+      within(screen.getByTestId('block-sidebar')).queryByText('Blocks')
+    ).not.toBeInTheDocument();
+  });
+
   it('goes back to all skills from the block tree, clearing the focus', async () => {
     mockDesignPack();
     const user = userEvent.setup();

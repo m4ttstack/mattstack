@@ -192,9 +192,11 @@ export function BlockSidebar({ pack }: { pack: string }) {
           </Menu.Dropdown>
         </Menu>
       )}
-      <Text span className={classes.groupLabel}>
-        Blocks
-      </Text>
+      {skill.state !== 'refused' && (
+        <Text span className={classes.groupLabel}>
+          Blocks
+        </Text>
+      )}
       {skill.state === 'loading' && (
         <Stack gap={2} data-testid="block-tree-loading">
           {[0, 1, 2, 3].map(i => (
