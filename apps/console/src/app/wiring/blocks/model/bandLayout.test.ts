@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { shipPayload } from '../__tests__/blocksFixture';
+import { bundledEngine } from '../layoutEngine';
 import { BAND, openBand } from './bandLayout';
 import { blockMap, type MapKind, type MapLink } from './blockMap';
+import type { LaidOut } from './elkGraph';
 import { mapLayout } from './mapLayout';
 
 const graph = shipPayload.graphs.find(each => each.blockId === 'ship/flow')!;
@@ -141,4 +143,40 @@ describe('openBand', () => {
     )!;
     expect(into.priority).toBeGreaterThan(0);
   });
+});
+
+describe('openBand laid out', () => {
+  const engine = bundledEngine();
+  /** The map's nodes in each drawn row, left to right. */
+  const rowsOf = (laidOut: LaidOut) => {
+    const rows = new Map<number, string[]>();
+    for (const node of map.nodes) {
+      const box = laidOut.nodes[node.id];
+      if (box) rows.set(box.y, [...(rows.get(box.y) ?? []), node.id]);
+    }
+    const left = (id: string) => laidOut.nodes[id]!.x;
+    return [...rows.values()].map(ids =>
+      [...ids].sort((a, b) => left(a) - left(b))
+    );
+  };
+
+  it("opening a band keeps each layer's left-to-right order of map nodes", async () => {
+    const before = rowsOf(await engine.layout(layout.input));
+    const folded = map.links.filter(
+      link => link.kind === 'line' && link.folded.length > 0
+    );
+    const moved: string[] = [];
+    for (const link of folded) {
+      const opened = openBand(layout, map, graph, link, measure);
+      const laidOut = await engine.layout(opened.input);
+      const left = (id: string) => laidOut.nodes[id]!.x;
+      for (const row of before) {
+        const now = [...row].sort((a, b) => left(a) - left(b));
+        if (now.join(' ') !== row.join(' ')) {
+          moved.push(`${link.id}: ${row.join(' ')} → ${now.join(' ')}`);
+        }
+      }
+    }
+    expect(moved).toEqual([]);
+  }, 60_000);
 });

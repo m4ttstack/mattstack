@@ -44,6 +44,9 @@ export const ELK_OPTIONS: Record<string, string> = {
   // order is the model's back edge and siblings keep their order.
   'org.eclipse.elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
   'org.eclipse.elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+  // considerModelOrder only breaks ties; without forcing it, opening a fold
+  // band reshuffles rows the band never touches.
+  'org.eclipse.elk.layered.crossingMinimization.forceNodeModelOrder': 'true',
   // Shapes stay parent-relative (fromElk adds the offsets); edge points and
   // labels come back in root coordinates, since an INCLUDE_CHILDREN edge
   // would otherwise be relative to whichever container ELK assigns it.

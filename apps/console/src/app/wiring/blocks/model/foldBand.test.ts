@@ -199,11 +199,19 @@ describe('foldBand', () => {
       'domain_rebases_unfinished → gate_push_refused · push_result · ok → create_forge_host · forward',
       'gate_push_refused → gate_push_refused · push_result · ok → create_forge_host · forward',
       'confirm_human_push → gate_push_refused · push_landed · yes → create_forge_host · forward',
-      'gate_which_forge → gate_which_forge · create_forge_host · GitHub → browser_case · forward',
-      'gate_which_forge → mr_create · create_forge_host · GitHub → browser_case · forward',
       'mr_create → mr_create · mr_create_result · created or existing → browser_case · forward',
       'mr_create → mr_create · mr_create_result · squashApplied → browser_case · forward',
+      'capture_after_case → capture_after_case · after_result · captured, or Board ready → every_case_tried · forward',
+      'capture_after_case → capture_after_case · after_result · skipped → every_case_tried · forward',
+      'capture_after_case → capture_after_case · after_result · Not drawn for a reason no retry fixes → every_case_tried · forward',
+      'capture_after_case → capture_after_case · run_budget_after_attempts · yes → browser_case · back',
+      'capture_after_case → capture_after_case · run_budget_after_attempts · no → every_case_tried · forward',
       'capture_after_case → every_case_tried · run_budget_after_attempts · yes → browser_case · back',
+      'capture_after_browser → capture_after_case, capture_after_browser · after_result · captured, or Board ready → every_case_tried · forward',
+      'capture_after_browser → capture_after_case, capture_after_browser · after_result · skipped → every_case_tried · forward',
+      'capture_after_browser → capture_after_case, capture_after_browser · after_result · Not drawn for a reason no retry fixes → every_case_tried · forward',
+      'capture_after_browser → capture_after_case, capture_after_browser · run_budget_after_attempts · yes → browser_case · back',
+      'capture_after_browser → capture_after_case, capture_after_browser · run_budget_after_attempts · no → every_case_tried · forward',
       'capture_after_browser → every_case_tried · run_budget_after_attempts · yes → browser_case · back',
       'run_watch_ci → gate_mark_ready · watch_ci_result · held → held_in_watch_ci · forward',
       'resolve_conflict_files → gate_ship · run_budget_gate_reopenings · no → rebase_in_progress · back',
@@ -211,6 +219,17 @@ describe('foldBand', () => {
       'resolve_conflict_files → domain_fast_checks · continue_result · error → git_rebase_abort · forward',
       'resolve_conflict_files → resolve_conflict_files · continue_result · error → git_rebase_abort · forward',
     ]);
+  });
+
+  it('a split the link passes stays on the map, out of the band', () => {
+    const through = shipMap.links.find(
+      l => l.from === 'gate_which_forge' && l.to.includes('browser_case')
+    )!;
+
+    const band = foldBand(shipGraph, through, shipMap);
+
+    expect(band.nodes.map(each => each.id)).not.toContain('create_forge_host');
+    expect(band.nodes.map(each => each.id)).toContain('gh_pr_create');
   });
 
   it('keeps only the edges between band nodes', () => {

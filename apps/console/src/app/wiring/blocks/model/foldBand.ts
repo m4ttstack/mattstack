@@ -50,12 +50,14 @@ export function foldBand(graph: Graph, link: MapLink, map: BlockMap): Band {
   const nodeOf = new Map(graph.nodes.map(node => [node.id, node]));
   const rank = new Map(map.order.map((id, index) => [id, index]));
   const skill = graph.blockId.split('/')[0]!;
-  const folded = new Set(link.folded);
   const onMap = new Set(map.nodes.map(node => node.id));
+  // A split the link passes is drawn on the map already, so it stays there.
+  const steps = link.folded.filter(id => !onMap.has(id));
+  const folded = new Set(steps);
 
   const budgets = new Map<string, { question: string; label: string }>();
   const mergedInto = new Map<string, string>();
-  for (const id of link.folded) {
+  for (const id of steps) {
     const node = nodeOf.get(id)!;
     const budget = node.shape === 'plaintext' && node.label?.match(BUDGET);
     const out = outs.get(id)!;
@@ -114,7 +116,7 @@ export function foldBand(graph: Graph, link: MapLink, map: BlockMap): Band {
   };
 
   const nodes: BandNode[] = [];
-  for (const id of link.folded) {
+  for (const id of steps) {
     if (mergedInto.has(id)) continue;
     const node = nodeOf.get(id)!;
     const budget = budgets.get(id);

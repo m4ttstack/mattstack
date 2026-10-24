@@ -145,6 +145,14 @@ export function openBand(
   const priorityOf = new Map(
     layout.input.edges.map(edge => [edge.id, edge.priority])
   );
+  // The way into the band carries the trunk's shared steps, so it is as
+  // straight as the straightest edge it replaces.
+  const intoPriority = layout.input.edges
+    .filter(edge => isDropped(edge.id) && edge.priority !== undefined)
+    .reduce<number | undefined>(
+      (most, edge) => Math.max(most ?? 0, edge.priority!),
+      undefined
+    );
 
   const added: { edge: MapEdge; priority?: number }[] = [];
   const add = (edge: MapEdge, priority?: number) => {
@@ -164,7 +172,7 @@ export function openBand(
         arrow: true,
         label: edge.label ? cutLabel(edge.label) : null,
       },
-      priorityOf.get(link.id)
+      intoPriority
     );
   }
   for (const edge of band.edges) {
