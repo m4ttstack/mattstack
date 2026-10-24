@@ -316,7 +316,7 @@ flowchart TB
     which_exit -->|inherited: green, or red after a ci Hand back| hand_back_verdict
     which_exit -->|inherited: an off-script take or hand back| hand_back_off_script
     which_exit -->|inherited: a failure| hand_back_failure
-    which_exit -->|own run: go back| hand_back_go_back
+    which_exit -->|inherited: go back| hand_back_go_back
     which_exit -->|hold| run_hold
     run_close_done --> done
     run_close_abandoned --> abandoned

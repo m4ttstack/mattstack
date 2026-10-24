@@ -18,8 +18,9 @@ verdict and a one-line triage per blocking failure.
 | `to` | one option per earlier stage; with one candidate, **Go back to `<stage>`** in `next` instead | Go back, with more than one earlier stage row |
 
 Mark one `action` option `(Recommended)`: **Fix and re-push** when any
-blocking failure is REAL, while this is the first or second `watch-ci`
-attempt (the `<attempt>` in scope `ci:watch-ci:<attempt>`); else **Hand
+blocking failure is REAL, while this is the first, second or third
+`watch-ci` attempt (the `<attempt>` in scope `ci:watch-ci:<attempt>`), so
+at most three fix rounds run; else **Hand
 back** when any is REAL; else **Retry the job** when an INFRA one is not
 yet retried; else **Hand back**, which also covers a red with no triage
 (a timeout, `no_pipeline`, an MR lookup error).
