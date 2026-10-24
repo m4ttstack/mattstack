@@ -60,6 +60,7 @@ function fake(
   const launches: Fake['launches'] = [];
   const focused: Fake['focused'] = [];
   const { existing, author, launch, ...rest } = over;
+  let row: QuestionState | undefined = existing;
   const io: QuestionLaunchIo = {
     findMr: async url =>
       url === MR_URL
@@ -72,9 +73,12 @@ function fake(
     readReportJson: () => REPORT,
     reportJsonPath: () => '/state/review/x.json',
     config: cfg({ reviewCwd: '/repo/acme' }),
-    readQuestion: () => existing,
+    // The row as the writes so far leave it, so the route's post-launch
+    // re-read sees its own queued write.
+    readQuestion: () => row,
     writeQuestion: (_mr, _id, patch) => {
       writes.push(patch);
+      row = { ...row, ...patch } as QuestionState;
     },
     launch:
       launch ??
@@ -322,6 +326,49 @@ describe('handleQuestionLaunch', () => {
       message: 'herdr tab create failed (1): no such workspace',
     });
     expect(f.focused).toEqual([]);
+  });
+
+  test('a launch that finishes after the row was deleted (a submit) writes nothing back', async () => {
+    let release!: (r: AgentLaunchResult) => void;
+    const f = fake({
+      launch: () => new Promise<AgentLaunchResult>(r => (release = r)),
+    });
+    await handleQuestionLaunch(BODY, f.io);
+    f.io.readQuestion = () => undefined;
+    release(LAUNCHED);
+    await f.settle();
+    expect(f.writes).toEqual([{ status: 'queued', iid: 812, gateId: 'g1' }]);
+    expect(f.focused).toEqual([]);
+  });
+
+  test('a launch that finishes after the row left queued writes nothing back', async () => {
+    let release!: (r: AgentLaunchResult) => void;
+    const f = fake({
+      launch: () => new Promise<AgentLaunchResult>(r => (release = r)),
+    });
+    await handleQuestionLaunch(BODY, f.io);
+    f.io.readQuestion = () => ({
+      mrUrl: MR_URL,
+      iid: 812,
+      findingId: 'f2',
+      gateId: 'g1',
+      status: 'done',
+    });
+    release(LAUNCHED);
+    await f.settle();
+    expect(f.writes.map(w => w.status)).toEqual(['queued']);
+  });
+
+  test('a launch that rejects after the row was deleted writes no error row', async () => {
+    let fail!: (e: Error) => void;
+    const f = fake({
+      launch: () => new Promise<AgentLaunchResult>((_r, j) => (fail = j)),
+    });
+    await handleQuestionLaunch(BODY, f.io);
+    f.io.readQuestion = () => undefined;
+    fail(new Error('boom'));
+    await f.settle();
+    expect(f.writes.map(w => w.status)).toEqual(['queued']);
   });
 
   test('a focus failure after a good launch does not turn the row into an error', async () => {

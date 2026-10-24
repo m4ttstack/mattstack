@@ -51,7 +51,7 @@ import {
   watchClientAssets,
   withEarlierChunks,
 } from './client-assets.ts';
-import type { ExecutorView } from './client/types.ts';
+import type { ExecutorView, QuestionInfo } from './client/types.ts';
 import {
   closeOnDone,
   type TabIdClearer,
@@ -280,7 +280,24 @@ import {
   tokenMissingNotice,
 } from './peer/runtime.ts';
 import { handleQuestionLaunch } from './question-launch.ts';
-import { readQuestionStates, writeQuestionState } from './question-state.ts';
+import {
+  clearMrQuestions,
+  onReviewGateEvent,
+  openReviewGates,
+  pruneOffBoardQuestions,
+  questionInfoFor,
+  questionMrUrls,
+  settleStaleRevisions,
+  withoutQuestionExecutors,
+  type LifecycleIo,
+} from './question-lifecycle.ts';
+import {
+  liveQuestionMrs,
+  markQuestionsGone,
+  questionAgentIds,
+  readQuestionStates,
+  writeQuestionState,
+} from './question-state.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
@@ -1132,6 +1149,8 @@ async function withRowState(mrs: BoardMR[]) {
     readDoctorStates()
   );
   runOwners.poke();
+  const now = Date.now();
+  const withQuestionMrs = questionMrUrls();
   const memory = readMemory();
   const joined = attachStandDown(
     attachPeerState(
@@ -1176,9 +1195,34 @@ async function withRowState(mrs: BoardMR[]) {
         : {}),
       gates: joinGateExecutors(mr.gates, reconciler.executors),
       doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
+      ...withQuestions(mr.webUrl, now, withQuestionMrs),
     })
   );
-  return joinExecutorOrphans(rows, reconciler.executors);
+  // A question pane shares its MR's subject; it is never the row's lane.
+  const { executors, goneQuestionAgents } = withoutQuestionExecutors(
+    reconciler.executors,
+    questionAgentIds()
+  );
+  // Best-effort on the request path: a busy db leaves the row live until
+  // the next read, which must not fail the response.
+  if (goneQuestionAgents.size)
+    persistOrWarn('question gone write', () =>
+      markQuestionsGone(goneQuestionAgents)
+    );
+  return joinExecutorOrphans(rows, executors);
+}
+
+/** The MR's finding questions for the review sheet, spread into its row;
+    nothing when it has none. `withQuestionMrs` is `questionMrUrls()`, read
+    once per snapshot so an MR with no question state costs no queries. */
+function withQuestions(
+  mrUrl: string | null | undefined,
+  now: number,
+  withQuestionMrs: ReadonlySet<string>
+): { questions?: QuestionInfo } {
+  if (!mrUrl || !withQuestionMrs.has(mrUrl)) return {};
+  const questions = questionInfoFor(mrUrl, now);
+  return questions ? { questions } : {};
 }
 
 function withSlackChannel<T extends BoardMR>(
@@ -2121,6 +2165,13 @@ const httpServer = Bun.serve({
             console.error(
               `gate prune failed: ${err instanceof Error ? err.message : err}`
             )
+          );
+          // Fire-and-forget like the gate prune: it closes herdr tabs.
+          void pruneOffBoardQuestions(onBoard, questionLifecycleIo()).catch(
+            err =>
+              console.error(
+                `question prune failed: ${err instanceof Error ? err.message : err}`
+              )
           );
           pruneDrafts(onBoard);
           prunePeerReviews(onBoard);
@@ -4992,6 +5043,17 @@ async function handleAgentSignal(
       tabId => closeTab(tabId),
       clearSignalTabId
     );
+    // A finished review ends its finding questions, the same cleanup a
+    // submitted review-post gate runs (in case that event was missed). Not
+    // awaited: the re-review step below must follow the stale read with no
+    // await between them.
+    if (signal.kind === 'review' && signal.status === 'done') {
+      void clearMrQuestions(signal.mrUrl, questionLifecycleIo()).catch(err =>
+        console.error(
+          `question cleanup failed for ${signal.mrUrl}: ${err instanceof Error ? err.message : err}`
+        )
+      );
+    }
   }
   // A picked re-review resolves its latch discussions once respond is done.
   // Runs after the close so no await separates the stale read from it.
@@ -5138,11 +5200,27 @@ function wakeAgentStatusFeed(): void {
 // re-runs every GATE_SWEEP_MS forever.
 const warnedUnknownGateIds = new Set<string>();
 
+function questionLifecycleIo(): LifecycleIo {
+  return {
+    closeTab: tabId => closeTab(tabId),
+    logError: message => console.error(message),
+  };
+}
+
 async function runGateSweep(): Promise<void> {
+  // Before the plan: a revision this settles no longer reads as rebuilding.
+  try {
+    settleStaleRevisions(Date.now(), openReviewGates(gateCache.rows()));
+  } catch (err) {
+    console.error(
+      `revision expiry failed: ${err instanceof Error ? err.message : err}`
+    );
+  }
   const states = {
     reviews: readReviewStates(),
     responds: readRespondStates(),
     doctors: readDoctorStates(),
+    questionMrs: liveQuestionMrs(),
   };
   const actions = planSweep(
     gateCache.rows(),
@@ -5266,6 +5344,16 @@ const stopRelay = FIXTURE_DIR
               console.error(
                 `gate answered resume failed: ${err instanceof Error ? err.message : err}`
               )
+            );
+          }
+          // A rebuilt review gate settles its revision; a submitted one ends
+          // the MR's finding questions. Every other frame is a no-op there.
+          if (writer) {
+            void onReviewGateEvent(gateFrame, questionLifecycleIo()).catch(
+              err =>
+                console.error(
+                  `question lifecycle failed: ${err instanceof Error ? err.message : err}`
+                )
             );
           }
           // The push is a wake-up, never the delivery: the journal is read

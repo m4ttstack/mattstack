@@ -79,6 +79,7 @@ function states(overrides: Partial<GateSweepStates> = {}): GateSweepStates {
     reviews: new Map(),
     responds: new Map(),
     doctors: new Map(),
+    questionMrs: new Set(),
     ...overrides,
   };
 }
@@ -609,7 +610,7 @@ describe('planSweep', () => {
     const rows = [
       baseRow({ kind: 'mystery-kind', status: 'open', openedAt: 0 }),
     ];
-    const s = { reviews: new Map(), responds: new Map(), doctors: new Map() };
+    const s = states();
     const unknown: string[] = [];
     planSweep(rows, s, 10_000_000, 1, r => unknown.push(r.kind));
     expect(unknown).toEqual(['mystery-kind']);
@@ -624,7 +625,7 @@ describe('planSweep', () => {
       }),
       baseRow({ id: 'gate-closed', kind: 'mystery-kind', status: 'closed' }),
     ];
-    const s = { reviews: new Map(), responds: new Map(), doctors: new Map() };
+    const s = states();
     const unknown: string[] = [];
     planSweep(rows, s, 10_000_000, 1, r => unknown.push(r.id));
     expect(unknown).toEqual([]);
@@ -634,7 +635,7 @@ describe('planSweep', () => {
     const rows = [
       baseRow({ id: 'gate-parked', kind: 'mystery-kind', status: 'parked' }),
     ];
-    const s = { reviews: new Map(), responds: new Map(), doctors: new Map() };
+    const s = states();
     const unknown: string[] = [];
     planSweep(rows, s, 10_000_000, 1, r => unknown.push(r.id));
     expect(unknown).toEqual(['gate-parked']);
@@ -644,7 +645,7 @@ describe('planSweep', () => {
     const rows = [
       baseRow({ id: 'gate-mystery', kind: 'mystery-kind', status: 'open' }),
     ];
-    const s = { reviews: new Map(), responds: new Map(), doctors: new Map() };
+    const s = states();
     const seen = new Set<string>();
     const unknown: string[] = [];
     const report = (r: { id: string }) => unknown.push(r.id);
@@ -658,12 +659,53 @@ describe('planSweep', () => {
     const rows = [
       baseRow({ id: 'gate-mystery', kind: 'mystery-kind', status: 'open' }),
     ];
-    const s = { reviews: new Map(), responds: new Map(), doctors: new Map() };
+    const s = states();
     const unknown: string[] = [];
     const report = (r: { id: string }) => unknown.push(r.id);
     planSweep(rows, s, 10_000_000, 1, report, new Set());
     planSweep(rows, s, 10_000_000, 1, report, new Set());
     expect(unknown).toEqual(['gate-mystery', 'gate-mystery']);
+  });
+});
+
+describe('planSweep with a live question', () => {
+  test('an open review gate whose MR has a live question is not parked', () => {
+    const rows = [baseRow({ openedAt: NOW - GRACE_MS - 1 })];
+    const s = states({ questionMrs: new Set([MR_URL]) });
+    expect(planSweep(rows, s, NOW, GRACE_MS)).toEqual([]);
+  });
+
+  test('it parks again once no question is live', () => {
+    const rows = [baseRow({ openedAt: NOW - GRACE_MS - 1 })];
+    const s = states({ questionMrs: new Set([OTHER_MR_URL]) });
+    expect(planSweep(rows, s, NOW, GRACE_MS)).toEqual([
+      {
+        kind: 'park',
+        domain: 'review',
+        mrUrl: MR_URL,
+        tabId: undefined,
+        gateId: 'gate-1',
+      },
+    ]);
+  });
+
+  test('a live question holds only the review domain: a respond gate still parks', () => {
+    const rows = [
+      baseRow({ kind: 'respond-post', openedAt: NOW - GRACE_MS - 1 }),
+    ];
+    const s = states({ questionMrs: new Set([MR_URL]) });
+    expect(planSweep(rows, s, NOW, GRACE_MS).map(a => a.kind)).toEqual([
+      'park',
+    ]);
+  });
+
+  test('the held gate still counts as open, so a done review tab is not closed under it', () => {
+    const rows = [baseRow({ openedAt: NOW - GRACE_MS - 1 })];
+    const s = states({
+      reviews: new Map([[MR_URL, baseReview({ status: 'done', tabId: 't' })]]),
+      questionMrs: new Set([MR_URL]),
+    });
+    expect(planSweep(rows, s, NOW, GRACE_MS)).toEqual([]);
   });
 });
 

@@ -131,6 +131,12 @@ export async function handleQuestionLaunch(
   if (dedup.kind === 'refused') return { status: 409, body: dedup.reason };
 
   io.writeQuestion(mrUrl, findingId, { status: 'queued', iid, gateId });
+  // The pane comes up after the route has answered, and a submit can settle
+  // the MR's questions in between (deleting this row). The outcome writes
+  // are merges, so writing them anyway would bring back a row with no iid
+  // or gateId; they land only while the row is still the queued one.
+  const stillQueued = () =>
+    io.readQuestion(mrUrl, findingId)?.status === 'queued';
   // Two-argument then: a failure to record or focus a pane that did come up
   // is not a launch failure, and must not turn the row into an error.
   void io
@@ -150,7 +156,7 @@ export async function handleQuestionLaunch(
     })
     .then(
       async (result: AgentLaunchResult) => {
-        if (result.focusedExisting) return;
+        if (result.focusedExisting || !stillQueued()) return;
         io.writeQuestion(mrUrl, findingId, {
           status: 'live',
           agentId: result.agentId,
@@ -170,6 +176,7 @@ export async function handleQuestionLaunch(
         console.error(
           `question launch failed: ${err instanceof Error ? err.message : err}`
         );
+        if (!stillQueued()) return;
         io.writeQuestion(mrUrl, findingId, {
           status: 'error',
           message: launchErrorMessage('question', err),
