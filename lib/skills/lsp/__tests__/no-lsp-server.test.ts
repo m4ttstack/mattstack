@@ -317,6 +317,33 @@ describe("rt skills lsp", () => {
     }
   }, 30_000);
 
+  test("a plain markdown file outside any plugin stays silent and scans nothing until a block file opens", async () => {
+    writeFileSync(gate, `${readFileSync(gate, "utf8")}\n{{props.nope}}\n`);
+    const readme = join(tmp, "README.md");
+    writeFileSync(readme, "# notes\n");
+    const client = new Client(["--root", plugin], home);
+    try {
+      client.send({ id: 1, method: "initialize", params: { processId: null, capabilities: {} } });
+      await client.waitFor((m) => m.id === 1);
+      client.send({ method: "initialized", params: {} });
+      const readmeUri = pathToFileURL(readme).href;
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri: readmeUri, languageId: "markdown", version: 1, text: "# notes\n" } } });
+      client.send({ method: "textDocument/didChange", params: { textDocument: { uri: readmeUri, version: 2 }, contentChanges: [{ text: "# notes\nmore\n" }] } });
+      client.send({ id: 2, method: "textDocument/hover", params: { textDocument: { uri: readmeUri }, position: { line: 0, character: 1 } } });
+      expect((await client.waitFor((m) => m.id === 2)).result).toBeNull();
+      await new Promise((r) => setTimeout(r, 1000));
+      expect(client.messages.filter((m) => m.method === "textDocument/publishDiagnostics")).toEqual([]);
+      const since = client.messages.length;
+      const uri = pathToFileURL(gate).href;
+      client.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "markdown", version: 1, text: readFileSync(gate, "utf8") } } });
+      const published = await client.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri === uri && m.params.diagnostics.length > 0, since);
+      expect(published.params.diagnostics[0]).toMatchObject({ code: "unknown-prop" });
+      expect(await client.stop()).toBe(0);
+    } finally {
+      client.kill();
+    }
+  }, 30_000);
+
   test("a fill markdown file under attachments/ gets diagnostics and a quick fix", async () => {
     const pack = join(tmp, "widgets");
     cpSync(join(FIXTURES, "pack"), pack, { recursive: true });

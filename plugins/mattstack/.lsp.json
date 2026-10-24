@@ -3,7 +3,7 @@
     "command": "rt",
     "args": ["skills", "lsp"],
     "extensionToLanguage": {
-      ".block.md": "skill-block",
+      ".md": "markdown",
       ".jsonc": "jsonc"
     }
   }

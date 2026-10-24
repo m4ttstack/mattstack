@@ -86,6 +86,8 @@ export function startServer(opts: { roots: string[] }): void {
   let fileRenames = false;
   let watchesFiles = false;
   const published = new Set<string>();
+  /** Stays false until a skill file is opened or changed, so a project with no skills costs no scan and no output. */
+  let active = false;
 
   const send = (file: string, diagnostics: ReturnType<typeof publishable>) => {
     connection.sendDiagnostics({ uri: pathToFileURL(file).href, diagnostics }).catch((err: unknown) => {
@@ -98,6 +100,7 @@ export function startServer(opts: { roots: string[] }): void {
     const current = ws;
     try {
       update(current);
+      if (!active) return;
       const files = new Set(current.analysis().diagnostics.keys());
       for (const file of files) send(file, publishable(current, file));
       for (const file of published) {
@@ -168,6 +171,7 @@ export function startServer(opts: { roots: string[] }): void {
   documents.onDidChangeContent(({ document }) => {
     const file = pathOf(document.uri);
     if (!ws || !file || !isSkillFile(file)) return;
+    active = true;
     publishAll((current) => current.change(file, document.getText()));
   });
 
