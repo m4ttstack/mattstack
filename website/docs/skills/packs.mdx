@@ -146,7 +146,7 @@ To convert a pack:
 
 3. Delete the old slot keys from `pack/skills.jsonc`, including any inside a pipeline's `bindings`.
 4. Run `rt skills compile`, then `rt skills check --strict`.
-5. Publish the pack as usual: bump its version, commit, push, `rt skills sync --pack widgets`.
+5. Converting in place, publish the pack as usual: bump its version, commit, push, `rt skills sync --pack widgets`. On the admin's trial branch, publish with `rt team publish` instead, as the teams page says.
 
 The org's base pack converts first, since a team pack that extends it does not compile while the base binds old keys.
 

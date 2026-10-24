@@ -318,11 +318,12 @@ release, merge the trial branch into the data branch on the forge, then
 switch back with `rt team branch use <data branch>`. Never merge the trial
 branch locally and push the result to the data branch. Then `rt team pull`
 and run the script once more without `--write`: on a layout 5 clone it
-checks every pack and names any old slot key the merge brought back. Order against the release: merge after it. Since
-`READABLE_LAYOUTS` still includes 4, a member on the new app reads either
-layout and never sees a waiting row; a member on an app that reads only up
-to 4 holds its org pull until it updates, so a merge before the release
-would hold every member's pull.
+checks every pack and names any old slot key the merge brought back. Order
+against the release: merge after it. Since `READABLE_LAYOUTS` still
+includes 4, a member on the new app reads either layout and never sees a
+waiting row; a member on an app that reads only up to 4 holds its org pull
+until it updates, so a merge before the release would hold every member's
+pull.
 
 The gate itself reached the old line as v2.21.1, a patch release tagged from
 `release/v2.21.x`, a branch cut from the v2.21.0 tag because main already

@@ -1,6 +1,8 @@
+import { execFileSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { stripJsonc } from "../../lib/jsonc.ts";
+import { childEnv } from "../../lib/subprocess.ts";
 import { FragmentError, parseFragment } from "../../lib/skills/manifest-merge.ts";
 import { findOldSlotKeys } from "../../lib/skills/old-slots.ts";
 import { ORG_MARKER_REL, POINTER_REL, parseMarker } from "../../lib/team/org-marker.ts";
@@ -20,6 +22,8 @@ export class BlockPacksRefusal extends ConversionRefusal {}
 export type BlockPacksPlan = { cloneDir: string; org: string; branch: string; markerPath: string; alreadyMoved: boolean; packs: { name: string; ok: boolean; oldBindings: string[] }[] };
 
 const SYMLINK_MODE = "120000";
+// The recursive listing covers every org and team file; past execFileSync's 1 MiB default it throws ENOBUFS.
+const LS_TREE_MAX_BUFFER = 64 * 1024 * 1024;
 const segments = (rel: string): string[] => rel.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"));
 
 /**
@@ -29,8 +33,8 @@ const segments = (rel: string): string[] => rel.split("/").map((_, i, parts) => 
  * makes the two the same at write time. Org packs are named "org <folder>" so
  * one cannot share a name with a team.
  */
-function packsInHead(git: (...argv: string[]) => string): { name: string; path: string }[] {
-  const entries = git("ls-tree", "-r", "-t", "-z", "--full-tree", "HEAD", "--", "mattstack")
+function packsInHead(clone: string): { name: string; path: string }[] {
+  const entries = execFileSync("git", ["-C", clone, "ls-tree", "-r", "-t", "-z", "--full-tree", "HEAD", "--", "mattstack"], { encoding: "utf8", env: childEnv(), stdio: "pipe", maxBuffer: LS_TREE_MAX_BUFFER })
     .split("\0")
     .filter(Boolean)
     .map((entry) => {
@@ -93,7 +97,7 @@ export function planBlockPacksMove(cloneDir: string, admin?: string): BlockPacks
   } catch {
     throw new BlockPacksRefusal("The clone has no branch checked out", "Check out the published trial branch that holds the converted packs.", `git -C ${shellQuote(clone)} switch <trial-branch>`);
   }
-  const packs = packsInHead(git).map(({ name, path }) => {
+  const packs = packsInHead(clone).map(({ name, path }) => {
     let fragment;
     try {
       fragment = parseFragment(git("show", `HEAD:${path}`), path);
