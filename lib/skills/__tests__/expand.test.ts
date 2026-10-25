@@ -358,6 +358,11 @@ describe("pointers", () => {
     write(join(src, "widget", "extra.md"), "See `${CLAUDE_SKILL_DIR}/../elsewhere/x.md`.\n");
     expect(() => expanded()).toThrow(/widget\/extra\.md: \$\{CLAUDE_SKILL_DIR\} at line 1 does not point into a board skill/);
   });
+
+  test("a stray unbraced token is named as written", () => {
+    write(join(src, "widget", "extra.md"), "Intro.\nSee `$CLAUDE_SKILL_DIR/../elsewhere/x.md`.\n");
+    expect(() => expanded()).toThrow("widget/extra.md: $CLAUDE_SKILL_DIR at line 2 does not point into a board skill");
+  });
 });
 
 describe("block-tree includes", () => {

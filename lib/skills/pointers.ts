@@ -115,12 +115,13 @@ export function closeMap(own: PointerMap, reached: PointerMap[]): PointerMap {
   return { id: own.id, dir: own.dir, covers, keys };
 }
 
-export function leftoverTokens(text: string): { line: number; col: number }[] {
+/** `token` is the form as written, braced or not. */
+export function leftoverTokens(text: string): { line: number; col: number; token: string }[] {
   const [head] = splitFrontmatter(text);
-  const found: { line: number; col: number }[] = [];
+  const found: { line: number; col: number; token: string }[] = [];
   for (const m of text.slice(head.length).matchAll(new RegExp(TOKEN_FORM, "g"))) {
     const before = text.slice(0, head.length + m.index);
-    found.push({ line: before.split("\n").length, col: before.length - before.lastIndexOf("\n") });
+    found.push({ line: before.split("\n").length, col: before.length - before.lastIndexOf("\n"), token: m[0] });
   }
   return found;
 }

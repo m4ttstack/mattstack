@@ -50,7 +50,7 @@ describe("keyBody: an attachment's own token without ../../", () => {
     const out = keyBody(text, { dir: "attachments/receive-review", fileRel: "SKILL.md", units, written: everything });
     expect(out.text).toBe(text);
     expect(out.targets).toEqual({});
-    expect(leftoverTokens(out.text)).toEqual([{ line: 1, col: 5 }]);
+    expect(leftoverTokens(out.text)).toEqual([{ line: 1, col: 5, token: TOKEN }]);
   });
 });
 
@@ -246,11 +246,11 @@ describe("openingLine", () => {
 describe("leftoverTokens", () => {
   test("ignores frontmatter and finds the token in the body", () => {
     const text = `---\nname: work\nallowed-tools: Bash(bash ${TOKEN}/scripts/x.sh:*)\n---\nIntro.\nRun ${TOKEN}/nowhere.sh\n`;
-    expect(leftoverTokens(text)).toEqual([{ line: 6, col: 5 }]);
+    expect(leftoverTokens(text)).toEqual([{ line: 6, col: 5, token: TOKEN }]);
   });
 
   test("finds the unbraced form too, but never in frontmatter", () => {
     const text = `---\nallowed-tools: Bash(bash $CLAUDE_SKILL_DIR/x.sh:*)\n---\nRun $CLAUDE_SKILL_DIR and \`${TOKEN}\`.\n`;
-    expect(leftoverTokens(text)).toEqual([{ line: 4, col: 5 }, { line: 4, col: 28 }]);
+    expect(leftoverTokens(text)).toEqual([{ line: 4, col: 5, token: "$CLAUDE_SKILL_DIR" }, { line: 4, col: 28, token: TOKEN }]);
   });
 });

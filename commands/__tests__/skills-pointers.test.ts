@@ -6,7 +6,7 @@ import { checkBlocks, checkPack, compilePackAll, computeRows, skillsCheck, skill
 import { syncCheckOf } from "../skills-sync.ts";
 import { HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { isEmittedAttachmentDir } from "../../lib/skills/base-attachments.ts";
-import { closeUnits, keyFiles, stageReadsOf, withMapFile, type UnitPointers } from "../../lib/skills/unit-maps.ts";
+import { closeUnits, keyFiles, pointerErrorsIn, stageReadsOf, withMapFile, type UnitPointers } from "../../lib/skills/unit-maps.ts";
 import { openingLine } from "../../lib/skills/pointers.ts";
 import type { CompiledFile } from "../../lib/skills/types.ts";
 import { POINTER_KEYS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
@@ -370,6 +370,16 @@ describe("check reads keys and stamps", () => {
     await compile(f);
     writeFile(join(f.packDir, "attachments", "stage-plan", "SKILL.md"), read(f, "attachments/stage-plan/SKILL.md") + `\nSee ${TOKEN}/x.sh.\n`);
     await oneRow(f, "leftover-token");
+  });
+});
+
+describe("a leftover token's row", () => {
+  test("names the form it found, braced or not", () => {
+    const unit = { dir: "skills/work", mds: [{ rel: "SKILL.md", text: `Run $CLAUDE_SKILL_DIR/x.sh, then ${TOKEN}/y.sh.\n` }], mapText: null };
+    expect(pointerErrorsIn([unit], { work: "skills/work" }, () => true)).toEqual([
+      { file: "skills/work/SKILL.md", line: 1, col: 5, code: "leftover-token", message: "$CLAUDE_SKILL_DIR is left in a compiled body; compile writes each pointer there as an @key" },
+      { file: "skills/work/SKILL.md", line: 1, col: 34, code: "leftover-token", message: `${TOKEN} is left in a compiled body; compile writes each pointer there as an @key` },
+    ]);
   });
 });
 

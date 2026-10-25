@@ -293,7 +293,7 @@ function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
       const out = keyBody(text, { dir, fileRel, units, written: (target) => written.has(target) });
       const left = leftoverTokens(out.text)[0];
       if (left) {
-        throw pointerRefusal("skills-expand-stray-token", `${where}: ${SKILL_DIR_TOKEN} at line ${left.line} does not point into a board skill`, "Expand writes each skill-dir path as an @key, and only a path into a board skill's folder has one.");
+        throw pointerRefusal("skills-expand-stray-token", `${where}: ${left.token} at line ${left.line} does not point into a board skill`, "Expand writes each skill-dir path as an @key, and only a path into a board skill's folder has one.");
       }
       for (const [k, target] of Object.entries(out.targets)) {
         if (typeof target !== "string" || written.has(target)) continue;

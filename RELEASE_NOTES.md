@@ -27,7 +27,7 @@ A skills release. Every mattstack engine and include is now a tree of blocks, so
 - hand-written plugin skills get a `broken-skill-path` check: a path that points at no file fails `rt skills check`
 - the extending-a-pack, creating-a-pack, editing-skills and process-digraphs skills teach the block model, and `props.md` lists every block and prop
 - CI compiles every graph-bearing engine, runs check-dot on the compiled graphs, and checks the props signature against the last release tag
-- Compiled skills point at their own files by `@key`; one `skills_resolve` call per started skill finds them wherever the skill was opened from. A plugin version bump now needs a recompile.
+- Compiled skills point at their own files by `@key`; one `skills_resolve` call per started skill finds them wherever the skill was opened from. A plugin version bump now needs a recompile, and a `${CLAUDE_SKILL_DIR}` link in a copied hand-written skill that no longer reaches a file now fails `rt skills check` instead of only warning.
 
 ### Macs already set up
 

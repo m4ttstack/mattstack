@@ -312,8 +312,8 @@ export function pointerErrorsIn(units: ScannedUnit[], table: UnitTable, fileExis
     const keys = keysOf(unit);
     for (const { rel, text } of unit.mds) {
       const file = `${unit.dir}/${rel}`;
-      const rows: BlockDiagnostic[] = leftoverTokens(text).map((at) => ({
-        file, ...at, code: "leftover-token", message: "${CLAUDE_SKILL_DIR} is left in a compiled body; compile writes each pointer there as an @key",
+      const rows: BlockDiagnostic[] = leftoverTokens(text).map(({ line, col, token }) => ({
+        file, line, col, code: "leftover-token", message: `${token} is left in a compiled body; compile writes each pointer there as an @key`,
       }));
       for (const { token, line, col } of keyTokens(text)) {
         if (!isKey(token, table, keys)) continue;

@@ -10,6 +10,7 @@ import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from ".
 import type { CompiledFile, PlannedAttachments, StepSource } from "../types.ts";
 import type { BlockTree } from "../blocks/types.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
+import { fileCheckFor, pointerErrorsIn, unitsInMemory } from "../unit-maps.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "blocks");
 const MANIFEST = join(FIX, "mattstack-home", "repos", "my-repo", "skills.jsonc");
@@ -508,6 +509,19 @@ describe("compileBlockSkill", () => {
           "mini/references/widgets-guide/a.md": "skills/mini/references/widgets-guide/a.md",
         });
         expect(result.warnings).toEqual(["skills/widgets-guide/SKILL.md: ../widgets-other/SKILL.md does not resolve from its copy in references/widgets-guide/"]);
+      });
+
+      test("under a plugin identity, a hand-authored copy's dead skill-dir link keys, warns, and fails check as a missing target", () => {
+        const { result, widgets } = compileMini({ packRoot: true, keyed: true, prep: withSkill({ "SKILL.md": "Read ${CLAUDE_SKILL_DIR}/../../attachments/other-kit/SKILL.md.\n" }) });
+        expect(result.diagnostics).toEqual([]);
+        expect(result.warnings).toEqual(["skills/widgets-guide/SKILL.md: ${CLAUDE_SKILL_DIR}/../../attachments/other-kit/SKILL.md does not resolve from its copy in references/widgets-guide/"]);
+        const keys = result.pointers!.keys;
+        expect(keys["mini/attachments/other-kit/SKILL.md"]).toBe("skills/mini/attachments/other-kit/SKILL.md");
+        const unit = { dir: "skills/mini", files: [...result.files, { path: "compiled.json", content: JSON.stringify({ keys }) }] };
+        const rows = pointerErrorsIn(unitsInMemory([unit]), { mini: "skills/mini" }, fileCheckFor(widgets, [unit]));
+        expect(rows.map((r) => [r.file, r.code, r.message])).toEqual([
+          ["skills/mini/references/widgets-guide/SKILL.md", "missing-target", "@mini/attachments/other-kit/SKILL.md points at skills/mini/attachments/other-kit/SKILL.md, which is not a file"],
+        ]);
       });
 
       test("a hand-authored skill's copy keeps quiet about links inside it", () => {
