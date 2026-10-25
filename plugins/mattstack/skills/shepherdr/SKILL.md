@@ -983,7 +983,7 @@ One form, per the wrap-up form contract below:
 Never auto-remove a tree or job dir; `herd_wrap_up` executes exactly the
 form's answer.
 
-<!-- part: block:shepherdr/lanes-and-wrap-up/measure-running source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/measure-running.block.md lines=5-22 -->
+<!-- part: block:shepherdr/lanes-and-wrap-up/measure-running source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/lanes-and-wrap-up/measure-running.block.md lines=5-23 -->
 ### Measure what still runs
 
 The stop calls cover every job in the dispose list or with a closing pane:
@@ -991,7 +991,8 @@ The stop calls cover every job in the dispose list or with a closing pane:
 (a registry name, never a path). A null
 tree (a job spawned in a given dir) is skipped unless that dir is an rt
 tree; then pass the `name` of the
-`trees` row whose `path` is that dir, from `rt_verb {args: ["worktree", "list", "--repo", "<the herd's repo>", "--json"]}`.
+`trees` row whose `path` is that dir, from
+`rt_verb {args: ["worktree", "list", "--repo", "<the herd's repo>", "--json"]}`.
 They run first: a disposed tree leaves rt's registry.
 
 `not-held` means rt recorded no hold, not that nothing runs: a hold is

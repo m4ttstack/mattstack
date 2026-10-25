@@ -34,6 +34,6 @@ Hold win over it.
 note carries their words, when any, then names each failing job, its
 one-line triage, and the heading of the section in this skill that governs
 fixing it (under Domain rules or at a step; the deepest heading that
-applies), for example `api-tests: REAL, orders spec asserts 25 per page;
-section: Acting on other REAL failures` (`section: none` when no section
-applies).
+applies), for example `mock the clock; api-tests: REAL, orders spec
+asserts 25 per page; section: Acting on other REAL failures` (`section:
+none` when no section applies).

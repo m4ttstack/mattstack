@@ -9,7 +9,8 @@ The stop calls cover every job in the dispose list or with a closing pane:
 (a registry name, never a path). A null
 tree (a job spawned in a given dir) is skipped unless that dir is an rt
 tree; then pass the `name` of the
-`trees` row whose `path` is that dir, from `rt_verb {args: ["worktree", "list", "--repo", "<the herd's repo>", "--json"]}`.
+`trees` row whose `path` is that dir, from
+`rt_verb {args: ["worktree", "list", "--repo", "<the herd's repo>", "--json"]}`.
 They run first: a disposed tree leaves rt's registry.
 
 `not-held` means rt recorded no hold, not that nothing runs: a hold is
