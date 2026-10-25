@@ -15,7 +15,7 @@ questions, each its own question:
   / **Hand back**
 - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 
-Selection `{"action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
+Selection `{"action":"take: <the move in full>|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Read `next` first: **Hold** ends the turn with no move made; **Iterate
 here** means the human fixed the cause (started the daemon, registered the
 repo) and wants `worktree_provision` retried, and it ignores `action`; only

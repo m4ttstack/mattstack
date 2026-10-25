@@ -14,5 +14,6 @@ line asking for the move.
 | `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |
 
 Take: make exactly that move once, then continue from the node it led to.
-Hand back: the site's own hand-back edge where its graph draws one; otherwise, under a run, `run_stage {action: fail}` with the why as reason;
+Hand back: follow the site's own hand-back edge where its graph draws one;
+otherwise, under a run, `run_stage {action: fail}` with the why as reason;
 with no run, end the verb quoting it.

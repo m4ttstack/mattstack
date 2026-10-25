@@ -23,7 +23,7 @@ label: Graph notes
 - **decidedBy** is the gate tool's returned `decidedBy`, or, for a
   hand-back, the handed `decidedBy` (`pane` when it was typed in the
   pane). The gate tools record each gate's answers; this file records none.
-- **A finished run stays finished.** Only Close's Done, or Abandon at a failure gate, ends it;
+- **A finished run stays finished.** Only Close's Done, or an Abandon (at a failure gate or the `ci` gate), ends it;
   a green `ci` does not. Never carry a finished run's `runDb` into new work;
   a new AFTER on a shipped run is not new work, so it reopens that run.
 - **This file's gates** walk gate-protocol's Runs integration with `runDb`

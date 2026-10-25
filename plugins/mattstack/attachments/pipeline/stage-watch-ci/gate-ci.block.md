@@ -31,7 +31,9 @@ Read `next` first: Proceed applies `action`; Iterate here, Go back and
 Hold win over it.
 
 **Fix and re-push** hands back `{to: implement, note, decidedBy}`. The
-note names the failing job, its one-line triage, and the heading of the
-Domain rules section that governs fixing it, for example `api-tests: REAL,
-orders spec asserts 25 per page; Domain rules: Acting on other REAL
-failures` (`Domain rules: none` when no section applies).
+note carries their words, when any, then names each failing job, its
+one-line triage, and the heading of the section in this skill that governs
+fixing it (under Domain rules or at a step; the deepest heading that
+applies), for example `api-tests: REAL, orders spec asserts 25 per page;
+section: Acting on other REAL failures` (`section: none` when no section
+applies).
