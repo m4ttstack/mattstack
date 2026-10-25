@@ -22,7 +22,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:review`, use it; otherwise call `skills_resolve {id: "skills:board:review"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2197 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2200 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -313,16 +313,15 @@ digraph review_flow {
     "Build the outcome-only question (clean review)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>";
     "Build the tier-fallback questions (tiers, outcome)" -> "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>";
     "<status-bin> gate open <state> --kind review-post --questions <json> --context <text>" -> "review-post open exit?";
-    "review-post open exit?" -> "review-post: take the review gate step" [label="0, no revision in hand"];
-    "review-post open exit?" -> "rm -f <report stem>.revision.json" [label="0, opened for a revision"];
-    "rm -f <report stem>.revision.json" -> "review-post: take the review gate step";
+    "review-post open exit?" -> "review-post: take the review gate step" [label="0"];
     "review-post open exit?" -> "Ask the review questions as one combined native form (degraded)" [label="nonzero: the daemon is down"];
     "review-post: take the review gate step" -> "review-post step outcome?";
     "review-post step outcome?" -> "Record the verdict answer in --report" [label="answered"];
     "review-post step outcome?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
     "review-post step outcome?" -> "Review gate closed for a revision" [label="closed for a revision"];
     "Review gate closed for a revision" -> "Revision rebuilt (review)?";
-    "Revision rebuilt (review)?" -> "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes: a new fitted open file handed back"];
+    "Revision rebuilt (review)?" -> "rm -f <report stem>.revision.json" [label="yes: a new fitted open file handed back"];
+    "rm -f <report stem>.revision.json" -> "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>";
     "Revision rebuilt (review)?" -> "Review gate gone: ended cleanly, no status write" [label="no: revision file missing or unreadable, no domain skill, or the rebuild failed or held"];
     "review-post step outcome?" -> "Ask the review questions as one combined native form (degraded)" [label="the wait keeps failing"];
     "Ask the review questions as one combined native form (degraded)" -> "Record the verdict answer in --report";
@@ -1031,15 +1030,19 @@ nothing.
    path, its `gate-ctx.sh`, the recounted severity line, and whether it
    moved a new anchor into the summary (say so in the pane when it did).
    It never re-reviews or re-verifies anything.
-3. **Open the new open file** with `open-gate.sh`, exactly like the first
-   open (`Revision rebuilt (review)?` yes). The `review-round:` line in
-   `--report` stays as it is: a revision is the same round on the same
-   sha, so never append a second one.
-4. **Delete the revision file** once that open exits 0 (`rm -f <report
-   stem>.revision.json`), then take the gate step on the new gate. The
-   board marks the revision applied when the new gate opens and carries
-   the human's ticks and edits on the other findings across to it. A
-   later revision closes the new gate the same way and comes back here.
+3. **Delete the revision file** once the domain skill has applied it
+   (`Revision rebuilt (review)?` yes): `rm -f <report stem>.revision.json`,
+   BEFORE opening the new gate. The moment that gate is open the human can
+   send the next revision, and the board writes it to this same path; a
+   delete after the open could remove that next revision before this pane
+   ever reads it.
+4. **Open the new open file** with `open-gate.sh`, exactly like the first
+   open, then take the gate step on the new gate. The `review-round:` line
+   in `--report` stays as it is: a revision is the same round on the same
+   sha, so never append a second one. The board marks the revision applied
+   when the new gate opens and carries the human's ticks and edits on the
+   other findings across to it. A later revision closes the new gate the
+   same way and comes back here.
 
 `Revision rebuilt (review)?` is no, ending as Gone with no status write
 and the revision file left for the board, when:
@@ -1058,8 +1061,8 @@ failed, on its own sweep.
 
 When the new open exits nonzero (the daemon is down),
 `review-post open exit?` takes its usual degraded edge: the combined
-native form, built from the new open file. The revision file stays. This
-is the one path past a revised close that can write `done` without a
+native form, built from the new open file. The revision file is already
+gone by then, and the revision is in the report. This is the one path past a revised close that can write `done` without a
 new gate, and only after the human answers that form: the revision is
 already in the report by then.
 
