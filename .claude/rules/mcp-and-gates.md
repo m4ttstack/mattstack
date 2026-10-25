@@ -66,6 +66,10 @@ stop-holders, and no general kill), the other herd tools
 (`herd-tools.ts`), the other chat tools (`chat-tools.ts`) and `whoami`
 (`whoami-tool.ts`, which reads only the server's env and this session's own
 chat session file); every chat tool acts only as this session's own handle.
+`skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
+in process: it checks the id against `ID_RE` first, reads only under
+`~/.claude/plugins/cache` and `~/.claude/skills`, never follows a skill link
+to its target, and writes nothing.
 Every git tool goes through `tree-guard.ts`, which
 admits only the root of a registered checkout or worktree: `git_push` pushes
 one explicit refspec to the branch's same-named upstream, forces only with

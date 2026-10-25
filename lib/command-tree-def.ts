@@ -2442,6 +2442,17 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      resolve: {
+        description: "Show where an installed skill's pointers lead",
+        module: "./commands/skills-resolve.ts",
+        fn: "skillsResolve",
+        agentSafe: true,
+        omitBehavior: { exempt: "agent-facing; the id comes from the skill's own opening line" },
+        args: [
+          { name: "Id", type: "text", placeholder: "widgets@0.4.2:work", hint: "The skill's id, as its opening line names it" },
+          SETUP_JSON_ARG,
+        ],
+      },
       audit: {
         description: "Advisory LLM audit of a pack's skills and fills for shell instructions the MCP tools cover (plain-words commands, shell-variable hand-offs, wrapped calls); slow, costs tokens, never a gate",
         module: "./commands/skills-audit.ts",
