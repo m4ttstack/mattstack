@@ -86,8 +86,8 @@ The flags, rendered by the compiler:
 {{run-start.flags:ship}}
 
 `run_enter` takes `flags` = the `ship` flag string above, verbatim (the
-value, never its key), `skillDir` = `${CLAUDE_SKILL_DIR}` as an absolute
-path, `stage: ship`, `runDb` only when a caller handed one, and `spawnedBy`
+value, never its key), `skillDir` = the absolute `folder` your
+`skills_resolve` map returned, `stage: ship`, `runDb` only when a caller handed one, and `spawnedBy`
 only when a board or another surface launched this pane. It opens the stage
 itself. Pass the returned `runDb` to every `run_*` call; nothing is
 exported. A handed `runDb` that comes back `handedRunDb: "not-running"`

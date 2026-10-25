@@ -165,13 +165,21 @@ A fill or engine that names a file in another skill or attachment uses a placeho
 
 A path inside the skill's own folder, such as `${CLAUDE_SKILL_DIR}/scripts/run.sh`, is fine.
 
-A compiled skill never reads pack source through `pack.path`. Compile copies the whole attachment into the compiled skill's own `references/<attachment>/` folder and writes the path to that copy, such as `${CLAUDE_SKILL_DIR}/references/capture-evidence/SKILL.md`. Each compiled skill gets its own copy, and every compile replaces it. In a copied `.md` file, compile fills in `{{pack.name}}`, `{{include}}`, `{{verb.path}}` and `{{pack.path}}`. A `pack.path` there copies that attachment too. Other text in braces, such as `${{ secrets.TOKEN }}`, stays as written. A placeholder that depends on the skill reading it, such as `{{stage.dir}}`, stops the compile. Compile copies other files as they are. A link between files in a copied attachment must stay inside that attachment or use `{{pack.path:<attachment>/<file>}}`, because the copy sits in a different folder.
+A compiled skill never reads pack source through `pack.path`. Compile copies the whole attachment into the compiled skill's own `references/<attachment>/` folder and writes the path to that copy, such as `@work/references/capture-evidence/SKILL.md` (see [Pointers in compiled skills](#pointers-in-compiled-skills)). Each compiled skill gets its own copy, and every compile replaces it. In a copied `.md` file, compile fills in `{{pack.name}}`, `{{include}}`, `{{verb.path}}` and `{{pack.path}}`. A `pack.path` there copies that attachment too. Other text in braces, such as `${{ secrets.TOKEN }}`, stays as written. A placeholder that depends on the skill reading it, such as `{{stage.dir}}`, stops the compile. Compile copies other files as they are. A link between files in a copied attachment must stay inside that attachment or use `{{pack.path:<attachment>/<file>}}`, because the copy sits in a different folder.
 
 Base text can pick the attachment by team value: `{{pack.path:{{team.gates-fill}}/SKILL.md}}`. This is the only place one marker may sit inside another. The team marker is the whole attachment name, and it cannot be optional. Compile fills in the team's value first, then checks the path like any other `pack.path`. A hand-typed path such as `../../attachments/{{team.gates-fill}}/SKILL.md` gets that placeholder as its suggestion when the team sets the value and the file exists. Otherwise the error comes with no suggestion.
 
 A team's `pack/sections/*.md` text and `pack/params.jsonc` values may use `{{pack.path:<attachment>/<file>}}` and `{{verb.path:<verb>}}` too. Compile puts the team text into the base text first. It then fills in the path the way that text fills in its own. In a compiled skill, the path points at its `references/` copy. In a copied base attachment, it gets the path a base attachment gets. Compile and `rt skills check` stop on a hand-typed path in a section or a value. The error names the section file and line, or the `params.jsonc` line.
 
 `rt skills check` also reads the pack's hand-written skills, which compile never reads. It fails on each path out of a skill's folder that points at no file.
+
+## Pointers in compiled skills
+
+Pack sources keep the forms above: `${CLAUDE_SKILL_DIR}/<file>` for a file in the skill's own folder, `{{pack.path:...}}` and `{{verb.path:...}}` for the rest. Compile writes each one in the compiled skill as an `@key`, such as `@work/references/capture-evidence/SKILL.md`. It records the file each key leads to in the skill's `compiled.json`. Each compiled skill opens with a line naming its id, such as `widgets@0.4.2:work`. An agent running the skill calls the `skills_resolve` tool once with that id. It gets back the absolute path for every key, from whichever folder the skill loaded. `allowed-tools` in the frontmatter keeps `${CLAUDE_SKILL_DIR}` as written.
+
+- `rt skills resolve <id>` prints the same map, to see where each key leads.
+- `rt skills check` fails a key whose target is not a file. A pointer to a folder counts as missing, so name each file.
+- The id carries the pack's version, so a version bump needs a recompile before you commit. `rt skills check` reports a bump without one as drift.
 
 ## What not to do
 

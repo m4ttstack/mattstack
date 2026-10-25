@@ -393,6 +393,13 @@ A fill whose rules are separate files binds them one file at a time: its
 `SKILL.md` is frontmatter only, each rule sits in `<file>.md` beside it
 with no frontmatter, and the bind names `<pack>:<fill>/<file>`.
 
+A pointer in a fill names its file in source form, as Writing a fill in
+mattstack:editing-skills shows it: a file beside the fill,
+`{{pack.path:<attachment>/<file>}}` for one in another attachment,
+`{{verb.path:<verb>}}` for a sibling verb. Compile writes each as an
+`@key` in the compiled skill; `skills_resolve {id: "<id>"}` shows that skill's
+map, each key with its absolute path (the id is on its opening line).
+
 Before a fill tells an agent to run a command, open
 `${CLAUDE_SKILL_DIR}/../../../attachments/mcp-tools/reference.md` (the
 `mcp-tools` reference): every rt call, forge call and git write a pipeline
@@ -713,8 +720,9 @@ has it.
 
 Hand to `mattstack:editing-skills`: bump, commit, push, check and sync each
 pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
-`/reload-plugins`. Every hand-off enters editing-skills at `What changed?`,
-with no RED baseline there:
+`/reload-plugins`. The version bump changes every compiled skill's id, so
+the pack recompiles after the bump and before the commit. Every hand-off
+enters editing-skills at `What changed?`, with no RED baseline there:
 
 - A round that wrote or revised a skill or fill already passed its RED and
   GREEN here, and certifies that folder.

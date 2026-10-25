@@ -356,6 +356,11 @@ after certify and before the commit: sync consumes whatever `main` says and
 never bumps the engine, so a skipped bump leaves the engine cache, and
 therefore every pack that compiles against it, silently on the old version.
 
+A compiled skill's id carries the version (`widgets@0.1.1:work`), so after
+the bump, recompile before the commit: the Bash compile above for
+mattstack, `rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}` for
+a team pack. The commit carries the bump and the recompiled output together.
+
 An engine change whose skill text uses a tool, argument or daemon verb an
 older app lacks (a new `runId` on `mr_upload` that stage-ship now passes)
 also raises `minEngine` in `plugins/mattstack/pack/requires.json` to the
@@ -615,6 +620,11 @@ Writing a fill:
   renders the path to the copy; the file must exist at compile time, and a
   compiled verb's output is not addressable this way). Nothing else
   placeholder-shaped belongs in a fill.
+- Sources keep the three pointer forms above (a file beside the fill,
+  `{{verb.path:...}}`, `{{pack.path:...}}`); compile writes each as an
+  `@key` in the compiled skill and records its target in that skill's
+  `compiled.json`. `skills_resolve {id: "<id>"}` shows a compiled skill's map,
+  each key with its absolute path; the id is on the skill's opening line.
 - The bare Bash `rt skills check --pack <pack>` names what moved on each stale line <!-- mcp-lint: allow -->
   (source, fill, include, vendored, frontmatter, structure); through
   `rt_verb`, a stale check returns only `failed (exit 1)` and a tail. A stage's prop

@@ -8,6 +8,7 @@ metadata:
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `mattstack@0.32.28:shepherdr`, use it; otherwise call `skills_resolve {id: "mattstack@0.32.28:shepherdr"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
 
 <!-- part: block:shepherdr source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/index.block.md lines=25-75 -->
 # shepherdr
@@ -118,7 +119,7 @@ up: 1 job = 1 sub-project = 1 spec = 1 plan = 1 branch = 1 worktree =
 #### Briefing an executor
 
 When the caller has no brief-assembly verb, copy the assigned strategy's
-body from `${CLAUDE_SKILL_DIR}/parts/strategy/references/strategies.md` verbatim into the
+body from `@shepherdr/parts/strategy/references/strategies.md` verbatim into the
 brief and fill its `<angle-bracket>` slots yourself. A caller that has one
 (the `herd_brief` tool and its `strategy`/`strategies` fields) does this copy
 for you -- name the strategy and pass it, nothing more. Either way, do not
@@ -174,7 +175,7 @@ Build each account's option description from headroom mode, passing the
 herd's chosen models:
 
 ```bash
-"${CLAUDE_SKILL_DIR}/parts/accounts/scripts/pick-account.py" --headroom --pool 1,2,3 --model fable,sonnet
+"@shepherdr/parts/accounts/scripts/pick-account.py" --headroom --pool 1,2,3 --model fable,sonnet
 ```
 
 It prints one line per account (email, per-model scoped pcts with
@@ -191,7 +192,7 @@ all of this; workers launch on the default `claude` command.
 Before each spawn in a smart-distribute herd:
 
 ```bash
-ACCT=$("${CLAUDE_SKILL_DIR}/parts/accounts/scripts/pick-account.py" --pool 2,3 --model <model> --assigned <accounts-already-assigned>)
+ACCT=$("@shepherdr/parts/accounts/scripts/pick-account.py" --pool 2,3 --model <model> --assigned <accounts-already-assigned>)
 ```
 
 `--assigned` lists the account of every worker already launched this run,
@@ -461,14 +462,14 @@ unread line as if new (a report goes to the lanes graph).
 **Brief assembly.** Every brief is assembled by `herd_brief`, never
 composed. Its inputs:
 
-- `template`: `${CLAUDE_SKILL_DIR}/references/job-template.md`
+- `template`: `@shepherdr/references/job-template.md`
 - `strategy`: the job's chosen strategy name
-- `strategies`: `${CLAUDE_SKILL_DIR}/parts/strategy/references/strategies.md`
+- `strategies`: `@shepherdr/parts/strategy/references/strategies.md`
 - `fill`: one `"<slot>=<value>"` string per slot
 - `out`: an absolute path in this session's scratchpad, one file per job
 
-`${CLAUDE_SKILL_DIR}` is the absolute directory this skill loaded from;
-both paths come from it alone (an installed plugin or pack root). The tool copies the template
+Both paths are `@keys`: pass the absolute path `skills_resolve` returns for
+each. The tool copies the template
 and the named strategy body (into `## Method`) verbatim and fills the
 `<angle-bracket>` slots from `fill`; an unfilled marker is a refusal
 listing the leftovers. `<shepherd handle>` and `<shepherd id>` pass through for
@@ -484,8 +485,8 @@ the rest of the template and both channels stay as they are.
 The Method slots are `fill` entries too: `<question-file>`/`<report-file>`
 point to the brief's 'Asking the user a question' / 'Publishing a report'
 sections (draft path `.superpowers/report-draft.md`); `<strategies-file>`
-is `${CLAUDE_SKILL_DIR}/parts/strategy/references/strategies.md`;
-`<strategy-skill-file>` is `${CLAUDE_SKILL_DIR}/SKILL.md`, whose strategy
+is `@shepherdr/parts/strategy/references/strategies.md`;
+`<strategy-skill-file>` is `@shepherdr/SKILL.md`, whose strategy
 part carries the strategy TABLE.
 
 **Hidden mode.** For a herd out of sight ("invisible", "background",

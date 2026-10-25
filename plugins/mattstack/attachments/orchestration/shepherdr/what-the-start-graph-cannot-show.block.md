@@ -33,8 +33,8 @@ composed. Its inputs:
 - `fill`: one `"<slot>=<value>"` string per slot
 - `out`: an absolute path in this session's scratchpad, one file per job
 
-`${CLAUDE_SKILL_DIR}` is the absolute directory this skill loaded from;
-both paths come from it alone (an installed plugin or pack root). The tool copies the template
+Both paths are `@keys`: pass the absolute path `skills_resolve` returns for
+each. The tool copies the template
 and the named strategy body (into `## Method`) verbatim and fills the
 `<angle-bracket>` slots from `fill`; an unfilled marker is a refusal
 listing the leftovers. `<shepherd handle>` and `<shepherd id>` pass through for

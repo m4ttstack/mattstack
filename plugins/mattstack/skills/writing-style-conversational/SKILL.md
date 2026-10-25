@@ -6,6 +6,7 @@ metadata:
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `mattstack@0.32.28:writing-style-conversational`, use it; otherwise call `skills_resolve {id: "mattstack@0.32.28:writing-style-conversational"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
 
 <!-- part: block:writing-style-conversational source=mattstack:writing-style-conversational version=0.32.28 path=attachments/writing-style/writing-style-conversational/index.block.md lines=7-12 -->
 # Conversational
@@ -128,7 +129,7 @@ matters.
 <!-- part: block:writing-style-conversational/pr-descriptions source=mattstack:writing-style-conversational version=0.32.28 path=attachments/writing-style/writing-style-conversational/pr-descriptions.block.md lines=6-8 -->
 ## PR descriptions
 
-Read `${CLAUDE_SKILL_DIR}/pr-description.md` before drafting.
+Read `@writing-style-conversational/pr-description.md` before drafting.
 
 <!-- part: block:writing-style-conversational/commit-messages source=mattstack:writing-style-conversational version=0.32.28 path=attachments/writing-style/writing-style-conversational/commit-messages.block.md lines=5-9 -->
 ## Commit messages

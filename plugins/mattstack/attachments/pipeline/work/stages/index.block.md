@@ -9,7 +9,7 @@ The run engine walks them in this order.
 {{pipeline.table}}
 
 `run_enter`'s `flags` is the `work` value below, verbatim; `skillDir` is
-`${CLAUDE_SKILL_DIR}`, absolute:
+the absolute `folder` your `skills_resolve` map returned:
 
 {{run-start.flags:work}}
 
