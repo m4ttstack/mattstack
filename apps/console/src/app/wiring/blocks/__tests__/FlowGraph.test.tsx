@@ -2,7 +2,7 @@ import '../../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fireEvent, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { EveryStep, FlowGraph } from '../FlowGraph';
 import { measureText } from '../graphCards';
@@ -10,7 +10,7 @@ import { bundledEngine } from '../layoutEngine';
 import { aroundBlock, aroundOrder } from '../model/around';
 import { flowOrder } from '../model/blockMap';
 import { labelledGraph } from '../model/blockView';
-import type { Box, LaidOut } from '../model/elkGraph';
+import type { Box, LaidOut, LayoutEngine } from '../model/elkGraph';
 import {
   blockFactsOf,
   flowLayout,
@@ -34,9 +34,22 @@ vi.mock('@mattstack/app-kit/hooks', async importOriginal => ({
 }));
 
 const shared = bundledEngine();
-const engine = () => Promise.resolve(shared);
-// The whole ship graph lays out in-process here; CI's parallel turbo tasks
-// can stretch one layout well past 15s.
+// One layout per input for the whole file, made in beforeAll: the canvas's
+// own 10s limit is for a worker that never loads, and CI's parallel tasks can
+// stretch an in-process layout of the whole ship graph past it.
+const laidOutBy = new Map<string, Promise<LaidOut>>();
+const once: LayoutEngine = {
+  layout: input => {
+    const key = JSON.stringify(input);
+    let laid = laidOutBy.get(key);
+    if (!laid) {
+      laid = shared.layout(input);
+      laidOutBy.set(key, laid);
+    }
+    return laid;
+  },
+};
+const engine = () => Promise.resolve(once);
 const LAID_OUT = { timeout: 45_000 };
 
 const ship = labelledGraph(
@@ -65,15 +78,21 @@ const CASES: Case[] = [
 ];
 const WIDTHS = [560, 1100];
 
-async function laidOutFor({ graph, order }: Case): Promise<LaidOut> {
-  const layout = flowLayout(graph, {
+const layoutInputOf = ({ graph, order }: Case) =>
+  flowLayout(graph, {
     skill: 'ship',
     factsOf: blockFactsOf(shipPayload),
     measure: measureText,
     order,
-  });
-  return placeLabels(await shared.layout(layout.input));
+  }).input;
+
+async function laidOutFor(at: Case): Promise<LaidOut> {
+  return placeLabels(await once.layout(layoutInputOf(at)));
 }
+
+beforeAll(async () => {
+  await Promise.all(CASES.map(at => once.layout(layoutInputOf(at))));
+}, 180_000);
 
 const chipBox = (chip: HTMLElement): Box => ({
   x: parseFloat(chip.style.getPropertyValue('--chip-x')),
