@@ -13,6 +13,7 @@ import {
   PENDING_REVISION_TTL_MS,
   pendingRevision,
   questionAgentIds,
+  questionRunning,
   readQuestionStates,
 } from './question-state.ts';
 import { getStateDb } from './state/db.ts';
@@ -179,9 +180,9 @@ export function questionInfoFor(
   if (!rows?.size && applied.size === 0 && !rebuilding) return undefined;
   const live: QuestionInfo['live'] = {};
   for (const [findingId, q] of rows ?? []) {
-    if (q.status !== 'queued' && q.status !== 'live') continue;
+    if (!questionRunning(q, now)) continue;
     live[findingId] = {
-      status: q.status,
+      status: q.status === 'live' ? 'live' : 'queued',
       ...(q.paneId ? { paneId: q.paneId } : {}),
       ...(q.tabId ? { tabId: q.tabId } : {}),
     };

@@ -294,6 +294,7 @@ import {
 } from './question-lifecycle.ts';
 import {
   deleteSheetDraft,
+  expireStaleQueuedQuestions,
   liveQuestionMrs,
   markQuestionsGone,
   questionAgentIds,
@@ -5265,6 +5266,15 @@ async function runGateSweep(): Promise<void> {
   } catch (err) {
     console.error(
       `revision expiry failed: ${err instanceof Error ? err.message : err}`
+    );
+  }
+  // A launch that never reported back (a board restart mid-launch) stops
+  // reading as queued, and the sheet learns it failed.
+  try {
+    if (expireStaleQueuedQuestions(Date.now())) sseNudge();
+  } catch (err) {
+    console.error(
+      `queued question expiry failed: ${err instanceof Error ? err.message : err}`
     );
   }
   // Also before the plan: a closed question tab must stop holding its review

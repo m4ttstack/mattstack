@@ -25,6 +25,7 @@ import {
   markQuestionsGone,
   PENDING_REVISION_TTL_MS,
   pendingRevision,
+  QUEUED_TTL_MS,
   readQuestionStates,
   readSheetDraft,
   writeQuestionState,
@@ -267,6 +268,24 @@ describe('questionInfoFor', () => {
   });
 });
 
+describe('questionInfoFor: a launch that never reported back', () => {
+  test('a queued row past QUEUED_TTL_MS is not listed as live', () => {
+    writeQuestionState(
+      URL_A,
+      'f3',
+      { status: 'queued', iid: 1, gateId: 'g0' },
+      NOW,
+      db
+    );
+    expect(questionInfoFor(URL_A, NOW + QUEUED_TTL_MS, db)?.live).toEqual({
+      f3: { status: 'queued' },
+    });
+    expect(questionInfoFor(URL_A, NOW + QUEUED_TTL_MS + 1, db)?.live).toEqual(
+      {}
+    );
+  });
+});
+
 function executor(overrides: Partial<ExecutorView>): ExecutorView {
   return {
     agentId: 'x',
@@ -297,13 +316,13 @@ describe('withoutQuestionExecutors', () => {
 
   test('after markQuestionsGone, liveQuestionMrs() no longer holds that MR', () => {
     seedMr(URL_A);
-    expect(liveQuestionMrs(db).has(URL_A)).toBe(true);
+    expect(liveQuestionMrs(NOW, db).has(URL_A)).toBe(true);
     const { goneQuestionAgents } = withoutQuestionExecutors(
       [executor({ agentId: 'a1' }), executor({ agentId: 'a2' })],
       new Set(['a1', 'a2'])
     );
     markQuestionsGone(goneQuestionAgents, NOW, db);
-    expect(liveQuestionMrs(db).has(URL_A)).toBe(false);
+    expect(liveQuestionMrs(NOW, db).has(URL_A)).toBe(false);
   });
 });
 
@@ -392,7 +411,7 @@ describe('retireGoneQuestions', () => {
         reviews: new Map(),
         responds: new Map(),
         doctors: new Map(),
-        questionMrs: liveQuestionMrs(db),
+        questionMrs: liveQuestionMrs(NOW, db),
       },
       NOW,
       GRACE

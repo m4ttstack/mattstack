@@ -300,14 +300,59 @@ describe('handleQuestionLaunch', () => {
     expect(tail).toMatch(/^[^/\s]+--f2-[0-9a-f]{8}\.json$/);
   });
 
-  test('a launch that reuses an existing pane records nothing further', async () => {
+  test('a done question whose tab stayed open goes back to live on that pane', async () => {
+    const f = fake({
+      existing: {
+        mrUrl: MR_URL,
+        iid: 812,
+        findingId: 'f2',
+        gateId: 'g1',
+        status: 'done',
+        agentId: 'agent-9',
+        paneId: 'p9',
+        tabId: 't9',
+        workspaceId: 'ws-9',
+      },
+      // The daemon finds the finding's pane still open and only focuses it.
+      launch: async () => ({ ...LAUNCHED, focusedExisting: true }),
+    });
+    await handleQuestionLaunch(BODY, f.io);
+    await f.settle();
+    expect(f.writes).toEqual([
+      { status: 'queued', iid: 812, gateId: 'g1' },
+      {
+        status: 'live',
+        agentId: 'agent-9',
+        sessionId: null,
+        paneId: 'p9',
+        tabId: 't9',
+        workspaceId: 'ws-9',
+      },
+    ]);
+    // The daemon already brought the pane forward.
+    expect(f.focused).toEqual([]);
+  });
+
+  test('a launch that reuses an existing pane never leaves the row queued', async () => {
     const f = fake({
       launch: async () => ({ ...LAUNCHED, focusedExisting: true }),
     });
     await handleQuestionLaunch(BODY, f.io);
     await f.settle();
-    expect(f.writes).toEqual([{ status: 'queued', iid: 812, gateId: 'g1' }]);
+    expect(f.writes.map(w => w.status)).toEqual(['queued', 'live']);
     expect(f.focused).toEqual([]);
+  });
+
+  test('a reused pane after the row was deleted (a submit) writes nothing back', async () => {
+    let release!: (r: AgentLaunchResult) => void;
+    const f = fake({
+      launch: () => new Promise<AgentLaunchResult>(r => (release = r)),
+    });
+    await handleQuestionLaunch(BODY, f.io);
+    f.io.readQuestion = () => undefined;
+    release({ ...LAUNCHED, focusedExisting: true });
+    await f.settle();
+    expect(f.writes.map(w => w.status)).toEqual(['queued']);
   });
 
   test('a launch that rejects writes an error row with the cause', async () => {

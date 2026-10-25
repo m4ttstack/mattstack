@@ -10,6 +10,7 @@ import {
   deleteRevision,
   deleteRevisions,
   deleteSheetDraft,
+  expireStaleQueuedQuestions,
   expireStaleRevisions,
   insertPendingRevision,
   latestRevisions,
@@ -20,6 +21,7 @@ import {
   pendingRevision,
   questionAgentIds,
   questionHandle,
+  QUEUED_TTL_MS,
   readQuestionByHandle,
   readQuestionStates,
   readSheetDraft,
@@ -175,9 +177,44 @@ describe('question states', () => {
     writeQuestionState(URL_A, 'f1', { status: 'queued' }, 1, db);
     writeQuestionState(URL_B, 'f1', { status: 'done' }, 1, db);
     writeQuestionState(URL_B, 'f2', { status: 'error' }, 1, db);
-    expect([...liveQuestionMrs(db)]).toEqual([URL_A]);
+    expect([...liveQuestionMrs(2, db)]).toEqual([URL_A]);
     writeQuestionState(URL_B, 'f3', { status: 'live' }, 1, db);
-    expect(liveQuestionMrs(db)).toEqual(new Set([URL_A, URL_B]));
+    expect(liveQuestionMrs(2, db)).toEqual(new Set([URL_A, URL_B]));
+  });
+
+  test('a row read back carries its write time', () => {
+    writeQuestionState(URL_A, 'f1', { status: 'queued' }, 1234, db);
+    expect(readQuestionStates(db).get(URL_A)!.get('f1')?.updatedAt).toBe(1234);
+    // The time lives in the column, never in the state json.
+    const raw = db.query('SELECT state FROM question_states').get() as {
+      state: string;
+    };
+    expect(JSON.parse(raw.state)).not.toHaveProperty('updatedAt');
+  });
+
+  test('a queued row older than QUEUED_TTL_MS no longer holds its MR live', () => {
+    writeQuestionState(URL_A, 'f1', { status: 'queued' }, 1000, db);
+    writeQuestionState(URL_B, 'f1', { status: 'live' }, 1000, db);
+    expect(liveQuestionMrs(1000 + QUEUED_TTL_MS, db)).toEqual(
+      new Set([URL_A, URL_B])
+    );
+    // A live row has no bound: the gone sweep ends it.
+    expect(liveQuestionMrs(1001 + QUEUED_TTL_MS, db)).toEqual(new Set([URL_B]));
+  });
+
+  test('expireStaleQueuedQuestions turns only stale queued rows into errors', () => {
+    writeQuestionState(URL_A, 'f1', { status: 'queued' }, 1000, db);
+    writeQuestionState(URL_A, 'f2', { status: 'queued' }, 2000, db);
+    writeQuestionState(URL_A, 'f3', { status: 'live' }, 1000, db);
+    expect(expireStaleQueuedQuestions(1001 + QUEUED_TTL_MS, db)).toBe(1);
+    const by = readQuestionStates(db).get(URL_A)!;
+    expect(by.get('f1')).toMatchObject({
+      status: 'error',
+      message: 'launch never reported back',
+    });
+    expect(by.get('f2')?.status).toBe('queued');
+    expect(by.get('f3')?.status).toBe('live');
+    expect(expireStaleQueuedQuestions(1001 + QUEUED_TTL_MS, db)).toBe(0);
   });
 
   test('markQuestionsGone ends only queued or live rows whose agent left', () => {

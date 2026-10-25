@@ -11,6 +11,7 @@ import {
   type QuestionState,
 } from './question-state.ts';
 import { parseReportFinding } from './review-finding.ts';
+import { lastRunPane } from './state/agent-states.ts';
 
 /** What a question launch needs of an MR. */
 export type QuestionMr = Pick<BoardMR, 'iid' | 'rtRepo'> & {
@@ -120,12 +121,13 @@ export async function handleQuestionLaunch(
       body: 'this review has no findings report to ask about',
     };
 
-  const dedup = await dedupInFlight(
-    io.readQuestion(mrUrl, findingId),
-    QUESTION_IN_FLIGHT,
-    focusOnly,
-    { focusPane: pane => io.focusPane(pane) }
-  );
+  // The row as it stood before this launch: the queued write below drops
+  // its pane keys, and a launch that only focuses the pane already open
+  // puts them back.
+  const prior = io.readQuestion(mrUrl, findingId);
+  const dedup = await dedupInFlight(prior, QUESTION_IN_FLIGHT, focusOnly, {
+    focusPane: pane => io.focusPane(pane),
+  });
   if (dedup.kind === 'focused')
     return { status: 200, body: { ok: true, focused: true } };
   if (dedup.kind === 'refused') return { status: 409, body: dedup.reason };
@@ -164,7 +166,19 @@ export async function handleQuestionLaunch(
     })
     .then(
       async (result: AgentLaunchResult) => {
-        if (result.focusedExisting || !stillRunning()) return;
+        if (!stillRunning()) return;
+        // The finding's pane was still open (a `done` row whose tab stayed
+        // up) and the daemon focused it instead of launching. The row is
+        // that pane again, live, with the keys the queued write cleared:
+        // left queued it would hold the gate off parking with a dead pill
+        // and no tab for submit to close.
+        if (result.focusedExisting) {
+          io.writeQuestion(mrUrl, findingId, {
+            status: 'live',
+            ...lastRunPane(prior),
+          });
+          return;
+        }
         io.writeQuestion(mrUrl, findingId, {
           status: 'live',
           agentId: result.agentId,

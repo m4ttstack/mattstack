@@ -25,6 +25,25 @@ export interface QuestionState {
   tabId?: string;
   workspaceId?: string;
   message?: string;
+  /** When the row was last written: the table's `updated_at`, set on every
+      row read back and never stored in the state json. */
+  updatedAt?: number;
+}
+
+/** How long a launch may sit `queued` before the board stops waiting on it.
+    The route answers before the pane comes up, and a board that restarts
+    mid-launch never writes the outcome, so without a bound such a row would
+    hold the review gate off parking and show a dead pill forever. Past it
+    the row counts as neither running nor live, and the writer's sweep marks
+    it an error (`expireStaleQueuedQuestions`). */
+export const QUEUED_TTL_MS = 5 * 60_000;
+
+/** Whether a row still holds its finding's question open: `live`, or
+    `queued` and inside QUEUED_TTL_MS. */
+export function questionRunning(q: QuestionState, now: number): boolean {
+  if (q.status === 'live') return true;
+  if (q.status !== 'queued') return false;
+  return q.updatedAt === undefined || now - q.updatedAt <= QUEUED_TTL_MS;
 }
 
 /** Deterministic handle for one finding's question row, so a repeat ask
@@ -49,15 +68,22 @@ interface QuestionRow {
   mr_url: string;
   finding_id: string;
   state: string;
+  updated_at: number;
 }
 
 function parseRow(row: QuestionRow): QuestionState {
-  return JSON.parse(row.state) as QuestionState;
+  return {
+    ...(JSON.parse(row.state) as QuestionState),
+    updatedAt: row.updated_at,
+  };
 }
 
 /** A question write: the pane keys and message also take null, which
     removes them (undefined leaves a key alone). */
-export type QuestionPatch = Omit<PaneClearable<QuestionState>, 'message'> & {
+export type QuestionPatch = Omit<
+  PaneClearable<QuestionState>,
+  'message' | 'updatedAt'
+> & {
   message?: string | null;
 };
 
@@ -98,6 +124,9 @@ export function writeQuestionState(
     };
     // null is the only way a write drops a key a prior run set.
     for (const [k, v] of Object.entries(given)) if (v === null) delete next[k];
+    // The column is the write time; a read row spread back in must not
+    // freeze a stale copy into the json.
+    delete next.updatedAt;
     db.query(
       `INSERT INTO question_states (mr_url, finding_id, handle, state, updated_at)
        VALUES (?, ?, ?, ?, ?)
@@ -135,7 +164,7 @@ export function readQuestionByHandle(
 ): QuestionState | undefined {
   const row = db
     .query(
-      'SELECT mr_url, finding_id, state FROM question_states WHERE handle = ?'
+      'SELECT mr_url, finding_id, state, updated_at FROM question_states WHERE handle = ?'
     )
     .get(handle) as QuestionRow | null;
   return row ? parseRow(row) : undefined;
@@ -146,7 +175,7 @@ export function readQuestionStates(
   db: Database = getStateDb()
 ): Map<string, Map<string, QuestionState>> {
   const rows = db
-    .query('SELECT mr_url, finding_id, state FROM question_states')
+    .query('SELECT mr_url, finding_id, state, updated_at FROM question_states')
     .all() as QuestionRow[];
   const out = new Map<string, Map<string, QuestionState>>();
   for (const r of rows) {
@@ -157,15 +186,43 @@ export function readQuestionStates(
   return out;
 }
 
-/** MRs with a question still starting or running. */
-export function liveQuestionMrs(db: Database = getStateDb()): Set<string> {
+/** MRs with a question still starting or running. A `queued` row past
+    QUEUED_TTL_MS does not count: its launch never reported back. */
+export function liveQuestionMrs(
+  now: number = Date.now(),
+  db: Database = getStateDb()
+): Set<string> {
   const out = new Set<string>();
   for (const [mrUrl, byFinding] of readQuestionStates(db)) {
     for (const q of byFinding.values()) {
-      if (q.status === 'queued' || q.status === 'live') out.add(mrUrl);
+      if (questionRunning(q, now)) out.add(mrUrl);
     }
   }
   return out;
+}
+
+/** The writer sweep's bound on a launch: a `queued` row past QUEUED_TTL_MS
+    becomes an error, so the sheet says the question never opened instead of
+    showing nothing. Returns how many rows changed. */
+export function expireStaleQueuedQuestions(
+  now: number,
+  db: Database = getStateDb()
+): number {
+  let count = 0;
+  for (const [mrUrl, byFinding] of readQuestionStates(db)) {
+    for (const q of byFinding.values()) {
+      if (q.status !== 'queued' || questionRunning(q, now)) continue;
+      writeQuestionState(
+        mrUrl,
+        q.findingId,
+        { status: 'error', message: 'launch never reported back' },
+        now,
+        db
+      );
+      count++;
+    }
+  }
+  return count;
 }
 
 /** Drops an MR's question rows and returns them, so the caller can close
@@ -177,7 +234,7 @@ export function deleteQuestionStates(
   return db.transaction(() => {
     const rows = db
       .query(
-        'SELECT mr_url, finding_id, state FROM question_states WHERE mr_url = ?'
+        'SELECT mr_url, finding_id, state, updated_at FROM question_states WHERE mr_url = ?'
       )
       .all(mrUrl) as QuestionRow[];
     db.run('DELETE FROM question_states WHERE mr_url = ?', [mrUrl]);
