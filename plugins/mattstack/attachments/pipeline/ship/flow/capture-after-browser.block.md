@@ -10,8 +10,8 @@ already holds, taken before implementation changed the surface, so a case
 with no bundled BEFORE gets an AFTER board alone.
 
 `Browser screenshot for this case (ship)?` is yes when the domain has a
-Browser target section (at any heading level) (in its rules, or in the file they point at
-for it) and either its What proves a change names a view for this case's
+Browser target section, at any heading level, in its rules (or in the
+file they point at for it) and either its What proves a change names a view for this case's
 kind of change, or it has no What proves a change block and the plan's
 evidence for the case is a screenshot of a web page. A bound domain with
 no browser target always answers no. Unbound, it is yes when the case's

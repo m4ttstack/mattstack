@@ -27,7 +27,7 @@ export function skillsId(name: string): string {
 }
 
 export function openingLine(id: string): string {
-  return `Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`${id}\`, use it; otherwise call \`skills_resolve {id: "${id}"}\` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.`;
+  return `Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`${id}\`, use it; otherwise call \`skills_resolve {id: "${id}"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.`;
 }
 
 function splitFrontmatter(text: string): [string, string] {

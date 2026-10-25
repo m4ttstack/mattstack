@@ -238,7 +238,7 @@ describe("ids", () => {
 describe("openingLine", () => {
   test("fills the id into the one-line instruction", () => {
     expect(openingLine("widgets@0.4.2:work")).toBe(
-      'Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `widgets@0.4.2:work`, use it; otherwise call `skills_resolve {id: "widgets@0.4.2:work"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.',
+      'Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `widgets@0.4.2:work`, use it; otherwise call `skills_resolve {id: "widgets@0.4.2:work"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.',
     );
   });
 });
