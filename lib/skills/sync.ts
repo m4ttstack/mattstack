@@ -239,6 +239,11 @@ function orgLayoutGate(clone: string, packDir: string, forgeUsername: (org: stri
   const me = forgeUsername(marker.org);
   const others = rosterFrom(readStore(join(clone, ORG_STORE_REL))).filter((entry) => me === null || !sameUser(entry.username, me));
   if (others.length === 0) return skipped("no one else is on the org's roster");
+  if (me === null) {
+    return refused(
+      `This pack's bindings are in block form (${keys[0]}), and the ${marker.org} org is still on layout ${marker.layout}. This Mac's forge username is not recorded, so rt cannot tell whether the org has other members, whose older apps cannot read block-form bindings. Move the org to layout 5 first: your org admin follows ${RUNBOOK}`,
+    );
+  }
   return refused(
     `This pack's bindings are in block form (${keys[0]}), and the ${marker.org} org is still on layout ${marker.layout}. Members on an older app cannot read block-form bindings, so the org moves to layout 5 before a converted pack syncs. Your org admin follows ${RUNBOOK}`,
   );
@@ -693,8 +698,11 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const clone = packInTree ? null : orgCloneTop(pack.dir);
   if (clone !== null && mayWritePack) {
     const orgLayout = await tryStep(async () => orgLayoutGate(clone, pack.dir, deps.forgeUsername ?? readForgeUsername));
-    steps.push({ name: "org-layout", ...orgLayout });
-    if (stops(orgLayout)) return finish();
+    // Listed only when it stops the sync, so a settled org's every sync stays as it was.
+    if (stops(orgLayout)) {
+      steps.push({ name: "org-layout", ...orgLayout });
+      return finish();
+    }
   }
 
   // Staging only, after the pull: the commit waits for commit-push, so a stop

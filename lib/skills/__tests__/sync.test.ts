@@ -1311,13 +1311,36 @@ describe("a block pack on an org below layout 5", () => {
     expect(writes(calls)).toEqual([]);
   });
 
+  test("refuses without claiming other members when this Mac's forge username is not recorded", async () => {
+    const { pack, engine, deps } = seed(4, V2, ["dev1"]);
+
+    const report = await syncPack(pack, engine, { ...deps, forgeUsername: () => null });
+
+    const step = report.steps.at(-1)!;
+    expect(step).toMatchObject({ name: "org-layout", status: "refused" });
+    expect(step.detail).toContain("forge username is not recorded");
+    expect(step.detail).not.toContain("Members on an older app");
+    expect(step.detail).toContain("/start/teams#moving-to-block-packs");
+  });
+
+  test("adds no step for a pack outside an org", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    mkdirSync(join(pack.dir, "pack"), { recursive: true });
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), JSON.stringify(V2));
+    const engine = fixturePack("beacon", "local", "2.0.0");
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, { calls: [], drift: [false] }));
+
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+  });
+
   test("passes in a Just Me org, where the roster lists only this Mac's user", async () => {
     const { pack, engine, deps } = seed(4, V2, ["dev1"]);
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "org-layout")!.status).toBe("skipped");
-    expect(report.steps.at(-1)!.name).not.toBe("org-layout");
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+    expect(report.steps.find((s) => s.name === "check")).toBeDefined();
   });
 
   test("passes on an org already on layout 5", async () => {
@@ -1325,8 +1348,8 @@ describe("a block pack on an org below layout 5", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "org-layout")!.status).toBe("skipped");
-    expect(report.steps.at(-1)!.name).not.toBe("org-layout");
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+    expect(report.steps.find((s) => s.name === "check")).toBeDefined();
   });
 
   test("passes an old-form pack on layout 4", async () => {
@@ -1334,8 +1357,8 @@ describe("a block pack on an org below layout 5", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "org-layout")!.status).toBe("skipped");
-    expect(report.steps.at(-1)!.name).not.toBe("org-layout");
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+    expect(report.steps.find((s) => s.name === "check")).toBeDefined();
   });
 });
 

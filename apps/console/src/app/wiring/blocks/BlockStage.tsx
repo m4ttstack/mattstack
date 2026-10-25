@@ -161,7 +161,8 @@ export function BlockStage({
             >
               <Text size="sm">
                 The installed mattstack plugin is older than this app. Update it
-                with <Code>rt setup update</Code>, then reload.
+                with <Code>claude plugin update mattstack@mattstack</Code>, then
+                reload this page.
               </Text>
             </Alert>
           )}

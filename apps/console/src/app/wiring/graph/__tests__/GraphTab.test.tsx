@@ -860,7 +860,7 @@ describe('Graph tab: the block view', () => {
 
     const stale = await screen.findByTestId('block-view-stale');
     expect(stale).toHaveTextContent(
-      'The installed mattstack plugin is older than this app. Update it with rt setup update, then reload.'
+      'The installed mattstack plugin is older than this app. Update it with claude plugin update mattstack@mattstack, then reload this page.'
     );
     expect(screen.queryByTestId('block-view-note')).not.toBeInTheDocument();
     expect(screen.queryByTestId('block-view-error')).not.toBeInTheDocument();
