@@ -93,6 +93,8 @@ Each line's test sits in the task that owns the code (Tasks 1 to 3).
 - Modify: `lib/skills/placeholders.ts`: the `pipelineTable` row at :353, `Used`, and `fileVerbPath`.
 - Modify: the floor constant beside `TEAM_MARKERS_MIN_ENGINE`.
 - Modify: `makePackDir` in `commands/__tests__/skills.test.ts`, and any other pack-fixture helper with no `plugin.json`.
+- Modify: `.github/workflows/checks.yml` (~:334-338). The `plugin-mattstack` job's "Compiled engines pass check-dot" step builds `$RUNNER_TEMP/pack` from `pack/stubs.jsonc` and `pack/skills.jsonc` only. It now also writes `$RUNNER_TEMP/pack/.claude-plugin/plugin.json` (`{"name": "widgets", "version": "0.1.0"}`), or the new identity refusal fails it.
+- Modify: `scripts/blocks/lib/normalize.ts` (`SEAM_LINE`), so the blocks-diff tooling strips the opening line the way it strips the header and `part:` comments. Test: `scripts/__tests__/blocks-diff.test.ts`.
 - Test: `commands/__tests__/skills-pointers.test.ts` (new). Also update the existing compile, drift, base-attachments and check-paths tests whose expected output changes.
 
 **Interfaces:**
@@ -117,7 +119,12 @@ Each line's test sits in the task that owns the code (Tasks 1 to 3).
 - [ ] **Step 2: Run** `bun test commands/__tests__/skills-pointers.test.ts --timeout 60000`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
   - **Identity.** Pass `packPluginIdentity(packDir)` into `CompileSkillOpts`. Refuse a `null` identity or an empty version. Give `makePackDir` and the other fixture helpers a `plugin.json` (`{"name": "widgets", "version": "0.1.0"}`).
-  - **Keying.** Build the `UnitTable` from the compile plan. Apply `keyBody` to every written `.md`: verb and stage `SKILL.md`, every rendered `references/` copy, every base copy. Insert `openingLine` right after `HEADER_COMMENT`; a copy's line names its host unit's id. Send the `pipelineTable` read path through the same pass.
+  - **Keying.** Build the `UnitTable` from the compile plan. Apply `keyBody` to every `.md` compile writes:
+    - verb and stage `SKILL.md`;
+    - every rendered `references/` copy and every base copy;
+    - every fill-vendored `.md` under `parts/` that is copied byte for byte today. Turn its `copyFrom` entry into a content entry.
+
+    Insert `openingLine` right after `HEADER_COMMENT`; a copy's line names its host unit's id. Send the `pipelineTable` read path through the same pass. Check's `leftover-token` scans every `.md` in a compiled unit folder. A test pins a vendored `parts/` `.md` that carries a pointer.
   - **Closure.** After all targets compile, compute each unit's closure from its own targets plus every unit it reads by path, then write `compiled.json`. The units read by path are:
     - the orchestrator's `stageEntries`;
     - the `{{verb.path:}}` targets recorded while rendering (add `verbPaths: string[]` to `Used`);
@@ -195,7 +202,8 @@ Each line's test sits in the task that owns the code (Tasks 1 to 3).
 - Produces:
   - **`compiled.json`.** Each expanded board skill holds `{ "id": "skills:<frontmatter name>", "dir", "covers", "keys" }`, listed in `files` so drift sees it.
   - **Rewritten text.** Its `SKILL.md` and vendored `.md` files carry `@keys` and the opening line: `respond/launch.md`, `triage.md`, `post.md`, `gate-step.md`, `doctor/entry.md`, and `gate-cli-recipes/SKILL.md`, which has no pointers but is read by path.
-  - **Siblings.** A pointer into a sibling board skill (`../gate-cli-recipes/SKILL.md`) is the target `{ skill: "board:gate-cli-recipes", path: "SKILL.md" }`. That sibling's id is in the reader's `covers`.
+  - **What `keyBody` gets.** For a board skill, `at.dir` is `skills/<folder>` (the skill's folder name under `apps/board/skills`, such as `respond`). `at.units` maps every board skill folder to `skills/<folder>` (`respond`, `review`, `doctor`, `gate-cli-recipes`). So `${CLAUDE_SKILL_DIR}/scripts/x` reads as the skill's own folder, and `@gate-cli-recipes/...` counts as a key.
+  - **Siblings.** After `keyBody`, expand turns a string target that lands in another board skill's folder into `{ skill: <that skill's frontmatter name>, path }`. `../gate-cli-recipes/SKILL.md` becomes `{ skill: "board:gate-cli-recipes", path: "SKILL.md" }`. That sibling's id is in the reader's `covers`.
   - **Scripts** are copied byte for byte, and their comments keep the token.
 
 - [ ] **Step 1: Write the failing test.** Expand a fixture board skill named `board:widget` whose body runs `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`, points at `${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md`, and vendors a `launch.md` with a pointer. The result has:
@@ -242,7 +250,8 @@ Each line's test sits in the task that owns the code (Tasks 1 to 3).
   - certify, check-dot over the plugin and the compiled verbs, and the plugin shell tests;
   - `bun test lib/skills lib/mcp commands/__tests__/skills*.test.ts --timeout 60000` and `bunx tsc --noEmit`;
   - `bun run purity` and `bun run skills:check:board`;
-  - the engine-floor and version-bump checks against `origin/main`.
+  - the engine-floor and version-bump checks against `origin/main`;
+  - the commands of `checks.yml`'s "Compiled engines pass check-dot" step, run locally against a temp pack built the way that step builds it.
 - [ ] **Step 4: Commit** `mattstack: recompile with @key pointers`.
 - [ ] **Step 5: The live proof.** These checks run at the cutover trial on the dev app, not here, because they need the plugin installed in a real `~/.claude`. Add them to the trial checklist the controller keeps:
   - a board respond run follows every receive-review pointer from the pack skill's one call;
