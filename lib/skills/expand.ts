@@ -260,7 +260,7 @@ export const textOf = (f: CompiledFile): string => ("content" in f ? f.content :
 function withExpandOpeningLine(skillMd: string, id: string): string {
   const header = `\n${EXPAND_HEADER}\n`;
   const at = skillMd.indexOf(header) + header.length;
-  return `${skillMd.slice(0, at)}${openingLine(id)}\n${skillMd.slice(at)}`;
+  return `${skillMd.slice(0, at)}\n${openingLine(id)}\n${skillMd.slice(at)}`;
 }
 
 /** The command that re-runs expand belongs to the caller, which knows the flags this run took. */

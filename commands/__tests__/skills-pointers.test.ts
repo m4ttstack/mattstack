@@ -157,7 +157,7 @@ describe("compile writes keys, ids and closure maps", () => {
     expect((await compile(f)).errors).toEqual([]);
 
     const lines = read(f, "skills/work/SKILL.md").split("\n");
-    expect(lines[lines.indexOf(HEADER_COMMENT) + 1]).toBe(openingLine("widgets@0.4.2:work"));
+    expect(lines.slice(lines.indexOf(HEADER_COMMENT) + 1, lines.indexOf(HEADER_COMMENT) + 3)).toEqual(["", openingLine("widgets@0.4.2:work")]);
 
     for (const rel of ["skills/work", "skills/stage-x", "attachments/stage-plan", "attachments/receive-review", "attachments/tools/widget"]) {
       for (const file of mdFiles(join(f.packDir, rel))) expect(bodyOf(readFileSync(file, "utf8"))).not.toContain(TOKEN);
@@ -263,7 +263,7 @@ describe("the opening line goes only where a key is", () => {
 
   test("a SKILL.md whose closed map holds a key opens with the line, even with no key of its own", () => {
     const files = withMapFile(keyed("# Guide\n").files, mapOf({ "stage-plan/scripts/x.sh": "attachments/stage-plan/scripts/x.sh" }));
-    expect(textOf(files, "SKILL.md")).toBe(`---\nname: work\n---\n\n${HEADER_COMMENT}\n${openingLine(site.id)}\n\n# Work\n`);
+    expect(textOf(files, "SKILL.md")).toBe(`---\nname: work\n---\n\n${HEADER_COMMENT}\n\n${openingLine(site.id)}\n\n# Work\n`);
   });
 
   test("a SKILL.md whose closed map is empty gets no line", () => {

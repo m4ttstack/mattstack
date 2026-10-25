@@ -265,7 +265,7 @@ describe("pointers", () => {
     expect(w.skillMd).toContain(`\n${ALLOWED}\n`);
     expect(w.skillMd).toContain('Run `"@widget/scripts/resolve-args.sh"`.');
     expect(w.skillMd).toContain("Read `@gate-cli-recipes/SKILL.md` first.");
-    expect(w.skillMd).toContain(`${EXPAND_HEADER}\n${openingLine("skills:board:widget")}\n`);
+    expect(w.skillMd).toContain(`${EXPAND_HEADER}\n\n${openingLine("skills:board:widget")}\n`);
     expect(fileText(w, "launch.md")).toBe(`${openingLine("skills:board:widget")}\n\n# Launch\n\nThen run \`@widget/scripts/resolve-args.sh\`.\n`);
     expect(w.files).toContainEqual({ path: "scripts/resolve-args.sh", copyFrom: join(src, "widget", "scripts", "resolve-args.sh") });
   });

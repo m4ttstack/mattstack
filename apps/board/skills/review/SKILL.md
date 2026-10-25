@@ -19,6 +19,7 @@ metadata:
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
+
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:review`, use it; otherwise call `skills_resolve {id: "skills:board:review"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
 <!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2104 -->

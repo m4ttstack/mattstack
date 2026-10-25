@@ -14,7 +14,7 @@ test("heading levels, seams and dot whitespace do not show", () => {
 
 test("the pointer opening line under the header does not show", () => {
   const before = `${HEADER}\n\n## Plan\n\nDo it.\n`;
-  const after = `${HEADER}\n${openingLine("widgets@0.4.2:work")}\n\n## Plan\n\nDo it.\n`;
+  const after = `${HEADER}\n\n${openingLine("widgets@0.4.2:work")}\n\n## Plan\n\nDo it.\n`;
   expect(residualDiff(before, after, none)).toBe("");
   expect(normalizeCompiled(`${openingLine("widgets@0.4.2:widget")}\n\nThen go.\n`)).toBe("Then go.\n");
 });

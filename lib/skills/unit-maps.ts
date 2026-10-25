@@ -82,7 +82,7 @@ export function withOpeningLine(text: string, id: string): string {
   const lead = body.match(/^\s*/)![0];
   if (body.startsWith(HEADER_COMMENT, lead.length)) {
     const at = head.length + lead.length + HEADER_COMMENT.length;
-    return `${text.slice(0, at)}\n${openingLine(id)}${text.slice(at)}`;
+    return `${text.slice(0, at)}\n\n${openingLine(id)}${text.slice(at)}`;
   }
   return `${head}${openingLine(id)}\n\n${body.replace(/^\n+/, "")}`;
 }
