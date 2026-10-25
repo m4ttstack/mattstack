@@ -28,6 +28,22 @@ A skills release. Every mattstack engine and include is now a tree of blocks, so
 - the extending-a-pack, creating-a-pack, editing-skills and process-digraphs skills teach the block model, and `props.md` lists every block and prop
 - CI compiles every graph-bearing engine, runs check-dot on the compiled graphs, and checks the props signature against the last release tag
 - Compiled skills point at their own files by `@key`; one `skills_resolve` call per started skill finds them wherever the skill was opened from. A plugin version bump now needs a recompile, and a `${CLAUDE_SKILL_DIR}` link in a copied hand-written skill that no longer reaches a file now fails `rt skills check` instead of only warning.
+- `rt skills resolve <id>` shows where an installed skill's `@key` pointers lead
+
+### Console
+
+- the wiring tab opens a skill as a tree of blocks, at three zoom levels: the whole skill, a block with blocks inside it, or a single block
+- a single block shows its text with each prop's value per layer; **Around this block** draws the graph next to it, and **Copy for Claude** copies a short brief about it
+- **View graph** opens the **Block map**, which shows only blocks and folds the other steps into dotted links you can unfold
+- every block shows its **History**, and a block shared between skills lists them under **Used by**
+- the Rebind panel is gone: the console never changes what a prop takes, a pack's own files do
+
+### Editor
+
+- the new `skill-blocks` extension checks `*.block.md` files and `skills.jsonc` as you edit them: diagnostics, hover, go to definition, completion, rename and quick fixes, served by `rt skills lsp`
+- setup installs it into every editor that has `rt-context`; `rt settings extension` adds it to another editor
+- the `skillBlocks.rtPath` setting names the `rt` to run; at its default the extension finds `rt` on the editor's PATH, then at `~/.local/bin/rt`
+- Claude Code now starts `rt skills lsp` through the mattstack plugin, so a session gets the same checks on block files
 
 ### Macs already set up
 
