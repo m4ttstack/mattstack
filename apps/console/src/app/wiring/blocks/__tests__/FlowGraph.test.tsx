@@ -35,7 +35,9 @@ vi.mock('@mattstack/app-kit/hooks', async importOriginal => ({
 
 const shared = bundledEngine();
 const engine = () => Promise.resolve(shared);
-const LAID_OUT = { timeout: 15_000 };
+// The whole ship graph lays out in-process here; CI's parallel turbo tasks
+// can stretch one layout well past 15s.
+const LAID_OUT = { timeout: 45_000 };
 
 const ship = labelledGraph(
   shipPayload,
@@ -141,7 +143,7 @@ describe('FlowGraph', () => {
     expect(
       screen.getByText(`${ship.nodes.length} steps · ${blocks.length} blocks`)
     ).toBeInTheDocument();
-  }, 30_000);
+  }, 60_000);
 
   it('opens a block from its card, and lights the focus', async () => {
     const onSelect = vi.fn();
@@ -215,7 +217,7 @@ describe('FlowGraph', () => {
     const left = scrollToShow(first, { zoom, offset, visible: 560, plane });
     expect(left).toBeGreaterThan(0);
     expect(flow.scrollLeft).toBe(left);
-  }, 30_000);
+  }, 60_000);
 
   it('Every step opens on the open block when one is lit', async () => {
     canvas.width = 560;
@@ -255,7 +257,7 @@ describe('FlowGraph', () => {
       // @ts-expect-error jsdom has no scrollIntoView of its own.
       delete Element.prototype.scrollIntoView;
     }
-  }, 30_000);
+  }, 60_000);
 
   it('Every step shows its key only once the graph is laid out', async () => {
     canvas.width = 560;
@@ -281,7 +283,7 @@ describe('FlowGraph', () => {
 
     await screen.findByTestId('flow-canvas', {}, LAID_OUT);
     expect(screen.getByTestId('flow-key')).toBeInTheDocument();
-  }, 30_000);
+  }, 60_000);
 
   it('a canvas of fractional width fits a graph that fits above the zoom floor', async () => {
     canvas.width = 730.6;
@@ -310,7 +312,7 @@ describe('FlowGraph', () => {
         const laidOut = await drawnAt(width, at);
         expect(labelClashes(laidOut)).toEqual([]);
       },
-      30_000
+      60_000
     );
 
     it.each(WIDTHS)(
@@ -319,7 +321,7 @@ describe('FlowGraph', () => {
         const laidOut = await drawnAt(width, at);
         expect(strayLabels(laidOut, 40)).toEqual([]);
       },
-      30_000
+      60_000
     );
   });
 });
