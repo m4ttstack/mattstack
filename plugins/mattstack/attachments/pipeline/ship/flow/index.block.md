@@ -124,7 +124,7 @@ flowchart TB
     held_run_open(((Held in ship: the run stays open)))
     abandoned(((ship run abandoned)))
     failed(((ship failed)))
-    stand_down_lease((("Stand down: report the CI lease holder and stop (ship)")))
+    stand_down_lease((("Stand down: report the CI lease holder, or hand it back (ship)")))
     shipped(((Shipped))):::done
     run_open --> reopened_recapture
     reopened_recapture -->|no| git_branch_current
