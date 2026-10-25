@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { posix } from "path";
 import { fakeFs } from "../../skills/__tests__/resolve-fs.ts";
 import { resolvePointers } from "../../skills/resolve.ts";
 import { skillsResolveToolDefs } from "../skills-resolve-tool.ts";
@@ -23,6 +24,18 @@ function files(): Record<string, string> {
 
 const LINKS = { [`${HOME}/.claude/skills/board:recipes`]: "/src/acme/recipes" };
 
+function mapWith(over: Record<string, unknown>): string {
+  return JSON.stringify({ id: "widgets@0.4.2:work", dir: "skills/work", covers: ["widgets@0.4.2:work"], keys: {}, ...over });
+}
+
+function expectInsideRoots(reads: string[]): void {
+  expect(reads.length).toBeGreaterThan(0);
+  for (const raw of reads) {
+    const p = posix.normalize(raw);
+    expect(ROOTS.some((r) => p === r || p.startsWith(`${r}/`)), raw).toBe(true);
+  }
+}
+
 describe("skills_resolve", () => {
   test("returns resolvePointers's result for a valid id, reading only under the two roots", async () => {
     const fs = fakeFs(files(), LINKS);
@@ -31,7 +44,25 @@ describe("skills_resolve", () => {
     expect(res.ok).toBe(true);
     expect(res.body).toEqual(resolvePointers("widgets@0.4.2:work", { fs: fakeFs(files(), LINKS), home: HOME }));
     expect(fs.reads.length).toBeGreaterThan(0);
-    for (const p of fs.reads) expect(ROOTS.some((r) => p === r || p.startsWith(`${r}/`)), p).toBe(true);
+    expectInsideRoots(fs.reads);
+  });
+
+  test("refuses a map whose dir climbs out of the plugin, reading nothing outside the roots", async () => {
+    const fs = fakeFs({ ...files(), [`${V}/skills/work/compiled.json`]: mapWith({ dir: "../../../../../../../outside", keys: { "work/secret": "../../../../../../../outside/secret" } }) });
+    const res = await skillsResolveToolDefs({ fs })[0]!.handler({ id: "widgets@0.4.2:work" }, { HOME } as NodeJS.ProcessEnv);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("outside");
+    expectInsideRoots(fs.reads);
+  });
+
+  test("refuses a sibling target that climbs out of its link, reading nothing outside the roots", async () => {
+    for (const sibling of [{ skill: "../../../../outside", path: "secret" }, { skill: "board:recipes", path: "../../../../../outside/secret" }]) {
+      const fs = fakeFs({ ...files(), [`${V}/skills/work/compiled.json`]: mapWith({ keys: { "recipes/r.md": sibling } }) }, LINKS);
+      const res = await skillsResolveToolDefs({ fs })[0]!.handler({ id: "widgets@0.4.2:work" }, { HOME } as NodeJS.ProcessEnv);
+      expect(res.ok, JSON.stringify(sibling)).toBe(false);
+      expect(res.error).toContain("@recipes/r.md");
+      expectInsideRoots(fs.reads);
+    }
   });
 
   test("refuses an id that is not a skill id without touching the fs", async () => {

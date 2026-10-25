@@ -68,8 +68,11 @@ stop-holders, and no general kill), the other herd tools
 chat session file); every chat tool acts only as this session's own handle.
 `skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
 in process: it checks the id against `ID_RE` first, reads only under
-`~/.claude/plugins/cache` and `~/.claude/skills`, never follows a skill link
-to its target, and writes nothing.
+`~/.claude/plugins/cache` and `~/.claude/skills`, and writes nothing. It
+returns paths spelled through a skill link, never the link's target, and
+refuses a `compiled.json` whose folder or key leaves the plugin's version
+folder, or leaves its own skill link (the OS applies a `..` after following
+the link, so nothing may climb back out through it).
 Every git tool goes through `tree-guard.ts`, which
 admits only the root of a registered checkout or worktree: `git_push` pushes
 one explicit refspec to the branch's same-named upstream, forces only with

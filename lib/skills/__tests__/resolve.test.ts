@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { posix } from "path";
 import { UserActionableError } from "../../errors.ts";
 import { findPluginVersionDirs } from "../installed-plugins.ts";
 import { resolvePointers } from "../resolve.ts";
@@ -116,6 +117,7 @@ describe("resolvePointers: plugin ids", () => {
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
     expect(said(e)).toContain(`${CACHE}/acme/widgets/0.4.2`);
     expect(said(e)).toContain(`${CACHE}/gadgets/widgets/0.4.2`);
+    expect(e.next).toBe("claude plugin uninstall widgets@gadgets");
   });
 
   test("refuses two unit folders that both carry the id, naming each", () => {
@@ -126,12 +128,48 @@ describe("resolvePointers: plugin ids", () => {
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
     expect(said(e)).toContain(`${V}/skills/work`);
     expect(said(e)).toContain(`${V}/attachments/work`);
+    expect(e.next).toBe("rt skills sync --pack widgets");
   });
 
   test("refuses a unit folder with no compiled.json", () => {
     const fs = fakeFs({ [`${V}/skills/work/SKILL.md`]: "" });
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
     expect(said(e)).toContain("compiled.json");
+    expect(e.next).toBe("rt skills sync --pack widgets");
+  });
+
+  test("a folder whose map is for another id says which id it found", () => {
+    const fs = fakeFs({ [`${V}/skills/work/compiled.json`]: map("widgets@0.4.1:work", "skills/work", {}) });
+    const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
+    expect(e.why).toBe(`The map in ${V}/skills/work is for widgets@0.4.1:work.`);
+  });
+
+  test("refuses an id no folder carries, pointing at a sync", () => {
+    const fs = fakeFs(widgetsFiles());
+    const e = refusal(() => resolvePointers("widgets@0.4.2:gadget", { fs, home: HOME }));
+    expect(e.message).toContain("gadget");
+    expect(e.next).toBe("rt skills sync --pack widgets");
+  });
+
+  test("refuses a map whose dir or key climbs out of the version dir, before reading that path", () => {
+    for (const bad of [
+      map("widgets@0.4.2:work", "../../../../../../../outside", { "work/x": "../../../../../../../outside/x" }),
+      map("widgets@0.4.2:work", "skills/work", { "work/x": "../../../outside/x" }),
+    ]) {
+      const fs = fakeFs({ [`${V}/skills/work/compiled.json`]: bad, "/outside/x": "" });
+      const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
+      expect(e.message).toContain("outside");
+      expect(fs.reads.filter((p) => !posix.normalize(p).startsWith(`${HOME}/.claude/`))).toEqual([]);
+    }
+  });
+
+  test("refuses a sibling whose skill name or path climbs out of its link, naming the key", () => {
+    for (const sibling of [{ skill: "../../.ssh", path: "id_rsa" }, { skill: "board:recipes", path: "../../../.ssh/id_rsa" }]) {
+      const fs = fakeFs({ [`${V}/skills/work/compiled.json`]: map("widgets@0.4.2:work", "skills/work", { "recipes/r": sibling }), [`${HOME}/.ssh/id_rsa`]: "" });
+      const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
+      expect(e.message).toContain("@recipes/r");
+      expect(fs.reads.some((p) => p.includes(".ssh"))).toBe(false);
+    }
   });
 
   test("refuses a key whose file is missing, naming the key", () => {
@@ -180,6 +218,15 @@ describe("resolvePointers: skills ids", () => {
     const e = refusal(() => resolvePointers("skills:board:respond", { fs, home: HOME }));
     expect(said(e)).toContain(RESPOND);
     expect(said(e)).not.toContain("compiled.json");
+    expect(e.next).toBe("rt setup update");
+  });
+
+  test("refuses an own target that climbs back out through the link, where the OS would leave the skills folder", () => {
+    const files = { ...boardFiles(), [`${REPO}/respond/compiled.json`]: map("skills:board:respond", "skills/board:respond", { "board:respond/x": "skills/board:other/x" }), [`${REPO}/other/x`]: "" };
+    const fs = fakeFs(files, { [RESPOND]: `${REPO}/respond` });
+    const e = refusal(() => resolvePointers("skills:board:respond", { fs, home: HOME }));
+    expect(e.code).toBe("skills-resolve-outside");
+    expect(e.message).toContain("@board:respond/x");
   });
 
   test("refuses a dead sibling link, naming it", () => {
@@ -192,5 +239,7 @@ describe("resolvePointers: skills ids", () => {
     const fs = fakeFs({ [`${REPO}/respond/SKILL.md`]: "" }, { [RESPOND]: `${REPO}/respond` });
     const e = refusal(() => resolvePointers("skills:board:respond", { fs, home: HOME }));
     expect(said(e)).toContain("compiled.json");
+    expect(e.why).toContain("relinking");
+    expect(e.next).toBe("rt setup update");
   });
 });

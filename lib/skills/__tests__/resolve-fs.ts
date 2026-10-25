@@ -4,16 +4,22 @@ import type { ResolveFs } from "../resolve.ts";
 /** Files by path; `links` maps a link path to the folder it points at, or null for a dead link. */
 export function fakeFs(files: Record<string, string>, links: Record<string, string | null> = {}): ResolveFs & { reads: string[] } {
   const reads: string[] = [];
-  const follow = (p: string): string | null => {
-    let path = posix.normalize(p);
-    for (const [link, target] of Object.entries(links)) {
-      if (path === link || path.startsWith(`${link}/`)) {
+  // Segment by segment, as the OS walks: a link is followed before any `..` after it applies.
+  const walk = (p: string, followLast: boolean): string | null => {
+    const parts = p.split("/").filter((s) => s !== "" && s !== ".");
+    let at = "";
+    for (const [i, part] of parts.entries()) {
+      at = part === ".." ? posix.dirname(at || "/") : `${at}/${part}`;
+      if (at === "/") at = "";
+      if (Object.hasOwn(links, at) && (followLast || i < parts.length - 1)) {
+        const target = links[at]!;
         if (target === null) return null;
-        path = target + path.slice(link.length);
+        at = target;
       }
     }
-    return path;
+    return at || "/";
   };
+  const follow = (p: string) => walk(p, true);
   const isDir = (p: string) => Object.keys(files).some((f) => f.startsWith(`${p}/`));
   return {
     reads,
@@ -38,7 +44,8 @@ export function fakeFs(files: Record<string, string>, links: Record<string, stri
     },
     isSymlink(p) {
       reads.push(p);
-      return Object.hasOwn(links, posix.normalize(p));
+      const at = walk(p, false);
+      return at !== null && Object.hasOwn(links, at);
     },
   };
 }

@@ -1,6 +1,8 @@
 /**
  * Reads only under ~/.claude/plugins/cache and ~/.claude/skills, and writes
- * nothing: the id is checked against ID_RE before any read.
+ * nothing: the id is checked against ID_RE before any read, and
+ * resolvePointers refuses a compiled.json that points outside its plugin
+ * version folder or its skill link before it touches that path.
  */
 import { UserActionableError } from "../errors.ts";
 import { ID_RE } from "../skills/pointers.ts";
