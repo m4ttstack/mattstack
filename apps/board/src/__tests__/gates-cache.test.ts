@@ -501,7 +501,12 @@ describe('GateCache.applyEvent', () => {
 
     cache.applyEvent({
       topic: 'gate/closed/gate-1',
-      payload: { id: 'gate-1', subject: SUBJECT_A, kind: 'review-post', reason: 'revised' },
+      payload: {
+        id: 'gate-1',
+        subject: SUBJECT_A,
+        kind: 'review-post',
+        reason: 'revised',
+      },
     });
 
     const cached = cache.get(SUBJECT_A, 'review-post')!;

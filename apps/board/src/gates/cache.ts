@@ -271,7 +271,9 @@ export class GateCache {
 }
 
 function isClosedReason(v: unknown): v is FacilityGateRow['closedReason'] {
-  return v === 'abandoned' || v === 'superseded' || v === 'pruned' || v === 'revised';
+  return (
+    v === 'abandoned' || v === 'superseded' || v === 'pruned' || v === 'revised'
+  );
 }
 
 function isTerminal(status: string | undefined): boolean {
