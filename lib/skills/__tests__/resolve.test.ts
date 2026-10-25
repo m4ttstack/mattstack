@@ -128,27 +128,30 @@ describe("resolvePointers: plugin ids", () => {
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
     expect(said(e)).toContain(`${V}/skills/work`);
     expect(said(e)).toContain(`${V}/attachments/work`);
-    expect(e.next).toBe("rt skills sync --pack widgets");
+    expect(e.next).toBe("claude plugin update widgets@acme");
+    expect(e.why).toContain("its owner recompiles it with rt skills sync --pack widgets");
   });
 
   test("refuses a unit folder with no compiled.json", () => {
     const fs = fakeFs({ [`${V}/skills/work/SKILL.md`]: "" });
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
     expect(said(e)).toContain("compiled.json");
-    expect(e.next).toBe("rt skills sync --pack widgets");
+    expect(e.next).toBe("claude plugin update widgets@acme");
+    expect(e.why).toContain("its owner recompiles it with rt skills sync --pack widgets");
   });
 
   test("a folder whose map is for another id says which id it found", () => {
     const fs = fakeFs({ [`${V}/skills/work/compiled.json`]: map("widgets@0.4.1:work", "skills/work", {}) });
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
-    expect(e.why).toBe(`The map in ${V}/skills/work is for widgets@0.4.1:work.`);
+    expect(e.why).toStartWith(`The map in ${V}/skills/work is for widgets@0.4.1:work. `);
   });
 
   test("refuses an id no folder carries, pointing at a sync", () => {
     const fs = fakeFs(widgetsFiles());
     const e = refusal(() => resolvePointers("widgets@0.4.2:gadget", { fs, home: HOME }));
     expect(e.message).toContain("gadget");
-    expect(e.next).toBe("rt skills sync --pack widgets");
+    expect(e.next).toBe("claude plugin update widgets@acme");
+    expect(e.why).toContain("its owner recompiles it with rt skills sync --pack widgets");
   });
 
   test("refuses a map whose dir or key climbs out of the version dir, before reading that path", () => {
@@ -177,6 +180,8 @@ describe("resolvePointers: plugin ids", () => {
     delete files[`${V}/skills/stage-x/parts/d/y.sh`];
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs: fakeFs(files), home: HOME }));
     expect(said(e)).toContain("@stage-x/parts/d/y.sh");
+    expect(e.next).toBe("claude plugin update widgets@acme");
+    expect(e.why).toContain("its owner recompiles it with rt skills sync --pack widgets");
   });
 
   test("refuses a malformed id before reading anything", () => {
@@ -218,6 +223,7 @@ describe("resolvePointers: skills ids", () => {
     const e = refusal(() => resolvePointers("skills:board:respond", { fs, home: HOME }));
     expect(said(e)).toContain(RESPOND);
     expect(said(e)).not.toContain("compiled.json");
+    expect(e.why).toBe("Its target was moved or deleted.");
     expect(e.next).toBe("rt setup update");
   });
 

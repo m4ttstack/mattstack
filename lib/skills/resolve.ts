@@ -44,6 +44,10 @@ function refuse(code: string, message: string, why?: string, next?: string): Use
   return new UserActionableError(code, message, {}, { ...(why ? { why } : {}), ...(next ? { next } : {}) });
 }
 
+function ownerWhy(plugin: string): string {
+  return `If ${plugin} is a team pack whose own build is out of date, its owner recompiles it with rt skills sync --pack ${plugin}.`;
+}
+
 type MapRead = { map: PointerMap } | { fault: string };
 
 function readMap(fs: ResolveFs, folder: string): MapRead {
@@ -79,15 +83,19 @@ function outside(id: string, where: string, path: string, fix: string): UserActi
 
 function assertLive(fs: ResolveFs, link: string): void {
   if (fs.isSymlink(link) && !fs.exists(link)) {
-    throw refuse("skills-resolve-dead-link", `The skill link ${link} points at a folder that is gone.`, RELINK_WHY, RELINK);
+    throw refuse("skills-resolve-dead-link", `The skill link ${link} points at a folder that is gone.`, "Its target was moved or deleted.", RELINK);
   }
 }
 
-type Unit = { folder: string; map: PointerMap; bound: string; fix: string; why?: string };
+/** `why` is the sentence every refusal about this copy's own files ends with. */
+type Unit = { folder: string; map: PointerMap; bound: string; fix: string; why: string };
+
+function marketplaceOf(versionDir: string): string {
+  return posix.basename(posix.dirname(posix.dirname(versionDir)));
+}
 
 function pluginUnit(id: string, plugin: string, version: string, unit: string, deps: ResolveDeps): Unit {
   const { fs, home } = deps;
-  const fix = `rt skills sync --pack ${plugin}`;
   const roots = findPluginVersionDirs(fs, home, plugin, version);
   if (roots.length === 0) {
     const cache = `${home}/.claude/plugins/cache`;
@@ -96,33 +104,34 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
     throw refuse("skills-resolve-not-installed", `${plugin} ${version} is not installed, so ${id} cannot resolve.`, why, "/reload-plugins");
   }
   if (roots.length > 1) {
-    const marketplaces = roots.map((r) => posix.basename(posix.dirname(posix.dirname(r))));
     throw refuse(
       "skills-resolve-many-marketplaces",
       `${plugin} ${version} is installed from more than one marketplace.`,
       `Copies: ${roots.join(", ")}. Keep one and uninstall the others.`,
-      `claude plugin uninstall ${plugin}@${marketplaces[marketplaces.length - 1]}`,
+      `claude plugin uninstall ${plugin}@${marketplaceOf(roots[roots.length - 1]!)}`,
     );
   }
   const root = roots[0]!;
+  const fix = `claude plugin update ${plugin}@${marketplaceOf(root)}`;
+  const owner = ownerWhy(plugin);
   const candidates = [`${root}/skills/${unit}`, `${root}/attachments/${unit}`, ...fs.readDir(`${root}/attachments`).map((group) => `${root}/attachments/${group}/${unit}`)];
   const reads = candidates.filter((c) => fs.exists(c)).map((folder) => ({ folder, read: readMap(fs, folder) }));
   const matched = reads.flatMap(({ folder, read }) => ("map" in read && read.map.id === id ? [{ folder, map: read.map }] : []));
   if (matched.length > 1) {
-    throw refuse("skills-resolve-many-units", `More than one folder in ${plugin} ${version} claims ${id}.`, `Folders: ${matched.map((m) => m.folder).join(", ")}.`, fix);
+    throw refuse("skills-resolve-many-units", `More than one folder in ${plugin} ${version} claims ${id}.`, `Folders: ${matched.map((m) => m.folder).join(", ")}. ${owner}`, fix);
   }
   if (matched.length === 0) {
     if (reads.length > 0) {
       const { folder, read } = reads[0]!;
-      const why = "map" in read ? `The map in ${folder} is for ${read.map.id}.` : read.fault;
-      throw refuse("skills-resolve-no-map", `${id} has no pointer map in this copy.`, why, fix);
+      const found = "map" in read ? `The map in ${folder} is for ${read.map.id}.` : read.fault;
+      throw refuse("skills-resolve-no-map", `${id} has no pointer map in this copy.`, `${found} ${owner}`, fix);
     }
-    throw refuse("skills-resolve-no-unit", `${plugin} ${version} has no unit named ${unit}.`, `Nothing under ${root} carries ${id}.`, fix);
+    throw refuse("skills-resolve-no-unit", `${plugin} ${version} has no unit named ${unit}.`, `Nothing under ${root} carries ${id}. ${owner}`, fix);
   }
   const { map } = matched[0]!;
   const folder = `${root}/${map.dir}`;
   if (!within(root, folder)) throw outside(id, "its folder", folder, fix);
-  return { folder, map, bound: root, fix };
+  return { folder, map, bound: root, fix, why: owner };
 }
 
 function skillsUnit(id: string, name: string, deps: ResolveDeps): Unit {
@@ -164,8 +173,7 @@ export function resolvePointers(id: string, deps: ResolveDeps): ResolveResult {
   for (const [key, target] of Object.entries(unit.map.keys)) keys[key] = targetPath(id, key, unit, target, deps);
   for (const [key, path] of Object.entries(keys)) {
     if (!deps.fs.exists(path)) {
-      const why = `${path} does not exist in this copy of ${id}.${unit.why ? ` ${unit.why}` : ""}`;
-      throw refuse("skills-resolve-missing-file", `The file behind @${key} is missing.`, why, unit.fix);
+      throw refuse("skills-resolve-missing-file", `The file behind @${key} is missing.`, `${path} does not exist in this copy of ${id}. ${unit.why}`, unit.fix);
     }
   }
   return { id, folder: unit.folder, covers: unit.map.covers, keys };
