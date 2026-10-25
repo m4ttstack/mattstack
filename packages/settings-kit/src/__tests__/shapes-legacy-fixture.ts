@@ -17,7 +17,7 @@ export const LEGACY_SHAPES = {
   "board.projects": STRING_LIST,
   "board.botUsernames": STRING_LIST,
   "board.ticketPrefixes": STRING_LIST,
-  "board.workspaces": { kind: "leaves", fields: { reviews: "string", responds: "string", doctors: "string" } },
+  "board.workspaces": { kind: "leaves", fields: { reviews: "string", responds: "string", doctors: "string", questions: "string" } },
   "board.cwds": { kind: "leaves", fields: { review: "string", respond: "string", doctor: "string" } },
   "board.slack": {
     kind: "leaves",
