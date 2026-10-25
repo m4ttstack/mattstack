@@ -295,7 +295,7 @@ import {
 import {
   deleteSheetDraft,
   expireStaleQueuedQuestions,
-  liveQuestionMrs,
+  questionActivity,
   markQuestionsGone,
   questionAgentIds,
   readQuestionStates,
@@ -5290,7 +5290,7 @@ async function runGateSweep(): Promise<void> {
     reviews: readReviewStates(),
     responds: readRespondStates(),
     doctors: readDoctorStates(),
-    questionMrs: liveQuestionMrs(),
+    questionMrs: questionActivity(),
   };
   const actions = planSweep(
     gateCache.rows(),

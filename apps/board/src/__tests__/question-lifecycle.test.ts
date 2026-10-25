@@ -25,6 +25,7 @@ import {
   markQuestionsGone,
   PENDING_REVISION_TTL_MS,
   pendingRevision,
+  questionActivity,
   QUEUED_TTL_MS,
   readQuestionStates,
   readSheetDraft,
@@ -403,28 +404,40 @@ describe('settleStaleRevisions', () => {
 
 describe('retireGoneQuestions', () => {
   const GRACE = 60_000;
-  const sweepOnce = (executors: ExecutorView[]) => {
-    retireGoneQuestions(executors, NOW, db);
+  /** Retires at `at`, then plans at NOW against a gate opened well before
+      either, so only the questions' activity decides whether it parks. */
+  const sweepOnce = (executors: ExecutorView[], at = NOW) => {
+    retireGoneQuestions(executors, at, db);
     return planSweep(
-      [gateRow({ openedAt: NOW - GRACE - 1 })],
+      [gateRow({ openedAt: NOW - 3 * GRACE })],
       {
         reviews: new Map(),
         responds: new Map(),
         doctors: new Map(),
-        questionMrs: liveQuestionMrs(NOW, db),
+        questionMrs: questionActivity(NOW, db),
       },
       NOW,
       GRACE
     );
   };
 
-  test('a gone question executor releases the MR so its review gate parks within one sweep', () => {
+  test('a gone question executor releases the MR, so its review gate parks a grace after the release', () => {
+    seedMr(URL_A);
+    const actions = sweepOnce(
+      [executor({ agentId: 'a1' }), executor({ agentId: 'a2' })],
+      NOW - GRACE
+    );
+    expect(actions.map(a => [a.kind, a.mrUrl])).toEqual([['park', URL_A]]);
+  });
+
+  test('a question that just went gone restarts the grace, so the gate stays open', () => {
     seedMr(URL_A);
     const actions = sweepOnce([
       executor({ agentId: 'a1' }),
       executor({ agentId: 'a2' }),
     ]);
-    expect(actions.map(a => [a.kind, a.mrUrl])).toEqual([['park', URL_A]]);
+    expect(actions).toEqual([]);
+    expect(readQuestionStates(db).get(URL_A)?.get('f1')?.status).toBe('done');
   });
 
   test('one question still running keeps the gate held', () => {

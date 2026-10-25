@@ -221,11 +221,11 @@ export function withoutQuestionExecutors(
   return { executors: kept, goneQuestionAgents };
 }
 
-/** The writer's periodic sweep runs this before it reads `liveQuestionMrs()`
+/** The writer's periodic sweep runs this before it reads `questionActivity()`
     for `planSweep`: a question pane the reconciler reports gone has its row
-    marked done, so the MR's review gate can park on that same pass even
-    with no board UI open to drive the request path. Returns the executors
-    with every question pane dropped. */
+    marked done, so it stops holding the MR's review gate, which then parks
+    a full grace after that write, even with no board UI open to drive the
+    request path. Returns the executors with every question pane dropped. */
 export function retireGoneQuestions(
   executors: ExecutorView[],
   now: number,

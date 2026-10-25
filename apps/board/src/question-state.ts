@@ -186,6 +186,35 @@ export function readQuestionStates(
   return out;
 }
 
+/** One MR's questions as the gate sweep weighs them. */
+export interface MrQuestionActivity {
+  /** A question on the MR is still starting or running (`questionRunning`). */
+  live: boolean;
+  /** The newest write across the MR's question rows, whatever their status:
+      a question ending (`done`, gone, error) stamps it too, so the review
+      gate's parking grace restarts from the last question, not from when
+      the gate opened. */
+  lastActivityAt: number;
+}
+
+/** Every MR with a question row, with its liveness and last activity. */
+export function questionActivity(
+  now: number = Date.now(),
+  db: Database = getStateDb()
+): Map<string, MrQuestionActivity> {
+  const out = new Map<string, MrQuestionActivity>();
+  for (const [mrUrl, byFinding] of readQuestionStates(db)) {
+    let live = false;
+    let lastActivityAt = 0;
+    for (const q of byFinding.values()) {
+      if (questionRunning(q, now)) live = true;
+      lastActivityAt = Math.max(lastActivityAt, q.updatedAt ?? 0);
+    }
+    out.set(mrUrl, { live, lastActivityAt });
+  }
+  return out;
+}
+
 /** MRs with a question still starting or running. A `queued` row past
     QUEUED_TTL_MS does not count: its launch never reported back. */
 export function liveQuestionMrs(
@@ -193,11 +222,8 @@ export function liveQuestionMrs(
   db: Database = getStateDb()
 ): Set<string> {
   const out = new Set<string>();
-  for (const [mrUrl, byFinding] of readQuestionStates(db)) {
-    for (const q of byFinding.values()) {
-      if (questionRunning(q, now)) out.add(mrUrl);
-    }
-  }
+  for (const [mrUrl, a] of questionActivity(now, db))
+    if (a.live) out.add(mrUrl);
   return out;
 }
 

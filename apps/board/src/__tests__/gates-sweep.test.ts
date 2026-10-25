@@ -79,7 +79,7 @@ function states(overrides: Partial<GateSweepStates> = {}): GateSweepStates {
     reviews: new Map(),
     responds: new Map(),
     doctors: new Map(),
-    questionMrs: new Set(),
+    questionMrs: new Map(),
     ...overrides,
   };
 }
@@ -669,15 +669,18 @@ describe('planSweep', () => {
 });
 
 describe('planSweep with a live question', () => {
+  const live = (mrUrl: string) =>
+    new Map([[mrUrl, { live: true, lastActivityAt: NOW - GRACE_MS - 1 }]]);
+
   test('an open review gate whose MR has a live question is not parked', () => {
     const rows = [baseRow({ openedAt: NOW - GRACE_MS - 1 })];
-    const s = states({ questionMrs: new Set([MR_URL]) });
+    const s = states({ questionMrs: live(MR_URL) });
     expect(planSweep(rows, s, NOW, GRACE_MS)).toEqual([]);
   });
 
   test('it parks again once no question is live', () => {
     const rows = [baseRow({ openedAt: NOW - GRACE_MS - 1 })];
-    const s = states({ questionMrs: new Set([OTHER_MR_URL]) });
+    const s = states({ questionMrs: live(OTHER_MR_URL) });
     expect(planSweep(rows, s, NOW, GRACE_MS)).toEqual([
       {
         kind: 'park',
@@ -693,7 +696,7 @@ describe('planSweep with a live question', () => {
     const rows = [
       baseRow({ kind: 'respond-post', openedAt: NOW - GRACE_MS - 1 }),
     ];
-    const s = states({ questionMrs: new Set([MR_URL]) });
+    const s = states({ questionMrs: live(MR_URL) });
     expect(planSweep(rows, s, NOW, GRACE_MS).map(a => a.kind)).toEqual([
       'park',
     ]);
@@ -703,9 +706,52 @@ describe('planSweep with a live question', () => {
     const rows = [baseRow({ openedAt: NOW - GRACE_MS - 1 })];
     const s = states({
       reviews: new Map([[MR_URL, baseReview({ status: 'done', tabId: 't' })]]),
-      questionMrs: new Set([MR_URL]),
+      questionMrs: live(MR_URL),
     });
     expect(planSweep(rows, s, NOW, GRACE_MS)).toEqual([]);
+  });
+});
+
+describe('planSweep after the last question ends', () => {
+  const NINETY_MIN = 90 * 60_000;
+  const ended = (at: number) =>
+    states({
+      questionMrs: new Map([[MR_URL, { live: false, lastActivityAt: at }]]),
+    });
+
+  test('a gate opened over 90 minutes ago whose last question ended a minute ago does not park', () => {
+    const rows = [baseRow({ openedAt: NOW - NINETY_MIN - 60_000 })];
+    expect(planSweep(rows, ended(NOW - 60_000), NOW, NINETY_MIN)).toEqual([]);
+  });
+
+  test('the same gate parks once 90 minutes have passed since that activity', () => {
+    const openedAt = NOW - NINETY_MIN - 60_000;
+    const lastActivityAt = NOW - 60_000;
+    const rows = [baseRow({ openedAt })];
+    const later = lastActivityAt + NINETY_MIN;
+    expect(
+      planSweep(rows, ended(lastActivityAt), later - 1, NINETY_MIN)
+    ).toEqual([]);
+    expect(
+      planSweep(rows, ended(lastActivityAt), later, NINETY_MIN).map(a => [
+        a.kind,
+        a.gateId,
+      ])
+    ).toEqual([['park', 'gate-1']]);
+  });
+
+  test('question activity older than the gate leaves the grace on openedAt', () => {
+    const rows = [baseRow({ openedAt: NOW - GRACE_MS })];
+    expect(
+      planSweep(rows, ended(NOW - 3 * GRACE_MS), NOW, GRACE_MS).map(a => a.kind)
+    ).toEqual(['park']);
+  });
+
+  test('question activity never delays a respond gate', () => {
+    const rows = [baseRow({ kind: 'respond-post', openedAt: NOW - GRACE_MS })];
+    expect(
+      planSweep(rows, ended(NOW - 1), NOW, GRACE_MS).map(a => a.kind)
+    ).toEqual(['park']);
   });
 });
 

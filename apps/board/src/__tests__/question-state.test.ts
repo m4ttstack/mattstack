@@ -19,6 +19,7 @@ import {
   markRevisionsApplied,
   PENDING_REVISION_TTL_MS,
   pendingRevision,
+  questionActivity,
   questionAgentIds,
   questionHandle,
   QUEUED_TTL_MS,
@@ -200,6 +201,18 @@ describe('question states', () => {
     );
     // A live row has no bound: the gone sweep ends it.
     expect(liveQuestionMrs(1001 + QUEUED_TTL_MS, db)).toEqual(new Set([URL_B]));
+  });
+
+  test('questionActivity stamps each MR with its newest write, ended rows included', () => {
+    writeQuestionState(URL_A, 'f1', { status: 'live' }, 1000, db);
+    writeQuestionState(URL_A, 'f2', { status: 'done' }, 3000, db);
+    writeQuestionState(URL_B, 'f1', { status: 'error' }, 2000, db);
+    expect(questionActivity(3000, db)).toEqual(
+      new Map([
+        [URL_A, { live: true, lastActivityAt: 3000 }],
+        [URL_B, { live: false, lastActivityAt: 2000 }],
+      ])
+    );
   });
 
   test('expireStaleQueuedQuestions turns only stale queued rows into errors', () => {
