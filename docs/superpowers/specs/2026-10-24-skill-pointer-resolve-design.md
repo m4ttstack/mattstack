@@ -106,9 +106,13 @@ an id stamped with where it is installed from and which version:
 The version is the plugin's `.claude-plugin/plugin.json` version at
 compile time. `rt skills check` fails a compiled skill whose stamped
 version is not its plugin's current version, the same way it fails other
-drift. This adds no churn: compiled files already carry the version in
-their `compiled:` header and every `part:` comment, so a bump already
-rewrites them.
+drift. This adds a step: check ignores the version in the `compiled:`
+header and the `part:` comments on purpose, but a stamp in an id cannot be
+ignored, so every plugin version bump now needs a recompile. Matt chose
+this over a version-free id read from Claude Code's
+`installed_plugins.json`, which could hand a session started before an
+update the newer copy's paths. `rt skills sync` already bumps before it
+compiles; the bump right before a merge gains a recompile.
 
 ### Keys in the text
 
@@ -161,10 +165,14 @@ itself makes that skill's one call; it holds no map from the parent.
   `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`, for that
   exact version, across marketplaces. It never falls back to another
   version (unlike `findInstalledPluginDir` in
-  `lib/skills/installed-plugins.ts`, which takes the newest). When more
-  than one marketplace holds that plugin at that version, it refuses and
-  names each one. (Today every plugin on Matt's Mac sits in one
-  marketplace.)
+  `lib/skills/installed-plugins.ts`, which takes the newest). It ignores
+  Claude Code's transient `temp_git_*` folders. When more than one other
+  marketplace holds that plugin at that version, it refuses and names
+  each one. (Today every plugin on Matt's Mac sits in one marketplace.)
+- A unit is named by its leaf folder, which compile already keeps unique
+  within a plugin. Resolve finds it under `skills/<leaf>`,
+  `attachments/<leaf>` or a grouped `attachments/<group>/<leaf>`, by the
+  `id` its `compiled.json` records, and refuses if more than one matches.
 - For `skills:<name>`, rt uses `~/.claude/skills/<name>` as the folder,
   the link path itself, never the link's target, because that is the text
   Claude Code fills `${CLAUDE_SKILL_DIR}` with.
