@@ -78,11 +78,27 @@ export async function clearMrQuestions(
   }
 }
 
+/** Whether an answered frame keeps the run going rather than ending it: a
+    gate may carry a `next` answer, and `iterate` or `hold` is not a verdict
+    on the review. The daemon's answered payload carries the row's
+    `answers`, whose values are a string or a `{ value }`. */
+function answerKeepsRunGoing(frame: GateEventFrame): boolean {
+  const answers = (frame.payload as { answers?: unknown } | null)?.answers;
+  if (!answers || typeof answers !== 'object') return false;
+  const next = (answers as Record<string, unknown>).next;
+  const value =
+    next && typeof next === 'object'
+      ? (next as { value?: unknown }).value
+      : next;
+  return value === 'iterate' || value === 'hold';
+}
+
 /** The relay handler's hook, fed every gate frame (writer only):
     - a review-post gate opening is the review agent's rebuild, so every
       revision pending on that MR landed in it;
-    - a review-post gate answered is the review submitted, which ends the
-      MR's questions.
+    - a review-post gate answered with a verdict is the review submitted,
+      which ends the MR's questions. An answer whose `next` is `iterate` or
+      `hold` keeps the run going, so its questions stay.
     Any other frame is a no-op. A revision's own gate close (reason
     `revised`) is a `gate/closed/*` frame and never reaches either branch. */
 export async function onReviewGateEvent(
@@ -97,6 +113,7 @@ export async function onReviewGateEvent(
     markRevisionsApplied(gate.mrUrl, gate.gateId, io.db ?? getStateDb());
     return;
   }
+  if (answerKeepsRunGoing(frame)) return;
   await clearMrQuestions(gate.mrUrl, io);
 }
 

@@ -101,10 +101,20 @@ function seedMr(mrUrl: string): void {
   );
 }
 
-function frame(verb: 'opened' | 'answered', kind: string, mrUrl = URL_A) {
+function frame(
+  verb: 'opened' | 'answered',
+  kind: string,
+  mrUrl = URL_A,
+  answers?: Record<string, unknown>
+) {
   return {
     topic: `gate/${verb}/g1`,
-    payload: { id: 'g1', subject: `mr:${mrUrl}`, kind },
+    payload: {
+      id: 'g1',
+      subject: `mr:${mrUrl}`,
+      kind,
+      ...(answers ? { answers } : {}),
+    },
   };
 }
 
@@ -137,6 +147,51 @@ describe('onReviewGateEvent', () => {
     expect(readSheetDraft(URL_B, db)).toBeDefined();
     expect(pendingRevision(URL_B, NOW, db)).toBeDefined();
   });
+
+  test.each([
+    ['iterate', { next: 'iterate' }],
+    ['hold', { next: 'hold' }],
+    ['iterate as { value }', { next: { value: 'iterate' } }],
+    ['hold as { value }', { next: { value: 'hold' } }],
+  ])(
+    'an answered review-post whose next is %s leaves the questions in place',
+    async (_name, answers) => {
+      seedMr(URL_A);
+      const io = fakeIo();
+      await onReviewGateEvent(
+        frame('answered', 'review-post', URL_A, {
+          outcome: 'comment',
+          ...answers,
+        }),
+        io
+      );
+      expect(io.closed).toEqual([]);
+      expect(readQuestionStates(db).get(URL_A)?.size).toBe(2);
+      expect(readSheetDraft(URL_A, db)).toBeDefined();
+      expect(pendingRevision(URL_A, NOW, db)).toBeDefined();
+    }
+  );
+
+  test.each([
+    ['proceed', { outcome: 'comment', next: 'proceed' }],
+    [
+      'proceed as { value }',
+      { outcome: 'comment', next: { value: 'proceed' } },
+    ],
+    ['absent', { outcome: 'approve' }],
+  ])(
+    'an answered review-post whose next is %s clears the questions',
+    async (_name, answers) => {
+      seedMr(URL_A);
+      const io = fakeIo();
+      await onReviewGateEvent(
+        frame('answered', 'review-post', URL_A, answers),
+        io
+      );
+      expect(io.closed.sort()).toEqual(['tab-1', 'tab-2']);
+      expect(readQuestionStates(db).has(URL_A)).toBe(false);
+    }
+  );
 
   test('an answered respond-post on the same MR touches nothing', async () => {
     seedMr(URL_A);
