@@ -120,6 +120,7 @@ import {
   useOptimisticLifecycle,
 } from './hooks.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
+import { QUESTION_LAUNCH, questionLaunchFields } from './launch-flow.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
 import { mrRef, onGitHub } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
@@ -646,6 +647,23 @@ export function Board() {
     reload: load,
     failureMessage: resumeRespondFailureMessage,
   });
+
+  const questionAction = useLaunchAction({
+    axis: null,
+    ...QUESTION_LAUNCH,
+    optimistic: optimisticLifecycle,
+    addToast,
+    startToast,
+    reload: load,
+  });
+  const askQuestion = useCallback(
+    (mr: BoardMR, gateId: string, findingId: string, focus: boolean) =>
+      void questionAction(
+        mr,
+        questionLaunchFields(gateId, findingId, state.tab, focus)
+      ),
+    [questionAction, state.tab]
+  );
 
   // Each flow's payload lives here once: the row menu, the bulk menu, the
   // status line's verbs and the decision queue all launch through it.
@@ -2161,7 +2179,7 @@ export function Board() {
               onAnswered={retireActiveGate}
               onContinue={retireActiveGate}
               onLostChange={lost => queue.hold(lost ? activeGateId : null)}
-              tabId={state.tab}
+              onAskQuestion={askQuestion}
               readOnly={gateReadOnlyReason(
                 queue.active.gate,
                 queue.active.mr,

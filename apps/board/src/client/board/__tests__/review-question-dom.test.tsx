@@ -152,7 +152,9 @@ function Host({ g, mr }: { g: GateRow; mr: BoardMRWithReview }) {
     <ReviewGateSheet
       gate={g}
       mr={mr}
-      tabId="tab-mine"
+      onAskQuestion={(m, gateId, findingId, focus) =>
+        asks.push({ iid: m.iid, gateId, findingId, focus })
+      }
       form={form}
       queue={{
         index: 0,
@@ -172,23 +174,24 @@ function Host({ g, mr }: { g: GateRow; mr: BoardMRWithReview }) {
 
 let root: Root;
 let container: HTMLElement;
-let posts: unknown[];
+/** Every onAskQuestion call the sheet made. */
+let asks: Array<{
+  iid: number;
+  gateId: string;
+  findingId: string;
+  focus: boolean;
+}>;
 /** What `/review/report.json` answers: its findings, or null for a 404. */
 let reportFindings: unknown[] | null;
 
 beforeEach(() => {
   localStorage.clear();
-  posts = [];
+  asks = [];
   reportFindings = [report('f1'), report('f2')];
   (globalThis as { fetch: unknown }).fetch = async (
-    input: RequestInfo | URL,
-    init?: { method?: string; body?: string }
+    input: RequestInfo | URL
   ) => {
     const url = typeof input === 'string' ? input : input.toString();
-    if (url === '/question') {
-      posts.push(JSON.parse(init!.body!));
-      return new Response('{"ok":true}');
-    }
     if (url.startsWith('/review/report.json'))
       return reportFindings === null
         ? new Response('none', { status: 404 })
@@ -287,7 +290,7 @@ describe('findingEntryFromReport', () => {
 });
 
 describe('asking a question from the review sheet', () => {
-  test('each drafted finding offers an ask link that posts the finding', async () => {
+  test('each drafted finding offers an ask link that asks about the finding', async () => {
     await show(gate(), mrWith());
     const first = askLink('First finding')!;
     expect(first.textContent).toBe('ask a question');
@@ -297,14 +300,8 @@ describe('asking a question from the review sheet', () => {
     expect(askLink('Second finding')).not.toBeNull();
     await React.act(async () => first.click());
     await settle();
-    expect(posts).toEqual([
-      {
-        mrUrl: MR_URL,
-        iid: 31,
-        gateId: 'g-review',
-        findingId: 'f1',
-        tabId: 'tab-mine',
-      },
+    expect(asks).toEqual([
+      { iid: 31, gateId: 'g-review', findingId: 'f1', focus: false },
     ]);
   });
 
@@ -344,15 +341,8 @@ describe('asking a question from the review sheet', () => {
     expect(askLink('First finding')!.textContent).toBe('ask a question');
     await React.act(async () => pill.click());
     await settle();
-    expect(posts).toEqual([
-      {
-        mrUrl: MR_URL,
-        iid: 31,
-        gateId: 'g-review',
-        findingId: 'f2',
-        tabId: 'tab-mine',
-        focus: true,
-      },
+    expect(asks).toEqual([
+      { iid: 31, gateId: 'g-review', findingId: 'f2', focus: true },
     ]);
   });
 

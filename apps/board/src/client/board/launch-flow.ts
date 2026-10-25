@@ -92,3 +92,29 @@ export async function runLaunchFlow(
   deps.reload();
   return result;
 }
+
+/** A question about one review finding (`POST /question`), launched from the
+    review sheet through the same flow as every other pane. A refusal names
+    the route's reason (no reviewCwd, the report no longer lists the finding,
+    nothing to focus), so the click never does nothing visible. */
+export const QUESTION_LAUNCH = {
+  path: '/question',
+  verbing: 'opening a question',
+  started: 'question opened',
+  noun: 'question',
+  failureMessage: (result: ActionResult, mr: BoardMR): string =>
+    `question failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`,
+} as const;
+
+/** The `/question` body beyond the flow's own `mrUrl`/`iid`. A click on the
+    open-question pill sends `focus: true`, which the route answers by
+    focusing the running pane or refusing; it rides as a body field on a
+    `launch` intent so a refusal gets the same failure toast as a launch. */
+export function questionLaunchFields(
+  gateId: string,
+  findingId: string,
+  tabId: string,
+  focus: boolean
+): Record<string, unknown> {
+  return { gateId, findingId, tabId, ...(focus ? { focus: true } : {}) };
+}

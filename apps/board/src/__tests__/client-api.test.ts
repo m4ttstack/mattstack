@@ -1,7 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import { postAction } from '../client/api.ts';
-import { runLaunchFlow } from '../client/board/launch-flow.ts';
+import {
+  QUESTION_LAUNCH,
+  questionLaunchFields,
+  runLaunchFlow,
+  type LaunchFlowDeps,
+} from '../client/board/launch-flow.ts';
 
 test('postAction returns typed non-ok without throwing', async () => {
   const r = await postAction(
@@ -254,4 +259,74 @@ test('launch flow returns the server result', async () => {
     {}
   );
   expect(result).toBe(reply);
+});
+
+/** The review sheet's question launch, through the shared flow: `post`
+    answers with `result`, and `events` records toasts, reloads and bodies. */
+async function questionFlow(
+  result: { ok: boolean; status: number; text: string },
+  focus: boolean
+) {
+  const events: string[] = [];
+  const deps: LaunchFlowDeps = {
+    post: async payload => {
+      events.push(`post:${JSON.stringify(payload)}`);
+      return { ...result, body: result.ok ? {} : null };
+    },
+    setQueued: () => {},
+    rollback: () => {},
+    addToast: t => events.push(`toast:${t}`),
+    startToast: t => {
+      events.push(`toast:${t}`);
+      return {
+        done: d => events.push(`done:${d}`),
+        fail: f => events.push(`fail:${f}`),
+      };
+    },
+    reload: () => events.push('reload'),
+    ...QUESTION_LAUNCH,
+  };
+  await runLaunchFlow(
+    deps,
+    { webUrl: 'u', iid: 7 } as never,
+    questionLaunchFields('g1', 'f2', 'tab-a', focus)
+  );
+  return events;
+}
+
+test('question launch: posts the finding and reloads once it starts', async () => {
+  expect(
+    await questionFlow({ ok: true, status: 200, text: '' }, false)
+  ).toEqual([
+    'toast:opening a question for !7…',
+    'post:{"mrUrl":"u","iid":7,"gateId":"g1","findingId":"f2","tabId":"tab-a"}',
+    'done:question opened for !7',
+    'reload',
+  ]);
+});
+
+test("question launch: a refusal toasts the route's reason", async () => {
+  const events = await questionFlow(
+    {
+      ok: false,
+      status: 409,
+      text: 'this review has no findings report to ask about',
+    },
+    false
+  );
+  expect(events).toContain(
+    'fail:question failed for !7 (409): this review has no findings report to ask about'
+  );
+  expect(events).not.toContain('reload');
+});
+
+test('question launch: a refused focus gets the same failure toast', async () => {
+  const events = await questionFlow(
+    { ok: false, status: 409, text: 'no pane to focus' },
+    true
+  );
+  expect(events[1]).toContain('"focus":true');
+  expect(events).toContain(
+    'fail:question failed for !7 (409): no pane to focus'
+  );
 });

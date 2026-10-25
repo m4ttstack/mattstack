@@ -271,7 +271,7 @@ function readDrafts(
 function ReviewGateSheet({
   gate,
   mr,
-  tabId,
+  onAskQuestion,
   form,
   queue,
   onClose,
@@ -280,9 +280,15 @@ function ReviewGateSheet({
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
-  /** The board tab on screen, which a question pane launches for (its
-      pack), as every other launch from the board sends it. */
-  tabId?: string;
+  /** Launches a question about a finding, or with `focus` brings its
+      running pane forward. The board's launch flow toasts the outcome and
+      reloads, so the pill shows as soon as the question is live. */
+  onAskQuestion?: (
+    mr: BoardMRWithReview,
+    gateId: string,
+    findingId: string,
+    focus: boolean
+  ) => void;
   form: GateFormState;
   queue: GateSheetQueue;
   onClose: () => void;
@@ -473,23 +479,8 @@ function ReviewGateSheet({
   const depth = safeDepth(report);
   const askable = useMemo(() => reportFindingIds(report), [report]);
   const mrQuestions = mr?.questions;
-  /** Opens a question pane for the finding, or with `focus` brings its
-      running one forward. The board answers before the pane is up; the
-      pill appears once the next data refresh carries the live question. */
   const askQuestion = (findingId: string, focus: boolean) => {
-    if (!mr?.webUrl) return;
-    void fetch('/question', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        mrUrl: mr.webUrl,
-        iid: mr.iid,
-        gateId: gate.gateId,
-        findingId,
-        ...(tabId !== undefined ? { tabId } : {}),
-        ...(focus ? { focus: true } : {}),
-      }),
-    }).catch(() => {});
+    if (mr) onAskQuestion?.(mr, gate.gateId, findingId, focus);
   };
 
   const mainRef = useRef<HTMLElement | null>(null);
