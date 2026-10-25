@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { checkBlocks, checkPack, computeRows, skillsCheck, skillsCompile } from "../skills.ts";
+import { checkBlocks, checkPack, compilePackAll, computeRows, skillsCheck, skillsCompile } from "../skills.ts";
+import { syncCheckOf } from "../skills-sync.ts";
 import { HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { isEmittedAttachmentDir } from "../../lib/skills/base-attachments.ts";
-import { closeUnits, type UnitPointers } from "../../lib/skills/unit-maps.ts";
+import { closeUnits, stageReadsOf, type UnitPointers } from "../../lib/skills/unit-maps.ts";
 import { openingLine } from "../../lib/skills/pointers.ts";
 import { POINTER_KEYS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 import { compareVersions } from "../../lib/skills/installed-plugins.ts";
@@ -126,8 +127,8 @@ function seed(opts: { receiveExtra?: string } = {}): Fixture {
 
 const flags = (f: Fixture) => ["--pack-dir", f.packDir, "--mattstack-dir", f.mattstackDir, "--manifest", f.manifest];
 
-async function compile(f: Fixture): Promise<{ exitCode: number | undefined; errors: string[] }> {
-  return runExpectingCleanExit(() => skillsCompile(flags(f)));
+async function compile(f: Fixture, ...extra: string[]): Promise<{ exitCode: number | undefined; errors: string[] }> {
+  return runExpectingCleanExit(() => skillsCompile([...flags(f), ...extra]));
 }
 
 const check = (f: Fixture) => checkPack({ packDir: f.packDir, mattstackDir: f.mattstackDir, manifest: f.manifest });
@@ -231,6 +232,17 @@ describe("compile writes keys, ids and closure maps", () => {
   });
 });
 
+describe("stageReadsOf", () => {
+  const entry = (name: string) => ({ name, engine: name, stage: name, dir: `x/${name}`, consumes: [], produces: [] });
+  const entries = { feature: [entry("stage-plan"), entry("stage-x")], bugfix: [entry("stage-plan"), entry("stage-y")] };
+
+  test("an orchestrator reaches its pipeline's stages, or every pipeline's for pipeline.stages, whatever its text renders", () => {
+    expect(stageReadsOf(entries, "feature", false)).toEqual(["stage-plan", "stage-x"]);
+    expect(stageReadsOf(entries, null, true)).toEqual(["stage-plan", "stage-x", "stage-y"]);
+    expect(stageReadsOf(entries, null, false)).toEqual([]);
+  });
+});
+
 describe("check reads keys and stamps", () => {
   test("a clean build has no pointer rows, and a scoped npm name is never a key", async () => {
     const f = seed();
@@ -286,11 +298,57 @@ describe("check reads keys and stamps", () => {
     await oneRow(f, "missing-target");
   });
 
+  test("an entry no body uses is checked too, and reported at its compiled.json", async () => {
+    const f = seed();
+    await compile(f);
+    const mapPath = join(f.packDir, "attachments", "stage-plan", "compiled.json");
+    const m = JSON.parse(readFileSync(mapPath, "utf8"));
+    m.keys["stage-plan/gone.sh"] = "attachments/stage-plan/gone.sh";
+    writeFile(mapPath, JSON.stringify(m, null, 2) + "\n");
+    const rows = (await check(f)).pointerErrors ?? [];
+    expect(rows).toEqual([{ file: "attachments/stage-plan/compiled.json", line: 8, col: 5, code: "missing-target", message: "@stage-plan/gone.sh points at attachments/stage-plan/gone.sh, which is not a file" }]);
+  });
+
   test("a token left in a compiled body is a leftover", async () => {
     const f = seed();
     await compile(f);
     writeFile(join(f.packDir, "attachments", "stage-plan", "SKILL.md"), read(f, "attachments/stage-plan/SKILL.md") + `\nSee ${TOKEN}/x.sh.\n`);
     await oneRow(f, "leftover-token");
+  });
+});
+
+describe("what sync and init refuse on", () => {
+  test("a folder pointer in the sources reaches sync's pointer gate", async () => {
+    const f = seed({ receiveExtra: ` Its scripts live in \`${TOKEN}/scripts\`.` });
+    await compile(f);
+    const payload = await check(f);
+    expect((payload.sourcePointerErrors ?? []).map((d) => `${d.file}:${d.code}`)).toEqual(["attachments/receive-review/SKILL.md:missing-target"]);
+    expect(syncCheckOf(payload).pointerErrors).toHaveLength(1);
+  });
+
+  test("a hand-edited body is drift a recompile clears, never a pointer gate", async () => {
+    const f = seed();
+    await compile(f);
+    writeFile(join(f.packDir, "skills", "work", "SKILL.md"), read(f, "skills/work/SKILL.md") + "\nAlso read @work/nope.md.\n");
+    const payload = await check(f);
+    expect(payload.pointerErrors!.map((d) => d.code)).toEqual(["dangling-key"]);
+    expect(payload.sourcePointerErrors).toEqual([]);
+    expect(payload.drift).toBe(true);
+  });
+
+  test("a pack compiled before keys is drift with no pointer gate, so sync recompiles it", async () => {
+    const f = seed();
+    await compile(f);
+    // What an earlier rt wrote: the token where the key is now, no compiled.json in a verb, and a base copy's with provenance only.
+    for (const rel of ["skills/work", "skills/stage-x", "attachments/stage-plan", "attachments/receive-review"]) rmSync(join(f.packDir, rel, "compiled.json"));
+    writeFile(join(f.packDir, "attachments", "tools", "widget", "compiled.json"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: ["SKILL.md"] }, null, 2) + "\n");
+    const rr = join(f.packDir, "attachments", "receive-review", "SKILL.md");
+    writeFile(rr, readFileSync(rr, "utf8").replace("@receive-review/scripts/gate-ctx.sh", `${TOKEN}/../../attachments/receive-review/scripts/gate-ctx.sh`));
+    const payload = await check(f);
+    expect((payload.pointerErrors ?? []).some((d) => d.code === "leftover-token")).toBe(true);
+    expect(payload.sourcePointerErrors).toEqual([]);
+    expect(payload.drift).toBe(true);
+    expect(syncCheckOf(payload)).toMatchObject({ drift: true, handErrors: [], pointerErrors: [] });
   });
 });
 
@@ -303,6 +361,40 @@ describe("refusals", () => {
     ];
     expect(() => closeUnits(units, (leaf) => `widgets@0.4.2:${leaf}`, () => null)).toThrow(/stage-plan.*stage-x|stage-x.*stage-plan/);
   });
+
+  test("a scoped compile against a sibling compiled from another side fails, naming both units", async () => {
+    const f = seed({ receiveExtra: " Then {{verb.path:stage-x}}." });
+    expect((await compile(f)).errors).toEqual([]);
+    writeFile(join(f.packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work"] }));
+    const { exitCode, errors } = await compile(f, "--verb", "work");
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("pointer key @stage-x/SKILL.md has two targets in work's closure: widgets@0.4.2:work names \"attachments/stage-x/SKILL.md\" and widgets@0.4.2:receive-review names \"skills/stage-x/SKILL.md\"");
+  });
+
+  test("an empty roster with no plugin.json compiles and checks clean", async () => {
+    const packDir = tmp("rt-pointers-empty-");
+    writeFile(join(packDir, "pack", "stubs.jsonc"), `{ "verbs": {} }\n`);
+    const { mattstackDir, manifest } = seed();
+    expect(await compilePackAll({ packDir, mattstackDir, manifest, write: false })).toEqual({ ok: true, errors: [], written: [], removed: [] });
+    const payload = await checkPack({ packDir, mattstackDir, manifest });
+    expect(payload.drift).toBe(false);
+    expect(payload.compileErrors).toEqual([]);
+  });
+
+  for (const [label, body, fault] of [
+    ["JSON it cannot read", "{ name: widgets", "cannot be read as JSON"],
+    ["an uppercase name", JSON.stringify({ name: "Widgets", version: "0.4.2" }), 'has the name "Widgets", which a skill id cannot carry'],
+    ["a prerelease version", JSON.stringify({ name: "widgets", version: "1.0.0-rc.1" }), 'has the version "1.0.0-rc.1", which a skill id cannot carry'],
+  ] as const) {
+    test(`a plugin.json with ${label} refuses to compile, naming the file and the value`, async () => {
+      const f = seed();
+      const file = join(f.packDir, ".claude-plugin", "plugin.json");
+      writeFile(file, body);
+      const result = await compilePackAll({ packDir: f.packDir, mattstackDir: f.mattstackDir, manifest: f.manifest, write: false });
+      expect(result.ok).toBe(false);
+      expect(result.errors[0]).toStartWith(`${file} ${fault}`);
+    });
+  }
 
   for (const [label, manifest] of [["no plugin.json", null], ["no version in it", { name: "widgets" }]] as const) {
     test(`a pack with ${label} refuses to compile, naming the file`, async () => {

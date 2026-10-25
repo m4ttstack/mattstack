@@ -2352,6 +2352,8 @@ describe("skillsCompile --pack-dir validation", () => {
 
     const payload = JSON.parse(io.lines()[0]!);
     expect(payload.pack).toBe("widgets");
+    expect(payload.verbs).toEqual([]);
+    expect(process.exitCode ?? 0).toBe(0);
   });
 
   test("--pack-dir on any other folder with no plugin identity still names the folder", async () => {
@@ -2365,6 +2367,8 @@ describe("skillsCompile --pack-dir validation", () => {
 
     const payload = JSON.parse(io.lines()[0]!);
     expect(payload.pack).toBe("gadgets");
+    expect(payload.verbs).toEqual([]);
+    expect(process.exitCode ?? 0).toBe(0);
   });
 });
 

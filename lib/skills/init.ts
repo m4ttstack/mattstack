@@ -374,8 +374,11 @@ export type InitDeps = {
   registerRepo(repoDir: string): Promise<string>;
   materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
   compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[]; missing?: MissingMarker[] }>;
-  /** `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`. */
-  check(packDir: string, manifestPath: string): Promise<{ drift: boolean; handErrors?: string[] }>;
+  /**
+   * `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`.
+   * `pointerErrors`: compiled pointers that lead nowhere in what a recompile would write.
+   */
+  check(packDir: string, manifestPath: string): Promise<{ drift: boolean; handErrors?: string[]; pointerErrors?: string[] }>;
   /** `paths` are relative to the org clone. */
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
   /** Remembers a share for `rt team publish` to finish if init stops before its own share. */
@@ -396,7 +399,7 @@ export type InitRefusalCode =
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host" | "base-missing"
   | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing" | "extends-conflict" | "base-chained";
 
-export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "hand-skill-failed" | "install-failed";
+export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "hand-skill-failed" | "pointer-failed" | "install-failed";
 
 export type InitRemedy = { commands: string[]; folder?: string };
 
@@ -632,7 +635,7 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
     if (code === "write-failed") return { commands: [retry("")], folder: packDir };
     if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`, share] };
     if (code === "hand-skill-failed") return { commands: [`rt skills check --pack-dir ${packDir}`, share] };
-    if (code === "compile-failed" || code === "check-drift") {
+    if (code === "compile-failed" || code === "check-drift" || code === "pointer-failed") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
     }
     const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
@@ -718,6 +721,8 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
   if (checkedAttempt.value.drift) return failed("check-drift", "The pack was out of date right after it compiled");
   const handErrors = checkedAttempt.value.handErrors ?? [];
   if (handErrors.length > 0) return failed("hand-skill-failed", handErrors.join("\n"));
+  const pointerErrors = checkedAttempt.value.pointerErrors ?? [];
+  if (pointerErrors.length > 0) return failed("pointer-failed", pointerErrors.join("\n"));
 
   const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
   if (!admission.ok) {

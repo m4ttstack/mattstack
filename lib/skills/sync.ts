@@ -19,8 +19,11 @@ export type SyncDeps = {
   /** A git command that reaches the pack's origin. An https org clone has no credential helper of its own, so the real one retries with rt's forge token; without it, `run` is used. */
   runOrigin?: (args: string[], opts: { cwd: string; push?: boolean }) => Promise<RunResult>;
   claudeBin: string | null;
-  /** `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`. */
-  checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean; handErrors?: string[] }>;
+  /**
+   * `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`.
+   * `pointerErrors`: compiled pointers that lead nowhere in what a recompile would write, so the fix is in the pack's sources.
+   */
+  checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean; handErrors?: string[]; pointerErrors?: string[] }>;
   /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[]; written: string[]; removed: string[] }>;
   /** Regenerates every registered repo's per-pack files; a base pack the pack extends may have moved since the last install. Only the named pack's failures fail the step. */
@@ -225,6 +228,10 @@ async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function deadPointers(n: number): string {
+  return n === 1 ? "1 pointer that leads nowhere" : `${n} pointers that lead nowhere`;
 }
 
 function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null, pendingCount: number): string {
@@ -708,18 +715,25 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const result = await deps.checkPack(pack.name);
     drift = result.drift;
     const handErrors = result.handErrors ?? [];
+    const pointerErrors = result.pointerErrors ?? [];
     if (handErrors.length > 0 && mayWritePack) {
       const problems = plural(handErrors.length, "problem");
       return refused([`Hand-written skills have ${problems} a recompile cannot fix, so rt stopped before the version bump. Fix each file, then sync again:`, ...handErrors].join("\n"));
     }
+    if (pointerErrors.length > 0 && mayWritePack) {
+      const it = pointerErrors.length === 1 ? "it" : "them";
+      return refused([`Compiled skills in this pack have ${deadPointers(pointerErrors.length)}, and a recompile cannot fix ${it}, so rt stopped before the version bump. Fix ${it} in the pack's source files, then sync again:`, ...pointerErrors].join("\n"));
+    }
     // A member who cannot write the pack still installs it; only its owners can fix the files.
     warnings.push(...handErrors.map((e) => `For the pack's owners to fix: ${e}`));
+    warnings.push(...pointerErrors.map((e) => `For the pack's owners to fix in its source files: ${e}`));
     if (result.strict && result.lintHits > 0) {
       return refused(`This pack is strict, and mcp lint found ${hitCount(result.lintHits)}. Fix them before syncing`);
     }
     const lintNote = result.lintHits > 0 ? `; mcp lint found ${hitCount(result.lintHits)}, advisory for this pack` : "";
     const handNote = handErrors.length > 0 ? `; hand-written skills have ${plural(handErrors.length, "problem")} for the pack's owners, listed in the warnings` : "";
-    return ran(`${drift ? "the compiled skills are out of date" : "the compiled skills are current"}${lintNote}${handNote}`);
+    const pointerNote = pointerErrors.length > 0 ? `; compiled skills have ${deadPointers(pointerErrors.length)}, for the pack's owners, listed in the warnings` : "";
+    return ran(`${drift ? "the compiled skills are out of date" : "the compiled skills are current"}${lintNote}${handNote}${pointerNote}`);
   });
   steps.push({ name: "check", ...checkStep });
   if (stops(checkStep)) return finish();

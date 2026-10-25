@@ -21,7 +21,7 @@ import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
-import { checkPack, compilePackAll, handSkillFailures, NO_PACKS_WHY, type CheckPayload } from "./skills.ts";
+import { checkFailures, checkPack, compilePackAll, NO_PACKS_WHY, type CheckPayload } from "./skills.ts";
 import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { runSkillsOrigin, spawnCapture } from "../lib/skills/origin-git.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
@@ -192,10 +192,10 @@ export function claudeMissingBlocks(): Block[] {
   return [out.line("needs-you", "Claude Code is not installed", "rt installs and syncs packs through it"), out.callout("next", "Install Claude Code, then run this again")];
 }
 
-/** What sync's check step reads from a check: hand-written skill failures and dead compiled pointers ride apart from drift, so sync refuses on them instead of recompiling. */
+/** What sync's check step reads from a check: what fails apart from drift rides beside it, so sync refuses on it instead of recompiling. */
 export function syncCheckOf(payload: CheckPayload): Awaited<ReturnType<SyncDeps["checkPack"]>> {
-  const handErrors = [...handSkillFailures(payload), ...(payload.pointerErrors ?? [])].map(formatDiagnostic);
-  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors };
+  const { handSkills, pointers } = checkFailures(payload);
+  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic) };
 }
 
 export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {

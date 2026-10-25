@@ -1240,6 +1240,17 @@ describe("initPack", () => {
     });
   }
 
+  test("a compiled pointer that leads nowhere stops init before the install and share, with its own code", async () => {
+    const dead = "attachments/stage-plan/SKILL.md:12:5: @stage-plan/scripts/ points at attachments/stage-plan/scripts/, which is not a file";
+    const { deps, calls } = world({ check: async () => ({ drift: false, pointerErrors: [dead] }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: false, code: "pointer-failed", detail: dead });
+    if (out.ok || out.refused) return;
+    expect(out.remedy?.commands.slice(0, 2)).toEqual([`rt skills compile --pack-dir ${ACME_PACK}`, `rt skills check --pack-dir ${ACME_PACK}`]);
+    expect(calls.shared).toEqual([]);
+    expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
+  });
+
   test("the share is remembered once the files are written, so a later failure ends with rt team publish", async () => {
     const { deps, calls } = world({ compile: async () => ({ ok: false, errors: ["boom"] }) });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);

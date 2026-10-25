@@ -50,6 +50,8 @@ type World = {
   lintStrict?: boolean[];
   /** Per check call, the hand-written skill failures it reports. */
   handErrors?: string[][];
+  /** Per check call, the compiled pointers that lead nowhere in what a recompile would write. */
+  pointerErrors?: string[][];
   checkThrows?: boolean;
   compileOk?: boolean;
   compileErrors?: string[];
@@ -94,6 +96,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
   const lintHitsAnswers = [...(world.lintHits ?? [])];
   const lintStrictAnswers = [...(world.lintStrict ?? [])];
   const handErrorAnswers = [...(world.handErrors ?? [])];
+  const pointerErrorAnswers = [...(world.pointerErrors ?? [])];
 
   function installDirFor(id: string): string {
     let dir = installDirs.get(id);
@@ -259,7 +262,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (world.checkThrows) throw new Error("checkPack: manifest discovery found nothing");
       const next = driftAnswers.shift();
       if (next === undefined) throw new Error("checkPack: fixture ran out of configured drift answers");
-      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false, handErrors: handErrorAnswers.shift() ?? [] };
+      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false, handErrors: handErrorAnswers.shift() ?? [], pointerErrors: pointerErrorAnswers.shift() ?? [] };
     },
     compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [], written: world.compileWrites?.written ?? [], removed: world.compileWrites?.removed ?? [] }),
     materialize: async () => ({ ok: true, detail: "materialized 1" }),
@@ -2946,6 +2949,54 @@ describe("git that talks to origin", () => {
 
     expect(report.steps.find((s) => s.name === "commit-push")!.status).toBe("ran");
     expect(origin).toContainEqual({ args: ["push"], cwd: pack.dir, push: true });
+  });
+});
+
+describe("compiled pointers that lead nowhere", () => {
+  const DEAD = "attachments/stage-plan/SKILL.md:12:5: @stage-plan/scripts/ points at attachments/stage-plan/scripts/, which is not a file";
+
+  test("an owner's pack refuses at check, before the bump, saying the fix is in the source files", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerErrors: [[DEAD]] };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("refused");
+    const [lead, ...rows] = check.detail.split("\n");
+    expect(lead).toBe("Compiled skills in this pack have 1 pointer that leads nowhere, and a recompile cannot fix it, so rt stopped before the version bump. Fix it in the pack's source files, then sync again:");
+    expect(rows).toEqual([DEAD]);
+    expect(check.detail).not.toContain("Hand-written");
+    expect(stepNames(report.steps).at(-1)).toBe("check");
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+  });
+
+  test("a member gets a warning per pointer and still installs the pack", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerErrors: [[DEAD]] };
+    const deps = { ...makeDeps(pack, engine, world), mayCompile: () => false };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("ran");
+    expect(check.detail).toContain("compiled skills have 1 pointer that leads nowhere, for the pack's owners");
+    expect(report.warnings).toEqual([`For the pack's owners to fix in its source files: ${DEAD}`]);
+    expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
+  });
+
+  test("an owner's pack compiled before keys has only drift, so it recompiles instead of refusing", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false], pointerErrors: [[]] };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+    expect(report.steps.find((s) => s.name === "check")).toMatchObject({ status: "ran" });
+    expect(report.steps.find((s) => s.name === "compile")).toMatchObject({ status: "ran" });
+    expect(report.steps.find((s) => s.name === "recheck")).toMatchObject({ status: "ran" });
   });
 });
 

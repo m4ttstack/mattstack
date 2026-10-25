@@ -1,10 +1,10 @@
-import { readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
 import { HEADER_COMMENT } from "./compile.ts";
 import { FRONTMATTER_RE } from "./frontmatter-re.ts";
-import { closeMap, isKey, KEY_TOKEN_RE, keyBody, leftoverTokens, openingLine, type PointerMap, type Target, type UnitTable } from "./pointers.ts";
-import type { CompiledFile, Side } from "./types.ts";
+import { closeMap, ID_RE, isKey, KEY_TOKEN_RE, keyBody, leftoverTokens, openingLine, unitId, type PointerMap, type Target, type UnitTable } from "./pointers.ts";
+import type { CompiledFile, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export const MAP_FILE = "compiled.json";
 
@@ -13,6 +13,11 @@ export type UnitPointers = { leaf: string; dir: string; keys: Record<string, Tar
 
 /** Where a unit's files are keyed from: its id, its plugin-relative folder and the pack's unit table. */
 export type PointerSite = { id: string; dir: string; units: UnitTable };
+
+export type Identity = { name: string; version: string };
+
+/** A pack's plugin identity, or the one fault that keeps its units from carrying an id. */
+export type PackIdentity = ({ ok: true } & Identity) | { ok: false; file: string; fault: string };
 
 export function leafOf(rel: string): string {
   return rel.slice(rel.lastIndexOf("/") + 1);
@@ -24,6 +29,35 @@ export function unitTableOf(verbSides: Record<string, Side>, emitted: Iterable<s
   for (const [name, side] of Object.entries(verbSides)) units[name] = `${side}/${name}`;
   for (const rel of emitted) units[leafOf(rel)] = `attachments/${rel}`;
   return units;
+}
+
+/** A planned unit with nothing in it is one the compile removes. */
+export function emittedUnits(planned: PlannedAttachments | undefined): string[] {
+  return planned ? [...planned].filter(([, files]) => files.size > 0).map(([rel]) => rel) : [];
+}
+
+/** The stages an orchestrator reads by path: its pipeline's, or every pipeline's for `{{pipeline.stages}}`. */
+export function stageReadsOf(entries: Record<string, StageEntry[]>, pipeline: string | null, everyPipeline: boolean): string[] {
+  const lists = everyPipeline ? Object.values(entries) : pipeline !== null && Object.hasOwn(entries, pipeline) ? [entries[pipeline]!] : [];
+  return [...new Set(lists.flat().map((e) => e.name))];
+}
+
+/** The id `<plugin>@<version>:<unit>` has to pass `ID_RE`, so a name or version it cannot carry refuses here, not at resolve. */
+export function readPackIdentity(packDir: string): PackIdentity {
+  const file = join(packDir, ".claude-plugin", "plugin.json");
+  if (!existsSync(file)) return { ok: false, file, fault: "is missing" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return { ok: false, file, fault: "cannot be read as JSON" };
+  }
+  const { name, version } = (parsed && typeof parsed === "object" ? parsed : {}) as { name?: unknown; version?: unknown };
+  if (typeof name !== "string" || name === "") return { ok: false, file, fault: "has no name" };
+  if (typeof version !== "string" || version === "") return { ok: false, file, fault: "has no version" };
+  if (!ID_RE.test(unitId(name, "0", "unit"))) return { ok: false, file, fault: `has the name "${name}", which a skill id cannot carry: use lowercase letters, digits and dashes` };
+  if (!ID_RE.test(unitId(name, version, "unit"))) return { ok: false, file, fault: `has the version "${version}", which a skill id cannot carry: use numbers and dots only` };
+  return { ok: true, name, version };
 }
 
 /** The line goes right under the compiler header, or opens the body of a file that has none. */
@@ -51,6 +85,9 @@ export function keyFiles(files: CompiledFile[], site: PointerSite): { files: Com
   return { files: keyed, keys };
 }
 
+/** Two units in one closure claim one key for different files; a full compile of the pack writes them from one table again. */
+export class PointerConflictError extends Error {}
+
 function sameTarget(a: Target, b: Target): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -63,7 +100,7 @@ function assertOneTarget(leaf: string, maps: PointerMap[]): void {
       const first = held.get(key);
       if (!first) held.set(key, { target, id: map.id });
       else if (!sameTarget(first.target, target)) {
-        throw new Error(`pointer key @${key} has two targets in ${leaf}'s closure: ${first.id} names ${JSON.stringify(first.target)} and ${map.id} names ${JSON.stringify(target)}`);
+        throw new PointerConflictError(`pointer key @${key} has two targets in ${leaf}'s closure: ${first.id} names ${JSON.stringify(first.target)} and ${map.id} names ${JSON.stringify(target)}`);
       }
     }
   }
@@ -104,7 +141,15 @@ export function mapFileText(map: PointerMap, provenance: Record<string, unknown>
 
 function readJson(path: string): Record<string, unknown> | null {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return parseObject(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function parseObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
@@ -116,6 +161,39 @@ export function readUnitMap(packDir: string, dir: string, id: string): PointerMa
   const parsed = readJson(join(packDir, dir, MAP_FILE));
   if (!parsed || parsed.id !== id || !Array.isArray(parsed.covers) || !parsed.keys || typeof parsed.keys !== "object") return null;
   return { id, dir, covers: parsed.covers as string[], keys: parsed.keys as Record<string, Target> };
+}
+
+type Compiled = { files: CompiledFile[]; pointers?: { keys: Record<string, Target>; reads: string[] } };
+
+/**
+ * Closes every unit's pointer map once all of them have compiled, and adds
+ * it as the unit's compiled.json; a base copy's keeps its provenance. A unit
+ * this run did not compile lends the map its last compile wrote.
+ */
+export function attachMaps<E extends { name: string } & Compiled>(input: {
+  packDir: string;
+  identity: Identity;
+  units: UnitTable;
+  compiled: ({ leaf: string } & Compiled)[];
+  emits: E[];
+}): E[] {
+  const { packDir, identity, units } = input;
+  const idOf = (leaf: string) => unitId(identity.name, identity.version, leaf);
+  const pointers: UnitPointers[] = [
+    ...input.compiled.flatMap((c) => (c.pointers ? [{ leaf: c.leaf, dir: units[c.leaf]!, ...c.pointers }] : [])),
+    ...input.emits.flatMap((e) => (e.pointers ? [{ leaf: leafOf(e.name), dir: `attachments/${e.name}`, ...e.pointers }] : [])),
+  ];
+  const closed = closeUnits(pointers, idOf, (leaf) => (Object.hasOwn(units, leaf) ? readUnitMap(packDir, units[leaf]!, idOf(leaf)) : null));
+  for (const c of input.compiled) {
+    const map = closed.get(c.leaf);
+    if (map) c.files.push({ path: MAP_FILE, content: mapFileText(map) });
+  }
+  return input.emits.map((e) => {
+    const map = closed.get(leafOf(e.name));
+    if (!map) return e;
+    const files = e.files.map((f): CompiledFile => (f.path === MAP_FILE && "content" in f ? { path: f.path, content: mapFileText(map, parseObject(f.content) ?? {}) } : f));
+    return { ...e, files };
+  });
 }
 
 function isFile(path: string): boolean {
@@ -134,6 +212,36 @@ function isDir(path: string): boolean {
   }
 }
 
+/** A compiled unit as the pointer scan reads it: its folder, its `.md` files and its compiled.json text. */
+export type ScannedUnit = { dir: string; mds: { rel: string; text: string }[]; mapText: string | null };
+
+/** Each unit as it sits on disk; a folder that is not there is left out. */
+export function unitsOnDisk(packDir: string, dirs: string[]): ScannedUnit[] {
+  return dirs.flatMap((dir) => {
+    const abs = join(packDir, dir);
+    if (!isDir(abs)) return [];
+    const rels = (readdirSync(abs, { recursive: true }) as string[]).filter((rel) => rel.endsWith(".md") && isFile(join(abs, rel))).sort();
+    const mapPath = join(abs, MAP_FILE);
+    return [{ dir, mds: rels.map((rel) => ({ rel, text: readFileSync(join(abs, rel), "utf8") })), mapText: isFile(mapPath) ? readFileSync(mapPath, "utf8") : null }];
+  });
+}
+
+/** Each unit as this run's compile would write it. */
+export function unitsInMemory(units: { dir: string; files: CompiledFile[] }[]): ScannedUnit[] {
+  return units.map(({ dir, files }) => {
+    const text = (f: CompiledFile) => ("content" in f ? f.content : readFileSync(f.copyFrom, "utf8"));
+    const map = files.find((f) => f.path === MAP_FILE);
+    return { dir, mds: files.filter((f) => f.path.endsWith(".md")).map((f) => ({ rel: f.path, text: text(f) })).sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0)), mapText: map ? text(map) : null };
+  });
+}
+
+/** A file `isFile` is asked about is pack-relative; one under a unit this run compiled exists only if the run writes it. */
+export function fileCheckFor(packDir: string, units: { dir: string; files: CompiledFile[] }[]): (target: string) => boolean {
+  const written = new Set(units.flatMap(({ dir, files }) => files.map((f) => `${dir}/${f.path}`)));
+  const dirs = units.map((u) => `${u.dir}/`);
+  return (target) => (dirs.some((d) => target.startsWith(d)) ? written.has(target) : isFile(join(packDir, target)));
+}
+
 function keyTokens(text: string): { token: string; line: number; col: number }[] {
   const start = text.match(FRONTMATTER_RE)?.[0].length ?? 0;
   const out: { token: string; line: number; col: number }[] = [];
@@ -145,31 +253,49 @@ function keyTokens(text: string): { token: string; line: number; col: number }[]
   return out;
 }
 
+function entrySite(mapText: string, key: string): { line: number; col: number } {
+  const lines = mapText.split("\n");
+  const i = lines.findIndex((l) => l.trimStart().startsWith(`${JSON.stringify(key)}:`));
+  return i < 0 ? { line: 1, col: 1 } : { line: i + 1, col: lines[i]!.length - lines[i]!.trimStart().length + 1 };
+}
+
+const missing = (token: string, target: string) => `${token} points at ${target}, which is not a file`;
+
 /**
- * Reads every `.md` in each compiled unit folder against the map beside it:
- * a key the map lacks dangles, an entry that names no file (a folder
- * included) is missing, and a `${CLAUDE_SKILL_DIR}` outside frontmatter is left over.
+ * Reads every `.md` of each unit against the map beside it: a key the map
+ * lacks dangles, an entry that names no file (a folder included) is missing,
+ * and a `${CLAUDE_SKILL_DIR}` outside frontmatter is left over. An entry no
+ * body uses is reported once, at the compiled.json of the first unit holding it.
  */
-export function pointerErrorsIn(packDir: string, dirs: string[], units: UnitTable): BlockDiagnostic[] {
+export function pointerErrorsIn(units: ScannedUnit[], table: UnitTable, fileExists: (target: string) => boolean): BlockDiagnostic[] {
   const out: BlockDiagnostic[] = [];
-  for (const dir of dirs) {
-    const abs = join(packDir, dir);
-    if (!isDir(abs)) continue;
-    const keys = (readJson(join(abs, MAP_FILE))?.keys ?? {}) as Record<string, Target>;
-    const mds = (readdirSync(abs, { recursive: true }) as string[]).filter((rel) => rel.endsWith(".md") && isFile(join(abs, rel))).sort();
-    for (const rel of mds) {
-      const file = `${dir}/${rel}`;
-      const text = readFileSync(join(abs, rel), "utf8");
+  const reported = new Set<string>();
+  const keysOf = (u: ScannedUnit) => ((u.mapText === null ? null : parseObject(u.mapText))?.keys ?? {}) as Record<string, Target>;
+  for (const unit of units) {
+    const keys = keysOf(unit);
+    for (const { rel, text } of unit.mds) {
+      const file = `${unit.dir}/${rel}`;
       const rows: BlockDiagnostic[] = leftoverTokens(text).map((at) => ({
         file, ...at, code: "leftover-token", message: "${CLAUDE_SKILL_DIR} is left in a compiled body; compile writes each pointer there as an @key",
       }));
       for (const { token, line, col } of keyTokens(text)) {
-        if (!isKey(token, units)) continue;
-        const target = Object.hasOwn(keys, token.slice(1)) ? keys[token.slice(1)]! : undefined;
+        if (!isKey(token, table)) continue;
+        const key = token.slice(1);
+        const target = Object.hasOwn(keys, key) ? keys[key]! : undefined;
         if (target === undefined) rows.push({ file, line, col, code: "dangling-key", message: `${token} is not in this skill's pointer map` });
-        else if (typeof target === "string" && !isFile(join(packDir, target))) rows.push({ file, line, col, code: "missing-target", message: `${token} points at ${target}, which is not a file` });
+        else if (typeof target === "string" && !fileExists(target)) {
+          reported.add(key);
+          rows.push({ file, line, col, code: "missing-target", message: missing(token, target) });
+        }
       }
       out.push(...rows.sort((a, b) => a.line - b.line || a.col - b.col));
+    }
+  }
+  for (const unit of units) {
+    for (const [key, target] of Object.entries(keysOf(unit))) {
+      if (reported.has(key) || typeof target !== "string" || fileExists(target)) continue;
+      reported.add(key);
+      out.push({ file: `${unit.dir}/${MAP_FILE}`, ...entrySite(unit.mapText!, key), code: "missing-target", message: missing(`@${key}`, target) });
     }
   }
   return out;

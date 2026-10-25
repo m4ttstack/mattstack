@@ -506,17 +506,15 @@ describe("syncCheckOf", () => {
     }
   });
 
-  test("a compiled skill's dead pointer reaches sync as a named failure beside the hand-written ones", async () => {
+  test("a dead pointer in what a recompile would write reaches sync on its own; one only on disk does not", async () => {
     const dir = teamPack("---\nname: gadgets\ndescription: Use when: x\n---\nDo the gadget thing.\n");
     try {
       const payload = await checkPack({ packDir: dir });
-      const dead = { file: "skills/work/SKILL.md", line: 12, col: 5, code: "dangling-key", message: "@work/nope.md is not in this skill's pointer map" };
-      const result = syncCheckOf({ ...payload, pointerErrors: [dead] });
-      expect(result.drift).toBe(false);
-      expect(result.handErrors).toEqual([
-        "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
-        "skills/work/SKILL.md:12:5: @work/nope.md is not in this skill's pointer map",
-      ]);
+      const dead = { file: "skills/work/SKILL.md", line: 12, col: 5, code: "missing-target", message: "@work/x.sh points at skills/work/x.sh, which is not a file" };
+      const result = syncCheckOf({ ...payload, pointerErrors: [dead], sourcePointerErrors: [dead] });
+      expect(result.handErrors).toEqual(["skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings"]);
+      expect(result.pointerErrors).toEqual(["skills/work/SKILL.md:12:5: @work/x.sh points at skills/work/x.sh, which is not a file"]);
+      expect(syncCheckOf({ ...payload, pointerErrors: [dead], sourcePointerErrors: [] }).pointerErrors).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

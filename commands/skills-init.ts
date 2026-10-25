@@ -32,7 +32,7 @@ import { readFloor } from "../lib/engine-floor.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
-import { checkPack, compilePackAll, handSkillFailures, type CheckPayload } from "./skills.ts";
+import { checkFailures, checkPack, compilePackAll, type CheckPayload } from "./skills.ts";
 import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
@@ -87,6 +87,10 @@ function remedyCell(r: InitRemedy): Array<string | Segment> {
   return [r.folder ? "Delete the pack folder it started, then run " : "Run ", ...commands];
 }
 
+function commandChain(commands: string[]): Array<string | Segment> {
+  return commands.flatMap((c, i) => (i === 0 ? [ui.cmd(c)] : [", then ", ui.cmd(c)]));
+}
+
 export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureInput {
   if (o.refused) return { title: o.detail, ...(o.why ? { why: o.why } : {}), ...(o.next ? { next: ui.cmd(o.next) } : {}) };
   if (o.code === "compile-failed") {
@@ -99,7 +103,14 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
   if (o.code === "hand-skill-failed") {
     return {
       title: "Hand-written skills in the new pack have problems a recompile cannot fix",
-      next: ["Fix each file, then run ", ...(o.remedy?.commands ?? ["rt skills check"]).flatMap((c, i) => (i === 0 ? [ui.cmd(c)] : [", then ", ui.cmd(c)]))],
+      next: ["Fix each file, then run ", ...commandChain(o.remedy?.commands ?? ["rt skills check"])],
+    };
+  }
+  if (o.code === "pointer-failed") {
+    return {
+      title: "Compiled skills in the new pack have pointers that lead nowhere",
+      why: "A recompile cannot fix them: they come from the pack's source files.",
+      next: ["Fix them in the pack's source files, then run ", ...commandChain(o.remedy?.commands ?? ["rt skills compile", "rt skills check"])],
     };
   }
   const [title = o.detail, ...rest] = o.detail.split("\n");
@@ -115,14 +126,16 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
 export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
   if (o.refused) return [];
   if (o.code === "hand-skill-failed") return [ui.verbatim(o.detail.split("\n"), "hand-written skill problems")];
+  if (o.code === "pointer-failed") return [ui.verbatim(o.detail.split("\n"), "compiled skills, pointers")];
   if (o.code !== "compile-failed") return o.wrote.length > 0 ? [ui.verbatim(o.wrote, "written so far")] : [];
   const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return [ui.verbatim(lines, "what did not compile")];
 }
 
-/** What init's check step reads from a check: hand-written skill failures and dead compiled pointers ride apart from drift, so init refuses on them. */
-export function initCheckOf(payload: Pick<CheckPayload, "drift" | "skillPaths" | "skillFrontmatter" | "pointerErrors">): { drift: boolean; handErrors: string[] } {
-  return { drift: payload.drift, handErrors: [...handSkillFailures(payload), ...(payload.pointerErrors ?? [])].map(formatDiagnostic) };
+/** What init's check step reads from a check: what fails apart from drift rides beside it, so init refuses on it. */
+export function initCheckOf(payload: Pick<CheckPayload, "drift" | "skillPaths" | "skillFrontmatter" | "sourcePointerErrors">): { drift: boolean; handErrors: string[]; pointerErrors: string[] } {
+  const { handSkills, pointers } = checkFailures(payload);
+  return { drift: payload.drift, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic) };
 }
 
 export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {

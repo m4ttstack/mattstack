@@ -595,20 +595,27 @@ describe("skillsInit", () => {
 });
 
 describe("initCheckOf", () => {
-  test("a compiled skill's dead pointer reaches init as a named failure beside the hand-written ones", () => {
+  test("a dead pointer in what a recompile would write reaches init apart from the hand-written failures", () => {
     const at = (file: string, code: string, message: string) => ({ file, line: 4, col: 2, code, message });
     const result = initCheckOf({
       drift: false,
       skillPaths: [at("skills/gadgets/SKILL.md", "broken-skill-path", "gone.md does not resolve to a file")],
-      pointerErrors: [at("attachments/stage-plan/SKILL.md", "missing-target", "@stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file")],
+      sourcePointerErrors: [at("attachments/stage-plan/SKILL.md", "missing-target", "@stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file")],
     });
     expect(result).toEqual({
       drift: false,
-      handErrors: [
-        "skills/gadgets/SKILL.md:4:2: gone.md does not resolve to a file",
-        "attachments/stage-plan/SKILL.md:4:2: @stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file",
-      ],
+      handErrors: ["skills/gadgets/SKILL.md:4:2: gone.md does not resolve to a file"],
+      pointerErrors: ["attachments/stage-plan/SKILL.md:4:2: @stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file"],
     });
+  });
+
+  test("a pointer failure names the source files as the fix, never hand-written skills", () => {
+    const o = { ok: false as const, refused: false as const, code: "pointer-failed" as const, detail: "a.md:1:1: x\nb.md:2:2: y", wrote: [], remedy: { commands: ["rt skills compile --pack-dir /p", "rt skills check --pack-dir /p", "rt team publish --team acme"] } };
+    const shown = renderPlain([ui.failure(initFailure(o)), ...initFailureAfter(o)]);
+    expect(shown).toContain("Compiled skills in the new pack have pointers that lead nowhere");
+    expect(shown).toContain("Fix them in the pack's source files, then run rt skills compile --pack-dir /p, then rt skills check --pack-dir /p, then rt team publish --team acme");
+    expect(shown).toContain("compiled skills, pointers:");
+    expect(shown).not.toContain("Hand-written");
   });
 });
 
