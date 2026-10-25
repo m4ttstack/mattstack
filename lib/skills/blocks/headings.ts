@@ -2,8 +2,8 @@ import { FENCE_RE } from "./tree.ts";
 
 const HEADING_RE = /^(#{1,6})(\s.*)$/;
 const SETEXT_RE = /^ {0,3}(=+|-+)\s*$/;
-/** A list item, quote or table row above a dash line is not setext text, so the line stays a rule or a table edge. */
-const NOT_SETEXT_TEXT_RE = /^\s*([-*+>|]|\d+[.)]\s)/;
+/** A list item, quote, table row, comment or indented code above a dash line is not setext text, so the line stays a rule or a table edge. */
+const NOT_SETEXT_TEXT_RE = /^(\s*([-*+>|]|\d+[.)]\s|<!--)| {4}|\t)/;
 
 /** True for each line inside a code fence, its opening and closing lines included. */
 export function fencedLines(text: string): boolean[] {
@@ -33,7 +33,9 @@ function headingsIn(text: string): Heading[] {
       continue;
     }
     const under = i + 1 < lines.length && !fenced[i + 1] ? SETEXT_RE.exec(lines[i + 1]!) : null;
-    if (under && lines[i]!.trim() !== "" && !NOT_SETEXT_TEXT_RE.test(lines[i]!)) {
+    // Only a one-line paragraph is taken as setext text; a longer one stays prose with a rule under it.
+    const opensParagraph = i === 0 || lines[i - 1]!.trim() === "" || HEADING_RE.test(lines[i - 1]!);
+    if (under && opensParagraph && lines[i]!.trim() !== "" && !NOT_SETEXT_TEXT_RE.test(lines[i]!)) {
       out.push({ line: i, level: under[1]![0] === "=" ? 1 : 2, title: lines[i]!.trim(), underline: true });
       i++;
     }
@@ -41,14 +43,19 @@ function headingsIn(text: string): Heading[] {
   return out;
 }
 
+/** The 0-based lines of `text` that a setext underline makes a heading. */
+export function setextLines(text: string): number[] {
+  return headingsIn(text).filter((h) => h.underline).map((h) => h.line);
+}
+
 /**
  * Moves every heading outside a fence by `delta` levels, kept within 1..6. A setext heading becomes an
- * ATX one and its underline a blank line, so the line count never changes and seam offsets hold.
+ * ATX one even with no shift, and its underline a blank line, so the line count never changes and seam offsets hold.
  */
 export function shiftHeadings(text: string, delta: number): string {
-  if (delta === 0) return text;
   const lines = text.split("\n");
   for (const h of headingsIn(text)) {
+    if (delta === 0 && !h.underline) continue;
     lines[h.line] = `${"#".repeat(Math.max(1, Math.min(h.level + delta, 6)))} ${h.title}`;
     if (h.underline) lines[h.line + 1] = "";
   }

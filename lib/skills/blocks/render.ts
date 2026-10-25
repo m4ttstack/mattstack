@@ -2,7 +2,7 @@ import { fillReference, includeText, inlineFillText, PLACEHOLDER_RE, spanOf, sub
 import type { AttachmentSource, PlaceholderContext } from "../types.ts";
 import { BlockError, type BlockDiagnostic } from "./diagnostics.ts";
 import { toDot } from "./dot.ts";
-import { relevelDelta } from "./headings.ts";
+import { relevelDelta, setextLines } from "./headings.ts";
 import type { PropValue } from "./props.ts";
 import { FENCE_RE } from "./tree.ts";
 import type { Block, BlockTree } from "./types.ts";
@@ -96,6 +96,16 @@ function textAfterFillInclude(fill: AttachmentSource, line: number, name: string
   };
 }
 
+/** A later fill of the same prop that opens with text would render under the earlier fill's last heading. */
+function fillAfterHeadedFill(fill: AttachmentSource, earlier: string): BlockDiagnostic {
+  const first = fill.body.split("\n").findIndex((l) => l.trim() !== "");
+  return {
+    ...fillSite(fill, first < 0 ? 1 : first + 1),
+    message: `text after ${earlier}, whose fill carries headings: a later fill of the same prop must open with a heading`,
+    code: "text-after-include",
+  };
+}
+
 /** A later fill of the same prop would render under the heading `ended`'s include left open. */
 function fillAfterFillInclude(fill: AttachmentSource, ended: { name: string; binding: string }): BlockDiagnostic {
   const first = fill.body.split("\n").findIndex((l) => l.trim() !== "");
@@ -112,18 +122,26 @@ function propText(b: Block, name: string, src: SourcedTree, at: Heading, st: Sta
   if (!value) throw new Error(`${b.relPath}: prop "${name}" has no resolved value`);
   const key = `prop:${b.id}.${name}`;
   let trailing: { name: string; binding: string } | null = null;
+  let headedBinding: string | null = null;
   const chunks: string[] = [];
+  const push = (fill: AttachmentSource, chunk: string) => {
+    const first = firstContentLine(chunk);
+    if (headedBinding !== null && first !== null && !HEADING_RE.test(first)) st.diagnostics.push(fillAfterHeadedFill(fill, headedBinding));
+    if (lastHeading(chunk) !== null) headedBinding = fill.binding;
+    chunks.push(chunk);
+  };
   for (const { fill, mode } of value.sources) {
     if (trailing !== null) {
       st.diagnostics.push(fillAfterFillInclude(fill, trailing));
       trailing = null;
+      headedBinding = null;
     }
     if (mode === "reference") {
-      chunks.push(`${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`);
+      push(fill, `${SEAM_START}${key} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fillReference(name, fill)}`);
       continue;
     }
     const headed: HeadedInclude[] = [];
-    chunks.push(inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(fill, at, st, headed), at.level + 1));
+    push(fill, inlineFillText(key, propPartsDir(b, name, src.tree, st.engine), fill, st.ctx, st.used, fillTreeInclude(fill, at, st, headed), at.level + 1));
     const first = headed[0];
     if (first?.textAfter != null) st.diagnostics.push(textAfterFillInclude(fill, first.textAfter, first.name));
     else if (first) trailing = { name: first.name, binding: fill.binding };
@@ -136,6 +154,10 @@ function failingPlaceholderCol(line: string, message: string): number {
   const found = [...line.matchAll(PLACEHOLDER_RE)];
   const hit = found.find((m) => message.includes(m[0])) ?? found.find((m) => m[2] !== undefined && message.includes(`"${m[2]}"`)) ?? found[0];
   return (hit?.index ?? Math.max(0, line.indexOf("{{"))) + 1;
+}
+
+function afterHeadedFill(prop: string): string {
+  return `text after {{props.${prop}}}: a fill that carries headings must be the last thing in its block, or be followed by a heading`;
 }
 
 function firstContentLine(text: string): string | null {
@@ -180,6 +202,7 @@ function includeBody(src: SourcedTree, at: IncludeAt, st: State): string {
  */
 function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (from: number) => string): string {
   const lines = b.text === "" ? [] : b.text.split("\n");
+  const setext = new Set(setextLines(b.text));
   for (const m of b.markers) {
     if (lines[m.line - b.textStartLine]?.trim() !== `{{props.${m.prop}}}`) {
       st.diagnostics.push({ file: b.relPath, line: m.line, col: m.col, message: `{{props.${m.prop}}} must sit alone on its line`, code: "bad-marker" });
@@ -224,7 +247,13 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
     if (closes) fence = null;
     else if (fence === null && fm !== null) {
       fence = { marker: fm[1]!, mermaid: fm[2] === "mermaid" };
-      if (fence.mermaid) return;
+      if (fence.mermaid) {
+        if (headedFill !== null) {
+          st.diagnostics.push({ file: b.relPath, line: fileLine, col: line.search(/\S/) + 1 + indent, message: afterHeadedFill(headedFill), code: "text-after-include" });
+          headedFill = null;
+        }
+        return;
+      }
     }
 
     let rendered: string;
@@ -257,6 +286,15 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
       st.used.includes.push(inc[1]!);
     } else {
       const h = fenced ? null : HEADING_RE.exec(line);
+      if (setext.has(i)) {
+        st.diagnostics.push({
+          file: b.relPath,
+          line: fileLine,
+          col: line.search(/\S/) + 1 + indent,
+          message: "a heading underlined with = or - does not re-level with its block; write it as a # heading",
+          code: "bad-value",
+        });
+      }
       let text = line;
       if (h) {
         const level = Math.max(1, Math.min(own.level + h[1]!.length - 1, 6));
@@ -281,7 +319,7 @@ function renderText(b: Block, src: SourcedTree, own: Heading, st: State, seam: (
             file: b.relPath,
             line: fileLine,
             col: line.search(/\S/) + 1 + indent,
-            message: `text after {{props.${headedFill}}}: a fill that carries headings must be the last thing in its block, or be followed by a heading`,
+            message: afterHeadedFill(headedFill),
             code: "text-after-include",
           });
         }
