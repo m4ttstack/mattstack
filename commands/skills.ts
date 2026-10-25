@@ -1785,6 +1785,8 @@ export type CheckPayload = {
   sourcePointerErrors?: BlockDiagnostic[];
   /** Two units claiming one key: check cannot trust any map then. --json carries it in compileErrors. */
   pointerConflicts?: string[];
+  /** Each target whose compile failed in this check, its message only: what lends a stale map to a conflict. Not part of check --json. */
+  targetCompileErrors?: string[];
 };
 
 /** A hand-written skill's own fault: no compile fixes it, so it fails check apart from `drift`, which sync reads as "recompile". */
@@ -1903,6 +1905,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // A target with no folder yet still compiles in memory, so the source scan reads all a recompile would write.
   const unwritten: { target: CompileTarget; result: CompileResult }[] = [];
   let freshWhole = true;
+  const targetCompileErrors: string[] = [];
   for (const target of targets) {
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
@@ -1928,6 +1931,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       compileFailed = true;
       freshWhole = false;
       compileErrors.push(outcome.message);
+      targetCompileErrors.push(outcome.message);
       continue;
     }
     compiled.push({ target, outcome });
@@ -2074,7 +2078,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   ];
   const sourcePointerErrors = identity && freshWhole && pointerConflicts.length === 0 ? pointerErrorsIn(unitsInMemory(fresh), units, fileCheckFor(resolved.packDir, fresh)) : [];
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter, pointerErrors, sourcePointerErrors, pointerConflicts };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter, pointerErrors, sourcePointerErrors, pointerConflicts, targetCompileErrors };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {

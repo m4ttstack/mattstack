@@ -54,8 +54,8 @@ type World = {
   pointerErrors?: string[][];
   /** Per check call, the pointer-map conflicts it reports. */
   pointerConflicts?: string[][];
-  /** Per check call, check's compile errors other than the conflicts. */
-  compileErrorsAtCheck?: string[][];
+  /** Per check call, the targets whose compile failed, reported with a conflict. */
+  brokenSkills?: string[][];
   checkThrows?: boolean;
   compileOk?: boolean;
   compileErrors?: string[];
@@ -102,7 +102,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
   const handErrorAnswers = [...(world.handErrors ?? [])];
   const pointerErrorAnswers = [...(world.pointerErrors ?? [])];
   const pointerConflictAnswers = [...(world.pointerConflicts ?? [])];
-  const compileErrorAnswers = [...(world.compileErrorsAtCheck ?? [])];
+  const brokenSkillAnswers = [...(world.brokenSkills ?? [])];
 
   function installDirFor(id: string): string {
     let dir = installDirs.get(id);
@@ -268,7 +268,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (world.checkThrows) throw new Error("checkPack: manifest discovery found nothing");
       const next = driftAnswers.shift();
       if (next === undefined) throw new Error("checkPack: fixture ran out of configured drift answers");
-      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false, handErrors: handErrorAnswers.shift() ?? [], pointerErrors: pointerErrorAnswers.shift() ?? [], pointerConflicts: pointerConflictAnswers.shift() ?? [], compileErrors: compileErrorAnswers.shift() ?? [] };
+      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false, handErrors: handErrorAnswers.shift() ?? [], pointerErrors: pointerErrorAnswers.shift() ?? [], pointerConflicts: pointerConflictAnswers.shift() ?? [], brokenSkills: brokenSkillAnswers.shift() ?? [] };
     },
     compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [], written: world.compileWrites?.written ?? [], removed: world.compileWrites?.removed ?? [] }),
     materialize: async () => ({ ok: true, detail: "materialized 1" }),
@@ -2998,7 +2998,7 @@ describe("compiled pointers that lead nowhere", () => {
     const engine = fixturePack("beacon", "local", "2.0.0");
     const conflict = "pointer key @stage-x/SKILL.md has two targets in work's closure";
     const broken = 'verb "receive-review": {{verb.path:nope}} -- nope is not a compiled verb of this pack';
-    const conflicted = (): World => ({ calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerConflicts: [[conflict]], compileErrorsAtCheck: [[broken]] });
+    const conflicted = (): World => ({ calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerConflicts: [[conflict]], brokenSkills: [[broken]] });
     const owner = await syncPack(pack, engine, makeDeps(pack, engine, conflicted()));
     const check = owner.steps.find((s) => s.name === "check")!;
     expect(check.status).toBe("refused");
@@ -3013,6 +3013,29 @@ describe("compiled pointers that lead nowhere", () => {
     const member = await syncPack(pack, engine, { ...makeDeps(pack, engine, conflicted()), mayCompile: () => false });
     expect(member.steps.find((s) => s.name === "check")).toMatchObject({ status: "ran" });
     expect(member.warnings).toEqual([`For the pack's owners to fix with a full compile: ${conflict}`, `For the pack's owners to fix, a skill that no longer compiles: ${broken}`]);
+  });
+
+  test("a pointer conflict with several broken skills names each, and one with none names only the full compile", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const conflict = "pointer key @stage-x/SKILL.md has two targets in work's closure";
+    const world = (brokenSkills: string[]): World => ({ calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerConflicts: [[conflict]], brokenSkills: [brokenSkills] });
+    const lead = "Compiled skills in this pack disagree about where a pointer leads, so rt stopped before the version bump:";
+
+    const two = await syncPack(pack, engine, makeDeps(pack, engine, world(["verb \"a\": boom", "verb \"b\": bang"])));
+    expect(two.steps.find((s) => s.name === "check")!.detail.split("\n")).toEqual([
+      lead,
+      conflict,
+      "2 skills in this pack no longer compile, so the pointer maps their last compiles wrote are still in place. Their errors:",
+      'verb "a": boom',
+      'verb "b": bang',
+      "Fix them, then compile the whole pack with rt skills compile and sync again.",
+    ]);
+
+    const none = await syncPack(pack, engine, makeDeps(pack, engine, world([])));
+    const detail = none.steps.find((s) => s.name === "check")!.detail;
+    expect(detail.split("\n")).toEqual([lead, conflict, "Compile the whole pack with rt skills compile, then sync again."]);
+    expect(detail).not.toContain("no longer compile");
   });
 
   test("an owner's pack compiled before keys has only drift, so it recompiles instead of refusing", async () => {

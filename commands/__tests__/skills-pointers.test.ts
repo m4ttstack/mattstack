@@ -386,7 +386,8 @@ describe("check's source scan", () => {
     expect(payload.sourcePointerErrors).toEqual([]);
     const seen = syncCheckOf(payload);
     expect(seen.pointerConflicts).toEqual(payload.pointerConflicts!);
-    expect(seen.compileErrors).toEqual(["attachments/pipeline/receive-review/index.block.md:9:114: {{verb.path:nope}} -- nope is not a compiled verb of this pack", "pack/pipelines.json is out of date with the pack's pipelines"]);
+    expect(payload.compileErrors).toContain("pack/pipelines.json is out of date with the pack's pipelines");
+    expect(seen.brokenSkills).toEqual(["attachments/pipeline/receive-review/index.block.md:9:114: {{verb.path:nope}} -- nope is not a compiled verb of this pack"]);
   });
 });
 

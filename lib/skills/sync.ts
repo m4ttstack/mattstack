@@ -22,8 +22,8 @@ export type SyncDeps = {
   /**
    * `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`.
    * `pointerErrors`: compiled pointers that lead nowhere in what a recompile would write, so the fix is in the pack's sources.
-   * `pointerConflicts`: two units claiming one key, which leaves check no map to trust; a full check meets one only
-   * where a unit no longer compiles, so `compileErrors` (check's, less the conflicts) names the cause.
+   * `pointerConflicts`: two units claiming one key, which leaves check no map to trust.
+   * `brokenSkills`: with a conflict, each target whose compile failed in that check, which is what lends its stale map.
    */
   checkPack: (packName: string) => Promise<{
     drift: boolean;
@@ -32,7 +32,7 @@ export type SyncDeps = {
     handErrors?: string[];
     pointerErrors?: string[];
     pointerConflicts?: string[];
-    compileErrors?: string[];
+    brokenSkills?: string[];
   }>;
   /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[]; written: string[]; removed: string[] }>;
@@ -727,11 +727,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const handErrors = result.handErrors ?? [];
     const pointerErrors = result.pointerErrors ?? [];
     const pointerConflicts = result.pointerConflicts ?? [];
-    const brokenSkills = pointerConflicts.length > 0 ? result.compileErrors ?? [] : [];
+    const brokenSkills = pointerConflicts.length > 0 ? result.brokenSkills ?? [] : [];
     if (pointerConflicts.length > 0 && mayWritePack) {
-      const cause = brokenSkills.length > 0
-        ? ["A skill in this pack no longer compiles, so the pointer map its last compile wrote is still in place. Its error:", ...brokenSkills, "Fix it, then compile the whole pack with rt skills compile and sync again."]
-        : ["Compile the whole pack with rt skills compile, then sync again."];
+      const cause = brokenSkills.length === 0
+        ? ["Compile the whole pack with rt skills compile, then sync again."]
+        : brokenSkills.length === 1
+          ? ["A skill in this pack no longer compiles, so the pointer map its last compile wrote is still in place. Its error:", ...brokenSkills, "Fix it, then compile the whole pack with rt skills compile and sync again."]
+          : [`${brokenSkills.length} skills in this pack no longer compile, so the pointer maps their last compiles wrote are still in place. Their errors:`, ...brokenSkills, "Fix them, then compile the whole pack with rt skills compile and sync again."];
       return refused(["Compiled skills in this pack disagree about where a pointer leads, so rt stopped before the version bump:", ...pointerConflicts, ...cause].join("\n"));
     }
     if (handErrors.length > 0 && mayWritePack) {
