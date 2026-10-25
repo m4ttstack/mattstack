@@ -75,7 +75,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves } from "../lib/skills/placeholders.ts";
 import { newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
-import { unitId, type PointerMap } from "../lib/skills/pointers.ts";
+import type { PointerMap } from "../lib/skills/pointers.ts";
 import {
   attachMaps,
   emittedUnits,
@@ -1589,7 +1589,6 @@ export async function skillsCompile(args: string[]): Promise<void> {
     if (flags.preview) out.payloadOnStdout();
 
     const resolved = await resolve(flags);
-    const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
 
     const chainErrors = pipelineErrors(resolved);
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
