@@ -55,6 +55,8 @@ type MiniOpts = {
   packName?: string;
   prep?: (s: ReturnType<typeof setup>) => void;
   planned?: (s: ReturnType<typeof setup>) => PlannedAttachments;
+  /** Compiles as a pack with a plugin identity, so every `.md` written is keyed. */
+  keyed?: boolean;
 };
 
 function compileMini(opts: MiniOpts = {}) {
@@ -71,6 +73,7 @@ function compileMini(opts: MiniOpts = {}) {
     loadInclude: opts.loadIncludes ? (name) => loadInclude(name, s.roots) : undefined,
     packName: opts.packName,
     plannedAttachments: opts.planned?.(s),
+    ...(opts.keyed ? { identity: { name: "widgets", version: "0.1.0" }, units: { [(opts.verb ?? VERB).name]: `${opts.side ?? "skills"}/${(opts.verb ?? VERB).name}` } } : {}),
   });
   const skillMd = result.files.find((f) => f.path === "SKILL.md");
   return { ...s, result, skillMd: skillMd && "content" in skillMd ? skillMd.content : "" };
@@ -494,6 +497,17 @@ describe("compileBlockSkill", () => {
           "skills/widgets-guide/SKILL.md: ../widgets-other/SKILL.md does not resolve from its copy in references/widgets-guide/",
           "skills/widgets-guide/SKILL.md: ${CLAUDE_SKILL_DIR}/../../attachments/other-kit/SKILL.md does not resolve from its copy in references/widgets-guide/",
         ]);
+      });
+
+      test("under a plugin identity, a hand-authored copy's dead sibling link stays as written and still only warns", () => {
+        const { result } = compileMini({ packRoot: true, keyed: true, prep: withSkill({ "SKILL.md": "Read ../widgets-other/SKILL.md, then ./a.md.\n", "a.md": "a\n" }) });
+        expect(result.diagnostics).toEqual([]);
+        expect(contentOf(result.files, "references/widgets-guide/SKILL.md")).toContain("Read ../widgets-other/SKILL.md, then @mini/references/widgets-guide/a.md.");
+        expect(result.pointers?.keys).toEqual({
+          "mini/references/widgets-guide/SKILL.md": "skills/mini/references/widgets-guide/SKILL.md",
+          "mini/references/widgets-guide/a.md": "skills/mini/references/widgets-guide/a.md",
+        });
+        expect(result.warnings).toEqual(["skills/widgets-guide/SKILL.md: ../widgets-other/SKILL.md does not resolve from its copy in references/widgets-guide/"]);
       });
 
       test("a hand-authored skill's copy keeps quiet about links inside it", () => {

@@ -187,6 +187,16 @@ describe("compile writes keys, ids and closure maps", () => {
     expect(work.keys["work/references/docs/guide.md"]).toBe("skills/work/references/docs/guide.md");
   });
 
+  test("a repo-relative path no unit writes stays as written and never reaches a pointer gate", async () => {
+    const f = seed({ receiveExtra: " Before shipping, run `./gradlew test` and `./scripts/lint.sh` from the repo root." });
+    expect((await compile(f)).errors).toEqual([]);
+    expect(read(f, "attachments/receive-review/SKILL.md")).toContain("run `./gradlew test` and `./scripts/lint.sh` from the repo root.");
+    expect(Object.keys(map(f, "attachments/receive-review").keys)).toEqual(["receive-review/scripts/gate-ctx.sh"]);
+    const payload = await check(f);
+    expect(payload.pointerErrors ?? []).toEqual([]);
+    expect(payload.sourcePointerErrors ?? []).toEqual([]);
+  });
+
   test("a stage's map holds only its own closure", async () => {
     const f = seed();
     await compile(f);
@@ -234,7 +244,7 @@ describe("compile writes keys, ids and closure maps", () => {
 });
 
 describe("the opening line goes only where a key is", () => {
-  const site = { id: "widgets@0.4.2:work", dir: "skills/work", units: { work: "skills/work", "stage-plan": "attachments/stage-plan" } };
+  const site = { id: "widgets@0.4.2:work", dir: "skills/work", units: { work: "skills/work", "stage-plan": "attachments/stage-plan" }, writtenElsewhere: () => false };
   const skillMd = `---\nname: work\n---\n\n${HEADER_COMMENT}\n\n# Work\n`;
   const textOf = (files: CompiledFile[], path: string) => {
     const file = files.find((f) => f.path === path);

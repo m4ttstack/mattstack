@@ -12,7 +12,7 @@ import type { TeamContext } from "./team-params.ts";
 import { unitId, type Target } from "./pointers.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
-import { keyFiles, leafOf, MAP_FILE, unitTableOf } from "./unit-maps.ts";
+import { keyFiles, leafOf, MAP_FILE, unitTableOf, writtenBeforeCompile } from "./unit-maps.ts";
 import type { AttachmentSource, CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = MAP_FILE;
@@ -332,7 +332,7 @@ export function planBaseAttachments(input: {
       warnings.push(...v.warnings);
       reads.push(...v.verbPaths);
     }
-    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, identity.version, leafOf(name)), dir: `attachments/${name}`, units: unitTable }) : null;
+    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, identity.version, leafOf(name)), dir: `attachments/${name}`, units: unitTable, writtenElsewhere: writtenBeforeCompile(verbSides, planned) }) : null;
     const emitted = keyed?.files ?? out;
     emitted.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
     emits.push({

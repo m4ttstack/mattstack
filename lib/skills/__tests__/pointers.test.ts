@@ -10,9 +10,11 @@ const units: UnitTable = {
 };
 
 const TOKEN = "${CLAUDE_SKILL_DIR}";
+const everything = () => true;
+const writes = (...targets: string[]) => (target: string) => targets.includes(target);
 
 describe("keyBody: scripts", () => {
-  const at = { dir: "attachments/receive-review", fileRel: "SKILL.md", units };
+  const at = { dir: "attachments/receive-review", fileRel: "SKILL.md", units, written: everything };
 
   test("an internal verb's script token becomes a key", () => {
     const out = keyBody(`Run \`bash "${TOKEN}/../../attachments/receive-review/scripts/gate-ctx.sh"\``, at);
@@ -31,7 +33,7 @@ describe("keyBody: scripts", () => {
 describe("keyBody: an attachment's own token without ../../", () => {
   test("is left as written and reported as a leftover", () => {
     const text = `Run ${TOKEN}/scripts/gate-ctx.sh now.`;
-    const out = keyBody(text, { dir: "attachments/receive-review", fileRel: "SKILL.md", units });
+    const out = keyBody(text, { dir: "attachments/receive-review", fileRel: "SKILL.md", units, written: everything });
     expect(out.text).toBe(text);
     expect(out.targets).toEqual({});
     expect(leftoverTokens(out.text)).toEqual([{ line: 1, col: 5 }]);
@@ -39,7 +41,7 @@ describe("keyBody: an attachment's own token without ../../", () => {
 });
 
 describe("keyBody: units", () => {
-  const at = { dir: "skills/work", fileRel: "SKILL.md", units };
+  const at = { dir: "skills/work", fileRel: "SKILL.md", units, written: everything };
 
   test("a public skill's own token keys to that skill", () => {
     const out = keyBody(`Run ${TOKEN}/scripts/x.sh now.`, at);
@@ -93,19 +95,19 @@ describe("keyBody: units", () => {
 
 describe("keyBody: verb paths", () => {
   test("a file-relative verb path becomes a key", () => {
-    const out = keyBody("Follow [receive](../receive-review/SKILL.md) next.", { dir: "attachments/board-respond", fileRel: "SKILL.md", units });
+    const out = keyBody("Follow [receive](../receive-review/SKILL.md) next.", { dir: "attachments/board-respond", fileRel: "SKILL.md", units, written: everything });
     expect(out.text).toBe("Follow [receive](@receive-review/SKILL.md) next.");
     expect(out.targets).toEqual({ "receive-review/SKILL.md": "attachments/receive-review/SKILL.md" });
   });
 
   test("a pointer in a reference copy anchors at that file's folder", () => {
-    const out = keyBody("Then read `../../../stage-plan/SKILL.md`.", { dir: "attachments/receive-review", fileRel: "references/widget-gates/SKILL.md", units });
+    const out = keyBody("Then read `../../../stage-plan/SKILL.md`.", { dir: "attachments/receive-review", fileRel: "references/widget-gates/SKILL.md", units, written: everything });
     expect(out.text).toBe("Then read `@stage-plan/SKILL.md`.");
     expect(out.targets).toEqual({ "stage-plan/SKILL.md": "attachments/stage-plan/SKILL.md" });
   });
 
   test("a markdown anchor stays after the key and the target is the file", () => {
-    const out = keyBody("See [step 2](../receive-review/SKILL.md#step-2).", { dir: "attachments/board-respond", fileRel: "SKILL.md", units });
+    const out = keyBody("See [step 2](../receive-review/SKILL.md#step-2).", { dir: "attachments/board-respond", fileRel: "SKILL.md", units, written: everything });
     expect(out.text).toBe("See [step 2](@receive-review/SKILL.md#step-2).");
     expect(out.targets).toEqual({ "receive-review/SKILL.md": "attachments/receive-review/SKILL.md" });
   });
@@ -113,8 +115,9 @@ describe("keyBody: verb paths", () => {
   test("the same reference file in two units gives two keys", () => {
     const twoUnits: UnitTable = { "stage-gates": "attachments/stage-gates", "watch-ci": "attachments/watch-ci" };
     const text = "Read `./references/widget-gates/SKILL.md`.";
-    const gates = keyBody(text, { dir: "attachments/stage-gates", fileRel: "SKILL.md", units: twoUnits });
-    const ci = keyBody(text, { dir: "attachments/watch-ci", fileRel: "SKILL.md", units: twoUnits });
+    const written = writes("attachments/stage-gates/references/widget-gates/SKILL.md", "attachments/watch-ci/references/widget-gates/SKILL.md");
+    const gates = keyBody(text, { dir: "attachments/stage-gates", fileRel: "SKILL.md", units: twoUnits, written });
+    const ci = keyBody(text, { dir: "attachments/watch-ci", fileRel: "SKILL.md", units: twoUnits, written });
     expect(gates.text).toBe("Read `@stage-gates/references/widget-gates/SKILL.md`.");
     expect(ci.text).toBe("Read `@watch-ci/references/widget-gates/SKILL.md`.");
     expect({ ...gates.targets, ...ci.targets }).toEqual({
@@ -125,9 +128,20 @@ describe("keyBody: verb paths", () => {
 
   test("a relative path that names no unit, or a bare one, stays", () => {
     const text = "Go up with ../somewhere/else.md or read scripts/x.sh.";
-    const out = keyBody(text, { dir: "attachments/board-respond", fileRel: "SKILL.md", units });
+    const out = keyBody(text, { dir: "attachments/board-respond", fileRel: "SKILL.md", units, written: everything });
     expect(out.text).toBe(text);
     expect(out.targets).toEqual({});
+  });
+  test("a relative path is a key only when the build writes its target", () => {
+    const at = { dir: "skills/work", fileRel: "SKILL.md", units, written: writes("skills/work/scripts/x.sh", "attachments/receive-review/SKILL.md") };
+    const out = keyBody("From the repo root, run `./gradlew test`, `./scripts/lint.sh` and `./scripts/x.sh`, then read ../../attachments/receive-review/SKILL.md.", at);
+    expect(out.text).toBe("From the repo root, run `./gradlew test`, `./scripts/lint.sh` and `@work/scripts/x.sh`, then read @receive-review/SKILL.md.");
+    expect(out.targets).toEqual({ "work/scripts/x.sh": "skills/work/scripts/x.sh", "receive-review/SKILL.md": "attachments/receive-review/SKILL.md" });
+  });
+
+  test("a skill-dir token keys whether or not the build writes its target", () => {
+    const out = keyBody(`Run ${TOKEN}/scripts/gone.sh.`, { dir: "skills/work", fileRel: "SKILL.md", units, written: () => false });
+    expect(out.text).toBe("Run @work/scripts/gone.sh.");
   });
 });
 

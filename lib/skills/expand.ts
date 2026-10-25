@@ -290,7 +290,7 @@ function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
     const keys: Record<string, Target> = {};
     const key = (text: string, fileRel: string): { text: string; keyed: boolean } => {
       const where = `${skill.name}/${fileRel}`;
-      const out = keyBody(text, { dir, fileRel, units });
+      const out = keyBody(text, { dir, fileRel, units, written: (target) => written.has(target) });
       const left = leftoverTokens(out.text)[0];
       if (left) {
         throw pointerRefusal("skills-expand-stray-token", `${where}: ${SKILL_DIR_TOKEN} at line ${left.line} does not point into a board skill`, "Expand writes each skill-dir path as an @key, and only a path into a board skill's folder has one.");

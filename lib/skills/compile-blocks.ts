@@ -22,7 +22,7 @@ import { effectiveBindings, type LayeredBindings } from "./pipelines.ts";
 import { referenceCopies, type ReferenceCopies } from "./references.ts";
 import { unitId } from "./pointers.ts";
 import { AttachmentLoadError } from "./sources.ts";
-import { keyFiles, leafOf } from "./unit-maps.ts";
+import { keyFiles, leafOf, writtenBeforeCompile } from "./unit-maps.ts";
 import type { TeamContext } from "./team-params.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
 
@@ -366,7 +366,12 @@ export function compileBlockSkill(
   ];
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];
   if (!opts.identity || !opts.units) return { files, warnings, errors, diagnostics: [] };
-  const site = { id: unitId(opts.identity.name, opts.identity.version, verb.name), dir: `${ctx.side}/${verb.name}`, units: opts.units };
+  const site = {
+    id: unitId(opts.identity.name, opts.identity.version, verb.name),
+    dir: `${ctx.side}/${verb.name}`,
+    units: opts.units,
+    writtenElsewhere: writtenBeforeCompile(ctx.verbSides, opts.plannedAttachments),
+  };
   const keyed = keyFiles(files, site);
   const reads = dedupePreserveOrder([
     ...rendered.used.verbPaths,

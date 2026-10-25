@@ -304,6 +304,11 @@ describe("pointers", () => {
     expect(() => expanded()).toThrow(/widget\/extra\.md: @widget\/scripts\/gone\.sh points at scripts\/gone\.sh in board:widget, which expand does not write/);
   });
 
+  test("a relative path expand does not write stays as written; one it writes is a key", () => {
+    write(join(src, "widget", "extra.md"), "From the repo root, run `./gradlew test`, then `./scripts/resolve-args.sh`.\n");
+    expect(fileText(widget(), "extra.md")).toBe(`${openingLine("skills:board:widget")}\n\nFrom the repo root, run \`./gradlew test\`, then \`@widget/scripts/resolve-args.sh\`.\n`);
+  });
+
   test("compiled.json lists its keys sorted, whatever order the text names them in", () => {
     expect(Object.keys(mapOf(widget()).keys)).toEqual(["gate-cli-recipes/SKILL.md", "widget/scripts/resolve-args.sh"]);
   });

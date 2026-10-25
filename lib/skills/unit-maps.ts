@@ -7,12 +7,16 @@ import { closeMap, ID_RE, isKey, KEY_TOKEN_RE, keyBody, leftoverTokens, openingL
 import type { CompiledFile, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export const MAP_FILE = "compiled.json";
+const UNIT_SKILL_MD = "SKILL.md";
 
 /** One compiled unit before its closure is known: its own keys, and the leaf of every unit it reads by path. */
 export type UnitPointers = { leaf: string; dir: string; keys: Record<string, Target>; reads: string[] };
 
-/** Where a unit's files are keyed from: its id, its plugin-relative folder and the pack's unit table. */
-export type PointerSite = { id: string; dir: string; units: UnitTable };
+/**
+ * Where a unit's files are keyed from: its id, its plugin-relative folder, the
+ * pack's unit table, and which files the build writes outside this unit.
+ */
+export type PointerSite = { id: string; dir: string; units: UnitTable; writtenElsewhere: (target: string) => boolean };
 
 export type Identity = { name: string; version: string };
 
@@ -29,6 +33,17 @@ export function unitTableOf(verbSides: Record<string, Side>, emitted: Iterable<s
   for (const [name, side] of Object.entries(verbSides)) units[name] = `${side}/${name}`;
   for (const rel of emitted) units[leafOf(rel)] = `attachments/${rel}`;
   return units;
+}
+
+/**
+ * What a compile is known to write before any target compiles: each compiled
+ * verb's SKILL.md and each planned base copy's files. Another verb's other files
+ * are not known yet, so a relative path into them is left as written.
+ */
+export function writtenBeforeCompile(verbSides: Record<string, Side>, planned: PlannedAttachments | undefined): (target: string) => boolean {
+  const written = new Set(Object.entries(verbSides).map(([name, side]) => `${side}/${name}/${UNIT_SKILL_MD}`));
+  for (const [rel, files] of planned ?? []) for (const file of files) written.add(`attachments/${rel}/${file}`);
+  return (target) => written.has(target);
 }
 
 /** A planned unit with nothing in it is one the compile removes. */
@@ -79,18 +94,18 @@ export function withOpeningLine(text: string, id: string): string {
  */
 export function keyFiles(files: CompiledFile[], site: PointerSite): { files: CompiledFile[]; keys: Record<string, Target> } {
   const keys: Record<string, Target> = {};
+  const own = new Set(files.map((f) => `${site.dir}/${f.path}`));
+  const written = (target: string) => own.has(target) || site.writtenElsewhere(target);
   const keyed = files.map((file): CompiledFile => {
     if (!file.path.endsWith(".md")) return file;
     const text = "content" in file ? file.content : readFileSync(file.copyFrom, "utf8");
-    const out = keyBody(text, { dir: site.dir, fileRel: file.path, units: site.units });
+    const out = keyBody(text, { dir: site.dir, fileRel: file.path, units: site.units, written });
     Object.assign(keys, out.targets);
     const opens = file.path !== UNIT_SKILL_MD && Object.keys(out.targets).length > 0;
     return { path: file.path, content: opens ? withOpeningLine(out.text, site.id) : out.text };
   });
   return { files: keyed, keys };
 }
-
-const UNIT_SKILL_MD = "SKILL.md";
 
 /** The unit's SKILL.md opens with its line once its closed map holds a key. */
 function withSkillMdLine(files: CompiledFile[], map: PointerMap): CompiledFile[] {

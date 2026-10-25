@@ -49,25 +49,32 @@ function unitOf(path: string, units: UnitTable): { unit: string; rest: string } 
   return best && { unit: best.unit, rest: best.rest };
 }
 
-export function keyBody(text: string, at: { dir: string; fileRel: string; units: UnitTable }): { text: string; targets: Record<string, Target> } {
+/**
+ * Where a file is keyed from. `written` says whether the build writes a
+ * plugin-relative file: `./gradlew` in prose names the reader's repo, not the
+ * skill, so a relative path is a pointer only when its target is written.
+ */
+export type KeySite = { dir: string; fileRel: string; units: UnitTable; written: (target: string) => boolean };
+
+export function keyBody(text: string, at: KeySite): { text: string; targets: Record<string, Target> } {
   const targets: Record<string, Target> = {};
   const tokenBase = at.dir.startsWith("skills/") ? at.dir : ANY_SKILL_DIR;
   const fileBase = posix.dirname(`${at.dir}/${at.fileRel}`);
 
-  const toKey = (written: string, base: string, path: string): string => {
+  const toKey = (written: string, base: string, path: string, onlyWritten: boolean): string => {
     const trail = path.match(SENTENCE_END_RE)?.[0] ?? "";
     const core = path.slice(0, path.length - trail.length);
     const resolved = pluginRelative(base, core);
     const hit = resolved && unitOf(resolved, at.units);
-    if (!hit) return written;
+    if (!hit || (onlyWritten && !at.written(resolved))) return written;
     targets[`${hit.unit}/${hit.rest}`] = resolved;
     return `@${hit.unit}/${hit.rest}${trail}`;
   };
 
   const [head, body] = splitFrontmatter(text);
   const keyed = body
-    .replace(TOKEN_RE, (written, path?: string) => (path ? toKey(written, tokenBase, `.${path}`) : written))
-    .replace(RELATIVE_RE, (written) => toKey(written, fileBase, written));
+    .replace(TOKEN_RE, (written, path?: string) => (path ? toKey(written, tokenBase, `.${path}`, false) : written))
+    .replace(RELATIVE_RE, (written) => toKey(written, fileBase, written, true));
   return { text: head + keyed, targets };
 }
 
