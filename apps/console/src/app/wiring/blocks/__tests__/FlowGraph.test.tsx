@@ -1,7 +1,7 @@
 import '../../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { EveryStep, FlowGraph } from '../FlowGraph';
@@ -235,7 +235,8 @@ describe('FlowGraph', () => {
     );
     const left = scrollToShow(first, { zoom, offset, visible: 560, plane });
     expect(left).toBeGreaterThan(0);
-    expect(flow.scrollLeft).toBe(left);
+    // The canvas scrolls once it has drawn, which can trail the layout.
+    await waitFor(() => expect(flow.scrollLeft).toBe(left));
   }, 60_000);
 
   it('Every step opens on the open block when one is lit', async () => {
@@ -258,13 +259,15 @@ describe('FlowGraph', () => {
       const flow = await screen.findByTestId('flow-canvas', {}, LAID_OUT);
       const laidOut = await laidOutFor(CASES[0]!);
       const { zoom, plane, offset } = canvasPlane(560, laidOut.width);
-      expect(flow.scrollLeft).toBe(
-        scrollToShow(laidOut.nodes[FAST_CHECKS]!, {
-          zoom,
-          offset,
-          visible: 560,
-          plane,
-        })
+      await waitFor(() =>
+        expect(flow.scrollLeft).toBe(
+          scrollToShow(laidOut.nodes[FAST_CHECKS]!, {
+            zoom,
+            offset,
+            visible: 560,
+            plane,
+          })
+        )
       );
       expect(scrolled).toHaveBeenCalledWith({
         behavior: 'smooth',
