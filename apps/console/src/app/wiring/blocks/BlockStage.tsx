@@ -4,6 +4,7 @@ import {
   Anchor,
   Box,
   Button,
+  Code,
   Skeleton,
   Stack,
   Text,
@@ -148,6 +149,20 @@ export function BlockStage({
                   Open Health
                 </Anchor>
               </Stack>
+            </Alert>
+          )}
+          {skill.state === 'stale' && (
+            <Alert
+              variant="light"
+              color="warn"
+              title="Update the mattstack plugin"
+              icon={<Icon name="warning" size={16} />}
+              data-testid="block-view-stale"
+            >
+              <Text size="sm">
+                The installed mattstack plugin is older than this app. Update it
+                with <Code>rt setup update</Code>, then reload.
+              </Text>
             </Alert>
           )}
           {skill.state === 'error' && (

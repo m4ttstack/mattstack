@@ -2819,11 +2819,14 @@ export function blocksTree(payload: BlocksPayload): Block {
   return out.tree(payload.skill, rows);
 }
 
-/** The console maps the `not-a-block-tree` code to a 404, so only `why` and `next` may differ between a hand-written skill and a stale engine. */
+/** The console reads the code: `not-a-block-tree` draws the hand-written fallback, `stale-engine` a note to update the plugin. */
 function refuseNotABlockTree(skill: string, json: boolean, staleEngine = false): void {
-  const err = new UserActionableError("not-a-block-tree", `The ${skill} skill is not built from blocks`, {}, staleEngine
-    ? { why: `Its copy in the installed mattstack plugin is one SKILL.md file, and this rt reads only block trees. ${STALE_ENGINE_UPDATE}`, next: STALE_ENGINE_NEXT }
-    : { why: "It is written as one SKILL.md file, not a folder of block files." });
+  const err = staleEngine
+    ? new UserActionableError("stale-engine", "The installed mattstack plugin is older than this rt", {}, {
+        why: `Its copy of the ${skill} skill is one SKILL.md file, and this rt reads only block trees. ${STALE_ENGINE_UPDATE}`,
+        next: STALE_ENGINE_NEXT,
+      })
+    : new UserActionableError("not-a-block-tree", `The ${skill} skill is not built from blocks`, {}, { why: "It is written as one SKILL.md file, not a folder of block files." });
   if (json) out.json(userErrorPayload(err));
   else out.fail(failureFor(err));
   process.exitCode = 1;

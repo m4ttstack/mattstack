@@ -1530,6 +1530,12 @@ export function mountSkills(
         if (refusal?.code === 'not-a-block-tree') {
           return c.json({ error: refusal.message }, 404);
         }
+        if (refusal?.code === 'stale-engine') {
+          return c.json(
+            { error: refusal.message, code: 'stale-engine' as const },
+            409
+          );
+        }
         if (refusal) {
           return c.json(
             {

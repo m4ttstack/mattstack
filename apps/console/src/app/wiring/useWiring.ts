@@ -237,9 +237,14 @@ export function useAnatomy(pack: string | null, skill: string | null) {
 /** rt declined to build the skill; its words say what to fix. */
 export class BlocksRefused extends Error {}
 
+/** The installed mattstack plugin is older than the app, so rt cannot read
+    its engines as blocks (the route's 409). */
+export class PluginStale extends Error {}
+
 /** One skill as a tree of blocks; `null` is rt's not-a-block-tree answer
-    (the route's 404). `retry: false` because that answer and a refusal
-    (422, `BlocksRefused`) are final. */
+    (the route's 404). `retry: false` because that answer, a refusal
+    (422, `BlocksRefused`) and a stale plugin (409, `PluginStale`) are
+    final. */
 export function useBlocks(pack: string | null, skill: string | null) {
   return useQuery({
     queryKey: ['skills', 'blocks', pack, skill],
@@ -248,6 +253,10 @@ export function useBlocks(pack: string | null, skill: string | null) {
         query: { pack: pack ?? '', skill: skill ?? '' },
       });
       if (res.status === 404) return null;
+      if (res.status === 409) {
+        const body = (await res.json()) as { error?: string };
+        throw new PluginStale(body.error ?? 'stale-engine');
+      }
       if (res.status === 422) {
         const body = (await res.json()) as { error?: string };
         throw new BlocksRefused(body.error ?? 'rt will not build this skill');

@@ -773,6 +773,24 @@ describe('the skills routes on the fixture', () => {
     expect(await anatomy.json()).toEqual(anatomyPlan);
   });
 
+  it('stale-engine scenario: every block tree answers 409 stale-engine, and a skill with no blocks file still 404s', async () => {
+    const app = mount('stale-engine');
+    for (const skill of ['stage-plan', 'mini']) {
+      const res = await app.request(
+        `/api/skills/blocks?pack=acme&skill=${skill}`
+      );
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: 'The installed mattstack plugin is older than this rt',
+        code: 'stale-engine',
+      });
+    }
+    const plain = await app.request(
+      '/api/skills/blocks?pack=acme&skill=stage-gates'
+    );
+    expect(plain.status).toBe(404);
+  });
+
   it("blocks scenario: serves ship's anatomy, so its engine's version shows", async () => {
     const app = mount('blocks');
     const res = await app.request('/api/skills/anatomy?pack=acme&skill=ship');

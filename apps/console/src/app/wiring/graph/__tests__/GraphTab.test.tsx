@@ -846,6 +846,31 @@ describe('Graph tab: the block view', () => {
     expect(params().get('tab')).toBe('health');
   });
 
+  it('says to update the plugin, in place of the heading tree, when the installed plugin is older than the app', async () => {
+    mockDesignPack();
+    blocksGet.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'The installed mattstack plugin is older than this rt',
+        code: 'stale-engine',
+      }),
+    });
+    renderAt('?tab=graph&focus=shepherdr');
+
+    const stale = await screen.findByTestId('block-view-stale');
+    expect(stale).toHaveTextContent(
+      'The installed mattstack plugin is older than this app. Update it with rt setup update, then reload.'
+    );
+    expect(screen.queryByTestId('block-view-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('block-view-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('read-only-note')).not.toBeInTheDocument();
+    expect(sourceGet).not.toHaveBeenCalled();
+    expect(
+      within(screen.getByTestId('block-sidebar')).queryByText('Blocks')
+    ).not.toBeInTheDocument();
+  });
+
   it("drops the sidebar's Blocks heading when rt will not build the skill", async () => {
     mockDesignPack();
     blocksGet.mockResolvedValue({

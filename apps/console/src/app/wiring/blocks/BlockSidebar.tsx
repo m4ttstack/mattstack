@@ -192,7 +192,7 @@ export function BlockSidebar({ pack }: { pack: string }) {
           </Menu.Dropdown>
         </Menu>
       )}
-      {skill.state !== 'refused' && (
+      {skill.state !== 'refused' && skill.state !== 'stale' && (
         <Text span className={classes.groupLabel}>
           Blocks
         </Text>

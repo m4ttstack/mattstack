@@ -1,6 +1,6 @@
 /**
  * `rt skills blocks --json` is frozen byte for byte: console's block view
- * reads it, and its route maps the not-a-block-tree code to a 404. Run with
+ * reads it, and its route maps the not-a-block-tree and stale-engine codes. Run with
  * RT_UPDATE_SKILLS_BLOCKS_FIXTURES=1 only to add a case, never to make a
  * diff go away.
  */
@@ -80,11 +80,11 @@ test("skills blocks --json on the mini block tree is frozen", async () => {
   expect(process.exitCode ?? 0).toBe(0);
 });
 
-test("skills blocks --json on a skill that is not a block tree is the failure envelope, exit 1", async () => {
+test("skills blocks --json on an engine the installed plugin has only as a SKILL.md is the stale-engine envelope, exit 1", async () => {
   addSlotEngine();
   await skillsBlocks(args("--skill", "plain", "--json"));
-  frozen("not-a-block-tree");
-  expect(JSON.parse(io.stdout()).error.code).toBe("not-a-block-tree");
+  frozen("stale-engine");
+  expect(JSON.parse(io.stdout()).error).toEqual({ code: "stale-engine", message: "The installed mattstack plugin is older than this rt" });
   expect(process.exitCode).toBe(1);
 });
 
@@ -95,10 +95,10 @@ test("skills blocks without --json prints the tree of labels with a kind glyph p
   ]));
 });
 
-test("skills blocks --json on a slot engine that would not compile is still not-a-block-tree", async () => {
+test("skills blocks --json on a slot engine that would not compile is still stale-engine", async () => {
   addSlotEngine("{{include:missing-include}}");
   await skillsBlocks(args("--skill", "plain", "--json"));
-  expect(JSON.parse(io.stdout()).error.code).toBe("not-a-block-tree");
+  expect(JSON.parse(io.stdout()).error.code).toBe("stale-engine");
   expect(io.stderr()).toBe("");
   expect(process.exitCode).toBe(1);
 });
@@ -107,16 +107,17 @@ test("skills blocks --json on a hand-written pack skill is the same failure enve
   mkdirSync(join(root, "pack", "skills", "hand"), { recursive: true });
   writeFileSync(join(root, "pack", "skills", "hand", "SKILL.md"), '---\nname: hand\ndescription: "Written by hand"\n---\n\nDo it by hand.\n');
   await skillsBlocks(args("--skill", "hand", "--json"));
+  frozen("not-a-block-tree");
   expect(JSON.parse(io.stdout()).error).toEqual({ code: "not-a-block-tree", message: "The hand skill is not built from blocks" });
   expect(io.stderr()).toBe("");
   expect(process.exitCode).toBe(1);
 });
 
-test("skills blocks on a skill that is not a block tree says so on stderr, exit 1", async () => {
+test("skills blocks on a stale engine says so on stderr, exit 1", async () => {
   addSlotEngine();
   await skillsBlocks(args("--skill", "plain"));
   expect(io.stdout()).toBe("");
-  expect(io.stderr()).toStartWith("The plain skill is not built from blocks");
+  expect(io.stderr()).toStartWith("The installed mattstack plugin is older than this rt");
   expect(process.exitCode).toBe(1);
 });
 

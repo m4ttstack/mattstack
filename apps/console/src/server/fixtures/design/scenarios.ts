@@ -22,6 +22,7 @@
  * | `stale-copy`       | check reports a stale stage copy and a dropped override |
  * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
  * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it; `ship`'s and `work`'s anatomy are rt's own, and work's placeholders sit in its block files |
+ * | `stale-engine`     | the installed mattstack plugin is older than rt, so every block tree answers `stale-engine` |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -49,6 +50,7 @@ export const SCENARIOS = [
   'stale-copy',
   'team-sections',
   'blocks',
+  'stale-engine',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -153,6 +155,8 @@ export interface ScenarioDef {
   /** rt's refusal to build a skill's blocks, where it differs from the
       clean pack's. */
   blocks?: Record<string, Failure>;
+  /** rt answers every skill with a blocks file as `stale-engine`. */
+  staleEngine?: boolean;
   /** Commits newer than the pack's own history, newest first. */
   history?: { commits: HistoryCommit[] };
 }
@@ -752,6 +756,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       work: { file: 'anatomy.work.rt.json' },
     },
   },
+  'stale-engine': { subject: 'stage-plan', staleEngine: true },
   'team-sections': {
     subject: 'stage-plan',
     anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainHoldsSections } },

@@ -65,6 +65,15 @@ const NOT_A_BLOCK_TREE = JSON.stringify({
   },
 });
 
+const STALE_ENGINE = JSON.stringify({
+  contract: 1,
+  at: '2026-10-22T00:00:00.000Z',
+  error: {
+    code: 'stale-engine',
+    message: 'The installed mattstack plugin is older than this rt',
+  },
+});
+
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const FILES = join(HERE, 'files');
 
@@ -230,7 +239,8 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         const refused = def.blocks?.[skill] ?? BLOCKS_REFUSED[skill];
         if (refused) return fail(refused);
         try {
-          return answer(await readJsonText(`blocks.${skill}.json`));
+          const blocks = await readJsonText(`blocks.${skill}.json`);
+          return def.staleEngine ? answer(STALE_ENGINE, 1) : answer(blocks);
         } catch {
           // rt's refusal for a skill that is not a block tree: the envelope on stdout, exit 1.
           return answer(NOT_A_BLOCK_TREE, 1);

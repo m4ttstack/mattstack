@@ -3,7 +3,12 @@ import { useMemo } from 'react';
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import type { FocusItem } from '../graph/model/focusModel';
 import type { SkillsComposition } from '../outline';
-import { BlocksRefused, useBlocks, useSkillSource } from '../useWiring';
+import {
+  BlocksRefused,
+  PluginStale,
+  useBlocks,
+  useSkillSource,
+} from '../useWiring';
 import { headingTree } from './model/headingTree';
 
 export type SkillBlocks =
@@ -18,6 +23,8 @@ export type SkillBlocks =
   | { state: 'note'; message: string }
   /** rt will not build the skill, in its words; a retry cannot help. */
   | { state: 'refused'; message: string }
+  /** The installed mattstack plugin is older than the app. */
+  | { state: 'stale' }
   | {
       state: 'ready';
       payload: BlocksPayload;
@@ -83,6 +90,7 @@ export function useSkillBlocks(
   if (!notBlocks) {
     if (blocksQuery.error instanceof BlocksRefused)
       return { state: 'refused', message: blocksQuery.error.message };
+    if (blocksQuery.error instanceof PluginStale) return { state: 'stale' };
     if (blocksQuery.isError) {
       return {
         state: 'error',

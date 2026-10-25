@@ -2132,6 +2132,27 @@ describe('skills blocks route', () => {
     });
   });
 
+  it('is 409 with the stale-engine code when the installed plugin is older than rt', async () => {
+    const staleEngine = JSON.stringify({
+      contract: 1,
+      at: '2026-10-22T00:00:00.000Z',
+      error: {
+        code: 'stale-engine',
+        message: 'The installed mattstack plugin is older than this rt',
+      },
+    });
+    const rt = fakeRt({ code: 1, stdout: staleEngine, stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: 'The installed mattstack plugin is older than this rt',
+      code: 'stale-engine',
+    });
+  });
+
   it("is 422 with rt's words when rt declines to build the skill", async () => {
     const refusal =
       'mini/gate.rules is required and nothing binds it\n  why: bind it in pack/skills.jsonc';
