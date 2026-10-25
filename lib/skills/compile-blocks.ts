@@ -20,7 +20,9 @@ import { handPathDiagnostics } from "./hand-paths.ts";
 import { assertNoPlaceholders, assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves, skillDirFor } from "./placeholders.ts";
 import { effectiveBindings, type LayeredBindings } from "./pipelines.ts";
 import { referenceCopies, type ReferenceCopies } from "./references.ts";
+import { unitId } from "./pointers.ts";
 import { AttachmentLoadError } from "./sources.ts";
+import { keyFiles, leafOf } from "./unit-maps.ts";
 import type { TeamContext } from "./team-params.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlaceholderContext, StepSource, VerbDef } from "./types.ts";
 
@@ -363,7 +365,15 @@ export function compileBlockSkill(
     ...transitionNotes,
   ];
   const errors = [...lintInternalRoster(body, internalRoster, "body"), ...lintInternalRoster(verb.description, internalRoster, "description")];
-  return { files, warnings, errors, diagnostics: [] };
+  if (!opts.identity || !opts.units) return { files, warnings, errors, diagnostics: [] };
+  const site = { id: unitId(opts.identity.name, opts.identity.version, verb.name), dir: `${ctx.side}/${verb.name}`, units: opts.units };
+  const keyed = keyFiles(files, site);
+  const reads = dedupePreserveOrder([
+    ...rendered.used.verbPaths,
+    ...copies.verbPaths,
+    ...rendered.used.references.filter((t) => t.planned).map((t) => leafOf(t.unit)),
+  ]);
+  return { files: keyed.files, warnings, errors, diagnostics: [], pointers: { keys: keyed.keys, reads } };
 }
 
 /**

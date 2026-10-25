@@ -72,7 +72,7 @@ describe("compile-native end to end", () => {
     // not just a plausible-looking one.
     expect(existsSync(join(pack, "attachments", "stage-plan", "parts", "include-gitlab-note", "scripts", "note.sh"))).toBe(true);
     expect(plan).toContain(
-      "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh",
+      "@stage-plan/parts/include-gitlab-note/scripts/note.sh",
     );
   });
 
@@ -276,7 +276,7 @@ describe("internal roster verbs", () => {
     expect(exitCode).toBeUndefined();
 
     const md = readFileSync(join(pack, "attachments", "receive-review", "SKILL.md"), "utf8");
-    expect(md).toContain("${CLAUDE_SKILL_DIR}/../../attachments/receive-review/parts/include-gitlab-note/scripts/note.sh");
+    expect(md).toContain("@receive-review/parts/include-gitlab-note/scripts/note.sh");
     expect(md).not.toContain("${CLAUDE_SKILL_DIR}/parts/");
     expect(existsSync(join(pack, "attachments", "receive-review", "parts", "include-gitlab-note", "scripts", "note.sh"))).toBe(true);
     expect(logs.some((l) => l.startsWith("[ok] Compiled receive-review  "))).toBe(true);
@@ -291,7 +291,7 @@ describe("verb.path end to end", () => {
     expect(exitCode).toBeUndefined();
 
     const md = readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8");
-    expect(md).toContain("Read ../../attachments/receive-review/SKILL.md first, then ../work/SKILL.md.");
+    expect(md).toContain("Read @receive-review/SKILL.md first, then @work/SKILL.md.");
     expect(logs.some((l) => l.startsWith("[ok] Compiled checkout  "))).toBe(true);
   });
 
@@ -302,8 +302,8 @@ describe("verb.path end to end", () => {
     expect(exitCode).toBeUndefined();
 
     const md = readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8");
-    expect(md).toContain("../../attachments/receive-review/SKILL.md");
-    expect(md).toContain("../work/SKILL.md");
+    expect(md).toContain("@receive-review/SKILL.md");
+    expect(md).toContain("@work/SKILL.md");
     expect(existsSync(join(pack, "attachments", "receive-review"))).toBe(false);
     expect(logs.filter((l) => l.includes("not an emitted file"))).toEqual([]);
   });
@@ -323,8 +323,8 @@ describe("pack.path end to end", () => {
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
 
-    expect(readFileSync(join(pack, "attachments", "stage-plan", "SKILL.md"), "utf8")).toContain("Capture with ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/references/evidence/scripts/capture.sh.");
-    expect(readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8")).toContain("then ${CLAUDE_SKILL_DIR}/references/evidence/scripts/capture.sh.");
+    expect(readFileSync(join(pack, "attachments", "stage-plan", "SKILL.md"), "utf8")).toContain("Capture with @stage-plan/references/evidence/scripts/capture.sh.");
+    expect(readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8")).toContain("then @checkout/references/evidence/scripts/capture.sh.");
     for (const dir of [join(pack, "attachments", "stage-plan"), join(pack, "skills", "checkout")]) {
       expect(readFileSync(join(dir, "references", "evidence", "scripts", "capture.sh"), "utf8")).toBe("#!/bin/sh\n");
     }
@@ -352,14 +352,14 @@ const CHECK_DOT = join(import.meta.dir, "..", "..", "..", "plugins", "mattstack"
 const EIGHT_ROWS = [
   "| Stage | Read | Consumes | Produces |",
   "|---|---|---|---|",
-  "| `provision` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-provision/SKILL.md` | `ticket` `repo` | `branch` `worktree` |",
-  "| `plan` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md` | `ticket` | `approach` `evidence-plan` |",
-  "| `gates` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-gates/SKILL.md` | `approach` `worktree` | nothing |",
-  "| `evidence` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-evidence/SKILL.md` | `evidence-plan` `worktree` | `evidence` |",
-  "| `implement` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-implement/SKILL.md` | `approach` `branch` `worktree` | `commits` |",
-  "| `self-review` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-self-review/SKILL.md` | `commits` | `review` |",
-  "| `ship` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-ship/SKILL.md` | `commits` `ticket` | `mr` |",
-  "| `watch-ci` | `${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/SKILL.md` | `mr` `branch` | `ci` |",
+  "| `provision` | `@stage-provision/SKILL.md` | `ticket` `repo` | `branch` `worktree` |",
+  "| `plan` | `@stage-plan/SKILL.md` | `ticket` | `approach` `evidence-plan` |",
+  "| `gates` | `@stage-gates/SKILL.md` | `approach` `worktree` | nothing |",
+  "| `evidence` | `@stage-evidence/SKILL.md` | `evidence-plan` `worktree` | `evidence` |",
+  "| `implement` | `@stage-implement/SKILL.md` | `approach` `branch` `worktree` | `commits` |",
+  "| `self-review` | `@stage-self-review/SKILL.md` | `commits` | `review` |",
+  "| `ship` | `@stage-ship/SKILL.md` | `commits` `ticket` | `mr` |",
+  "| `watch-ci` | `@stage-watch-ci/SKILL.md` | `mr` `branch` | `ci` |",
 ].join("\n");
 
 describe("compile-pipelines", () => {
@@ -405,7 +405,7 @@ describe("compile-pipelines", () => {
     expect(errors).toEqual([]);
 
     const a11y = readFileSync(join(pack, "skills", "work-a11y", "SKILL.md"), "utf8");
-    expect(a11y).toContain(EIGHT_ROWS.replace("attachments/stage-evidence/", `attachments/${COPY}/`));
+    expect(a11y).toContain(EIGHT_ROWS.replace("@stage-evidence/", `@${COPY}/`));
     expect(a11y).toContain("--work-type work --pipeline accessibility");
     expect(a11y).toContain("`run_list`'s `pipelines` is `accessibility`; only those runs are offered to resume.");
   }, 30_000);
@@ -496,12 +496,12 @@ describe("compile-pipelines", () => {
     expect(exitCode).toBeUndefined();
 
     const stage = readFileSync(join(pack, "attachments", "stage-watch-ci", "SKILL.md"), "utf8");
-    expect(stage).toContain("${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/scripts/");
+    expect(stage).toContain("@stage-watch-ci/scripts/");
     expect(stage).not.toContain("{{");
     for (const pipeline of ["feature", "accessibility"]) {
       const copy = readFileSync(join(pack, "attachments", `stage-watch-ci--${pipeline}`, "SKILL.md"), "utf8");
       expect(copy).toContain("prop:stage-watch-ci/forge.forge binding=mattstack:ci-forge-gitlab");
-      expect(copy).toContain(`\${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci--${pipeline}/parts/forge/forge/scripts/ci-forge.sh`);
+      expect(copy).toContain(`@stage-watch-ci--${pipeline}/parts/forge/forge/scripts/ci-forge.sh`);
     }
   }, 30_000);
 
@@ -632,7 +632,7 @@ describe("block-tree engines end to end", () => {
 
     expect(md).toContain('compiled: "mattstack@1.0.0 + widgets:mini-rules/fast@0.1.0 + mattstack:model-tiering@1.0.0 + mattstack:style-floor@1.0.0"');
     expect(md.split("\n").filter((l) => l.startsWith("#"))).toEqual(["# mini", "## Run the step", "### Check the result", "## Ask the gate", "## Notes"]);
-    expect(md).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/mini/parts/rules/lint.sh first.");
+    expect(md).toContain("Run @mini/parts/rules/lint.sh first.");
     expect(md).toContain("For tiering, invoke the `mattstack:model-tiering` skill");
     expect(md).not.toContain("{{");
     expect(treeOf(join(pack, "attachments", "mini"))["parts/rules/lint.sh"]).toBe("#!/bin/sh\necho lint\n");

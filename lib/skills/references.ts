@@ -19,12 +19,14 @@ import type { AttachmentSource, CompiledFile, PlaceholderContext } from "./types
 /**
  * `from` names where each file came from, so a collision with the skill's own files can say which two met.
  * `diagnostics` are hand-typed paths in copied attachment text; `warnings` are links a copied hand-authored skill can no longer reach.
+ * `verbPaths` names each verb a copy's `{{verb.path}}` reads.
  */
 export type ReferenceCopies = {
   files: { file: CompiledFile; from: string }[];
   includes: Record<string, AttachmentSource>;
   diagnostics: BlockDiagnostic[];
   warnings: string[];
+  verbPaths: string[];
 };
 
 export type ReferenceOpts = {
@@ -56,7 +58,7 @@ function unitSource(target: PackTarget, ctx: PlaceholderContext): UnitSource {
  * are copied as written.
  */
 export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, opts: ReferenceOpts): ReferenceCopies {
-  const out: ReferenceCopies = { files: [], includes: {}, diagnostics: [], warnings: [] };
+  const out: ReferenceCopies = { files: [], includes: {}, diagnostics: [], warnings: [], verbPaths: [] };
   const queue = [...targets];
   const copiedUnits = new Set<string>();
   const copiedPaths = new Set<string>();
@@ -98,7 +100,7 @@ export function referenceCopies(targets: PackTarget[], ctx: PlaceholderContext, 
           continue;
         }
       }
-      const content = renderCopy(raw, { where, unit: target.unit, fileRel: `${opts.skillRel}/${path}`, base: source.base, ctx, queue, opts, includes: out.includes });
+      const content = renderCopy(raw, { where, unit: target.unit, fileRel: `${opts.skillRel}/${path}`, base: source.base, ctx, queue, opts, includes: out.includes, verbPaths: out.verbPaths });
       out.files.push({ file: { path, content }, from: abs });
     }
   }
@@ -142,6 +144,7 @@ type CopyRender = {
   queue: PackTarget[];
   opts: ReferenceOpts;
   includes: Record<string, AttachmentSource>;
+  verbPaths: string[];
 };
 
 /** Rendered like a base attachment copied into the pack; team markers resolve only in a unit the org base supplies. */
@@ -154,6 +157,7 @@ function renderCopy(text: string, r: CopyRender): string {
     plannedAttachments: r.ctx.plannedAttachments,
     where: r.where,
     team: r.base ? r.ctx.team ?? null : null,
+    verbPaths: r.verbPaths,
     copy: {
       skillDir: referencesDir(r.ctx, r.unit),
       packPath: (target) => {

@@ -383,7 +383,7 @@ function renderBlock(b: Block, src: SourcedTree, parent: Heading, dropTitle: boo
 }
 
 function run(input: Omit<RenderInput, "tree" | "source">, engine: BlockTree | null, draw: (st: State) => string): RenderResult {
-  const used: Used = { includes: [], packPaths: [], references: [] };
+  const used: Used = { includes: [], packPaths: [], references: [], verbPaths: [] };
   const st: State = { values: input.values, includes: input.includes, ctx: input.ctx, used, diagnostics: [], including: [], engine };
   const body = draw(st);
   if (st.diagnostics.length > 0) throw new BlockError(st.diagnostics);

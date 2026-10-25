@@ -8,10 +8,12 @@ export type PointerMap = { id: string; dir: string; covers: string[]; keys: Reco
 export const ID_RE = /^(?:[a-z0-9][a-z0-9-]*@\d+(?:\.\d+)*:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$/;
 
 const TOKEN = "${CLAUDE_SKILL_DIR}";
-const PATH_CHARS = "[^\\s`'\")\\]>,;#?*:]*";
+const PATH_CHARS = "[^\\s`'\"\\\\)\\]>,;#?*:]*";
 const TOKEN_RE = new RegExp(`\\$\\{CLAUDE_SKILL_DIR\\}(/${PATH_CHARS})?`, "g");
 const RELATIVE_RE = new RegExp(`(?<![^\\s\`'"(\\[<])\\.\\.?/${PATH_CHARS}`, "g");
 const SENTENCE_END_RE = /\.+$/;
+/** A written `@key` ends where keyBody ends the path it came from; a word, `@` or path character before it makes it part of something else. */
+export const KEY_TOKEN_RE = new RegExp(`(?<![\\w@./-])@[a-z0-9][a-z0-9-]*/${PATH_CHARS}`, "g");
 // Every internal-unit token climbs `../../` out of the skill folder, so any `skills/<x>` reads it the same.
 const ANY_SKILL_DIR = "skills/~";
 

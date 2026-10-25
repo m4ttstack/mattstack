@@ -52,7 +52,9 @@ function writeFile(path: string, content: string): void {
 }
 
 function makePackDir(): string {
-  return realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-bind-pack-")));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-bind-pack-")));
+  writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+  return dir;
 }
 
 /** The org's base pack folder in an org clone at `<root>/acme`, with the org marker written. */

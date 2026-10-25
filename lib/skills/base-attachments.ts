@@ -9,14 +9,17 @@ import { hostDir } from "./layout.ts";
 import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, referencePath, sourcePackPath, substituteAttachmentPlaceholders, type PackTarget } from "./placeholders.ts";
 import { referenceCopies } from "./references.ts";
 import type { TeamContext } from "./team-params.ts";
+import { unitId, type Target } from "./pointers.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
+import { keyFiles, leafOf, MAP_FILE, unitTableOf } from "./unit-maps.ts";
 import type { AttachmentSource, CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
-export const PROVENANCE_FILE = "compiled.json";
+export const PROVENANCE_FILE = MAP_FILE;
 
 export type BaseRef = { name: string; dir: string; version: string | null };
-export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource };
+/** `pointers` is set when the copy's files were keyed: its own keys and the leaf of every unit it reads by path. */
+export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource; pointers?: { keys: Record<string, Target>; reads: string[] } };
 export type StaleAttachment = { name: string; why: "dropped" | "no-base" };
 export type BaseAttachmentPlan = {
   base: BaseRef | null;
@@ -176,8 +179,10 @@ export function planBaseAttachments(input: {
   verbSides: Record<string, Side>;
   team: TeamContext | null;
   loadInclude?: (name: string) => AttachmentSource;
+  /** The team pack's plugin identity, which stamps each copy's id; without a version, nothing is keyed. */
+  identity?: { name: string; version: string } | null;
 }): BaseAttachmentPlan {
-  const { packDir, packName, verbSides, team, loadInclude } = input;
+  const { packDir, packName, verbSides, team, loadInclude, identity } = input;
   const own = readJsoncObject(join(packDir, "pack", "skills.jsonc"));
   const ext = own?.extends;
   const attachmentsDir = join(packDir, "attachments");
@@ -252,6 +257,7 @@ export function planBaseAttachments(input: {
 
   const emits: EmittedAttachment[] = [];
   const pointers: Pointer[] = [];
+  const unitTable = unitTableOf(verbSides, records.map((r) => r.name));
   const verbDirs = Object.entries(verbSides).map(([verb, side]) => join(packDir, side, verb));
   const pathView = { verbSides, packRoot: packDir, plannedAttachments: planned };
   const fixView = {
@@ -263,10 +269,14 @@ export function planBaseAttachments(input: {
     const out: CompiledFile[] = [];
     const warnings: string[] = [];
     const vendored: PackTarget[] = [];
+    const reads: string[] = [];
     const copyDir = hostDir(name, "attachments");
     const packPath = (where: string) => (target: PackTarget, raw: string): string => {
       pointers.push({ where, raw, unit: name, target });
-      if (target.planned) return sourcePackPath(target);
+      if (target.planned) {
+        reads.push(leafOf(target.unit));
+        return sourcePackPath(target);
+      }
       vendored.push(target);
       return referencePath({ stageDir: copyDir }, target);
     };
@@ -305,6 +315,7 @@ export function planBaseAttachments(input: {
           where,
           team,
           packPath: packPath(where),
+          verbPaths: reads,
         });
         out.push({ path: file, content });
         const layout = { packRoot: packDir, compiledDir: dirname(join(attachmentsDir, name, file)) };
@@ -319,9 +330,18 @@ export function planBaseAttachments(input: {
       const v = vendorTeamSources(vendored, out, { name, label: `${base.name} attachment ${name}`, copyDir, packDir, packName, verbSides, planned, team, loadInclude });
       errors.push(...v.errors);
       warnings.push(...v.warnings);
+      reads.push(...v.verbPaths);
     }
-    out.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
-    emits.push({ name, files: out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), warnings, source: { dir: srcDir, base: base.name } });
+    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, identity.version, leafOf(name)), dir: `attachments/${name}`, units: unitTable }) : null;
+    const emitted = keyed?.files ?? out;
+    emitted.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
+    emits.push({
+      name,
+      files: emitted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      warnings,
+      source: { dir: srcDir, base: base.name },
+      ...(keyed ? { pointers: { keys: keyed.keys, reads: [...new Set(reads)] } } : {}),
+    });
   }
 
   errors.push(...unrenderedPointers(pointers, emits));
@@ -345,7 +365,7 @@ type VendorInput = {
 };
 
 /** The team's source ships as written, so a base copy reads its own rendered copy of each unit it names, as a built skill does. */
-function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): { errors: string[]; warnings: string[] } {
+function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): { errors: string[]; warnings: string[]; verbPaths: string[] } {
   const ctx: PlaceholderContext = {
     partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "", mattstackSha: "", mattstackDirty: 0, packSha: "",
     stageDir: v.copyDir, stageMeta: null, compiledFrom: "", verbSides: v.verbSides, side: "attachments", packRoot: v.packDir,
@@ -355,7 +375,7 @@ function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: Vendor
   try {
     copies = referenceCopies(targets, ctx, { skillRel: `attachments/${v.name}`, packName: v.packName, loadInclude: v.loadInclude });
   } catch (err) {
-    return { errors: [err instanceof Error ? err.message : String(err)], warnings: [] };
+    return { errors: [err instanceof Error ? err.message : String(err)], warnings: [], verbPaths: [] };
   }
   const errors = copies.diagnostics.map((d) => `${d.file}: ${d.message} (line ${d.line})`);
   const own = new Set(out.map((f) => f.path));
@@ -369,7 +389,7 @@ function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: Vendor
       out.push(file);
     }
   }
-  return { errors, warnings: copies.warnings };
+  return { errors, warnings: copies.warnings, verbPaths: copies.verbPaths };
 }
 
 /** A reader follows a base copy's pointer to the file it names, so that file must carry no placeholder left unrendered. */

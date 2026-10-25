@@ -72,6 +72,12 @@ describe("keyBody: units", () => {
     expect(Object.keys(out.targets)).toEqual(["work/scripts/a.sh", "work/scripts/b.sh", "work/scripts/c.sh", "work/scripts/d.sh"]);
   });
 
+  test("a path ends at a backslash, so an escaped quote in a graph label stays after the key", () => {
+    const out = keyBody(`label="sh \\"${TOKEN}/scripts/a.sh\\" <dir>"`, at);
+    expect(out.text).toBe('label="sh \\"@work/scripts/a.sh\\" <dir>"');
+    expect(out.targets).toEqual({ "work/scripts/a.sh": "skills/work/scripts/a.sh" });
+  });
+
   test("an allowed-tools example in a body fence keys the file and keeps its :*", () => {
     const out = keyBody(`\`\`\`yaml\nallowed-tools: Bash(bash ${TOKEN}/scripts/x.sh:*)\n\`\`\`\n`, at);
     expect(out.text).toBe("```yaml\nallowed-tools: Bash(bash @work/scripts/x.sh:*)\n```\n");

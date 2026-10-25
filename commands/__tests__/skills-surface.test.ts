@@ -59,7 +59,9 @@ function writeFile(path: string, content: string): void {
 }
 
 function makePackDir(): string {
-  return realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-surface-pack-")));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-surface-pack-")));
+  writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+  return dir;
 }
 
 function writeStubs(packDir: string, verbs: Record<string, { engine: string; description: string }>): void {
@@ -984,7 +986,7 @@ describe("grouped packs and pack selection", () => {
 describe("registered roots and name uniqueness", () => {
   test("plugin.json skills roots are honored: a skill under a second root counts as registered", async () => {
     const packDir = makePackDir();
-    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0", skills: ["./skills/review", "./plugin/skills"] }));
+    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0", skills: ["./skills/review", "./plugin/skills"] }));
     writeFile(join(packDir, "surface.jsonc"), `{ "public": ["editing-skills", "subagent-review-loop"] }\n`);
     writeFile(join(packDir, "skills", "review", "subagent-review-loop", "SKILL.md"), "---\nname: subagent-review-loop\n---\nbody\n");
     writeFile(join(packDir, "plugin", "skills", "editing-skills", "SKILL.md"), "---\nname: editing-skills\n---\nbody\n");
@@ -1089,7 +1091,7 @@ describe("registered roots must be directories", () => {
 describe("apply on packs with plugin.json skills roots", () => {
   test("set --internal moves a skill that lives under a second registered root (plugin/skills/) to attachments/", async () => {
     const packDir = makePackDir();
-    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0", skills: ["./skills/review", "./plugin/skills"] }));
+    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0", skills: ["./skills/review", "./plugin/skills"] }));
     writeFile(join(packDir, "surface.jsonc"), `{ "public": ["helper"] }\n`);
     writeFile(join(packDir, "plugin", "skills", "helper", "SKILL.md"), "---\nname: helper\n---\nbody\n");
 
@@ -1102,7 +1104,7 @@ describe("apply on packs with plugin.json skills roots", () => {
 
   test("--dry-run names the same real source root the move would use", async () => {
     const packDir = makePackDir();
-    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0", skills: ["./skills/review", "./plugin/skills"] }));
+    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0", skills: ["./skills/review", "./plugin/skills"] }));
     writeFile(join(packDir, "surface.jsonc"), `{ "public": ["helper"] }\n`);
     writeFile(join(packDir, "plugin", "skills", "helper", "SKILL.md"), "---\nname: helper\n---\nbody\n");
 

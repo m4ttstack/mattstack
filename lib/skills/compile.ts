@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { assertNoTeamMarkerInRawFile, readTextUnlessBinary } from "./placeholders.ts";
+import type { UnitTable } from "./pointers.ts";
 import { bodyAfterFrontmatter } from "./sources.ts";
 import type { TeamContext } from "./team-params.ts";
 import type {
@@ -399,6 +400,10 @@ export type CompileSkillOpts = {
   loadInclude?: (name: string) => AttachmentSource;
   /** The pack's plugin name, which `{{pack.name}}` renders to in a file copied into references/. */
   packName?: string;
+  /** The pack's plugin identity, which stamps the unit's id; with `units`, every `.md` written is keyed. */
+  identity?: { name: string; version: string };
+  /** Every unit this compile writes, by leaf name, so a pointer into any of them becomes an `@key`. */
+  units?: UnitTable;
 };
 
 /** `includes` is the flat includes a block's text and its inlined values place; tree includes render through their blocks. */

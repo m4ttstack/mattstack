@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { normalizeCompiled } from "../blocks/lib/normalize.ts";
 import { residualDiff } from "../blocks/compiled-diff.ts";
+import { openingLine } from "../../lib/skills/pointers.ts";
 
 const HEADER = "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->";
 const none = { allowMovedBlocks: [] as string[] };
@@ -9,6 +10,13 @@ test("heading levels, seams and dot whitespace do not show", () => {
   const before = `${HEADER}\n\n<!-- part: step source=mattstack:ship version=1 path=a lines=1-2 -->\n## Plan\n\nDo it.\n\n\`\`\`dot\ndigraph g {\n  a [label="A" shape=box];\n  b [label="B" shape=box];\n  a -> b [label="go"];\n}\n\`\`\`\n`;
   const after = `${HEADER}\n\n### Plan\n\n\nDo it.\n\n\`\`\`dot\ndigraph g { b [shape=box label="B"]; a [shape=box label="A"]; a -> b [label="go"]; }\n\`\`\`\n`;
   expect(residualDiff(before, after, none)).toBe("");
+});
+
+test("the pointer opening line under the header does not show", () => {
+  const before = `${HEADER}\n\n## Plan\n\nDo it.\n`;
+  const after = `${HEADER}\n${openingLine("widgets@0.4.2:work")}\n\n## Plan\n\nDo it.\n`;
+  expect(residualDiff(before, after, none)).toBe("");
+  expect(normalizeCompiled(`${openingLine("widgets@0.4.2:widget")}\n\nThen go.\n`)).toBe("Then go.\n");
 });
 
 test("a changed sentence survives", () => {

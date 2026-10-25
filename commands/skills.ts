@@ -74,7 +74,9 @@ import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } fr
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves } from "../lib/skills/placeholders.ts";
-import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
+import { newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
+import { unitId, type UnitTable } from "../lib/skills/pointers.ts";
+import { closeUnits, leafOf, MAP_FILE, mapFileText, pointerErrorsIn, readUnitMap, unitTableOf, type UnitPointers } from "../lib/skills/unit-maps.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
 import { defaultPipeline, effectiveBindings, engineRefOf, lastWinsBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
@@ -861,6 +863,50 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
   return rules;
 }
 
+/** Every compiled skill's id names its pack and version, so nothing compiles until plugin.json gives both. */
+function requirePackIdentity(packDir: string): { name: string; version: string } {
+  const identity = packPluginIdentity(packDir);
+  if (identity?.version) return identity;
+  const file = join(packDir, ".claude-plugin", "plugin.json");
+  const fault = identity ? "has no version" : existsSync(file) ? "has no name" : "is missing";
+  throw new SkillsUsageError(`${file} ${fault}; every compiled skill is stamped with the pack's name and version`, {
+    title: `This pack's plugin.json ${fault}`,
+    why: "Each compiled skill is stamped with its pack's name and version, so its pointers resolve against the copy that is installed.",
+    next: ["Give it a name and a version, then run ", out.cmd("rt skills compile")],
+    details: file,
+  });
+}
+
+/** A planned unit with nothing in it is one the compile removes. */
+function emittedUnits(planned: PlannedAttachments | undefined): string[] {
+  return planned ? [...planned].filter(([, files]) => files.size > 0).map(([rel]) => rel) : [];
+}
+
+/**
+ * Closes every unit's pointer map once all of them have compiled, and writes
+ * it as the unit's compiled.json; a base copy's keeps its provenance. A unit
+ * this run did not compile lends the map its last compile wrote.
+ */
+function attachMaps(packDir: string, compiled: { target: CompileTarget; result: CompileResult }[], emits: EmittedAttachment[], units: UnitTable): EmittedAttachment[] {
+  const identity = requirePackIdentity(packDir);
+  const idOf = (leaf: string) => unitId(identity.name, identity.version, leaf);
+  const pointers: UnitPointers[] = [
+    ...compiled.flatMap(({ target, result }) => (result.pointers ? [{ leaf: target.verb.name, dir: units[target.verb.name]!, ...result.pointers }] : [])),
+    ...emits.flatMap((e) => (e.pointers ? [{ leaf: leafOf(e.name), dir: `attachments/${e.name}`, ...e.pointers }] : [])),
+  ];
+  const closed = closeUnits(pointers, idOf, (leaf) => (Object.hasOwn(units, leaf) ? readUnitMap(packDir, units[leaf]!, idOf(leaf)) : null));
+  for (const { target, result } of compiled) {
+    const map = closed.get(target.verb.name);
+    if (map) result.files.push({ path: MAP_FILE, content: mapFileText(map) });
+  }
+  return emits.map((e) => {
+    const map = closed.get(leafOf(e.name));
+    if (!map) return e;
+    const files = e.files.map((f): CompiledFile => (f.path === PROVENANCE_FILE && "content" in f ? { path: f.path, content: mapFileText(map, JSON.parse(f.content)) } : f));
+    return { ...e, files };
+  });
+}
+
 /** What a compile resolved, for anatomy and blocks: the engine, its includes and every block's prop values. */
 type CompileAnatomy = {
   step: StepSource;
@@ -888,6 +934,7 @@ function compileVerb(
     throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
   }
   if (isStage) verb = { ...verb, description: step.description };
+  const identity = requirePackIdentity(resolved.packDir);
 
   const entries = resolved.stageEntries;
   const allEntries = Object.values(entries).flat();
@@ -925,7 +972,9 @@ function compileVerb(
     plannedAttachments: planned,
     pipeline,
     loadInclude: (name) => loadInclude(name, resolved.pluginRoots),
-    packName: packPluginIdentity(resolved.packDir)?.name ?? resolved.team,
+    packName: identity.name,
+    identity,
+    units: unitTableOf(verbSides, emittedUnits(planned)),
   });
 
   try {
@@ -1156,6 +1205,7 @@ function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseA
     verbSides,
     team: resolved.teamContext,
     loadInclude: (name) => loadInclude(name, resolved.pluginRoots),
+    identity: packPluginIdentity(resolved.packDir),
   });
   if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
   return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
@@ -1200,12 +1250,14 @@ export function floorWrite(
   readFile: (path: string) => string | null,
   write: boolean,
   usesTeamMarkers: boolean,
+  carriesKeys = false,
 ): { written: string[]; removed: string[]; stale: boolean } {
   const engineDir = resolved.pluginRoots.byName.mattstack?.dir ?? null;
   if (engineDir !== null && resolvePath(engineDir) === resolvePath(resolved.packDir)) return { written: [], removed: [], stale: false };
-  if (engineDir === null && !usesTeamMarkers) return { written: [], removed: [], stale: false };
+  if (engineDir === null && !usesTeamMarkers && !carriesKeys) return { written: [], removed: [], stale: false };
   const engineFloor = engineDir === null ? null : readFloor(readFile, engineDir);
-  const floor = usesTeamMarkers && (engineFloor === null || compareVersions(engineFloor, TEAM_MARKERS_MIN_ENGINE) < 0) ? TEAM_MARKERS_MIN_ENGINE : engineFloor;
+  const raises = [...(usesTeamMarkers ? [TEAM_MARKERS_MIN_ENGINE] : []), ...(carriesKeys ? [POINTER_KEYS_MIN_ENGINE] : [])];
+  const floor = raises.reduce<string | null>((high, v) => (high === null || compareVersions(high, v) < 0 ? v : high), engineFloor);
   const target = join(resolved.packDir, FLOOR_REL);
   const current = readFile(target);
   const want = floor === null ? null : JSON.stringify({ minEngine: floor }) + "\n";
@@ -1267,6 +1319,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, verbFilter);
+  if (targets.length > 0 || plan.emits.length > 0) requirePackIdentity(resolved.packDir);
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
@@ -1278,6 +1331,15 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned) }),
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
+  let emits = plan.emits;
+  if (failures.length === 0) {
+    try {
+      const compiled = outcomes.flatMap(({ target, outcome }) => (outcome.ok ? [{ target, result: outcome.result }] : []));
+      emits = attachMaps(resolved.packDir, compiled, plan.emits, unitTableOf(verbSides, plan.emits.map((e) => e.name)));
+    } catch (err) {
+      failures.push((err as Error).message);
+    }
+  }
   // A target that failed stopped partway, so the missing list is only whole once every target compiled.
   const missing = failures.length === 0 ? missingOf(resolved.teamContext) : [];
   failures.push(...teamInputErrors(resolved, verbSides, planned));
@@ -1300,7 +1362,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
     for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
     for (const rel of plan.retired) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", rel), writes);
-    for (const e of plan.emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
+    for (const e of emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
       const { verb, isPublic } = target;
@@ -1314,7 +1376,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     for (const copy of staleCopies) removeCompiledDir(resolved.packDir, copy.dir, writes);
     // A scoped compile sees only its own targets' markers, so it never lowers a floor a full compile raised for the rest.
     const keptRaise = verbFilter !== null && floorAtLeast(readFloor(readIfPresent, resolved.packDir), TEAM_MARKERS_MIN_ENGINE);
-    const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise);
+    const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise, outcomes.length > 0 || emits.length > 0);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
     if (verbFilter === null) {
@@ -1489,6 +1551,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 
     const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
+    if (targets.length > 0) requirePackIdentity(resolved.packDir);
     const plan = requireBasePlan(resolved, verbSides);
 
     if (flags.preview) {
@@ -1598,7 +1661,15 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   const chainErrors = pipelineErrors(resolved);
   if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
-  const plan = basePlanFor(resolved, compileTargets(resolved, publicSet, opts.verbs ?? null).verbSides);
+  const { targets, verbSides } = compileTargets(resolved, publicSet, opts.verbs ?? null);
+  if (targets.length > 0) {
+    try {
+      requirePackIdentity(resolved.packDir);
+    } catch (err) {
+      return { ok: false, errors: [(err as Error).message], written: [], removed: [] };
+    }
+  }
+  const plan = basePlanFor(resolved, verbSides);
   if (plan.errors.length > 0) return { ok: false, errors: plan.errors, written: [], removed: [] };
   try {
     const { failures, misplaced, writes, missing } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true, plan);
@@ -1684,6 +1755,8 @@ export type CheckPayload = {
   skillPaths?: BlockDiagnostic[];
   /** Hand-authored skills whose frontmatter does not parse as YAML; they fail the check. In check --json only when non-empty. */
   skillFrontmatter?: BlockDiagnostic[];
+  /** Compiled bodies whose `@keys` resolve to no file, or that still hold `${CLAUDE_SKILL_DIR}`; they fail the check. In check --json only when non-empty. */
+  pointerErrors?: BlockDiagnostic[];
 };
 
 /** A hand-written skill's own fault: no compile fixes it, so it fails check apart from `drift`, which sync reads as "recompile". */
@@ -1776,17 +1849,21 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   if (chainErrors.length > 0) anyStale = true;
 
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
+  if (targets.length > 0) requirePackIdentity(resolved.packDir);
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
-  const plan = basePlanFor(resolved, verbSides);
-  const planned = plannedAttachmentsOf(plan);
+  const basePlan = basePlanFor(resolved, verbSides);
+  const planned = plannedAttachmentsOf(basePlan);
+  const units = unitTableOf(verbSides, basePlan.emits.map((e) => e.name));
   // chainErrors already names why these cannot run a pipeline; compiling them would only repeat it as a placeholder error.
   const noPipeline = new Set(tableVerbs(resolved).filter((verb) => verbPipeline(verb, resolved.pipelines).error !== null).map((verb) => verb.name));
 
   const compiled: { target: CompileTarget; outcome: CompileOutcome }[] = [];
   let neverCompiled = false;
   let compileFailed = false;
+  // A unit's map reads the maps of the units it reaches, so every target compiles before any is compared.
+  const slots: ({ target: CompileTarget; result: CompileResult } | { row: CheckVerbRow })[] = [];
   for (const target of targets) {
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
@@ -1795,7 +1872,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     if (!existsSync(outDir)) {
       anyStale = true;
       neverCompiled = true;
-      rows.push({ name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side });
+      slots.push({ row: { name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side } });
       continue;
     }
     if (!target.isStage && noPipeline.has(verb.name)) continue;
@@ -1808,7 +1885,27 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       continue;
     }
     compiled.push({ target, outcome });
-    const { result } = outcome;
+    slots.push({ target, result: outcome.result });
+  }
+
+  let plan = basePlan;
+  try {
+    const ready = slots.flatMap((slot) => ("result" in slot ? [slot] : []));
+    plan = { ...basePlan, emits: attachMaps(resolved.packDir, ready, basePlan.emits, units) };
+  } catch (err) {
+    anyStale = true;
+    compileErrors.push((err as Error).message);
+  }
+
+  for (const slot of slots) {
+    if ("row" in slot) {
+      rows.push(slot.row);
+      continue;
+    }
+    const { target, result } = slot;
+    const { verb, isPublic } = target;
+    const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
+    const side: Side = isPublic ? "skills" : "attachments";
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
     const expectedPaths = new Set(result.files.map((f) => f.path));
@@ -1834,7 +1931,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
         const stale = !existsSync(dest) || !readFileSync(dest).equals(expected);
         if (stale) {
           staleFiles.push(file.path);
-          addCause("vendored");
+          // A unit's map moves with the bodies it was read from, so its own drift names no cause of its own.
+          if (file.path !== MAP_FILE) addCause("vendored");
         }
       }
     }
@@ -1892,7 +1990,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false, resolved.teamContext?.sawMarker === true).stale) {
+  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false, resolved.teamContext?.sawMarker === true, targets.length > 0 || plan.emits.length > 0).stale) {
     compileErrors.push("pack/requires.json is out of date with the engine's floor");
     anyStale = true;
   }
@@ -1910,8 +2008,10 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const handSkills = flags.verbs === null ? handWrittenSkills(resolved.packDir, new Set(Object.keys(verbSides))) : [];
   const skillPaths = brokenSkillPaths(handSkills, resolved.packDir);
   const skillFrontmatter = badSkillFrontmatter(handSkills);
+  const unitDirs = [...targets.map((t) => units[t.verb.name]!), ...(flags.verbs === null ? plan.emits.map((e) => `attachments/${e.name}`) : [])];
+  const pointerErrors = pointerErrorsIn(resolved.packDir, unitDirs, units);
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter, pointerErrors };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1991,6 +2091,11 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
     blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "hand-authored skills, paths"));
     blocks.push(out.line("failed", `skill paths: ${countOf(skillPaths.length, "path points", "paths point")} at nothing`, "fix the path in the skill"));
   }
+  const pointerErrors = payload.pointerErrors ?? [];
+  if (pointerErrors.length > 0) {
+    blocks.push(out.verbatim(pointerErrors.map(formatDiagnostic), "compiled skills, pointers"));
+    blocks.push(out.line("failed", `pointers: ${countOf(pointerErrors.length, "pointer does", "pointers do")} not resolve`, "fix it in the source, then compile again"));
+  }
   blocks.push(...fieldContractBlocks(payload.fieldContract, "advisory; it never fails a check"));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -2017,11 +2122,11 @@ export async function skillsCheck(args: string[]): Promise<void> {
     const flags = parseFlags(args);
     const payload = await computeCheck(flags);
 
-    if (payload.drift || handSkillFailures(payload).length > 0) process.exitCode = 1;
+    if (payload.drift || handSkillFailures(payload).length > 0 || (payload.pointerErrors?.length ?? 0) > 0) process.exitCode = 1;
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [], skillFrontmatter = [] } = payload;
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [], skillFrontmatter = [], pointerErrors = [] } = payload;
       // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
       out.json({
         pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract,
@@ -2029,6 +2134,7 @@ export async function skillsCheck(args: string[]): Promise<void> {
         ...(droppedOverrides.length > 0 ? { droppedOverrides } : {}),
         ...(skillPaths.length > 0 ? { skillPaths } : {}),
         ...(skillFrontmatter.length > 0 ? { skillFrontmatter } : {}),
+        ...(pointerErrors.length > 0 ? { pointerErrors } : {}),
       });
       return;
     }

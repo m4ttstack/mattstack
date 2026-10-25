@@ -62,13 +62,13 @@ function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
 
 /** Each line through substituteLine, the way a block's text renders. */
 function substitute(body: string, c: PlaceholderContext, where: string): { body: string; used: Used } {
-  const used: Used = { includes: [], packPaths: [], references: [] };
+  const used: Used = { includes: [], packPaths: [], references: [], verbPaths: [] };
   return { body: body.split("\n").map((line, i) => substituteLine(line, i, c, where, used)).join("\n"), used };
 }
 
 /** A fill inlined at a `domain` prop on the root of engine `x`, the way render places a value. */
 function inline(f: AttachmentSource, c: PlaceholderContext = ctx(), packPaths: string[] = []): string {
-  return inlineFillText("prop:x.domain", "domain", f, c, { packPaths, references: [] });
+  return inlineFillText("prop:x.domain", "domain", f, c, { packPaths, references: [], verbPaths: [] });
 }
 
 describe("team markers in inlined fills", () => {

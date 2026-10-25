@@ -41,6 +41,13 @@ async function compilePack(name: "opted-in" | "scripts-only", verbs: readonly st
   return { pack, verbs: Object.fromEntries(verbs.map((v) => [v, read(v)])) as Compiled };
 }
 
+/** A body pointer is an `@key`; the unit's compiled.json says which pack file it names. */
+function keyTarget(pack: string, side: string, verb: string, pointer: string): string {
+  const { keys } = JSON.parse(readFileSync(join(pack, side, verb, "compiled.json"), "utf8")) as { keys: Record<string, string> };
+  expect(pointer.startsWith("@")).toBe(true);
+  return join(pack, keys[pointer.slice(1)]!);
+}
+
 function count(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
@@ -89,7 +96,7 @@ describe("browser target compile", () => {
         const pointer = body.match(/browser target section of `([^`]+)`/);
         expect(pointer).not.toBeNull();
         const side = existsSync(join(compiled.pack, "skills", verb)) ? "skills" : "attachments";
-        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, side, verb));
+        const target = keyTarget(compiled.pack, side, verb, pointer![1]!);
         expect(target).toContain(`/${side}/${verb}/references/acme-evidence/SKILL.md`);
         expect(existsSync(resolve(target))).toBe(true);
       }
@@ -105,7 +112,7 @@ describe("browser target compile", () => {
         const pointer = body.match(/browser target\s+section of `([^`]+)`/);
         expect(pointer).not.toBeNull();
         const side = existsSync(join(compiled.pack, "skills", verb)) ? "skills" : "attachments";
-        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, side, verb));
+        const target = keyTarget(compiled.pack, side, verb, pointer![1]!);
         expect(target).toContain(`/${side}/${verb}/references/acme-evidence/SKILL.md`);
         expect(existsSync(resolve(target))).toBe(true);
       }

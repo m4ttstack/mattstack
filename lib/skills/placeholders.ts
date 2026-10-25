@@ -118,7 +118,7 @@ export function inlineFillText(
   partsName: string,
   fill: AttachmentSource,
   ctx: PlaceholderContext,
-  used: Pick<Used, "packPaths" | "references">,
+  used: Pick<Used, "packPaths" | "references" | "verbPaths">,
   treeInclude?: TreeIncludeText,
   headingLevel?: number,
 ): string {
@@ -135,6 +135,7 @@ export function inlineFillText(
   const inlined = substituteIncludesOnly(shiftHeadings(rewritten, shift), ctx, fill.binding, toSource, shift);
   used.packPaths.push(...inlined.packPaths);
   used.references.push(...inlined.references);
+  used.verbPaths.push(...inlined.verbPaths);
   return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
 }
 
@@ -163,9 +164,10 @@ export function substituteIncludesOnly(
   where: string,
   treeInclude?: TreeIncludeText,
   shift = 0,
-): { body: string; packPaths: string[]; references: PackTarget[] } {
+): { body: string; packPaths: string[]; references: PackTarget[]; verbPaths: string[] } {
   const packPaths: string[] = [];
   const references: PackTarget[] = [];
+  const verbPaths: string[] = [];
   const lines = body.split("\n");
   const textAfter = (i: number): number | null => {
     const next = lines.findIndex((l, j) => j > i && l.trim() !== "");
@@ -183,7 +185,7 @@ export function substituteIncludesOnly(
           if (tree === null) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
           return tree;
         }
-        case "verb.path": return verbPath(ctx, arg, raw, where);
+        case "verb.path": return verbPath(ctx, arg, raw, where, verbPaths);
         case "pack.path": {
           const target = resolvePackPath(ctx, arg, raw, where);
           const rendered = referencePath(ctx, target);
@@ -196,7 +198,7 @@ export function substituteIncludesOnly(
       }
     }),
   );
-  return { body: out.join("\n"), packPaths, references };
+  return { body: out.join("\n"), packPaths, references, verbPaths };
 }
 
 export type AttachmentRenderOpts = {
@@ -211,6 +213,8 @@ export type AttachmentRenderOpts = {
   copy?: CopyHooks;
   /** For an emitted base attachment, which points pack.path at its own copies of the team's source; without it, pack.path names the unit in the pack. */
   packPath?: (target: PackTarget, raw: string) => string;
+  /** Collects each verb a `{{verb.path}}` names, since the reader goes on to read that verb's file. */
+  verbPaths?: string[];
 };
 
 /** `line` counts from 1 in the text after team markers resolve; `alone` says whether the placeholder is its line's only text. */
@@ -281,7 +285,7 @@ export function substituteAttachmentPlaceholders(body: string, opts: AttachmentR
         if (!opts.packName) throw new Error(`${where}: ${raw} -- the pack has no .claude-plugin/plugin.json name to give it`);
         return opts.packName;
       case "verb.path":
-        return fileVerbPath(opts.verbSides, arg, raw, where, opts.fileRel);
+        return fileVerbPath(opts.verbSides, arg, raw, where, opts.fileRel, opts.verbPaths);
       case "pack.path": {
         const target = resolvePackPath(opts, arg, raw, where);
         if (copy) return copy.packPath(target);
@@ -299,10 +303,11 @@ export function substituteAttachmentPlaceholders(body: string, opts: AttachmentR
 }
 
 /** `{{verb.path}}` in a file read as a plain file: relative to `fileRel`, that file's pack-relative path. */
-export function fileVerbPath(verbSides: Record<string, Side>, arg: string | undefined, raw: string, where: string, fileRel: string): string {
+export function fileVerbPath(verbSides: Record<string, Side>, arg: string | undefined, raw: string, where: string, fileRel: string, read?: string[]): string {
   if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb name must match [a-z][a-z0-9-]*`);
   const side = verbSides[arg];
   if (!side) throw new Error(`${where}: ${raw} -- ${arg} is not a compiled verb of this pack`);
+  read?.push(arg);
   return posix.relative(posix.dirname(fileRel), `${side}/${arg}/SKILL.md`);
 }
 
@@ -347,10 +352,10 @@ function tableEntries(ctx: PlaceholderContext, where: string): StageEntry[] {
   return list;
 }
 
-function pipelineTable(ctx: PlaceholderContext, where: string): string {
+function pipelineTable(ctx: PlaceholderContext, where: string, used: Used): string {
   const names = (xs: string[]) => (xs.length > 0 ? xs.map((x) => `\`${x}\``).join(" ") : "nothing");
   const rows = tableEntries(ctx, where).map((e) => {
-    const read = `${SKILL_DIR_TOKEN}/${verbPath(ctx, e.name, `{{verb.path:${e.name}}}`, where)}`;
+    const read = `${SKILL_DIR_TOKEN}/${verbPath(ctx, e.name, `{{verb.path:${e.name}}}`, where, used.verbPaths)}`;
     return `| \`${e.stage}\` | \`${read}\` | ${names(e.consumes)} | ${names(e.produces)} |`;
   });
   return [...TABLE_HEADER, ...rows].join("\n");
@@ -365,10 +370,11 @@ function runListPipelines(ctx: PlaceholderContext, where: string): string {
 }
 
 /** A reading path from the current output file to a sibling target's SKILL.md: relative to this file, never a shell path. */
-function verbPath(ctx: PlaceholderContext, arg: string | undefined, raw: string, where: string): string {
+function verbPath(ctx: PlaceholderContext, arg: string | undefined, raw: string, where: string, read: string[]): string {
   if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb name must match [a-z][a-z0-9-]*`);
   const side = ctx.verbSides[arg];
   if (!side) throw new Error(`${where}: ${raw} -- ${arg} is not a compiled verb of this pack`);
+  read.push(arg);
   return side === ctx.side ? `../${arg}/SKILL.md` : `../../${side}/${arg}/SKILL.md`;
 }
 
@@ -471,8 +477,8 @@ function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string
   return `${consume} ${produce}`;
 }
 
-/** `references` holds every unit a `{{pack.path}}` named, for the built skill to copy. */
-export type Used = { includes: string[]; packPaths: string[]; references: PackTarget[] };
+/** `references` holds every unit a `{{pack.path}}` named, for the built skill to copy; `verbPaths` every verb the text reads by path. */
+export type Used = { includes: string[]; packPaths: string[]; references: PackTarget[]; verbPaths: string[] };
 
 // Global-regex `.replace` resets `lastIndex` per call, so PLACEHOLDER_RE is safe to share with findPlaceholders.
 export function substituteLine(line: string, i: number, ctx: PlaceholderContext, where: string, used: Used): string {
@@ -489,17 +495,19 @@ export function substituteLine(line: string, i: number, ctx: PlaceholderContext,
         used.includes.push(arg);
         return includeText(arg, inc, ctx);
       }
-      case "pipeline.stages": return fenced(stageTableJson(ctx.pipelines));
+      case "pipeline.stages":
+        used.verbPaths.push(...Object.values(ctx.pipelines).flat().map((e) => e.name));
+        return fenced(stageTableJson(ctx.pipelines));
       case "pipeline.table":
         if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
         if (arg !== undefined) throw new Error(`${where}: ${raw} takes no argument`);
-        return pipelineTable(ctx, where);
+        return pipelineTable(ctx, where, used);
       case "run-list.pipelines":
         if (arg !== undefined) throw new Error(`${where}: ${raw} takes no argument`);
         return runListPipelines(ctx, where);
       case "work-type": return workTypeText(ctx.pipelines, where);
       case "run-start.flags": return runStartFlags(ctx, arg, raw, where);
-      case "verb.path": return verbPath(ctx, arg, raw, where);
+      case "verb.path": return verbPath(ctx, arg, raw, where, used.verbPaths);
       case "pack.path": {
         const target = resolvePackPath(ctx, arg, raw, where);
         const rendered = referencePath(ctx, target);

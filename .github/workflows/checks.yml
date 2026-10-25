@@ -331,10 +331,11 @@ jobs:
       - name: Compiled engines pass check-dot (warnings fail)
         run: |
           set -o pipefail
-          mkdir -p "$RUNNER_TEMP/mattstack/plugins" "$RUNNER_TEMP/pack/pack"
+          mkdir -p "$RUNNER_TEMP/mattstack/plugins" "$RUNNER_TEMP/pack/pack" "$RUNNER_TEMP/pack/.claude-plugin"
           cp -R plugins/mattstack "$RUNNER_TEMP/mattstack/plugins/mattstack"
           cp plugins/mattstack/tests/graph-roster.jsonc "$RUNNER_TEMP/pack/pack/stubs.jsonc"
           cp plugins/mattstack/tests/graph-skills.jsonc "$RUNNER_TEMP/pack/pack/skills.jsonc"
+          echo '{"name": "widgets", "version": "0.1.0"}' > "$RUNNER_TEMP/pack/.claude-plugin/plugin.json"
           bun cli.ts skills compile --pack-dir "$RUNNER_TEMP/pack" --mattstack-dir "$RUNNER_TEMP/mattstack"
           bun scripts/ci/block-graphs-compiled.ts plugins/mattstack/attachments "$RUNNER_TEMP/pack"
           DOT='^[[:space:]]*```dot[[:space:]]*$'

@@ -198,6 +198,7 @@ function makeMattstackDir(): string {
 
 function makePackDir(stubsJsonc: string, surfaceJsonc: string | null): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-surface-pack-")));
+  writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
   writeFile(join(dir, "pack", "stubs.jsonc"), stubsJsonc);
   if (surfaceJsonc !== null) {
     writeFile(join(dir, "pack", "surface.jsonc"), surfaceJsonc);
@@ -390,7 +391,7 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-surface-int-")));
 
     const acmeDir = join(mattstackDir, "plugins", "acme");
-    writeFile(join(acmeDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.3.0" }));
+    writeFile(join(acmeDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme", version: "0.3.0" }));
     writeFile(
       join(acmeDir, "pack", "stubs.jsonc"),
       `{ "verbs": { "watch-ci": { "engine": "watch-ci", "description": "Watch CI." } } }\n`,
@@ -431,7 +432,7 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-surface-int-")));
 
     const acmeDir = join(mattstackDir, "plugins", "acme");
-    writeFile(join(acmeDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.3.0" }));
+    writeFile(join(acmeDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme", version: "0.3.0" }));
     writeFile(
       join(acmeDir, "pack", "stubs.jsonc"),
       `{ "verbs": { "gate-check": { "engine": "gate-check", "description": "Gate check." } } }\n`,
@@ -468,7 +469,7 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-surface-int-")));
 
     const acmeDir = join(mattstackDir, "plugins", "acme");
-    writeFile(join(acmeDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.3.0" }));
+    writeFile(join(acmeDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme", version: "0.3.0" }));
     writeFile(
       join(acmeDir, "pack", "stubs.jsonc"),
       `{ "verbs": { "gate-check": { "engine": "gate-check", "description": "Gate check." } } }\n`,
@@ -536,6 +537,7 @@ function makePipelineMattstackDir(): string {
 
 function makePipelinePackDir(publicNames: string[]): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-pipeline-pack-")));
+  writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
   writeFile(join(dir, "pack", "stubs.jsonc"), `{ "verbs": { "work": { "engine": "work", "description": "Run the pipeline." } } }\n`);
   writeFile(join(dir, "pack", "surface.jsonc"), JSON.stringify({ public: publicNames }));
   return dir;

@@ -22,6 +22,8 @@ export type TeamContext = {
 };
 
 export const TEAM_MARKERS_MIN_ENGINE = "0.32.15";
+/** The first release whose MCP server answers `skills_resolve`, which a build carrying `@keys` tells its reader to call. */
+export const POINTER_KEYS_MIN_ENGINE = "0.32.28";
 
 const PARAMS_FILE = "pack/params.jsonc";
 const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;

@@ -1,6 +1,6 @@
 import { parseDot, splitStatements } from "../../../lib/skills/blocks/dot.ts";
 
-const SEAM_LINE = /^<!-- (?:part: .*|compiled by rt skills compile .*) -->$/;
+const SEAM_LINE = /^(?:<!-- (?:part: .*|compiled by rt skills compile .*) -->|Pointers here are `@keys`\. .*)$/;
 const FENCE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const OLDER_REFERENCE = /^(?:Slot|Prop) (\S+) is bound to `([^`]+)` \(([^)]+)\) -- invoke that skill when this flow needs it\.$/;

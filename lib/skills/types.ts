@@ -1,5 +1,6 @@
 import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
 import type { BlockTree } from "./blocks/types.ts";
+import type { Target } from "./pointers.ts";
 import type { TeamContext } from "./team-params.ts";
 
 export type Side = "skills" | "attachments";
@@ -43,7 +44,14 @@ export type VerbDef = { name: string; engine: string; description: string; pipel
 
 export type CompiledFile = { path: string; content: string } | { path: string; copyFrom: string };
 
-export type CompileResult = { files: CompiledFile[]; warnings: string[]; errors: string[]; diagnostics: BlockDiagnostic[] };
+/** `pointers` is set when the compile keyed its files: the unit's own keys and the leaf of every unit it reads by path. */
+export type CompileResult = {
+  files: CompiledFile[];
+  warnings: string[];
+  errors: string[];
+  diagnostics: BlockDiagnostic[];
+  pointers?: { keys: Record<string, Target>; reads: string[] };
+};
 
 /** `name` is the compiled target, a stage copy's own name for a copy; `engine` is the stage it compiles. */
 export type StageEntry = {
