@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -10,6 +10,7 @@ import { childEnv, runCapture } from "../../subprocess.ts";
 import { bumpPatchVersion, LAYOUT_HOLD, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
 import { skillsChanges } from "../../../commands/skills.ts";
 import { captureSkills } from "./helpers.ts";
+import { orgSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
 
 type Call = { cmd: string; args: string[]; cwd?: string };
 
@@ -1282,12 +1283,21 @@ describe("a block pack on an org below layout 5", () => {
   const V2 = { bindings: { "mattstack:ship/flow/gate-ship": { rules: "widgets:ship-rules/gate" } } };
   const OLD = { bindings: { "mattstack:ship": { domain: "widgets:ship-domain" } } };
   const writes = (calls: Call[]) => calls.filter((c) => c.cmd === "git" && (c.args[0] === "commit" || c.args[0] === "push" || c.args[0] === "add"));
+  const origHome = process.env.HOME;
+  beforeEach(() => {
+    process.env.HOME = tmp("rt-sync-home-");
+  });
+  afterEach(() => {
+    rmSync(process.env.HOME!, { recursive: true, force: true });
+    process.env.HOME = origHome;
+  });
 
   function seed(layout: number, fragment: object, roster: string[]): { clone: string; pack: PackInfo; engine: PackInfo; deps: SyncDeps; calls: Call[] } {
     const { clone, pack } = orgClonePack();
     writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": ${layout} }\n`);
-    mkdirSync(join(clone, "mattstack", "org"), { recursive: true });
-    writeFileSync(join(clone, "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "mattstack.roster": roster.map((username) => ({ username, teams: ["widgets"] })) }));
+    // The org's own store, where a Mac keeps the acme clone.
+    mkdirSync(dirname(orgSettingsPath("acme")), { recursive: true });
+    writeFileSync(orgSettingsPath("acme"), JSON.stringify({ "mattstack.roster": roster.map((username) => ({ username, teams: ["widgets"] })) }));
     mkdirSync(join(pack.dir, "pack"), { recursive: true });
     writeFileSync(join(pack.dir, "pack", "skills.jsonc"), JSON.stringify(fragment));
     const engine = fixturePack("beacon", "local", "2.0.0");

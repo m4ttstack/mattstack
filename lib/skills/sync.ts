@@ -4,9 +4,7 @@ import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import { gateVerdict, MOVED_SENTENCE, showMarkerAt, shownDataBranch, updateSentence, type GateVerdict } from "../team/org-layout.ts";
 import { ORG_MARKER_REL, markerState, parseMarker } from "../team/org-marker.ts";
-import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
-import { readStore } from "../settings/stores.ts";
-import { rosterFrom, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { readOrgRoster, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { readForgeUsername } from "../../packages/rt-client/src/settings/team-local-read.ts";
 import { parseFragment, type Fragment } from "./manifest-merge.ts";
 import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
@@ -237,7 +235,7 @@ function orgLayoutGate(clone: string, packDir: string, forgeUsername: (org: stri
   }
   if (keys.length === 0) return skipped("the pack has no block-form bindings");
   const me = forgeUsername(marker.org);
-  const others = rosterFrom(readStore(join(clone, ORG_STORE_REL))).filter((entry) => me === null || !sameUser(entry.username, me));
+  const others = readOrgRoster(marker.org).filter((entry) => me === null || !sameUser(entry.username, me));
   if (others.length === 0) return skipped("no one else is on the org's roster");
   if (me === null) {
     return refused(
