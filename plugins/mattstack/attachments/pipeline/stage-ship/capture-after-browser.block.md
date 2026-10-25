@@ -47,7 +47,7 @@ goes into `Record the evidence` with its board. Held at evidence-redaction
 is the stage's hold. Not drawn because the developer left it uncaptured,
 the doctor stayed red, there was no compose on PATH, the sign-in asks were
 spent, there was no driver to spawn, the redaction rounds or openings were
-spent, or the confirm was refused twice: no retry fixes those, so the case
+spent, the confirm was refused twice, or a confirm left an empty record unconfirmed: no retry fixes those, so the case
 goes on without its AFTER and the description names the gap. A failed
 brief or spent re-renders count as a failed capture against
 `after-attempts`.

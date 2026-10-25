@@ -11,5 +11,5 @@ close gate**: watch-ci has finished (its lease released, ship already
 pushed this attempt) and the armed gate is close. Nothing a fix commits
 here would be pushed, so every frame, own or stacked, becomes a run note
 for the human answering close, who can choose Iterate (back through
-ship). **Any other stage** is everything else, watch-ci between pushes
+implement and ship). **Any other stage** is everything else, watch-ci between pushes
 included.

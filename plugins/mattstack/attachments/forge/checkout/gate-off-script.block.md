@@ -7,7 +7,7 @@ label: Off-script gate
 # Off-script gate
 
 Scope `off-script:<run.current_stage>:<n>`, `n` counting from 1 per
-off-script round in this run; with no run, per the gate steps. The
+off-script round in this run; with no run, the site is `checkout` (scope `off-script:checkout:<n>`). The
 context sentence quotes the `worktree_provision` error. The
 questions, each its own question:
 
@@ -15,7 +15,7 @@ questions, each its own question:
   / **Hand back**
 - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 
-Selection `{"move":"<the move>","why":"<the refusal>","action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
+Selection `{"action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Read `next` first: **Hold** ends the turn with no move made; **Iterate
 here** means the human fixed the cause (started the daemon, registered the
 repo) and wants `worktree_provision` retried, and it ignores `action`; only

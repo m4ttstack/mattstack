@@ -6,7 +6,7 @@ order: 3
 
 A repro capture that is a browser screenshot follows Browser evidence
 below, never another method, with the browser target the Criteria point
-at (the Browser target section (at any heading level) of the pack's evidence fill), or every
+at (the Browser target section, at any heading level, of the pack's evidence fill), or every
 block's default when nothing is bound. Walk its `Draw the boards` graph
 once per review pass, with these values in place of a run's:
 

@@ -33,9 +33,9 @@ composed. Its inputs:
 - `fill`: one `"<slot>=<value>"` string per slot
 - `out`: an absolute path in this session's scratchpad, one file per job
 
-Every path in this section is an `@key`, the `fill` values below included:
-pass the absolute path `skills_resolve` returns for each, never the key; a
-worker holds no map. The tool copies the template
+Each `@key` here, the `fill` values below included, goes as the absolute
+path `skills_resolve` returns for it, never the key; a worker holds no map.
+The tool copies the template
 and the named strategy body (into `## Method`) verbatim and fills the
 `<angle-bracket>` slots from `fill`; an unfilled marker is a refusal
 listing the leftovers. `<shepherd handle>` and `<shepherd id>` pass through for

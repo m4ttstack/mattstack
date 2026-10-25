@@ -4,7 +4,7 @@ order: 3
 
 # Review off-script gates
 
-Every off-script box opens gate-protocol's `## Off-script gate` at site
+Every off-script box opens gate-protocol's Off-script gate at site
 `review` (scope `off-script:review:<n>`, `n` from 1 in this run), `context`
 quoting the refusal verbatim, under the run, in this pane even when a board
 owns the review gates.

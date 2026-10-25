@@ -17,7 +17,7 @@ own question:
   / **Hand back**
 - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 
-Selection `{"move":"<the move>","why":"<the refusal>","action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
+Selection `{"action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Read `next` first: **Hold** ends the turn with no move made; **Iterate
 here** means the human fixed the cause and wants the push retried, and it
 ignores `action`; only **Proceed** applies `action` (take or hand back).

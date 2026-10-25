@@ -28,7 +28,7 @@ drawn yet (a ticket image's board is drawn at Record), it opens through
 | `attach` (write-in) | **Hand back the markdown (Recommended)** (ship attaches) / **Attach to the MR now** | always |
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
-Selection: `{"boards":"clear|hide|<their words>|null","annotations":[...],"attach":"now|handback"}`.
+Selection: `{"boards":"clear|hide|<their words>|null","annotations":[...],"attach":"now|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
 
 **Hide something first**, or words naming a board, is a revision of that
 board as under Iterate here, adding a `redact` mark over what they name;

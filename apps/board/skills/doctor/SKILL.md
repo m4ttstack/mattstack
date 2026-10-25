@@ -869,7 +869,7 @@ line asking for the move.
 | `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |
 
 Take: make exactly that move once, then continue from the node it led to.
-Hand back: under a run, `run_stage {action: fail}` with the why as reason;
+Hand back: the site's own hand-back edge where its graph draws one; otherwise, under a run, `run_stage {action: fail}` with the why as reason;
 with no run, end the verb quoting it.
 
 <!-- part: block:gate-protocol/structured-context-gate-ctx-1 source=mattstack:gate-protocol version=0.32.28 path=attachments/gate-protocol/structured-context-gate-ctx-1.block.md lines=6-13 -->

@@ -14,3 +14,5 @@ label: Graph notes
   back `{to: plan, note: <the triage mismatch: what made the trivial
   change need a test>, decidedBy: pane}`. Write nothing else: the
   orchestrator applies it with `run_resolve`.
+- **A Fix redirected from watch-ci:** before the first edit, read the
+  section its note names in `{{verb.path:stage-watch-ci}}` and follow it.

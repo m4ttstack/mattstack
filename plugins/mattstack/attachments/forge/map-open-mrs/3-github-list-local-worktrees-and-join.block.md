@@ -5,7 +5,7 @@ label: GitHub join worktrees
 
 # 3. GitHub: list local worktrees and join
 
-The `rt_verb` tool with `args` `["worktree", "list"]` gives the fuller
+The `rt_verb` tool with `args` `["worktree", "list", "--json"]` gives the fuller
 inventory; prefer it over parsing `git worktree list` by hand. It lists
 every repo rt knows: keep only the `trees` rows whose `repoName` matches
 the row whose `path` is the current checkout. `git worktree list` from

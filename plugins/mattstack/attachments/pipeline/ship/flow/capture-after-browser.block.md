@@ -48,7 +48,7 @@ board is recorded with the rest in `Record the evidence (evidence-record)`.
 Held at evidence-redaction is the verb's hold. Not drawn splits by its
 reason: the developer left it uncaptured, the doctor stayed red, no
 compose on PATH, sign-in asks spent, no driver to spawn, redaction rounds
-or openings spent, or confirm refused twice goes on without the AFTER,
+or openings spent, confirm refused twice, or a confirm that left an empty record unconfirmed goes on without the AFTER,
 and the description names the gap. A failed brief or spent re-renders is
 a failed capture, counted against `ship:after-attempts:<case id>`.
 

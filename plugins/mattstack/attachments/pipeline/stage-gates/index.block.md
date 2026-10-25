@@ -27,7 +27,7 @@ flowchart TB
     say_no_gates[Say in one line there are no domain gates]
     stop_invented_gate[STOP: never invent a gate]:::stop
     apply_triggered_gates
-    run_field_set_gates[/"run_field_set {key: extra.gates, value: <the gates that fired>, stage: gates}"/]
+    run_field_set_gates[/"run_field_set {key: extra.gates, value: <the gates that fired, or will fire at ship>, stage: gates}"/]
     any_gate_failed{Any gate failed?}
     run_stage_fail[/"run_stage {action: fail, stage: gates, reason}"/]
     stage_failed(((Stage failed)))

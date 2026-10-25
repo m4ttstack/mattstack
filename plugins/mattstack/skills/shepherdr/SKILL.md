@@ -468,9 +468,9 @@ composed. Its inputs:
 - `fill`: one `"<slot>=<value>"` string per slot
 - `out`: an absolute path in this session's scratchpad, one file per job
 
-Every path in this section is an `@key`, the `fill` values below included:
-pass the absolute path `skills_resolve` returns for each, never the key; a
-worker holds no map. The tool copies the template
+Each `@key` here, the `fill` values below included, goes as the absolute
+path `skills_resolve` returns for it, never the key; a worker holds no map.
+The tool copies the template
 and the named strategy body (into `## Method`) verbatim and fills the
 `<angle-bracket>` slots from `fill`; an unfilled marker is a refusal
 listing the leftovers. `<shepherd handle>` and `<shepherd id>` pass through for
@@ -990,8 +990,8 @@ The stop calls cover every job in the dispose list or with a closing pane:
 `repoName` is the herd's repo, `tree` the job's `tree` from `herd_status`
 (a registry name, never a path). A null
 tree (a job spawned in a given dir) is skipped unless that dir is an rt
-tree; then pass the name
-`rt_verb {args: ["worktree", "list", "--repo", "<the herd's repo>"]}` prints for it.
+tree; then pass that entry's
+`name` from `rt_verb {args: ["worktree", "list", "--repo", "<the herd's repo>", "--json"]}`.
 They run first: a disposed tree leaves rt's registry.
 
 `not-held` means rt recorded no hold, not that nothing runs: a hold is

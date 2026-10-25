@@ -29,3 +29,9 @@ Selection: `{"action":"fix|retry|handback|abandon","next":"proceed|iterate|go-ba
 An `action` write-in records `{"writeIn": "<their words>"}` as `action`.
 Read `next` first: Proceed applies `action`; Iterate here, Go back and
 Hold win over it.
+
+**Fix and re-push** hands back `{to: implement, note, decidedBy}`. The
+note names the failing job, its one-line triage, and the heading of the
+Domain rules section that governs fixing it, for example `api-tests: REAL,
+orders spec asserts 25 per page; Domain rules: Acting on other REAL
+failures` (`Domain rules: none` when no section applies).

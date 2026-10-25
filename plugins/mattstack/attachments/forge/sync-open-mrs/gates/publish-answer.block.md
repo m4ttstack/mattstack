@@ -13,6 +13,6 @@ by hand: a second record moves the decision's time. The recorded
 selection is that answers map, keyed by the question ids each gate names,
 `next` included; each `Selection` line names those keys.
 
-If a rule below asks for a move this graph marks STOP, take the off-script edge instead.
+If a rule below asks for a move this skill's graph marks STOP, take the off-script edge instead.
 
 {{include:gate-protocol}}
