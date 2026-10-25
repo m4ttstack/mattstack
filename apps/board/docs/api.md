@@ -33,12 +33,13 @@ board is not peering at all.
 
 ## Launching agents (local-only)
 
-| endpoint        | body                                                                                |
-| --------------- | ----------------------------------------------------------------------------------- |
-| `POST /review`  | `{ mrUrl, iid }`. `400` when `reviewCwd` is unset                                   |
-| `POST /respond` | same shape, for your own MR                                                         |
-| `POST /doctor`  | same shape, to repair mechanical breakage                                           |
-| `POST /drafts`  | approve or dismiss a held doctor draft. The only path from a draft to a GitLab note |
+| endpoint         | body                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /review`   | `{ mrUrl, iid }`. `400` when `reviewCwd` is unset                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /respond`  | same shape, for your own MR                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `POST /doctor`   | same shape, to repair mechanical breakage                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `POST /drafts`   | approve or dismiss a held doctor draft. The only path from a draft to a GitLab note                                                                                                                                                                                                                                                                                                                                                                             |
+| `POST /question` | `{ mrUrl, iid, gateId, findingId, focus? }`. Opens a read-only questions pane about one finding of the review's report json, or focuses the one already running; `focus: true` only focuses (`409` when nothing is running). `400` when `reviewCwd` is unset or the finding id has a character the prompt cannot carry, `409` when the report json does not list the finding. Answers before the pane is up; the outcome reaches the sheet through `/data.json` |
 
 A launched agent's lifecycle status never arrives over HTTP. The status CLIs
 publish it on the rt daemon's event bus (`board/agent-status/<kind>`) and the
@@ -46,13 +47,15 @@ board consumes the bus journal by cursor; see `docs/agent-actions.md`.
 
 ## Mutating (local-only)
 
-| endpoint               | body                                                                                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /settings`       | flip a member's hidden state                                                                                                                                        |
-| `POST /roster`         | add or drop a teammate                                                                                                                                              |
-| `POST /tabs`           | replace the tab list                                                                                                                                                |
-| `POST /draft`          | flip one of your own MRs between draft and ready, by rewriting the title prefix                                                                                     |
-| `POST /api/settings/*` | the settings-kit routes behind the config modal. Reads are as public as `/data.json`; writes are local-only, and a successful write live-reloads the board's config |
+| endpoint                           | body                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /settings`                   | flip a member's hidden state                                                                                                                                              |
+| `POST /roster`                     | add or drop a teammate                                                                                                                                                    |
+| `POST /tabs`                       | replace the tab list                                                                                                                                                      |
+| `POST /draft`                      | flip one of your own MRs between draft and ready, by rewriting the title prefix                                                                                           |
+| `GET /review/sheet-draft?mr=<url>` | the review sheet's unsent ticks and edits for one MR, or `null`. Kept so a gate rebuilt after a finding revision restores them                                            |
+| `PUT /review/sheet-draft`          | `{ mrUrl, draft: { ticked, texts, outcome?, notes } }`: replace that MR's saved ticks and edits. A new review run, a submitted review and an MR leaving the board drop it |
+| `POST /api/settings/*`             | the settings-kit routes behind the config modal. Reads are as public as `/data.json`; writes are local-only, and a successful write live-reloads the board's config       |
 
 ## Slack (local-only, and `400` without a Slack token)
 
