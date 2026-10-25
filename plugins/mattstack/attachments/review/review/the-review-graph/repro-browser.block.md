@@ -6,7 +6,7 @@ label: Repro takes screenshot
 # Review repro takes a browser screenshot?
 
 Yes at `repro` depth when EVIDENCE CHECK is `screenshot` and the Criteria
-point at a browser target (a `## Browser target` section, in the criteria
+point at a browser target (a Browser target section (at any heading level), in the criteria
 or in the file they point at for it) whose What proves a change names a
 view for this change, or that has no What proves a change block. Bound
 criteria with no browser target answer no: the repro keeps the domain's

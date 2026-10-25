@@ -24,7 +24,7 @@ CI) goes in the integration job's brief; the rest lives in the skill that
 owns it.
 
 **Domain hook -- conventions.** Unbound: as above. When the bound domain
-part's method skill owns the conventions, `Repo conventions` names only the
+rules' method skill owns the conventions, `Repo conventions` names only the
 branch; a brief that restates gates, process or evidence competes with the
 worker's skill chain.
 

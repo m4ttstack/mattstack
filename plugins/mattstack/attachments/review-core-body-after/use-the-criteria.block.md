@@ -10,4 +10,4 @@ each triage line they declare (`NAME: <values> -- <observable
 predicate>`) and print the resolved line in the block. Their addendum goes
 to the dispatch with two placeholders filled -- `{TRIAGE_FLAGS}` (those values),
 `{SETUP_OBSERVATIONS}` (the setup observations, or `none`) -- everything else
-verbatim.
+verbatim, each `@key` written as its resolved path.

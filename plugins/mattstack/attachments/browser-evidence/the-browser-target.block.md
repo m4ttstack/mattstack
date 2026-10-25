@@ -4,7 +4,7 @@ order: 1
 
 # The browser target
 
-The four blocks come from the `## Browser target` section in this verb's
+The four blocks come from the Browser target section (at any heading level) in this verb's
 domain rules, or from the file those rules point at for it. A missing block
 takes its default:
 

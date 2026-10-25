@@ -6,7 +6,7 @@ label: Browser capture
 # Capture with the browser (browser-evidence)
 
 `Browser screenshot for this case?` is yes when the domain has a
-`## Browser target` section (in its rules, or in the file they point at
+Browser target section (at any heading level) (in its rules, or in the file they point at
 for it) and either its What proves a change names a view for this case's
 kind of change, or it has no What proves a change block and the plan's
 evidence for the case is a screenshot of a web page. A bound domain with

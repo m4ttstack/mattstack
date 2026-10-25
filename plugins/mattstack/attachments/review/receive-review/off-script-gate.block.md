@@ -18,5 +18,3 @@ same gate. Hand back closes an own run `abandoned` or fails an inherited
 run's stage, with the why as `reason` (also in the hand-back when a caller
 owns the gates). A gate that comes back `closed` is a hold whose reason is
 "gate closed".
-
-*If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*

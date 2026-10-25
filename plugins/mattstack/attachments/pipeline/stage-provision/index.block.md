@@ -78,12 +78,14 @@ flowchart TB
     whoami --> gate_provision
     precheck_result -->|nothing in the way| worktree_provision_codes
     precheck_result -->|refused daemon-outdated| worktree_provision_codes
-    precheck_result -->|refused daemon-unreachable or repo-unknown| git_rev_parse
+    precheck_result -->|refused daemon-unreachable or repo-unknown, the domain allows the fallback| git_rev_parse
+    precheck_result -->|refused daemon-unreachable or repo-unknown, the domain forbids the fallback| run_stage_fail
     precheck_result -->|refused otherwise| run_stage_fail
     worktree_provision_codes --> provision_result
     provision_result -->|provisioned: the result's path| enter_worktree
     provision_result -->|refused branch-attached| whoami
-    provision_result -->|refused daemon-unreachable or repo-unknown| git_rev_parse
+    provision_result -->|refused daemon-unreachable or repo-unknown, the domain allows the fallback| git_rev_parse
+    provision_result -->|refused daemon-unreachable or repo-unknown, the domain forbids the fallback| run_stage_fail
     provision_result -->|refused busy, budget not exhausted| worktree_provision_codes
     provision_result -->|any other refusal, or busy with the budget exhausted| run_stage_fail
     provision_result -->|tempted to hand-roll one| stop_hand_rolled_worktree

@@ -399,7 +399,7 @@ CI) goes in the integration job's brief; the rest lives in the skill that
 owns it.
 
 **Domain hook -- conventions.** Unbound: as above. When the bound domain
-part's method skill owns the conventions, `Repo conventions` names only the
+rules' method skill owns the conventions, `Repo conventions` names only the
 branch; a brief that restates gates, process or evidence competes with the
 worker's skill chain.
 
@@ -440,7 +440,7 @@ it answers yes once two retries have run.
 Make exactly the move the user took, once, as its value spells it. If it
 fails too, that is a new off-script gate, never a retry of your own.
 
-<!-- part: block:shepherdr/what-the-start-graph-cannot-show source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/what-the-start-graph-cannot-show.block.md lines=9-84 -->
+<!-- part: block:shepherdr/what-the-start-graph-cannot-show source=mattstack:shepherdr version=0.32.28 path=attachments/orchestration/shepherdr/what-the-start-graph-cannot-show.block.md lines=9-85 -->
 ## What the start graph cannot show
 
 **The herd contract.** Every herd is an rt daemon registry row plus one
@@ -468,16 +468,17 @@ composed. Its inputs:
 - `fill`: one `"<slot>=<value>"` string per slot
 - `out`: an absolute path in this session's scratchpad, one file per job
 
-Both paths are `@keys`: pass the absolute path `skills_resolve` returns for
-each. The tool copies the template
+Every path in this section is an `@key`, the `fill` values below included:
+pass the absolute path `skills_resolve` returns for each, never the key; a
+worker holds no map. The tool copies the template
 and the named strategy body (into `## Method`) verbatim and fills the
 `<angle-bracket>` slots from `fill`; an unfilled marker is a refusal
 listing the leftovers. `<shepherd handle>` and `<shepherd id>` pass through for
 `herd_spawn` to fill from the herd row; never `fill` them. The `out` path
 is the brief.
 
-**Domain hook -- the Method copy.** Unbound: as written. A bound domain
-part may supply `## Method` (its team's pipeline skill): pass `methodFile:
+**Domain hook -- the Method copy.** Unbound: as written. Bound domain
+rules may supply `## Method` (its team's pipeline skill): pass `methodFile:
 <path>` instead of `strategy`/`strategies` (mutually exclusive); the
 strategies-file slots go unfilled, the report contract is that skill's, and
 the rest of the template and both channels stay as they are.

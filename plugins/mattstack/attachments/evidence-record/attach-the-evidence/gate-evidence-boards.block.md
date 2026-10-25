@@ -19,7 +19,7 @@ Structured context): the source's `context` is a `boards@1` object.
 
 `gate_open` refuses a `boards@1` source with more than 12 boards, or
 one whose boards do not fit the pane prose budget. Each
-opening's budget is keyed by its first file's name, so a long upload's
+opening's `boards-openings` budget is keyed by its first file's name, so a long upload's
 later openings are not charged to the first.
 
 | Question | Options | Shown when |

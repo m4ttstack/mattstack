@@ -33,16 +33,17 @@ composed. Its inputs:
 - `fill`: one `"<slot>=<value>"` string per slot
 - `out`: an absolute path in this session's scratchpad, one file per job
 
-Both paths are `@keys`: pass the absolute path `skills_resolve` returns for
-each. The tool copies the template
+Every path in this section is an `@key`, the `fill` values below included:
+pass the absolute path `skills_resolve` returns for each, never the key; a
+worker holds no map. The tool copies the template
 and the named strategy body (into `## Method`) verbatim and fills the
 `<angle-bracket>` slots from `fill`; an unfilled marker is a refusal
 listing the leftovers. `<shepherd handle>` and `<shepherd id>` pass through for
 `herd_spawn` to fill from the herd row; never `fill` them. The `out` path
 is the brief.
 
-**Domain hook -- the Method copy.** Unbound: as written. A bound domain
-part may supply `## Method` (its team's pipeline skill): pass `methodFile:
+**Domain hook -- the Method copy.** Unbound: as written. Bound domain
+rules may supply `## Method` (its team's pipeline skill): pass `methodFile:
 <path>` instead of `strategy`/`strategies` (mutually exclusive); the
 strategies-file slots go unfilled, the report contract is that skill's, and
 the rest of the template and both channels stay as they are.

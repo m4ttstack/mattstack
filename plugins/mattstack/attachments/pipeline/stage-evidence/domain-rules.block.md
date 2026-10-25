@@ -14,8 +14,8 @@ different data source), the STOP node wins. A step no rule names runs as
 the graph and its capture steps draw it. Ship adds the AFTERs to the same
 record.
 
-A domain that takes browser screenshots adds a `## Browser target`
-section with four blocks (Reach the view, What proves a change, Captions,
+A domain that takes browser screenshots adds a Browser target section (at any heading level)
+with four blocks (Reach the view, What proves a change, Captions,
 Personal data) and no procedure: browser-evidence below does the capture,
 the board, the gates and the bundle. Its other evidence kinds stay its own
 method. On a browser case the domain's capture steps (preview, draw,

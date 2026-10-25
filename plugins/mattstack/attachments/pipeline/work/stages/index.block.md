@@ -4,7 +4,7 @@ order: 1
 
 # Stages
 
-The run engine walks them in this order.
+The run walks them in this order.
 
 {{pipeline.table}}
 
