@@ -96,6 +96,12 @@ function emit(flags: Flags, payload: { ok: boolean; mode: "expand" | "check"; sk
 const rerunCommand = (flags: Flags): string =>
   `rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`;
 
+/** An expand refusal that names its own command keeps it; the rerun is what fixes a source error. */
+export function expandFailure(err: unknown, rerun: string): out.FailureInput {
+  if (!(err instanceof UserActionableError)) return { title: (err as Error).message };
+  return { ...failureFor(err), ...(err.next ? {} : { next: out.cmd(rerun) }) };
+}
+
 const hits = (n: number): string => `${n} lint ${n === 1 ? "hit" : "hits"}`;
 
 export async function skillsExpand(args: string[]): Promise<void> {
@@ -106,7 +112,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
   try {
     skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots });
   } catch (err) {
-    fail(err instanceof UserActionableError ? { ...failureFor(err), next: out.cmd(rerunCommand(flags)) } : { title: (err as Error).message });
+    fail(expandFailure(err, rerunCommand(flags)));
   }
 
   const { lint, advisory } = flags.strict ? lintExpanded(flags.out, skills) : { lint: [], advisory: [] };

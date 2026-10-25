@@ -300,6 +300,15 @@ describe("check reads keys and stamps", () => {
     expect(payload.pointerErrors ?? []).toEqual([]);
   });
 
+  test("an npm scope that matches a unit's name is not a key, so it never dangles", async () => {
+    const f = seed({ receiveExtra: " Its helpers come from @work/core." });
+    await compile(f);
+    expect(read(f, "attachments/receive-review/SKILL.md")).toContain("@work/core.");
+    const payload = await check(f);
+    expect(payload.pointerErrors ?? []).toEqual([]);
+    expect(payload.sourcePointerErrors ?? []).toEqual([]);
+  });
+
   test("a plugin.json bumped after the compile makes the verbs out of date", async () => {
     const f = seed();
     await compile(f);

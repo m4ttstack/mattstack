@@ -30,6 +30,20 @@ describe("keyBody: scripts", () => {
   });
 });
 
+describe("keyBody: the unbraced token", () => {
+  test("keys like the braced form", () => {
+    const out = keyBody("Run `bash $CLAUDE_SKILL_DIR/scripts/x.sh` now.", { dir: "skills/work", fileRel: "SKILL.md", units, written: everything });
+    expect(out.text).toBe("Run `bash @work/scripts/x.sh` now.");
+    expect(out.targets).toEqual({ "work/scripts/x.sh": "skills/work/scripts/x.sh" });
+  });
+
+  test("a longer variable name is not the token", () => {
+    const text = "Echo $CLAUDE_SKILL_DIRS/x.sh.";
+    expect(keyBody(text, { dir: "skills/work", fileRel: "SKILL.md", units, written: everything }).text).toBe(text);
+    expect(leftoverTokens(text)).toEqual([]);
+  });
+});
+
 describe("keyBody: an attachment's own token without ../../", () => {
   test("is left as written and reported as a leftover", () => {
     const text = `Run ${TOKEN}/scripts/gate-ctx.sh now.`;
@@ -198,6 +212,13 @@ describe("isKey", () => {
   test("scoped npm names, versions and emails are not keys", () => {
     for (const token of ["@mantine/core", "@acme/ui", "mattstack@0.32.28", "name@acme.dev"]) expect(isKey(token, units)).toBe(false);
   });
+
+  test("a unit's name with no file name after it is a key only when the map holds it", () => {
+    const withReview: UnitTable = { ...units, review: "skills/review" };
+    expect(isKey("@review/core", withReview)).toBe(false);
+    expect(isKey("@review/core", withReview, { "review/core": "skills/review/core" })).toBe(true);
+    expect(isKey("@review/scripts/x.sh", withReview)).toBe(true);
+  });
 });
 
 describe("ids", () => {
@@ -226,5 +247,10 @@ describe("leftoverTokens", () => {
   test("ignores frontmatter and finds the token in the body", () => {
     const text = `---\nname: work\nallowed-tools: Bash(bash ${TOKEN}/scripts/x.sh:*)\n---\nIntro.\nRun ${TOKEN}/nowhere.sh\n`;
     expect(leftoverTokens(text)).toEqual([{ line: 6, col: 5 }]);
+  });
+
+  test("finds the unbraced form too, but never in frontmatter", () => {
+    const text = `---\nallowed-tools: Bash(bash $CLAUDE_SKILL_DIR/x.sh:*)\n---\nRun $CLAUDE_SKILL_DIR and \`${TOKEN}\`.\n`;
+    expect(leftoverTokens(text)).toEqual([{ line: 4, col: 5 }, { line: 4, col: 28 }]);
   });
 });

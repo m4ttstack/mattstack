@@ -316,7 +316,7 @@ export function pointerErrorsIn(units: ScannedUnit[], table: UnitTable, fileExis
         file, ...at, code: "leftover-token", message: "${CLAUDE_SKILL_DIR} is left in a compiled body; compile writes each pointer there as an @key",
       }));
       for (const { token, line, col } of keyTokens(text)) {
-        if (!isKey(token, table)) continue;
+        if (!isKey(token, table, keys)) continue;
         const key = token.slice(1);
         const target = Object.hasOwn(keys, key) ? keys[key]! : undefined;
         if (target === undefined) rows.push({ file, line, col, code: "dangling-key", message: `${token} is not in this skill's pointer map` });

@@ -100,15 +100,17 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
   if (roots.length === 0) {
     const cache = `${home}/.claude/plugins/cache`;
     const found = [...new Set(fs.readDir(cache).filter((m) => !m.startsWith("temp_git_")).flatMap((m) => fs.readDir(`${cache}/${m}/${plugin}`)))].sort();
-    const why = found.length > 0 ? `The installed versions are ${found.join(", ")}.` : `No version of ${plugin} is installed.`;
+    // An installed copy stamped with an older id is a stale build, which a reload cannot fix.
+    const why = found.length > 0 ? `The installed versions are ${found.join(", ")}. ${ownerWhy(plugin)}` : `No version of ${plugin} is installed.`;
     throw refuse("skills-resolve-not-installed", `${plugin} ${version} is not installed, so ${id} cannot resolve.`, why, "/reload-plugins");
   }
   if (roots.length > 1) {
+    const uninstalls = roots.map((r) => `claude plugin uninstall ${plugin}@${marketplaceOf(r)}`).join("; ");
     throw refuse(
       "skills-resolve-many-marketplaces",
       `${plugin} ${version} is installed from more than one marketplace.`,
-      `Copies: ${roots.join(", ")}. Keep one and uninstall the others.`,
-      `claude plugin uninstall ${plugin}@${marketplaceOf(roots[roots.length - 1]!)}`,
+      `Copies: ${roots.join(", ")}. Keep one and uninstall each of the others with its command: ${uninstalls}.`,
+      "claude plugin list",
     );
   }
   const root = roots[0]!;
@@ -128,9 +130,11 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
     }
     throw refuse("skills-resolve-no-unit", `${plugin} ${version} has no unit named ${unit}.`, `Nothing under ${root} carries ${id}. ${owner}`, fix);
   }
-  const { map } = matched[0]!;
-  const folder = `${root}/${map.dir}`;
-  if (!within(root, folder)) throw outside(id, "its folder", folder, fix);
+  const { folder, map } = matched[0]!;
+  const sitsIn = folder.slice(root.length + 1);
+  if (map.dir !== sitsIn) {
+    throw refuse("skills-resolve-damaged-map", `The pointer map in ${folder} is damaged.`, `It names its folder as ${map.dir}, but it sits in ${sitsIn}. ${owner}`, fix);
+  }
   return { folder, map, bound: root, fix, why: owner };
 }
 

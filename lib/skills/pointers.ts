@@ -7,9 +7,10 @@ export type PointerMap = { id: string; dir: string; covers: string[]; keys: Reco
 
 export const ID_RE = /^(?:[a-z0-9][a-z0-9-]*@\d+(?:\.\d+)*:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$/;
 
-const TOKEN = "${CLAUDE_SKILL_DIR}";
 const PATH_CHARS = "[^\\s`'\"\\\\)\\]>,;#?*:]*";
-const TOKEN_RE = new RegExp(`\\$\\{CLAUDE_SKILL_DIR\\}(/${PATH_CHARS})?`, "g");
+/** The braced form, or the unbraced one when no other name character follows it. */
+const TOKEN_FORM = "\\$(?:\\{CLAUDE_SKILL_DIR\\}|CLAUDE_SKILL_DIR(?![A-Za-z0-9_]))";
+const TOKEN_RE = new RegExp(`${TOKEN_FORM}(/${PATH_CHARS})?`, "g");
 const RELATIVE_RE = new RegExp(`(?<![^\\s\`'"(\\[<])\\.\\.?/${PATH_CHARS}`, "g");
 const SENTENCE_END_RE = /\.+$/;
 /** A written `@key` ends where keyBody ends the path it came from; a word, `@` or path character before it makes it part of something else. */
@@ -78,9 +79,14 @@ export function keyBody(text: string, at: KeySite): { text: string; targets: Rec
   return { text: head + keyed, targets };
 }
 
-export function isKey(token: string, units: UnitTable): boolean {
-  const match = token.match(/^@([a-z0-9][a-z0-9-]*)\/./);
-  return !!match && Object.hasOwn(units, match[1]!);
+/** A file name with an extension, as the last path segment. */
+const FILE_NAME_RE = /(?:^|\/)[^/.][^/]*\.[A-Za-z0-9]+$/;
+
+/** `@review/core` is an npm name when a `review` unit exists, so a key also needs the map to hold it or a file name to end it. */
+export function isKey(token: string, units: UnitTable, keys: Record<string, Target> = {}): boolean {
+  const match = token.match(/^@([a-z0-9][a-z0-9-]*)\/(.+)$/);
+  if (!match || !Object.hasOwn(units, match[1]!)) return false;
+  return Object.hasOwn(keys, token.slice(1)) || FILE_NAME_RE.test(match[2]!);
 }
 
 export function spellFrom(dir: string, target: string): string {
@@ -112,12 +118,9 @@ export function closeMap(own: PointerMap, reached: PointerMap[]): PointerMap {
 export function leftoverTokens(text: string): { line: number; col: number }[] {
   const [head] = splitFrontmatter(text);
   const found: { line: number; col: number }[] = [];
-  let at = text.indexOf(TOKEN, head.length);
-  while (at !== -1) {
-    const before = text.slice(0, at);
-    const lineStart = before.lastIndexOf("\n") + 1;
-    found.push({ line: before.split("\n").length, col: at - lineStart + 1 });
-    at = text.indexOf(TOKEN, at + TOKEN.length);
+  for (const m of text.slice(head.length).matchAll(new RegExp(TOKEN_FORM, "g"))) {
+    const before = text.slice(0, head.length + m.index);
+    found.push({ line: before.split("\n").length, col: before.length - before.lastIndexOf("\n") });
   }
   return found;
 }

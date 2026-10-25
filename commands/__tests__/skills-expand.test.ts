@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { skillsExpand } from "../skills-expand.ts";
+import { expandFailure, skillsExpand } from "../skills-expand.ts";
+import { UserActionableError } from "../../lib/errors.ts";
+import * as out from "../../lib/ui/out.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
@@ -182,6 +184,16 @@ describe("rt skills expand", () => {
       "  why: resolve refuses a skill whose map names a missing file, so the skill would stop on its first run.\n" +
       `  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")} --mattstack-dir ${root}\n`,
     );
+  });
+});
+
+describe("expandFailure", () => {
+  test("a refusal that names its own command keeps it, and one that names none gets the rerun", () => {
+    const own = new UserActionableError("x", "Widgets cannot expand.", {}, { why: "w", next: "rt setup update" });
+    expect(expandFailure(own, "rt skills expand --src a --out b").next).toEqual(out.cmd("rt setup update"));
+    const none = new UserActionableError("x", "Widgets cannot expand.", {}, { why: "w" });
+    expect(expandFailure(none, "rt skills expand --src a --out b").next).toEqual(out.cmd("rt skills expand --src a --out b"));
+    expect(expandFailure(new Error("plain"), "rt skills expand").title).toBe("plain");
   });
 });
 

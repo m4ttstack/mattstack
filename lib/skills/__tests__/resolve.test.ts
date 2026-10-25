@@ -105,6 +105,12 @@ describe("resolvePointers: plugin ids", () => {
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
     expect(said(e)).toContain("0.4.1");
     expect(e.message).toContain("0.4.2");
+    expect(e.why).toBe("The installed versions are 0.4.1. If widgets is a team pack whose own build is out of date, its owner recompiles it with rt skills sync --pack widgets.");
+  });
+
+  test("with no version installed at all, the why says so and names no owner", () => {
+    const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs: fakeFs({}), home: HOME }));
+    expect(e.why).toBe("No version of widgets is installed.");
   });
 
   test("ignores a temp_git_ marketplace holding the same version", () => {
@@ -117,7 +123,9 @@ describe("resolvePointers: plugin ids", () => {
     const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
     expect(said(e)).toContain(`${CACHE}/acme/widgets/0.4.2`);
     expect(said(e)).toContain(`${CACHE}/gadgets/widgets/0.4.2`);
-    expect(e.next).toBe("claude plugin uninstall widgets@gadgets");
+    expect(e.why).toContain("claude plugin uninstall widgets@acme");
+    expect(e.why).toContain("claude plugin uninstall widgets@gadgets");
+    expect(e.next).toBe("claude plugin list");
   });
 
   test("refuses two unit folders that both carry the id, naming each", () => {
@@ -155,15 +163,27 @@ describe("resolvePointers: plugin ids", () => {
   });
 
   test("refuses a map whose dir or key climbs out of the version dir, before reading that path", () => {
-    for (const bad of [
-      map("widgets@0.4.2:work", "../../../../../../../outside", { "work/x": "../../../../../../../outside/x" }),
-      map("widgets@0.4.2:work", "skills/work", { "work/x": "../../../outside/x" }),
+    for (const [bad, said] of [
+      [map("widgets@0.4.2:work", "../../../../../../../outside", { "work/x": "../../../../../../../outside/x" }), "damaged"],
+      [map("widgets@0.4.2:work", "skills/work", { "work/x": "../../../outside/x" }), "outside"],
     ]) {
-      const fs = fakeFs({ [`${V}/skills/work/compiled.json`]: bad, "/outside/x": "" });
+      const fs = fakeFs({ [`${V}/skills/work/compiled.json`]: bad!, "/outside/x": "" });
       const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
-      expect(e.message).toContain("outside");
+      expect(e.message).toContain(said!);
       expect(fs.reads.filter((p) => !posix.normalize(p).startsWith(`${HOME}/.claude/`))).toEqual([]);
     }
+  });
+
+  test("refuses as damaged a map whose dir is not the folder it was found in", () => {
+    const fs = fakeFs({
+      [`${V}/attachments/work/compiled.json`]: map("widgets@0.4.2:work", "skills/work", { "work/x.sh": "skills/work/x.sh" }),
+      [`${V}/skills/work/x.sh`]: "",
+    });
+    const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME }));
+    expect(e.code).toBe("skills-resolve-damaged-map");
+    expect(e.message).toBe(`The pointer map in ${V}/attachments/work is damaged.`);
+    expect(e.why).toStartWith("It names its folder as skills/work, but it sits in attachments/work. ");
+    expect(e.next).toBe("claude plugin update widgets@acme");
   });
 
   test("refuses a sibling whose skill name or path climbs out of its link, naming the key", () => {
