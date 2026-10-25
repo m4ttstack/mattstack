@@ -31,20 +31,23 @@ flowchart TB
     review_rounds_spent{Review rounds = 3?}
     fix_blocking_findings
     follow_domain_review
-    domain_review_gated{Did the domain review's own gate answer the findings?}
+    domain_review_gated{How did the domain review's own gate end?}
     git_log_shas[/git log --format=%h <branch-point>..HEAD/]
     run_field_set_commits[/"run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}"/]
     run_field_set_review[/"run_field_set {key: review, value: <verdict; findings fixed, waived, or left open by name>, stage: self-review}"/]
     run_stage_fail[/"run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}"/]
     stage_failed(((Stage failed)))
+    held_domain_gate(((Held at the domain review's gate)))
     self_review_done(((Self-review done: return to the orchestrator))):::done
     self_review_entered --> run_field_get_commits
     run_field_get_commits --> domain_rules_inlined
     domain_rules_inlined -->|yes| follow_domain_review
     domain_rules_inlined -->|no| dispatch_reviewer
     follow_domain_review --> domain_review_gated
-    domain_review_gated -->|yes: its answer stands, open findings named| run_field_set_review
-    domain_review_gated -->|no: no gate ran| blocking_findings
+    domain_review_gated -->|answered: it stands, open findings named| run_field_set_review
+    domain_review_gated -->|no gate ran| blocking_findings
+    domain_review_gated -->|hold| held_domain_gate
+    domain_review_gated -->|abandon: it failed the stage| stage_failed
     dispatch_reviewer --> blocking_findings
     blocking_findings -->|no| run_field_set_review
     blocking_findings -->|yes| run_budget_review_rounds
