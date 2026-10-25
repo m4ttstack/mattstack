@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
+import type { ReportFinding } from '../../review-finding.ts';
 import {
   CommentField,
   commentState,
@@ -38,9 +39,11 @@ import {
   CodeGlyph,
   CommentGlyph,
   FileGlyph,
+  QuestionGlyph,
   RemoveGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
+import { SEVERITY_LABEL } from './review-gate.ts';
 
 /** A diff that fails to load or render leaves the file header standing. */
 class DiffBoundary extends Component<
@@ -600,9 +603,147 @@ function CommentSection({
   );
 }
 
+/** A report json finding (what the questions agent revises) as the sheet's
+    finding entry: the tier lowercased to a severity, and `file` plus `line`
+    joined as the gate's `file:line` anchor. */
+export function findingEntryFromReport(f: ReportFinding): FindingEntry {
+  const file =
+    f.file === undefined
+      ? undefined
+      : f.line === undefined || f.line === ''
+        ? f.file
+        : `${f.file}:${f.line}`;
+  return {
+    id: f.id,
+    severity: f.tier.toLowerCase() as FindingEntry['severity'],
+    title: f.title,
+    body: f.body,
+    comment: f.comment,
+    ...(file !== undefined ? { file } : {}),
+    ...(f.fix !== undefined ? { fix: f.fix } : {}),
+    ...(f.evidence !== undefined ? { evidence: f.evidence } : {}),
+    ...(f.kind !== undefined ? { kind: f.kind } : {}),
+  };
+}
+
+/** A `file:line` anchor split into its path and the line part after the
+    last colon (a single line or a range such as `117–119`). */
+function splitAnchor(file: string | undefined): {
+  path: string;
+  lines?: string;
+} {
+  if (file === undefined) return { path: '' };
+  const m = /^(.*):(\d[^:]*)$/.exec(file);
+  return m ? { path: m[1]!, lines: m[2]! } : { path: file };
+}
+
+/** What a revision changed, in the strip's order: the severity, the anchor
+    (`lines a → b` on the same file, the whole anchor when the file moved),
+    then whether the title or body was reworded. */
+export function revisionSummary(
+  original: FindingEntry,
+  revised: FindingEntry
+): string[] {
+  const parts: string[] = [];
+  if (original.severity !== revised.severity)
+    parts.push(
+      `${SEVERITY_LABEL[original.severity]} → ${SEVERITY_LABEL[revised.severity]}`
+    );
+  if (original.file !== revised.file) {
+    const a = splitAnchor(original.file);
+    const b = splitAnchor(revised.file);
+    parts.push(
+      a.path === b.path && a.lines !== undefined && b.lines !== undefined
+        ? `lines ${a.lines} → ${b.lines}`
+        : `${original.file ?? 'no file'} → ${revised.file ?? 'no file'}`
+    );
+  }
+  if (original.title !== revised.title || original.body !== revised.body)
+    parts.push('finding reworded');
+  return parts;
+}
+
+/** A finding the review agent rewrote from a question: what changed and in
+    which question tab, with the original finding's text behind a toggle. */
+function RevisedStrip({
+  original,
+  revised,
+  tabLabel,
+}: {
+  original: FindingEntry;
+  revised: FindingEntry;
+  tabLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const text = [
+    `Revised from your question in ${tabLabel}`,
+    ...revisionSummary(original, revised),
+  ].join(' · ');
+  return (
+    <div className="tui-review-revised">
+      <div className="tui-review-revised-head">
+        <span className="tui-review-revised-text">{text}</span>
+        <button
+          type="button"
+          className="tui-review-section-link"
+          aria-expanded={open}
+          onClick={() => setOpen(o => !o)}
+        >
+          {open ? 'hide original' : 'show original'}
+        </button>
+      </div>
+      {open && (
+        <div className="tui-review-revised-original">
+          <Markdown unstyled linkTargetBlank>
+            {original.body}
+          </Markdown>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Agent Finding head's question control: "ask a question" opens a
+    questions pane for the finding, and once one is running it reads as the
+    open question and brings that pane forward. */
+function AskControl({
+  title,
+  id,
+  ask,
+}: {
+  title: string;
+  id: string;
+  ask: { state: 'idle' | 'live'; onAsk: () => void };
+}) {
+  return ask.state === 'live' ? (
+    <button
+      type="button"
+      className="tui-review-section-link"
+      data-live=""
+      aria-label={`${title}: question open, Q ${id}`}
+      onClick={ask.onAsk}
+    >
+      question open · Q {id}
+      <ArrowOutGlyph />
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="tui-review-section-link"
+      aria-label={`${title}: ask a question`}
+      onClick={ask.onAsk}
+    >
+      ask a question
+      <QuestionGlyph />
+    </button>
+  );
+}
+
 /** One finding in a review whose comments the board posts: the header
     with its tick, then The Code, the agent's finding and the comment that
-    posts. Unticked, only the header shows. */
+    posts. Unticked, only the header shows. A finding revised from a
+    question carries the revised strip under its header, ticked or not, so
+    the change is in view while deciding whether to post it. */
 export function FindingCard({
   finding: f,
   checked,
@@ -612,6 +753,8 @@ export function FindingCard({
   mrRef,
   mrRevision,
   pins,
+  ask,
+  revision,
 }: {
   finding: FindingEntry;
   checked: boolean;
@@ -621,13 +764,27 @@ export function FindingCard({
   mrRef?: string;
   mrRevision?: string;
   pins: FilePin[];
+  ask?: { state: 'idle' | 'live'; onAsk: () => void };
+  revision?: {
+    original: FindingEntry;
+    revised: FindingEntry | null;
+    tabLabel: string;
+  };
 }) {
   return (
     <article
       className="tui-review-finding tui-review-card"
       data-off={checked ? undefined : ''}
+      data-revised={revision?.revised ? '' : undefined}
     >
       {head}
+      {revision?.revised && (
+        <RevisedStrip
+          original={revision.original}
+          revised={revision.revised}
+          tabLabel={revision.tabLabel}
+        />
+      )}
       {checked && (
         <>
           {f.file && (
@@ -648,7 +805,9 @@ export function FindingCard({
               icon={<AgentGlyph />}
               name="Agent Finding"
               hue="accent"
-            />
+            >
+              {ask && <AskControl title={f.title} id={f.id} ask={ask} />}
+            </SectionHead>
             <div className="tui-review-section-body">
               <Markdown unstyled linkTargetBlank>
                 {f.body}

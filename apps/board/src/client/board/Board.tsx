@@ -2161,6 +2161,7 @@ export function Board() {
               onAnswered={retireActiveGate}
               onContinue={retireActiveGate}
               onLostChange={lost => queue.hold(lost ? activeGateId : null)}
+              tabId={state.tab}
               readOnly={gateReadOnlyReason(
                 queue.active.gate,
                 queue.active.mr,

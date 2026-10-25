@@ -67,6 +67,7 @@ function DecisionQueueModal({
   onContinue,
   onLostChange,
   readOnly: seatReadOnly,
+  tabId,
 }: {
   gate: GateRow & { executor?: ExecutorState };
   /** Absent for a non-MR gate (queueExtras) -- the strip and face below
@@ -95,6 +96,9 @@ function DecisionQueueModal({
   /** Set when the seat cannot answer this gate (gateReadOnlyReason): the
       face shows the questions and says why, with no form to submit. */
   readOnly?: string | null;
+  /** The board tab on screen, sent with a question launch from the review
+      sheet as every other launch sends it. */
+  tabId?: string;
 }) {
   const paneGone = gate.executor === 'gone';
   const context = gateContext(gate);
@@ -214,6 +218,7 @@ function DecisionQueueModal({
       <ReviewGateSheet
         gate={gate}
         mr={mr}
+        tabId={tabId}
         form={form}
         queue={queue}
         onClose={onClose}

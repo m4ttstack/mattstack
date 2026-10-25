@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { userEvent, within } from 'storybook/test';
 
@@ -76,6 +76,32 @@ function pips(position: number, total: number): TriageGateState[] {
   );
 }
 
+// Captured once at module scope, before any story stubs it.
+const REAL_FETCH = globalThis.fetch;
+
+/** Answers `/review/report.json` with the entry's report while the story is
+    mounted; every other url goes to the real fetch. Installed during render,
+    not in an effect, since the sheet's own mount effect fetches the report
+    before a parent's effect would run. */
+function useReportStub(reportJson: unknown) {
+  if (reportJson !== undefined)
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.startsWith('/review/report.json'))
+        return new Response(JSON.stringify(reportJson));
+      return REAL_FETCH(input as RequestInfo, init);
+    }) as typeof fetch;
+  useEffect(
+    () => () => {
+      globalThis.fetch = REAL_FETCH;
+    },
+    []
+  );
+}
+
 function Face({
   entry,
   position = 2,
@@ -85,6 +111,7 @@ function Face({
   position?: number;
   total?: number;
 }) {
+  useReportStub(entry.reportJson);
   const people = boardPeople({
     allMembers: [...G.PEOPLE].map(([username, name]) => ({ username, name })),
     mrs: entry.mr ? [entry.mr] : [],
@@ -218,6 +245,10 @@ export const ReviewPostDraftedHeldBack = face(
 export const ReviewPostDraftedGitHub = face(
   'Review: post, drafted, GitHub with three verdicts',
   G.reviewPostDraftedGitHub
+);
+export const ReviewPostQuestions = face(
+  'Review: post, drafted, one question open and one finding revised',
+  G.reviewPostQuestions
 );
 export const ReviewPostVerdictOnly = face(
   'Review: post, prose, verdict only',

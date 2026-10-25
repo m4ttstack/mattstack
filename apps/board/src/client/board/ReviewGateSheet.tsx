@@ -15,6 +15,7 @@ import {
 } from '@mattstack/gate-kit';
 import { Button, Chip, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
+import { parseReportFinding } from '../../review-finding.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import { anchorLine, anchorPath } from './diff-source.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
@@ -41,7 +42,12 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
-import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
+import {
+  FindingCard,
+  findingEntryFromReport,
+  SummaryCard,
+  type FilePin,
+} from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,
@@ -68,6 +74,8 @@ interface ReviewReportJson {
   strengths?: Array<{ lead: string; detail?: string }>;
   checks?: Array<{ tag: string; text: string }>;
   notes?: string[];
+  /** The findings a question can be asked about; read only for their ids. */
+  findings?: unknown;
 }
 
 /** report.json arrives from disk unvalidated; the record arrays each have
@@ -114,6 +122,17 @@ function safeDepth(report: ReviewReportJson | null): string | undefined {
   return report && typeof report.depth === 'string' && report.depth
     ? report.depth
     : undefined;
+}
+
+/** The ids of the report json's findings: the ones `/question` accepts. */
+function reportFindingIds(report: ReviewReportJson | null): Set<string> {
+  const ids = new Set<string>();
+  if (!report || !Array.isArray(report.findings)) return ids;
+  for (const f of report.findings) {
+    const parsed = parseReportFinding(f);
+    if (parsed) ids.add(parsed.id);
+  }
+  return ids;
 }
 
 /** Checks are rail material only (the CHECKS card), never part of the main
@@ -252,6 +271,7 @@ function readDrafts(
 function ReviewGateSheet({
   gate,
   mr,
+  tabId,
   form,
   queue,
   onClose,
@@ -260,6 +280,9 @@ function ReviewGateSheet({
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
+  /** The board tab on screen, which a question pane launches for (its
+      pack), as every other launch from the board sends it. */
+  tabId?: string;
   form: GateFormState;
   queue: GateSheetQueue;
   onClose: () => void;
@@ -448,6 +471,26 @@ function ReviewGateSheet({
   const checks = useMemo(() => safeChecks(report), [report]);
   const notes = useMemo(() => safeNotes(report), [report]);
   const depth = safeDepth(report);
+  const askable = useMemo(() => reportFindingIds(report), [report]);
+  const mrQuestions = mr?.questions;
+  /** Opens a question pane for the finding, or with `focus` brings its
+      running one forward. The board answers before the pane is up; the
+      pill appears once the next data refresh carries the live question. */
+  const askQuestion = (findingId: string, focus: boolean) => {
+    if (!mr?.webUrl) return;
+    void fetch('/question', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        mrUrl: mr.webUrl,
+        iid: mr.iid,
+        gateId: gate.gateId,
+        findingId,
+        ...(tabId !== undefined ? { tabId } : {}),
+        ...(focus ? { focus: true } : {}),
+      }),
+    }).catch(() => {});
+  };
 
   const mainRef = useRef<HTMLElement | null>(null);
   const [atEnd, setAtEnd] = useState(true);
@@ -538,6 +581,7 @@ function ReviewGateSheet({
       // The card's sections sit outside the label:
       // inside it, a click on the comment would toggle
       // the finding.
+      const revised = mrQuestions?.revised[f.id];
       if (drafts)
         return (
           <FindingCard
@@ -549,6 +593,24 @@ function ReviewGateSheet({
             mrRef={mr && mrRef(mr)}
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
+            ask={
+              askable.has(f.id)
+                ? {
+                    state: mrQuestions?.live[f.id] ? 'live' : 'idle',
+                    onAsk: () =>
+                      askQuestion(f.id, Boolean(mrQuestions?.live[f.id])),
+                  }
+                : undefined
+            }
+            revision={
+              revised?.revised
+                ? {
+                    original: findingEntryFromReport(revised.original),
+                    revised: findingEntryFromReport(revised.revised),
+                    tabLabel: `Q ${f.id}`,
+                  }
+                : undefined
+            }
             head={
               <label className="tui-review-finding-row tui-review-card-head">
                 {tick}
