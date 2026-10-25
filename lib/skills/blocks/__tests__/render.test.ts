@@ -306,6 +306,13 @@ test("a dash line under a comment, indented code or a two-line paragraph is no s
   expect(body).toContain("First line\nsecond line\n---");
 });
 
+test("a placeholder line over a dash line is no setext heading", () => {
+  const flat = flatInclude("Flat text.");
+  const body = renderStepFill("# Rules\n\n{{include:flat}}\n---\n\nMore.", { includes: { flat } });
+  expect(body).toContain("Flat text.\n---");
+  expect(headingsOf(body)).toEqual(["# a", "## Step", "### Rules"]);
+});
+
 test("a fill already at the right level still writes its setext headings as # headings", () => {
   const tree = plainTree({ "index.block.md": "---\nprops:\n  rules:\n    merge: add\n---\n\n# a\n\n{{props.rules}}\n" });
   const layers = { a: { rules: [{ layer: "pack", value: "widgets:mini-rules" }] } };

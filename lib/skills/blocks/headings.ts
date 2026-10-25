@@ -2,8 +2,11 @@ import { FENCE_RE } from "./tree.ts";
 
 const HEADING_RE = /^(#{1,6})(\s.*)$/;
 const SETEXT_RE = /^ {0,3}(=+|-+)\s*$/;
-/** A list item, quote, table row, comment or indented code above a dash line is not setext text, so the line stays a rule or a table edge. */
-const NOT_SETEXT_TEXT_RE = /^(\s*([-*+>|]|\d+[.)]\s|<!--)| {4}|\t)/;
+/**
+ * A list item, quote, table row, comment, indented code or placeholder line above a dash line is not setext
+ * text, so the line stays a rule or a table edge, and a placeholder still resolves alone on its line.
+ */
+const NOT_SETEXT_TEXT_RE = /^(\s*([-*+>|]|\d+[.)]\s|<!--|\{\{)| {4}|\t)/;
 
 /** True for each line inside a code fence, its opening and closing lines included. */
 export function fencedLines(text: string): boolean[] {
