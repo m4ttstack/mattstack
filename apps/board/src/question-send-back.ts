@@ -27,7 +27,10 @@ export interface SendBackIo {
   /** The MR's review report json, derived from the board root the handle
       sits under (the pane's environment names no board). */
   reportJsonPath(mrUrl: string): string;
-  readFile(path: string): string | null;
+  /** A file's raw bytes, null when it cannot be read. Raw, not decoded: the
+      report's sha must match `shasum -a 256` over the same file, and a
+      decode would swap any invalid UTF-8 for U+FFFD before the hash. */
+  readFile(path: string): Uint8Array | null;
   writeFile(path: string, text: string): void;
   removeFile(path: string): void;
   /** The MR's open review-post gate, 'parked' when the only live one is
@@ -65,8 +68,8 @@ export function revisionFilePath(reportJsonPath: string): string {
     : `${reportJsonPath}.revision.json`;
 }
 
-export function sha256Hex(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
+export function sha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /** Whether a findings question of the gate offers this finding id. A chunked
@@ -133,7 +136,7 @@ export async function sendBack(
     return refuse(
       'the review report changed since you read it; re-read it and check the revision still holds'
     );
-  const original = reportFinding(report, findingId);
+  const original = reportFinding(new TextDecoder().decode(report), findingId);
   if (!original) return refuse('this finding is no longer in the review');
 
   const revised = 'finding' in revision ? revision.finding : null;

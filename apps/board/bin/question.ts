@@ -131,9 +131,10 @@ if (verb === 'status') {
     // pane's environment, which names no board.
     reportJsonPath: mrUrl =>
       reviewReportJsonPath(mintHandle('review', mrUrl, root)),
+    // Raw bytes: the sha is over the file as shasum reads it.
     readFile: path => {
       try {
-        return readFileSync(path, 'utf8');
+        return readFileSync(path);
       } catch {
         return null;
       }

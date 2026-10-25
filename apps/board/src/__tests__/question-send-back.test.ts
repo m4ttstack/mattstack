@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Database } from 'bun:sqlite';
@@ -78,6 +78,8 @@ function harness(
     /** Replaces the early pending check, to model one that read the db
         before the other send-back claimed. */
     staleEarlyCheck?: boolean;
+    /** The report json as raw bytes, for content that is not valid UTF-8. */
+    reportBytes?: Uint8Array;
   } = {}
 ): Harness {
   const files = opts.shared?.files ?? new Map<string, string>();
@@ -87,7 +89,11 @@ function harness(
   const io: SendBackIo = {
     question: handle => readQuestionByHandle(handle, db),
     reportJsonPath: () => REPORT_PATH,
-    readFile: path => files.get(path) ?? null,
+    readFile: path => {
+      if (path === REPORT_PATH && opts.reportBytes) return opts.reportBytes;
+      const text = files.get(path);
+      return text === undefined ? null : new TextEncoder().encode(text);
+    },
     writeFile: (path, text) => void files.set(path, text),
     removeFile: path => void files.delete(path),
     openReviewGate: async () =>
@@ -332,6 +338,28 @@ describe('sendBack racing another send-back', () => {
 });
 
 describe('sendBack success', () => {
+  test('hashes the report as raw bytes, so invalid UTF-8 still matches shasum', async () => {
+    // A report json whose bytes are not valid UTF-8: a 0xff inside a string.
+    const bytes = new Uint8Array([
+      ...new TextEncoder().encode('{"note":"'),
+      0xff,
+      ...new TextEncoder().encode(`",${reportText.slice(1)}`),
+    ]);
+    const onDisk = join(dir, 'report.json');
+    writeFileSync(onDisk, bytes);
+    const shasum = Bun.spawnSync(['shasum', '-a', '256', onDisk], {
+      env: { PATH: process.env.PATH ?? '' },
+    });
+    expect(shasum.exitCode).toBe(0);
+    const shasumHex = shasum.stdout.toString().split(/\s+/)[0]!;
+    // Hashing the decoded text (U+FFFD for the bad byte) would not match.
+    expect(sha(new TextDecoder().decode(bytes))).not.toBe(shasumHex);
+
+    const h = harness({ reportBytes: bytes });
+    const r = await sendBack(input(seed(), { reportSha: shasumHex }), h.io);
+    expect(r).toEqual({ kind: 'sent' });
+  });
+
   test('writes the revision file, a pending row, and closes the gate as revised', async () => {
     const h = harness();
     const revised = finding('f1', 'new title');
