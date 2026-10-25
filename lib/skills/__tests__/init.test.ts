@@ -1251,6 +1251,14 @@ describe("initPack", () => {
     expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
   });
 
+  test("a pointer conflict stops init before the install and share, with its own code", async () => {
+    const conflict = "pointer key @stage-x/SKILL.md has two targets in work's closure";
+    const { deps, calls } = world({ check: async () => ({ drift: false, pointerConflicts: [conflict] }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: false, code: "pointer-conflict", detail: conflict });
+    expect(calls.shared).toEqual([]);
+  });
+
   test("the share is remembered once the files are written, so a later failure ends with rt team publish", async () => {
     const { deps, calls } = world({ compile: async () => ({ ok: false, errors: ["boom"] }) });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);

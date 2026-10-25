@@ -106,6 +106,12 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
       next: ["Fix each file, then run ", ...commandChain(o.remedy?.commands ?? ["rt skills check"])],
     };
   }
+  if (o.code === "pointer-conflict") {
+    return {
+      title: "Compiled skills in the new pack disagree about where a pointer leads",
+      next: ["Compile the whole pack, then run ", ...commandChain(o.remedy?.commands ?? ["rt skills compile", "rt skills check"])],
+    };
+  }
   if (o.code === "pointer-failed") {
     return {
       title: "Compiled skills in the new pack have pointers that lead nowhere",
@@ -127,15 +133,18 @@ export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[
   if (o.refused) return [];
   if (o.code === "hand-skill-failed") return [ui.verbatim(o.detail.split("\n"), "hand-written skill problems")];
   if (o.code === "pointer-failed") return [ui.verbatim(o.detail.split("\n"), "compiled skills, pointers")];
+  if (o.code === "pointer-conflict") return [ui.verbatim(o.detail.split("\n"), "compiled skills, pointer maps")];
   if (o.code !== "compile-failed") return o.wrote.length > 0 ? [ui.verbatim(o.wrote, "written so far")] : [];
   const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return [ui.verbatim(lines, "what did not compile")];
 }
 
 /** What init's check step reads from a check: what fails apart from drift rides beside it, so init refuses on it. */
-export function initCheckOf(payload: Pick<CheckPayload, "drift" | "skillPaths" | "skillFrontmatter" | "sourcePointerErrors">): { drift: boolean; handErrors: string[]; pointerErrors: string[] } {
-  const { handSkills, pointers } = checkFailures(payload);
-  return { drift: payload.drift, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic) };
+export function initCheckOf(
+  payload: Pick<CheckPayload, "drift" | "skillPaths" | "skillFrontmatter" | "sourcePointerErrors" | "pointerConflicts">,
+): { drift: boolean; handErrors: string[]; pointerErrors: string[]; pointerConflicts: string[] } {
+  const { handSkills, pointers, conflicts } = checkFailures(payload);
+  return { drift: payload.drift, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic), pointerConflicts: conflicts };
 }
 
 export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {

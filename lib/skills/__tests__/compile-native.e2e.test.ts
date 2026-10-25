@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { checkPack, skillsAnatomy, skillsBind, skillsCheck, skillsCompile, skillsComposition } from "../../../commands/skills.ts";
+import { syncCheckOf } from "../../../commands/skills-sync.ts";
 import { childEnv } from "../../subprocess.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
@@ -109,6 +110,15 @@ describe("compile-native end to end", () => {
     expect(entries.map((e) => e.read)).toEqual(["@stage-plan/SKILL.md", "@stage-implement/SKILL.md", "@stage-ship/SKILL.md"]);
     expect(entries.every((e) => !("dir" in e))).toBe(true);
     expect(fence).not.toContain("${CLAUDE_SKILL_DIR}");
+  });
+
+  test("a stage whose folder is not there yet is drift for sync, never a pointer a recompile cannot fix", async () => {
+    const { pack, ms, manifest } = await build();
+    rmSync(join(pack, "attachments", "stage-ship"), { recursive: true });
+    const payload = await checkPack({ packDir: pack, mattstackDir: ms, manifest });
+    expect(payload.verbs.find((row) => row.name === "stage-ship")?.status).toBe("never-compiled");
+    expect(payload.sourcePointerErrors).toEqual([]);
+    expect(syncCheckOf(payload)).toMatchObject({ drift: true, handErrors: [], pointerErrors: [] });
   });
 
   test("rt skills check is clean immediately after compile", async () => {

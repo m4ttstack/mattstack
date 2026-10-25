@@ -194,8 +194,8 @@ export function claudeMissingBlocks(): Block[] {
 
 /** What sync's check step reads from a check: what fails apart from drift rides beside it, so sync refuses on it instead of recompiling. */
 export function syncCheckOf(payload: CheckPayload): Awaited<ReturnType<SyncDeps["checkPack"]>> {
-  const { handSkills, pointers } = checkFailures(payload);
-  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic) };
+  const { handSkills, pointers, conflicts } = checkFailures(payload);
+  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic), pointerConflicts: conflicts };
 }
 
 export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {

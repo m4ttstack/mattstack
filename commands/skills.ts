@@ -79,6 +79,7 @@ import { unitId } from "../lib/skills/pointers.ts";
 import {
   attachMaps,
   emittedUnits,
+  withMapFile,
   fileCheckFor,
   MAP_FILE,
   pointerErrorsIn,
@@ -968,7 +969,7 @@ function compileVerb(
     const { includes, values } = loadIncludesAndValues(step, resolved, where, isStage ? verb.pipeline : undefined);
     const result = compileBlockSkill(verb, step, values, resolved.invocable, opts(includes));
     if (result.diagnostics.length > 0) throw new BlockError(result.diagnostics);
-    // A table row records the stage it reads, but an orchestrator reaches its stages whatever its text renders.
+    // An orchestrator reads its pipeline's stages by path, so they join its reads whether or not a placeholder recorded them.
     const stageReads = stageReadsOf(entries, pipeline, isOrchestrator);
     const pointers = result.pointers && { ...result.pointers, reads: dedupePreserveOrder([...result.pointers.reads, ...stageReads]) };
     return { ...result, ...(pointers ? { pointers } : {}), anatomy: { step, includes, values } };
@@ -1331,6 +1332,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   unclaimedBlockKeys: string[];
   missing: MissingMarker[];
   unusedParams: string[];
+  /** The closure found two units claiming one key: a full compile writes every unit from one table again. */
+  pointerConflict: boolean;
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -1342,18 +1345,25 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   // Every target is compiled before any is written: a run that aborts midway
   // leaves already-emitted verbs referencing stage dirs that never landed.
   const planned = plannedAttachmentsOf(plan);
-  const outcomes: { target: CompileTarget; outcome: CompileOutcome }[] = targets.map(
+  let outcomes: { target: CompileTarget; outcome: CompileOutcome }[] = targets.map(
     (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity) }),
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
   let emits = plan.emits;
+  let pointerConflict = false;
   if (failures.length === 0 && identity) {
     try {
       const compiled = outcomes.flatMap(({ target, outcome }) => (outcome.ok ? [{ leaf: target.verb.name, ...outcome.result }] : []));
-      emits = attachMaps({ packDir: resolved.packDir, identity, units: unitTableOf(verbSides, plan.emits.map((e) => e.name)), compiled, emits: plan.emits });
+      const closed = attachMaps({ packDir: resolved.packDir, identity, units: unitTableOf(verbSides, plan.emits.map((e) => e.name)), compiled, emits: plan.emits });
+      emits = closed.emits;
+      outcomes = outcomes.map(({ target, outcome }) => ({
+        target,
+        outcome: outcome.ok ? { ok: true, result: { ...outcome.result, files: withMapFile(outcome.result.files, closed.mapFiles.get(target.verb.name)) } } : outcome,
+      }));
     } catch (err) {
       if (!(err instanceof PointerConflictError)) throw err;
       failures.push(err.message);
+      pointerConflict = true;
     }
   }
   // A target that failed stopped partway, so the missing list is only whole once every target compiled.
@@ -1433,7 +1443,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   ];
 
   const staleNames = staleCopies.map((c) => c.name);
-  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract, unclaimedBlockKeys, missing, unusedParams };
+  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract, unclaimedBlockKeys, missing, unusedParams, pointerConflict };
 }
 
 function floorAtLeast(floor: string | null, version: string): boolean {
@@ -1499,11 +1509,12 @@ export function staleCopyBlocks(names: string[], writing: boolean): Block[] {
 }
 
 // Field-contract lines only run once every verb compiled, so a failure list is all one kind or all the other.
-export function compileFailure(failures: string[], staleEngine = false): out.FailureInput {
+export function compileFailure(failures: string[], staleEngine = false, pointerConflict = false): out.FailureInput {
   const title = failures.every((f) => f.startsWith("field contract: "))
     ? countOf(failures.length, "field-contract error", "field-contract errors")
     : `${countOf(failures.length, "verb", "verbs")} did not compile`;
   if (staleEngine) return { title, why: STALE_ENGINE_WHY, next: out.cmd(STALE_ENGINE_NEXT), details: failures.join("\n") };
+  if (pointerConflict) return { title, next: ["Compile the whole pack, with no --verb: ", out.cmd("rt skills compile")], details: failures.join("\n") };
   return { title, details: failures.join("\n") };
 }
 
@@ -1610,7 +1621,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     }
     const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract, unclaimedBlockKeys, missing, unusedParams } = compiledResult;
     if (failures.length > 0 && !flags.json) {
-      out.fail(compileFailure(failures, outcomes.some(({ outcome }) => !outcome.ok && outcome.staleEngine === true)));
+      out.fail(compileFailure(failures, outcomes.some(({ outcome }) => !outcome.ok && outcome.staleEngine === true), compiledResult.pointerConflict));
       process.exit(1);
     }
     if (missing.length > 0 && !flags.json) {
@@ -1772,6 +1783,8 @@ export type CheckPayload = {
   pointerErrors?: BlockDiagnostic[];
   /** The same rows in what this compile would write, so they come from the pack's sources and no recompile clears them. Not part of check --json. */
   sourcePointerErrors?: BlockDiagnostic[];
+  /** Two units claiming one key: check cannot trust any map then. --json carries it in compileErrors. */
+  pointerConflicts?: string[];
 };
 
 /** A hand-written skill's own fault: no compile fixes it, so it fails check apart from `drift`, which sync reads as "recompile". */
@@ -1784,8 +1797,10 @@ export function handSkillFailures(payload: Pick<CheckPayload, "skillPaths" | "sk
  * pointers that lead nowhere in what a recompile would write. A pointer row
  * only on disk is drift, which a recompile clears.
  */
-export function checkFailures(payload: Pick<CheckPayload, "skillPaths" | "skillFrontmatter" | "sourcePointerErrors">): { handSkills: BlockDiagnostic[]; pointers: BlockDiagnostic[] } {
-  return { handSkills: handSkillFailures(payload), pointers: payload.sourcePointerErrors ?? [] };
+export function checkFailures(
+  payload: Pick<CheckPayload, "skillPaths" | "skillFrontmatter" | "sourcePointerErrors" | "pointerConflicts">,
+): { handSkills: BlockDiagnostic[]; pointers: BlockDiagnostic[]; conflicts: string[] } {
+  return { handSkills: handSkillFailures(payload), pointers: payload.sourcePointerErrors ?? [], conflicts: payload.pointerConflicts ?? [] };
 }
 
 /** The registered skills compile does not produce, each checked from its own folder. */
@@ -1885,6 +1900,9 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   let compileFailed = false;
   // A unit's map reads the maps of the units it reaches, so every target compiles before any is compared.
   const slots: ({ target: CompileTarget; result: CompileResult } | { row: CheckVerbRow })[] = [];
+  // A target with no folder yet still compiles in memory, so the source scan reads all a recompile would write.
+  const unwritten: { target: CompileTarget; result: CompileResult }[] = [];
+  let freshWhole = true;
   for (const target of targets) {
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
@@ -1894,14 +1912,21 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       anyStale = true;
       neverCompiled = true;
       slots.push({ row: { name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side } });
+      const inMemory = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
+      if (inMemory.ok) unwritten.push({ target, result: inMemory.result });
+      else freshWhole = false;
       continue;
     }
-    if (!target.isStage && noPipeline.has(verb.name)) continue;
+    if (!target.isStage && noPipeline.has(verb.name)) {
+      freshWhole = false;
+      continue;
+    }
 
     const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
     if (!outcome.ok) {
       anyStale = true;
       compileFailed = true;
+      freshWhole = false;
       compileErrors.push(outcome.message);
       continue;
     }
@@ -1910,23 +1935,30 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   }
 
   let plan = basePlan;
-  const ready = slots.flatMap((slot) => ("result" in slot ? [{ leaf: slot.target.verb.name, ...slot.result }] : []));
+  let mapFiles = new Map<string, CompiledFile>();
+  const pointerConflicts: string[] = [];
+  const results = [...slots.flatMap((slot) => ("result" in slot ? [slot] : [])), ...unwritten];
   if (identity) {
     try {
-      plan = { ...basePlan, emits: attachMaps({ packDir: resolved.packDir, identity, units, compiled: ready, emits: basePlan.emits }) };
+      const closed = attachMaps({ packDir: resolved.packDir, identity, units, compiled: results.map(({ target, result }) => ({ leaf: target.verb.name, ...result })), emits: basePlan.emits });
+      plan = { ...basePlan, emits: closed.emits };
+      mapFiles = closed.mapFiles;
     } catch (err) {
       if (!(err instanceof PointerConflictError)) throw err;
       anyStale = true;
       compileErrors.push(err.message);
+      pointerConflicts.push(err.message);
     }
   }
+  const filesOf = (target: CompileTarget, result: CompileResult) => withMapFile(result.files, mapFiles.get(target.verb.name));
 
   for (const slot of slots) {
     if ("row" in slot) {
       rows.push(slot.row);
       continue;
     }
-    const { target, result } = slot;
+    const { target } = slot;
+    const result = { ...slot.result, files: filesOf(target, slot.result) };
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
     const side: Side = isPublic ? "skills" : "attachments";
@@ -2035,10 +2067,14 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const unitDirs = [...targets.map((t) => units[t.verb.name]!), ...(flags.verbs === null ? plan.emits.map((e) => `attachments/${e.name}`) : [])];
   const pointerErrors = pointerErrorsIn(unitsOnDisk(resolved.packDir, unitDirs), units, fileCheckFor(resolved.packDir, []));
   // What this run would write: a row here comes from the sources, so a recompile cannot clear it.
-  const fresh = [...ready.map((r) => ({ dir: units[r.leaf]!, files: r.files })), ...plan.emits.map((e) => ({ dir: `attachments/${e.name}`, files: e.files }))];
-  const sourcePointerErrors = pointerErrorsIn(unitsInMemory(fresh), units, fileCheckFor(resolved.packDir, fresh));
+  // Without every unit compiled, or with the maps in conflict, the scan has nothing whole to read.
+  const fresh = [
+    ...results.map(({ target, result }) => ({ dir: units[target.verb.name]!, files: filesOf(target, result) })),
+    ...plan.emits.map((e) => ({ dir: `attachments/${e.name}`, files: e.files })),
+  ];
+  const sourcePointerErrors = identity && freshWhole && pointerConflicts.length === 0 ? pointerErrorsIn(unitsInMemory(fresh), units, fileCheckFor(resolved.packDir, fresh)) : [];
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter, pointerErrors, sourcePointerErrors };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter, pointerErrors, sourcePointerErrors, pointerConflicts };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -2150,7 +2186,7 @@ export async function skillsCheck(args: string[]): Promise<void> {
     const payload = await computeCheck(flags);
 
     const failures = checkFailures(payload);
-    if (payload.drift || failures.handSkills.length + failures.pointers.length > 0 || (payload.pointerErrors?.length ?? 0) > 0) process.exitCode = 1;
+    if (payload.drift || failures.handSkills.length + failures.pointers.length + failures.conflicts.length > 0 || (payload.pointerErrors?.length ?? 0) > 0) process.exitCode = 1;
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {

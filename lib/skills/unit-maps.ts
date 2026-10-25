@@ -166,9 +166,10 @@ export function readUnitMap(packDir: string, dir: string, id: string): PointerMa
 type Compiled = { files: CompiledFile[]; pointers?: { keys: Record<string, Target>; reads: string[] } };
 
 /**
- * Closes every unit's pointer map once all of them have compiled, and adds
- * it as the unit's compiled.json; a base copy's keeps its provenance. A unit
- * this run did not compile lends the map its last compile wrote.
+ * Closes every unit's pointer map once all of them have compiled. Each
+ * compiled target gets its compiled.json back in `mapFiles`, by leaf; each
+ * base copy comes back with its compiled.json carrying the map after its
+ * provenance. A unit this run did not compile lends the map its last compile wrote.
  */
 export function attachMaps<E extends { name: string } & Compiled>(input: {
   packDir: string;
@@ -176,7 +177,7 @@ export function attachMaps<E extends { name: string } & Compiled>(input: {
   units: UnitTable;
   compiled: ({ leaf: string } & Compiled)[];
   emits: E[];
-}): E[] {
+}): { mapFiles: Map<string, CompiledFile>; emits: E[] } {
   const { packDir, identity, units } = input;
   const idOf = (leaf: string) => unitId(identity.name, identity.version, leaf);
   const pointers: UnitPointers[] = [
@@ -184,16 +185,23 @@ export function attachMaps<E extends { name: string } & Compiled>(input: {
     ...input.emits.flatMap((e) => (e.pointers ? [{ leaf: leafOf(e.name), dir: `attachments/${e.name}`, ...e.pointers }] : [])),
   ];
   const closed = closeUnits(pointers, idOf, (leaf) => (Object.hasOwn(units, leaf) ? readUnitMap(packDir, units[leaf]!, idOf(leaf)) : null));
+  const mapFiles = new Map<string, CompiledFile>();
   for (const c of input.compiled) {
     const map = closed.get(c.leaf);
-    if (map) c.files.push({ path: MAP_FILE, content: mapFileText(map) });
+    if (map) mapFiles.set(c.leaf, { path: MAP_FILE, content: mapFileText(map) });
   }
-  return input.emits.map((e) => {
+  const emits = input.emits.map((e) => {
     const map = closed.get(leafOf(e.name));
     if (!map) return e;
     const files = e.files.map((f): CompiledFile => (f.path === MAP_FILE && "content" in f ? { path: f.path, content: mapFileText(map, parseObject(f.content) ?? {}) } : f));
     return { ...e, files };
   });
+  return { mapFiles, emits };
+}
+
+/** A compiled target's files with its compiled.json, when the closure gave it one. */
+export function withMapFile(files: CompiledFile[], mapFile: CompiledFile | undefined): CompiledFile[] {
+  return mapFile ? [...files, mapFile] : files;
 }
 
 function isFile(path: string): boolean {

@@ -352,6 +352,42 @@ describe("what sync and init refuse on", () => {
   });
 });
 
+describe("check's source scan", () => {
+  test("a target with no folder yet compiles in memory, so a pointer to it is drift and never a source error", async () => {
+    const f = seed();
+    await compile(f);
+    rmSync(join(f.packDir, "attachments", "stage-plan"), { recursive: true });
+    const payload = await check(f);
+    expect(payload.verbs.find((row) => row.name === "stage-plan")?.status).toBe("never-compiled");
+    expect(payload.drift).toBe(true);
+    expect(payload.sourcePointerErrors).toEqual([]);
+    expect(syncCheckOf(payload)).toMatchObject({ drift: true, handErrors: [], pointerErrors: [], pointerConflicts: [] });
+  });
+
+  test("a target with no folder yet still has its own body scanned", async () => {
+    const f = seed({ receiveExtra: ` Its scripts live in \`${TOKEN}/scripts\`.` });
+    await compile(f);
+    rmSync(join(f.packDir, "attachments", "receive-review"), { recursive: true });
+    const payload = await check(f);
+    expect((payload.sourcePointerErrors ?? []).map((d) => `${d.file}:${d.code}`)).toEqual(["attachments/receive-review/SKILL.md:missing-target"]);
+  });
+
+  test("a pointer conflict in check is its own failure, and the source scan is skipped", async () => {
+    const f = seed({ receiveExtra: " Then {{verb.path:stage-x}}." });
+    await compile(f);
+    // receive-review no longer compiles, so check reads the map its last compile wrote, from before stage-x moved.
+    writeFile(join(f.packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work"] }));
+    const engine = join(f.mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "receive-review", "index.block.md");
+    writeFile(engine, readFileSync(engine, "utf8").replace("Then {{verb.path:stage-x}}.", "Then {{verb.path:nope}}."));
+    const payload = await check(f);
+    expect(payload.pointerConflicts).toEqual([
+      'pointer key @stage-x/SKILL.md has two targets in work\'s closure: widgets@0.4.2:work names "attachments/stage-x/SKILL.md" and widgets@0.4.2:receive-review names "skills/stage-x/SKILL.md"',
+    ]);
+    expect(payload.sourcePointerErrors).toEqual([]);
+    expect(syncCheckOf(payload).pointerConflicts).toEqual(payload.pointerConflicts!);
+  });
+});
+
 describe("refusals", () => {
   test("two units claiming one key with different targets fail, naming both", () => {
     const units: UnitPointers[] = [
@@ -369,6 +405,7 @@ describe("refusals", () => {
     const { exitCode, errors } = await compile(f, "--verb", "work");
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).toContain("pointer key @stage-x/SKILL.md has two targets in work's closure: widgets@0.4.2:work names \"attachments/stage-x/SKILL.md\" and widgets@0.4.2:receive-review names \"skills/stage-x/SKILL.md\"");
+    expect(errors.join("\n")).toContain("Compile the whole pack, with no --verb: rt skills compile");
   });
 
   test("an empty roster with no plugin.json compiles and checks clean", async () => {
