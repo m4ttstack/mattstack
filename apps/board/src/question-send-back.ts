@@ -54,6 +54,8 @@ const refuse = (message: string): SendBackResult => ({
 
 const REBUILDING = 'the review is being rebuilt; send again once it reopens';
 const ALREADY_CLOSED = 'the review was already submitted or closed';
+const PARKED =
+  "the review is parked, so it can't take a revision; edit or untick the finding in the sheet, or re-run the review";
 
 /** Where the review agent reads the revision: beside the report json, under
     the same stem. */
@@ -117,10 +119,9 @@ export async function sendBack(
   if (io.pendingRevision(mrUrl, now)) return refuse(REBUILDING);
 
   const gate = await io.openReviewGate(mrUrl);
-  if (gate === 'parked')
-    return refuse(
-      'the review is parked; resume it from the board, then send again'
-    );
+  // Answering a parked gate submits the review, so there is no way to
+  // resume it into taking a revision: the refusal names what does work.
+  if (gate === 'parked') return refuse(PARKED);
   if (!gate) return refuse(ALREADY_CLOSED);
   if (!gateHasFinding(gate, findingId))
     return refuse('this finding is no longer in the review');

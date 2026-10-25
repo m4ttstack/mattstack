@@ -13,7 +13,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*)
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:question`, use it; otherwise call `skills_resolve {id: "skills:board:question"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=question/SKILL.md path=question/SKILL.md lines=12-121 -->
+<!-- part: step source=question/SKILL.md path=question/SKILL.md lines=12-123 -->
 # mr-board question pane
 
 The human clicked "Ask a question" on one finding in an MR's review gate.
@@ -112,7 +112,9 @@ On yes, run:
   it and check the revision still holds": run `resolve-args.sh` again with
   the same flags for the new `finding` and `REPORT_SHA`, check the revision
   still makes sense against the new report, rewrite the file if it needs
-  it, show the human any change, and ask again.
+  it, show the human any change, and ask again. When it says the review is
+  parked, there is nothing to retry from here: the human edits or unticks
+  the finding in the board's sheet, or re-runs the review.
 - **Exit 2 or 1:** print stderr verbatim. Exit 2 means the revision file is
   malformed: fix the file and ask again. Exit 1 is any other failure: let
   the human decide whether to retry.

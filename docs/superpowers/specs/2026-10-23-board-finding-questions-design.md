@@ -196,8 +196,10 @@ revise.
   MR closes.
 - **If the gate parks anyway** (the question tab died, or it parked
   before the question was asked), a send-back is refused with "the
-  review is parked; resume it from the board, then send again". Revise
-  on a parked gate is out of scope.
+  review is parked, so it can't take a revision; edit or untick the
+  finding in the sheet, or re-run the review". Answering a parked gate
+  submits the review, so there is no resume that would take a revision;
+  revise on a parked gate is out of scope.
 - Parking does not close question tabs or clear saved sheet state.
 
 ### 4. The questions agent and the send-back (new wrapper skill)

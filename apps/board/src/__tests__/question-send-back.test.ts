@@ -168,7 +168,7 @@ describe('sendBack refusals', () => {
     expect(r).toEqual({
       kind: 'refused',
       message:
-        'the review is parked; resume it from the board, then send again',
+        "the review is parked, so it can't take a revision; edit or untick the finding in the sheet, or re-run the review",
     });
     expect(h.closes).toEqual([]);
   });

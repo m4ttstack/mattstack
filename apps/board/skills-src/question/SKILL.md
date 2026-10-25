@@ -107,7 +107,9 @@ On yes, run:
   it and check the revision still holds": run `resolve-args.sh` again with
   the same flags for the new `finding` and `REPORT_SHA`, check the revision
   still makes sense against the new report, rewrite the file if it needs
-  it, show the human any change, and ask again.
+  it, show the human any change, and ask again. When it says the review is
+  parked, there is nothing to retry from here: the human edits or unticks
+  the finding in the board's sheet, or re-runs the review.
 - **Exit 2 or 1:** print stderr verbatim. Exit 2 means the revision file is
   malformed: fix the file and ask again. Exit 1 is any other failure: let
   the human decide whether to retry.
