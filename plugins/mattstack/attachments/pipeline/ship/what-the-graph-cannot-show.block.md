@@ -10,7 +10,9 @@ label: Graph notes
   commits it rewrote.
 - **The lease.** The pushes' `<mr>` is the `mr` field when the run
   already records one (a reopened run, a repair push): then both pushes
-  pass `leaseMrUrl: <mr>`.
+  pass `leaseMrUrl: <mr>`. `refused: "lease_held"` means another
+  attendant holds the MR's CI lease: report the `holder` and stop,
+  releasing nothing; that lease is someone else's.
 - **`targetBranch`** is the target `branch_stack` resolved before the
   gate (on `stackStore: "unavailable"` or an error, the default branch),
   never guessed. A GitHub PR takes it as `--base`. The domain rebase goes

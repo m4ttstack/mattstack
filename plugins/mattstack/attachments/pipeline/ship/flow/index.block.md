@@ -58,7 +58,7 @@ flowchart TB
     git_push_lease[/"git_push {tree: <root>, forceWithLease: true, leaseMrUrl?: <mr>}"/]
     push_result{"git_push result (ship)?"}
     stop_shell_push["STOP: push only with git_push (ship)"]:::stop
-    report_lease_holder
+    stop_lease_holder_owns["STOP: the lease holder owns every commit, push and retry (ship)"]:::stop
     gate_which_forge
     gate_push_refused
     confirm_human_push
@@ -124,6 +124,7 @@ flowchart TB
     held_run_open(((Held in ship: the run stays open)))
     abandoned(((ship run abandoned)))
     failed(((ship failed)))
+    stand_down_lease((("Stand down: report the CI lease holder and stop (ship)")))
     shipped(((Shipped))):::done
     run_open --> reopened_recapture
     reopened_recapture -->|no| git_branch_current
@@ -192,9 +193,9 @@ flowchart TB
     git_push_upstream --> push_result
     git_push_lease --> push_result
     push_result -->|ok: keep sha, mr, priorPipelineId| git_remote_origin
-    push_result -->|refused: lease_held, holder named| report_lease_holder
+    push_result -->|refused: lease_held, holder named| stop_lease_holder_owns
     push_result -->|any other error or refusal| stop_shell_push
-    report_lease_holder --> which_exit
+    stop_lease_holder_owns --> stand_down_lease
     stop_shell_push --> gate_push_refused
     gate_push_refused -->|take: the human pushed| confirm_human_push
     gate_push_refused -->|iterate: push again| needs_force_lease
@@ -292,7 +293,7 @@ flowchart TB
     mark_ready_forge_host -->|GitHub| gh_pr_ready
     mr_ready --> which_exit
     gh_pr_ready --> which_exit
-    which_exit -->|own run: done, stood down (a CI lease holder included), or a re-capture's failure| run_close_done
+    which_exit -->|own run: done, stood down, or a re-capture's failure| run_close_done
     which_exit -->|own run: abort| run_close_abandoned
     which_exit -->|own run: a failure or a hand back, not on a re-capture| run_close_failed
     which_exit -->|inherited: any exit but hold| hand_back_caller
