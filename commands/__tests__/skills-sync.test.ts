@@ -506,6 +506,22 @@ describe("syncCheckOf", () => {
     }
   });
 
+  test("a compiled skill's dead pointer reaches sync as a named failure beside the hand-written ones", async () => {
+    const dir = teamPack("---\nname: gadgets\ndescription: Use when: x\n---\nDo the gadget thing.\n");
+    try {
+      const payload = await checkPack({ packDir: dir });
+      const dead = { file: "skills/work/SKILL.md", line: 12, col: 5, code: "dangling-key", message: "@work/nope.md is not in this skill's pointer map" };
+      const result = syncCheckOf({ ...payload, pointerErrors: [dead] });
+      expect(result.drift).toBe(false);
+      expect(result.handErrors).toEqual([
+        "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
+        "skills/work/SKILL.md:12:5: @work/nope.md is not in this skill's pointer map",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a hand-written skill with a broken path reaches sync as a named failure, not drift", async () => {
     const dir = teamPack("---\nname: gadgets\ndescription: \"Use when x\"\n---\nRead `${CLAUDE_SKILL_DIR}/../../attachments/widgets/gone.md` first.\n");
     try {

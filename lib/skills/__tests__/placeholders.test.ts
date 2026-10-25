@@ -205,7 +205,7 @@ describe("substituteLine", () => {
     const body = substitute("{{pipeline.stages}}", ctx(), "work").body;
     const json = JSON.parse(body.replace(/^```json\n/, "").replace(/\n```$/, ""));
     expect(json.feature[1]).toEqual({
-      name: "stage-plan", stage: "plan", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan",
+      name: "stage-plan", stage: "plan", read: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md",
       consumes: ["ticket"], produces: ["approach"],
     });
   });

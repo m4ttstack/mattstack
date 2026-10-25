@@ -192,9 +192,10 @@ export function claudeMissingBlocks(): Block[] {
   return [out.line("needs-you", "Claude Code is not installed", "rt installs and syncs packs through it"), out.callout("next", "Install Claude Code, then run this again")];
 }
 
-/** What sync's check step reads from a check: hand-written skill failures ride apart from drift, so sync refuses on them instead of recompiling. */
+/** What sync's check step reads from a check: hand-written skill failures and dead compiled pointers ride apart from drift, so sync refuses on them instead of recompiling. */
 export function syncCheckOf(payload: CheckPayload): Awaited<ReturnType<SyncDeps["checkPack"]>> {
-  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors: handSkillFailures(payload).map(formatDiagnostic) };
+  const handErrors = [...handSkillFailures(payload), ...(payload.pointerErrors ?? [])].map(formatDiagnostic);
+  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors };
 }
 
 export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {

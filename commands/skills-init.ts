@@ -32,7 +32,7 @@ import { readFloor } from "../lib/engine-floor.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
-import { checkPack, compilePackAll, handSkillFailures } from "./skills.ts";
+import { checkPack, compilePackAll, handSkillFailures, type CheckPayload } from "./skills.ts";
 import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
@@ -118,6 +118,11 @@ export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[
   if (o.code !== "compile-failed") return o.wrote.length > 0 ? [ui.verbatim(o.wrote, "written so far")] : [];
   const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return [ui.verbatim(lines, "what did not compile")];
+}
+
+/** What init's check step reads from a check: hand-written skill failures and dead compiled pointers ride apart from drift, so init refuses on them. */
+export function initCheckOf(payload: Pick<CheckPayload, "drift" | "skillPaths" | "skillFrontmatter" | "pointerErrors">): { drift: boolean; handErrors: string[] } {
+  return { drift: payload.drift, handErrors: [...handSkillFailures(payload), ...(payload.pointerErrors ?? [])].map(formatDiagnostic) };
 }
 
 export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {
@@ -247,8 +252,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
     },
     check: async (packDir, manifest) => {
       try {
-        const payload = await checkPack({ packDir, manifest });
-        return { drift: payload.drift, handErrors: handSkillFailures(payload).map(formatDiagnostic) };
+        return initCheckOf(await checkPack({ packDir, manifest }));
       } catch (err) {
         ui.note(ui.line("warn", "The check could not run", message(err)));
         return { drift: true };

@@ -187,7 +187,7 @@ The work type is \`feature\`. Continue.
     {
       "name": "stage-plan",
       "stage": "plan",
-      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-plan",
+      "read": "@stage-plan/SKILL.md",
       "consumes": [
         "ticket"
       ],
@@ -198,7 +198,7 @@ The work type is \`feature\`. Continue.
     {
       "name": "stage-implement",
       "stage": "implement",
-      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-implement",
+      "read": "@stage-implement/SKILL.md",
       "consumes": [
         "approach"
       ],
@@ -209,7 +209,7 @@ The work type is \`feature\`. Continue.
     {
       "name": "stage-ship",
       "stage": "ship",
-      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-ship",
+      "read": "@stage-ship/SKILL.md",
       "consumes": [
         "commits",
         "ticket"
@@ -241,6 +241,9 @@ Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
     "acme@0.1.0:stage-ship"
   ],
   "keys": {
+    "stage-plan/SKILL.md": "attachments/stage-plan/SKILL.md",
+    "stage-implement/SKILL.md": "attachments/stage-implement/SKILL.md",
+    "stage-ship/SKILL.md": "attachments/stage-ship/SKILL.md",
     "stage-plan/parts/include-gitlab-note/scripts/note.sh": "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh"
   }
 }

@@ -311,9 +311,17 @@ export function fileVerbPath(verbSides: Record<string, Side>, arg: string | unde
   return posix.relative(posix.dirname(fileRel), `${side}/${arg}/SKILL.md`);
 }
 
-/** `engine` stays out so a pack with no stage copies compiles the same bytes it always has. */
-function stageTableJson(pipelines: Record<string, StageEntry[]>): Record<string, Omit<StageEntry, "engine">[]> {
-  return Object.fromEntries(Object.entries(pipelines).map(([type, list]) => [type, list.map(({ engine: _engine, ...entry }) => entry)]));
+type StageRow = Omit<StageEntry, "engine" | "dir"> & { read: string };
+
+/**
+ * `engine` stays out so a pack with no stage copies compiles the same bytes it always has.
+ * `read` names the stage's file, which the key pass turns into an `@key`; a folder has no key.
+ */
+function stageTableJson(pipelines: Record<string, StageEntry[]>): Record<string, StageRow[]> {
+  return Object.fromEntries(Object.entries(pipelines).map(([type, list]) => [
+    type,
+    list.map(({ name, stage, dir, consumes, produces }) => ({ name, stage, read: `${dir}/SKILL.md`, consumes, produces })),
+  ]));
 }
 
 function workTypeText(pipelines: Record<string, StageEntry[]>, where: string): string {

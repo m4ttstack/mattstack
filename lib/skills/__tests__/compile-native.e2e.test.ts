@@ -94,9 +94,21 @@ describe("compile-native end to end", () => {
     expect(existsSync(join(pack, "skills", "stage-plan", "SKILL.md"))).toBe(true);
     expect(existsSync(join(pack, "attachments", "stage-plan"))).toBe(false);
     const work = readFileSync(join(pack, "skills", "work", "SKILL.md"), "utf8");
-    expect(work).toContain("${CLAUDE_SKILL_DIR}/../../skills/stage-plan");
+    const { keys } = JSON.parse(readFileSync(join(pack, "skills", "work", "compiled.json"), "utf8")) as { keys: Record<string, string> };
+    expect(work).toContain('"read": "@stage-plan/SKILL.md"');
+    expect(keys["stage-plan/SKILL.md"]).toBe("skills/stage-plan/SKILL.md");
     expect(work).not.toContain("attachments/stage-plan");
-    expect(work).toContain("${CLAUDE_SKILL_DIR}/../../attachments/stage-implement");
+    expect(keys["stage-implement/SKILL.md"]).toBe("attachments/stage-implement/SKILL.md");
+  });
+
+  test("pipeline.stages names each stage's file by key, never by token", async () => {
+    const { pack } = await build();
+    const work = readFileSync(join(pack, "skills", "work", "SKILL.md"), "utf8");
+    const fence = work.match(/```json\n(\{\n  "feature"[\s\S]*?)\n```/)![1]!;
+    const entries = (JSON.parse(fence) as { feature: Record<string, unknown>[] }).feature;
+    expect(entries.map((e) => e.read)).toEqual(["@stage-plan/SKILL.md", "@stage-implement/SKILL.md", "@stage-ship/SKILL.md"]);
+    expect(entries.every((e) => !("dir" in e))).toBe(true);
+    expect(fence).not.toContain("${CLAUDE_SKILL_DIR}");
   });
 
   test("rt skills check is clean immediately after compile", async () => {

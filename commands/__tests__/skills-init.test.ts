@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
+import { initCheckOf, initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
 import * as syncCommand from "../skills-sync.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { POLICY_REFUSALS, type InitDeps, type InitOutcome } from "../../lib/skills/init.ts";
@@ -591,6 +591,24 @@ describe("skillsInit", () => {
     expect(Array.isArray(printed.error.wrote)).toBe(true);
     expect(printed.error.wrote.length).toBeGreaterThan(0);
     expect(process.exitCode).toBe(1);
+  });
+});
+
+describe("initCheckOf", () => {
+  test("a compiled skill's dead pointer reaches init as a named failure beside the hand-written ones", () => {
+    const at = (file: string, code: string, message: string) => ({ file, line: 4, col: 2, code, message });
+    const result = initCheckOf({
+      drift: false,
+      skillPaths: [at("skills/gadgets/SKILL.md", "broken-skill-path", "gone.md does not resolve to a file")],
+      pointerErrors: [at("attachments/stage-plan/SKILL.md", "missing-target", "@stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file")],
+    });
+    expect(result).toEqual({
+      drift: false,
+      handErrors: [
+        "skills/gadgets/SKILL.md:4:2: gone.md does not resolve to a file",
+        "attachments/stage-plan/SKILL.md:4:2: @stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file",
+      ],
+    });
   });
 });
 
