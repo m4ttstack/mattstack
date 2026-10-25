@@ -5,9 +5,11 @@ import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
 import { propPartsDir, renderInclude, type SourcedTree } from "./blocks/render.ts";
 import { FENCE_RE, walk } from "./blocks/tree.ts";
 import { blockPropValues, includedTree, includeNamesIn } from "./compile-blocks.ts";
+import { closeUnits, MAP_FILE, mapFileText, withOpeningLine } from "./unit-maps.ts";
+import { ID_RE, keyBody, leftoverTokens, openingLine, skillsId, type Target, type UnitTable } from "./pointers.ts";
 import { maskProvenance } from "./provenance.ts";
 import { listFilesUnder, loadAttachment, loadInclude, stripFrontmatter, type PluginRoots } from "./sources.ts";
-import type { AttachmentSource, PlaceholderContext } from "./types.ts";
+import type { AttachmentSource, CompiledFile, PlaceholderContext } from "./types.ts";
 
 export const EXPAND_HEADER =
   "<!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->";
@@ -19,9 +21,12 @@ const SKILL_DIR_PATH_RE = /\$\{CLAUDE_SKILL_DIR\}\/[^\s"'`)]+/g;
 export type ExpandedSkill = {
   name: string;
   skillMd: string;
-  files: { path: string; copyFrom: string }[];
+  files: CompiledFile[];
   includes: string[];
 };
+
+/** A skill as expandOne leaves it, before its pointers are keyed: `skillName` is its frontmatter name. */
+type Drafted = { skill: ExpandedSkill; skillName: string };
 
 export type ExpandDrift = { skill: string; causes: string[] };
 
@@ -137,7 +142,7 @@ function filesOnDisk(dir: string, sub = ""): string[] {
   return out;
 }
 
-function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRoots): ExpandedSkill {
+function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRoots): Drafted {
   const dir = join(srcDir, name);
   const skillMdPath = join(dir, "SKILL.md");
   const where = `${name}/SKILL.md`;
@@ -145,6 +150,10 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   const raw = readFileSync(skillMdPath, "utf8");
   const fm = raw.match(FRONTMATTER_RE);
   if (!fm) throw new Error(`${where}: no frontmatter`);
+  const skillName = stripFrontmatter(raw).frontmatter.name;
+  if (typeof skillName !== "string" || !ID_RE.test(skillsId(skillName))) {
+    throw new Error(`${where}: the frontmatter name must be lowercase letters, digits, dashes and colons, since it is the skill's id`);
+  }
   const rest = raw.slice(fm[0].length);
   const body = rest.trim();
   const countLines = (s: string) => (s.match(/\n/g) ?? []).length;
@@ -224,7 +233,7 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   const span = `path=${where} lines=${bodyStartLine}-${bodyStartLine + bodyLines.length - 1}`;
   const skillMd = `${frontmatter}\n\n${EXPAND_HEADER}\n\n<!-- part: step source=${where} ${span} -->\n${expanded}\n`;
 
-  const files = listFilesUnder(dir, new Set(["SKILL.md"])).map((path) => ({ path, copyFrom: join(dir, path) }));
+  const files: CompiledFile[] = listFilesUnder(dir, new Set(["SKILL.md"])).map((path) => ({ path, copyFrom: join(dir, path) }));
   for (const n of names) {
     for (const extra of includes[n]!.extraFiles) {
       files.push({ path: `parts/include-${n}/${extra}`, copyFrom: join(includes[n]!.dir, extra) });
@@ -241,7 +250,67 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
       }
     }
   }
-  return { name, skillMd, files, includes: names };
+  return { skill: { name, skillMd, files, includes: names }, skillName };
+}
+
+export const textOf = (f: CompiledFile): string => ("content" in f ? f.content : readFileSync(f.copyFrom, "utf8"));
+
+/** The SKILL.md line sits under the expand header, which has to open the body for the output to count as expand's. */
+function withExpandOpeningLine(skillMd: string, id: string): string {
+  const header = `\n${EXPAND_HEADER}\n`;
+  const at = skillMd.indexOf(header) + header.length;
+  return `${skillMd.slice(0, at)}${openingLine(id)}\n${skillMd.slice(at)}`;
+}
+
+/**
+ * Keys every `.md` against a unit table of the board skills' folders, so a
+ * pointer into a sibling's folder is a key too. resolve joins a string target
+ * inside the reader's own link, so a sibling's target is named by the
+ * sibling's frontmatter name, the name its link carries.
+ */
+function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
+  const units: UnitTable = Object.fromEntries(drafts.map((d) => [d.skill.name, `skills/${d.skill.name}`]));
+  const nameOf = new Map(drafts.map((d) => [d.skill.name, d.skillName]));
+  const idOf = (folder: string) => skillsId(nameOf.get(folder)!);
+  const written = new Set(drafts.flatMap((d) => ["SKILL.md", ...d.skill.files.map((f) => f.path)].map((p) => `${units[d.skill.name]}/${p}`)));
+  const folderOf = (target: string) => target.split("/")[1]!;
+
+  const keyed = drafts.map(({ skill }) => {
+    if (skill.files.some((f) => f.path === MAP_FILE)) throw new Error(`${skill.name}/${MAP_FILE}: expand writes this file; remove it from the source`);
+    const dir = units[skill.name]!;
+    const id = idOf(skill.name);
+    const keys: Record<string, Target> = {};
+    const key = (text: string, fileRel: string): string => {
+      const where = `${skill.name}/${fileRel}`;
+      const out = keyBody(text, { dir, fileRel, units });
+      const left = leftoverTokens(out.text)[0];
+      if (left) throw new Error(`${where}: ${SKILL_DIR_TOKEN} at line ${left.line} does not point into a board skill`);
+      for (const [k, target] of Object.entries(out.targets)) {
+        if (typeof target !== "string" || written.has(target)) continue;
+        const folder = folderOf(target);
+        throw new Error(`${where}: @${k} points at ${target.slice(units[folder]!.length + 1)} in ${nameOf.get(folder)}, which expand does not write`);
+      }
+      Object.assign(keys, out.targets);
+      return out.text;
+    };
+    const skillMd = withExpandOpeningLine(key(skill.skillMd, "SKILL.md"), id);
+    const files = skill.files.map((f): CompiledFile => (f.path.endsWith(".md") ? { path: f.path, content: withOpeningLine(key(textOf(f), f.path), id) } : f));
+    const reads = [...new Set(Object.values(keys).flatMap((t) => (typeof t === "string" && !t.startsWith(`${dir}/`) ? [folderOf(t)] : [])))];
+    return { skill: { ...skill, skillMd, files }, pointers: { leaf: skill.name, dir, keys, reads } };
+  });
+
+  const closed = closeUnits(keyed.map((k) => k.pointers), idOf, () => null);
+  return keyed.map(({ skill, pointers }) => {
+    const map = closed.get(skill.name)!;
+    const keys = Object.fromEntries(
+      Object.entries(map.keys).map(([k, t]): [string, Target] => {
+        if (typeof t !== "string" || t.startsWith(`${pointers.dir}/`)) return [k, t];
+        const folder = folderOf(t);
+        return [k, { skill: nameOf.get(folder)!, path: t.slice(units[folder]!.length + 1) }];
+      }),
+    );
+    return { ...skill, files: [...skill.files, { path: MAP_FILE, content: mapFileText({ ...map, keys }) }] };
+  });
 }
 
 export function expandSkills(opts: { srcDir: string; outDir: string; roots: PluginRoots }): ExpandedSkill[] {
@@ -249,7 +318,7 @@ export function expandSkills(opts: { srcDir: string; outDir: string; roots: Plug
   if (overlaps(opts.srcDir, opts.outDir)) {
     throw new Error(`out dir ${opts.outDir} overlaps src dir ${opts.srcDir}; expand deletes inside the out dir, so they must be disjoint`);
   }
-  return listSkillDirs(opts.srcDir).map((name) => expandOne(opts.srcDir, opts.outDir, name, opts.roots));
+  return pointSkills(listSkillDirs(opts.srcDir).map((name) => expandOne(opts.srcDir, opts.outDir, name, opts.roots)));
 }
 
 /** Authorship is the header, as compile decides it: a dir expand did not write is never deleted, whatever its name. */
@@ -292,7 +361,8 @@ export function writeExpanded(outDir: string, skills: ExpandedSkill[]): { writte
     writeFileSync(join(dir, "SKILL.md"), s.skillMd);
     for (const f of s.files) {
       mkdirSync(dirname(join(dir, f.path)), { recursive: true });
-      copyFileSync(f.copyFrom, join(dir, f.path));
+      if ("content" in f) writeFileSync(join(dir, f.path), f.content);
+      else copyFileSync(f.copyFrom, join(dir, f.path));
     }
   }
   return { written: skills.map((s) => s.name), removed };
@@ -300,13 +370,14 @@ export function writeExpanded(outDir: string, skills: ExpandedSkill[]): { writte
 
 /** The first vendored path that is extra, missing or different, or null when the vendored files match. */
 function firstVendoredDrift(dir: string, s: ExpandedSkill): string | null {
-  const want = new Set(s.files.map((f) => f.path));
+  const wanted = new Set(s.files.map((f) => f.path));
   const have = new Set(filesOnDisk(dir).filter((p) => p !== "SKILL.md"));
-  const extra = [...have].filter((p) => !want.has(p)).sort()[0];
+  const extra = [...have].filter((p) => !wanted.has(p)).sort()[0];
   if (extra) return extra;
-  const missing = [...want].filter((p) => !have.has(p)).sort()[0];
+  const missing = [...wanted].filter((p) => !have.has(p)).sort()[0];
   if (missing) return missing;
-  return s.files.find((f) => !readFileSync(join(dir, f.path)).equals(readFileSync(f.copyFrom)))?.path ?? null;
+  const want = (f: CompiledFile) => ("content" in f ? Buffer.from(f.content) : readFileSync(f.copyFrom));
+  return s.files.find((f) => !readFileSync(join(dir, f.path)).equals(want(f)))?.path ?? null;
 }
 
 /** SKILL.md compares with provenance masked, so a plugin version bump alone is not drift; a write still stamps the real version. */

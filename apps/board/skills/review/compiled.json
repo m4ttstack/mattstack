@@ -1,0 +1,17 @@
+{
+  "id": "skills:board:review",
+  "dir": "skills/review",
+  "covers": [
+    "skills:board:review",
+    "skills:board:gate-cli-recipes"
+  ],
+  "keys": {
+    "review/scripts/resolve-args.sh": "skills/review/scripts/resolve-args.sh",
+    "review/scripts/open-gate.sh": "skills/review/scripts/open-gate.sh",
+    "gate-cli-recipes/SKILL.md": {
+      "skill": "board:gate-cli-recipes",
+      "path": "SKILL.md"
+    },
+    "review/parts/include-gate-protocol/structured-context.txt": "skills/review/parts/include-gate-protocol/structured-context.txt"
+  }
+}

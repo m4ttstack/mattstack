@@ -1,3 +1,5 @@
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:respond`, use it; otherwise call `skills_resolve {id: "skills:board:respond"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
+
 # board:respond: triage and Gate 1
 
 This is a stage of the board:respond skill. Its SKILL.md holds the flags, the
@@ -38,7 +40,7 @@ digraph respond_triage_and_gate_1 {
     "Write the verdict table and drafts to --report" [shape=box];
     "<status-bin> respond-status <state> drafting --round <n>" [shape=plaintext];
     "Fitted respond-plan open file handed back?" [shape=diamond];
-    "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [shape=plaintext];
+    "@respond/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [shape=plaintext];
     "Build the Gate 1 source" [shape=box];
     "Refit the handed Gate 1 source" [shape=box];
     "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}" [shape=plaintext];
@@ -101,19 +103,19 @@ digraph respond_triage_and_gate_1 {
     "Unresolved human threads = 0?" -> "Write the verdict table and drafts to --report" [label="no"];
     "Write the verdict table and drafts to --report" -> "<status-bin> respond-status <state> drafting --round <n>";
     "<status-bin> respond-status <state> drafting --round <n>" -> "Fitted respond-plan open file handed back?";
-    "Fitted respond-plan open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes, kept whole, its reviewer the --person or no --person"];
+    "Fitted respond-plan open file handed back?" -> "@respond/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="yes, kept whole, its reviewer the --person or no --person"];
     "Fitted respond-plan open file handed back?" -> "Refit the handed Gate 1 source" [label="yes, but a row dropped or its reviewer is someone else"];
     "Fitted respond-plan open file handed back?" -> "Build the Gate 1 source" [label="no"];
     "Build the Gate 1 source" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
     "Refit the handed Gate 1 source" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
     "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}" -> "respond-plan gate_open result?";
-    "respond-plan gate_open result?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="handed back: open outPath"];
+    "respond-plan gate_open result?" -> "@respond/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" [label="handed back: open outPath"];
     "respond-plan gate_open result?" -> "Fixed the Gate 1 source once already?" [label="refused"];
     "Fixed the Gate 1 source once already?" -> "Fix the Gate 1 source the gate_open refusal names" [label="no"];
     "Fixed the Gate 1 source once already?" -> "Build the Gate 1 questions as prose (plain open)" [label="yes"];
     "Fix the Gate 1 source the gate_open refusal names" -> "gate_open {kind: respond-plan, sourcePath: <dir>/respond-plan.source.json, handBack: true, outPath: <dir>/respond-plan.open.json}";
     "Build the Gate 1 questions as prose (plain open)" -> "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]";
-    "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" -> "respond-plan open exit?";
+    "@respond/scripts/open-gate.sh <status-bin> <state> respond-plan <open-file>" -> "respond-plan open exit?";
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" -> "respond-plan open exit?";
     "respond-plan open exit?" -> "Gate 1 context dropped?" [label="0"];
     "respond-plan open exit?" -> "Ask Gate 1 as native forms (degraded)" [label="nonzero: the daemon is down"];

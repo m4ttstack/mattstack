@@ -19,6 +19,7 @@ metadata:
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:review`, use it; otherwise call `skills_resolve {id: "skills:board:review"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
 
 <!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2104 -->
 # mr-board review runner
@@ -64,7 +65,7 @@ digraph review_flow {
     "--skill-path given (review)?" [shape=diamond];
     "Read <--skill-path> (review)" [shape=plaintext];
     "Load the --skill domain skill by name (review)" [shape=box];
-    "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (review)" [shape=plaintext];
+    "@review/scripts/resolve-args.sh (review)" [shape=plaintext];
     "resolve-args.sh exit (review)?" [shape=diamond];
     "Read <resolved.review.path>" [shape=plaintext];
     "Print the resolver's errors verbatim (review)" [shape=box];
@@ -120,7 +121,7 @@ digraph review_flow {
     "Append the review-round line to --report" [shape=box];
 
     "Fitted review-post open file handed back?" [shape=diamond];
-    "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [shape=plaintext];
+    "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [shape=plaintext];
     "Report json sibling (review)?" [shape=diamond];
     "Build the per-finding questions (findings-N, outcome)" [shape=box];
     "Build the outcome-only question (clean review)" [shape=box];
@@ -191,12 +192,12 @@ digraph review_flow {
     "Print the RE-REVIEW banner as the first output" -> "<status-bin> review-status <state> reviewing";
     "<status-bin> review-status <state> reviewing" -> "--skill given (review)?";
     "--skill given (review)?" -> "--skill-path given (review)?" [label="yes"];
-    "--skill given (review)?" -> "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (review)" [label="no"];
+    "--skill given (review)?" -> "@review/scripts/resolve-args.sh (review)" [label="no"];
     "--skill-path given (review)?" -> "Read <--skill-path> (review)" [label="yes"];
     "--skill-path given (review)?" -> "Load the --skill domain skill by name (review)" [label="no"];
     "Read <--skill-path> (review)" -> "Which entry (review)?";
     "Load the --skill domain skill by name (review)" -> "Which entry (review)?";
-    "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (review)" -> "resolve-args.sh exit (review)?";
+    "@review/scripts/resolve-args.sh (review)" -> "resolve-args.sh exit (review)?";
     "resolve-args.sh exit (review)?" -> "Read <resolved.review.path>" [label="0"];
     "resolve-args.sh exit (review)?" -> "Print the resolver's errors verbatim (review)" [label="nonzero: generic path"];
     "Read <resolved.review.path>" -> "Which entry (review)?";
@@ -297,9 +298,9 @@ digraph review_flow {
     "Write the review report to --report" -> "Append the review-round line to --report";
     "Append the review-round line to --report" -> "Fitted review-post open file handed back?";
 
-    "Fitted review-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
+    "Fitted review-post open file handed back?" -> "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
     "Fitted review-post open file handed back?" -> "Report json sibling (review)?" [label="no"];
-    "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" -> "review-post open exit?";
+    "@review/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" -> "review-post open exit?";
     "Report json sibling (review)?" -> "Build the per-finding questions (findings-N, outcome)" [label="valid, findings present"];
     "Report json sibling (review)?" -> "Build the outcome-only question (clean review)" [label="valid, findings is an empty array"];
     "Report json sibling (review)?" -> "Print the tier-fallback line in the pane" [label="absent or malformed"];
@@ -1622,7 +1623,7 @@ nuance in the `{value, note}` form. Five things stay specific to
 
 ### End the turn: holding at gate <gateId> (review)
 
-Read `${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md` with the Read
+Read `@gate-cli-recipes/SKILL.md` with the Read
 tool and follow its "Wait recipe": one background shell task loops
 `<status-bin> gate wait <state> --max-ms 90000` while it prints
 `{"status":"pending"}`; never launch a second while one runs. End the turn
@@ -1770,7 +1771,7 @@ answers; the order is fixed and the flow's first diamonds draw it:
    read the SKILL.md at that absolute path directly and treat it exactly as
    the domain skill named by `--skill`.
 2. **Otherwise resolve the `review` slot** with the vendored resolver,
-   `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`. On exit 0, read the
+   `"@review/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.review.path` and treat that skill exactly as if it
    had been passed via `--skill`.
 3. **Otherwise degrade loudly.** On a nonzero exit, print the resolver's JSON
@@ -1798,7 +1799,7 @@ its `skipped-N` questions follow the findings, each in the `skipped@1`
 shape with its options unticked. Open it with:
 
 ```bash
-"${CLAUDE_SKILL_DIR}/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
+"@review/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
 ```
 
 The gate stores every context in the file whole; only its `pane` key,
@@ -2412,7 +2413,7 @@ with no run, end the verb quoting it.
 ### Structured context (gate-ctx@1)
 
 A site that opens a structured gate builds its source per
-`${CLAUDE_SKILL_DIR}/parts/include-gate-protocol/structured-context.txt` and opens it with
+`@review/parts/include-gate-protocol/structured-context.txt` and opens it with
 `gate_open {kind: <scope>, source: {context: <the object>, questions}, runDb?, stage?}`:
 the context is the object itself, never a string of it. A gate that asks the human about evidence boards (`evidence-attach`,
 `evidence-boards`, `evidence-redaction`) carries them as a `boards@1`

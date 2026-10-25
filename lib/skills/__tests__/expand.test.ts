@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { checkExpanded, EXPAND_HEADER, expandSkills, writeExpanded } from "../expand.ts";
+import { checkExpanded, EXPAND_HEADER, expandSkills, writeExpanded, type ExpandedSkill } from "../expand.ts";
+import { openingLine, type PointerMap } from "../pointers.ts";
 import { resolvePluginRootsFromDir } from "../sources.ts";
+import { MAP_FILE } from "../unit-maps.ts";
 
 let root: string;
 let src: string;
@@ -51,7 +53,8 @@ describe("expandSkills", () => {
     expect(review!.skillMd).toContain("<!-- part: include:note source=mattstack:note version=9.9.9 path=attachments/note/SKILL.md lines=");
     expect(review!.skillMd).toContain("Shared rule one.");
     expect(review!.skillMd).not.toContain("{{");
-    expect(review!.files).toEqual([{ path: "scripts/go.sh", copyFrom: join(src, "review", "scripts", "go.sh") }]);
+    expect(review!.files.map((f) => f.path)).toEqual(["scripts/go.sh", MAP_FILE]);
+    expect(review!.files[0]).toEqual({ path: "scripts/go.sh", copyFrom: join(src, "review", "scripts", "go.sh") });
     expect(recipes!.includes).toEqual([]);
     expect(recipes!.skillMd).not.toContain("compiled:");
     expect(recipes!.skillMd).toContain("No includes here.");
@@ -234,6 +237,83 @@ describe("writeExpanded and checkExpanded", () => {
   });
 });
 
+describe("pointers", () => {
+  const ALLOWED = "allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*)";
+
+  beforeEach(() => {
+    rmSync(src, { recursive: true, force: true });
+    write(
+      join(src, "widget", "SKILL.md"),
+      `---\nname: board:widget\ndescription: w\n${ALLOWED}\n---\n\n# Widget\n\nRun \`"\${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"\`.\n\nRead \`\${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md\` first.\n`,
+    );
+    write(join(src, "widget", "scripts", "resolve-args.sh"), "#!/bin/sh\n# lives at ${CLAUDE_SKILL_DIR}/scripts\n");
+    write(join(src, "widget", "launch.md"), "# Launch\n\nThen run `${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh`.\n");
+    write(join(src, "gate-cli-recipes", "SKILL.md"), "---\nname: board:gate-cli-recipes\ndescription: g\n---\n\n# Recipes\n\nNo pointers.\n");
+  });
+
+  const expanded = () => expandSkills({ srcDir: src, outDir: out, roots: roots() });
+  const widget = () => expanded().find((s) => s.name === "widget")!;
+  const fileText = (s: ExpandedSkill, path: string) => {
+    const f = s.files.find((x) => x.path === path)!;
+    return "content" in f ? f.content : readFileSync(f.copyFrom, "utf8");
+  };
+  const mapOf = (s: ExpandedSkill) => JSON.parse(fileText(s, MAP_FILE)) as PointerMap;
+
+  test("bodies carry @keys and the opening line; frontmatter and scripts keep the token", () => {
+    const w = widget();
+    expect(w.skillMd).toContain(`\n${ALLOWED}\n`);
+    expect(w.skillMd).toContain('Run `"@widget/scripts/resolve-args.sh"`.');
+    expect(w.skillMd).toContain("Read `@gate-cli-recipes/SKILL.md` first.");
+    expect(w.skillMd).toContain(`${EXPAND_HEADER}\n${openingLine("skills:board:widget")}\n`);
+    expect(fileText(w, "launch.md")).toBe(`${openingLine("skills:board:widget")}\n\n# Launch\n\nThen run \`@widget/scripts/resolve-args.sh\`.\n`);
+    expect(w.files).toContainEqual({ path: "scripts/resolve-args.sh", copyFrom: join(src, "widget", "scripts", "resolve-args.sh") });
+  });
+
+  test("compiled.json names the skill's id, keys its own files and a sibling by skill name", () => {
+    expect(mapOf(widget())).toEqual({
+      id: "skills:board:widget",
+      dir: "skills/widget",
+      covers: ["skills:board:widget", "skills:board:gate-cli-recipes"],
+      keys: {
+        "widget/scripts/resolve-args.sh": "skills/widget/scripts/resolve-args.sh",
+        "gate-cli-recipes/SKILL.md": { skill: "board:gate-cli-recipes", path: "SKILL.md" },
+      },
+    });
+    const recipes = expanded().find((s) => s.name === "gate-cli-recipes")!;
+    expect(recipes.skillMd).toContain(openingLine("skills:board:gate-cli-recipes"));
+    expect(mapOf(recipes)).toEqual({ id: "skills:board:gate-cli-recipes", dir: "skills/gate-cli-recipes", covers: ["skills:board:gate-cli-recipes"], keys: {} });
+  });
+
+  test("the written compiled.json and keyed .md are part of the skill for check", () => {
+    const skills = expanded();
+    writeExpanded(out, skills);
+    expect(JSON.parse(readFileSync(join(out, "widget", MAP_FILE), "utf8")).id).toBe("skills:board:widget");
+    expect(checkExpanded(out, skills)).toEqual([]);
+    write(join(out, "widget", MAP_FILE), "{}\n");
+    expect(checkExpanded(out, skills)).toEqual([{ skill: "widget", causes: [`vendored (${MAP_FILE})`] }]);
+    rmSync(join(out, "widget", MAP_FILE));
+    expect(checkExpanded(out, skills)).toEqual([{ skill: "widget", causes: [`vendored (${MAP_FILE})`] }]);
+    writeExpanded(out, skills);
+    write(join(out, "widget", "launch.md"), "# Launch\n");
+    expect(checkExpanded(out, skills)).toEqual([{ skill: "widget", causes: ["vendored (launch.md)"] }]);
+  });
+
+  test("refuses a pointer at a file no board skill writes", () => {
+    write(join(src, "widget", "extra.md"), "See `${CLAUDE_SKILL_DIR}/scripts/gone.sh`.\n");
+    expect(() => expanded()).toThrow(/widget\/extra\.md: @widget\/scripts\/gone\.sh points at scripts\/gone\.sh in board:widget, which expand does not write/);
+  });
+
+  test("refuses a source that carries its own compiled.json", () => {
+    write(join(src, "widget", MAP_FILE), "{}\n");
+    expect(() => expanded()).toThrow(`widget/${MAP_FILE}: expand writes this file; remove it from the source`);
+  });
+
+  test("refuses a skill-dir path that lands in no board skill", () => {
+    write(join(src, "widget", "extra.md"), "See `${CLAUDE_SKILL_DIR}/../elsewhere/x.md`.\n");
+    expect(() => expanded()).toThrow(/widget\/extra\.md: \$\{CLAUDE_SKILL_DIR\} at line 1 does not point into a board skill/);
+  });
+});
+
 describe("block-tree includes", () => {
   const GP = join("plugins", "mattstack", "attachments", "gp");
 
@@ -295,7 +375,7 @@ describe("block-tree includes", () => {
     launcher("## Gates\n\n{{include:gp}}");
     const skill = gatesSkill();
     expect(headings(skill.skillMd)).toEqual(["## Gates", "### Gate protocol", "#### Rules"]);
-    expect(skill.skillMd).toContain("Follow ${CLAUDE_SKILL_DIR}/parts/+gp/rules/rules/lint.sh.");
+    expect(skill.skillMd).toContain("Follow @gates/parts/+gp/rules/rules/lint.sh.");
     expect(skill.files).toContainEqual({
       path: "parts/+gp/rules/rules/lint.sh",
       copyFrom: join(root, "plugins", "mattstack", "attachments", "rules", "lint.sh"),
@@ -328,8 +408,8 @@ describe("block-tree includes", () => {
     write(join(root, inner, "tool.sh"), "echo\n");
     launcher("## Gates\n\n{{include:gp}}");
     const skill = gatesSkill();
-    expect(skill.skillMd).toContain("Open `${CLAUDE_SKILL_DIR}/parts/include-gp/ctx.txt`.");
-    expect(skill.skillMd).toContain("Run `${CLAUDE_SKILL_DIR}/parts/include-inner/tool.sh`.");
+    expect(skill.skillMd).toContain("Open `@gates/parts/include-gp/ctx.txt`.");
+    expect(skill.skillMd).toContain("Run `@gates/parts/include-inner/tool.sh`.");
     expect(skill.files.map((f) => f.path)).toEqual(expect.arrayContaining(["parts/include-gp/ctx.txt", "parts/include-inner/tool.sh"]));
   });
 });

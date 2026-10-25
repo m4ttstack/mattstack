@@ -9,12 +9,11 @@
  * and a dir expand did not write stops the run before anything is touched.
  */
 
-import { readFileSync } from "fs";
 import { join } from "path";
 import { TREE } from "../lib/command-tree-def.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
-import { checkExpanded, expandSkills, planRemoval, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
+import { checkExpanded, expandSkills, planRemoval, textOf, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
 import { deriveRules, formatHit, isScriptPath, lintScriptFile, lintSkillText } from "../lib/skills/mcp-lint.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
 import * as out from "../lib/ui/out.ts";
@@ -76,9 +75,9 @@ function lintExpanded(outDir: string, skills: ExpandedSkill[]): { lint: string[]
     lint.push(...lintSkillText(s.skillMd, join(home, "SKILL.md"), rules).map(formatHit));
     for (const f of s.files) {
       if (f.path.endsWith(".md")) {
-        lint.push(...lintSkillText(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
+        lint.push(...lintSkillText(textOf(f), join(home, f.path), rules).map(formatHit));
       } else if (isScriptPath(f.path)) {
-        advisory.push(...lintScriptFile(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
+        advisory.push(...lintScriptFile(textOf(f), join(home, f.path), rules).map(formatHit));
       }
     }
   }

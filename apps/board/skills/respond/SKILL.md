@@ -18,6 +18,7 @@ metadata:
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:respond`, use it; otherwise call `skills_resolve {id: "skills:board:respond"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
 
 <!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-634 -->
 # mr-board respond runner
@@ -329,7 +330,7 @@ answers; the order is fixed and the flow's first diamonds draw it:
    read the SKILL.md at that absolute path directly and treat it exactly as
    the domain skill named by `--skill`.
 2. **Otherwise resolve the `respond` slot** with the vendored resolver,
-   `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`. On exit 0, read the
+   `"@respond/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.respond.path` and treat that skill exactly as if it
    had been passed via `--skill`.
 3. **Otherwise degrade loudly.** On a nonzero exit, print the resolver's JSON
@@ -942,7 +943,7 @@ with no run, end the verb quoting it.
 ### Structured context (gate-ctx@1)
 
 A site that opens a structured gate builds its source per
-`${CLAUDE_SKILL_DIR}/parts/include-gate-protocol/structured-context.txt` and opens it with
+`@respond/parts/include-gate-protocol/structured-context.txt` and opens it with
 `gate_open {kind: <scope>, source: {context: <the object>, questions}, runDb?, stage?}`:
 the context is the object itself, never a string of it. A gate that asks the human about evidence boards (`evidence-attach`,
 `evidence-boards`, `evidence-redaction`) carries them as a `boards@1`

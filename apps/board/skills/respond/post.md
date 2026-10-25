@@ -1,3 +1,5 @@
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:respond`, use it; otherwise call `skills_resolve {id: "skills:board:respond"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
+
 # board:respond: Gate 2 and posting
 
 This is a stage of the board:respond skill. Its SKILL.md holds the flags, the
@@ -19,7 +21,7 @@ digraph respond_gate_2_and_posting {
     "Domain skill resolved (reply-only)?" [shape=diamond];
     "<status-bin> respond-status <state> drafting (before Gate 2)" [shape=plaintext];
     "Fitted respond-post open file handed back?" [shape=diamond];
-    "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [shape=plaintext];
+    "@respond/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [shape=plaintext];
     "Build the Gate 2 source" [shape=box];
     "Refit the handed Gate 2 source" [shape=box];
     "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}" [shape=plaintext];
@@ -83,20 +85,20 @@ digraph respond_gate_2_and_posting {
     "Domain skill resolved (reply-only)?" -> "Posting finished: continue at the done write" [label="yes: it posted them on {plan}"];
     "Domain skill resolved (reply-only)?" -> "Record the Gate 2 picks in --report" [label="no: post the reply-only threads"];
     "<status-bin> respond-status <state> drafting (before Gate 2)" -> "Fitted respond-post open file handed back?";
-    "Fitted respond-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="yes, its reviewer the --person or no --person"];
+    "Fitted respond-post open file handed back?" -> "@respond/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="yes, its reviewer the --person or no --person"];
     "Fitted respond-post open file handed back?" -> "Refit the handed Gate 2 source" [label="yes, but its reviewer is someone else"];
     "Fitted respond-post open file handed back?" -> "Build the Gate 2 source" [label="no"];
     "Build the Gate 2 source" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}";
     "Refit the handed Gate 2 source" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}";
     "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}" -> "respond-post gate_open result?";
-    "respond-post gate_open result?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="handed back: open outPath"];
+    "respond-post gate_open result?" -> "@respond/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="handed back: open outPath"];
     "respond-post gate_open result?" -> "Fixed the Gate 2 source once already?" [label="refused"];
     "respond-post gate_open result?" -> "Build the Gate 2 questions as prose (plain open)" [label="refused over an Overview comment's options"];
     "Fixed the Gate 2 source once already?" -> "Fix the Gate 2 source the gate_open refusal names" [label="no"];
     "Fixed the Gate 2 source once already?" -> "Build the Gate 2 questions as prose (plain open)" [label="yes"];
     "Fix the Gate 2 source the gate_open refusal names" -> "gate_open {kind: respond-post, sourcePath: <dir>/respond-post.source.json, handBack: true, outPath: <dir>/respond-post.open.json}";
     "Build the Gate 2 questions as prose (plain open)" -> "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]";
-    "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" -> "respond-post open exit?";
+    "@respond/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" -> "respond-post open exit?";
     "<status-bin> gate open <state> --kind respond-post --questions <json> [--context <text>]" -> "respond-post open exit?";
     "respond-post open exit?" -> "Gate 2: take the respond gate step" [label="0"];
     "respond-post open exit?" -> "Ask Gate 2 as native forms (degraded)" [label="nonzero: the daemon is down"];

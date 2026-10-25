@@ -15,6 +15,7 @@ metadata:
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:doctor`, use it; otherwise call `skills_resolve {id: "skills:board:doctor"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
 
 <!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-567 -->
 # mr-board doctor runner
@@ -326,7 +327,7 @@ answer with the `gate_answer` tool, a board gate records it with
 
 ### End the turn: holding at gate <gateId> (doctor)
 
-Read `${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md` with the Read
+Read `@gate-cli-recipes/SKILL.md` with the Read
 tool and follow its "Wait recipe": one background shell task loops
 `<status-bin> gate wait <state> --max-ms 90000` while it prints
 `{"status":"pending"}`; never launch a second while one runs. End the turn
@@ -369,7 +370,7 @@ The tier picks the slot: `--tier api` uses the `doctor-api` slot
    `--skill-path <path>`, read the SKILL.md at that absolute path; without
    it, load the skill by name.
 2. **Otherwise resolve the tier's slot** with the vendored resolver,
-   `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`. On exit 0, read the
+   `"@doctor/scripts/resolve-args.sh"`. On exit 0, read the
    SKILL.md at `resolved.doctor.path` (or `resolved.doctor-api.path` under
    `--tier api`) and treat it exactly as if it came through `--skill`.
 3. **Otherwise degrade loudly.** On a nonzero exit, print the resolver's
@@ -875,7 +876,7 @@ with no run, end the verb quoting it.
 ### Structured context (gate-ctx@1)
 
 A site that opens a structured gate builds its source per
-`${CLAUDE_SKILL_DIR}/parts/include-gate-protocol/structured-context.txt` and opens it with
+`@doctor/parts/include-gate-protocol/structured-context.txt` and opens it with
 `gate_open {kind: <scope>, source: {context: <the object>, questions}, runDb?, stage?}`:
 the context is the object itself, never a string of it. A gate that asks the human about evidence boards (`evidence-attach`,
 `evidence-boards`, `evidence-redaction`) carries them as a `boards@1`

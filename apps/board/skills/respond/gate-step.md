@@ -1,3 +1,5 @@
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:respond`, use it; otherwise call `skills_resolve {id: "skills:board:respond"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
+
 # board:respond: Gate step
 
 This is the shared gate step of the board:respond skill: the Gate 1 box in
@@ -130,7 +132,7 @@ gate wait <state> --max-ms 1000`.
 
 ### End the turn: holding at gate <gateId> (respond)
 
-Read `${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md` with the Read
+Read `@gate-cli-recipes/SKILL.md` with the Read
 tool and follow its "Wait recipe": one background shell task loops
 `<status-bin> gate wait <state> --max-ms 90000` while it prints
 `{"status":"pending"}`; never launch a second while one runs. End the turn

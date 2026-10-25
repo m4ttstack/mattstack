@@ -5,6 +5,7 @@ disable-model-invocation: true
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:gate-cli-recipes`, use it; otherwise call `skills_resolve {id: "skills:board:gate-cli-recipes"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
 
 <!-- part: step source=gate-cli-recipes/SKILL.md path=gate-cli-recipes/SKILL.md lines=7-61 -->
 # Board gate CLI recipes
