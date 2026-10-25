@@ -1,12 +1,11 @@
 /**
  * `rt setup pack` -- installs a team pack's plugins, materializes skills, then
- * checks that the pack's declared work-type pipeline is usable: every stage it
- * names must have no empty binding in the pack's own bindings file.
+ * reads the pack's declared work-type pipeline from its bindings file.
  */
 
 import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { stripJsonc } from "../jsonc.ts";
-import { lastWinsBindings, normalizePipelines, type BindingsMap } from "../skills/pipelines.ts";
+import { normalizePipelines } from "../skills/pipelines.ts";
 import type { ApplyContext } from "./apply.ts";
 import { installPlugins } from "./steps/plugins.ts";
 import { materializeSkills } from "./skills-materialize.ts";
@@ -20,7 +19,6 @@ const AWAITING_CLONE_NOTE = "the pipeline check waits for a repo clone";
 
 interface PackManifest {
   pipelines?: unknown;
-  bindings?: BindingsMap;
 }
 
 function firstRegisteredRepo(): KnownRepo | null {
@@ -37,14 +35,7 @@ function parseManifest(text: string): PackManifest {
   }
 }
 
-function stageUnresolved(stage: string, defaults: BindingsMap, overrides: BindingsMap | undefined): boolean {
-  const engineRef = `mattstack:${stage}`;
-  const known = (map: BindingsMap | undefined) => map !== undefined && Object.hasOwn(map, engineRef);
-  const entry = lastWinsBindings(defaults, overrides, known(defaults) || known(overrides) ? engineRef : stage);
-  return Object.values(entry).some((v) => typeof v !== "string" || v.trim().length === 0);
-}
-
-export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; stage?: string; detail: string }> {
+export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; detail: string }> {
   // A malformed requirements file is reported here rather than falling back to
   // DEFAULT_WORK_TYPE, which would mask it behind an unrelated stage failure.
   const packError = ctx.reqs[0]?.error;
@@ -83,8 +74,6 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; s
   const manifest = parseManifest(text);
   const pipelines = normalizePipelines(manifest.pipelines);
   const stages = pipelines.stages[workType] ?? [];
-  for (const stage of stages) {
-    if (stageUnresolved(stage, manifest.bindings ?? {}, pipelines.bindings[workType])) return { ok: false, stage, detail: `The ${stage} stage has no skill bound to it` };
-  }
-  return { ok: true, detail: `${stages.length} stage${stages.length === 1 ? "" : "s"} resolved for ${workType} work` };
+  // No per-stage binding check: a "" is a clear, not a gap, and rt skills compile and check refuse a required prop nothing binds.
+  return { ok: true, detail: `${stages.length} stage${stages.length === 1 ? "" : "s"} in the ${workType} pipeline` };
 }

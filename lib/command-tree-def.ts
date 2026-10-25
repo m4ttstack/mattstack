@@ -2757,7 +2757,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       pack: {
-        description: "Install a pack's plugins + skills, then check its pipeline stages resolve",
+        description: "Install a pack's plugins and skills, and read its pipeline",
         module: "./commands/setup.ts",
         fn: "setupPack",
         args: [

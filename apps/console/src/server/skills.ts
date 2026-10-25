@@ -714,6 +714,9 @@ const discardBody = validator(
   }
 );
 
+/** A skill name as rt and the apps spell it; a board skill carries its app's prefix, as in `board:respond`. */
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
 /** Both reach rt's argv, so a value shaped like a flag never passes. */
 const skillQuery = validator('query', (value, c) => {
   const v = value as { pack?: unknown; skill?: unknown };
@@ -722,7 +725,7 @@ const skillQuery = validator('query', (value, c) => {
   if (pack && !VERB_NAME.test(pack)) {
     return c.json({ error: `invalid pack name: ${pack}` }, 400);
   }
-  if (skill && !VERB_NAME.test(skill)) {
+  if (skill && !SKILL_NAME.test(skill)) {
     return c.json({ error: `invalid skill name: ${skill}` }, 400);
   }
   return { pack, skill };

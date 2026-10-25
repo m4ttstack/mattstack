@@ -2142,6 +2142,40 @@ describe('skills blocks route', () => {
     }
   );
 
+  it('passes a board skill name with a colon through to rt anatomy', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: '{"skill":"board:respond"}',
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(
+      '/api/skills/anatomy?pack=acme&skill=board%3Arespond'
+    );
+
+    expect(res.status).toBe(200);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'anatomy',
+      '--pack',
+      'acme',
+      '--skill',
+      'board:respond',
+      '--json',
+    ]);
+  });
+
+  it('400s a pack name with a colon, which names no pack', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request('/api/skills/blocks?pack=a%3Ab&skill=mini');
+
+    expect(res.status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
   it('is 404 with the error envelope when the skill is not a block tree', async () => {
     const rt = fakeRt({ code: 1, stdout: notABlockTree, stderr: '' });
     const app = mountSkills(new Hono(), rt.run);
