@@ -406,18 +406,6 @@ export function markRevisionsApplied(
   );
 }
 
-/** Pending revisions that never got a rebuilt gate become failed. */
-export function expireStaleRevisions(
-  now: number,
-  db: Database = getStateDb()
-): number {
-  return db.run(
-    `UPDATE finding_revisions SET status = 'failed'
-     WHERE status = 'pending' AND created_at <= ?`,
-    [now - PENDING_REVISION_TTL_MS]
-  ).changes;
-}
-
 /** The newest applied revision per finding. */
 export function latestRevisions(
   mrUrl: string,

@@ -11,7 +11,6 @@ import {
   deleteRevisions,
   deleteSheetDraft,
   expireStaleQueuedQuestions,
-  expireStaleRevisions,
   insertPendingRevision,
   latestRevisions,
   liveQuestionMrs,
@@ -301,21 +300,6 @@ describe('finding revisions', () => {
     const p = pendingRevision(URL_A, 3000, db);
     expect(p?.findingId).toBe('f2');
     expect(p?.revised).toBeNull();
-  });
-
-  test('expireStaleRevisions fails exactly the stale pending rows', () => {
-    insertPendingRevision(rev('f1', 1000), db);
-    insertPendingRevision(rev('f2', 1000 + PENDING_REVISION_TTL_MS), db);
-    expect(expireStaleRevisions(1000 + PENDING_REVISION_TTL_MS, db)).toBe(1);
-    const rows = db
-      .query(
-        'SELECT finding_id, status FROM finding_revisions ORDER BY finding_id'
-      )
-      .all();
-    expect(rows).toEqual([
-      { finding_id: 'f1', status: 'failed' },
-      { finding_id: 'f2', status: 'pending' },
-    ]);
   });
 
   test('markRevisionsApplied sets new_gate and latestRevisions returns the newest per finding', () => {
