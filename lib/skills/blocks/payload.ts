@@ -71,7 +71,7 @@ const INCLUDE_LINE_RE = /^\{\{include:([^}\s]+)\}\}$/;
 const SUMMARY_MAX = 160;
 
 /** The default layer is mattstack's own fragment and every prop default; `base:<name>` is the org's base; the pack and a repo override are the team's. */
-export function layerColor(label: string): LayerColor {
+function layerColor(label: string): LayerColor {
   if (label === "default") return "mattstack";
   if (label.startsWith("base:")) return "org";
   return "team";

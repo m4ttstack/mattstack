@@ -714,16 +714,19 @@ const discardBody = validator(
   }
 );
 
-const skillQuery = validator(
-  'query',
-  (value): { pack?: string; skill?: string } => {
-    const v = value as { pack?: unknown; skill?: unknown };
-    return {
-      pack: typeof v?.pack === 'string' ? v.pack : undefined,
-      skill: typeof v?.skill === 'string' ? v.skill : undefined,
-    };
+/** Both reach rt's argv, so a value shaped like a flag never passes. */
+const skillQuery = validator('query', (value, c) => {
+  const v = value as { pack?: unknown; skill?: unknown };
+  const pack = typeof v?.pack === 'string' ? v.pack : undefined;
+  const skill = typeof v?.skill === 'string' ? v.skill : undefined;
+  if (pack && !VERB_NAME.test(pack)) {
+    return c.json({ error: `invalid pack name: ${pack}` }, 400);
   }
-);
+  if (skill && !VERB_NAME.test(skill)) {
+    return c.json({ error: `invalid skill name: ${skill}` }, 400);
+  }
+  return { pack, skill };
+});
 
 const sourceQuery = validator(
   'query',

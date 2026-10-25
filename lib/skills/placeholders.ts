@@ -50,7 +50,7 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
 }
 
 /** Points a text's `${CLAUDE_SKILL_DIR}` at `dir`, the folder its own files land in. */
-export function atSkillDir(text: string, dir: string): string {
+function atSkillDir(text: string, dir: string): string {
   return text.split(SKILL_DIR_TOKEN).join(dir);
 }
 
@@ -68,7 +68,7 @@ export function referencesDir(ctx: Pick<PlaceholderContext, "stageDir">, unit: s
  * the seam walkers consume one rendered line per counted source line.
  * `sourceLine` maps a 1-based line of the resolved body to the fill body line it came from.
  */
-export function resolveFillTeamMarkers(
+function resolveFillTeamMarkers(
   fill: AttachmentSource,
   team: TeamContext | null | undefined,
 ): { body: string; span: string; sourceLine: (resolvedLine: number) => number } {
@@ -254,7 +254,7 @@ export function assertNoTeamMarkerInRawFile(text: string, where: string, why = "
 }
 
 /** Resolves a copied .md file's body, counting error lines from the top of the file; with no team, any marker is refused. */
-export function resolveAttachmentTeamMarkers(text: string, where: string, team: TeamContext | null): string {
+function resolveAttachmentTeamMarkers(text: string, where: string, team: TeamContext | null): string {
   const hit = firstTeamMarker(text);
   if (!hit) return text;
   const head = text.match(FRONTMATTER_BLOCK_RE)?.[0] ?? "";
@@ -303,7 +303,7 @@ export function substituteAttachmentPlaceholders(body: string, opts: AttachmentR
 }
 
 /** `{{verb.path}}` in a file read as a plain file: relative to `fileRel`, that file's pack-relative path. */
-export function fileVerbPath(verbSides: Record<string, Side>, arg: string | undefined, raw: string, where: string, fileRel: string, read?: string[]): string {
+function fileVerbPath(verbSides: Record<string, Side>, arg: string | undefined, raw: string, where: string, fileRel: string, read?: string[]): string {
   if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb name must match [a-z][a-z0-9-]*`);
   const side = verbSides[arg];
   if (!side) throw new Error(`${where}: ${raw} -- ${arg} is not a compiled verb of this pack`);
@@ -425,7 +425,7 @@ export type PackTarget = { side: Side; attachment: string; file: string; unit: s
  * attachments compile emits: they are planned before any target compiles,
  * and for those names the plan, not the disk, says what will exist.
  */
-export function resolvePackPath(view: PackPathView, arg: string | undefined, raw: string, where: string): PackTarget {
+function resolvePackPath(view: PackPathView, arg: string | undefined, raw: string, where: string): PackTarget {
   const slash = arg?.indexOf("/") ?? -1;
   if (!arg || slash <= 0 || slash === arg.length - 1) throw new Error(`${where}: ${raw} -- pack.path takes <attachment>/<file>`);
   const attachment = arg.slice(0, slash);

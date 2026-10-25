@@ -124,7 +124,8 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
   }
   if (matched.length === 0) {
     if (reads.length > 0) {
-      const { folder, read } = reads[0]!;
+      // A group folder can share the unit's name and carry no map, so a map that parsed says more.
+      const { folder, read } = reads.find(({ read }) => "map" in read) ?? reads[0]!;
       const found = "map" in read ? `The map in ${folder} is for ${read.map.id}.` : read.fault;
       throw refuse("skills-resolve-no-map", `${id} has no pointer map in this copy.`, `${found} ${owner}`, fix);
     }

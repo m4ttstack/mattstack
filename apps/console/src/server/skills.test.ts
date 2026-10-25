@@ -2120,6 +2120,28 @@ describe('skills blocks route', () => {
     expect(rt.run).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['blocks', 'pack=acme&skill=--help'],
+    ['blocks', 'pack=--manifest&skill=mini'],
+    ['blocks', 'pack=acme&skill=..%2Fmini'],
+    ['anatomy', 'pack=acme&skill=-x'],
+    ['anatomy', 'pack=%20acme&skill=mini'],
+  ])(
+    'the %s route 400s a pack or skill that is not a plain name (%s), before rt is spawned',
+    async (route, query) => {
+      const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await app.request(`/api/skills/${route}?${query}`);
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: expect.stringMatching(/^invalid (pack|skill) name: /),
+      });
+      expect(rt.run).not.toHaveBeenCalled();
+    }
+  );
+
   it('is 404 with the error envelope when the skill is not a block tree', async () => {
     const rt = fakeRt({ code: 1, stdout: notABlockTree, stderr: '' });
     const app = mountSkills(new Hono(), rt.run);

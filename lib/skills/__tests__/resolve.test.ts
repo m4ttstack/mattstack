@@ -154,6 +154,15 @@ describe("resolvePointers: plugin ids", () => {
     expect(e.why).toStartWith(`The map in ${V}/skills/work is for widgets@0.4.1:work. `);
   });
 
+  test("quotes a folder whose map parsed over an earlier folder that has none, such as a group sharing the unit's name", () => {
+    const fs = fakeFs({
+      [`${V}/attachments/review/notes.md`]: "",
+      [`${V}/attachments/review/review/compiled.json`]: map("widgets@0.4.1:review", "attachments/review/review", {}),
+    });
+    const e = refusal(() => resolvePointers("widgets@0.4.2:review", { fs, home: HOME }));
+    expect(e.why).toStartWith(`The map in ${V}/attachments/review/review is for widgets@0.4.1:review. `);
+  });
+
   test("refuses an id no folder carries, pointing at a sync", () => {
     const fs = fakeFs(widgetsFiles());
     const e = refusal(() => resolvePointers("widgets@0.4.2:gadget", { fs, home: HOME }));

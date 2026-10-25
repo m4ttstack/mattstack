@@ -72,14 +72,14 @@ const DIFF = [
   '',
 ].join('\n');
 
-const PACK_DIR = '/Users/matt/.mattstack/orgs/demo/mattstack/packs/demo';
+const PACK_DIR = '/home/u/.mattstack/orgs/demo/mattstack/packs/demo';
 const STEP_SOURCE =
-  '/Users/matt/.claude/plugins/cache/mattstack/mattstack/0.8.0/attachments/pipeline/watch-ci/SKILL.md';
+  '/home/u/.claude/plugins/cache/mattstack/mattstack/0.8.0/attachments/pipeline/watch-ci/SKILL.md';
 const ARTIFACT = `${PACK_DIR}/skills/watch-ci`;
 const DOMAIN_VALUE: PropOutlineNode['values'][number] = {
   boundTo: 'demo:watch-ci-domain',
   fillSourcePath:
-    '/Users/matt/.claude/plugins/cache/acme/demo/0.4.11/attachments/watch-ci-domain/SKILL.md',
+    '/home/u/.claude/plugins/cache/acme/demo/0.4.11/attachments/watch-ci-domain/SKILL.md',
   fill: null,
   layer: null,
 };
