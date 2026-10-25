@@ -871,6 +871,39 @@ describe('Graph tab: the block view', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('hides the in-sync badge beside the stale-plugin note', async () => {
+    mockDesignPack();
+    blocksGet.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'The installed mattstack plugin is older than this rt',
+        code: 'stale-engine',
+      }),
+    });
+    renderAt('?tab=graph&focus=stage-plan');
+
+    const header = await screen.findByTestId('focus-header');
+    await screen.findByTestId('block-view-stale');
+    expect(
+      await within(header).findByText(
+        'Triage the approach and commit to it visibly before any implementation.'
+      )
+    ).toBeInTheDocument();
+    expect(within(header).queryByTestId('focus-status')).toBeNull();
+  });
+
+  it('keeps the in-sync badge when the skill is not a block tree', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=stage-plan');
+
+    const header = await screen.findByTestId('focus-header');
+    await screen.findByTestId('block-view-note');
+    expect(await within(header).findByTestId('focus-status')).toHaveTextContent(
+      'in sync with installed mattstack 0.30.4'
+    );
+  });
+
   it("drops the sidebar's Blocks heading when rt will not build the skill", async () => {
     mockDesignPack();
     blocksGet.mockResolvedValue({

@@ -65,7 +65,11 @@ export function BlockStage({
       composition?.verbs.find(verb => verb.name === focused.skill)
         ?.description ??
       null,
-    status: statusOf(view, anatomy),
+    // A green in-sync badge beside the stale-plugin note reads as two answers.
+    status:
+      skill.state === 'stale' && view?.output?.status === 'in-sync'
+        ? null
+        : statusOf(view, anatomy),
     checkError:
       checkQuery.isError && !check ? (checkQuery.error as Error).message : null,
     loading: !board && anatomyQuery.isPending,
