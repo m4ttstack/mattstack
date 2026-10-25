@@ -384,7 +384,9 @@ describe("check's source scan", () => {
       'pointer key @stage-x/SKILL.md has two targets in work\'s closure: widgets@0.4.2:work names "attachments/stage-x/SKILL.md" and widgets@0.4.2:receive-review names "skills/stage-x/SKILL.md"',
     ]);
     expect(payload.sourcePointerErrors).toEqual([]);
-    expect(syncCheckOf(payload).pointerConflicts).toEqual(payload.pointerConflicts!);
+    const seen = syncCheckOf(payload);
+    expect(seen.pointerConflicts).toEqual(payload.pointerConflicts!);
+    expect(seen.compileErrors).toEqual(["attachments/pipeline/receive-review/index.block.md:9:114: {{verb.path:nope}} -- nope is not a compiled verb of this pack", "pack/pipelines.json is out of date with the pack's pipelines"]);
   });
 });
 

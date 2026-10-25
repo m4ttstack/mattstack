@@ -22,9 +22,18 @@ export type SyncDeps = {
   /**
    * `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`.
    * `pointerErrors`: compiled pointers that lead nowhere in what a recompile would write, so the fix is in the pack's sources.
-   * `pointerConflicts`: two units claiming one key, which leaves check no map to trust.
+   * `pointerConflicts`: two units claiming one key, which leaves check no map to trust; a full check meets one only
+   * where a unit no longer compiles, so `compileErrors` (check's, less the conflicts) names the cause.
    */
-  checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean; handErrors?: string[]; pointerErrors?: string[]; pointerConflicts?: string[] }>;
+  checkPack: (packName: string) => Promise<{
+    drift: boolean;
+    lintHits: number;
+    strict: boolean;
+    handErrors?: string[];
+    pointerErrors?: string[];
+    pointerConflicts?: string[];
+    compileErrors?: string[];
+  }>;
   /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[]; written: string[]; removed: string[] }>;
   /** Regenerates every registered repo's per-pack files; a base pack the pack extends may have moved since the last install. Only the named pack's failures fail the step. */
@@ -718,8 +727,12 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const handErrors = result.handErrors ?? [];
     const pointerErrors = result.pointerErrors ?? [];
     const pointerConflicts = result.pointerConflicts ?? [];
+    const brokenSkills = pointerConflicts.length > 0 ? result.compileErrors ?? [] : [];
     if (pointerConflicts.length > 0 && mayWritePack) {
-      return refused(["Compiled skills in this pack disagree about where a pointer leads, so rt stopped before the version bump. Compile the whole pack with rt skills compile, then sync again:", ...pointerConflicts].join("\n"));
+      const cause = brokenSkills.length > 0
+        ? ["A skill in this pack no longer compiles, so the pointer map its last compile wrote is still in place. Its error:", ...brokenSkills, "Fix it, then compile the whole pack with rt skills compile and sync again."]
+        : ["Compile the whole pack with rt skills compile, then sync again."];
+      return refused(["Compiled skills in this pack disagree about where a pointer leads, so rt stopped before the version bump:", ...pointerConflicts, ...cause].join("\n"));
     }
     if (handErrors.length > 0 && mayWritePack) {
       const problems = plural(handErrors.length, "problem");
@@ -733,6 +746,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     warnings.push(...handErrors.map((e) => `For the pack's owners to fix: ${e}`));
     warnings.push(...pointerErrors.map((e) => `For the pack's owners to fix in its source files: ${e}`));
     warnings.push(...pointerConflicts.map((e) => `For the pack's owners to fix with a full compile: ${e}`));
+    warnings.push(...brokenSkills.map((e) => `For the pack's owners to fix, a skill that no longer compiles: ${e}`));
     if (result.strict && result.lintHits > 0) {
       return refused(`This pack is strict, and mcp lint found ${hitCount(result.lintHits)}. Fix them before syncing`);
     }

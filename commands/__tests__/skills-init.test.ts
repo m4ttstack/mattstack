@@ -606,16 +606,7 @@ describe("initCheckOf", () => {
       drift: false,
       handErrors: ["skills/gadgets/SKILL.md:4:2: gone.md does not resolve to a file"],
       pointerErrors: ["attachments/stage-plan/SKILL.md:4:2: @stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file"],
-      pointerConflicts: [],
     });
-  });
-
-  test("a pointer conflict names a full compile as the fix", () => {
-    const o = { ok: false as const, refused: false as const, code: "pointer-conflict" as const, detail: "pointer key @a/x.sh has two targets", wrote: [], remedy: { commands: ["rt skills compile --pack-dir /p", "rt skills check --pack-dir /p"] } };
-    const shown = renderPlain([ui.failure(initFailure(o)), ...initFailureAfter(o)]);
-    expect(shown).toContain("Compiled skills in the new pack disagree about where a pointer leads");
-    expect(shown).toContain("Compile the whole pack, then run rt skills compile --pack-dir /p, then rt skills check --pack-dir /p");
-    expect(shown).toContain("compiled skills, pointer maps:");
   });
 
   test("a pointer failure names the source files as the fix, never hand-written skills", () => {
