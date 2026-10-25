@@ -2,6 +2,7 @@ import { resumeAgentPane, resumePackEnv } from './agent-launch.ts';
 import type { BoardConfig } from './config.ts';
 import { reviewSkillForTab } from './data.ts';
 import {
+  closeTab,
   dispatchPrompt,
   launchLegacyResume,
   launchRespond,
@@ -16,7 +17,7 @@ import {
   packForLaunch,
   resolveLaunchSkill,
 } from './manifest-bindings.ts';
-import { deleteSheetDraft } from './question-state.ts';
+import { clearMrQuestions } from './question-lifecycle.ts';
 import {
   readRespondStates,
   respondFilePath,
@@ -111,7 +112,9 @@ export interface ReReviewIo {
   writeReviewState: typeof writeReviewState;
   readReviewStates: typeof readReviewStates;
   reviewFilePath: typeof reviewFilePath;
-  deleteSheetDraft: typeof deleteSheetDraft;
+  /** Ends the MR's questions: rows, revisions, sheet draft and their tabs
+      (`clearMrQuestions`). */
+  clearMrQuestions(mrUrl: string): Promise<void>;
 }
 
 export const defaultReReviewIo: ReReviewIo = {
@@ -121,7 +124,11 @@ export const defaultReReviewIo: ReReviewIo = {
   writeReviewState,
   readReviewStates,
   reviewFilePath,
-  deleteSheetDraft,
+  clearMrQuestions: mrUrl =>
+    clearMrQuestions(mrUrl, {
+      closeTab: tabId => closeTab(tabId),
+      logError: message => console.error(message),
+    }),
 };
 
 /** Start a re-review of an MR: resume the prior session if there is one, else
@@ -168,8 +175,10 @@ export async function launchReReview(
   );
 
   // Every arm below starts a new review run, whose gate is not a rebuild of
-  // the last run's: its ticks and edits must not carry over.
-  io.deleteSheetDraft(mrUrl);
+  // the last run's: its ticks and edits must not carry over, and neither do
+  // the last run's questions and revisions (a revision would read as
+  // "Revised" on the new gate's finding of the same id).
+  await io.clearMrQuestions(mrUrl);
 
   if (existing?.agentId) {
     io.writeReviewState(statePath, {

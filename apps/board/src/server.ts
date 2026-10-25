@@ -293,10 +293,9 @@ import {
   type LifecycleIo,
 } from './question-lifecycle.ts';
 import {
-  deleteSheetDraft,
   expireStaleQueuedQuestions,
-  questionActivity,
   markQuestionsGone,
+  questionActivity,
   questionAgentIds,
   readQuestionStates,
   readSheetDraft,
@@ -2679,8 +2678,14 @@ const httpServer = Bun.serve({
         }
         const statePath = reviewFilePath(parsed.mrUrl);
         // A fresh run's gate is not a rebuild of the last run's, so the
-        // sheet's saved ticks and edits do not carry over.
-        deleteSheetDraft(parsed.mrUrl);
+        // sheet's saved ticks and edits do not carry over, and neither do the
+        // last run's questions and revisions. The state clears before the
+        // first await; only the tab closes run on.
+        void clearMrQuestions(parsed.mrUrl, questionLifecycleIo()).catch(err =>
+          console.error(
+            `question cleanup failed for ${parsed.mrUrl}: ${err instanceof Error ? err.message : err}`
+          )
+        );
         writeReviewState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
