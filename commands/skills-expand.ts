@@ -93,6 +93,9 @@ function emit(flags: Flags, payload: { ok: boolean; mode: "expand" | "check"; sk
   out.print(...blocks);
 }
 
+const rerunCommand = (flags: Flags): string =>
+  `rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`;
+
 const hits = (n: number): string => `${n} lint ${n === 1 ? "hit" : "hits"}`;
 
 export async function skillsExpand(args: string[]): Promise<void> {
@@ -103,7 +106,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
   try {
     skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots });
   } catch (err) {
-    fail(err instanceof UserActionableError ? failureFor(err) : { title: (err as Error).message });
+    fail(err instanceof UserActionableError ? { ...failureFor(err), next: out.cmd(rerunCommand(flags)) } : { title: (err as Error).message });
   }
 
   const { lint, advisory } = flags.strict ? lintExpanded(flags.out, skills) : { lint: [], advisory: [] };
@@ -120,7 +123,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
     if (!ok) {
       fail({
         title: drift.length > 0 ? "The expanded skills are out of date" : `The expanded skills have ${hits(lint.length)}`,
-        ...(drift.length > 0 ? { next: out.cmd(`rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`) } : {}),
+        ...(drift.length > 0 ? { next: out.cmd(rerunCommand(flags)) } : {}),
       }, out.verbatim([...drift.map((d) => `${d.skill}: ${d.causes.join(", ")}`), ...lint], "diagnostics"));
     }
     return;

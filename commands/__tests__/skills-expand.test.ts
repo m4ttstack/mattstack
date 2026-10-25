@@ -180,7 +180,7 @@ describe("rt skills expand", () => {
     expect(io.stderr()).toBe(
       "a/stage.md: @a/scripts/gone.sh points at scripts/gone.sh in app:a, which expand does not write\n" +
       "  why: resolve refuses a skill whose map names a missing file, so the skill would stop on its first run.\n" +
-      "  next: bun run skills:expand:board\n",
+      `  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")} --mattstack-dir ${root}\n`,
     );
   });
 });

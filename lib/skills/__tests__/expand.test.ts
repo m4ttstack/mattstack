@@ -325,7 +325,7 @@ describe("pointers", () => {
     expect(() => expanded()).toThrow(`widget/${MAP_FILE}: expand writes this file; remove it from the source`);
   });
 
-  test("each pointer refusal is actionable: a why and the command to run once the source is fixed", () => {
+  test("each pointer refusal is actionable: it carries a why, and leaves the command to its caller", () => {
     const refusal = (): UserActionableError => {
       try {
         expanded();
@@ -344,7 +344,7 @@ describe("pointers", () => {
       const err = refusal();
       expect(err).toBeInstanceOf(UserActionableError);
       expect(err.why).toBeTruthy();
-      expect(err.next).toBe("bun run skills:expand:board");
+      expect(err.next).toBeUndefined();
       rmSync(path);
     }
   });

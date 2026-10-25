@@ -263,18 +263,17 @@ function withExpandOpeningLine(skillMd: string, id: string): string {
   return `${skillMd.slice(0, at)}${openingLine(id)}\n${skillMd.slice(at)}`;
 }
 
+/** The command that re-runs expand belongs to the caller, which knows the flags this run took. */
+function pointerRefusal(code: string, message: string, why: string): UserActionableError {
+  return new UserActionableError(code, message, {}, { why });
+}
+
 /**
  * Keys every `.md` against a unit table of the board skills' folders, so a
  * pointer into a sibling's folder is a key too. resolve joins a string target
  * inside the reader's own link, so a sibling's target is named by the
  * sibling's frontmatter name, the name its link carries.
  */
-const EXPAND_BOARD = "bun run skills:expand:board";
-
-function pointerRefusal(code: string, message: string, why: string): UserActionableError {
-  return new UserActionableError(code, message, {}, { why, next: EXPAND_BOARD });
-}
-
 function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
   const units: UnitTable = Object.fromEntries(drafts.map((d) => [d.skill.name, `skills/${d.skill.name}`]));
   const nameOf = new Map(drafts.map((d) => [d.skill.name, d.skillName]));
