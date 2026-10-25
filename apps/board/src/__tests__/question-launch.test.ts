@@ -43,6 +43,8 @@ interface Fake {
   writes: QuestionPatch[];
   launches: Array<Parameters<QuestionLaunchIo['launch']>[0]>;
   focused: Array<{ paneId?: string; tabId?: string }>;
+  /** How many SSE nudges the route sent. */
+  nudges: () => number;
   settle: () => Promise<void>;
 }
 
@@ -59,6 +61,7 @@ function fake(
   const writes: QuestionPatch[] = [];
   const launches: Fake['launches'] = [];
   const focused: Fake['focused'] = [];
+  let nudges = 0;
   const { existing, author, launch, ...rest } = over;
   let row: QuestionState | undefined = existing;
   const io: QuestionLaunchIo = {
@@ -93,6 +96,9 @@ function fake(
     resolveRepo: () => 'remote:gitlab.com%2Facme%2Fwebapp',
     agentSettings: () => ({ account: 'a@b.c', model: 'opus' }),
     pack: tab => (tab ? `pack-${tab}` : undefined),
+    nudge: () => {
+      nudges++;
+    },
     ...rest,
   };
   return {
@@ -100,6 +106,7 @@ function fake(
     writes,
     launches,
     focused,
+    nudges: () => nudges,
     // The route does not await the launch, so a test lets it finish by
     // yielding to the event loop.
     settle: () => new Promise(r => setTimeout(r, 0)),
@@ -238,8 +245,10 @@ describe('handleQuestionLaunch', () => {
     expect(res).toEqual({ status: 200, body: { ok: true } });
     expect(f.writes).toEqual([{ status: 'queued', iid: 812, gateId: 'g1' }]);
     expect(f.focused).toEqual([]);
+    expect(f.nudges()).toBe(0);
     release(LAUNCHED);
     await f.settle();
+    expect(f.nudges()).toBe(1);
     expect(f.writes[1]).toEqual({
       status: 'live',
       agentId: 'agent-1',
@@ -341,6 +350,7 @@ describe('handleQuestionLaunch', () => {
     await f.settle();
     expect(f.writes.map(w => w.status)).toEqual(['queued', 'live']);
     expect(f.focused).toEqual([]);
+    expect(f.nudges()).toBe(1);
   });
 
   test('a reused pane after the row was deleted (a submit) writes nothing back', async () => {
@@ -353,6 +363,7 @@ describe('handleQuestionLaunch', () => {
     release({ ...LAUNCHED, focusedExisting: true });
     await f.settle();
     expect(f.writes.map(w => w.status)).toEqual(['queued']);
+    expect(f.nudges()).toBe(0);
   });
 
   test('a launch that rejects writes an error row with the cause', async () => {
@@ -371,6 +382,8 @@ describe('handleQuestionLaunch', () => {
       message: 'herdr tab create failed (1): no such workspace',
     });
     expect(f.focused).toEqual([]);
+    // The sheet learns of the failure now, not at its next poll.
+    expect(f.nudges()).toBe(1);
   });
 
   test('a launch that finishes after the row was deleted (a submit) writes nothing back', async () => {

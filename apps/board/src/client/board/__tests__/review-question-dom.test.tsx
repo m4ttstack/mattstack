@@ -120,7 +120,12 @@ function gate({ skipped = false }: { skipped?: boolean } = {}): GateRow {
   };
 }
 
-const NO_QUESTIONS: QuestionInfo = { live: {}, revised: {}, rebuilding: false };
+const NO_QUESTIONS: QuestionInfo = {
+  live: {},
+  failed: {},
+  revised: {},
+  rebuilding: false,
+};
 
 const mrWith = (questions: QuestionInfo = NO_QUESTIONS): BoardMRWithReview =>
   ({
@@ -343,6 +348,59 @@ describe('asking a question from the review sheet', () => {
     await settle();
     expect(asks).toEqual([
       { iid: 31, gateId: 'g-review', findingId: 'f2', focus: true },
+    ]);
+  });
+
+  test('a launch still coming up reads as opening and takes no click', async () => {
+    await show(
+      gate(),
+      mrWith({ ...NO_QUESTIONS, live: { f2: { status: 'queued' } } })
+    );
+    const opening = askLink('Second finding')!;
+    expect(opening.textContent).toBe('opening a question…');
+    expect(opening.getAttribute('aria-label')).toBe(
+      'Second finding: opening a question'
+    );
+    expect(opening.disabled).toBe(true);
+    await React.act(async () => opening.click());
+    await settle();
+    expect(asks).toEqual([]);
+  });
+
+  test('a queued question that already has its tab is the open pill', async () => {
+    await show(
+      gate(),
+      mrWith({
+        ...NO_QUESTIONS,
+        live: { f2: { status: 'queued', tabId: 't1' } },
+      })
+    );
+    expect(askLink('Second finding')!.textContent).toBe('question open · Q f2');
+  });
+
+  test('a failed launch shows why beside the ask link, which asks again', async () => {
+    await show(
+      gate(),
+      mrWith({
+        ...NO_QUESTIONS,
+        failed: { f2: { message: 'no such workspace' } },
+      })
+    );
+    const failed = card('Second finding').querySelector(
+      '[data-section="finding"] .tui-review-ask-failed'
+    )!;
+    expect(failed.textContent).toBe(
+      "couldn't open the question: no such workspace"
+    );
+    expect(
+      card('First finding').querySelector('.tui-review-ask-failed')
+    ).toBeNull();
+    const again = askLink('Second finding')!;
+    expect(again.textContent).toBe('ask a question');
+    await React.act(async () => again.click());
+    await settle();
+    expect(asks).toEqual([
+      { iid: 31, gateId: 'g-review', findingId: 'f2', focus: false },
     ]);
   });
 

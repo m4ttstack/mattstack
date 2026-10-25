@@ -4175,9 +4175,19 @@ a.tui-id-card-ref:focus-visible {
   cursor: pointer;
 }
 @media (hover: hover) {
-  .tui-review-section-link:hover {
+  .tui-review-section-link:hover:not(:disabled) {
     text-decoration: underline;
   }
+}
+/* A question launch still coming up: nothing to focus yet, so no click. */
+.tui-review-section-link:disabled {
+  cursor: default;
+}
+/* Why the finding's last question launch did not open, beside its control. */
+.tui-review-ask-failed {
+  font-size: 12px;
+  color: var(--text-bad-small);
+  overflow-wrap: anywhere;
 }
 .tui-review-section-link:focus-visible {
   outline: 2px solid var(--fill-accent);

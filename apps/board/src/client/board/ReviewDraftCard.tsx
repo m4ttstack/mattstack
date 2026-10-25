@@ -703,9 +703,21 @@ function RevisedStrip({
   );
 }
 
+/** What the Agent Finding head's question control shows: `idle` offers
+    to ask, `opening` is a launch still coming up (no tab to focus yet),
+    `live` is the open question. `failed` is why the last launch did not
+    open, shown beside the control until a new ask clears it. */
+export interface FindingAsk {
+  state: 'idle' | 'opening' | 'live';
+  failed?: string;
+  onAsk: () => void;
+}
+
 /** The Agent Finding head's question control: "ask a question" opens a
-    questions pane for the finding, and once one is running it reads as the
-    open question and brings that pane forward. */
+    questions pane for the finding; while the launch comes up it reads as
+    "opening a question…" and takes no click; once one is running it reads
+    as the open question and brings that pane forward. A failed launch puts
+    a quiet error line beside it. */
 function AskControl({
   title,
   id,
@@ -713,29 +725,48 @@ function AskControl({
 }: {
   title: string;
   id: string;
-  ask: { state: 'idle' | 'live'; onAsk: () => void };
+  ask: FindingAsk;
 }) {
-  return ask.state === 'live' ? (
-    <button
-      type="button"
-      className="tui-review-section-link"
-      data-live=""
-      aria-label={`${title}: question open, Q ${id}`}
-      onClick={ask.onAsk}
-    >
-      question open · Q {id}
-      <ArrowOutGlyph />
-    </button>
-  ) : (
-    <button
-      type="button"
-      className="tui-review-section-link"
-      aria-label={`${title}: ask a question`}
-      onClick={ask.onAsk}
-    >
-      ask a question
-      <QuestionGlyph />
-    </button>
+  const control =
+    ask.state === 'live' ? (
+      <button
+        type="button"
+        className="tui-review-section-link"
+        data-live=""
+        aria-label={`${title}: question open, Q ${id}`}
+        onClick={ask.onAsk}
+      >
+        question open · Q {id}
+        <ArrowOutGlyph />
+      </button>
+    ) : ask.state === 'opening' ? (
+      <button
+        type="button"
+        className="tui-review-section-link"
+        aria-label={`${title}: opening a question`}
+        disabled
+      >
+        opening a question…
+      </button>
+    ) : (
+      <button
+        type="button"
+        className="tui-review-section-link"
+        aria-label={`${title}: ask a question`}
+        onClick={ask.onAsk}
+      >
+        ask a question
+        <QuestionGlyph />
+      </button>
+    );
+  if (!ask.failed) return control;
+  return (
+    <span className="tui-review-section-meta">
+      <span className="tui-review-ask-failed" role="status">
+        couldn&apos;t open the question: {ask.failed}
+      </span>
+      {control}
+    </span>
   );
 }
 
@@ -764,7 +795,7 @@ export function FindingCard({
   mrRef?: string;
   mrRevision?: string;
   pins: FilePin[];
-  ask?: { state: 'idle' | 'live'; onAsk: () => void };
+  ask?: FindingAsk;
   revision?: {
     original: FindingEntry;
     revised: FindingEntry | null;

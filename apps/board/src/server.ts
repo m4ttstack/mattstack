@@ -3157,6 +3157,7 @@ const httpServer = Bun.serve({
             ),
           agentSettings: loadAgentSettings,
           pack: launchPack,
+          nudge: sseNudge,
         });
         return typeof result.body === 'string'
           ? new Response(result.body, { status: result.status })

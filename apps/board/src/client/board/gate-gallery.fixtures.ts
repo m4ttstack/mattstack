@@ -1204,6 +1204,7 @@ export const reviewPostQuestions: GalleryGate = {
     ...MRS.radarLayers,
     questions: {
       live: { f1: { paneId: 'w40:p1', tabId: 'w40:t1', status: 'live' } },
+      failed: {},
       revised: {
         f2: {
           original: {

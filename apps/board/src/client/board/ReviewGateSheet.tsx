@@ -16,7 +16,7 @@ import {
 import { Button, Chip, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { parseReportFinding } from '../../review-finding.ts';
-import type { BoardMRWithReview } from '../types.ts';
+import type { BoardMRWithReview, QuestionInfo } from '../types.ts';
 import { anchorLine, anchorPath } from './diff-source.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
@@ -47,6 +47,7 @@ import {
   findingEntryFromReport,
   SummaryCard,
   type FilePin,
+  type FindingAsk,
 } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
@@ -133,6 +134,28 @@ function reportFindingIds(report: ReviewReportJson | null): Set<string> {
     if (parsed) ids.add(parsed.id);
   }
   return ids;
+}
+
+/** A finding's question control from the MR's questions: a queued launch
+    with no tab yet is `opening` (nothing to focus), any other running
+    question is `live` and a click focuses it, and a failed launch carries
+    its message. */
+export function findingAsk(
+  questions: QuestionInfo | undefined,
+  findingId: string,
+  ask: (focus: boolean) => void
+): FindingAsk {
+  const running = questions?.live[findingId];
+  const failed = questions?.failed[findingId]?.message;
+  return {
+    state: !running
+      ? 'idle'
+      : running.status === 'queued' && !running.tabId
+        ? 'opening'
+        : 'live',
+    ...(failed ? { failed } : {}),
+    onAsk: () => ask(Boolean(running)),
+  };
 }
 
 /** Checks are rail material only (the CHECKS card), never part of the main
@@ -586,11 +609,9 @@ function ReviewGateSheet({
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
             ask={
               askable.has(f.id)
-                ? {
-                    state: mrQuestions?.live[f.id] ? 'live' : 'idle',
-                    onAsk: () =>
-                      askQuestion(f.id, Boolean(mrQuestions?.live[f.id])),
-                  }
+                ? findingAsk(mrQuestions, f.id, focus =>
+                    askQuestion(f.id, focus)
+                  )
                 : undefined
             }
             revision={

@@ -109,6 +109,7 @@ const mrWith = (
     diff: { additions: 4, deletions: 1, filesChanged: 1 },
     questions: {
       live: {},
+      failed: {},
       rebuilding: false,
       revised: Object.fromEntries(
         Object.entries(revised).map(([id, r]) => [

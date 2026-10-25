@@ -310,6 +310,7 @@ describe('questionInfoFor', () => {
             f2: { status: 'live', tabId: 'tab-2' },
             f3: { status: 'queued' },
           },
+          failed: {},
           revised: {
             f1: {
               original: finding('f1'),
@@ -321,6 +322,27 @@ describe('questionInfoFor', () => {
         });
       }
     );
+  });
+});
+
+describe('questionInfoFor: a failed launch', () => {
+  test('an error row is listed under failed with its message, and a new ask clears it', () => {
+    writeQuestionState(
+      URL_A,
+      'f3',
+      { status: 'error', iid: 1, gateId: 'g0', message: 'no such workspace' },
+      NOW,
+      db
+    );
+    expect(questionInfoFor(URL_A, NOW, db)).toMatchObject({
+      live: {},
+      failed: { f3: { message: 'no such workspace' } },
+    });
+    writeQuestionState(URL_A, 'f3', { status: 'queued' }, NOW + 1, db);
+    expect(questionInfoFor(URL_A, NOW + 1, db)).toMatchObject({
+      live: { f3: { status: 'queued' } },
+      failed: {},
+    });
   });
 });
 

@@ -226,6 +226,9 @@ export interface QuestionInfo {
     string,
     { paneId?: string; tabId?: string; status: 'queued' | 'live' }
   >;
+  /** Questions whose launch failed, by finding id, with why. A new ask
+      clears one: its queued write drops the message. */
+  failed: Record<string, { message: string }>;
   /** The newest applied revision per finding. `newGate` is the rebuilt gate
       it landed in, so the sheet can tell a revision of the gate on screen
       from one an earlier gate carried. */

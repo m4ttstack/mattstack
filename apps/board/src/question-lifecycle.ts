@@ -196,7 +196,12 @@ export function questionInfoFor(
   const rebuilding = pendingRevision(mrUrl, now, db) !== undefined;
   if (!rows?.size && applied.size === 0 && !rebuilding) return undefined;
   const live: QuestionInfo['live'] = {};
+  const failed: QuestionInfo['failed'] = {};
   for (const [findingId, q] of rows ?? []) {
+    if (q.status === 'error') {
+      failed[findingId] = { message: q.message ?? 'the launch failed' };
+      continue;
+    }
     if (!questionRunning(q, now)) continue;
     live[findingId] = {
       status: q.status === 'live' ? 'live' : 'queued',
@@ -214,7 +219,7 @@ export function questionInfoFor(
       newGate: r.newGate,
     };
   }
-  return { live, revised, rebuilding };
+  return { live, failed, revised, rebuilding };
 }
 
 /** Question panes carry their MR's `mr:` subject, so a closed question tab

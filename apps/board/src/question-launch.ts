@@ -34,6 +34,10 @@ export interface QuestionLaunchIo {
   resolveRepo(mr: QuestionMr, mrUrl: string): string;
   agentSettings(): AgentSettings;
   pack(boardTabId: string | undefined): string | undefined;
+  /** Tells the board's open pages a launch outcome landed (the server's SSE
+      nudge), so the sheet shows the live pill or the failure without
+      waiting for its poll. */
+  nudge(): void;
 }
 
 export interface QuestionLaunchResult {
@@ -177,6 +181,7 @@ export async function handleQuestionLaunch(
             status: 'live',
             ...lastRunPane(prior),
           });
+          io.nudge();
           return;
         }
         io.writeQuestion(mrUrl, findingId, {
@@ -186,6 +191,7 @@ export async function handleQuestionLaunch(
           tabId: result.tabId,
           workspaceId: result.workspaceId,
         });
+        io.nudge();
         try {
           await io.focusPane({ paneId: result.paneId, tabId: result.tabId });
         } catch (err) {
@@ -203,6 +209,7 @@ export async function handleQuestionLaunch(
           status: 'error',
           message: launchErrorMessage('question', err),
         });
+        io.nudge();
       }
     )
     .catch(err =>
