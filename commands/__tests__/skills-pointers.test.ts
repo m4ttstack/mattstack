@@ -6,8 +6,9 @@ import { checkBlocks, checkPack, compilePackAll, computeRows, skillsCheck, skill
 import { syncCheckOf } from "../skills-sync.ts";
 import { HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { isEmittedAttachmentDir } from "../../lib/skills/base-attachments.ts";
-import { closeUnits, stageReadsOf, type UnitPointers } from "../../lib/skills/unit-maps.ts";
+import { closeUnits, keyFiles, stageReadsOf, withMapFile, type UnitPointers } from "../../lib/skills/unit-maps.ts";
 import { openingLine } from "../../lib/skills/pointers.ts";
+import type { CompiledFile } from "../../lib/skills/types.ts";
 import { POINTER_KEYS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 import { compareVersions } from "../../lib/skills/installed-plugins.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
@@ -229,6 +230,42 @@ describe("compile writes keys, ids and closure maps", () => {
     expect(tools("attachments/receive-review/SKILL.md")).toEqual([`  - "Bash(bash ${TOKEN}/scripts/gate-ctx.sh:*)"`]);
     const floor = (JSON.parse(read(f, "pack/requires.json")) as { minEngine: string }).minEngine;
     expect(compareVersions(floor, POINTER_KEYS_MIN_ENGINE)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("the opening line goes only where a key is", () => {
+  const site = { id: "widgets@0.4.2:work", dir: "skills/work", units: { work: "skills/work", "stage-plan": "attachments/stage-plan" } };
+  const skillMd = `---\nname: work\n---\n\n${HEADER_COMMENT}\n\n# Work\n`;
+  const textOf = (files: CompiledFile[], path: string) => {
+    const file = files.find((f) => f.path === path);
+    return file && "content" in file ? file.content : "";
+  };
+  const keyed = (refBody: string) => keyFiles([{ path: "SKILL.md", content: skillMd }, { path: "references/guide.md", content: refBody }], site);
+  const mapOf = (keys: Record<string, string>) => ({ id: site.id, dir: site.dir, covers: [site.id], keys });
+
+  test("a reference with no key gets no line", () => {
+    expect(textOf(keyed("# Guide\n").files, "references/guide.md")).toBe("# Guide\n");
+  });
+
+  test("a reference that holds a key opens with the unit's line", () => {
+    expect(textOf(keyed(`Run \`${TOKEN}/scripts/go.sh\`.\n`).files, "references/guide.md")).toBe(`${openingLine(site.id)}\n\nRun \`@work/scripts/go.sh\`.\n`);
+  });
+
+  test("a SKILL.md whose closed map holds a key opens with the line, even with no key of its own", () => {
+    const files = withMapFile(keyed("# Guide\n").files, mapOf({ "stage-plan/scripts/x.sh": "attachments/stage-plan/scripts/x.sh" }));
+    expect(textOf(files, "SKILL.md")).toBe(`---\nname: work\n---\n\n${HEADER_COMMENT}\n${openingLine(site.id)}\n\n# Work\n`);
+  });
+
+  test("a SKILL.md whose closed map is empty gets no line", () => {
+    const files = withMapFile(keyed("# Guide\n").files, mapOf({}));
+    expect(textOf(files, "SKILL.md")).toBe(skillMd);
+    expect(files.map((f) => f.path)).toContain("compiled.json");
+  });
+
+  test("a compiled stage with an empty map has no line", async () => {
+    const f = seed();
+    await compile(f);
+    expect(read(f, "attachments/stage-plan/SKILL.md")).not.toContain("Pointers here are");
   });
 });
 

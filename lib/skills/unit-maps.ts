@@ -72,7 +72,11 @@ export function withOpeningLine(text: string, id: string): string {
   return `${head}${openingLine(id)}\n\n${body.replace(/^\n+/, "")}`;
 }
 
-/** Keys every `.md` the unit writes, a copied one included, and opens each with the unit's line. */
+/**
+ * Keys every `.md` the unit writes, a copied one included. A file that holds
+ * a key opens with the unit's line; the unit's own SKILL.md waits for its
+ * closure, since a key it reaches only through another unit still needs one.
+ */
 export function keyFiles(files: CompiledFile[], site: PointerSite): { files: CompiledFile[]; keys: Record<string, Target> } {
   const keys: Record<string, Target> = {};
   const keyed = files.map((file): CompiledFile => {
@@ -80,9 +84,18 @@ export function keyFiles(files: CompiledFile[], site: PointerSite): { files: Com
     const text = "content" in file ? file.content : readFileSync(file.copyFrom, "utf8");
     const out = keyBody(text, { dir: site.dir, fileRel: file.path, units: site.units });
     Object.assign(keys, out.targets);
-    return { path: file.path, content: withOpeningLine(out.text, site.id) };
+    const opens = file.path !== UNIT_SKILL_MD && Object.keys(out.targets).length > 0;
+    return { path: file.path, content: opens ? withOpeningLine(out.text, site.id) : out.text };
   });
   return { files: keyed, keys };
+}
+
+const UNIT_SKILL_MD = "SKILL.md";
+
+/** The unit's SKILL.md opens with its line once its closed map holds a key. */
+function withSkillMdLine(files: CompiledFile[], map: PointerMap): CompiledFile[] {
+  if (Object.keys(map.keys).length === 0) return files;
+  return files.map((f) => (f.path === UNIT_SKILL_MD ? { path: f.path, content: withOpeningLine("content" in f ? f.content : readFileSync(f.copyFrom, "utf8"), map.id) } : f));
 }
 
 /** Two units in one closure claim one key for different files; a full compile of the pack writes them from one table again. */
@@ -168,9 +181,9 @@ type Compiled = { files: CompiledFile[]; pointers?: { keys: Record<string, Targe
 
 /**
  * Closes every unit's pointer map once all of them have compiled. Each
- * compiled target gets its compiled.json back in `mapFiles`, by leaf; each
- * base copy comes back with its compiled.json carrying the map after its
- * provenance. A unit this run did not compile lends the map its last compile wrote.
+ * compiled target gets its closed map back in `maps`, by leaf, for
+ * `withMapFile`; each base copy comes back with its compiled.json carrying the
+ * map after its provenance. A unit this run did not compile lends the map its last compile wrote.
  */
 export function attachMaps<E extends { name: string } & Compiled>(input: {
   packDir: string;
@@ -178,7 +191,7 @@ export function attachMaps<E extends { name: string } & Compiled>(input: {
   units: UnitTable;
   compiled: ({ leaf: string } & Compiled)[];
   emits: E[];
-}): { mapFiles: Map<string, CompiledFile>; emits: E[] } {
+}): { maps: Map<string, PointerMap>; emits: E[] } {
   const { packDir, identity, units } = input;
   const idOf = (leaf: string) => unitId(identity.name, identity.version, leaf);
   const pointers: UnitPointers[] = [
@@ -186,23 +199,23 @@ export function attachMaps<E extends { name: string } & Compiled>(input: {
     ...input.emits.flatMap((e) => (e.pointers ? [{ leaf: leafOf(e.name), dir: `attachments/${e.name}`, ...e.pointers }] : [])),
   ];
   const closed = closeUnits(pointers, idOf, (leaf) => (Object.hasOwn(units, leaf) ? readUnitMap(packDir, units[leaf]!, idOf(leaf)) : null));
-  const mapFiles = new Map<string, CompiledFile>();
+  const maps = new Map<string, PointerMap>();
   for (const c of input.compiled) {
     const map = closed.get(c.leaf);
-    if (map) mapFiles.set(c.leaf, { path: MAP_FILE, content: mapFileText(map) });
+    if (map) maps.set(c.leaf, map);
   }
   const emits = input.emits.map((e) => {
     const map = closed.get(leafOf(e.name));
     if (!map) return e;
     const files = e.files.map((f): CompiledFile => (f.path === MAP_FILE && "content" in f ? { path: f.path, content: mapFileText(map, parseObject(f.content) ?? {}) } : f));
-    return { ...e, files };
+    return { ...e, files: withSkillMdLine(files, map) };
   });
-  return { mapFiles, emits };
+  return { maps, emits };
 }
 
-/** A compiled target's files with its compiled.json, when the closure gave it one. */
-export function withMapFile(files: CompiledFile[], mapFile: CompiledFile | undefined): CompiledFile[] {
-  return mapFile ? [...files, mapFile] : files;
+/** A compiled target's files with its compiled.json and SKILL.md line, when the closure gave it a map. */
+export function withMapFile(files: CompiledFile[], map: PointerMap | undefined): CompiledFile[] {
+  return map ? [...withSkillMdLine(files, map), { path: MAP_FILE, content: mapFileText(map) }] : files;
 }
 
 function isFile(path: string): boolean {

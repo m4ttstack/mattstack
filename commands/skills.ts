@@ -75,7 +75,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves } from "../lib/skills/placeholders.ts";
 import { newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
-import { unitId } from "../lib/skills/pointers.ts";
+import { unitId, type PointerMap } from "../lib/skills/pointers.ts";
 import {
   attachMaps,
   emittedUnits,
@@ -896,6 +896,23 @@ function identityIfAny(resolved: Resolved): Identity | null {
   return resolved.identity.ok ? resolved.identity : null;
 }
 
+/**
+ * A view of one target shows its files as a compile would write them: the
+ * units it reads lend the maps their last compile wrote, as in a scoped
+ * `--verb` compile. A conflict leaves the files unclosed; compile reports it.
+ */
+function closedViewFiles(resolved: Resolved, target: CompileTarget, files: CompiledFile[], pointers: CompileResult["pointers"], verbSides: Record<string, Side>, planned: PlannedAttachments): CompiledFile[] {
+  const identity = identityIfAny(resolved);
+  if (!identity || !pointers) return files;
+  try {
+    const { maps } = attachMaps({ packDir: resolved.packDir, identity, units: unitTableOf(verbSides, emittedUnits(planned)), compiled: [{ leaf: target.verb.name, files, pointers }], emits: [] });
+    return withMapFile(files, maps.get(target.verb.name));
+  } catch (err) {
+    if (err instanceof PointerConflictError) return files;
+    throw err;
+  }
+}
+
 /** What a compile resolved, for anatomy and blocks: the engine, its includes and every block's prop values. */
 type CompileAnatomy = {
   step: StepSource;
@@ -1358,7 +1375,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       emits = closed.emits;
       outcomes = outcomes.map(({ target, outcome }) => ({
         target,
-        outcome: outcome.ok ? { ok: true, result: { ...outcome.result, files: withMapFile(outcome.result.files, closed.mapFiles.get(target.verb.name)) } } : outcome,
+        outcome: outcome.ok ? { ok: true, result: { ...outcome.result, files: withMapFile(outcome.result.files, closed.maps.get(target.verb.name)) } } : outcome,
       }));
     } catch (err) {
       if (!(err instanceof PointerConflictError)) throw err;
@@ -1599,7 +1616,8 @@ export async function skillsCompile(args: string[]): Promise<void> {
         refuseMissingValues(resolved);
         // The body is the product here: no summary lines and no warnings
         // interleaved, so the output pipes straight into a file or a preview pane.
-        const main = outcome.result.files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
+        const files = closedViewFiles(resolved, target, outcome.result.files, outcome.result.pointers, verbSides, planned);
+        const main = files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
         if (!main || !("content" in main)) throw new SkillsUsageError(`verb "${verb.name}": produced no SKILL.md`);
         out.payload(`${main.content}\n`);
       }
@@ -1939,14 +1957,14 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   }
 
   let plan = basePlan;
-  let mapFiles = new Map<string, CompiledFile>();
+  let maps = new Map<string, PointerMap>();
   const pointerConflicts: string[] = [];
   const results = [...slots.flatMap((slot) => ("result" in slot ? [slot] : [])), ...unwritten];
   if (identity) {
     try {
       const closed = attachMaps({ packDir: resolved.packDir, identity, units, compiled: results.map(({ target, result }) => ({ leaf: target.verb.name, ...result })), emits: basePlan.emits });
       plan = { ...basePlan, emits: closed.emits };
-      mapFiles = closed.mapFiles;
+      maps = closed.maps;
     } catch (err) {
       if (!(err instanceof PointerConflictError)) throw err;
       anyStale = true;
@@ -1954,7 +1972,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       pointerConflicts.push(err.message);
     }
   }
-  const filesOf = (target: CompileTarget, result: CompileResult) => withMapFile(result.files, mapFiles.get(target.verb.name));
+  const filesOf = (target: CompileTarget, result: CompileResult) => withMapFile(result.files, maps.get(target.verb.name));
 
   for (const slot of slots) {
     if ("row" in slot) {
@@ -2704,9 +2722,10 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     }
 
     const basePlan = requireBasePlan(resolved, plan.verbSides);
-    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, plannedAttachmentsOf(basePlan), identityIfAny(resolved));
+    const planned = plannedAttachmentsOf(basePlan);
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, planned, identityIfAny(resolved));
     refuseMissingValues(resolved);
-    const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
+    const main = closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned).find((f) => "content" in f && f.path === "SKILL.md");
     if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const fresh = main.content;
     const { step, includes, values } = result.anatomy;
@@ -2839,9 +2858,10 @@ export async function skillsBlocks(args: string[]): Promise<void> {
     }
 
     const basePlan = requireBasePlan(resolved, plan.verbSides);
-    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, plannedAttachmentsOf(basePlan), identityIfAny(resolved));
+    const planned = plannedAttachmentsOf(basePlan);
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, planned, identityIfAny(resolved));
     refuseMissingValues(resolved);
-    const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
+    const main = closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned).find((f) => "content" in f && f.path === "SKILL.md");
     if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const { step, includes, values } = result.anatomy;
     const tree = step.tree;

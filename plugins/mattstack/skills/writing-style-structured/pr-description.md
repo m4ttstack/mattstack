@@ -1,5 +1,3 @@
-Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `mattstack@0.32.28:writing-style-structured`, use it; otherwise call `skills_resolve {id: "mattstack@0.32.28:writing-style-structured"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
-
 # PR descriptions (structured)
 
 If the repo has a PR or MR template, keep every section and fill each in

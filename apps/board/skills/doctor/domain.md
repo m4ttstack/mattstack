@@ -1,5 +1,3 @@
-Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:doctor`, use it; otherwise call `skills_resolve {id: "skills:board:doctor"}` and use the path it returns for each key. If it fails, stop and say so; never look for the file another way.
-
 # board:doctor: domain repair
 
 This is a stage of the board:doctor skill. Every escalation box here

@@ -288,7 +288,7 @@ function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
     const dir = units[skill.name]!;
     const id = idOf(skill.name);
     const keys: Record<string, Target> = {};
-    const key = (text: string, fileRel: string): string => {
+    const key = (text: string, fileRel: string): { text: string; keyed: boolean } => {
       const where = `${skill.name}/${fileRel}`;
       const out = keyBody(text, { dir, fileRel, units });
       const left = leftoverTokens(out.text)[0];
@@ -305,17 +305,23 @@ function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
         );
       }
       Object.assign(keys, out.targets);
-      return out.text;
+      return { text: out.text, keyed: Object.keys(out.targets).length > 0 };
     };
-    const skillMd = withExpandOpeningLine(key(skill.skillMd, "SKILL.md"), id);
-    const files = skill.files.map((f): CompiledFile => (f.path.endsWith(".md") ? { path: f.path, content: withOpeningLine(key(textOf(f), f.path), id) } : f));
+    const skillMd = key(skill.skillMd, "SKILL.md").text;
+    const files = skill.files.map((f): CompiledFile => {
+      if (!f.path.endsWith(".md")) return f;
+      const out = key(textOf(f), f.path);
+      return { path: f.path, content: out.keyed ? withOpeningLine(out.text, id) : out.text };
+    });
     const reads = [...new Set(Object.values(keys).flatMap((t) => (typeof t === "string" && !t.startsWith(`${dir}/`) ? [folderOf(t)] : [])))];
     return { skill: { ...skill, skillMd, files }, pointers: { leaf: skill.name, dir, keys, reads } };
   });
 
+  // A SKILL.md opens with its line once its closed map holds a key, one it reaches through a sibling included.
   const closed = closeUnits(keyed.map((k) => k.pointers), idOf, () => null);
-  return keyed.map(({ skill, pointers }) => {
-    const map = closed.get(skill.name)!;
+  return keyed.map(({ skill: drafted, pointers }) => {
+    const map = closed.get(drafted.name)!;
+    const skill = Object.keys(map.keys).length > 0 ? { ...drafted, skillMd: withExpandOpeningLine(drafted.skillMd, map.id) } : drafted;
     const keys = Object.fromEntries(
       Object.entries(map.keys).map(([k, t]): [string, Target] => {
         if (typeof t !== "string" || t.startsWith(`${pointers.dir}/`)) return [k, t];

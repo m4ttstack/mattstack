@@ -20,6 +20,7 @@ import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { POINTER_KEYS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 import { openingLine } from "../../lib/skills/pointers.ts";
+import { attachMaps, withMapFile } from "../../lib/skills/unit-maps.ts";
 import { changedPartKeys, partExtents } from "../../lib/skills/drift.ts";
 
 const realInitFsForTests: MaterializeFs = {
@@ -273,7 +274,11 @@ function computeGolden(mattstackDir: string) {
   const domain = loadAttachment("acme:watch-ci-domain", "domain", roots);
   const forge = loadAttachment("mattstack:gitlab-forge", "forge", roots);
   const invocable = invocableRoster(roots);
-  return compileBlockSkill(verb, step, rootPropValues(step, { domain, forge }), invocable, { identity: { name: "widgets", version: "0.1.0" }, units: { "watch-ci": "skills/watch-ci" } });
+  const identity = { name: "widgets", version: "0.1.0" };
+  const units = { "watch-ci": "skills/watch-ci" };
+  const result = compileBlockSkill(verb, step, rootPropValues(step, { domain, forge }), invocable, { identity, units });
+  const { maps } = attachMaps({ packDir: mattstackDir, identity, units, compiled: [{ leaf: "watch-ci", ...result }], emits: [] });
+  return { ...result, files: withMapFile(result.files, maps.get("watch-ci")) };
 }
 
 let io: CapturedOut;
@@ -1077,7 +1082,7 @@ describe("base pack attachments", () => {
 
     expect((await compile()).errors).toEqual([]);
 
-    expect(readFileSync(join(packDir, "attachments", "board-review", "SKILL.md"), "utf8")).toBe(BOARD_REVIEW_MD.replace("{{pack.name}}", "widgets").replace("---\nReview", `---\n${openingLine("widgets@0.1.0:board-review")}\n\nReview`));
+    expect(readFileSync(join(packDir, "attachments", "board-review", "SKILL.md"), "utf8")).toBe(BOARD_REVIEW_MD.replace("{{pack.name}}", "widgets"));
     expect(JSON.parse(readFileSync(join(packDir, "attachments", "board-review", "compiled.json"), "utf8"))).toEqual({
       base: "acme-base", version: null, files: ["SKILL.md"], id: "widgets@0.1.0:board-review", dir: "attachments/board-review", covers: ["widgets@0.1.0:board-review"], keys: {},
     });
@@ -1243,7 +1248,7 @@ describe("base pack attachments", () => {
     expect((await compile()).errors).toEqual([]);
 
     expect(existsSync(join(refs, "notes-kit"))).toBe(false);
-    expect(readFileSync(join(refs, "other-kit", "SKILL.md"), "utf8")).toBe(`---\nname: other-kit\n---\n${openingLine("widgets@0.1.0:watch-ci")}\n\nother\n`);
+    expect(readFileSync(join(refs, "other-kit", "SKILL.md"), "utf8")).toBe("---\nname: other-kit\n---\nother\n");
   });
 
   test("a pack.path link onto a base attachment does not warn on the compile that first writes it", async () => {
@@ -1570,7 +1575,7 @@ describe("base pack attachments", () => {
 
     expect(errors).toEqual([]);
     expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
-    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe(`---\nname: review-kit\n---\n${openingLine("widgets@0.1.0:review-kit")}\n\nInvoke widgets:ship.\n`);
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\n---\nInvoke widgets:ship.\n");
 
     rmSync(kit(packDir), { recursive: true });
     io.clear();

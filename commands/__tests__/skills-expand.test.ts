@@ -147,7 +147,7 @@ describe("rt skills expand", () => {
     const parsed = JSON.parse(io.lines().at(-1)!);
     expect(parsed.ok).toBe(false);
     expect(parsed.lint).toHaveLength(1);
-    expect(parsed.lint[0]).toContain(`${join(root, "out", "a", "stage.md")}:5`);
+    expect(parsed.lint[0]).toContain(`${join(root, "out", "a", "stage.md")}:3`);
   });
 
   test("--strict honours the allow marker", async () => {
@@ -212,8 +212,8 @@ describe("expanded skill diagnostics lists", () => {
     const title = mode === "check" ? `The expanded skills have ${count} lint ${count === 1 ? "hit" : "hits"}` : `${count} lint ${count === 1 ? "hit" : "hits"} in the expanded skills`;
     expect(io.stderr()).toBe(
       `${title}\n${mode === "check" ? "diagnostics" : "lint"}:\n` +
-      `  ${join(root, "out", "a", "SKILL.md")}:10: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool\n` +
-      (count === 2 ? `  ${join(root, "out", "a", "SKILL.md")}:11: \`glab mr note 4 -m bye\` shells out for glab mr note; use the mr_comment tool\n` : ""),
+      `  ${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool\n` +
+      (count === 2 ? `  ${join(root, "out", "a", "SKILL.md")}:10: \`glab mr note 4 -m bye\` shells out for glab mr note; use the mr_comment tool\n` : ""),
     );
     expect(io.stdout()).toBe(mode === "check" ? "" : "+ a\n");
   });
@@ -226,14 +226,14 @@ describe("expanded skill diagnostics lists", () => {
       "The expanded skills are out of date\n" +
       `  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")} --mattstack-dir ${root}\n` +
       "diagnostics:\n  a: missing\n" +
-      `  ${join(root, "out", "a", "SKILL.md")}:10: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool\n`,
+      `  ${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool\n`,
     );
     io.clear();
     const json = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--check", "--json"]));
     expect(json.exitCode).toBe(1);
     expect(io.stdout()).toBe(JSON.stringify({
       ok: false, mode: "check", skills: ["a"], removed: [], drift: [{ skill: "a", causes: ["missing"] }],
-      lint: [`${join(root, "out", "a", "SKILL.md")}:10: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool`],
+      lint: [`${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool`],
     }) + "\n");
   });
 
@@ -245,7 +245,7 @@ describe("expanded skill diagnostics lists", () => {
     expect(r.exitCode).toBe(1);
     expect(io.stdout()).toBe(JSON.stringify({
       ok: false, mode, skills: ["a"], removed: [], drift: [],
-      lint: [`${join(root, "out", "a", "SKILL.md")}:10: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool`],
+      lint: [`${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool`],
     }) + "\n");
   });
 

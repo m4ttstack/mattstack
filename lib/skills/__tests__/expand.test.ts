@@ -281,7 +281,7 @@ describe("pointers", () => {
       },
     });
     const recipes = expanded().find((s) => s.name === "gate-cli-recipes")!;
-    expect(recipes.skillMd).toContain(openingLine("skills:board:gate-cli-recipes"));
+    expect(recipes.skillMd).not.toContain("Pointers here are");
     expect(mapOf(recipes)).toEqual({ id: "skills:board:gate-cli-recipes", dir: "skills/gate-cli-recipes", covers: ["skills:board:gate-cli-recipes"], keys: {} });
   });
 

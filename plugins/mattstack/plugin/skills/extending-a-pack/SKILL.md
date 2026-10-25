@@ -394,7 +394,8 @@ A fill whose rules are separate files binds them one file at a time: its
 with no frontmatter, and the bind names `<pack>:<fill>/<file>`.
 
 A pointer in a fill names its file in source form, as Writing a fill in
-mattstack:editing-skills shows it: a file beside the fill,
+mattstack:editing-skills shows it: the skill-dir variable plus the file
+name for a file beside the fill,
 `{{pack.path:<attachment>/<file>}}` for one in another attachment,
 `{{verb.path:<verb>}}` for a sibling verb. Compile writes each as an
 `@key` in the compiled skill; `skills_resolve {id: "<id>"}` shows that skill's

@@ -359,7 +359,11 @@ therefore every pack that compiles against it, silently on the old version.
 A compiled skill's id carries the version (`widgets@0.1.1:work`), so after
 the bump, recompile before the commit: the Bash compile above for
 mattstack, `rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}` for
-a team pack. The commit carries the bump and the recompiled output together.
+a team pack. Then rerun the strict check on the recompiled output, the bare
+`rt skills check --pack-dir <your monorepo worktree>/plugins/mattstack --strict` <!-- mcp-lint: allow -->
+for mattstack or `rt_verb {args: ["skills", "check", "--pack", "<pack>", "--strict"]}`
+for a team pack, and commit only once it passes. The commit carries the bump
+and the recompiled output together.
 
 An engine change whose skill text uses a tool, argument or daemon verb an
 older app lacks (a new `runId` on `mr_upload` that stage-ship now passes)
@@ -607,7 +611,8 @@ own manifest).
 
 Writing a fill:
 
-- A file beside the fill is referenced as `${CLAUDE_SKILL_DIR}/<file>`; the
+- A file beside the fill is referenced through the skill-dir variable: a
+  dollar sign, then `CLAUDE_SKILL_DIR` in braces, then `/<file>`; the
   compiler vendors it under the verb's `parts/<prop>/` (a root block's
   prop) or `parts/<block path>/<prop>/` and rewrites the
   token. A bare `<file>` ships verbatim and points nowhere.
