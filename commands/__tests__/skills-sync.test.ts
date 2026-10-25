@@ -249,6 +249,15 @@ describe("syncBlocks", () => {
     expect(syncFailure(refused)).toBeNull();
   });
 
+  test("a block pack on an org below layout 5 is a policy refusal whose next is the runbook's first command", () => {
+    const detail = "This pack's bindings are in block form, and the acme org is still on layout 4.";
+    const refused = report({ ok: false, steps: [{ name: "org-layout", status: "refused", detail }] });
+    expect(renderPlain(syncRefusal(refused)!)).toBe(
+      `[refused] rt did not sync acme  it stopped at: Check the org's layout\n  why: ${detail}\n  next: rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine\n`,
+    );
+    expect(syncFailure(refused)).toBeNull();
+  });
+
   test("a refusal is not a failure: the steps before it on stdout, then a refused note", () => {
     const refused = report({
       ok: false,

@@ -3,7 +3,12 @@ import { dirname, join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import { gateVerdict, MOVED_SENTENCE, showMarkerAt, shownDataBranch, updateSentence, type GateVerdict } from "../team/org-layout.ts";
-import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
+import { ORG_MARKER_REL, markerState, parseMarker } from "../team/org-marker.ts";
+import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
+import { readStore } from "../settings/stores.ts";
+import { rosterFrom, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { readForgeUsername } from "../../packages/rt-client/src/settings/team-local-read.ts";
+import { parseFragment, type Fragment } from "./manifest-merge.ts";
 import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
 import { mattstackFloor } from "../setup/mattstack-floor.ts";
@@ -47,6 +52,8 @@ export type SyncDeps = {
   engine?: () => string | null;
   /** The floor the mattstack marketplace's cached copy publishes. */
   engineFloor?: () => Promise<Floor>;
+  /** This Mac's forge username in an org, which the org's roster lists it by. */
+  forgeUsername?: (org: string) => string | null;
 };
 
 /**
@@ -194,6 +201,47 @@ function orgCloneTop(dir: string): string | null {
     if (up === at) return null;
     at = up;
   }
+}
+
+/** The layout that says every pack in the org is a block pack. */
+const BLOCK_PACKS_LAYOUT = 5;
+
+const RUNBOOK = "Moving to block packs (docs.mattstack.dev/start/teams#moving-to-block-packs, or the release notes)";
+
+/** The first command of that runbook: an admin turns team sync off before anything moves. */
+export const BLOCK_PACKS_FIRST_STEP = `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`;
+
+/** A block-form key names a block under its engine: `<plugin>:<engine>/<block path>`. */
+function blockFormKeys(fragment: Fragment): string[] {
+  const keysOf = (bindings: Record<string, unknown> | undefined) => Object.keys(bindings ?? {}).filter((key) => key.indexOf("/") > key.indexOf(":") && key.includes(":"));
+  const pipelines = Object.values(fragment.pipelines ?? {}).flatMap((value) => (Array.isArray(value) ? [] : keysOf(value.bindings)));
+  return [...keysOf(fragment.bindings), ...pipelines];
+}
+
+/**
+ * An older app cannot merge block-form bindings, so a pack holding them reaches
+ * an org's data branch only once the org is on layout 5. A Just Me org, whose
+ * roster lists no one but this Mac's user, has no older app to break.
+ */
+function orgLayoutGate(clone: string, packDir: string, forgeUsername: (org: string) => string | null): Outcome {
+  const marker = markerState({ readFile: readFileOrNull }, clone);
+  if (marker.kind !== "org") return skipped("the pack's checkout is not an org's");
+  if (marker.layout >= BLOCK_PACKS_LAYOUT) return skipped(`the org is on layout ${marker.layout}, which reads block packs`);
+  const text = readFileOrNull(join(packDir, "pack", "skills.jsonc"));
+  if (text === null) return skipped("the pack has no bindings");
+  let keys: string[];
+  try {
+    keys = blockFormKeys(parseFragment(text, join(packDir, "pack", "skills.jsonc")));
+  } catch {
+    return skipped("the pack's bindings do not parse; the check step says why");
+  }
+  if (keys.length === 0) return skipped("the pack has no block-form bindings");
+  const me = forgeUsername(marker.org);
+  const others = rosterFrom(readStore(join(clone, ORG_STORE_REL))).filter((entry) => me === null || !sameUser(entry.username, me));
+  if (others.length === 0) return skipped("no one else is on the org's roster");
+  return refused(
+    `This pack's bindings are in block form (${keys[0]}), and the ${marker.org} org is still on layout ${marker.layout}. Members on an older app cannot read block-form bindings, so the org moves to layout 5 before a converted pack syncs. Your org admin follows ${RUNBOOK}`,
+  );
 }
 
 /** Pack dirs arrive realpath'd, so the root is compared in the same form. */
@@ -640,6 +688,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   });
   steps.push({ name: "pull-pack", ...pullPack });
   if (stops(pullPack)) return finish();
+
+  // After the pull, so the gate reads the marker and roster origin holds now; before anything is staged or written.
+  const clone = packInTree ? null : orgCloneTop(pack.dir);
+  if (clone !== null && mayWritePack) {
+    const orgLayout = await tryStep(async () => orgLayoutGate(clone, pack.dir, deps.forgeUsername ?? readForgeUsername));
+    steps.push({ name: "org-layout", ...orgLayout });
+    if (stops(orgLayout)) return finish();
+  }
 
   // Staging only, after the pull: the commit waits for commit-push, so a stop
   // anywhere before it leaves the edits uncommitted, where changes and discard

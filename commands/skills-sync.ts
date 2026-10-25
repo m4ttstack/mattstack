@@ -19,7 +19,7 @@ import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/or
 import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
-import { LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { BLOCK_PACKS_FIRST_STEP, LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
 import { checkFailures, checkPack, compilePackAll, NO_PACKS_WHY, type CheckPayload } from "./skills.ts";
 import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
@@ -114,6 +114,7 @@ const STEP_TITLE: Record<string, string> = {
   guards: "Safety checks",
   "pull-engine": "Pull the engine",
   "pull-pack": "Pull the pack",
+  "org-layout": "Check the org's layout",
   "commit-pending": "Stage your pack edits",
   "update-engine": "Update the installed engine",
   materialize: "Rebuild the bindings files",
@@ -130,7 +131,7 @@ const STEP_TITLE: Record<string, string> = {
 const STEP_STATUS: Record<SyncStep["status"], RenderStatus> = { ran: "done", skipped: "skipped", refused: "refused", failed: "failed" };
 
 /** The command that clears a refusal, for the steps whose refusal one command clears. */
-const STEP_NEXT: Record<string, (pack: string) => string> = { check: (pack) => `rt skills check --pack ${pack}` };
+const STEP_NEXT: Record<string, (pack: string) => string> = { check: (pack) => `rt skills check --pack ${pack}`, "org-layout": () => BLOCK_PACKS_FIRST_STEP };
 
 const stepTitle = (step: SyncStep): string => STEP_TITLE[step.name] ?? step.name;
 

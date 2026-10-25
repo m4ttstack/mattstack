@@ -1278,6 +1278,67 @@ describe("pull-pack in an org clone", () => {
   });
 });
 
+describe("a block pack on an org below layout 5", () => {
+  const V2 = { bindings: { "mattstack:ship/flow/gate-ship": { rules: "widgets:ship-rules/gate" } } };
+  const OLD = { bindings: { "mattstack:ship": { domain: "widgets:ship-domain" } } };
+  const writes = (calls: Call[]) => calls.filter((c) => c.cmd === "git" && (c.args[0] === "commit" || c.args[0] === "push" || c.args[0] === "add"));
+
+  function seed(layout: number, fragment: object, roster: string[]): { clone: string; pack: PackInfo; engine: PackInfo; deps: SyncDeps; calls: Call[] } {
+    const { clone, pack } = orgClonePack();
+    writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": ${layout} }\n`);
+    mkdirSync(join(clone, "mattstack", "org"), { recursive: true });
+    writeFileSync(join(clone, "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "mattstack.roster": roster.map((username) => ({ username, teams: ["widgets"] })) }));
+    mkdirSync(join(pack.dir, "pack"), { recursive: true });
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), JSON.stringify(fragment));
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, drift: [false], originMarker: { [clone]: null } }), orgsRoot: dirname(clone), forgeUsername: () => "dev1" };
+    return { clone, pack, engine, deps, calls };
+  }
+
+  test("refuses before any write in an org with other members on layout 4", async () => {
+    const { pack, engine, deps, calls } = seed(4, V2, ["dev1", "dev2"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    const step = report.steps.at(-1)!;
+    expect(step.name).toBe("org-layout");
+    expect(step.status).toBe("refused");
+    expect(step.detail).toContain("layout 5");
+    expect(step.detail).toContain("/start/teams#moving-to-block-packs");
+    expect(report.ok).toBe(false);
+    expect(stepNames(report.steps)).not.toContain("compile");
+    expect(writes(calls)).toEqual([]);
+  });
+
+  test("passes in a Just Me org, where the roster lists only this Mac's user", async () => {
+    const { pack, engine, deps } = seed(4, V2, ["dev1"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "org-layout")!.status).toBe("skipped");
+    expect(report.steps.at(-1)!.name).not.toBe("org-layout");
+  });
+
+  test("passes on an org already on layout 5", async () => {
+    const { pack, engine, deps } = seed(5, V2, ["dev1", "dev2"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "org-layout")!.status).toBe("skipped");
+    expect(report.steps.at(-1)!.name).not.toBe("org-layout");
+  });
+
+  test("passes an old-form pack on layout 4", async () => {
+    const { pack, engine, deps } = seed(4, OLD, ["dev1", "dev2"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "org-layout")!.status).toBe("skipped");
+    expect(report.steps.at(-1)!.name).not.toBe("org-layout");
+  });
+});
+
 describe("in-tree engine", () => {
   test("skips every git step for an engine inside inTreeRoot and still refreshes the plugin", async () => {
     const engine = fixturePack("mattstack", "mattstack", "1.2.3", tmp("rt-sync-checkout-"));
