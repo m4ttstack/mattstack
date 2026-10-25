@@ -172,6 +172,17 @@ describe("rt skills expand", () => {
     expect(r.exitCode).toBe(1);
     expect(r.errors.join("\n")).toContain('include "nope"');
   });
+
+  test("a pointer refusal shows its why and the command to run once the source is fixed", async () => {
+    write(join(root, "src", "a", "stage.md"), "See `${CLAUDE_SKILL_DIR}/scripts/gone.sh`.\n");
+    const r = await runExpectingCleanExit(() => skillsExpand(base()));
+    expect(r.exitCode).toBe(1);
+    expect(io.stderr()).toBe(
+      "a/stage.md: @a/scripts/gone.sh points at scripts/gone.sh in app:a, which expand does not write\n" +
+      "  why: resolve refuses a skill whose map names a missing file, so the skill would stop on its first run.\n" +
+      "  next: bun run skills:expand:board\n",
+    );
+  });
 });
 
 describe("expanded skill diagnostics lists", () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { UserActionableError } from "../../errors.ts";
 import { checkExpanded, EXPAND_HEADER, expandSkills, writeExpanded, type ExpandedSkill } from "../expand.ts";
 import { openingLine, type PointerMap } from "../pointers.ts";
 import { resolvePluginRootsFromDir } from "../sources.ts";
@@ -303,9 +304,49 @@ describe("pointers", () => {
     expect(() => expanded()).toThrow(/widget\/extra\.md: @widget\/scripts\/gone\.sh points at scripts\/gone\.sh in board:widget, which expand does not write/);
   });
 
+  test("compiled.json lists its keys sorted, whatever order the text names them in", () => {
+    expect(Object.keys(mapOf(widget()).keys)).toEqual(["gate-cli-recipes/SKILL.md", "widget/scripts/resolve-args.sh"]);
+  });
+
+  test("an include-vendored .md is keyed as the skill's own, and refuses a pointer at a file nothing writes", () => {
+    const NOTE_DIR = join(root, "plugins", "mattstack", "attachments", "note");
+    write(join(NOTE_DIR, "tool.sh"), "echo\n");
+    write(join(NOTE_DIR, "guide.md"), "Run `${CLAUDE_SKILL_DIR}/parts/include-note/tool.sh`.\n");
+    write(join(src, "widget", "SKILL.md"), "---\nname: board:widget\ndescription: w\n---\n\n{{include:note}}\n");
+    const w = widget();
+    expect(fileText(w, "parts/include-note/guide.md")).toBe(`${openingLine("skills:board:widget")}\n\nRun \`@widget/parts/include-note/tool.sh\`.\n`);
+    expect(mapOf(w).keys["widget/parts/include-note/tool.sh"]).toBe("skills/widget/parts/include-note/tool.sh");
+    write(join(NOTE_DIR, "guide.md"), "Run `${CLAUDE_SKILL_DIR}/parts/include-note/gone.sh`.\n");
+    expect(() => expanded()).toThrow(/widget\/parts\/include-note\/guide\.md: @widget\/parts\/include-note\/gone\.sh points at parts\/include-note\/gone\.sh in board:widget/);
+  });
+
   test("refuses a source that carries its own compiled.json", () => {
     write(join(src, "widget", MAP_FILE), "{}\n");
     expect(() => expanded()).toThrow(`widget/${MAP_FILE}: expand writes this file; remove it from the source`);
+  });
+
+  test("each pointer refusal is actionable: a why and the command to run once the source is fixed", () => {
+    const refusal = (): UserActionableError => {
+      try {
+        expanded();
+      } catch (err) {
+        return err as UserActionableError;
+      }
+      throw new Error("expand did not refuse");
+    };
+    const cases: [string, string][] = [
+      [join(src, "widget", "extra.md"), "See `${CLAUDE_SKILL_DIR}/../elsewhere/x.md`.\n"],
+      [join(src, "widget", "extra.md"), "See `${CLAUDE_SKILL_DIR}/scripts/gone.sh`.\n"],
+      [join(src, "widget", MAP_FILE), "{}\n"],
+    ];
+    for (const [path, text] of cases) {
+      write(path, text);
+      const err = refusal();
+      expect(err).toBeInstanceOf(UserActionableError);
+      expect(err.why).toBeTruthy();
+      expect(err.next).toBe("bun run skills:expand:board");
+      rmSync(path);
+    }
   });
 
   test("refuses a skill-dir path that lands in no board skill", () => {

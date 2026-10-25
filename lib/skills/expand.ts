@@ -5,6 +5,7 @@ import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
 import { propPartsDir, renderInclude, type SourcedTree } from "./blocks/render.ts";
 import { FENCE_RE, walk } from "./blocks/tree.ts";
 import { blockPropValues, includedTree, includeNamesIn } from "./compile-blocks.ts";
+import { UserActionableError } from "../errors.ts";
 import { closeUnits, MAP_FILE, mapFileText, withOpeningLine } from "./unit-maps.ts";
 import { ID_RE, keyBody, leftoverTokens, openingLine, skillsId, type Target, type UnitTable } from "./pointers.ts";
 import { maskProvenance } from "./provenance.ts";
@@ -268,6 +269,12 @@ function withExpandOpeningLine(skillMd: string, id: string): string {
  * inside the reader's own link, so a sibling's target is named by the
  * sibling's frontmatter name, the name its link carries.
  */
+const EXPAND_BOARD = "bun run skills:expand:board";
+
+function pointerRefusal(code: string, message: string, why: string): UserActionableError {
+  return new UserActionableError(code, message, {}, { why, next: EXPAND_BOARD });
+}
+
 function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
   const units: UnitTable = Object.fromEntries(drafts.map((d) => [d.skill.name, `skills/${d.skill.name}`]));
   const nameOf = new Map(drafts.map((d) => [d.skill.name, d.skillName]));
@@ -276,7 +283,9 @@ function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
   const folderOf = (target: string) => target.split("/")[1]!;
 
   const keyed = drafts.map(({ skill }) => {
-    if (skill.files.some((f) => f.path === MAP_FILE)) throw new Error(`${skill.name}/${MAP_FILE}: expand writes this file; remove it from the source`);
+    if (skill.files.some((f) => f.path === MAP_FILE)) {
+      throw pointerRefusal("skills-expand-map-in-source", `${skill.name}/${MAP_FILE}: expand writes this file; remove it from the source`, "Each expanded skill's pointer map is generated from its text, so a copy in the source would overwrite it.");
+    }
     const dir = units[skill.name]!;
     const id = idOf(skill.name);
     const keys: Record<string, Target> = {};
@@ -284,11 +293,17 @@ function pointSkills(drafts: Drafted[]): ExpandedSkill[] {
       const where = `${skill.name}/${fileRel}`;
       const out = keyBody(text, { dir, fileRel, units });
       const left = leftoverTokens(out.text)[0];
-      if (left) throw new Error(`${where}: ${SKILL_DIR_TOKEN} at line ${left.line} does not point into a board skill`);
+      if (left) {
+        throw pointerRefusal("skills-expand-stray-token", `${where}: ${SKILL_DIR_TOKEN} at line ${left.line} does not point into a board skill`, "Expand writes each skill-dir path as an @key, and only a path into a board skill's folder has one.");
+      }
       for (const [k, target] of Object.entries(out.targets)) {
         if (typeof target !== "string" || written.has(target)) continue;
         const folder = folderOf(target);
-        throw new Error(`${where}: @${k} points at ${target.slice(units[folder]!.length + 1)} in ${nameOf.get(folder)}, which expand does not write`);
+        throw pointerRefusal(
+          "skills-expand-missing-target",
+          `${where}: @${k} points at ${target.slice(units[folder]!.length + 1)} in ${nameOf.get(folder)}, which expand does not write`,
+          "resolve refuses a skill whose map names a missing file, so the skill would stop on its first run.",
+        );
       }
       Object.assign(keys, out.targets);
       return out.text;

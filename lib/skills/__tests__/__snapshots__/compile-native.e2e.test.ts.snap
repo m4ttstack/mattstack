@@ -241,10 +241,10 @@ Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
     "acme@0.1.0:stage-ship"
   ],
   "keys": {
-    "stage-plan/SKILL.md": "attachments/stage-plan/SKILL.md",
     "stage-implement/SKILL.md": "attachments/stage-implement/SKILL.md",
-    "stage-ship/SKILL.md": "attachments/stage-ship/SKILL.md",
-    "stage-plan/parts/include-gitlab-note/scripts/note.sh": "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh"
+    "stage-plan/SKILL.md": "attachments/stage-plan/SKILL.md",
+    "stage-plan/parts/include-gitlab-note/scripts/note.sh": "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh",
+    "stage-ship/SKILL.md": "attachments/stage-ship/SKILL.md"
   }
 }
 "

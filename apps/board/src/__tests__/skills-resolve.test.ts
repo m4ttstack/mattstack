@@ -123,7 +123,7 @@ describe('wrapper skill slot resolution', () => {
       test('documents the resolution order: explicit --skill wins before the resolver runs', () => {
         const argWins = skillMd.indexOf('**Explicit `--skill <name>` wins.**');
         const resolver = skillMd.indexOf(
-          '"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"'
+          `"@${w.dir}/scripts/resolve-args.sh"`
         );
         expect(argWins).toBeGreaterThan(-1);
         expect(resolver).toBeGreaterThan(argWins);

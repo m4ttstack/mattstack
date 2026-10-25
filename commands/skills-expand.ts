@@ -11,6 +11,7 @@
 
 import { join } from "path";
 import { TREE } from "../lib/command-tree-def.ts";
+import { failureFor, UserActionableError } from "../lib/errors.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { checkExpanded, expandSkills, planRemoval, textOf, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
@@ -102,7 +103,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
   try {
     skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots });
   } catch (err) {
-    fail({ title: (err as Error).message });
+    fail(err instanceof UserActionableError ? failureFor(err) : { title: (err as Error).message });
   }
 
   const { lint, advisory } = flags.strict ? lintExpanded(flags.out, skills) : { lint: [], advisory: [] };
