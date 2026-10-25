@@ -28,6 +28,16 @@ describe("keyBody: scripts", () => {
   });
 });
 
+describe("keyBody: an attachment's own token without ../../", () => {
+  test("is left as written and reported as a leftover", () => {
+    const text = `Run ${TOKEN}/scripts/gate-ctx.sh now.`;
+    const out = keyBody(text, { dir: "attachments/receive-review", fileRel: "SKILL.md", units });
+    expect(out.text).toBe(text);
+    expect(out.targets).toEqual({});
+    expect(leftoverTokens(out.text)).toEqual([{ line: 1, col: 5 }]);
+  });
+});
+
 describe("keyBody: units", () => {
   const at = { dir: "skills/work", fileRel: "SKILL.md", units };
 
@@ -56,6 +66,18 @@ describe("keyBody: units", () => {
     expect(out.targets).toEqual({});
   });
 
+  test("a path ends at a comma, semicolon, angle bracket or square bracket", () => {
+    const out = keyBody(`A ${TOKEN}/scripts/a.sh, ${TOKEN}/scripts/b.sh; <${TOKEN}/scripts/c.sh> [${TOKEN}/scripts/d.sh]`, at);
+    expect(out.text).toBe("A @work/scripts/a.sh, @work/scripts/b.sh; <@work/scripts/c.sh> [@work/scripts/d.sh]");
+    expect(Object.keys(out.targets)).toEqual(["work/scripts/a.sh", "work/scripts/b.sh", "work/scripts/c.sh", "work/scripts/d.sh"]);
+  });
+
+  test("an allowed-tools example in a body fence keys the file and keeps its :*", () => {
+    const out = keyBody(`\`\`\`yaml\nallowed-tools: Bash(bash ${TOKEN}/scripts/x.sh:*)\n\`\`\`\n`, at);
+    expect(out.text).toBe("```yaml\nallowed-tools: Bash(bash @work/scripts/x.sh:*)\n```\n");
+    expect(out.targets).toEqual({ "work/scripts/x.sh": "skills/work/scripts/x.sh" });
+  });
+
   test("frontmatter is never rewritten", () => {
     const head = `---\nname: work\nallowed-tools: Bash(bash ${TOKEN}/scripts/x.sh:*)\n---\n`;
     const out = keyBody(`${head}Run ${TOKEN}/scripts/x.sh`, at);
@@ -74,6 +96,25 @@ describe("keyBody: verb paths", () => {
     const out = keyBody("Then read `../../../stage-plan/SKILL.md`.", { dir: "attachments/receive-review", fileRel: "references/widget-gates/SKILL.md", units });
     expect(out.text).toBe("Then read `@stage-plan/SKILL.md`.");
     expect(out.targets).toEqual({ "stage-plan/SKILL.md": "attachments/stage-plan/SKILL.md" });
+  });
+
+  test("a markdown anchor stays after the key and the target is the file", () => {
+    const out = keyBody("See [step 2](../receive-review/SKILL.md#step-2).", { dir: "attachments/board-respond", fileRel: "SKILL.md", units });
+    expect(out.text).toBe("See [step 2](@receive-review/SKILL.md#step-2).");
+    expect(out.targets).toEqual({ "receive-review/SKILL.md": "attachments/receive-review/SKILL.md" });
+  });
+
+  test("the same reference file in two units gives two keys", () => {
+    const twoUnits: UnitTable = { "stage-gates": "attachments/stage-gates", "watch-ci": "attachments/watch-ci" };
+    const text = "Read `./references/widget-gates/SKILL.md`.";
+    const gates = keyBody(text, { dir: "attachments/stage-gates", fileRel: "SKILL.md", units: twoUnits });
+    const ci = keyBody(text, { dir: "attachments/watch-ci", fileRel: "SKILL.md", units: twoUnits });
+    expect(gates.text).toBe("Read `@stage-gates/references/widget-gates/SKILL.md`.");
+    expect(ci.text).toBe("Read `@watch-ci/references/widget-gates/SKILL.md`.");
+    expect({ ...gates.targets, ...ci.targets }).toEqual({
+      "stage-gates/references/widget-gates/SKILL.md": "attachments/stage-gates/references/widget-gates/SKILL.md",
+      "watch-ci/references/widget-gates/SKILL.md": "attachments/watch-ci/references/widget-gates/SKILL.md",
+    });
   });
 
   test("a relative path that names no unit, or a bare one, stays", () => {
@@ -112,6 +153,12 @@ describe("closeMap", () => {
 
   test("a reached unit with no keys still appears in covers", () => {
     const out = closeMap(map("widgets@0.1.0:work", "skills/work", {}), [map("widgets@0.1.0:stage-plan", "attachments/stage-plan", {})]);
+    expect(out.covers).toEqual(["widgets@0.1.0:work", "widgets@0.1.0:stage-plan"]);
+  });
+
+  test("covers lead with the unit's own id even when own.covers is empty", () => {
+    const own: PointerMap = { id: "widgets@0.1.0:work", dir: "skills/work", covers: [], keys: {} };
+    const out = closeMap(own, [map("widgets@0.1.0:stage-plan", "attachments/stage-plan", {})]);
     expect(out.covers).toEqual(["widgets@0.1.0:work", "widgets@0.1.0:stage-plan"]);
   });
 

@@ -1,5 +1,5 @@
 import { posix } from "path";
-import { FRONTMATTER_RE } from "./base-attachments.ts";
+import { FRONTMATTER_RE } from "./frontmatter-re.ts";
 
 export type Target = string | { skill: string; path: string };
 export type UnitTable = Record<string, string>;
@@ -8,10 +8,10 @@ export type PointerMap = { id: string; dir: string; covers: string[]; keys: Reco
 export const ID_RE = /^(?:[a-z0-9][a-z0-9-]*@\d+(?:\.\d+)*:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$/;
 
 const TOKEN = "${CLAUDE_SKILL_DIR}";
-const PATH_CHARS = "[^\\s`'\")\\]>,;]*";
+const PATH_CHARS = "[^\\s`'\")\\]>,;#?*:]*";
 const TOKEN_RE = new RegExp(`\\$\\{CLAUDE_SKILL_DIR\\}(/${PATH_CHARS})?`, "g");
 const RELATIVE_RE = new RegExp(`(?<![^\\s\`'"(\\[<])\\.\\.?/${PATH_CHARS}`, "g");
-const SENTENCE_END_RE = /[.:]+$/;
+const SENTENCE_END_RE = /\.+$/;
 // Every internal-unit token climbs `../../` out of the skill folder, so any `skills/<x>` reads it the same.
 const ANY_SKILL_DIR = "skills/~";
 
@@ -86,7 +86,7 @@ function sameTarget(a: Target, b: Target): boolean {
 
 export function closeMap(own: PointerMap, reached: PointerMap[]): PointerMap {
   const keys: Record<string, Target> = { ...own.keys };
-  const covers = [...own.covers];
+  const covers = [...new Set([own.id, ...own.covers])];
   for (const map of reached) {
     for (const id of [map.id, ...map.covers]) if (!covers.includes(id)) covers.push(id);
     for (const [key, target] of Object.entries(map.keys)) {

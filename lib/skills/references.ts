@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "fs";
 import { dirname, isAbsolute, join, relative } from "path";
 import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
-import { FRONTMATTER_RE, walkAttachmentFiles } from "./base-attachments.ts";
+import { walkAttachmentFiles } from "./base-attachments.ts";
+import { FRONTMATTER_RE } from "./frontmatter-re.ts";
 import { findHandPaths, handPathDiagnostics } from "./hand-paths.ts";
 import {
   assertNoTeamMarkerInRawFile,

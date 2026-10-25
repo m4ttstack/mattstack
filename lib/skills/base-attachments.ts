@@ -4,6 +4,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { hasCompiledHeader, unresolvedRelativePaths } from "./compile.ts";
 import { handPathDiagnostics } from "./hand-paths.ts";
+import { FRONTMATTER_RE } from "./frontmatter-re.ts";
 import { hostDir } from "./layout.ts";
 import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, referencePath, sourcePackPath, substituteAttachmentPlaceholders, type PackTarget } from "./placeholders.ts";
 import { referenceCopies } from "./references.ts";
@@ -13,7 +14,6 @@ import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sou
 import type { AttachmentSource, CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = "compiled.json";
-export const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 
 export type BaseRef = { name: string; dir: string; version: string | null };
 export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource };
