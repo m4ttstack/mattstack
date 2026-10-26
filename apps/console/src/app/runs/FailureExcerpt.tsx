@@ -3,7 +3,6 @@ import {
   Anchor,
   Group,
   Paper,
-  Skeleton,
   Text,
   Tooltip,
 } from '@mattstack/app-kit/core';
@@ -12,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { client } from '../api';
 import { useEditorHref } from '../editorHref';
+import { StepLoader, useStepLoading } from '../StepLoader';
 import classes from './FailureExcerpt.module.css';
 
 export interface FailureExcerptProps {
@@ -49,14 +49,17 @@ export function FailureExcerpt({
       return res.json();
     },
   });
+  const { show: held, bind: heldBind } = useStepLoading(query.isPending);
 
-  if (query.isPending) {
+  if (query.isPending || held) {
     return (
-      <Skeleton
-        height={40}
-        className={classes.grow}
-        data-testid="failure-excerpt-loading"
-      />
+      <div className={classes.grow}>
+        <StepLoader
+          {...heldBind}
+          testId="failure-excerpt-loading"
+          steps={[`reading ${detailPath.split('/').at(-1)}`]}
+        />
+      </div>
     );
   }
 

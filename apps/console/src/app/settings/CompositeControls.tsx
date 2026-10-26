@@ -13,7 +13,6 @@ import {
   NumberInput,
   Pill,
   Select,
-  Skeleton,
   Stack,
   Switch,
   Text,
@@ -37,6 +36,7 @@ import {
   type RowKind,
 } from '@mattstack/settings-kit/shapes';
 
+import { StepLoader, useStepLoading } from '../StepLoader';
 import { BoxscoreRolesBody, ROLES_KEY, useRolesSummary } from './BoxscoreRoles';
 import {
   enumWidth,
@@ -1005,13 +1005,19 @@ function DraftBody({
   const at = rungOf(row.target.scope, row.target.repo ?? null);
   const deep = def.merge === 'deep';
   const layered = deep || def.merge === 'add';
-  if (layered && explained.rows.length === 0)
+  const { show: layersHeld, bind: layersBind } = useStepLoading(
+    layered && explained.rows.length === 0 && !explained.error
+  );
+  if (layered && (explained.rows.length === 0 || layersHeld))
     return (
       <Body>
         {explained.error ? (
           <ExplainError message={explained.error} />
         ) : (
-          <Skeleton h={48} />
+          <StepLoader
+            {...layersBind}
+            steps={[`reading where ${def.key} is set`]}
+          />
         )}
       </Body>
     );
