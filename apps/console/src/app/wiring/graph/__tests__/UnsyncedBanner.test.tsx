@@ -44,6 +44,9 @@ vi.mock('../../../api', () => ({
         changes: {
           $get: (args: { query: { pack: string } }) => changesGet(args),
         },
+        blocks: {
+          $get: () => Promise.resolve(ok({ error: 'not a block tree' }, 404)),
+        },
         source: {
           $get: ({ query }: { query: { path: string } }) =>
             Promise.resolve(ok(designSource(query.path))),
@@ -238,7 +241,7 @@ describe('the unsynced banner', () => {
     expect(root).toHaveTextContent(TITLE);
     expect(within(root).getByText('plan')).toBeInTheDocument();
     expect(
-      within(root).getByText('domain slot: plan-policy → plan-policy-strict')
+      within(root).getByText('domain prop: plan-policy → plan-policy-strict')
     ).toBeInTheDocument();
   });
 
@@ -279,7 +282,7 @@ describe('the unsynced banner', () => {
       '2 unsynced changes in acme. Your Claude sessions still use the old version.'
     );
     expect(
-      within(root).getByText('domain slot: plan-policy → plan-policy-strict')
+      within(root).getByText('domain prop: plan-policy → plan-policy-strict')
     ).toBeInTheDocument();
     expect(
       within(root).getByText('attachments/gate-protocol/SKILL.md')
@@ -291,7 +294,7 @@ describe('the unsynced banner', () => {
       within(confirm).getByText('attachments/gate-protocol/SKILL.md')
     ).toBeInTheDocument();
     expect(
-      within(confirm).getByText('domain slot: plan-policy → plan-policy-strict')
+      within(confirm).getByText('domain prop: plan-policy → plan-policy-strict')
     ).toBeInTheDocument();
   });
 
@@ -410,7 +413,7 @@ describe('Sync changes', () => {
       'This saves the change to the acme pack and shares it with your team. Then it rebuilds the pack and updates your installed copy.'
     );
     expect(
-      within(confirm).getByText('domain slot: plan-policy → plan-policy-strict')
+      within(confirm).getByText('domain prop: plan-policy → plan-policy-strict')
     ).toBeInTheDocument();
     expect(confirm).toHaveTextContent(
       'Afterwards, run /reload-plugins in open Claude sessions to pick it up.'
@@ -603,7 +606,7 @@ describe('Discard', () => {
       'This throws away this change in acme. It cannot be undone.'
     );
     expect(
-      within(confirm).getByText('domain slot: plan-policy → plan-policy-strict')
+      within(confirm).getByText('domain prop: plan-policy → plan-policy-strict')
     ).toBeInTheDocument();
     expect(button(confirm, 'Discard').getAttribute('style')).toMatch(/red/);
     expect(discardPost).not.toHaveBeenCalled();

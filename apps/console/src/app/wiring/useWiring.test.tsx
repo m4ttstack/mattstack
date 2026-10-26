@@ -3,11 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const bindPost = vi.fn();
 const surfaceApplyPost = vi.fn();
 const syncPost = vi.fn();
 const discardPost = vi.fn();
 const anatomyGet = vi.fn();
+const blocksGet = vi.fn();
 const sourceGet = vi.fn();
 const changesGet = vi.fn();
 
@@ -15,10 +15,10 @@ vi.mock('../api', () => ({
   client: {
     api: {
       skills: {
-        bind: { $post: (...args: unknown[]) => bindPost(...args) },
         sync: { $post: (...args: unknown[]) => syncPost(...args) },
         discard: { $post: (...args: unknown[]) => discardPost(...args) },
         anatomy: { $get: (...args: unknown[]) => anatomyGet(...args) },
+        blocks: { $get: (...args: unknown[]) => blocksGet(...args) },
         source: { $get: (...args: unknown[]) => sourceGet(...args) },
         changes: { $get: (...args: unknown[]) => changesGet(...args) },
         surface: {
@@ -31,6 +31,7 @@ vi.mock('../api', () => ({
 
 const {
   useAnatomy,
+  useBlocks,
   useDiscardChanges,
   usePendingChanges,
   useSkillSource,
@@ -84,21 +85,10 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 // `WiringMap` calls `useSkillsApply(pack ?? '')` unconditionally (before
-// packs load, `pack` is null) -- the only render path that fires either
+// packs load, `pack` is null) -- the only render path that fires the
 // mutation is gated on a truthy pack, but the hook itself must not be a
 // trap for a future caller that skips that gate.
 describe('useSkillsApply with no pack selected', () => {
-  it('rejects a bind without POSTing', async () => {
-    const { result } = renderHook(() => useSkillsApply(''), { wrapper });
-
-    act(() => {
-      result.current.bind.mutate({ verb: 'v', slot: 's', fill: 'f' });
-    });
-
-    await waitFor(() => expect(result.current.bind.isError).toBe(true));
-    expect(bindPost).not.toHaveBeenCalled();
-  });
-
   it('rejects a surface apply without POSTing', async () => {
     const { result } = renderHook(() => useSkillsApply(''), { wrapper });
 
@@ -108,6 +98,58 @@ describe('useSkillsApply with no pack selected', () => {
 
     await waitFor(() => expect(result.current.surfaceApply.isError).toBe(true));
     expect(surfaceApplyPost).not.toHaveBeenCalled();
+  });
+});
+
+describe('useBlocks', () => {
+  it('requests one skill of one pack', async () => {
+    blocksGet.mockResolvedValue(reply({ skill: 'mini' }));
+    const { Wrap } = harness();
+
+    const { result } = renderHook(() => useBlocks('acme', 'mini'), {
+      wrapper: Wrap,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(blocksGet).toHaveBeenCalledWith({
+      query: { pack: 'acme', skill: 'mini' },
+    });
+  });
+
+  it('answers null, not an error, for a skill that is not a block tree', async () => {
+    blocksGet.mockResolvedValue(
+      reply({ error: 'The plain skill is not built from blocks' }, 404)
+    );
+    const { Wrap } = harness();
+
+    const { result } = renderHook(() => useBlocks('acme', 'plain'), {
+      wrapper: Wrap,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
+  });
+
+  it('fails with the message of any other refusal', async () => {
+    blocksGet.mockResolvedValue(reply({ error: 'rt exploded' }, 502));
+    const { Wrap } = harness();
+
+    const { result } = renderHook(() => useBlocks('acme', 'mini'), {
+      wrapper: Wrap,
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe('rt exploded');
+  });
+
+  it('makes no request without a pack or a skill', async () => {
+    const { Wrap } = harness();
+
+    renderHook(() => useBlocks(null, 'x'), { wrapper: Wrap });
+    renderHook(() => useBlocks('acme', null), { wrapper: Wrap });
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(blocksGet).not.toHaveBeenCalled();
   });
 });
 
@@ -243,54 +285,48 @@ describe('usePendingChanges', () => {
 });
 
 describe('invalidation after a write', () => {
-  it('sweeps anatomy and changes when a bind lands', async () => {
-    bindPost.mockResolvedValue(reply({ pack: 'acme', ok: true }));
+  it('sweeps anatomy and changes when a surface apply lands', async () => {
+    surfaceApplyPost.mockResolvedValue(
+      reply({ pack: 'acme', steps: [], rows: [] })
+    );
     const { invalidate, Wrap } = harness();
     const { result } = renderHook(() => useSkillsApply('acme'), {
       wrapper: Wrap,
     });
 
     act(() => {
-      result.current.bind.mutate({ verb: 'v', slot: 's', fill: 'f' });
+      result.current.surfaceApply.mutate({ toPublic: ['v'], toInternal: [] });
     });
 
-    await waitFor(() => expect(result.current.bind.isSuccess).toBe(true));
+    await waitFor(() =>
+      expect(result.current.surfaceApply.isSuccess).toBe(true)
+    );
     const keys = invalidatedKeys(invalidate);
     expect(keys).toContainEqual(['skills', 'anatomy', 'acme']);
     expect(keys).toContainEqual(['skills', 'changes', 'acme']);
     expect(keys).toContainEqual(['skills', 'source', 'acme']);
   });
 
-  it.each([
-    ['a bind', 'bind', () => bindPost],
-    ['a surface apply', 'surfaceApply', () => surfaceApplyPost],
-  ] as const)(
-    'sweeps the pack when %s fails, since it may have written',
-    async (_, which, post) => {
-      post().mockResolvedValue(reply({ error: 'rt is not installed' }, 503));
-      const { invalidate, Wrap } = harness();
-      const { result } = renderHook(() => useSkillsApply('acme'), {
-        wrapper: Wrap,
-      });
+  it('sweeps the pack when a surface apply fails, since it may have written', async () => {
+    surfaceApplyPost.mockResolvedValue(
+      reply({ error: 'rt is not installed' }, 503)
+    );
+    const { invalidate, Wrap } = harness();
+    const { result } = renderHook(() => useSkillsApply('acme'), {
+      wrapper: Wrap,
+    });
 
-      act(() => {
-        if (which === 'bind')
-          result.current.bind.mutate({ verb: 'v', slot: 's', fill: 'f' });
-        else
-          result.current.surfaceApply.mutate({
-            toPublic: ['v'],
-            toInternal: [],
-          });
-      });
+    act(() => {
+      result.current.surfaceApply.mutate({ toPublic: ['v'], toInternal: [] });
+    });
 
-      await waitFor(() => expect(result.current[which].isError).toBe(true));
-      expect(invalidatedKeys(invalidate)).toContainEqual([
-        'skills',
-        'changes',
-        'acme',
-      ]);
-    }
-  );
+    await waitFor(() => expect(result.current.surfaceApply.isError).toBe(true));
+    expect(invalidatedKeys(invalidate)).toContainEqual([
+      'skills',
+      'changes',
+      'acme',
+    ]);
+  });
 });
 
 describe('the per-pack write lock', () => {

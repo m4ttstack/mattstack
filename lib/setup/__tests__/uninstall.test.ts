@@ -21,7 +21,7 @@ import { PORTLESS_LAUNCHD_PLIST } from "../steps/services.ts";
 import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
-import { computeUninstallActions, runUninstall, RT_CONTEXT_EXTENSION_ID, type UninstallAction, type UninstallSeams } from "../uninstall.ts";
+import { computeUninstallActions, runUninstall, RT_CONTEXT_EXTENSION_ID, SKILL_BLOCKS_EXTENSION_ID, type UninstallAction, type UninstallSeams } from "../uninstall.ts";
 import type { ApplyEvent } from "../contract.ts";
 
 // ─── shared fakes (mirrors steps-b/c.test.ts's trivial no-ops) ─────────────
@@ -644,7 +644,32 @@ describe("rt uninstall", () => {
       expect(result.ok).toBe(true);
       expect(execCalls).toContainEqual(["/Applications/Cursor.app/cli", "--uninstall-extension", RT_CONTEXT_EXTENSION_ID]);
       expect(execCalls).toContainEqual(["/Applications/Code.app/cli", "--uninstall-extension", RT_CONTEXT_EXTENSION_ID]);
+      expect(execCalls).toContainEqual(["/Applications/Cursor.app/cli", "--uninstall-extension", SKILL_BLOCKS_EXTENSION_ID]);
+      expect(execCalls).toContainEqual(["/Applications/Code.app/cli", "--uninstall-extension", SKILL_BLOCKS_EXTENSION_ID]);
       expect(readSetupState(p).extensionEditors).toEqual([]);
+    });
+
+    test("the two extension ids are rt-context's and skill-blocks'", () => {
+      expect(RT_CONTEXT_EXTENSION_ID).toBe("local.rt-context");
+      expect(SKILL_BLOCKS_EXTENSION_ID).toBe("local.skill-blocks");
+    });
+
+    test("an editor where one of the two fails to uninstall stays recorded and the action fails", async () => {
+      const p = bareProbes({
+        exec: async (argv) => (argv[0] === "/x/cursor" && argv[2] === SKILL_BLOCKS_EXTENSION_ID ? { code: 1, stdout: "", stderr: "some real error" } : ok("")),
+      });
+      updateSetupState(p, (s) => ({ ...s, extensionEditors: ["Cursor", "Antigravity"] }));
+      const seams: UninstallSeams = {
+        detectEditors: () => [
+          { name: "Cursor", cliPath: "/x/cursor", appPath: "/x" },
+          { name: "Antigravity", cliPath: "/x/antigravity", appPath: "/y" },
+        ],
+      };
+      const { ctx } = makeCtx(p);
+
+      const result = await runUninstall(ctx, [{ id: "extension.uninstall", title: "x", kind: "rt" }], seams);
+      expect(result.ok).toBe(false);
+      expect(readSetupState(p).extensionEditors).toEqual(["Cursor"]);
     });
 
     test("an editor that genuinely fails -> the action fails with a manual-removal remedy", async () => {

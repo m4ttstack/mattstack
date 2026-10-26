@@ -6,6 +6,7 @@ declare module '@mattstack/app-kit/icons' {
     fileX: true;
     fileCode: true;
     cpu: true;
+    diamond: true;
     circleDot: true;
     replace: true;
     arrowUpRight: true;
@@ -46,6 +47,9 @@ declare module '@mattstack/app-kit/icons' {
     gitCommit: true;
     reply: true;
     circleMinus: true;
+    flag: true;
+    plug: true;
+    play: true;
   }
 }
 export {};

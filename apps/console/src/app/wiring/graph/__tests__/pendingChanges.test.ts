@@ -150,7 +150,12 @@ describe('pendingChangesOf', () => {
             ...target,
             placeholders: [
               ...target.placeholders,
-              { kind: 'verb.path', arg: 'review', line: 99 },
+              {
+                kind: 'verb.path',
+                arg: 'review',
+                file: 'attachments/pipeline/work/SKILL.md',
+                line: 99,
+              },
             ],
           }
         : target
@@ -196,6 +201,98 @@ describe('pendingChangesOf', () => {
   });
 });
 
+describe('pendingChangesOf: a prop', () => {
+  /** rt's frozen `slot` key carries the prop's name; the block is the
+      bindings key's path under its skill. */
+  const nested = {
+    engineRef: 'mattstack:stage-plan/domain-rules',
+    slot: 'rules',
+    from: 'acme:plan-rules',
+    to: 'acme:plan-rules-strict',
+  };
+  const changesWith = (
+    bindings: SkillsChanges['bindings'],
+    files: SkillsChanges['files'] = []
+  ): SkillsChanges => ({
+    ...designFixture('changes.clean'),
+    dirty: true,
+    bindings,
+    files: [{ path: 'pack/skills.jsonc', status: 'M', hash: HASH }, ...files],
+  });
+
+  it("names a root block's prop by its name", () => {
+    expect(pendingChangesOf(rebind(), composition)).toEqual([
+      {
+        key: 'binding::mattstack:stage-plan:domain',
+        name: 'plan',
+        detail: 'domain prop: plan-policy → plan-policy-strict',
+      },
+    ]);
+  });
+
+  it("names a nested block's prop by its block, under the skill it belongs to", () => {
+    expect(pendingChangesOf(changesWith([nested]), composition)).toEqual([
+      {
+        key: 'binding::mattstack:stage-plan/domain-rules:rules',
+        name: 'plan',
+        detail: 'domain-rules.rules prop: plan-rules → plan-rules-strict',
+      },
+    ]);
+  });
+
+  it("hides the skill's rebuilt output when a nested block's prop changes", () => {
+    expect(
+      names(
+        changesWith(
+          [nested],
+          [
+            {
+              path: 'attachments/stage-plan/SKILL.md',
+              status: 'M',
+              hash: HASH,
+            },
+          ]
+        )
+      )
+    ).toEqual(['plan']);
+  });
+
+  it("reads a removed override on a nested block's prop from that block's binder", () => {
+    const layered = designFixture('composition');
+    layered.binders = [
+      ...layered.binders,
+      {
+        ref: 'mattstack:stage-plan/domain-rules',
+        verb: null,
+        kind: 'stage',
+        props: [
+          {
+            name: 'rules',
+            boundTo: 'acme:plan-rules',
+            layer: 'pack',
+            overrides: [
+              {
+                pipeline: 'accessibility',
+                boundTo: 'acme:plan-rules-a11y',
+                layer: 'pack',
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const removed = {
+      ...nested,
+      from: 'acme:plan-rules-a11y',
+      to: null,
+      pipeline: 'accessibility',
+    };
+    expect(pendingChangesOf(changesWith([removed]), layered)[0]?.detail).toBe(
+      'domain-rules.rules · accessibility: plan-rules-a11y → plan-rules (default)'
+    );
+  });
+});
+
 describe('pendingChangesOf: a pipeline override', () => {
   const evidence = (pipeline?: string) => ({
     engineRef: 'mattstack:stage-evidence',
@@ -214,7 +311,7 @@ describe('pendingChangesOf: a pipeline override', () => {
     files: [{ path: 'pack/skills.jsonc', status: 'M', hash: HASH }, ...files],
   });
 
-  it('labels the row with its slot and pipeline', () => {
+  it('labels the row with its prop and pipeline', () => {
     expect(
       pendingChangesOf(changesWith([evidence('accessibility')]), composition)
     ).toEqual([
@@ -226,7 +323,7 @@ describe('pendingChangesOf: a pipeline override', () => {
     ]);
   });
 
-  it('keeps a default change and an override change on one slot as two rows', () => {
+  it('keeps a default change and an override change on one prop as two rows', () => {
     const rows = pendingChangesOf(
       changesWith([evidence(), evidence('accessibility')]),
       composition
@@ -254,8 +351,8 @@ describe('pendingChangesOf: a pipeline override', () => {
       binder.ref === 'mattstack:stage-evidence'
         ? {
             ...binder,
-            slots: binder.slots.map(slot => ({
-              ...slot,
+            props: binder.props.map(prop => ({
+              ...prop,
               boundTo: 'acme:evidence-policy',
               overrides: [
                 {
@@ -284,8 +381,8 @@ describe('pendingChangesOf: a pipeline override', () => {
       binder.ref === 'mattstack:stage-evidence'
         ? {
             ...binder,
-            slots: binder.slots.map(slot => ({
-              ...slot,
+            props: binder.props.map(prop => ({
+              ...prop,
               boundTo: 'acme:evidence-policy',
               overrides: [
                 {
@@ -314,7 +411,7 @@ describe('pendingChangesOf: a pipeline override', () => {
       binder.ref === 'mattstack:stage-evidence'
         ? {
             ...binder,
-            slots: binder.slots.map(slot => ({ ...slot, boundTo: '' })),
+            props: binder.props.map(prop => ({ ...prop, boundTo: '' })),
           }
         : binder
     );

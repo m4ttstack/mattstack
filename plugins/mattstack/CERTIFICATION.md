@@ -8,7 +8,7 @@ The written purity rule and per-skill certification checklist for this repo
 
 1. Nothing domain-specific to any one team ships in this repo. Domain
    conventions, examples, and routing live in domain-owned packs that BIND
-   to the seams here (slots, pipelines, manifests).
+   to the seams here (props, pipelines, manifests).
 2. Nothing personal to one operator ships in prose or scripts: no personal
    names, home paths, or account hints. The bar is the README's: what
    someone else could actually pick up.
@@ -19,7 +19,15 @@ The written purity rule and per-skill certification checklist for this repo
 
 - [ ] `tests/certify.sh <skill-dir>` exits 0 (purity greps, no-ticket-id
       ban, frontmatter grammar, depth cap, vendored-resolver identity,
-      stage declaration).
+      stage declaration). A block-tree skill is a folder whose root is
+      `index.block.md`, with one `*.block.md` file per section and a
+      subfolder (with its own `index.block.md`) per section that has
+      children. Pass certify the engine's root folder
+      (`tests/certify.sh attachments/pipeline/ship`), never a subfolder:
+      a subfolder's `index.block.md` has no `name:` or `description:`,
+      so certify fails it. Its Mermaid graphs and each
+      block's props are checked when `rt skills compile` builds it, or
+      when `rt skills check --strict` compiles it.
 - [ ] desc-test selection micro-test: all scenarios in
       `tests/desc-test-scenarios.json` pass before AND after any
       description edit (`bun run tests/desc-test.ts`).

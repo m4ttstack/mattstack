@@ -21,7 +21,7 @@ vi.mock('../api', () => ({
 }));
 
 const { VersionTimeline, relativeTime } = await import('./VersionTimeline');
-type SlotOutlineNode = import('./outline').SlotOutlineNode;
+type PropOutlineNode = import('./outline').PropOutlineNode;
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -59,7 +59,7 @@ const HISTORY = {
 
 const BODY =
   '---\nname: "watch-ci"\n---\n' +
-  '<!-- part: slot:domain binding=demo:watch-ci-domain version=0.4.11 path=attachments/watch-ci-domain/SKILL.md lines=13-161 -->\n' +
+  '<!-- part: prop:watch-ci.domain binding=demo:watch-ci-domain version=0.4.11 path=attachments/watch-ci-domain/SKILL.md lines=13-161 -->\n' +
   'domain text\n';
 
 const DIFF = [
@@ -72,21 +72,25 @@ const DIFF = [
   '',
 ].join('\n');
 
-const PACK_DIR = '/Users/matt/.mattstack/orgs/demo/mattstack/packs/demo';
+const PACK_DIR = '/home/u/.mattstack/orgs/demo/mattstack/packs/demo';
 const STEP_SOURCE =
-  '/Users/matt/.claude/plugins/cache/mattstack/mattstack/0.8.0/attachments/pipeline/watch-ci/SKILL.md';
+  '/home/u/.claude/plugins/cache/mattstack/mattstack/0.8.0/attachments/pipeline/watch-ci/SKILL.md';
 const ARTIFACT = `${PACK_DIR}/skills/watch-ci`;
-/** Only the two fields the compare view reads off a slot. */
-const SLOTS: SlotOutlineNode[] = [
+const DOMAIN_VALUE: PropOutlineNode['values'][number] = {
+  boundTo: 'demo:watch-ci-domain',
+  fillSourcePath:
+    '/home/u/.claude/plugins/cache/acme/demo/0.4.11/attachments/watch-ci-domain/SKILL.md',
+  fill: null,
+  layer: null,
+};
+const PROPS: PropOutlineNode[] = [
   {
+    key: 'watch-ci.domain',
+    block: 'watch-ci',
     name: 'domain',
     contract: 'watch-ci-domain@1',
     required: false,
-    boundTo: 'demo:watch-ci-domain',
-    fillSourcePath:
-      '/Users/matt/.claude/plugins/cache/acme/demo/0.4.11/attachments/watch-ci-domain/SKILL.md',
-    fill: null,
-    layer: null,
+    values: [DOMAIN_VALUE],
   },
 ];
 
@@ -95,7 +99,7 @@ function renderTimeline(
     verb?: string | null;
     health?: 'in-sync' | 'source-newer' | 'never-compiled' | 'unknown';
     staleFiles?: string[];
-    slots?: typeof SLOTS;
+    props?: typeof PROPS;
   } = {}
 ) {
   const queryClient = new QueryClient({
@@ -111,7 +115,7 @@ function renderTimeline(
         staleFiles={over.staleFiles ?? []}
         sourcePath={STEP_SOURCE}
         artifactPath={ARTIFACT}
-        slots={over.slots ?? SLOTS}
+        props={over.props ?? PROPS}
       />
     </QueryClientProvider>
   );
@@ -419,18 +423,19 @@ describe('VersionTimeline: compare', () => {
 
 describe('VersionTimeline: org base fills', () => {
   const BASE_ROOT = '/o/acme/mattstack/org/packs/acme-base';
-  const BASE_SLOTS: SlotOutlineNode[] = [
-    {
-      ...SLOTS[0],
-      boundTo: 'acme-base:plan-policy',
-      fillSourcePath: `${BASE_ROOT}/attachments/plan-policy/SKILL.md`,
-      origin: 'base',
-      base: 'acme-base',
-    },
+  const BASE_VALUE: PropOutlineNode['values'][number] = {
+    ...DOMAIN_VALUE,
+    boundTo: 'acme-base:plan-policy',
+    fillSourcePath: `${BASE_ROOT}/attachments/plan-policy/SKILL.md`,
+    origin: 'base',
+    base: 'acme-base',
+  };
+  const BASE_PROPS: PropOutlineNode[] = [
+    { ...PROPS[0]!, values: [BASE_VALUE] },
   ];
   const BASE_BODY =
     '---\nname: "watch-ci"\n---\n' +
-    '<!-- part: slot:domain binding=acme-base:plan-policy version=org path=attachments/plan-policy/SKILL.md lines=1-40 -->\n' +
+    '<!-- part: prop:watch-ci.domain binding=acme-base:plan-policy version=org path=attachments/plan-policy/SKILL.md lines=1-40 -->\n' +
     'domain text\n';
   const BASE_DIFF = [
     'diff --git a/base:acme-base/attachments/plan-policy/SKILL.md b/base:acme-base/attachments/plan-policy/SKILL.md',
@@ -485,7 +490,7 @@ describe('VersionTimeline: org base fills', () => {
         },
       })
     );
-    renderTimeline({ slots: BASE_SLOTS });
+    renderTimeline({ props: BASE_PROPS });
     await openedHistory();
 
     expect(screen.getByTestId('command-provenance')).toHaveTextContent(
@@ -500,7 +505,7 @@ describe('VersionTimeline: org base fills', () => {
     historyGet.mockResolvedValue(
       ok({ ...HISTORY, basePathspecs: [BASE_SPEC] })
     );
-    renderTimeline({ slots: BASE_SLOTS });
+    renderTimeline({ props: BASE_PROPS });
     await openedHistory();
 
     expect(screen.getByTestId('runtime-working-tree')).toHaveTextContent(
@@ -514,7 +519,7 @@ describe('VersionTimeline: org base fills', () => {
       diffWith({ baseDiff: BASE_DIFF, basePathspecs: [BASE_SPEC] })
     );
     compileGet.mockResolvedValue(ok({ content: BASE_BODY }));
-    renderTimeline({ slots: BASE_SLOTS });
+    renderTimeline({ props: BASE_PROPS });
     await openCompare();
 
     expect(screen.getByTestId('command-provenance')).toHaveTextContent(
@@ -523,16 +528,21 @@ describe('VersionTimeline: org base fills', () => {
   });
 
   it('gives a team-pack copy of a base fill no base root', async () => {
-    const copy: SlotOutlineNode[] = [
+    const copy: PropOutlineNode[] = [
       {
-        ...BASE_SLOTS[0],
-        fillSourcePath: `${PACK_DIR}/attachments/plan-policy/SKILL.md`,
+        ...PROPS[0]!,
+        values: [
+          {
+            ...BASE_VALUE,
+            fillSourcePath: `${PACK_DIR}/attachments/plan-policy/SKILL.md`,
+          },
+        ],
       },
     ];
     historyGet.mockResolvedValue(ok(HISTORY));
     diffGet.mockResolvedValue(diffWith({ baseDiff: BASE_DIFF }));
     compileGet.mockResolvedValue(ok({ content: BASE_BODY }));
-    renderTimeline({ slots: copy });
+    renderTimeline({ props: copy });
     await openCompare();
 
     // With a base root the hunk would land on the domain seam; the copy lives
@@ -541,7 +551,7 @@ describe('VersionTimeline: org base fills', () => {
     expect(screen.queryByTestId('attributed-hunk')).not.toBeInTheDocument();
   });
 
-  it('attributes a base diff hunk to the slot its base fill fills', async () => {
+  it('attributes a base diff hunk to the prop its base fill fills', async () => {
     historyGet.mockResolvedValue(ok(HISTORY));
     diffGet.mockResolvedValue(
       ok({
@@ -558,7 +568,7 @@ describe('VersionTimeline: org base fills', () => {
     );
     compileGet.mockResolvedValue(ok({ content: BASE_BODY }));
     const user = userEvent.setup();
-    renderTimeline({ slots: BASE_SLOTS });
+    renderTimeline({ props: BASE_PROPS });
     await openedHistory();
 
     await user.click(
@@ -573,7 +583,7 @@ describe('VersionTimeline: org base fills', () => {
       expect(screen.getByTestId('attributed-hunk')).toBeInTheDocument()
     );
     expect(screen.getByTestId('attributed-hunk')).toHaveTextContent(
-      'slot domain'
+      'prop watch-ci.domain'
     );
     expect(screen.getByTestId('attributed-hunk')).toHaveTextContent(
       'added in the base'

@@ -1,0 +1,3 @@
+1. The fill `widgets:lint-changed` carries only the rule itself (run `bun run widgets:lint --changed` at the fast-check step, written as a rule, not a process, so no digraph and no new move), and the pack's binding names the engine's `mattstack:stage-ship/domain-fast-checks` block with its `rules` prop, which lands the rule in that step's section and nowhere else.
+2. `"mattstack:stage-ship/domain-fast-checks": { "rules": "widgets:lint-changed" }`
+3. `mattstack:extending-a-pack`, one rule in this round, which writes the fill (through `superpowers:writing-skills`) and makes the bind call.

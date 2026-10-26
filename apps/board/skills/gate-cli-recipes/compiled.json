@@ -1,0 +1,8 @@
+{
+  "id": "skills:board:gate-cli-recipes",
+  "dir": "skills/gate-cli-recipes",
+  "covers": [
+    "skills:board:gate-cli-recipes"
+  ],
+  "keys": {}
+}

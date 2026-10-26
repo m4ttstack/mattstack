@@ -1,7 +1,8 @@
 {
+  "version": 2,
   "bindings": {
-    "mattstack:stage-evidence": { "domain": "acme:acme-scripts" },
-    "mattstack:stage-ship": { "domain": "acme:acme-scripts-ship" },
-    "mattstack:ship": { "domain": "acme:acme-scripts-ship" }
+    "mattstack:stage-evidence/domain-rules": { "rules": "acme:acme-scripts" },
+    "mattstack:stage-ship/domain-rules": { "rules": "acme:acme-scripts-ship" },
+    "mattstack:ship/domain-rules": { "rules": "acme:acme-scripts-ship" }
   }
 }

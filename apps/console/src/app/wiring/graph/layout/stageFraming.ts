@@ -28,10 +28,6 @@ export const HEADER_ROOM = 120;
     to its far edge and then this share of its size past it. */
 export const OFF_STAGE_SHARE = 0.12;
 
-/** The template's right edge with the handles on it, in layout units: what a
-    drawer over the stage's right edge leaves in view. */
-const TEMPLATE_RIGHT = LAYOUT.templateX + LAYOUT.templateW + 4;
-
 /** The graph's bounds in layout units; left and top default to the
     layout's origin. */
 export type GraphBounds = {
@@ -42,8 +38,6 @@ export type GraphBounds = {
 };
 
 export type FramingOptions = {
-  /** Width of the stage's right edge a drawer covers, in stage px. */
-  cover?: number;
   /** The focus header's bottom, in stage px. */
   headerBottom?: number;
 };
@@ -54,28 +48,20 @@ export type Framing = {
   extent: CoordinateExtent;
 };
 
-/** The viewport x that keeps the template clear of a drawer covering `cover`
-    px of the stage, never right of the boards' corner. With no drawer the
-    graph keeps the corner, so a narrow stage never hides its input column. */
-export function panFor(stageWidth: number, zoom: number, cover: number) {
-  if (cover <= 0) return 0;
-  return Math.min(0, stageWidth - cover - RIGHT_ROOM - TEMPLATE_RIGHT * zoom);
-}
-
 /** Where the viewport may travel at `zoom`, in layout units, holding the
-    graph to what the reader can see (the stage left of a drawer, under the
-    focus header) by `OFF_STAGE_SHARE`. */
+    graph to what the reader can see (the stage under the focus header) by
+    `OFF_STAGE_SHARE`. */
 export function extentFor(
   stage: { width: number; height: number },
   { left = 0, top = 0, right, bottom }: GraphBounds,
   zoom: number,
-  { cover = 0, headerBottom = 0 }: FramingOptions = {}
+  { headerBottom = 0 }: FramingOptions = {}
 ): CoordinateExtent {
   const width = right - left;
   const height = bottom - top;
   // Stage px the graph is short of the visible width or height: positive
   // room it may cross, negative overflow it may scroll through.
-  const spareX = stage.width - cover - width * zoom;
+  const spareX = stage.width - width * zoom;
   const spareY = stage.height - headerBottom - height * zoom;
   return [
     [
@@ -100,12 +86,12 @@ export function extentFor(
  * never below `MIN_FRAME_ZOOM`; height never shrinks the graph, so a tall one
  * scrolls. A graph that fits sits centred across the stage, its headings
  * half the spare height under the focus header (between `HEADER_GAP` and
- * `HEADER_ROOM`). A drawer over the stage pans the template clear of it.
+ * `HEADER_ROOM`).
  */
 export function frameStage(
   stage: { width: number; height: number },
   graph: GraphBounds,
-  { cover = 0, headerBottom = 0 }: FramingOptions = {}
+  { headerBottom = 0 }: FramingOptions = {}
 ): Framing {
   const zoom = Math.min(
     1,
@@ -117,13 +103,13 @@ export function frameStage(
   const gap = Math.min(HEADER_ROOM, Math.max(HEADER_GAP, spareHeight / 2));
   const centred = (stage.width - (graph.right - left) * zoom) / 2 - left * zoom;
   const viewport = {
-    x: cover > 0 ? panFor(stage.width, zoom, cover) : Math.max(0, centred),
+    x: Math.max(0, centred),
     y: headerBottom + gap - COLUMN_TOP * zoom,
     zoom,
   };
   return {
     viewport,
-    extent: extentFor(stage, graph, zoom, { cover, headerBottom }),
+    extent: extentFor(stage, graph, zoom, { headerBottom }),
   };
 }
 

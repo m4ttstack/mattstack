@@ -1,0 +1,4 @@
+1. `run_field_get {key: approach}`; `run_field_get {key: worktree}`; `run_field_set {key: extra.gates, value: ["migration-dry-run"], stage: gates}`
+2. `cd /repo/wt && bun run widgets:migrate --dry-run`
+3. migration-dry-run
+4. Gates done: return to the orchestrator

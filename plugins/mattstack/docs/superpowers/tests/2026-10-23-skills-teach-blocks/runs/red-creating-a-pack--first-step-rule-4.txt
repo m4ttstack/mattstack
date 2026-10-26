@@ -1,0 +1,3 @@
+1. The fill `widgets:lint-changed` carries one section keyed to the node text of the fast-check step in the ship stage's graph, and that section says to run `bun run widgets:lint --changed`. The pack's binding names only the ship stage's skill and the fill, so the step scoping comes from the section key, and no other step or stage gets the rule.
+2. `{"mattstack:ship": ["widgets:lint-changed"]}`. The skill text doesn't show the exact `bindings` schema or the ship skill's id, so check both against `mattstack:extending-a-pack` before writing it.
+3. `mattstack:extending-a-pack`, as one rule in one round. The fill itself is written through `superpowers:writing-skills`.

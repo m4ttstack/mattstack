@@ -54,20 +54,6 @@ const MIN_ZOOM = 0.25;
 type Column = { x: number; title: string; sub: string };
 
 function columnsOf(view: TemplateView): Column[] {
-  if (view.app) {
-    return [
-      {
-        x: LAYOUT.inputX,
-        title: 'Filled in',
-        sub: 'Files this pack binds into its slots',
-      },
-      {
-        x: LAYOUT.templateX,
-        title: `${view.app} skill`,
-        sub: `Lives in the ${view.app} app`,
-      },
-    ];
-  }
   const left: Column = {
     x: LAYOUT.inputX,
     title: 'Substituted in',
@@ -203,7 +189,6 @@ export default function TemplateCanvas({
   layout,
   view,
   height,
-  cover = 0,
   headerBottom = 0,
   focusOf = skill => skill,
   onSelect,
@@ -211,8 +196,6 @@ export default function TemplateCanvas({
   layout: LayoutResult;
   view: TemplateView;
   height: string;
-  /** Stage px a drawer covers at the stage's right edge. */
-  cover?: number;
   /** The focus header's bottom in stage px. */
   headerBottom?: number;
   /** The focus key a link card opens its skill under. */
@@ -242,7 +225,6 @@ export default function TemplateCanvas({
       select: url.select,
       onSelect,
       onOpenSkill: skill => patch({ focus: focusOf(skill) }),
-      onBind: line => patch({ select: `row:${line}`, rebind: true }),
     }),
     [view, url.select, onSelect, patch, focusOf]
   );
@@ -277,7 +259,7 @@ export default function TemplateCanvas({
             />
           </div>
           <ColumnHeaders view={view} />
-          <ZoomControls shape={{ geometry, cover, headerBottom }} />
+          <ZoomControls shape={{ geometry, headerBottom }} />
         </ReactFlow>
       </Box>
     </CanvasContext.Provider>

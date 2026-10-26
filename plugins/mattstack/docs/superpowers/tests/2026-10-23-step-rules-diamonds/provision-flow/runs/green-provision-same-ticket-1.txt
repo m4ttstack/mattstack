@@ -1,0 +1,4 @@
+1. `run_field_get` {key: mode}, `worktree_provision` {precheck: true}, `gate_ask` (the provision gate form is shown after this call). `whoami` is not called, because the precheck lists no trees to resume.
+2. Yes: the domain rule is inlined under "Follow the domain's provision flow", so the graph routes there. That flow raises its reuse-the-slug question for the `sameTicket` tree at the provision gate.
+3. Not shown. With a domain rule inlined, the `sameTicket` tree is not a tree to resume, and there is no `attached` tree or surviving local branch.
+4. The domain's slug-reuse question (the rules give it no id) and `next`.

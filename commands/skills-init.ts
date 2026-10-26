@@ -2,7 +2,7 @@
  * rt skills init [--repo <path>] [--team <name>] [--zone <org>] [--extends <base>] [--json]
  *
  * Scaffolds a zero-fill team pack named after its team folder (roster
- * `work` only, every domain slot unbound), adds the repo to the team's claim,
+ * `work` only, every domain prop unbound), adds the repo to the team's claim,
  * materializes, compiles, checks, and installs the pack plugin on this
  * machine, then commits the new pack with its marketplace entry and pushes
  * the org clone. Never changes a pack that has compiled output.
@@ -32,7 +32,8 @@ import { readFloor } from "../lib/engine-floor.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
-import { checkPack, compilePackAll } from "./skills.ts";
+import { checkFailures, checkPack, compilePackAll, type CheckPayload } from "./skills.ts";
+import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
@@ -86,6 +87,10 @@ function remedyCell(r: InitRemedy): Array<string | Segment> {
   return [r.folder ? "Delete the pack folder it started, then run " : "Run ", ...commands];
 }
 
+function commandChain(commands: string[]): Array<string | Segment> {
+  return commands.flatMap((c, i) => (i === 0 ? [ui.cmd(c)] : [", then ", ui.cmd(c)]));
+}
+
 export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureInput {
   if (o.refused) return { title: o.detail, ...(o.why ? { why: o.why } : {}), ...(o.next ? { next: ui.cmd(o.next) } : {}) };
   if (o.code === "compile-failed") {
@@ -93,6 +98,19 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
       title: "The new pack did not compile",
       ...(o.why ? { why: o.why } : {}),
       next: o.next ? ui.cmd(o.next) : o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
+    };
+  }
+  if (o.code === "hand-skill-failed") {
+    return {
+      title: "Hand-written skills in the new pack have problems a recompile cannot fix",
+      next: ["Fix each file, then run ", ...commandChain(o.remedy?.commands ?? ["rt skills check"])],
+    };
+  }
+  if (o.code === "pointer-failed") {
+    return {
+      title: "Compiled skills in the new pack have pointers that lead nowhere",
+      why: "A recompile cannot fix them: they come from the pack's source files.",
+      next: ["Fix them in the pack's source files, then run ", ...commandChain(o.remedy?.commands ?? ["rt skills compile", "rt skills check"])],
     };
   }
   const [title = o.detail, ...rest] = o.detail.split("\n");
@@ -107,9 +125,20 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
 
 export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
   if (o.refused) return [];
+  if (o.code === "hand-skill-failed") return [ui.verbatim(o.detail.split("\n"), "hand-written skill problems")];
+  if (o.code === "pointer-failed") return [ui.verbatim(o.detail.split("\n"), "compiled skills, pointers")];
   if (o.code !== "compile-failed") return o.wrote.length > 0 ? [ui.verbatim(o.wrote, "written so far")] : [];
   const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return [ui.verbatim(lines, "what did not compile")];
+}
+
+/** What init's check step reads from a check: what fails apart from drift rides beside it, so init refuses on it. */
+export function initCheckOf(
+  payload: Pick<CheckPayload, "drift" | "skillPaths" | "skillFrontmatter" | "sourcePointerErrors">,
+): { drift: boolean; handErrors: string[]; pointerErrors: string[] } {
+  // A pointer conflict always comes with drift, which init refuses on first.
+  const { handSkills, pointers } = checkFailures(payload);
+  return { drift: payload.drift, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic) };
 }
 
 export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {
@@ -239,7 +268,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
     },
     check: async (packDir, manifest) => {
       try {
-        return { drift: (await checkPack({ packDir, manifest })).drift };
+        return initCheckOf(await checkPack({ packDir, manifest }));
       } catch (err) {
         ui.note(ui.line("warn", "The check could not run", message(err)));
         return { drift: true };

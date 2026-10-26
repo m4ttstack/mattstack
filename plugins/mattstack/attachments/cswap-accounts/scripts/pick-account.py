@@ -9,7 +9,7 @@ Accounts at or over the threshold (cswap autoswitch.threshold unless
 spawns spread before cswap's usage data catches up. Lowest effective
 score wins; ties break on lower 7-day pct.
 
-Python, not bash: macOS ships bash 3.2 (same reason as herd-monitor.py).
+Python, not bash: macOS ships bash 3.2.
 
 With --headroom, picks nothing: prints one display line per pool account
 (email, per-model scoped pcts with EXHAUSTED callouts, 5h/7d, binding for
@@ -19,7 +19,7 @@ Scoped pools are why this exists: an account can be exhausted for one
 model (Fable) while showing plenty of overall headroom.
 
 Usage:
-    pick-account.py --pool 2,3 [--model claude-fable-5]
+    pick-account.py --pool 2,3 [--model fable]
                     [--assigned 3,3] [--json-file dump.json]
                     [--threshold 90]
     pick-account.py --headroom --pool 1,2,3 [--model fable,sonnet]

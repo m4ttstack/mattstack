@@ -77,7 +77,12 @@ the app updates. Layout 2 moved each team's pack into its plugin
 (`scripts/move-team-packs-to-plugin.ts`); layout 3 moved each team's Linear key
 and review channels into the org's `mattstack.directory`
 (`bun scripts/move-to-team-directory.ts <clone-dir> --admin <username>
-[--write]`). A change to the org or team stores is a conversion like these,
+[--write]`); layout 4 moved the org's data onto its own data branch
+(`bun scripts/move-to-data-branch.ts <clone-dir> --admin <username>`); and
+layout 5 marks an org whose packs are all block packs
+(`bun scripts/move-to-block-packs.ts <clone-dir> --admin <username>
+[--write]`), so an app that reads only up to 4 holds its pull instead of
+reading block-keyed bindings it cannot merge. A change to the org or team stores is a conversion like these,
 or an admin's `rt settings set`, never a setup migration; the rt:settings
 skill's "Changing the org repo's layout" is the runbook.
 

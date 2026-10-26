@@ -1,6 +1,4 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -128,18 +126,28 @@ describe('skills routes', () => {
           public: true,
           sourcePath: '/steps/work/SKILL.md',
           artifactPath: '/p/skills/work',
-          slots: [
-            {
-              name: 'tiering',
-              contract: 'model-tiering@1',
-              required: false,
-              boundTo: 'mattstack:model-tiering',
-              fillSourcePath: '/fills/model-tiering/SKILL.md',
-              fillVersion: '0.8.0',
-              registered: false,
-              inlined: true,
-            },
-          ],
+          props: {
+            work: [
+              {
+                name: 'tiering',
+                merge: 'replace',
+                contract: 'model-tiering@1',
+                required: false,
+                default: '',
+                values: [
+                  {
+                    boundTo: 'mattstack:model-tiering',
+                    layer: 'pack',
+                    fillSourcePath: '/fills/model-tiering/SKILL.md',
+                    fillVersion: '0.8.0',
+                    registered: false,
+                    inlined: true,
+                  },
+                ],
+              },
+            ],
+          },
+          includes: [],
         },
       ],
       fills: [
@@ -155,7 +163,9 @@ describe('skills routes', () => {
           ref: 'mattstack:stage-provision',
           verb: null,
           kind: 'stage',
-          slots: [{ name: 'domain', boundTo: 'demo:work-provision' }],
+          props: [
+            { name: 'domain', boundTo: 'demo:work-provision', layer: 'pack' },
+          ],
         },
       ],
       pipelines: { feature: ['mattstack:stage-provision'] },
@@ -538,6 +548,48 @@ describe('skills history route', () => {
       scope: 'skills/review',
     });
   });
+
+  it("scopes the log to a block's own files when given their pack paths", async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const git = defaultGit(1);
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(
+      '/api/skills/history?pack=demo&verb=ship&path=attachments%2Flint%2Fa.md&path=attachments%2Flint%2Fb.md'
+    );
+
+    const log = git.calls.find(argv => argv.includes('log'));
+    expect(log?.slice(-3)).toEqual([
+      '--',
+      ':(literal)attachments/lint/a.md',
+      ':(literal)attachments/lint/b.md',
+    ]);
+    await expect(res.json()).resolves.toMatchObject({
+      verb: 'ship',
+      scope: 'attachments/lint/a.md attachments/lint/b.md',
+    });
+  });
+
+  it.each([
+    '..%2Fsecrets.md',
+    '%2Fetc%2Fpasswd',
+    '%3A(glob)*',
+    'a%2F..%2F..%2Fb',
+  ])(
+    'refuses a block path that is not plainly inside the pack (%s), and spawns no git',
+    async path => {
+      const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+      const git = defaultGit(1);
+      const app = mountGit(rt.run, git.run);
+
+      const res = await app.request(
+        `/api/skills/history?pack=demo&verb=ship&path=${path}`
+      );
+
+      expect(res.status).toBe(400);
+      expect(git.run).not.toHaveBeenCalled();
+    }
+  );
 
   it('refuses a verb that would walk out of the pack, and spawns no git', async () => {
     const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
@@ -943,23 +995,23 @@ const ACME_PACKS = JSON.stringify({
   packs: [{ name: 'acme', dir: ACME_PACK_DIR, layout: 'grouped' }],
 });
 
-function acmeComposition(slots: Record<string, unknown>[]) {
+function acmeComposition(values: Record<string, unknown>[]) {
   return JSON.stringify({
     pack: 'acme',
     packDir: ACME_PACK_DIR,
-    verbs: [{ name: 'plan', slots }],
+    verbs: [{ name: 'plan', props: { plan: [{ name: 'domain', values }] } }],
     fills: [],
   });
 }
 
-const BASE_SLOT = {
-  name: 'domain',
+const BASE_VALUE = {
+  boundTo: 'acme-base:plan-policy',
   fillSourcePath: ACME_BASE_FILL,
   origin: 'base',
   base: 'acme-base',
 };
 
-function acmeRt(composition = acmeComposition([BASE_SLOT])) {
+function acmeRt(composition = acmeComposition([BASE_VALUE])) {
   return fakeRtHandler(argv =>
     argv.includes('composition')
       ? { code: 0, stdout: composition, stderr: '' }
@@ -1079,7 +1131,7 @@ describe('skills history route: org base fills', () => {
 
   it('adds no base scope for a team-pack copy of a base fill', async () => {
     const copy = {
-      ...BASE_SLOT,
+      ...BASE_VALUE,
       fillSourcePath: `${ACME_PACK_DIR}/attachments/plan-policy/SKILL.md`,
     };
     const git = acmeGit();
@@ -1672,7 +1724,8 @@ describe('skills surface apply route', () => {
           public: writesApplied,
           sourcePath: '/s/watch-ci/SKILL.md',
           artifactPath: '/p/skills/watch-ci',
-          slots: [],
+          props: {},
+          includes: [],
         },
       ],
       fills: [],
@@ -1839,553 +1892,11 @@ describe('skills surface apply route', () => {
   });
 });
 
-function bindComposition(over: { boundTo?: string } = {}) {
-  return {
-    pack: 'demo',
-    packDir: '/p',
-    manifestPath: '/repos/gitlab.com-acme-acme-dev/skills.jsonc',
-    verbs: [
-      {
-        name: 'watch-ci',
-        engine: 'watch-ci',
-        engineRef: 'mattstack:watch-ci',
-        plugin: 'mattstack',
-        description: '',
-        public: true,
-        sourcePath: '/s/watch-ci/SKILL.md',
-        artifactPath: '/p/skills/watch-ci',
-        slots: [
-          {
-            name: 'domain',
-            contract: 'watch-ci-domain@1',
-            required: true,
-            boundTo: over.boundTo ?? 'demo:watch-ci-domain',
-            fillSourcePath: null,
-            fillVersion: null,
-            registered: null,
-            inlined: null,
-          },
-        ],
-      },
-    ],
-    fills: [
-      {
-        binding: 'demo:watch-ci-domain',
-        provides: 'watch-ci-domain@1',
-        sourcePath: '/f/a',
-        registered: false,
-      },
-      {
-        binding: 'demo:watch-ci-domain-v2',
-        provides: 'watch-ci-domain@1',
-        sourcePath: '/f/b',
-        registered: false,
-      },
-    ],
-    binders: [],
-    pipelines: {},
-  };
-}
-
 const isComposition = (argv: string[]) => argv.includes('composition');
-const isBind = (argv: string[]) => argv.includes('bind');
-
-async function postBind(
-  app: ReturnType<typeof mountSkills>,
-  body: Record<string, unknown>
-) {
-  return app.request('/api/skills/bind', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
-describe('skills bind route', () => {
-  it('requires pack, verb, slot, and fill before touching rt', async () => {
-    const rt = fakeRtHandler(() => ({ code: 0, stdout: '', stderr: '' }));
-    const app = mountSkills(new Hono(), rt.run);
-
-    for (const body of [
-      { verb: 'watch-ci', slot: 'domain', fill: 'x' },
-      { pack: 'demo', slot: 'domain', fill: 'x' },
-      { pack: 'demo', verb: 'watch-ci', fill: 'x' },
-      { pack: 'demo', verb: 'watch-ci', slot: 'domain' },
-    ]) {
-      const res = await postBind(app, body);
-      expect(res.status).toBe(400);
-    }
-    expect(rt.run).not.toHaveBeenCalled();
-  });
-
-  it('rejects a verb not in the roster before any bind spawn', async () => {
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        return {
-          code: 0,
-          stdout: JSON.stringify(bindComposition()),
-          stderr: '',
-        };
-      }
-      return { code: 0, stdout: 'ghost.domain: -> x\n', stderr: '' };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'ghost',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      error: expect.stringContaining('ghost'),
-    });
-    // The unknown verb never reached an argv: the only rt call made is the
-    // composition read used to reject it.
-    expect(rt.calls).toHaveLength(1);
-    expect(rt.calls.some(isBind)).toBe(false);
-  });
-
-  it('rejects a slot not declared on the verb before any bind spawn', async () => {
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        return {
-          code: 0,
-          stdout: JSON.stringify(bindComposition()),
-          stderr: '',
-        };
-      }
-      return { code: 0, stdout: 'ok\n', stderr: '' };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'ghost-slot',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      error: expect.stringContaining('ghost-slot'),
-    });
-    expect(rt.calls.some(isBind)).toBe(false);
-  });
-
-  it('rejects a fill that is not a known fill in the pack before any bind spawn -- this is the falsification target', async () => {
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        return {
-          code: 0,
-          stdout: JSON.stringify(bindComposition()),
-          stderr: '',
-        };
-      }
-      return { code: 0, stdout: 'ok\n', stderr: '' };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:ghost-fill',
-    });
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      error: expect.stringContaining('ghost-fill'),
-    });
-    // Nothing unvalidated reached an argv: the only rt call made is the
-    // composition read the fill was checked against.
-    expect(rt.calls).toHaveLength(1);
-    expect(rt.calls.some(isBind)).toBe(false);
-  });
-
-  it('rejects a fill whose provides does not match the slot contract before any bind spawn -- this is the falsification target', async () => {
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        const composition = bindComposition();
-        composition.fills.push({
-          binding: 'demo:wrong-contract-fill',
-          provides: 'watch-ci-verdict@1',
-          sourcePath: '/f/c',
-          registered: false,
-        });
-        return { code: 0, stdout: JSON.stringify(composition), stderr: '' };
-      }
-      return { code: 0, stdout: 'ok\n', stderr: '' };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:wrong-contract-fill',
-    });
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      error: expect.stringContaining('watch-ci-domain@1'),
-    });
-    // A known-but-incompatible fill is still rejected before an argv: the
-    // only rt call made is the composition read it was checked against.
-    expect(rt.calls).toHaveLength(1);
-    expect(rt.calls.some(isBind)).toBe(false);
-  });
-
-  it('threads verb, slot, fill, and --pack onto the bind call in order', async () => {
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        return {
-          code: 0,
-          stdout: JSON.stringify(bindComposition()),
-          stderr: '',
-        };
-      }
-      return {
-        code: 0,
-        stdout: 'watch-ci.domain: -> demo:watch-ci-domain-v2\n',
-        stderr: '',
-      };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-
-    expect(res.status).toBe(200);
-    expect(rt.calls.find(isBind)).toEqual([
-      'skills',
-      'bind',
-      'watch-ci',
-      'domain',
-      'demo:watch-ci-domain-v2',
-      '--pack',
-      'demo',
-    ]);
-    await expect(res.json()).resolves.toEqual({
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-      ok: true,
-    });
-  });
-
-  it('binds a pipeline stage by the slots its template declares', async () => {
-    const stageComposition = () => ({
-      ...bindComposition(),
-      targets: [
-        {
-          name: 'stage-plan',
-          kind: 'stage',
-          public: false,
-          artifactPath: '/p/attachments/stage-plan/SKILL.md',
-          templatePath: '/s/stage-plan/SKILL.md',
-          placeholders: [{ kind: 'slot', arg: 'domain', line: 20 }],
-          slots: [
-            { name: 'domain', contract: 'watch-ci-domain@1', required: true },
-          ],
-          engineError: null,
-        },
-      ],
-    });
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        return {
-          code: 0,
-          stdout: JSON.stringify(stageComposition()),
-          stderr: '',
-        };
-      }
-      return { code: 0, stdout: '', stderr: '' };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const ghostSlot = await postBind(app, {
-      pack: 'demo',
-      verb: 'stage-plan',
-      slot: 'ghost-slot',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-    expect(ghostSlot.status).toBe(400);
-    expect(rt.calls.some(isBind)).toBe(false);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'stage-plan',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-
-    expect(res.status).toBe(200);
-    expect(rt.calls.find(isBind)).toEqual([
-      'skills',
-      'bind',
-      'stage-plan',
-      'domain',
-      'demo:watch-ci-domain-v2',
-      '--pack',
-      'demo',
-    ]);
-  });
-
-  describe('a pipeline override', () => {
-    const withPipelines = () => ({
-      ...bindComposition(),
-      pipelines: {
-        feature: ['mattstack:watch-ci'],
-        accessibility: ['mattstack:watch-ci'],
-      },
-    });
-    const rtWith = () =>
-      fakeRtHandler(argv =>
-        isComposition(argv)
-          ? { code: 0, stdout: JSON.stringify(withPipelines()), stderr: '' }
-          : { code: 0, stdout: '', stderr: '' }
-      );
-    const body = (pipeline: unknown) => ({
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-      pipeline,
-    });
-
-    it('runs rt with --pipeline', async () => {
-      const rt = rtWith();
-      const app = mountSkills(new Hono(), rt.run);
-
-      const res = await postBind(app, body('accessibility'));
-
-      expect(res.status).toBe(200);
-      expect(rt.calls.find(isBind)).toEqual([
-        'skills',
-        'bind',
-        'watch-ci',
-        'domain',
-        'demo:watch-ci-domain-v2',
-        '--pipeline',
-        'accessibility',
-        '--pack',
-        'demo',
-      ]);
-      await expect(res.json()).resolves.toMatchObject({
-        ok: true,
-        pipeline: 'accessibility',
-      });
-    });
-
-    it('rejects a pipeline the pack does not declare before any bind spawn', async () => {
-      const rt = rtWith();
-      const app = mountSkills(new Hono(), rt.run);
-
-      const res = await postBind(app, body('nope'));
-
-      expect(res.status).toBe(400);
-      await expect(res.json()).resolves.toMatchObject({
-        error: expect.stringContaining('nope'),
-      });
-      expect(rt.calls.some(isBind)).toBe(false);
-    });
-
-    it('rejects a pipeline that is not a string before touching rt', async () => {
-      const rt = rtWith();
-      const app = mountSkills(new Hono(), rt.run);
-
-      const res = await postBind(app, body(7));
-
-      expect(res.status).toBe(400);
-      expect(rt.run).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('removing a pipeline override', () => {
-    const designComposition = readFileSync(
-      fileURLToPath(
-        new URL('./fixtures/design/composition.json', import.meta.url)
-      ),
-      'utf8'
-    );
-    const rtWith = () =>
-      fakeRtHandler(argv =>
-        isComposition(argv)
-          ? { code: 0, stdout: designComposition, stderr: '' }
-          : { code: 0, stdout: '', stderr: '' }
-      );
-    const unset = (extra: Record<string, unknown>) => ({
-      pack: 'acme',
-      verb: 'stage-evidence',
-      slot: 'domain',
-      unset: true,
-      ...extra,
-    });
-
-    it('runs rt with --unset and no fill', async () => {
-      const rt = rtWith();
-      const app = mountSkills(new Hono(), rt.run);
-
-      const res = await postBind(app, unset({ pipeline: 'accessibility' }));
-
-      expect(res.status).toBe(200);
-      expect(rt.calls.find(isBind)).toEqual([
-        'skills',
-        'bind',
-        'stage-evidence',
-        'domain',
-        '--pipeline',
-        'accessibility',
-        '--unset',
-        '--pack',
-        'acme',
-      ]);
-      await expect(res.json()).resolves.toMatchObject({
-        ok: true,
-        pipeline: 'accessibility',
-        unset: true,
-      });
-    });
-
-    it('needs a pipeline, refused before touching rt', async () => {
-      const rt = rtWith();
-      const app = mountSkills(new Hono(), rt.run);
-
-      const res = await postBind(app, unset({}));
-
-      expect(res.status).toBe(400);
-      expect(rt.run).not.toHaveBeenCalled();
-    });
-
-    it('takes no fill, refused before touching rt', async () => {
-      const rt = rtWith();
-      const app = mountSkills(new Hono(), rt.run);
-
-      const res = await postBind(
-        app,
-        unset({ pipeline: 'accessibility', fill: 'acme:evidence-policy' })
-      );
-
-      expect(res.status).toBe(400);
-      expect(rt.run).not.toHaveBeenCalled();
-    });
-
-    it('rejects a pipeline the pack does not declare before any bind spawn', async () => {
-      const rt = rtWith();
-      const app = mountSkills(new Hono(), rt.run);
-
-      const res = await postBind(app, unset({ pipeline: 'nope' }));
-
-      expect(res.status).toBe(400);
-      expect(rt.calls.some(isBind)).toBe(false);
-    });
-  });
-
-  it('surfaces a non-zero rt exit as 502, carrying rt own stderr -- never a false success', async () => {
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        return {
-          code: 0,
-          stdout: JSON.stringify(bindComposition()),
-          stderr: '',
-        };
-      }
-      return {
-        code: 1,
-        stdout: '',
-        stderr: 'rt skills: unrecognized argument "bind"',
-      };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-
-    expect(res.status).toBe(502);
-    await expect(res.json()).resolves.toMatchObject({
-      ok: false,
-      error: expect.stringContaining('unrecognized argument'),
-    });
-  });
-
-  it('returns 503, not a false success, when rt cannot be found', async () => {
-    const rt = fakeRtHandler(() => {
-      throw new RtNotFoundError(['/nowhere/rt']);
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    const res = await postBind(app, {
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-
-    expect(res.status).toBe(503);
-  });
-
-  it('invalidates every cached read for the pack after a successful bind -- this is the other falsification target', async () => {
-    let bound = false;
-    const rt = fakeRtHandler(argv => {
-      if (isComposition(argv)) {
-        return {
-          code: 0,
-          stdout: JSON.stringify(
-            bindComposition({
-              boundTo: bound
-                ? 'demo:watch-ci-domain-v2'
-                : 'demo:watch-ci-domain',
-            })
-          ),
-          stderr: '',
-        };
-      }
-      bound = true;
-      return {
-        code: 0,
-        stdout: 'watch-ci.domain: -> demo:watch-ci-domain-v2\n',
-        stderr: '',
-      };
-    });
-    const app = mountSkills(new Hono(), rt.run);
-
-    // Primes the shared cache with the PRE-bind composition.
-    const before = await app.request('/api/skills/composition?pack=demo');
-    await expect(before.json()).resolves.toMatchObject({
-      verbs: [{ slots: [{ boundTo: 'demo:watch-ci-domain' }] }],
-    });
-
-    await postBind(app, {
-      pack: 'demo',
-      verb: 'watch-ci',
-      slot: 'domain',
-      fill: 'demo:watch-ci-domain-v2',
-    });
-
-    // Must re-spawn, not serve the primed pre-bind composition.
-    const after = await app.request('/api/skills/composition?pack=demo');
-    await expect(after.json()).resolves.toMatchObject({
-      verbs: [{ slots: [{ boundTo: 'demo:watch-ci-domain-v2' }] }],
-    });
-  });
-});
 
 describe('write routes', () => {
   const ok = (stdout = '{}') => ({ code: 0, stdout, stderr: '' });
   const handler = (argv: string[]): RtResult => {
-    if (isComposition(argv)) return ok(JSON.stringify(bindComposition()));
     if (isList(argv))
       return ok(
         surfaceList([{ name: 'watch-ci', kind: 'compiled', status: 'public' }])
@@ -2393,15 +1904,6 @@ describe('write routes', () => {
     return ok(JSON.stringify({ ok: true, pack: 'demo' }));
   };
   const writes: [string, Record<string, unknown>][] = [
-    [
-      '/api/skills/bind',
-      {
-        pack: 'demo',
-        verb: 'watch-ci',
-        slot: 'domain',
-        fill: 'demo:watch-ci-domain-v2',
-      },
-    ],
     [
       '/api/skills/surface/apply',
       { pack: 'demo', toPublic: [], toInternal: ['watch-ci'] },
@@ -2452,16 +1954,6 @@ describe('write routes', () => {
       },
       4,
     ],
-    [
-      '/api/skills/bind',
-      {
-        pack: 'demo',
-        verb: 'watch-ci',
-        slot: 'domain',
-        fill: 'demo:watch-ci-domain-v2',
-      },
-      2,
-    ],
   ] as const)(
     '%s holds the request open afresh before each of its spawns',
     async (path, body, spawns) => {
@@ -2494,50 +1986,6 @@ describe('write routes', () => {
       expect(order).toEqual(
         Array.from({ length: spawns }, () => ['arm', 'spawn']).flat()
       );
-    }
-  );
-
-  it.each([
-    ['exits nonzero', () => ({ code: 143, stdout: '', stderr: '' })],
-    [
-      'throws',
-      () => {
-        throw new Error('spawn failed');
-      },
-    ],
-  ])(
-    'drops the pack cached reads when the bind %s, since the binding may already be written',
-    async (_, bindAnswer) => {
-      let bound = false;
-      const rt = fakeRtHandler(argv => {
-        if (isComposition(argv))
-          return ok(
-            JSON.stringify(
-              bindComposition({
-                boundTo: bound
-                  ? 'demo:watch-ci-domain-v2'
-                  : 'demo:watch-ci-domain',
-              })
-            )
-          );
-        bound = true;
-        return bindAnswer();
-      });
-      const app = mountSkills(new Hono(), rt.run);
-
-      await app.request('/api/skills/composition?pack=demo');
-      const res = await postBind(app, {
-        pack: 'demo',
-        verb: 'watch-ci',
-        slot: 'domain',
-        fill: 'demo:watch-ci-domain-v2',
-      });
-      expect(res.status).toBe(502);
-
-      const after = await app.request('/api/skills/composition?pack=demo');
-      await expect(after.json()).resolves.toMatchObject({
-        verbs: [{ slots: [{ boundTo: 'demo:watch-ci-domain-v2' }] }],
-      });
     }
   );
 });
@@ -2628,6 +2076,206 @@ describe('skills anatomy route', () => {
   });
 });
 
+describe('skills blocks route', () => {
+  const url = '/api/skills/blocks?pack=acme&skill=mini';
+  const notABlockTree = JSON.stringify({
+    contract: 1,
+    at: '2026-10-22T00:00:00.000Z',
+    error: {
+      code: 'not-a-block-tree',
+      message: 'The plain skill is not built from blocks',
+    },
+  });
+
+  it('runs rt skills blocks for the pack and skill and passes the payload through', async () => {
+    const payload = { pack: 'acme', skill: 'mini', blocks: [] };
+    const rt = fakeRt({ code: 0, stdout: JSON.stringify(payload), stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual(payload);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'blocks',
+      '--pack',
+      'acme',
+      '--skill',
+      'mini',
+      '--json',
+    ]);
+  });
+
+  it('400s without a skill or without a pack, before rt is spawned', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await app.request('/api/skills/blocks?pack=acme')).status).toBe(
+      400
+    );
+    expect((await app.request('/api/skills/blocks?skill=mini')).status).toBe(
+      400
+    );
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['blocks', 'pack=acme&skill=--help'],
+    ['blocks', 'pack=--manifest&skill=mini'],
+    ['blocks', 'pack=acme&skill=..%2Fmini'],
+    ['anatomy', 'pack=acme&skill=-x'],
+    ['anatomy', 'pack=%20acme&skill=mini'],
+  ])(
+    'the %s route 400s a pack or skill that is not a plain name (%s), before rt is spawned',
+    async (route, query) => {
+      const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await app.request(`/api/skills/${route}?${query}`);
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: expect.stringMatching(/^invalid (pack|skill) name: /),
+      });
+      expect(rt.run).not.toHaveBeenCalled();
+    }
+  );
+
+  it('passes a board skill name with a colon through to rt anatomy', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: '{"skill":"board:respond"}',
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(
+      '/api/skills/anatomy?pack=acme&skill=board%3Arespond'
+    );
+
+    expect(res.status).toBe(200);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'anatomy',
+      '--pack',
+      'acme',
+      '--skill',
+      'board:respond',
+      '--json',
+    ]);
+  });
+
+  it('400s a pack name with a colon, which names no pack', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request('/api/skills/blocks?pack=a%3Ab&skill=mini');
+
+    expect(res.status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('is 404 with the error envelope when the skill is not a block tree', async () => {
+    const rt = fakeRt({ code: 1, stdout: notABlockTree, stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: 'The plain skill is not built from blocks',
+    });
+  });
+
+  it('is 409 with the stale-engine code when the installed plugin is older than rt', async () => {
+    const staleEngine = JSON.stringify({
+      contract: 1,
+      at: '2026-10-22T00:00:00.000Z',
+      error: {
+        code: 'stale-engine',
+        message: 'The installed mattstack plugin is older than this rt',
+      },
+    });
+    const rt = fakeRt({ code: 1, stdout: staleEngine, stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: 'The installed mattstack plugin is older than this rt',
+      code: 'stale-engine',
+    });
+  });
+
+  it("is 422 with rt's words when rt declines to build the skill", async () => {
+    const refusal =
+      'mini/gate.rules is required and nothing binds it\n  why: bind it in pack/skills.jsonc';
+    const rt = fakeRt({ code: 1, stdout: '', stderr: `${refusal}\n` });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toEqual({ error: refusal });
+  });
+
+  it('is 502 with rt stderr when rt fails unexpectedly', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt hit an unexpected error  boom',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('boom'),
+    });
+  });
+
+  it('is 502 with its message for any other error envelope, never a payload', async () => {
+    const waiting = JSON.stringify({
+      contract: 1,
+      at: '2026-10-22T00:00:00.000Z',
+      error: {
+        code: 'org-layout-waiting',
+        message: 'The org repo is waiting on a layout change',
+      },
+    });
+    const rt = fakeRt({ code: 1, stdout: waiting, stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(url);
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({
+      error: 'The org repo is waiting on a layout change',
+    });
+  });
+
+  it('is 503 when rt is not installed', async () => {
+    const run = vi.fn(async () => {
+      throw new RtNotFoundError(['/nowhere/rt']);
+    });
+    const app = mountSkills(new Hono(), run);
+
+    expect((await app.request(url)).status).toBe(503);
+  });
+
+  it('is cached like the other reads', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{"blocks":[]}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await app.request(url);
+    await app.request(url);
+    expect(rt.calls.filter(argv => argv[1] === 'blocks')).toHaveLength(1);
+  });
+});
+
 describe('skills source route', () => {
   const compositionOf = (packDir: string) => ({
     pack: 'acme',
@@ -2696,13 +2344,13 @@ describe('skills source route', () => {
                   ref: 'board:review',
                   verb: null,
                   kind: 'external',
-                  slots: [],
+                  props: [],
                 },
                 {
                   ref: 'mattstack:work',
                   verb: 'work',
                   kind: 'verb',
-                  slots: [],
+                  props: [],
                 },
               ],
             }),
@@ -3384,6 +3032,25 @@ describe('skills changes and discard routes', () => {
     await app.request(anatomy);
 
     expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(2);
+  });
+
+  it("discard drops the pack's cached blocks so the block view refetches", async () => {
+    const rt = fakeRtHandler(argv =>
+      argv[1] === 'discard'
+        ? { code: 0, stdout: '{"discarded":[]}', stderr: '' }
+        : { code: 0, stdout: '{"blocks":[]}', stderr: '' }
+    );
+    const app = mountSkills(new Hono(), rt.run);
+    const blocks = '/api/skills/blocks?pack=acme&skill=mini';
+
+    await app.request(blocks);
+    await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
+    await app.request(blocks);
+
+    expect(rt.calls.filter(argv => argv[1] === 'blocks')).toHaveLength(2);
   });
 
   it("discard leaves another pack's cached reads alone", async () => {

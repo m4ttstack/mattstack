@@ -75,8 +75,8 @@ describe("readZones", () => {
   });
 
   test("a clone whose marker is on a layout above ORG_LAYOUT throws the update sentence", () => {
-    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 5 }' });
-    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 5 and this app reads up to 4. Update the app.");
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), [`${ORG_ROOT("acme")}/.git/config`]: "", [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: '{ "role": "org", "org": "acme", "layout": 6 }' });
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org uses layout 6 and this app reads up to 5. Update the app.");
   });
 
   test("a one-team marker throws the waiting sentence rather than skipping the clone", () => {
@@ -353,12 +353,12 @@ describe("renderPackFiles", () => {
   });
   test("bindings fragment carries enabled skills, the eight-stage pipeline, and only the two generic bindings", () => {
     const manifest = JSON.parse(stripJsonc(files["pack/skills.jsonc"]!));
-    expect(manifest.version).toBe(1);
+    expect(manifest.version).toBe(2);
     expect(manifest.skills).toEqual({ enabled: ["mattstack:work", "mattstack:model-tiering"] });
     expect(manifest.pipelines.feature).toEqual(PIPELINE_STAGES.map((s) => `mattstack:${s}`));
     expect(manifest.bindings).toEqual({
-      "mattstack:work": { tiering: "mattstack:model-tiering" },
-      "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
+      "mattstack:work/sub-agent-tiering": { tiering: "mattstack:model-tiering" },
+      "mattstack:stage-watch-ci/forge": { forge: "mattstack:ci-forge-gitlab" },
     });
   });
   test("seeded fragment explains pipelines", () => {
@@ -677,19 +677,19 @@ describe("renderPackFiles extends", () => {
     const base = {
       base: true,
       pipelines: { feature: ["mattstack:stage-plan", "acme-base:stage-audit"] },
-      bindings: { "mattstack:stage-watch-ci": { forge: "acme-base:ci-forge" } },
+      bindings: { "mattstack:stage-watch-ci/forge": { forge: "acme-base:ci-forge" } },
     };
     const fragment = JSON.parse(stripJsonc(renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base", baseFragment: base })["pack/skills.jsonc"]!));
     expect(fragment.extends).toBe("acme-base");
     expect(fragment.pipelines).toBeUndefined();
-    expect(fragment.bindings).toEqual({ "mattstack:work": { tiering: "mattstack:model-tiering" } });
+    expect(fragment.bindings).toEqual({ "mattstack:work/sub-agent-tiering": { tiering: "mattstack:model-tiering" } });
   });
 
   test("a base that sets no feature stages leaves the seed's own", () => {
     const base = { base: true, pipelines: { feature: { bindings: { "mattstack:stage-ship": { policy: "acme-base:squash" } } } } };
     const fragment = JSON.parse(stripJsonc(renderPackFiles({ pack: "acme", workDescription: "d", extendsBase: "acme-base", baseFragment: base })["pack/skills.jsonc"]!));
     expect(fragment.pipelines.feature).toEqual(PIPELINE_STAGES.map((s) => `mattstack:${s}`));
-    expect(fragment.bindings["mattstack:stage-watch-ci"]).toEqual({ forge: "mattstack:ci-forge-gitlab" });
+    expect(fragment.bindings["mattstack:stage-watch-ci/forge"]).toEqual({ forge: "mattstack:ci-forge-gitlab" });
   });
 });
 
@@ -1223,6 +1223,32 @@ describe("initPack", () => {
     if (out.ok || out.refused) return;
     expect(out.detail).toContain("boom");
     expect(out.wrote).toContain(`${ACME_PACK}/pack/stubs.jsonc`);
+  });
+
+  for (const failure of [
+    "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
+    "skills/gadgets/SKILL.md:5:7: ${CLAUDE_SKILL_DIR}/../widgets/gone.md does not resolve to a file from the skill's folder",
+  ]) {
+    test(`a hand-written skill failure stops init before the install and share, naming the file: ${failure.split(": ")[1]}`, async () => {
+      const { deps, calls } = world({ check: async () => ({ drift: false, handErrors: [failure] }) });
+      const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+      expect(out).toMatchObject({ ok: false, refused: false, code: "hand-skill-failed", detail: failure });
+      if (out.ok || out.refused) return;
+      expect(out.remedy?.commands[0]).toBe(`rt skills check --pack-dir ${ACME_PACK}`);
+      expect(calls.shared).toEqual([]);
+      expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
+    });
+  }
+
+  test("a compiled pointer that leads nowhere stops init before the install and share, with its own code", async () => {
+    const dead = "attachments/stage-plan/SKILL.md:12:5: @stage-plan/scripts/ points at attachments/stage-plan/scripts/, which is not a file";
+    const { deps, calls } = world({ check: async () => ({ drift: false, pointerErrors: [dead] }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: false, code: "pointer-failed", detail: dead });
+    if (out.ok || out.refused) return;
+    expect(out.remedy?.commands.slice(0, 2)).toEqual([`rt skills compile --pack-dir ${ACME_PACK}`, `rt skills check --pack-dir ${ACME_PACK}`]);
+    expect(calls.shared).toEqual([]);
+    expect(calls.claude.some((a) => a[1] === "install")).toBe(false);
   });
 
   test("the share is remembered once the files are written, so a later failure ends with rt team publish", async () => {

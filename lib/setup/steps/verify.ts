@@ -11,6 +11,7 @@ import { rowsToChecks } from "../../../commands/verify.ts";
 import type { Row } from "../contract.ts";
 import { BOARD_PEERING_ROW_ID, SELF_INVITE_STEPS } from "../validators/accounts.ts";
 import { BOARD_TEAM_FIELDS_ROW_ID } from "../validators/board-team-fields.ts";
+import { SKILLS_OVERRIDES_ROW_ID } from "../validators/skills-overrides.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -24,6 +25,7 @@ const SELF_INVITE_NOTE = "Board not peered: run rt team peer";
 const SEVERAL_TEAMS_NOTE = "More than one team on this Mac: open Setup status";
 const BOARD_TEAM_FIELDS_NOTE = "Old board settings not carried over: open Setup status";
 const UNPUBLISHED_PACKS_NOTE = "Pack edits not published yet: open Setup status";
+const SKILLS_OVERRIDES_NOTE = "Old keys in your skill overrides file: open Setup status";
 
 /**
  * Install never connects an account or installs a team-declared tool: both
@@ -69,6 +71,8 @@ export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): Step
     ...(byId.get(BOARD_TEAM_FIELDS_ROW_ID)?.status === "needs-you" ? [BOARD_TEAM_FIELDS_NOTE] : []),
     // Not required either, and nothing else says an edit has waited hours unpublished.
     ...(byId.get(ORG_UNPUBLISHED_PACKS_ROW_ID)?.status === "needs-you" ? [UNPUBLISHED_PACKS_NOTE] : []),
+    // Not required either, and a set-up Mac hears about a hand-written overrides file nowhere else.
+    ...(byId.get(SKILLS_OVERRIDES_ROW_ID)?.status === "needs-you" ? [SKILLS_OVERRIDES_NOTE] : []),
   ].join(". ");
   if (failures.length > 0) {
     return {

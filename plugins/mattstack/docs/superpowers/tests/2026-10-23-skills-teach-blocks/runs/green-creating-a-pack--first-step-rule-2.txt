@@ -1,0 +1,3 @@
+1. The fill `widgets:lint-changed` carries only the rule itself (run `bun run widgets:lint --changed`, phrased as a rule and naming the tool-form from the mcp-tools reference where one exists, with no process or digraph of its own), and the pack's binding names the engine block `mattstack:stage-ship/domain-fast-checks` with the prop `rules`, so the rule lands in that step's section only.
+2. `"mattstack:stage-ship/domain-fast-checks": { "rules": "widgets:lint-changed" }`
+3. `mattstack:extending-a-pack`, one rule per round, which writes the fill (via `superpowers:writing-skills`) and makes the bind call.

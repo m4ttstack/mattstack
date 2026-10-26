@@ -1,0 +1,4 @@
+1. `run_field_get`, `worktree_provision` (precheck: true), `whoami`, `gate_ask`
+2. No, because the only domain rule sits under Gate `provision`, so nothing is inlined in Domain rules or under Follow the domain's provision flow, and the graph goes straight to the precheck.
+3. **Resume in `/wt/widgets-123-badge-levels` (Recommended)**, **Fresh tree**
+4. `resume_in`, `squad`, `next`

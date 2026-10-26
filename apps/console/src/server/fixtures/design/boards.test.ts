@@ -63,10 +63,6 @@ const target = (name: string) => {
 };
 
 describe('fixture files match the drawer boards', () => {
-  it('work template lines 1-44 are the text-range drawer', () => {
-    expectLinesMatch(anatomyWork.template.path, board('drawer-text-range'), 44);
-  });
-
   it('stage-plan rendered lines 288-330 are the include-row drawer', () => {
     expectLinesMatch(
       anatomyPlan.rendered.path,
@@ -93,18 +89,29 @@ describe('fixture payloads agree with their files', () => {
     }
   );
 
-  it.each(['work', 'stage-plan'])(
-    '%s placeholders are the template file',
-    name => {
+  // The old-shape anatomy keeps its single SKILL.md template, so the
+  // composition's lines are read there, not in the block file it names.
+  it.each([
+    ['work', anatomyWork],
+    ['stage-plan', anatomyPlan],
+  ] as const)(
+    '%s placeholders sit at their lines in the old-shape template',
+    (name, anatomy) => {
       const t = target(name);
-      const found = linesOf(t.templatePath).flatMap((line, i) =>
-        [...line.matchAll(PLACEHOLDER_RE)].map(m => ({
-          kind: m[1],
-          arg: m[2] ?? null,
-          line: i + 1,
-        }))
+      const found = linesOf(anatomy.template.path).flatMap((line, i) =>
+        [...line.matchAll(PLACEHOLDER_RE)].map(m =>
+          m[1]!.startsWith('props.')
+            ? {
+                kind: 'prop',
+                arg: `${name}.${m[1]!.slice('props.'.length)}`,
+                line: i + 1,
+              }
+            : { kind: m[1], arg: m[2] ?? null, line: i + 1 }
+        )
       );
-      expect(t.placeholders).toEqual(found);
+      expect(
+        t.placeholders.map(({ kind, arg, line }) => ({ kind, arg, line }))
+      ).toEqual(found);
     }
   );
 
@@ -125,7 +132,7 @@ describe('fixture payloads agree with their files', () => {
   it('a stale skill places only its marked parts', () => {
     const rendered = linesOf(anatomyWork.rendered.path);
     for (const part of anatomyWork.parts) {
-      if (part.kind !== 'include' && part.kind !== 'slot') {
+      if (part.kind !== 'include' && part.kind !== 'prop') {
         expect(part.renderedLines).toBeNull();
         continue;
       }
@@ -136,32 +143,34 @@ describe('fixture payloads agree with their files', () => {
     }
   });
 
-  it('the plan-stage parts tile its rendered file without overlap', () => {
+  it('the plan-stage parts tile its rendered file without overlap, but for the run fields rt fills', () => {
     const placed = anatomyPlan.parts
       .map(p => p.renderedLines)
       .filter((r): r is number[] => r !== null);
+    const gaps: number[][] = [];
     let next = 1;
     for (const [a, b] of placed) {
-      expect(a).toBe(next);
+      if (a! > next) gaps.push([next, a! - 1]);
+      expect(a).toBeGreaterThanOrEqual(next);
       next = b! + 1;
     }
+    expect(gaps).toEqual([[16, 24]]);
     expect(next - 1).toBe(anatomyPlan.rendered.lines);
   });
 
-  it("work's step links name the stages' rendered sizes", () => {
-    const plan = anatomyWork.parts.find(p => p.name === 'stage-plan');
-    expect(plan?.target).toEqual({
-      skill: 'stage-plan',
-      path: anatomyPlan.rendered.path,
-      lines: anatomyPlan.rendered.lines,
-    });
+  it("work's step links are one verb.path per stage its pipeline runs", () => {
+    expect(
+      target('work')
+        .placeholders.filter(p => p.kind === 'verb.path')
+        .map(p => p.arg)
+    ).toEqual(composition.pipelines.feature.map(ref => ref.split(':')[1]));
   });
 
   it('the unsynced composition differs from the clean one by its one pending binding', () => {
     const [change] = changesUnsynced.bindings;
     const rebound = structuredClone(composition);
     const binder = rebound.binders.find(b => b.ref === change!.engineRef)!;
-    binder.slots.find(s => s.name === change!.slot)!.boundTo = change!.to;
+    binder.props.find(p => p.name === change!.slot)!.boundTo = change!.to;
     expect(compositionUnsynced).toEqual(rebound);
   });
 });

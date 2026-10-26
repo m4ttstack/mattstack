@@ -27,11 +27,21 @@ metadata:
   compiled: "mattstack@1.0.0"
 ---
 
-<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: step source=mattstack:stage-implement version=1.0.0 path=attachments/pipeline/stage-implement/SKILL.md lines=11-11 -->
-
+<!-- part: block:stage-implement source=mattstack:stage-implement version=1.0.0 path=attachments/pipeline/stage-implement/index.block.md lines=11-11 -->
 You consume \`approach\`. You must produce \`commits\`.
+"
+,
+  "attachments/stage-implement/compiled.json": 
+"{
+  "id": "acme@0.1.0:stage-implement",
+  "dir": "attachments/stage-implement",
+  "covers": [
+    "acme@0.1.0:stage-implement"
+  ],
+  "keys": {}
+}
 "
 ,
   "attachments/stage-plan/SKILL.md": 
@@ -42,18 +52,32 @@ metadata:
   compiled: "mattstack@1.0.0 + acme:plan-policy@0.1.0"
 ---
 
-<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: step source=mattstack:stage-plan version=1.0.0 path=attachments/pipeline/stage-plan/SKILL.md lines=13-14 -->
+Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme@0.1.0:stage-plan\`, use it; otherwise call \`skills_resolve {id: "acme@0.1.0:stage-plan"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
+<!-- part: block:stage-plan source=mattstack:stage-plan version=1.0.0 path=attachments/pipeline/stage-plan/index.block.md lines=16-17 -->
 You consume \`ticket\`. You must produce \`approach\`.
-<!-- part: slot:domain binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md lines=8-10 -->
+<!-- part: prop:stage-plan.rules binding=acme:plan-policy version=0.1.0 path=attachments/plan-policy/SKILL.md lines=8-10 -->
 policy text
 
 <!-- part: include:gitlab-note source=mattstack:gitlab-note version=1.0.0 path=attachments/gitlab-note/SKILL.md lines=6-8 -->
 note body
 
-See \${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh for the note script.
+See @stage-plan/parts/include-gitlab-note/scripts/note.sh for the note script.
+"
+,
+  "attachments/stage-plan/compiled.json": 
+"{
+  "id": "acme@0.1.0:stage-plan",
+  "dir": "attachments/stage-plan",
+  "covers": [
+    "acme@0.1.0:stage-plan"
+  ],
+  "keys": {
+    "stage-plan/parts/include-gitlab-note/scripts/note.sh": "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh"
+  }
+}
 "
 ,
   "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh": 
@@ -69,11 +93,21 @@ metadata:
   compiled: "mattstack@1.0.0"
 ---
 
-<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: step source=mattstack:stage-ship version=1.0.0 path=attachments/pipeline/stage-ship/SKILL.md lines=11-11 -->
-
+<!-- part: block:stage-ship source=mattstack:stage-ship version=1.0.0 path=attachments/pipeline/stage-ship/index.block.md lines=11-11 -->
 You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
+"
+,
+  "attachments/stage-ship/compiled.json": 
+"{
+  "id": "acme@0.1.0:stage-ship",
+  "dir": "attachments/stage-ship",
+  "covers": [
+    "acme@0.1.0:stage-ship"
+  ],
+  "keys": {}
+}
 "
 ,
   "pack/pipelines.json": 
@@ -120,6 +154,10 @@ You consume \`commits\`, \`ticket\`. You must produce \`mr\`.
 }
 "
 ,
+  "pack/requires.json": 
+"{"minEngine":"0.32.28"}
+"
+,
   "pack/stubs.jsonc": 
 "{"verbs":{"work":{"engine":"work","description":"Run a unit of work"}}}
 "
@@ -136,10 +174,11 @@ metadata:
   compiled: "mattstack@1.0.0"
 ---
 
-<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
+<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: step source=mattstack:work version=1.0.0 path=attachments/pipeline/work/SKILL.md lines=7-11 -->
+Pointers here are \`@keys\`. Resolve them once per run: if you already hold a \`skills_resolve\` map that covers \`acme@0.1.0:work\`, use it; otherwise call \`skills_resolve {id: "acme@0.1.0:work"}\` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
+<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=7-11 -->
 The work type is \`feature\`. Continue.
 
 \`\`\`json
@@ -148,7 +187,7 @@ The work type is \`feature\`. Continue.
     {
       "name": "stage-plan",
       "stage": "plan",
-      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-plan",
+      "read": "@stage-plan/SKILL.md",
       "consumes": [
         "ticket"
       ],
@@ -159,7 +198,7 @@ The work type is \`feature\`. Continue.
     {
       "name": "stage-implement",
       "stage": "implement",
-      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-implement",
+      "read": "@stage-implement/SKILL.md",
       "consumes": [
         "approach"
       ],
@@ -170,7 +209,7 @@ The work type is \`feature\`. Continue.
     {
       "name": "stage-ship",
       "stage": "ship",
-      "dir": "\${CLAUDE_SKILL_DIR}/../../attachments/stage-ship",
+      "read": "@stage-ship/SKILL.md",
       "consumes": [
         "commits",
         "ticket"
@@ -183,11 +222,31 @@ The work type is \`feature\`. Continue.
 }
 \`\`\`
 
+<!-- part: block:work source=mattstack:work version=1.0.0 path=attachments/pipeline/work/index.block.md lines=11-11 -->
 Start: "$RT_PIPELINE_STATE" run-start \`\`\`json
 {
   "feature": "--repo my-repo --work-type feature --pipeline feature --mattstack-sha 1.0.0 --mattstack-dirty 0 --pack-sha acme=0.1.0"
 }
 \`\`\`
+"
+,
+  "skills/work/compiled.json": 
+"{
+  "id": "acme@0.1.0:work",
+  "dir": "skills/work",
+  "covers": [
+    "acme@0.1.0:work",
+    "acme@0.1.0:stage-plan",
+    "acme@0.1.0:stage-implement",
+    "acme@0.1.0:stage-ship"
+  ],
+  "keys": {
+    "stage-implement/SKILL.md": "attachments/stage-implement/SKILL.md",
+    "stage-plan/SKILL.md": "attachments/stage-plan/SKILL.md",
+    "stage-plan/parts/include-gitlab-note/scripts/note.sh": "attachments/stage-plan/parts/include-gitlab-note/scripts/note.sh",
+    "stage-ship/SKILL.md": "attachments/stage-ship/SKILL.md"
+  }
+}
 "
 ,
 }

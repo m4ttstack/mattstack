@@ -91,35 +91,26 @@ describe("setupPackFlow", () => {
 
   const widgets = (workType?: string): PackRequirements[] => [{ pack: "widgets", tools: [], integrations: [], workType }];
 
-  test("every stage's slots bound -> ok", async () => {
+  test("a pack whose pipeline reads -> ok, naming its stage count", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "widgets:gates" } }) }) });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `2 stages resolved for feature work` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `2 stages in the feature pipeline` });
   });
 
-  test("a stage with an empty slot value -> stage-unresolved", async () => {
+  test("an empty binding value is a clear, not a failure: compile and check refuse an unbound required prop", async () => {
     registerRepo(home);
-    const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "" } }) }) });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({
-      ok: false,
-      stage: "stage-gates",
-      detail: `The stage-gates stage has no skill bound to it`,
-    });
+    const root = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "" } }) }) });
+    expect(await setupPackFlow(makeCtx(root, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `2 stages in the feature pipeline` });
+
+    const block = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates/domain-rules": { rules: "" } }) }) });
+    expect(await setupPackFlow(makeCtx(block, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `2 stages in the feature pipeline` });
   });
 
-  test("an object-form pipeline counts its stages and checks them with its own overrides", async () => {
+  test("an object-form pipeline counts its own stages, whatever its overrides clear", async () => {
     registerRepo(home);
     const stages = ["stage-a", "stage-b", "stage-c", "stage-d", "stage-e", "stage-f", "stage-g", "stage-x"];
-    const feature = (override: string) => ({ stages, bindings: { "stage-x": { domain: override } } });
-    const ready = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "stage-x": { domain: "acme:x" } }, { feature: feature("acme:y") }) }) });
-    expect(await setupPackFlow(makeCtx(ready, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `8 stages resolved for feature work` });
-
-    const unbound = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "stage-x": { domain: "acme:x" } }, { feature: feature("") }) }) });
-    expect(await setupPackFlow(makeCtx(unbound, { reqs: widgets("feature") }))).toEqual({
-      ok: false,
-      stage: "stage-x",
-      detail: `The stage-x stage has no skill bound to it`,
-    });
+    const cleared = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "stage-x": { domain: "acme:x" } }, { feature: { stages, bindings: { "stage-x": { domain: "" } } } }) }) });
+    expect(await setupPackFlow(makeCtx(cleared, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `8 stages in the feature pipeline` });
   });
 
   test("no pack file for the requirements' pack -> NO_MANIFEST_DETAIL", async () => {
@@ -146,7 +137,7 @@ describe("setupPackFlow", () => {
       home,
       ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }), siblingFragment: JSON.stringify({ extends: "acme-base" }) }),
     });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage resolved for feature work` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage in the feature pipeline` });
   });
 
   test("no registered repo, plugins installed -> not a failure, the check waits on a repo clone", async () => {
@@ -199,13 +190,13 @@ describe("setupPackFlow", () => {
   test("defaults workType to feature when the pack declares none", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }) }) });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage resolved for feature work` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage in the feature pipeline` });
   });
 
-  test("no pipeline declared for the work type -> vacuously ok, nothing to resolve", async () => {
+  test("no pipeline declared for the work type -> ok, with no stages", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({}) }) });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("chore") }))).toEqual({ ok: true, detail: `0 stages resolved for chore work` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("chore") }))).toEqual({ ok: true, detail: `0 stages in the chore pipeline` });
   });
 
   test("a malformed pack requirements file surfaces its own error, never a misleading stage failure", async () => {

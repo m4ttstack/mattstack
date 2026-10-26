@@ -1,75 +1,81 @@
-A review and onboarding release. The board's review gate now drafts every comment and the summary for you to edit before anything posts, gate forms open with the recommended answers picked, and a decision banner replaces the small queue button. Joining a team gets steadier: Start services passes on a running daemon, a joiner's Slack and repo rows hold Finish until they are done, herdr starts after Finish, and Claude Code defaults to fullscreen. Org base-pack text can now carry each team's own values and sections, browser evidence asks one privacy question per batch, and the daemon can warn you before a Claude usage limit runs out.
+A skills release. Every mattstack engine and include is now a tree of blocks, so a pack binds its rules to the exact step they belong to. A pack that bound an old slot must be converted by hand before it compiles on this release.
 
-Updating runs one new setup migration: it stops the old background herdr server, renamed from `bg` to `mattstack-bg`, when it has no panes open. If it still holds panes, setup asks you to finish or close them first and then run `herdr session stop bg`.
+### Skill packs
 
-### Board
+- engines and includes are `*.block.md` trees: one file per section, and a block that takes a pack's text declares a prop
+- a pack binds a prop with `rt skills bind <verb> <block> <prop> <fill>`, so a rule for one step lands in that step's section and a rule for the whole stage binds to its `domain-rules` block
+- the pack manifest is at version 2, keyed by block and prop; mattstack's own defaults sit on the props
+- a fill can be one file of a fill folder (`widgets:ci-rules/flaky-jobs`), whose `SKILL.md` is frontmatter only
+- `rt skills blocks` prints a verb's block tree; `--json` adds each layer's text
+- `rt skills compile` refuses a binding to an old slot, names the layer that bound it and lists the engine's props, for example:
 
-- the review drafts every comment and the summary before the post gate; the board shows them in editable boxes and posts what is in the box word for word (#905)
-- gates are no longer capped at 8192 bytes: the budget covers only the Claude Code pane's prose, and drafts ride as board-only fields (#905)
-- the review summary comes first in the main column, a verdict-only submit works, and the summary names its verdict in a coloured badge
-- Cmd+Enter submits a gate sheet, and number keys pick the review verdict (#919)
-- a banner above the board names how many decisions are waiting and which opens first, replacing the sidebar's decision queue button (#911)
-- answering a form gate on the board dismisses the Claude Code form in the pane, so doorbells no longer queue behind it (#897)
-- when a CI doctor would land on a branch a live work run owns, the board rings that worker instead of launching a doctor (#922)
-- a peer's finished review on your own mergeable MR offers merge, and a needed rebase leads the row over finished runs and a peer's review; finished runs expire after 2 hours
-- a fresh respond no longer reads as interrupted, and resume never opens a second pane on a live session (#901)
-- a follow-up review into a pane that is still open no longer flashes "review interrupted" (#904)
-- people are named by first name through one shared lookup, with full names on the MR row, the row menu, the redo dialog and the check-in toast
-- the full diff opens centred on the finding you came from
-- code blocks in the threads drawer wrap instead of scrolling
-- Slack marks count on your own thread replies and other teams' emoji
-- `board.slack`'s emoji alias lists edit as fields in the console (#902)
+```
+1 verb did not compile
+  <manifest>/skills.jsonc:8:25: "mattstack:ship" no longer has slot "domain", bound by this pack; its props are: ship/flow/domain-steps-before-gate.rules (add), ship/flow/gate-ship.rules (add), ship/flow/commit-named-files.rules (add), ship/flow/domain-fast-checks.rules (add), ship/flow/fix-test-first.rules (add), ship/flow/domain-rebases-unfinished.rules (add), ship/flow/resolve-conflict-files.rules (add), ship/flow/mr-create.rules (add), ship/flow/capture-after-case.rules (add), ship/flow/attach-evidence.rules (add), ship/flow/write-title-description.rules (add), ship/flow/domain-runs-ci.rules (add), ship/flow/run-watch-ci.rules (add), ship/domain-rules.rules (add)
+```
 
-### Gates
+- packs convert by hand, the org base pack first: its fills bind old slot keys too, and until it converts every team compile is refused. In an org with other members, your org admin moves every pack on a trial branch (see "Moving an org to block packs" below), and no converted pack is synced to the data branch before the org is on layout 5 (`rt skills sync` refuses one there); a Just Me org, or a pack outside an org, converts in place:
+  - split the domain fill's `## At: <step>` sections into per-file values beside a frontmatter-only `SKILL.md`
+  - a `## At:` section whose step has no prop folds into the stage's `domain-rules` block
+  - rebind each file under its v2 key with `rt skills bind`, and delete the old slot keys from `pack/skills.jsonc`
+  - run `rt skills compile`, then `rt skills check --strict`
+- a pack compiled on this release needs the mattstack app from this release or later, because compile writes that floor (0.32.28) into the pack's `pack/requires.json`; an older app holds the pack until it updates
+- a hand-typed path to another skill's file now fails compile and check with `hand-typed-path`, and the error names the placeholder to use; this covers block skills, includes, prop values, copied base attachments, team sections and params
+- `{{pack.path:widgets/rules.md}}` renders to a copy in each built skill's own `references/` folder
+- `{{pack.path:{{team.<key>}}/<file>}}` takes a team value as its folder
+- team sections and params may carry `{{pack.path:...}}` and `{{verb.path:...}}`
+- hand-written plugin skills get a `broken-skill-path` check: a path that points at no file fails `rt skills check`
+- the extending-a-pack, creating-a-pack, editing-skills and process-digraphs skills teach the block model, and `props.md` lists every block and prop
+- CI compiles every graph-bearing engine, runs check-dot on the compiled graphs, and checks the props signature against the last release tag
+- Compiled skills point at their own files by `@key`; one `skills_resolve` call per started skill finds them wherever the skill was opened from. A plugin version bump now needs a recompile, and a `${CLAUDE_SKILL_DIR}` link in a copied hand-written skill that no longer reaches a file now fails `rt skills check` instead of only warning.
+- `rt skills resolve <id>` shows where an installed skill's `@key` pointers lead
 
-- gate forms open with every recommended option already picked; consent questions still open empty (#918)
+### Console
 
-### Setup and onboarding
+- the wiring tab opens a skill as a tree of blocks, at three zoom levels: the whole skill, a block with blocks inside it, or a single block
+- a single block shows its text with each prop's value per layer; **Around this block** draws the graph next to it, and **Copy for Claude** copies a short brief about it
+- **View graph** opens the **Block map**, which shows only blocks and folds the other steps into dotted links you can unfold
+- every block shows its **History**, and a block shared between skills lists them under **Used by**
+- the Rebind panel is gone: the console never changes what a prop takes, a pack's own files do
 
-- Start services passes when the daemon is already running and waits out a cold start (#893)
-- the Fast Browser install steps stop at the Chrome Web Store install (#894)
-- herdr starts when you press Finish (#895)
-- a joiner's Slack and repo rows block Finish instead of waiting for a relaunch (#896)
-- Claude Code defaults to fullscreen when `tui` is unset, so its input stays docked to the bottom of the pane (#898)
-- a deck register that drops its connection is retried (#899)
-- the dev app announces a newer version on every launch, once per version (#900)
-- the background herdr server is now `mattstack-bg`, and a setup migration stops the old `bg` server when it is empty (#913, #928)
+### Editor
 
-### Worktrees
+- the new `skill-blocks` extension checks `*.block.md` files and `skills.jsonc` as you edit them: diagnostics, hover, go to definition, completion, rename and quick fixes, served by `rt skills lsp`
+- setup installs it into every editor that has `rt-context`; `rt settings extension` adds it to another editor
+- the `skillBlocks.rtPath` setting names the `rt` to run; at its default the extension finds `rt` on the editor's PATH, then at `~/.local/bin/rt`
+- Claude Code now starts `rt skills lsp` through the mattstack plugin, so a session gets the same checks on block files
 
-- the Worktrees window counts unpushed commits honestly on squash-merged branches, and its cleanup banner fixes or hides itself per repo (#912)
-- the banner names worktrees being off and tracking opt-outs, `rt worktree enable` turns worktrees on, and `rt worktree provision`'s await-ready hint names `--repo` (#914)
-- the Worktrees window says it is checking until the first counts land, and stops polling the daemon while hidden (#907)
-- `rt worktree restore` shows progress, copies without blocking, and sets the tree up in the background (#906)
-- the patch-identical check streams `git log` into `git patch-id` and remembers verdicts by commit, so the daemon no longer grows past 1 GB overnight (#908)
+### Macs already set up
 
-### Skills and packs
+- update the app before your org moves its packs to block packs; an older app keeps working on the old packs and holds its org pull until it updates
+- until your org admin moves your team's pack, `rt skills check` and `rt skills sync` on it report old slot bindings; your team's verbs keep working
+- if you hand-wrote `~/.mattstack/user/skills/overrides.jsonc`, setup's **Skill overrides** row lists each old key and what replaces it; edit the file, then run `rt skills materialize`
+- a pack you made yourself needs its bindings moved to block form; `rt skills check` lists each old binding, and this table gives each one's new key:
 
-- org base-pack text can carry `{{team.<key>}}` and `{{team.section:<name>}}` markers that `rt skills compile` fills from each team pack's params and sections (#916)
-- the console's Graph tab draws team sections inside their slot's card, and a slot stale from a team value says so (#917)
-- browser evidence asks one redaction question per batch, and mock-data boards confirm without asking (#920)
-- stage-evidence, ship and stage-ship hand all of a pass's browser cases to the driver at once, so a real-data run gets one redaction question (#921)
-- boards a person approved at the redaction gate skip the upload check (#924)
-- evidence sections fold each case's screenshots behind a summary, on by default with `rt.evidence.foldScreenshots` (#910)
-- the watch-ci and evidence engines read their triage config from settings, and the ci gate's Recommended option follows the triage (#925, #926)
+| Old key and slot | New key and prop | Contract |
+|---|---|---|
+| `mattstack:work` tiering | `mattstack:work/sub-agent-tiering` tiering | model-tiering@1 |
+| `mattstack:watch-ci`, `mattstack:stage-watch-ci` forge | `<engine>/forge` forge | ci-forge@1 |
+| `mattstack:review`, `mattstack:self-review`, `mattstack:receive-review` criteria | `<engine>/criteria` criteria | review-criteria@1 |
+| the same three engines, reviewer | `<engine>/reviewer` reviewer | reviewer-dispatch@1 |
+| `mattstack:receive-review` reply-rules | `mattstack:receive-review/reply-rules` reply-rules | reply-rules@1 |
+| `mattstack:shepherdr` tiering, strategy, accounts | unchanged: the root block still declares them | same |
+| any engine's `domain` | a person decides: `<engine>/domain-rules` rules, or a step's own `rules` prop; `rules` adds to lower layers where `domain` replaced them | none |
 
-### Chat and notifications
+- `mattstack:shepherdr` has no `domain-rules` block, so its `domain` moves to `mattstack:shepherdr` `rules`, a prop on its root block
 
-- `chat.autoSignIn` signs new pane sessions in to chat at startup (#903)
-- the daemon can notify you before a Claude usage limit runs out, including a monthly cap on an enterprise seat; it is off until you set thresholds in `rt.notify.usageLimits` (#923)
+### Moving an org to block packs
 
-### Fast Browser
+An org whose packs are all in block form moves to org layout 5. An org admin does it in this order:
 
-- Fast Browser 0.1.18: tool results on an origin with a saved dev login say so, and setup no longer breaks Codex when its `config.toml` already has its own `fast_browser` table; the `logins:has` daemon verb backs the hint (#909, #927)
+1. turn team sync off on your Mac: `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`, then `rt daemon restart`
+2. switch your clone to a trial branch: `rt team branch use <name>`
+3. convert every pack (the org's base packs and each team's pack) on that branch, then publish it: `rt team publish`
+4. mark the org: run `bun scripts/move-to-block-packs.ts <clone-dir> --admin <you>` once to see the plan, then again with `--write`, and review the commit with `git -C <clone-dir> show`
+5. publish again: `rt team publish`, then turn team sync back on: `rt settings unset rt.teamSnapshot --scope machine`, then `rt daemon restart`
+6. after the release, merge the trial branch into the data branch on your forge, then switch back with `rt team branch use <data branch>`; members on the new app follow on their next pull
+7. run `rt team pull`, then the script once more without `--write`, to confirm every pack is still in block form after the merge
 
-### Deck and console
-
-- deck's success toasts name the app and reuse the command's icon
-- the console's evidence modal has one head, and gate boards page through every board
-
-### Also
-
-- telemetry never pings from a virtual machine
-- bundled tools: bun 1.4.4, node 24.22.1, gh 2.103.0, glab 1.124.0, git-lfs 3.8.1, cloudflared 2026.10.3, portless 0.15.9 (#927)
-
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.25.2...v2.26.0
+- without `--write` the script prints the plan and writes nothing; on an org already on layout 5 it checks the packs and says so
+- it refuses, writing nothing, while any pack still has an old slot key (it names the pack and the key), while the clone has uncommitted changes or unpublished commits, or while team sync is on; each refusal says why it stopped, and most name a command to run next
+- an org still on layout 3 moves to layout 4 first, with `scripts/move-to-data-branch.ts`

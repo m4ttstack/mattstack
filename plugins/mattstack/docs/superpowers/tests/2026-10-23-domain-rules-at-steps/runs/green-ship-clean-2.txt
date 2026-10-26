@@ -1,0 +1,6 @@
+1. run_enter, run_field_set, run_field_set, branch_stack, gate(ship), run_field_set, git_push, mr_create, run_field_set, run_close
+2. git add src/badge/Badge.tsx src/badge/Badge.test.tsx ; git commit -m "widgets(badge): update badge component and tests [WID-123]" ; bun run widgets:lint --changed ; bun run widgets:typecheck ; git checkout -- src/generated/gizmo-index.ts
+3. Staged files: src/badge/Badge.tsx and src/badge/Badge.test.tsx (nothing under src/generated/). Commit subject: `widgets(badge): update badge component and tests [WID-123]`
+4. no
+5. Gate `ship`, with question ids `dirty`, `open_as`, `next`. It is the only gate opened.
+6. run_close {workType: ship, stage: ship, outcome: done}

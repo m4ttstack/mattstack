@@ -10,9 +10,11 @@ const FIX = join(import.meta.dir, "fixtures", "browser-target");
 const REPO_PLUGIN = resolve(import.meta.dir, "..", "..", "..", "plugins", "mattstack");
 const VERBS = ["stage-evidence", "stage-ship", "ship"] as const;
 const REVIEW_VERBS = ["review", "self-review", "receive-review"] as const;
-const INCLUDE_MARKER = "<!-- part: include:browser-evidence";
+// The include is a block tree: its root seam marks where it is inlined, and every one of its blocks carries a seam of its own.
+const INCLUDE_MARKER = "<!-- part: block:browser-evidence source=";
+const INCLUDE_BLOCK = /^<!-- part: block:browser-evidence[ /]/;
 const PART_MARKER = "<!-- part: ";
-const TARGET_HEADING = /^## Browser target$/m;
+const TARGET_HEADING = /^#+ Browser target$/m;
 
 type Compiled = Record<(typeof VERBS)[number], string> & Partial<Record<(typeof REVIEW_VERBS)[number], string>>;
 
@@ -39,16 +41,22 @@ async function compilePack(name: "opted-in" | "scripts-only", verbs: readonly st
   return { pack, verbs: Object.fromEntries(verbs.map((v) => [v, read(v)])) as Compiled };
 }
 
+/** A body pointer is an `@key`; the unit's compiled.json says which pack file it names. */
+function keyTarget(pack: string, side: string, verb: string, pointer: string): string {
+  const { keys } = JSON.parse(readFileSync(join(pack, side, verb, "compiled.json"), "utf8")) as { keys: Record<string, string> };
+  expect(pointer.startsWith("@")).toBe(true);
+  return join(pack, keys[pointer.slice(1)]!);
+}
+
 function count(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
 // One part runs from its marker to the next marker, or to the end of the text.
-function withoutPart(text: string, marker: string): string {
-  const start = text.indexOf(marker);
-  if (start === -1) throw new Error(`withoutPart: no ${marker} in the compiled text`);
-  const next = text.indexOf(PART_MARKER, start + marker.length);
-  return text.slice(0, start) + (next === -1 ? "" : text.slice(next));
+function withoutInclude(text: string): string {
+  if (!text.includes(INCLUDE_MARKER)) throw new Error(`withoutInclude: no ${INCLUDE_MARKER} in the compiled text`);
+  const [head, ...parts] = text.split(PART_MARKER);
+  return head + parts.map((p) => PART_MARKER + p).filter((p) => !INCLUDE_BLOCK.test(p)).join("");
 }
 
 describe("browser target compile", () => {
@@ -74,26 +82,27 @@ describe("browser target compile", () => {
     test("stage-evidence inlines the include once and carries the fill's four-block browser target", () => {
       const body = compiled.verbs["stage-evidence"];
       expect(count(body, INCLUDE_MARKER)).toBe(1);
-      expect(count(body, "\n## Browser target\n")).toBe(1);
-      for (const block of ["### Reach the view", "### What proves a change", "### Captions", "### Personal data"]) {
+      expect(count(body, "\n#### Browser target\n")).toBe(1);
+      for (const block of ["##### Reach the view", "##### What proves a change", "##### Captions", "##### Personal data"]) {
         expect(count(body, `\n${block}\n`)).toBe(1);
       }
     });
 
-    test("stage-ship and ship inline the include once and resolve the fill's pointer to an existing file", () => {
+    test("stage-ship and ship inline the include once and resolve the fill's pointer to their own copy", () => {
       for (const verb of ["stage-ship", "ship"] as const) {
         const body = compiled.verbs[verb];
         expect(count(body, INCLUDE_MARKER)).toBe(1);
         expect(body).not.toContain("{{pack.path");
         const pointer = body.match(/browser target section of `([^`]+)`/);
         expect(pointer).not.toBeNull();
-        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, "attachments", verb));
-        expect(target).toContain("/attachments/acme-evidence/SKILL.md");
+        const side = existsSync(join(compiled.pack, "skills", verb)) ? "skills" : "attachments";
+        const target = keyTarget(compiled.pack, side, verb, pointer![1]!);
+        expect(target).toContain(`/${side}/${verb}/references/acme-evidence/SKILL.md`);
         expect(existsSync(resolve(target))).toBe(true);
       }
     });
 
-    test("review and self-review inline the include once and resolve the criteria's pointer to the evidence fill", () => {
+    test("review and self-review inline the include once and resolve the criteria's pointer to their own copy of the evidence fill", () => {
       for (const verb of ["review", "self-review"] as const) {
         const body = compiled.verbs[verb]!;
         expect(count(body, INCLUDE_MARKER)).toBe(1);
@@ -102,8 +111,9 @@ describe("browser target compile", () => {
         expect(body).not.toContain("{{pack.path");
         const pointer = body.match(/browser target\s+section of `([^`]+)`/);
         expect(pointer).not.toBeNull();
-        const target = pointer![1]!.replace("${CLAUDE_SKILL_DIR}", join(compiled.pack, "attachments", verb));
-        expect(target).toContain("/attachments/acme-evidence/SKILL.md");
+        const side = existsSync(join(compiled.pack, "skills", verb)) ? "skills" : "attachments";
+        const target = keyTarget(compiled.pack, side, verb, pointer![1]!);
+        expect(target).toContain(`/${side}/${verb}/references/acme-evidence/SKILL.md`);
         expect(existsSync(resolve(target))).toBe(true);
       }
     });
@@ -130,7 +140,7 @@ describe("browser target compile", () => {
     });
 
     test("outside the include, stage-evidence never reaches the browser driver", () => {
-      const rest = withoutPart(compiled.verbs["stage-evidence"], INCLUDE_MARKER);
+      const rest = withoutInclude(compiled.verbs["stage-evidence"]);
       expect(rest).not.toContain(INCLUDE_MARKER);
       expect(rest).not.toContain("fast-browser:browser-driver");
       expect(rest).not.toMatch(TARGET_HEADING);
@@ -142,7 +152,7 @@ describe("browser target compile", () => {
         const body = compiled.verbs[verb];
         expect(count(body, INCLUDE_MARKER)).toBe(1);
         expect(body).not.toMatch(TARGET_HEADING);
-        const rest = withoutPart(body, INCLUDE_MARKER);
+        const rest = withoutInclude(body);
         expect(rest).not.toContain("fast-browser:browser-driver");
         expect(rest).toContain("node scripts/shot.mjs");
       }

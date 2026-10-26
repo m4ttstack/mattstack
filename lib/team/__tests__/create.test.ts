@@ -508,9 +508,9 @@ describe("a new org's data branch and main's pointer (real git, empty bare origi
 
     expect(git(origin, "for-each-ref", "--format=%(refname)", "refs/heads").out.split("\n")).toEqual(["refs/heads/main", "refs/heads/mattstack"]);
     expect(git(origin, "ls-tree", "-r", "--name-only", "mattstack").out.split("\n").sort()).toEqual(DATA_FILES);
-    expect(JSON.parse(git(origin, "show", `mattstack:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+    expect(JSON.parse(git(origin, "show", `mattstack:${MARKER_PATH}`).out)).toEqual({ role: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" });
     expect(git(origin, "ls-tree", "-r", "--name-only", "main").out).toBe(POINTER_REL);
-    expect(parseMarker(git(origin, "show", `main:${POINTER_REL}`).out)).toEqual({ kind: "org", org: "acme", layout: 4, dataBranch: "mattstack" });
+    expect(parseMarker(git(origin, "show", `main:${POINTER_REL}`).out)).toEqual({ kind: "org", org: "acme", layout: ORG_LAYOUT, dataBranch: "mattstack" });
     expect(git(origin, "show", `mattstack:README.md`).out).toContain(DATA_BRANCH_WARNING);
 
     expect(git(created.dir, "symbolic-ref", "--short", "HEAD").out).toBe("mattstack");

@@ -4,6 +4,7 @@ import type { Seam } from './parseSeam';
 import {
   attributeHunk,
   parseDiffHunks,
+  propValueKey,
   seamPackPath,
   type AttributableSeam,
   type SeamSourceIndex,
@@ -13,8 +14,8 @@ import {
     path and a 1-indexed, inclusive span WITHIN that source file. */
 function seam(over: Partial<Seam> & Pick<Seam, 'path' | 'lines'>): Seam {
   return {
-    kind: 'slot',
-    slot: 'criteria',
+    kind: 'prop',
+    name: 'review.criteria',
     ref: 'demo:review-criteria',
     version: '0.4.11',
     ...over,
@@ -34,12 +35,12 @@ const CRITERIA = seam({
 });
 const CONVENTIONS = seam({
   path: 'attachments/review-criteria/SKILL.md',
-  slot: 'conventions',
+  name: 'review.conventions',
   lines: [21, 30],
 });
 const STEP = seam({
   kind: 'step',
-  slot: null,
+  name: null,
   ref: 'mattstack:review',
   path: 'skills/review/SKILL.md',
   lines: [10, 20],
@@ -149,7 +150,9 @@ describe('attributeHunk', () => {
   it('refuses an ambiguous hunk when two seams cover the same line', () => {
     const overlapping = [
       placed(CRITERIA),
-      placed(seam({ path: CRITERIA.path, slot: 'other', lines: [12, 25] })),
+      placed(
+        seam({ path: CRITERIA.path, name: 'review.other', lines: [12, 25] })
+      ),
     ];
 
     expect(
@@ -178,9 +181,11 @@ const INDEX: SeamSourceIndex = {
   artifactPath: `${PACK_DIR}/skills/review`,
   stepSourcePath: `${MATTSTACK_ROOT}/attachments/pipeline/review/SKILL.md`,
   fillSourcePaths: {
-    criteria: `${DEMO_ROOT}/attachments/review-criteria/SKILL.md`,
-    forge: `${MATTSTACK_ROOT}/attachments/ci-forge-gitlab/SKILL.md`,
-    unbound: null,
+    [propValueKey('review.criteria', 'demo:review-criteria')]:
+      `${DEMO_ROOT}/attachments/review-criteria/SKILL.md`,
+    [propValueKey('review.forge', 'mattstack:ci-forge-gitlab')]:
+      `${MATTSTACK_ROOT}/attachments/ci-forge-gitlab/SKILL.md`,
+    [propValueKey('review.unbound', 'demo:review-criteria')]: null,
   },
 };
 
@@ -197,7 +202,7 @@ describe('seamPackPath', () => {
 
   it('refuses a fill bound from another plugin, for the same reason', () => {
     const forge = seam({
-      slot: 'forge',
+      name: 'review.forge',
       ref: 'mattstack:ci-forge-gitlab',
       path: 'attachments/ci-forge-gitlab/SKILL.md',
       lines: [9, 45],
@@ -206,14 +211,40 @@ describe('seamPackPath', () => {
     expect(seamPackPath(forge, INDEX)).toBeNull();
   });
 
+  it('pairs a prop seam with the value its binding names', () => {
+    // An add prop renders one seam per value under one key, so the key alone
+    // cannot say which fill a span is measured in.
+    const second = seam({
+      ref: 'demo:review-extra',
+      path: 'attachments/review-extra/SKILL.md',
+      lines: [1, 9],
+    });
+    const index: SeamSourceIndex = {
+      ...INDEX,
+      fillSourcePaths: {
+        ...INDEX.fillSourcePaths,
+        [propValueKey('review.criteria', 'demo:review-extra')]:
+          `${DEMO_ROOT}/attachments/review-extra/SKILL.md`,
+      },
+    };
+
+    expect(seamPackPath(CRITERIA, index)).toBe(
+      'attachments/review-criteria/SKILL.md'
+    );
+    expect(seamPackPath(second, index)).toBe(
+      'attachments/review-extra/SKILL.md'
+    );
+    expect(seamPackPath(second, INDEX)).toBeNull();
+  });
+
   it('refuses a seam rt states no source path for', () => {
     const unbound = seam({
-      slot: 'unbound',
+      name: 'review.unbound',
       path: 'attachments/nothing/SKILL.md',
       lines: [1, 5],
     });
     const unknown = seam({
-      slot: 'not-in-the-composition',
+      name: 'review.not-in-the-composition',
       path: 'attachments/ghost/SKILL.md',
       lines: [1, 5],
     });
@@ -245,7 +276,8 @@ describe('seamPackPath', () => {
     const index: SeamSourceIndex = {
       ...INDEX,
       fillSourcePaths: {
-        criteria: `${DEMO_ROOT}/skills/review/SKILL.md`,
+        [propValueKey('review.criteria', 'demo:review-criteria')]:
+          `${DEMO_ROOT}/skills/review/SKILL.md`,
       },
     };
 
@@ -256,8 +288,8 @@ describe('seamPackPath', () => {
 describe('seamPackPath: org base fills', () => {
   const BASE_ROOT = '/o/acme/mattstack/org/packs/acme-base';
   const DOMAIN = seam({
-    kind: 'slot',
-    slot: 'domain',
+    kind: 'prop',
+    name: 'plan.domain',
     ref: 'acme-base:plan-policy',
     path: 'attachments/plan-policy/SKILL.md',
     lines: [1, 40],
@@ -268,8 +300,10 @@ describe('seamPackPath: org base fills', () => {
     artifactPath: '/o/acme/mattstack/teams/acme/packs/acme/skills/plan',
     stepSourcePath: null,
     fillSourcePaths: {
-      domain: `${BASE_ROOT}/attachments/plan-policy/SKILL.md`,
-      forge: `${MATTSTACK_ROOT}/attachments/ci-forge-gitlab/SKILL.md`,
+      [propValueKey('plan.domain', 'acme-base:plan-policy')]:
+        `${BASE_ROOT}/attachments/plan-policy/SKILL.md`,
+      [propValueKey('plan.forge', 'mattstack:ci-forge-gitlab')]:
+        `${MATTSTACK_ROOT}/attachments/ci-forge-gitlab/SKILL.md`,
     },
     baseRoots: { 'acme-base': BASE_ROOT },
   };
@@ -295,7 +329,7 @@ describe('seamPackPath: org base fills', () => {
 
   it('keeps refusing a fill bound from a plugin', () => {
     const forge = seam({
-      slot: 'forge',
+      name: 'plan.forge',
       ref: 'mattstack:ci-forge-gitlab',
       path: 'attachments/ci-forge-gitlab/SKILL.md',
       lines: [9, 45],
@@ -307,7 +341,8 @@ describe('seamPackPath: org base fills', () => {
     const elsewhere: SeamSourceIndex = {
       ...index,
       fillSourcePaths: {
-        domain: '/m/other/attachments/plan-policy/SKILL.md',
+        [propValueKey('plan.domain', 'acme-base:plan-policy')]:
+          '/m/other/attachments/plan-policy/SKILL.md',
       },
     };
     expect(seamPackPath(DOMAIN, elsewhere)).toBeNull();

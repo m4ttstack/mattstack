@@ -6,11 +6,11 @@
  *
  * | scenario           | what changes                                          |
  * | ------------------ | ----------------------------------------------------- |
- * | `referenced`       | plan's domain slot links to its fill                  |
- * | `required-unbound` | nothing binds plan's required domain slot             |
- * | `optional-unbound` | nothing binds plan's domain slot, made optional       |
- * | `no-matching-fill` | plan's domain slot names a fill the pack lacks        |
- * | `resolve-error`    | rt cannot resolve release-notes' changelog slot       |
+ * | `referenced`       | plan's domain prop links to its fill                  |
+ * | `required-unbound` | nothing binds plan's required domain prop             |
+ * | `optional-unbound` | nothing binds plan's domain prop, made optional       |
+ * | `no-matching-fill` | plan's domain prop names a fill the pack lacks        |
+ * | `resolve-error`    | rt cannot resolve release-notes' changelog prop       |
  * | `legacy`           | plan comes from an engine with no template trace      |
  * | `never-compiled`   | plan has never been compiled                          |
  * | `anatomy-failed`   | rt fails to read plan                                 |
@@ -21,6 +21,8 @@
  * | `pipeline-base-override` | `acme-base` sets the accessibility evidence override |
  * | `stale-copy`       | check reports a stale stage copy and a dropped override |
  * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
+ * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it; `ship`'s and `work`'s anatomy are rt's own, and work's placeholders sit in its block files |
+ * | `stale-engine`     | the installed mattstack plugin is older than rt, so every block tree answers `stale-engine` |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -47,6 +49,8 @@ export const SCENARIOS = [
   'pipeline-base-override',
   'stale-copy',
   'team-sections',
+  'blocks',
+  'stale-engine',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -77,14 +81,34 @@ interface Anatomy {
   links: unknown[];
 }
 
+interface PropSpec {
+  name: string;
+  required: boolean;
+  default: string | null;
+}
+
+interface Placeholder {
+  kind: string;
+  arg: string | null;
+  file: string;
+  line: number;
+}
+
 interface Composition {
-  verbs: { name: string; slots: Record<string, unknown>[] }[];
+  verbs: {
+    name: string;
+    props: Record<string, (PropSpec & { values: Record<string, unknown>[] })[]>;
+  }[];
   fills: { binding: string }[];
   extends?: { name: string; version: string | null } | null;
-  targets: { name: string; slots: { name: string; required: boolean }[] }[];
+  targets: {
+    name: string;
+    props: Record<string, PropSpec[]>;
+    placeholders: Placeholder[];
+  }[];
   binders: {
     ref: string;
-    slots: {
+    props: {
       name: string;
       boundTo: string;
       layer?: string | null;
@@ -128,19 +152,47 @@ export interface ScenarioDef {
   files?: Record<string, ((text: string) => string) | null>;
   /** `rt skills surface list`; every scenario without one refuses it. */
   surface?: Surface;
+  /** rt's refusal to build a skill's blocks, where it differs from the
+      clean pack's. */
+  blocks?: Record<string, Failure>;
+  /** rt answers every skill with a blocks file as `stale-engine`. */
+  staleEngine?: boolean;
+  /** Commits newer than the pack's own history, newest first. */
+  history?: { commits: HistoryCommit[] };
 }
+
+interface HistoryCommit {
+  sha: string;
+  shortSha: string;
+  authoredAt: string;
+  author: string;
+  subject: string;
+  files: string[];
+}
+
+/** What rt refuses to build in the clean pack: release-notes requires a
+    changelog prop nothing binds. Exit 1, the failure on stderr. */
+export const BLOCKS_REFUSED: Record<string, Failure> = {
+  'release-notes': {
+    code: 1,
+    stderr:
+      'attachments/release-notes/index.block.md:9:1: prop "changelog" is required and has no default; no layer passes a value\n',
+  },
+};
 
 const PLAN_FILE = 'anatomy.stage-plan.json';
 const PLAN_RENDERED = '/fixture/packs/acme/attachments/stage-plan/SKILL.md';
 const PLAN_BINDER = 'mattstack:stage-plan';
+/** Plan's domain prop, as anatomy and seams name it. */
+const DOMAIN = 'stage-plan.domain';
 /** Where the clean build pastes plan-policy into plan's rendered file. */
 const DOMAIN_BODY: Range = [223, 302];
 
 const REFERENCE_LINE =
-  'Slot domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.';
+  'For domain, invoke the `acme:plan-policy` skill (acme:plan-policy@0.8.14) when this flow needs it.';
 
 const CHANGELOG_ERROR = [
-  'loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:',
+  'loadAttachment: prop "changelog": binding "acme:changelog-style" not found; searched:',
   '/fixture/packs/acme/skills/changelog-style/SKILL.md',
   '/fixture/packs/acme/attachments/changelog-style/SKILL.md',
 ].join('\n');
@@ -169,7 +221,7 @@ function shiftAfter(parts: Part[], line: number, by: number): Part[] {
   );
 }
 
-/** Plan with its domain slot rendered into `lines` lines in place of its
+/** Plan with its domain prop rendered into `lines` lines in place of its
     pasted body. */
 function domainRenderedAs(lines: 0 | 1, patch: Partial<Part>) {
   const by = lines - (DOMAIN_BODY[1] - DOMAIN_BODY[0] + 1);
@@ -177,7 +229,7 @@ function domainRenderedAs(lines: 0 | 1, patch: Partial<Part>) {
     ...anatomy,
     rendered: { ...anatomy.rendered, lines: anatomy.rendered.lines + by },
     parts: shiftAfter(anatomy.parts, DOMAIN_BODY[1], by).map(part =>
-      part.name === 'domain' ? { ...part, ...patch } : part
+      part.name === DOMAIN ? { ...part, ...patch } : part
     ),
   });
 }
@@ -191,6 +243,16 @@ const domainUnbound = domainRenderedAs(0, {
 const withoutDomainBody = (text: string) =>
   spliceLines(text, DOMAIN_BODY, []).replace(' + acme:plan-policy@0.8.14', '');
 
+/** Every prop of every block, mapped. */
+function mapProps<P>(
+  props: Record<string, P[]>,
+  map: (prop: P) => P
+): Record<string, P[]> {
+  return Object.fromEntries(
+    Object.entries(props).map(([block, list]) => [block, list.map(map)])
+  );
+}
+
 function bindDomain(boundTo: string | null) {
   return (composition: Composition): Composition => ({
     ...composition,
@@ -198,7 +260,7 @@ function bindDomain(boundTo: string | null) {
       binder.ref === PLAN_BINDER
         ? {
             ...binder,
-            slots: boundTo ? [{ name: 'domain', boundTo, layer: 'pack' }] : [],
+            props: boundTo ? [{ name: 'domain', boundTo, layer: 'pack' }] : [],
           }
         : binder
     ),
@@ -212,7 +274,11 @@ function optionalDomain(composition: Composition): Composition {
       target.name === 'stage-plan'
         ? {
             ...target,
-            slots: target.slots.map(slot => ({ ...slot, required: false })),
+            props: mapProps(target.props, prop => ({
+              ...prop,
+              required: false,
+              default: '',
+            })),
           }
         : target
     ),
@@ -226,11 +292,19 @@ function failingChangelog(composition: Composition): Composition {
       verb.name === 'release-notes'
         ? {
             ...verb,
-            slots: verb.slots.map(slot => ({
-              ...slot,
-              boundTo: 'acme:changelog-style',
-              layer: 'pack',
-              resolveError: CHANGELOG_ERROR,
+            props: mapProps(verb.props, prop => ({
+              ...prop,
+              values: [
+                {
+                  boundTo: 'acme:changelog-style',
+                  layer: 'pack',
+                  fillSourcePath: null,
+                  fillVersion: null,
+                  registered: null,
+                  inlined: null,
+                  resolveError: CHANGELOG_ERROR,
+                },
+              ],
             })),
           }
         : verb
@@ -300,16 +374,16 @@ const BASE_PLAN_FILE = `/fixture/orgbase/${BASE}/attachments/plan-policy/SKILL.m
 const BASE_TAG = { origin: 'base', base: BASE, baseVersion: '0.1.0' } as const;
 
 const SHEPHERDR_BINDER = 'mattstack:shepherdr';
-const baseDomainSlot = {
+const baseDomainProp = {
   name: 'domain',
   boundTo: BASE_BINDING,
   layer: `base:${BASE}`,
   ...BASE_TAG,
 };
 
-/** The pack extends `acme-base`, whose plan-policy fills plan's domain slot
-    in place of the pack's own. `acme:plan-policy-lite` stays in the fills as
-    a rebind candidate, like plan-policy-strict. */
+/** The pack extends `acme-base`, whose plan-policy fills plan's domain prop
+    in place of the pack's own. `acme:plan-policy-lite` stays in the fills
+    beside plan-policy-strict. */
 function baseFillsDomain(composition: Composition): Composition {
   return {
     ...composition,
@@ -318,30 +392,33 @@ function baseFillsDomain(composition: Composition): Composition {
       verb.name === 'shepherdr'
         ? {
             ...verb,
-            slots: verb.slots.map(slot =>
-              slot.name === 'domain'
+            props: mapProps(verb.props, prop =>
+              prop.name === 'domain'
                 ? {
-                    ...slot,
-                    boundTo: BASE_BINDING,
-                    layer: `base:${BASE}`,
-                    fillSourcePath: BASE_PLAN_FILE,
-                    fillVersion: 'org',
-                    ...BASE_TAG,
+                    ...prop,
+                    values: prop.values.map(value => ({
+                      ...value,
+                      boundTo: BASE_BINDING,
+                      layer: `base:${BASE}`,
+                      fillSourcePath: BASE_PLAN_FILE,
+                      fillVersion: 'org',
+                      ...BASE_TAG,
+                    })),
                   }
-                : slot
+                : prop
             ),
           }
         : verb
     ),
     binders: composition.binders.map(binder => {
       if (binder.ref === PLAN_BINDER) {
-        return { ...binder, slots: [baseDomainSlot] };
+        return { ...binder, props: [baseDomainProp] };
       }
       if (binder.ref === SHEPHERDR_BINDER) {
         return {
           ...binder,
-          slots: binder.slots.map(slot =>
-            slot.name === 'domain' ? baseDomainSlot : slot
+          props: binder.props.map(prop =>
+            prop.name === 'domain' ? baseDomainProp : prop
           ),
         };
       }
@@ -366,7 +443,7 @@ function domainFromBase(anatomy: Anatomy): Anatomy {
   return {
     ...anatomy,
     parts: anatomy.parts.map(part =>
-      part.name === 'domain'
+      part.name === DOMAIN
         ? {
             ...part,
             source: {
@@ -418,9 +495,9 @@ function baseOverridesEvidence(composition: Composition): Composition {
       binder.ref === EVIDENCE_BINDER
         ? {
             ...binder,
-            slots: binder.slots.map(slot => ({
-              ...slot,
-              overrides: slot.overrides?.map(override =>
+            props: binder.props.map(prop => ({
+              ...prop,
+              overrides: prop.overrides?.map(override =>
                 override.pipeline === 'accessibility'
                   ? { ...override, layer: `base:${BASE}` }
                   : override
@@ -455,7 +532,7 @@ function sectionPart(name: string, at: number, changed: boolean): Part {
 }
 
 /** Plan stale on a changed team section, as rt reads it off the file on
-    disk: a slot's extent holds its sections, so the domain slot changed too,
+    disk: a prop's extent holds its sections, so the domain prop changed too,
     and text between markers has no anchor in a stale file. */
 function domainHoldsSections(anatomy: Anatomy): Anatomy {
   return {
@@ -464,7 +541,7 @@ function domainHoldsSections(anatomy: Anatomy): Anatomy {
     staleBecause: ['team'],
     parts: anatomy.parts.flatMap(part => {
       if (part.kind === 'text') return [{ ...part, renderedLines: null }];
-      if (part.kind !== 'slot' || part.name !== 'domain') return [part];
+      if (part.kind !== 'prop' || part.name !== DOMAIN) return [part];
       return [
         { ...part, changed: true },
         sectionPart('ci-extra', 4, false),
@@ -473,6 +550,101 @@ function domainHoldsSections(anatomy: Anatomy): Anatomy {
     }),
   };
 }
+
+const MINI_DIR =
+  '/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/mini';
+
+/** `mini` as a standalone roster verb, so the focus list can open it. */
+function withMini(composition: Composition): Composition {
+  const mini = {
+    name: 'mini',
+    engine: 'mattstack:mini',
+    engineRef: 'mattstack:mini',
+    plugin: 'mattstack',
+    description: 'Runs the step, then asks for a decision.',
+    public: true,
+    sourcePath: `${MINI_DIR}/index.block.md`,
+    artifactPath: '/fixture/packs/acme/skills/mini',
+    props: {},
+    includes: [],
+  };
+  return { ...composition, verbs: [...composition.verbs, mini] };
+}
+
+const WORK_BLOCKS = 'attachments/pipeline/work';
+
+/**
+ * work's placeholders where rt reports them for its block tree (read from
+ * `rt skills composition` on the generator's scratch pack): the pipeline
+ * table expands to one `verb.path` per stage, all at one line of one block.
+ */
+function workAsBlocks(composition: Composition): Composition {
+  const at = (file: string, line: number) => ({
+    file: `${WORK_BLOCKS}/${file}`,
+    line,
+  });
+  return {
+    ...composition,
+    targets: composition.targets.map(target =>
+      target.name === 'work'
+        ? {
+            ...target,
+            placeholders: [
+              ...target.placeholders
+                .filter(p => p.kind === 'verb.path')
+                .map(p => ({ ...p, ...at('stages/index.block.md', 9) })),
+              {
+                kind: 'run-start.flags',
+                arg: 'work',
+                ...at('stages/index.block.md', 14),
+              },
+              {
+                kind: 'run-list.pipelines',
+                arg: null,
+                ...at('stages/gate-resume-or-fresh.block.md', 10),
+              },
+              {
+                kind: 'prop',
+                arg: 'work/sub-agent-tiering.tiering',
+                ...at('sub-agent-tiering.block.md', 12),
+              },
+              {
+                kind: 'include',
+                arg: 'gate-protocol',
+                ...at('gate-protocol.block.md', 7),
+              },
+              {
+                kind: 'include',
+                arg: 'wrap-up-form',
+                ...at('wrap-up-form-contract.block.md', 8),
+              },
+            ],
+          }
+        : target
+    ),
+  };
+}
+
+/** The pack's edits to ship's lint files, so a block's History has commits
+    of its own to list. */
+const SHIP_LINT_COMMITS: HistoryCommit[] = [
+  {
+    sha: 'd41a7c3e9b2f8a6d5c4b3a2f1e0d9c8b7a6f5e4d',
+    shortSha: 'd41a7c3',
+    authoredAt: '2026-10-08T10:12:44-05:00',
+    author: 'Robin Okafor',
+    subject: 'ship-lint: run the typecheck after lint',
+    files: ['attachments/ship-lint/fast-checks.md'],
+  },
+  {
+    sha: 'a83f0b6c2d1e9f8a7b6c5d4e3f2a1b0c9d8e7f6a',
+    shortSha: 'a83f0b6',
+    authoredAt: '2026-10-02T16:05:19-05:00',
+    author: 'Sam Reyes',
+    subject: 'ship-lint: a lint error is fixed, never disabled',
+    files: ['attachments/ship-lint/fast-checks.md'],
+  },
+];
 
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
@@ -508,6 +680,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
     subject: 'release-notes',
     composition: failingChangelog,
     anatomy: { 'release-notes': { file: 'anatomy.release-notes.json' } },
+    blocks: { 'release-notes': { code: 1, stderr: `${CHANGELOG_ERROR}\n` } },
   },
   legacy: {
     subject: 'stage-plan',
@@ -574,6 +747,16 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       ],
     }),
   },
+  blocks: {
+    subject: 'mini',
+    history: { commits: SHIP_LINT_COMMITS },
+    composition: composition => workAsBlocks(withMini(composition)),
+    anatomy: {
+      ship: { file: 'anatomy.ship.json' },
+      work: { file: 'anatomy.work.rt.json' },
+    },
+  },
+  'stale-engine': { subject: 'stage-plan', staleEngine: true },
   'team-sections': {
     subject: 'stage-plan',
     anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainHoldsSections } },

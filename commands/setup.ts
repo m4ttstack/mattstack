@@ -459,9 +459,8 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
 
 // ─── pack (`rt setup pack`) ─────────────────────────────────────────────
 
-/** Maps `setupPackFlow`'s honest `{ok,stage?,detail}` to an exit-2 code: a named stage is always `stage-unresolved`; the flow's own fixed no-manifest detail gets its own code; anything else (a malformed pack, a step failure) is a generic pack error rather than a misleading "no manifest". */
-function packErrorCode(result: { stage?: string; detail: string }): string {
-  if (result.stage) return "stage-unresolved";
+/** Maps `setupPackFlow`'s honest `{ok,detail}` to an exit-2 code: the flow's own fixed no-manifest detail gets its own code; anything else (a malformed pack, a step failure) is a generic pack error rather than a misleading "no manifest". */
+function packErrorCode(result: { detail: string }): string {
   if (result.detail === NO_MANIFEST_DETAIL) return "no-manifest";
   return "pack-error";
 }
@@ -480,7 +479,7 @@ export async function setupPack(args: string[], _ctx: CommandContext = {}, deps:
     });
     const result = await setupPackFlow(ctx);
     if (!result.ok) {
-      throw new UserActionableError(packErrorCode(result), result.detail, result.stage ? { stage: result.stage } : {});
+      throw new UserActionableError(packErrorCode(result), result.detail);
     }
     if (json) deps.json(envelope({ ok: true, detail: result.detail }, deps.probes.now()));
     else out.print(out.line("done", "Pack is set up", result.detail));

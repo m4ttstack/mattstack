@@ -6,7 +6,9 @@ assigned strategy verbatim into the brief's method section and fills every
 `<question-file>` and `<report-file>` are the dispatcher's contract-file
 paths; `<write-paths>` is the brief's write fence; `<task-list>` is the
 job's item-coded tasks (trivial and direct-tdd only); `<verification>`
-is the job's must-pass commands.
+is the job's must-pass commands; `<strategy-skill-file>` is the file
+holding the strategy table, and `<strategies-file>` is this file
+(delegate only).
 
 ## trivial
 

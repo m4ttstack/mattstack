@@ -12,7 +12,8 @@ import { TREE } from "../../lib/command-tree-def.ts";
 import { LAYOUT_HOLD, type SyncDeps, type SyncReport } from "../../lib/skills/sync.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
-import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
+import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncCheckOf, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
+import { checkPack } from "../skills.ts";
 import * as syncCommand from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
@@ -248,6 +249,15 @@ describe("syncBlocks", () => {
     expect(syncFailure(refused)).toBeNull();
   });
 
+  test("a block pack on an org below layout 5 is a policy refusal whose next is the runbook's first command", () => {
+    const detail = "This pack's bindings are in block form, and the acme org is still on layout 4.";
+    const refused = report({ ok: false, steps: [{ name: "org-layout", status: "refused", detail }] });
+    expect(renderPlain(syncRefusal(refused)!)).toBe(
+      `[refused] rt did not sync acme  it stopped at: Check the org's layout\n  why: ${detail}\n  next: rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine\n`,
+    );
+    expect(syncFailure(refused)).toBeNull();
+  });
+
   test("a refusal is not a failure: the steps before it on stdout, then a refused note", () => {
     const refused = report({
       ok: false,
@@ -261,6 +271,18 @@ describe("syncBlocks", () => {
       "[refused] rt did not sync acme  it stopped at: Bump the pack's version\n  why: This pack is in the shared checkout at /z/mono/packs/acme, and its compiled skills are out of date\n",
     );
     expect(syncFailure(refused)).toBeNull();
+  });
+
+  test("a hand-written skill refusal puts each file on its own why row", () => {
+    const detail = [
+      "Hand-written skills have 2 problems a recompile cannot fix, so rt stopped before the version bump. Fix each file, then sync again:",
+      "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
+      "skills/gizmos/SKILL.md:5:7: ../gone.md does not resolve to a file from the skill's folder",
+    ].join("\n");
+    const refused = report({ ok: false, steps: [{ name: "check", status: "refused", detail }] });
+    const rows = renderPlain(syncRefusal(refused)!).split("\n");
+    expect(rows.filter((r) => r.includes("SKILL.md:"))).toHaveLength(2);
+    expect(rows.some((r) => r.includes("skills/gadgets/SKILL.md:3:14") && r.includes("skills/gizmos"))).toBe(false);
   });
 
   test("a step sync marks refused because a command failed reads as a failure, and the report keeps refused", () => {
@@ -468,6 +490,55 @@ describe("a Mac with two org clones", () => {
       seam.mockRestore(); discovery.mockRestore(); io.restore();
       process.env.HOME = savedHome; process.exitCode = 0;
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("syncCheckOf", () => {
+  function teamPack(skillMd: string): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-hand-")));
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0", skills: ["./skills"] }));
+    mkdirSync(join(dir, "skills", "gadgets"), { recursive: true });
+    writeFileSync(join(dir, "skills", "gadgets", "SKILL.md"), skillMd);
+    return dir;
+  }
+
+  test("a hand-written skill with bad frontmatter reaches sync as a named failure, not drift", async () => {
+    const dir = teamPack("---\nname: gadgets\ndescription: Use when: x\n---\nDo the gadget thing.\n");
+    try {
+      const result = syncCheckOf(await checkPack({ packDir: dir }));
+      expect(result.drift).toBe(false);
+      expect(result.handErrors).toEqual(["skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a dead pointer in what a recompile would write reaches sync on its own; one only on disk does not", async () => {
+    const dir = teamPack("---\nname: gadgets\ndescription: Use when: x\n---\nDo the gadget thing.\n");
+    try {
+      const payload = await checkPack({ packDir: dir });
+      const dead = { file: "skills/work/SKILL.md", line: 12, col: 5, code: "missing-target", message: "@work/x.sh points at skills/work/x.sh, which is not a file" };
+      const result = syncCheckOf({ ...payload, pointerErrors: [dead], sourcePointerErrors: [dead] });
+      expect(result.handErrors).toEqual(["skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings"]);
+      expect(result.pointerErrors).toEqual(["skills/work/SKILL.md:12:5: @work/x.sh points at skills/work/x.sh, which is not a file"]);
+      expect(syncCheckOf({ ...payload, pointerErrors: [dead], sourcePointerErrors: [] }).pointerErrors).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a hand-written skill with a broken path reaches sync as a named failure, not drift", async () => {
+    const dir = teamPack("---\nname: gadgets\ndescription: \"Use when x\"\n---\nRead `${CLAUDE_SKILL_DIR}/../../attachments/widgets/gone.md` first.\n");
+    try {
+      const result = syncCheckOf(await checkPack({ packDir: dir }));
+      expect(result.drift).toBe(false);
+      expect(result.handErrors).toHaveLength(1);
+      expect(result.handErrors![0]).toStartWith("skills/gadgets/SKILL.md:5:");
+      expect(result.handErrors![0]).toContain("does not resolve to a file");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

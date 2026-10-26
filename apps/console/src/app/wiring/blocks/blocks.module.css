@@ -1,0 +1,1565 @@
+.layers {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chartTitle {
+  margin: 0;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.swatch {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.swatch[data-fill='mattstack'],
+.segment[data-layer='mattstack'],
+.square[data-fill='mattstack'],
+.stripBar[data-layer='mattstack'] {
+  background: var(--tk-line-1);
+}
+
+.swatch[data-fill='org'],
+.segment[data-layer='org'],
+.square[data-fill='org'],
+.stripBar[data-layer='org'] {
+  background: var(--tk-fill-purple);
+}
+
+.swatch[data-fill='team'],
+.segment[data-layer='team'],
+.square[data-fill='team'],
+.stripBar[data-layer='team'] {
+  background: var(--tk-fill-cyan);
+}
+
+.swatch[data-fill='both'],
+.square[data-fill='both'] {
+  background: linear-gradient(
+    135deg,
+    var(--tk-fill-purple) 50%,
+    var(--tk-fill-cyan) 50%
+  );
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-text-2);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--tk-text-2);
+  font-size: 11px;
+}
+
+.legendName {
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+}
+
+.caption {
+  color: var(--tk-text-3);
+  font-size: 11px;
+  line-height: normal;
+}
+
+.section {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.sectionTitle {
+  overflow: hidden;
+  color: var(--tk-text-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.squares {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 16px);
+  gap: 2px;
+}
+
+.square {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+}
+
+.bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  height: 10px;
+}
+
+.segment {
+  min-width: 4px;
+  height: 100%;
+}
+
+.segment:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.segment:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.segment:only-child {
+  border-radius: 4px;
+}
+
+.total {
+  color: var(--tk-text-2);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stripRow {
+  display: grid;
+  grid-template-columns: 6px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--tk-text-2);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.stripBar {
+  align-self: stretch;
+  min-height: min(calc(var(--strip-lines, 1) * 3px + 8px), 96px);
+  border-radius: 3px;
+}
+
+.blockText {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.blockText[data-size='lg'] {
+  --gate-context-fz: 16px;
+  --gate-context-lh: 1.6;
+}
+
+.propBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+}
+
+.propHead,
+.propCardHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.propName {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--tk-raised);
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.propMeta {
+  color: var(--tk-text-2);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.propBinding {
+  color: var(--tk-text-3);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.propCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--tk-inset);
+}
+
+.propCard[data-layer='org'] {
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-purple) var(--ui-wash),
+    transparent
+  );
+}
+
+.propCard[data-layer='team'] {
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-cyan) var(--ui-wash),
+    transparent
+  );
+}
+
+.propLayer {
+  color: var(--tk-text-1);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.propValue {
+  --gate-context-fz: 16px;
+  --gate-context-lh: 1.7;
+}
+
+.graphCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+  color: var(--tk-text-2);
+  font-size: 13px;
+}
+
+.graphTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.graphSize {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.graphName {
+  color: var(--tk-text-1);
+  font-weight: 500;
+}
+
+.graphLink {
+  color: var(--tk-text-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.graphActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.graphSourceLink {
+  color: var(--tk-text-2);
+  font-size: 13px;
+}
+
+.graphSource,
+.brief {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--tk-inset);
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.graphSource {
+  max-height: 320px;
+}
+
+.brief {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.briefAsk {
+  color: var(--tk-text-accent);
+}
+
+.briefCopied {
+  flex-shrink: 0;
+  color: var(--tk-text-ok);
+}
+
+.briefCopied[data-state='failed'] {
+  color: var(--tk-text-warn);
+}
+
+.briefPopover {
+  background: var(--tk-card);
+}
+
+.around {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.aroundHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.flowCanvas .mapCard[data-hot] {
+  border-width: 1.5px;
+}
+
+.flowStep {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: var(--card-w);
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 8px;
+  background-color: var(--tk-panel);
+  color: var(--tk-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: normal;
+  pointer-events: auto;
+}
+
+.flowStepBadge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background-color: var(--tk-raised);
+  color: var(--tk-text-2);
+}
+
+.flowStepLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowKey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flowKey li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.flowSample {
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 3px;
+}
+
+.flowSample[data-kind='block'] {
+  background-color: var(--tk-card);
+}
+
+.flowSample[data-kind='step'] {
+  background-color: var(--tk-panel);
+}
+
+.page {
+  overflow-y: auto;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: start;
+  gap: 22px 28px;
+  max-width: 1240px;
+  padding: 24px 32px 48px;
+}
+
+.layout[data-rail='none'] {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 880px;
+}
+
+.layout[data-rail='map'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 960px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.parentBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.head > [data-testid='focus-header'] {
+  align-self: stretch;
+}
+
+.crumbs {
+  flex-wrap: wrap;
+}
+
+.pathRow {
+  margin-top: 2px;
+}
+
+.blockPath {
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+}
+
+.packLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 2px;
+}
+
+.packChip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--tk-raised);
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.packChip[data-tone='team'] {
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-cyan) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-cyan-small);
+}
+
+.packChip[data-tone='org'] {
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-purple) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-purple-small);
+}
+
+.packHeld {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.packWord {
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+}
+
+.packCounts {
+  color: var(--tk-text-2);
+  font-size: 12px;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-panel);
+}
+
+.extra {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rendered {
+  white-space: pre-wrap;
+}
+
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bandHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--tk-panel);
+}
+
+.bandOpen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bandTitle {
+  color: var(--tk-text-1);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: normal;
+}
+
+.bandMeta {
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.bandIntro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+.bandIntro:has(> .bandIntroText) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.bandIntroText {
+  color: var(--tk-text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bandMore {
+  color: var(--tk-text-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.sharedRow {
+  display: grid;
+  grid-template-columns: 12px auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+}
+
+@media (hover: hover) {
+  .sharedRow:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.sharedFacts {
+  overflow: hidden;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+  list-style: none;
+}
+
+.rowItem + .rowItem {
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+:where([data-mantine-color-scheme='light']) :is(.row, .sharedRow) {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) :is(.row, .sharedRow) {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 12px 14px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.row:focus-within {
+  background-color: var(--row-hover);
+}
+
+.row[data-selected] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+}
+
+.chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.rowBody {
+  padding: 0 12px 12px 54px;
+}
+
+.chevron,
+.glyph {
+  margin-top: 3px;
+  color: var(--tk-text-3);
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowLabel {
+  color: var(--tk-text-1);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.rowSummary {
+  overflow: hidden;
+  color: var(--tk-text-3);
+  font-size: 13px;
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMarks {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  width: 44px;
+  margin-top: 3px;
+}
+
+.dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+/* The boards draw a row's dots in the hue's text step, a shade apart from
+   the map's fill squares. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dot[data-layer='org'] {
+  color: var(--tk-text-purple);
+}
+
+.dot[data-layer='team'] {
+  color: var(--tk-text-cyan);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  color: var(--tk-text-2);
+  font-size: 13px;
+}
+
+.switcher {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin: 6px 0 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.switcher[data-selected] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+}
+
+.switcher[data-selected] .switcherName {
+  color: var(--tk-text-accent);
+}
+
+.switcherName {
+  overflow: hidden;
+  color: var(--tk-text-1);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcherMeta {
+  overflow: hidden;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcherText {
+  min-width: 0;
+}
+
+/* Level with the name's line, as the board draws it. */
+.switcherChevron {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--tk-text-2);
+}
+
+.groupLabel {
+  padding: 2px 6px;
+  color: var(--tk-text-3);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.treeItem {
+  position: relative;
+}
+
+.treeRow {
+  padding-block: 3px;
+  padding-inline-start: calc(var(--depth, 0) * 16px + 6px);
+  border-radius: 6px;
+}
+
+.glyph[data-selected] {
+  color: var(--tk-text-accent);
+}
+
+.treeChevronSpace {
+  display: inline-block;
+  width: 13px;
+}
+
+.treeToggle {
+  display: inline-flex;
+  position: absolute;
+  top: 50%;
+  left: calc(var(--depth, 0) * 16px + 6px);
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+}
+
+.treeToggle:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+}
+
+.treeChevron {
+  color: var(--tk-text-3);
+  transition: transform 150ms ease;
+}
+
+.treeChevron[data-selected] {
+  color: var(--tk-text-accent);
+}
+
+.treeChevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.treeCount {
+  color: var(--tk-text-3);
+  font-size: 11px;
+}
+
+.glyphKey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 12px 0 0;
+  padding: 0 6px;
+  list-style: none;
+}
+
+.glyphKey li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--tk-text-3);
+  font-size: 11px;
+}
+
+.refusal {
+  white-space: pre-line;
+}
+
+.map {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mapHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.mapTools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.mapClose {
+  color: var(--tk-text-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mapNote {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 24px 0;
+}
+
+/* The frame draws the border, so the scroller inside it measures exactly
+   the room the plane has: a border on the scroller itself counts in its
+   measured width and scrolls the plane by two pixels. */
+.graphFrame {
+  overflow: hidden;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 12px;
+  background: var(--tk-panel);
+}
+
+.graphCanvas {
+  --xy-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-border-selected: none;
+  --xy-node-color: inherit;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* React Flow's viewport is the plane's width before its zoom, so centred
+   at full size it would run past the plane and scroll the canvas. */
+.mapPlane {
+  position: relative;
+  overflow: hidden;
+}
+
+.mapBox,
+.mapSplitBox {
+  display: flex;
+  position: relative;
+  align-items: center;
+  height: 100%;
+  pointer-events: auto;
+}
+
+.mapBox {
+  gap: 8px;
+}
+
+.mapSplitBox {
+  gap: 9px;
+}
+
+.mapBox[data-dim],
+.mapSplitBox[data-dim] {
+  opacity: 0.4;
+}
+
+.mapCard {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  width: var(--card-w);
+  height: 40px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 9px;
+  background-color: var(--tk-card);
+  box-shadow: var(--tk-shadow-card);
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.mapCard[data-hot] {
+  border-color: var(--tk-fill-accent);
+}
+
+.mapCard:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+}
+
+.mapCardLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapBadge,
+.mapKeyBadge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.mapBadge {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+}
+
+.mapKeyBadge {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.mapBadge[data-badge='step'],
+.mapKeyBadge[data-badge='step'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-accent);
+}
+
+.mapBadge[data-badge='question'],
+.mapKeyBadge[data-badge='question'] {
+  background-color: var(--tk-raised);
+  color: var(--tk-text-2);
+}
+
+.mapBadge[data-badge='gate'],
+.mapKeyBadge[data-badge='gate'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-dot-warn) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-dot-warn);
+}
+
+.mapBadge[data-badge='end'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-dot-ok) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-ok);
+}
+
+.mapPills {
+  display: flex;
+  gap: 6px;
+}
+
+.mapPill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 11px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  font-size: 11px;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  .mapPill:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--tk-fill-accent) var(--ui-wash-hover),
+      transparent
+    );
+  }
+}
+
+.mapPill:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+}
+
+.mapPillLabel {
+  color: var(--tk-text-2);
+}
+
+.mapPillIcon {
+  color: var(--tk-text-accent);
+}
+
+.mapPillTarget {
+  color: var(--tk-text-accent);
+  font-weight: 500;
+}
+
+.mapDots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.mapDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.mapDot[data-layer='org'] {
+  background-color: var(--tk-fill-purple);
+}
+
+.mapDot[data-layer='team'] {
+  background-color: var(--tk-fill-cyan);
+}
+
+.mapSplit {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--tk-line-1);
+  border-radius: 50%;
+  background-color: var(--tk-panel);
+}
+
+.mapHandle:global(.react-flow__handle) {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.mapEdge {
+  fill: none;
+  stroke: var(--tk-line-1);
+}
+
+.mapArrow {
+  fill: var(--tk-line-1);
+}
+
+.mapChip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--chip-w);
+  height: 16px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 8px;
+  background-color: var(--tk-card);
+  color: var(--tk-text-2);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translate(var(--chip-x), var(--chip-y));
+  pointer-events: none;
+}
+
+.mapKey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mapKey li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.mapKeyFolded {
+  width: 24px;
+  height: 4px;
+}
+
+.mapKeyLoop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 16px;
+  border-radius: 8px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-accent);
+}
+
+.mapEdge[data-hot] {
+  stroke: var(--tk-fill-accent);
+}
+
+.mapArrow[data-hot] {
+  fill: var(--tk-fill-accent);
+}
+
+.mapEdge[data-dim],
+.mapArrow[data-dim],
+.mapChip[data-dim] {
+  opacity: 0.4;
+}
+
+.mapEdgeHit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
+.mapEdgeHit:focus-visible {
+  outline: none;
+  stroke: color-mix(in srgb, var(--tk-fill-accent) var(--ui-wash), transparent);
+}
+
+.mapCard[data-ring],
+.foldCard[data-ring] {
+  border-color: var(--tk-fill-accent);
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 6px
+    color-mix(in srgb, var(--tk-fill-accent) var(--ui-wash), transparent);
+}
+
+.mapSplit[data-ring] {
+  border-color: var(--tk-fill-accent);
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px
+    color-mix(in srgb, var(--tk-fill-accent) var(--ui-wash), transparent);
+}
+
+.mapPill[aria-pressed='true'] {
+  background-color: var(--tk-fill-accent);
+}
+
+.mapPill[aria-pressed='true'] .mapPillLabel,
+.mapPill[aria-pressed='true'] .mapPillIcon,
+.mapPill[aria-pressed='true'] .mapPillTarget {
+  color: var(--tk-on-fill-accent);
+}
+
+/* Under its node, out of the layout, so a node's box never makes room for
+   it; JumpFrom flips it above when the canvas has no room below. */
+.mapFrom {
+  display: inline-flex;
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 6px);
+  left: 0;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 3px 0 10px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 12px;
+  background-color: var(--tk-card);
+  font-size: 11px;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.mapFrom[data-place='above'] {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.mapFromLabel {
+  overflow: hidden;
+  color: var(--tk-text-2);
+  text-overflow: ellipsis;
+}
+
+.mapFromBack {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-accent);
+  font-weight: 500;
+}
+
+.mapFromBack:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+}
+
+.foldTip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: normal;
+}
+
+.foldTipTitle {
+  font-weight: 600;
+}
+
+.foldTipList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.foldTipList li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.foldTipHint {
+  opacity: 0.7;
+}
+
+.foldBand[data-dim],
+.foldCommand[data-dim],
+.foldStepBox[data-dim] {
+  opacity: 0.4;
+}
+
+.foldBand {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  pointer-events: auto;
+}
+
+.foldBandHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 0 16px;
+}
+
+.foldBandCount {
+  color: var(--tk-text-accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: normal;
+}
+
+.foldBandFold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 11px;
+  background-color: var(--tk-card);
+  color: var(--tk-text-2);
+  font-size: 11px;
+  line-height: normal;
+}
+
+.foldBandFold:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+}
+
+.foldCommand {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.foldStepBox {
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  gap: 8px;
+  height: 100%;
+  pointer-events: auto;
+}
+
+.foldCard {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 9px;
+  background-color: var(--tk-card);
+  box-shadow: var(--tk-shadow-card);
+}
+
+.foldCardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.foldRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding-left: 28px;
+  font-size: 12px;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.foldRow[data-jump]:focus-visible {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.foldRowLabel {
+  color: var(--tk-text-2);
+}
+
+.foldRowExit {
+  color: var(--tk-text-3);
+}
+
+.foldPills {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.foldPill {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 10px;
+  background-color: var(--tk-card);
+  color: var(--tk-text-2);
+  font-size: 11px;
+  line-height: normal;
+}

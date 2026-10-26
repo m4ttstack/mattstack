@@ -81,9 +81,9 @@ function issueWhy(entry: SpineEntry): string {
 }
 
 function unwiredWhy(entry: SpineEntry): string {
-  const n = entry.slots.length;
-  const slotPart = n === 0 ? 'no slots' : n === 1 ? '1 slot' : `${n} slots`;
-  return `${slotPart} · nothing binds it`;
+  const n = entry.props.length;
+  const propPart = n === 0 ? 'no props' : n === 1 ? '1 prop' : `${n} props`;
+  return `${propPart} · nothing binds it`;
 }
 
 function orphanWhy(orphan: OrphanFillEntry): string {

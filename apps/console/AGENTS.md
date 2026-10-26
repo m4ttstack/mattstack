@@ -79,29 +79,45 @@ WebSocket wire-up.
 
 The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
 `@mattstack/rt-client` in three tabs: Graph, Surface and Health. Its state lives in the URL
-(`graph/useWiringUrl.ts`), so every view, selection and open drawer is a link.
+(`graph/useWiringUrl.ts`), so every view, selection and open block is a link.
 
-- **Graph tab** (`graph/`). The focus list (`FocusList.tsx`: Pipeline, On-demand, Board and an
-  Unwired row) is `PageShell.Sidebar` content. The focused skill draws on a React Flow template
-  canvas (`TemplateCanvas.tsx`) in `PageShell.Content`, which sets its own `bg` and a dotted
-  `Background`: the template's rows in the middle, the files that fill its placeholders on one
-  side, and the steps it links to or its compiled output on the other. Selecting a row or card
-  opens the compiled-skill drawer (`drawer/SkillDrawer.tsx`, with Text, Used by and History tabs),
-  and a slot's Bind or Change opens the rebind panel (`drawer/RebindPanel.tsx`). A binding or
-  surface change that is not synced yet shows the unsynced banner (`UnsyncedBanner.tsx`), docked
-  in PageShell's `topNotch`, with Sync and Discard.
+- **Graph tab** (`graph/`). With no skill in focus, the focus list (`FocusList.tsx`: Pipeline,
+  On-demand, Board and an Unwired row) is `PageShell.Sidebar` content, and a focused pipeline
+  draws its map on a React Flow template canvas (`TemplateCanvas.tsx`) in `PageShell.Content`,
+  which sets its own `bg` and a dotted `Background`: the orchestrator's rows, the files that fill
+  its placeholders, and a link card per stage. Selecting a row or card selects it in the URL.
+  The console reads bindings and never writes them. A binding or surface change that is not
+  synced yet shows the unsynced banner (`UnsyncedBanner.tsx`), docked in PageShell's
+  `topNotch`, with Sync and Discard.
+- **Block view** (`blocks/`). A focused skill or stage opens one skill as a tree of blocks
+  (`rt skills blocks`, `useBlocks`): `BlockSidebar.tsx` (All skills, the skill switcher and the
+  block tree) replaces the focus list, and `BlockStage.tsx` renders `BlockView.tsx` at the zoom
+  level the URL's `block` sets: the skill (section bands of folded rows), a parent block (its
+  text, its graph card and its children) or a single block (its text with each prop in a box,
+  Around this block, Copy for Claude). The Layers panel sits on the right; a shared block shows
+  Used by, and every block its History (`HistoryTab.tsx`: its engine text and the files its props
+  paste in). A skill not built from blocks, such as a board skill (its installed `SKILL.md`,
+  composition's `binders[].skillFile`), is read from its file's headings (`model/headingTree.ts`)
+  into the same view, read-only. Pure models live in `blocks/model/*`.
+- **Block graphs** (`blocks/`). A parent block's View graph opens `BlockMap.tsx`, the block map:
+  blocks only, other steps folded into dotted links, shared forks as small dots. `FlowGraph.tsx`
+  draws Every step and Around this block, and `graphCanvas.tsx` holds the canvas, header and
+  loading, error and empty states they share. The pure models in `blocks/model/` decide what they
+  draw: `blockMap`, `splits`, `mapLayout`, `bandLayout`, `foldBand`, `mapFocus`, `flowLayout`,
+  `labels` and `elkGraph`. Layout runs elkjs through `blocks/layoutEngine.ts`, lazy-loaded and
+  run in a web worker. The open graph lives in the URL as `select=graph` (the block map) or
+  `select=graph-steps` (Every step).
 - **Template model** (`graph/model/*`). Pure functions from rt's payloads (composition, check,
   anatomy, changes) to what the tab draws: `focusModel` (the focus list), `templateModel` (rows,
-  input cards, link cards, output card), `drawerContent` (what the drawer shows for a selection),
-  `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
+  input cards, link cards, output card), `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
   places the nodes. A change to what the tab shows starts in the model and its tests.
-- **Writes** (bind, surface, sync, discard) confirm through `modals.confirm` and report through
+- **Writes** (surface, sync, discard) confirm through `modals.confirm` and report through
   `notifications`, and one write per pack runs at a time. The banner's Sync and Discard send the
   `signature` of the `changes` read their confirm listed; the server refuses a commit-pending sync
   or a discard without one, and rt refuses either once the pack no longer matches it.
-- **Org base packs.** rt tags a fill, slot, binder slot or anatomy source from an org base pack with `origin: "base"`, `base` and `baseVersion` (a team-pack copy carrying `compiled.json` included), names the pack's base in composition's `extends`, and marks surface rows with `base`. Every view reads the owner through `ownerOf` (`owner.ts`), never by comparing plugin names or reading rt's `org` version token. History, diff and dirty files name a base path as `base:<name>/<path in the base>`. The design fixture's `org-base` and `org-base-drift` scenarios draw all of it.
+- **Org base packs.** rt tags a fill, prop value, binder prop or anatomy source from an org base pack with `origin: "base"`, `base` and `baseVersion` (a team-pack copy carrying `compiled.json` included), names the pack's base in composition's `extends`, and marks surface rows with `base`. Every view reads the owner through `ownerOf` (`owner.ts`), never by comparing plugin names or reading rt's `org` version token. History, diff and dirty files name a base path as `base:<name>/<path in the base>`. The design fixture's `org-base` and `org-base-drift` scenarios draw all of it.
 - **Surface and Health tabs** (`SurfaceTab.tsx`, `HealthTab.tsx`). `VersionTimeline` and
-  `SeamCompare` serve the drawer's History tab.
+  `SeamCompare` serve the block view's History (`blocks/HistoryTab.tsx`).
 
 `WiringRailEntry` is the one component that reaches into the shell's rail context (`useShellRail`
 from `@mattstack/app-kit/app`) to badge the rail entry with attention state.

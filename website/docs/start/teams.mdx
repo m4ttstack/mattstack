@@ -248,6 +248,100 @@ bun scripts/move-pointer-to-root.ts ~/.mattstack/orgs/<org> --admin <your forge 
 
 Phase 2 deletes `mattstack/mattstack.jsonc`, leaving `.mattstack.jsonc` as the org's only file on `main`. rt v2.25.1 and older read only the old file, so a Mac still on one would treat the org as not moved. rt keeps no record of which version each member runs, so check that every member has updated, then pass `--members-confirmed`. Without it, phase 2 refuses and says what to confirm. When `main` refuses the push, the change goes to a `mattstack-root-pointer` branch instead; land it the way your repo takes changes.
 
+## Moving to block packs
+
+Once every pack in your org is in block form, an org admin marks the org as layout 5. Update your own app first, to a release that reads layout 5.
+
+| Step | What you do |
+| --- | --- |
+| 1 | [Turn team sync off](#turn-team-sync-off) |
+| 2 | [Switch to a trial branch](#switch-to-a-trial-branch) |
+| 3 | [Convert and publish every pack](#convert-and-publish-every-pack) |
+| 4 | [Mark the org](#mark-the-org) |
+| 5 | [Merge after the release](#merge-after-the-release) |
+
+### Turn team sync off
+
+Team sync could publish the move before you review it, so the move script refuses while it is on. Turn it off on your Mac and restart the daemon:
+
+```bash
+rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine
+rt daemon restart
+```
+
+With sync off, nothing reaches the org repo until you run `rt team publish`.
+
+### Switch to a trial branch
+
+```bash
+rt team branch use packs-trial
+```
+
+No other Mac follows this branch, so members keep the old packs while you work.
+
+### Convert and publish every pack
+
+Convert the org's base packs first, then each team's pack, as [Move a pack to blocks](/skills/packs#move-a-pack-to-blocks) describes. Then publish the branch:
+
+```bash
+rt team publish
+```
+
+The next step refuses while anything is unpublished, so publish before you run it.
+
+### Mark the org
+
+From a mattstack checkout:
+
+```bash
+bun scripts/move-to-block-packs.ts ~/.mattstack/orgs/<org> --admin <username>
+```
+
+On its own it checks every pack and prints the plan, and writes nothing. Run it again with `--write` to make the move. It sets `layout: 5` in the org's marker on the branch you have checked out, and keeps its data branch, in one commit. Review the commit:
+
+```bash
+git -C ~/.mattstack/orgs/<org> show
+```
+
+Then publish again:
+
+```bash
+rt team publish
+```
+
+Last, turn team sync back on:
+
+```bash
+rt settings unset rt.teamSnapshot --scope machine
+rt daemon restart
+```
+
+The script refuses, and writes nothing, in a few cases. The most common are when:
+
+- any pack still has an old slot key, at the top level or in a pipeline. It names the pack and the key. Packs in the org's `mattstack/org/packs/` show as `org <folder>`.
+- a pack's `pack/skills.jsonc` cannot be read.
+- the clone has uncommitted changes, unpublished commits, or no branch checked out.
+- the clone is not the one rt reads, `~/.mattstack/orgs/<org>`.
+- team sync is on for your Mac.
+- the org is still on layout 3. Move it to a [data branch](#moving-to-a-data-branch) first.
+
+Each refusal says why it stopped, and most name a command to run next.
+
+### Merge after the release
+
+Once the app release that reads layout 5 is out, merge the trial branch into the data branch on your forge, then switch back with `rt team branch use mattstack` (or your data branch's name). Each member's Mac on the new app follows at its next pull, and the member runs nothing.
+
+Edits made on the data branch while you worked on the trial can bring an old slot key back through the merge. Pull, then run the script once more without `--write`:
+
+```bash
+rt team pull
+bun scripts/move-to-block-packs.ts ~/.mattstack/orgs/<org> --admin <username>
+```
+
+On an org already on layout 5 it checks every pack, says the org is already on layout 5, and writes nothing. When a pack shows old slot keys, convert it as in [Move a pack to blocks](/skills/packs#move-a-pack-to-blocks) and publish it.
+
+A member's app that reads only up to layout 4 keeps working on the old packs. It holds its org pull until it updates, and the **Org layout** row in setup status says to update the app.
+
 ## Keeping the data branch safe
 
 The data branch holds the org's roster, settings, packs and secrets. Its README and the pointer's header both say so: never delete it or merge it into `main`. An org admin's next `rt team publish` from the data branch brings the README up to date.

@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { statusOf } from '../FocusHeader';
 import { layoutTemplate } from '../layout/templateLayout';
-import { drawerContent } from '../model/drawerContent';
 import {
   buildTemplateView,
   type OutputCard,
@@ -205,10 +204,12 @@ describe('TemplateCanvas: a step template', () => {
   });
 });
 
-describe('TemplateCanvas: team sections in a slot', () => {
-  it('draws each section in its slot card, in order, and tags a changed one', () => {
+describe('TemplateCanvas: team sections in a prop', () => {
+  it('draws each section in its prop card, in order, and tags a changed one', () => {
     const anatomy = designFixture('anatomy.stage-plan');
-    const domain = anatomy.parts.find(part => part.name === 'domain')!;
+    const domain = anatomy.parts.find(
+      part => part.name === 'stage-plan.domain'
+    )!;
     const [from] = domain.renderedLines!;
     const section = (name: string, at: number, changed: boolean) => ({
       kind: 'section' as const,
@@ -281,7 +282,7 @@ describe('TemplateCanvas: the share bar', () => {
   });
 
   it('marks a selected part', () => {
-    renderCanvas('stage-plan', 'output:slot:domain');
+    renderCanvas('stage-plan', 'output:prop:stage-plan.domain');
     expect(activeSegments()).toEqual(['seg · plan-policy']);
   });
 });
@@ -398,9 +399,6 @@ describe('status tones', () => {
           .getByTestId('output-header')
           .querySelector('[data-parity="status"]')
       ).toHaveAttribute('data-tone', tone);
-      expect(
-        drawerContent({ kind: 'output', part: null }, view, anatomy, null)?.dot
-      ).toBe(tone);
       expect(statusOf(view, anatomy)?.tone).toBe(tone);
     }
   );
@@ -424,4 +422,64 @@ describe('status tones', () => {
       ).toHaveAttribute('data-tone', tone);
     }
   );
+});
+
+/** Plan as rt reads it, with rendered lines only: its include starts at
+    rendered L16, the line its `{{stage.fields}}` sits on in its block file. */
+function rtShapedPlan(): TemplateView {
+  const plan = designFixture('anatomy.stage-plan');
+  const include = plan.parts.find(part => part.name === 'execution-strategy')!;
+  return buildTemplateView({
+    anatomy: {
+      ...plan,
+      parts: [
+        {
+          ...include,
+          kind: 'block',
+          name: 'stage-plan',
+          source: null,
+          templateLines: null,
+          renderedLines: [1, 15],
+        },
+        { ...include, templateLines: null, renderedLines: [16, 164] },
+      ],
+    },
+    composition: designFixture('composition'),
+    check: designFixture('check'),
+    changes: designFixture('changes.clean'),
+    step: 2,
+    workType: 'feature',
+  });
+}
+
+function drawAt(view: TemplateView, search: string) {
+  window.history.pushState(null, '', `/wiring?${search}`);
+  const onSelect = vi.fn();
+  renderWithProviders(
+    <TemplateCanvas
+      layout={layoutTemplate(view)}
+      view={view}
+      height="900px"
+      onSelect={onSelect}
+    />
+  );
+  return { onSelect };
+}
+
+describe('TemplateCanvas: rows sharing a line number in two line spaces', () => {
+  it('selects the row clicked, not the first row at its line number', () => {
+    const { onSelect } = drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan');
+
+    click(rowAt('rendered L16-164'));
+    expect(onSelect).toHaveBeenLastCalledWith('row:16.2');
+    click(rowAt('L16'));
+    expect(onSelect).toHaveBeenLastCalledWith('row:16');
+  });
+
+  it('marks only the selected one of the two', () => {
+    drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan&select=row:16.2');
+
+    expect(rowAt('rendered L16-164')).toHaveAttribute('data-selected', 'true');
+    expect(rowAt('L16')).not.toHaveAttribute('data-selected');
+  });
 });

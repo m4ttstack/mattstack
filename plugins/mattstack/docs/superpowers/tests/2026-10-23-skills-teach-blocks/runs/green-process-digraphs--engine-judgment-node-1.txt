@@ -1,0 +1,4 @@
+1. File: `plugins/mattstack/attachments/pipeline/stage-ship/index.block.md`, whose graph is Mermaid (compiled to `dot`); node line: `check_changelog` (a bare id, since it is a judgment node, declared between `commit_named_files` and `domain_fast_checks` in the order the process meets them).
+2. Guidance prose goes in `plugins/mattstack/attachments/pipeline/stage-ship/check-changelog.block.md`, with frontmatter `node: check_changelog` (no `order`) and the title line `# Check the changelog`.
+3. Remove `commit_named_files --> domain_fast_checks` and add `commit_named_files --> check_changelog` and `check_changelog --> domain_fast_checks`.
+4. `python3 check-dot.py --short-ids <SKILL.md>`, run on the compiled `SKILL.md` (not the block tree), together with `bash render.sh <SKILL.md>` on that same file.

@@ -62,18 +62,28 @@ const COMPOSITION = {
       public: true,
       sourcePath: '/plugins/mattstack/attachments/pipeline/work/SKILL.md',
       artifactPath: '/p/skills/work',
-      slots: [
-        {
-          name: 'tiering',
-          contract: 'model-tiering@1',
-          required: false,
-          boundTo: 'mattstack:model-tiering',
-          fillSourcePath: '/fills/model-tiering/SKILL.md',
-          fillVersion: '0.8.0',
-          registered: false,
-          inlined: true,
-        },
-      ],
+      props: {
+        work: [
+          {
+            name: 'tiering',
+            merge: 'replace' as const,
+            contract: 'model-tiering@1',
+            required: false,
+            default: '',
+            values: [
+              {
+                boundTo: 'mattstack:model-tiering',
+                layer: 'pack',
+                fillSourcePath: '/fills/model-tiering/SKILL.md',
+                fillVersion: '0.8.0',
+                registered: false,
+                inlined: true,
+              },
+            ],
+          },
+        ],
+      },
+      includes: [],
     },
     {
       name: 'watch-ci',
@@ -84,18 +94,28 @@ const COMPOSITION = {
       public: true,
       sourcePath: '/plugins/mattstack/skills/pipeline/watch-ci/SKILL.md',
       artifactPath: '/p/skills/watch-ci',
-      slots: [
-        {
-          name: 'domain',
-          contract: 'watch-ci-domain@1',
-          required: false,
-          boundTo: 'demo:watch-ci-domain',
-          fillSourcePath: '/fills/watch-ci-domain/SKILL.md',
-          fillVersion: '0.4.11',
-          registered: false,
-          inlined: true,
-        },
-      ],
+      props: {
+        'watch-ci': [
+          {
+            name: 'domain',
+            merge: 'replace' as const,
+            contract: 'watch-ci-domain@1',
+            required: false,
+            default: '',
+            values: [
+              {
+                boundTo: 'demo:watch-ci-domain',
+                layer: 'pack',
+                fillSourcePath: '/fills/watch-ci-domain/SKILL.md',
+                fillVersion: '0.4.11',
+                registered: false,
+                inlined: true,
+              },
+            ],
+          },
+        ],
+      },
+      includes: [],
     },
     // No binder names it and no pipeline reaches it, which is exactly how rt
     // reports a roster verb that binds nothing.
@@ -108,7 +128,8 @@ const COMPOSITION = {
       public: true,
       sourcePath: '/plugins/mattstack/skills/rebase-worktree/SKILL.md',
       artifactPath: '/p/skills/rebase-worktree',
-      slots: [],
+      props: {},
+      includes: [],
     },
   ],
   fills: [
@@ -142,25 +163,27 @@ const COMPOSITION = {
       ref: 'mattstack:watch-ci',
       verb: 'watch-ci',
       kind: 'verb',
-      slots: [{ name: 'domain', boundTo: 'demo:watch-ci-domain' }],
+      props: [{ name: 'domain', boundTo: 'demo:watch-ci-domain', layer: null }],
     },
     {
       ref: 'mattstack:stage-watch-ci',
       verb: null,
       kind: 'stage',
-      slots: [{ name: 'domain', boundTo: 'demo:watch-ci-domain' }],
+      props: [{ name: 'domain', boundTo: 'demo:watch-ci-domain', layer: null }],
     },
     {
       ref: 'mattstack:work',
       verb: 'work',
       kind: 'verb',
-      slots: [{ name: 'tiering', boundTo: 'mattstack:model-tiering' }],
+      props: [
+        { name: 'tiering', boundTo: 'mattstack:model-tiering', layer: null },
+      ],
     },
     {
       ref: 'mattstack:stage-provision',
       verb: null,
       kind: 'stage',
-      slots: [{ name: 'domain', boundTo: 'demo:work-provision' }],
+      props: [{ name: 'domain', boundTo: 'demo:work-provision', layer: null }],
     },
   ],
   pipelines: {

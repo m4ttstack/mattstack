@@ -602,6 +602,16 @@ describe("spawn-filled slots (RT-356)", () => {
     for (const bare of BARE_SHEPHERD_TARGETS) expect(brief).not.toMatch(bare);
   });
 
+  test("a brief from the shipped job template carries no skill's opening line", () => {
+    const template = readFileSync(join(import.meta.dir, "../../plugins/mattstack/skills/shepherdr/references/job-template.md"), "utf8");
+    const probe = assembleBrief({ template, job: "j", fills: {}, method });
+    const leftover = probe.ok ? [] : (probe.leftover ?? []);
+    const r = assembleBrief({ template, job: "j", fills: Object.fromEntries(leftover.map((n) => [n, "x"])), method });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.brief).not.toStartWith("Pointers here are");
+    expect(r.brief).not.toContain("skills_resolve");
+  });
+
   test("the bare-shepherd probes catch a bare target but not a realistic id", () => {
     const hits = ["chat_dm shepherd", "chat dm `shepherd`", "`chat_dm` to shepherd.", "to: `shepherd`,", "to = shepherd", "`to` = `shepherd`", "\"to\": \"shepherd\""];
     for (const text of hits) expect(BARE_SHEPHERD_TARGETS.some((re) => re.test(text))).toBe(true);

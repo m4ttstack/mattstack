@@ -1,12 +1,13 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { join, posix } from "path";
+import { fencedLines, relevelDelta, shiftHeadings } from "./blocks/headings.ts";
 import { defaultPipeline } from "./pipelines.ts";
 import { firstTeamMarker, resolveTeamMarkers, type TeamContext } from "./team-params.ts";
 import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
 
-const PLACEHOLDER_RE = /\{\{([a-z][a-z0-9.-]*)(?::([^}\s]+))?\}\}/g;
+export const PLACEHOLDER_RE = /\{\{([a-z][a-z0-9.-]*)(?::([^}\s]+))?\}\}/g;
 
 export function findPlaceholders(body: string): Placeholder[] {
   const out: Placeholder[] = [];
@@ -48,23 +49,38 @@ export function skillDirFor(source: AttachmentSource, ctx: PlaceholderContext, p
   return ctx.stageDir ?? SKILL_DIR_TOKEN;
 }
 
+/** Points a text's `${CLAUDE_SKILL_DIR}` at `dir`, the folder its own files land in. */
+function atSkillDir(text: string, dir: string): string {
+  return text.split(SKILL_DIR_TOKEN).join(dir);
+}
+
+/** A unit's folder inside a built skill's references/, as the reading skill reaches it. */
+export function referencesDir(ctx: Pick<PlaceholderContext, "stageDir">, unit: string): string {
+  return `${ctx.stageDir ?? SKILL_DIR_TOKEN}/references/${unit}`;
+}
+
 /**
  * Only an org base's text may carry team markers. A base fill's markers
  * resolve before any other substitution, so a value is never read as an
  * include; a value cannot itself contain `{{`. Reports file lines, counting
- * from where the fill's body starts in its source file. `span` is the slot
+ * from where the fill's body starts in its source file. `span` is the prop
  * seam's: source lines less those an absent optional section drops, since
  * the seam walkers consume one rendered line per counted source line.
+ * `sourceLine` maps a 1-based line of the resolved body to the fill body line it came from.
  */
-export function resolveFillTeamMarkers(fill: AttachmentSource, team: TeamContext | null | undefined): { body: string; span: string } {
+function resolveFillTeamMarkers(
+  fill: AttachmentSource,
+  team: TeamContext | null | undefined,
+): { body: string; span: string; sourceLine: (resolvedLine: number) => number } {
   assertNoTeamMarkerInFrontmatter(fill);
   assertNoTeamMarkerInAllowedTools(fill);
   const hit = firstTeamMarker(fill.body);
-  if (!hit) return { body: fill.body, span: spanOf(fill) };
+  if (!hit) return { body: fill.body, span: spanOf(fill), sourceLine: (n) => n };
   if (team && team.basePlugins.has(fill.plugin)) {
     const dropped = { lines: 0 };
-    const body = resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine, dropped });
-    return { body, span: spanOf(fill, dropped.lines) };
+    const lineMap: number[] = [];
+    const body = resolveTeamMarkers(fill.body, team, { where: fill.binding, sectionSeams: true, startLine: fill.bodyStartLine, dropped, lineMap });
+    return { body, span: spanOf(fill, dropped.lines), sourceLine: (n) => (lineMap[n - 1] ?? n - 1) + 1 };
   }
   const line = fill.bodyStartLine + hit.lineIndex;
   if (!team) throw new Error(`${fill.binding}: ${hit.raw} -- the pack has no .claude-plugin/plugin.json name to give team markers (line ${line})`);
@@ -89,43 +105,92 @@ export function assertNoTeamMarkerInAllowedTools(fill: AttachmentSource): void {
   }
 }
 
-function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | "reference", ctx: PlaceholderContext, packPaths: string[]): string {
-  if (fill === null) return "";
-  if (mode === "reference") {
-    return `Slot ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
-  }
-  const resolved = resolveFillTeamMarkers(fill, ctx.team);
-  const rewritten = resolved.body.split(SKILL_DIR_TOKEN).join(skillDirFor(fill, ctx, name));
-  const inlined = substituteIncludesOnly(rewritten, ctx, fill.binding);
-  packPaths.push(...inlined.packPaths);
-  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
+export function fillReference(name: string, fill: AttachmentSource): string {
+  return `For ${name.replaceAll("-", " ")}, invoke the \`${fill.binding}\` skill (${fill.binding}@${fill.version}) when this flow needs it.`;
 }
 
-function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext): string {
-  const body = inc.body.split(SKILL_DIR_TOKEN).join(skillDirFor(inc, ctx, `include-${name}`));
+/**
+ * `key` is the seam's part key (`prop:<block>.<name>`); `partsName` is the parts dir the fill's files vendor under.
+ * `headingLevel` is where the fill's shallowest heading lands, and its flat includes move with it; a tree include places its own headings.
+ */
+export function inlineFillText(
+  key: string,
+  partsName: string,
+  fill: AttachmentSource,
+  ctx: PlaceholderContext,
+  used: Pick<Used, "packPaths" | "references" | "verbPaths">,
+  treeInclude?: TreeIncludeText,
+  headingLevel?: number,
+): string {
+  const resolved = resolveFillTeamMarkers(fill, ctx.team);
+  const rewritten = atSkillDir(resolved.body, skillDirFor(fill, ctx, partsName));
+  const fenced = fencedLines(rewritten);
+  const flatBodies = rewritten.split("\n").flatMap((line, i) => {
+    const name = fenced[i] ? undefined : INCLUDE_LINE_RE.exec(line)?.[1];
+    return name !== undefined && Object.hasOwn(ctx.includes, name) ? [ctx.includes[name]!.body] : [];
+  });
+  const shift = headingLevel === undefined ? 0 : relevelDelta([rewritten, ...flatBodies], headingLevel);
+  const toSource: TreeIncludeText | undefined = treeInclude
+    && ((name, at) => treeInclude(name, { line: resolved.sourceLine(at.line), textAfter: at.textAfter === null ? null : resolved.sourceLine(at.textAfter) }));
+  const inlined = substituteIncludesOnly(shiftHeadings(rewritten, shift), ctx, fill.binding, toSource, shift);
+  used.packPaths.push(...inlined.packPaths);
+  used.references.push(...inlined.references);
+  used.verbPaths.push(...inlined.verbPaths);
+  return `<!-- part: ${key} binding=${fill.binding} version=${fill.version} ${resolved.span} -->\n${inlined.body}`;
+}
+
+const INCLUDE_LINE_RE = /^\s*\{\{include:([^}\s]+)\}\}\s*$/;
+
+/** `shift` moves the include's headings, as it does the fill's or block's text it is placed in. */
+export function includeText(name: string, inc: AttachmentSource, ctx: PlaceholderContext, shift = 0): string {
+  const body = shiftHeadings(atSkillDir(inc.body, skillDirFor(inc, ctx, `include-${name}`)), shift);
   return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
 }
 
 /**
- * loadInclude enforces that an include target is itself slotless and
- * placeholder-free, so a fill body carrying {{include}} lines cannot recurse --
+ * The rendered text of a block-tree include, or null when `name` is no tree include. `line` is the
+ * include's line and `textAfter` the first non-blank line after it (null when none follows), both counting from 1 in the fill body.
+ */
+export type TreeIncludeText = (name: string, at: { line: number; textAfter: number | null }) => string | null;
+
+/**
+ * loadInclude enforces that a flat include target is placeholder-free, so a
+ * fill body carrying {{include}} lines cannot recurse --
  * `where` is the fill's own binding, matching how a step body names itself.
  */
-export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, where: string): { body: string; packPaths: string[] } {
+export function substituteIncludesOnly(
+  body: string,
+  ctx: PlaceholderContext,
+  where: string,
+  treeInclude?: TreeIncludeText,
+  shift = 0,
+): { body: string; packPaths: string[]; references: PackTarget[]; verbPaths: string[] } {
   const packPaths: string[] = [];
-  const out = body.split("\n").map((line, i) =>
+  const references: PackTarget[] = [];
+  const verbPaths: string[] = [];
+  const lines = body.split("\n");
+  const textAfter = (i: number): number | null => {
+    const next = lines.findIndex((l, j) => j > i && l.trim() !== "");
+    return next < 0 ? null : next + 1;
+  };
+  const fenced = fencedLines(body);
+  const out = lines.map((line, i) =>
     line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
       switch (kind) {
         case "include": {
           if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
           const inc = arg ? ctx.includes[arg] : undefined;
-          if (!arg || !inc) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
-          return includeText(arg, inc, ctx);
+          if (arg && inc) return includeText(arg, inc, ctx, fenced[i] ? 0 : shift);
+          const tree = arg ? treeInclude?.(arg, { line: i + 1, textAfter: textAfter(i) }) ?? null : null;
+          if (tree === null) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
+          return tree;
         }
-        case "verb.path": return verbPath(ctx, arg, raw, where);
+        case "verb.path": return verbPath(ctx, arg, raw, where, verbPaths);
         case "pack.path": {
-          const rendered = packPath(ctx, arg, raw, where);
+          const target = resolvePackPath(ctx, arg, raw, where);
+          const rendered = referencePath(ctx, target);
           packPaths.push(rendered);
+          references.push(target);
           return rendered;
         }
         default:
@@ -133,7 +198,7 @@ export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, wh
       }
     }),
   );
-  return { body: out.join("\n"), packPaths };
+  return { body: out.join("\n"), packPaths, references, verbPaths };
 }
 
 export type AttachmentRenderOpts = {
@@ -144,7 +209,30 @@ export type AttachmentRenderOpts = {
   plannedAttachments?: PlannedAttachments;
   where: string;
   team: TeamContext | null;
+  /** Set for a file copied into a built skill's references/, which resolves includes and points pack.path at its own copies. */
+  copy?: CopyHooks;
+  /** For an emitted base attachment, which points pack.path at its own copies of the team's source; without it, pack.path names the unit in the pack. */
+  packPath?: (target: PackTarget, raw: string) => string;
+  /** Collects each verb a `{{verb.path}}` names, since the reader goes on to read that verb's file. */
+  verbPaths?: string[];
 };
+
+/** `line` counts from 1 in the text after team markers resolve; `alone` says whether the placeholder is its line's only text. */
+export type CopyHooks = {
+  /** The copy's own folder as the reading skill reaches it; its `${CLAUDE_SKILL_DIR}` points there, as a fill's points at its parts dir. */
+  skillDir: string;
+  packPath: (target: PackTarget) => string;
+  include: (arg: string | undefined, raw: string, at: { line: number; alone: boolean }) => string;
+};
+
+/** Each of these renders from the skill that reads it, which a file shared by path cannot know. */
+const READER_PLACEHOLDERS = new Set(["stage.dir", "stage.fields", "pipeline.stages", "pipeline.table", "run-list.pipelines", "work-type", "run-start.flags", "compiled-from"]);
+
+function lineAt(text: string, offset: number, raw: string): { line: number; alone: boolean } {
+  const start = text.lastIndexOf("\n", offset - 1) + 1;
+  const end = text.indexOf("\n", offset);
+  return { line: lineCount(text.slice(0, offset)) + 1, alone: text.slice(start, end < 0 ? text.length : end).trim() === raw };
+}
 
 const FRONTMATTER_BLOCK_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 
@@ -165,50 +253,75 @@ export function assertNoTeamMarkerInRawFile(text: string, where: string, why = "
   if (hit) throw new Error(`${where}: ${hit.raw} -- ${why} (line ${hit.lineIndex + 1})`);
 }
 
-/** Resolves a copied .md file's body, counting error lines from the top of the file. */
-function resolveAttachmentTeamMarkers(text: string, opts: AttachmentRenderOpts): string {
+/** Resolves a copied .md file's body, counting error lines from the top of the file; with no team, any marker is refused. */
+function resolveAttachmentTeamMarkers(text: string, where: string, team: TeamContext | null): string {
   const hit = firstTeamMarker(text);
   if (!hit) return text;
   const head = text.match(FRONTMATTER_BLOCK_RE)?.[0] ?? "";
   const headHit = firstTeamMarker(head);
   if (headHit) {
-    throw new Error(`${opts.where}: ${headHit.raw} -- team markers only resolve in a body, not frontmatter (line ${headHit.lineIndex + 1})`);
+    throw new Error(`${where}: ${headHit.raw} -- team markers only resolve in a body, not frontmatter (line ${headHit.lineIndex + 1})`);
   }
-  if (!opts.team) {
-    throw new Error(`${opts.where}: ${hit.raw} -- team markers only resolve in base pack text (line ${hit.lineIndex + 1})`);
+  if (!team) {
+    throw new Error(`${where}: ${hit.raw} -- team markers only resolve in base pack text (line ${hit.lineIndex + 1})`);
   }
-  return head + resolveTeamMarkers(text.slice(head.length), opts.team, { where: opts.where, sectionSeams: false, startLine: lineCount(head) + 1 });
+  return head + resolveTeamMarkers(text.slice(head.length), team, { where, sectionSeams: false, startLine: lineCount(head) + 1 });
 }
 
 /**
- * An emitted base attachment is read as a plain file, so it gets only what
- * makes sense outside a compiled verb; every other brace passes through so
- * template examples in the text survive.
+ * An emitted base attachment, and a file copied into a built skill's
+ * references/, is read as a plain file, so it gets only what makes sense
+ * outside a compiled verb; every other brace passes through so template
+ * examples in the text survive.
  */
 export function substituteAttachmentPlaceholders(body: string, opts: AttachmentRenderOpts): string {
-  const { where } = opts;
-  return resolveAttachmentTeamMarkers(body, opts).replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
+  const { where, copy } = opts;
+  const resolved = resolveAttachmentTeamMarkers(body, where, opts.team);
+  const text = copy ? atSkillDir(resolved, copy.skillDir) : resolved;
+  return text.replace(PLACEHOLDER_RE, (raw: string, kind: string, arg: string | undefined, offset: number) => {
     switch (kind) {
       case "pack.name":
         if (arg !== undefined) throw new Error(`${where}: ${raw} -- pack.name takes no argument`);
+        if (!opts.packName) throw new Error(`${where}: ${raw} -- the pack has no .claude-plugin/plugin.json name to give it`);
         return opts.packName;
-      case "verb.path": {
-        if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb name must match [a-z][a-z0-9-]*`);
-        const side = opts.verbSides[arg];
-        if (!side) throw new Error(`${where}: ${raw} -- ${arg} is not a compiled verb of this pack`);
-        return posix.relative(posix.dirname(opts.fileRel), `${side}/${arg}/SKILL.md`);
+      case "verb.path":
+        return fileVerbPath(opts.verbSides, arg, raw, where, opts.fileRel, opts.verbPaths);
+      case "pack.path": {
+        const target = resolvePackPath(opts, arg, raw, where);
+        if (copy) return copy.packPath(target);
+        return opts.packPath ? opts.packPath(target, raw) : sourcePackPath(target);
       }
-      case "pack.path":
-        return packPath(opts, arg, raw, where);
+      case "include":
+        return copy ? copy.include(arg, raw, lineAt(text, offset, raw)) : raw;
       default:
+        if (copy && READER_PLACEHOLDERS.has(kind)) {
+          throw new Error(`${where}: ${raw} -- its value depends on the skill reading it, so a file copied into a built skill's references/ cannot carry it (line ${lineAt(text, offset, raw).line})`);
+        }
         return raw;
     }
   });
 }
 
-/** `engine` stays out so a pack with no stage copies compiles the same bytes it always has. */
-function stageTableJson(pipelines: Record<string, StageEntry[]>): Record<string, Omit<StageEntry, "engine">[]> {
-  return Object.fromEntries(Object.entries(pipelines).map(([type, list]) => [type, list.map(({ engine: _engine, ...entry }) => entry)]));
+/** `{{verb.path}}` in a file read as a plain file: relative to `fileRel`, that file's pack-relative path. */
+function fileVerbPath(verbSides: Record<string, Side>, arg: string | undefined, raw: string, where: string, fileRel: string, read?: string[]): string {
+  if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb name must match [a-z][a-z0-9-]*`);
+  const side = verbSides[arg];
+  if (!side) throw new Error(`${where}: ${raw} -- ${arg} is not a compiled verb of this pack`);
+  read?.push(arg);
+  return posix.relative(posix.dirname(fileRel), `${side}/${arg}/SKILL.md`);
+}
+
+type StageRow = Omit<StageEntry, "engine" | "dir"> & { read: string };
+
+/**
+ * `engine` stays out so a pack with no stage copies compiles the same bytes it always has.
+ * `read` names the stage's file, which the key pass turns into an `@key`; a folder has no key.
+ */
+function stageTableJson(pipelines: Record<string, StageEntry[]>): Record<string, StageRow[]> {
+  return Object.fromEntries(Object.entries(pipelines).map(([type, list]) => [
+    type,
+    list.map(({ name, stage, dir, consumes, produces }) => ({ name, stage, read: `${dir}/SKILL.md`, consumes, produces })),
+  ]));
 }
 
 function workTypeText(pipelines: Record<string, StageEntry[]>, where: string): string {
@@ -247,10 +360,10 @@ function tableEntries(ctx: PlaceholderContext, where: string): StageEntry[] {
   return list;
 }
 
-function pipelineTable(ctx: PlaceholderContext, where: string): string {
+function pipelineTable(ctx: PlaceholderContext, where: string, used: Used): string {
   const names = (xs: string[]) => (xs.length > 0 ? xs.map((x) => `\`${x}\``).join(" ") : "nothing");
   const rows = tableEntries(ctx, where).map((e) => {
-    const read = `${SKILL_DIR_TOKEN}/${verbPath(ctx, e.name, `{{verb.path:${e.name}}}`, where)}`;
+    const read = `${SKILL_DIR_TOKEN}/${verbPath(ctx, e.name, `{{verb.path:${e.name}}}`, where, used.verbPaths)}`;
     return `| \`${e.stage}\` | \`${read}\` | ${names(e.consumes)} | ${names(e.produces)} |`;
   });
   return [...TABLE_HEADER, ...rows].join("\n");
@@ -265,10 +378,11 @@ function runListPipelines(ctx: PlaceholderContext, where: string): string {
 }
 
 /** A reading path from the current output file to a sibling target's SKILL.md: relative to this file, never a shell path. */
-function verbPath(ctx: PlaceholderContext, arg: string | undefined, raw: string, where: string): string {
+function verbPath(ctx: PlaceholderContext, arg: string | undefined, raw: string, where: string, read: string[]): string {
   if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb name must match [a-z][a-z0-9-]*`);
   const side = ctx.verbSides[arg];
   if (!side) throw new Error(`${where}: ${raw} -- ${arg} is not a compiled verb of this pack`);
+  read.push(arg);
   return side === ctx.side ? `../${arg}/SKILL.md` : `../../${side}/${arg}/SKILL.md`;
 }
 
@@ -298,15 +412,20 @@ function plannedUnit(plan: PlannedAttachments | undefined, attachment: string, f
 }
 
 /**
- * Anchored on the invoking skill's dir rather than this file's, so the same
- * text works inside a shell command from any public skill in the pack. A
- * compiled target's output is written only after every target compiles, so
+ * What `{{pack.path:<attachment>/<file>}}` names: `unit` is the folder that
+ * holds the file under `side` (one group deep for a planned grouped unit),
+ * and `planned` marks a unit compile emits from the org base.
+ */
+export type PackTarget = { side: Side; attachment: string; file: string; unit: string; planned: boolean };
+
+/**
+ * A compiled target's output is written only after every target compiles, so
  * naming one would pass the existence check on a recompile and fail on a
  * clean one. Pack-authored source is addressable, and so are the base
  * attachments compile emits: they are planned before any target compiles,
  * and for those names the plan, not the disk, says what will exist.
  */
-function packPath(view: PackPathView, arg: string | undefined, raw: string, where: string): string {
+function resolvePackPath(view: PackPathView, arg: string | undefined, raw: string, where: string): PackTarget {
   const slash = arg?.indexOf("/") ?? -1;
   if (!arg || slash <= 0 || slash === arg.length - 1) throw new Error(`${where}: ${raw} -- pack.path takes <attachment>/<file>`);
   const attachment = arg.slice(0, slash);
@@ -325,9 +444,38 @@ function packPath(view: PackPathView, arg: string | undefined, raw: string, wher
   const side = onAttachments ? "attachments" : onSkills ? "skills" : null;
   if (!side) throw new Error(`${where}: ${raw} -- ${unit} is not a directory under attachments/ or skills/`);
   const rel = `${side}/${attachment}/${file}`;
-  const exists = side === "attachments" && planned ? planned.has(unitFile) : existsSync(join(packRoot, rel));
+  const isPlanned = side === "attachments" && planned !== undefined;
+  const exists = isPlanned ? planned.has(unitFile) : existsSync(join(packRoot, rel));
   if (!exists) throw new Error(`${where}: ${raw} -- ${rel} does not exist`);
-  return `${SKILL_DIR_TOKEN}/../../${rel}`;
+  return { side, attachment, file, unit, planned: isPlanned };
+}
+
+/**
+ * For a base attachment compile copies into the pack as a plain file.
+ * Anchored on the invoking skill's dir rather than this file's, so the same
+ * text works inside a shell command from any public skill in the pack.
+ */
+export function sourcePackPath(target: PackTarget): string {
+  return `${SKILL_DIR_TOKEN}/../../${target.side}/${target.attachment}/${target.file}`;
+}
+
+/**
+ * A built skill reads a rendered copy of the unit in its own references/:
+ * pack source ships as written, so a placeholder in it would reach the agent
+ * unrendered. A stage or internal verb reaches its folder through stageDir.
+ */
+export function referencePath(ctx: Pick<PlaceholderContext, "stageDir">, target: PackTarget): string {
+  return `${referencesDir(ctx, target.attachment)}/${target.file}`;
+}
+
+/** Whether `{{pack.path:<arg>}}` would render in this view, without throwing. */
+export function packPathResolves(view: PackPathView, arg: string): boolean {
+  try {
+    resolvePackPath(view, arg, `{{pack.path:${arg}}}`, "");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string {
@@ -337,58 +485,17 @@ function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string
   return `${consume} ${produce}`;
 }
 
-export type Used = { slots: string[]; includes: string[]; packPaths: string[] };
-
-/** `line`, when set, is the one rendered row the placeholder owns, counted from the entry's `outStart`. */
-export type TracePlaceholder = { kind: string; arg: string | null; line?: number };
-
-export type TraceEntry = {
-  templateIndex: number;
-  outStart: number;
-  outCount: number;
-  placeholders: TracePlaceholder[];
-};
-
-/** A `{{pipeline.table}}` line traces as one `verb.path` per row, so the console keeps a stage link per row. */
-function placeholdersIn(line: string, ctx: PlaceholderContext, where: string): TracePlaceholder[] {
-  return [...line.matchAll(PLACEHOLDER_RE)].flatMap((m): TracePlaceholder[] => m[1] === "pipeline.table"
-    ? tableEntries(ctx, where).map((e, row) => ({ kind: "verb.path", arg: e.name, line: TABLE_HEADER.length + row }))
-    : [{ kind: m[1]!, arg: m[2] ?? null }]);
-}
-
-const HEADING_RE = /^#{1,6}\s/;
-const FENCE_RE = /^(`{3,}|~{3,})(.*)$/;
-const SLOT_LINE_RE = /^\{\{slot:([^}\s]+)\}\}$/;
-
-/**
- * A heading whose only content would have been an unbound slot: the slot's
- * name, the slot line's index, and the index of the last line to drop with it
- * (the slot line, or the one blank line after it), or null when the heading stays.
- */
-function emptySlotAfter(lines: string[], heading: number, fills: PlaceholderContext["fills"]): { slot: string; end: number; line: number } | null {
-  let j = heading + 1;
-  while (j < lines.length && lines[j]!.trim() === "") j++;
-  const slot = lines[j]?.trim().match(SLOT_LINE_RE)?.[1];
-  if (!slot || !(slot in fills) || fills[slot] !== null) return null;
-  const end = j + 1 < lines.length && lines[j + 1]!.trim() === "" ? j + 1 : j;
-  return { slot, end, line: j };
-}
+/** `references` holds every unit a `{{pack.path}}` named, for the built skill to copy; `verbPaths` every verb the text reads by path. */
+export type Used = { includes: string[]; packPaths: string[]; references: PackTarget[]; verbPaths: string[] };
 
 // Global-regex `.replace` resets `lastIndex` per call, so PLACEHOLDER_RE is safe to share with findPlaceholders.
-function substituteLine(line: string, i: number, ctx: PlaceholderContext, where: string, used: Used): string {
+export function substituteLine(line: string, i: number, ctx: PlaceholderContext, where: string, used: Used): string {
   return line.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
-    // The console's parser and stripCompilerComments both require a slot/include
+    // The console's parser and stripCompilerComments both require an include
     // seam marker to start a line, so the placeholder that produces it must be
     // alone on its own line too -- an inline one would emit a marker neither
     // recognizes, turning a legitimate binding into unstrippable lint material.
     switch (kind) {
-      case "slot": {
-        if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
-        if (!arg) throw new Error(`${where}: ${raw} needs a slot name`);
-        if (!(arg in ctx.fills)) throw new Error(`${where}: slot "${arg}" is not declared by this engine`);
-        used.slots.push(arg);
-        return slotText(arg, ctx.fills[arg] ?? null, ctx.slotMode[arg] ?? "inline", ctx, used.packPaths);
-      }
       case "include": {
         if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
         const inc = arg ? ctx.includes[arg] : undefined;
@@ -396,20 +503,24 @@ function substituteLine(line: string, i: number, ctx: PlaceholderContext, where:
         used.includes.push(arg);
         return includeText(arg, inc, ctx);
       }
-      case "pipeline.stages": return fenced(stageTableJson(ctx.pipelines));
+      case "pipeline.stages":
+        used.verbPaths.push(...Object.values(ctx.pipelines).flat().map((e) => e.name));
+        return fenced(stageTableJson(ctx.pipelines));
       case "pipeline.table":
         if (line.trim() !== raw) throw new Error(`${where}: ${raw} must be alone on its line (line ${i + 1})`);
         if (arg !== undefined) throw new Error(`${where}: ${raw} takes no argument`);
-        return pipelineTable(ctx, where);
+        return pipelineTable(ctx, where, used);
       case "run-list.pipelines":
         if (arg !== undefined) throw new Error(`${where}: ${raw} takes no argument`);
         return runListPipelines(ctx, where);
       case "work-type": return workTypeText(ctx.pipelines, where);
       case "run-start.flags": return runStartFlags(ctx, arg, raw, where);
-      case "verb.path": return verbPath(ctx, arg, raw, where);
+      case "verb.path": return verbPath(ctx, arg, raw, where, used.verbPaths);
       case "pack.path": {
-        const rendered = packPath(ctx, arg, raw, where);
+        const target = resolvePackPath(ctx, arg, raw, where);
+        const rendered = referencePath(ctx, target);
         used.packPaths.push(rendered);
+        used.references.push(target);
         return rendered;
       }
       case "compiled-from": return ctx.compiledFrom;
@@ -423,55 +534,4 @@ function substituteLine(line: string, i: number, ctx: PlaceholderContext, where:
         throw new Error(`${where}: unknown placeholder ${raw} at line ${i + 1}`);
     }
   });
-}
-
-export function substitute(
-  body: string,
-  ctx: PlaceholderContext,
-  where: string,
-  trace?: (entry: TraceEntry) => void,
-): { body: string; used: Used } {
-  const used: Used = { slots: [], includes: [], packPaths: [] };
-  const lines = body.split("\n");
-  const out: string[] = [];
-  let fence: { char: string; length: number } | null = null;
-  let outLines = 0;
-  let collapseBlanks = false;
-  const endsBlank = () => out.length === 0 || out[out.length - 1]!.split("\n").pop()!.trim() === "";
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const marker = line.match(FENCE_RE);
-    if (marker && !fence) fence = { char: marker[1]![0]!, length: marker[1]!.length };
-    else if (marker && marker[1]![0] === fence!.char && marker[1]!.length >= fence!.length && marker[2]!.trim() === "") fence = null;
-    const inFence = fence !== null;
-    if (!inFence && HEADING_RE.test(line)) {
-      const empty = emptySlotAfter(lines, i, ctx.fills);
-      if (empty) {
-        used.slots.push(empty.slot);
-        for (let k = i; k <= empty.end; k++) {
-          trace?.({ templateIndex: k, outStart: outLines, outCount: 0, placeholders: k === empty.line ? [{ kind: "slot", arg: empty.slot }] : [] });
-        }
-        i = empty.end;
-        continue;
-      }
-    }
-    const rendered = substituteLine(line, i, ctx, where, used);
-    const slot = line.trim().match(SLOT_LINE_RE)?.[1];
-    const unboundSlot = !inFence && slot !== undefined && ctx.fills[slot] === null;
-    const blank = rendered.trim() === "";
-    // An unbound slot renders as a blank line, so its blank neighbours would otherwise stack into a run.
-    if ((unboundSlot || collapseBlanks) && blank && endsBlank()) {
-      trace?.({ templateIndex: i, outStart: outLines, outCount: 0, placeholders: placeholdersIn(line, ctx, where) });
-      collapseBlanks = true;
-      continue;
-    }
-    collapseBlanks = blank && (unboundSlot || collapseBlanks);
-    const outCount = rendered.split("\n").length;
-    trace?.({ templateIndex: i, outStart: outLines, outCount, placeholders: placeholdersIn(line, ctx, where) });
-    outLines += outCount;
-    out.push(rendered);
-  }
-
-  return { body: out.join("\n"), used };
 }

@@ -8,6 +8,7 @@ const HOME: Record<string, GroupId> = {
   "tool.plugins": "agents",
   "tool.linear-mcp": "agents",
   "skills.writing-style": "agents",
+  "skills.overrides": "agents",
   "tool.editor": "agents",
   "tool.extension": "agents",
   "tool.vsix": "agents",

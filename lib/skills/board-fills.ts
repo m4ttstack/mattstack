@@ -1,3 +1,5 @@
+import type { LayeredBindings } from "./pipelines.ts";
+
 /**
  * The board opens a `board:*` binding's fill by `<plugin>:<name>` at run time
  * and compile never inlines one, so a base fill bound only from board slots
@@ -33,13 +35,27 @@ export function mergedBindings(...fragments: (Record<string, unknown> | null)[])
   return out;
 }
 
-/** Points each board slot bound to one of `fills` in `base` at the team plugin that now carries it. */
-export function retargetBoardFills(bindings: Record<string, Record<string, string>>, base: string, fills: Set<string>, plugin: string): void {
+type Retargetable = {
+  bindings: Record<string, Record<string, string>>;
+  pipelineBindings: Record<string, Record<string, Record<string, string>>>;
+  layered: LayeredBindings;
+  pipelineLayered: Record<string, LayeredBindings>;
+};
+
+/** Points each board slot bound to one of `fills` in `base` at the team plugin that now carries it, in every section that records the binding. */
+export function retargetBoardFills(merged: Retargetable, base: string, fills: Set<string>, plugin: string): void {
   const prefix = `${base}:`;
-  for (const [engineRef, slots] of Object.entries(bindings)) {
-    if (!engineRef.startsWith("board:")) continue;
-    for (const [slot, fill] of Object.entries(slots)) {
-      if (fill.startsWith(prefix) && fills.has(fill.slice(prefix.length))) slots[slot] = `${plugin}:${fill.slice(prefix.length)}`;
+  const retarget = (fill: string) => (fill.startsWith(prefix) && fills.has(fill.slice(prefix.length)) ? `${plugin}:${fill.slice(prefix.length)}` : fill);
+  for (const bindings of [merged.bindings, ...Object.values(merged.pipelineBindings)]) {
+    for (const [engineRef, slots] of Object.entries(bindings)) {
+      if (!engineRef.startsWith("board:")) continue;
+      for (const [slot, fill] of Object.entries(slots)) slots[slot] = retarget(fill);
+    }
+  }
+  for (const layered of [merged.layered, ...Object.values(merged.pipelineLayered)]) {
+    for (const [engineRef, props] of Object.entries(layered)) {
+      if (!engineRef.startsWith("board:")) continue;
+      for (const values of Object.values(props)) for (const v of values) v.value = retarget(v.value);
     }
   }
 }

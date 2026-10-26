@@ -7,8 +7,8 @@ allowed-tools:
   - Bash(*/scripts/ci-triage.sh:*)
   - Bash(*/scripts/ci-forge.sh:*)
 type: pipeline-step
-slots:
-  tiering: { contract: model-tiering@1, required: false }
+props:
+  tiering: { merge: replace, default: "", contract: model-tiering@1 }
 ---
 
 # work -- the pipeline orchestrator
@@ -239,7 +239,7 @@ Leave the branch in a state another agent could pick up cold.
 
 ## Model tiering
 
-{{slot:tiering}}
+{{props.tiering}}
 
 ## Gates
 

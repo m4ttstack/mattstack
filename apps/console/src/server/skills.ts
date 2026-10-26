@@ -12,6 +12,7 @@ import {
   toBaseCoordinate,
   type BaseScope,
 } from './baseScopes';
+import type { BlocksPayload } from './blocksPayload';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { GIT_LOG_FORMAT, parseGitLog, type GitCommit } from './gitLog';
 import {
@@ -41,22 +42,33 @@ function devPacksOnlyInDev(payload: SkillsPacksResponse): SkillsPacksResponse {
   return { ...payload, packs: payload.packs.filter(p => p.team !== null) };
 }
 
-interface SkillsCompositionSlot {
-  name: string;
-  contract: string;
-  required: boolean;
-  boundTo: string | null;
+/** One value a prop keeps for the default pipeline. A prop no layer binds
+    keeps its non-empty `default` as layer "default"; an add prop keeps one
+    value per layer that adds to it. */
+interface SkillsCompositionPropValue {
+  boundTo: string;
+  /** "default", "base:<pack>", "pack" or "override". */
+  layer: string;
   fillSourcePath: string | null;
   fillVersion: string | null;
   registered: boolean | null;
   inlined: boolean | null;
   resolveError?: string;
-  /** Which layer of the pack's bindings file set this slot: "default", "base:<pack>", "pack" or "override". Optional because an rt older than the field answers without it. */
-  layer?: string | null;
-  /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+  /** Set when the fill came from a base. */
   origin?: 'base';
   base?: string;
   baseVersion?: string | null;
+}
+/** `required` is a prop with no `default`. */
+interface SkillsCompositionPropSpec {
+  name: string;
+  merge: 'add' | 'replace';
+  contract: string | null;
+  required: boolean;
+  default: string | null;
+}
+interface SkillsCompositionProp extends SkillsCompositionPropSpec {
+  values: SkillsCompositionPropValue[];
 }
 interface SkillsCompositionVerb {
   name: string;
@@ -67,36 +79,38 @@ interface SkillsCompositionVerb {
   public: boolean;
   sourcePath: string | null;
   artifactPath: string;
-  slots: SkillsCompositionSlot[];
+  /** Keyed by block id; only blocks that declare a prop appear. */
+  props: Record<string, SkillsCompositionProp[]>;
   /** The `{{include:<name>}}` attachments the compiler inlines, in source
-      order. Optional because an rt older than the field answers without it. */
-  includes?: string[];
+      order. */
+  includes: string[];
   engineError?: string;
   /** The pipeline a work verb runs, when its stub names one. */
   pipeline?: string;
 }
-/** A pipeline's own fill for a binder slot. rt states no origin for it, so
+/** A pipeline's own fill for a binder prop. rt states no origin for it, so
     the team pack owns it. */
 interface SkillsCompositionBinderOverride {
   pipeline: string;
   boundTo: string;
   layer: string | null;
 }
+/** `ref` is a bindings key: `<plugin>:<block id>`, so a nested block's props
+    sit on a binder of their own. */
 interface SkillsCompositionBinder {
   ref: string;
   verb: string | null;
   kind: 'verb' | 'stage' | 'skill' | 'external';
-  /** `layer` is optional because an rt older than the field answers without it. */
-  slots: {
+  props: {
     name: string;
+    /** "" when only pipeline overrides bind the prop. */
     boundTo: string;
-    layer?: string | null;
-    /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+    layer: string | null;
+    /** Set when the fill came from a base. */
     origin?: 'base';
     base?: string;
     baseVersion?: string | null;
-    /** `boundTo` is "" when only these bind the slot. Present only when a
-        pipeline overrides the slot. */
+    /** Present only when a pipeline overrides the prop. */
     overrides?: SkillsCompositionBinderOverride[];
   }[];
   /** The console's own addition, on an `external` binder: the SKILL.md the
@@ -114,7 +128,7 @@ interface SkillsCompositionFill {
   baseVersion?: string | null;
 }
 /** One compile target: a roster verb or a stage, with where its template and
-    its compiled artifact live. `placeholders[].line` counts the engine file's
+    its compiled artifact live. `placeholders[].line` counts the block file's
     frontmatter, so it opens the template at the right line. */
 interface SkillsCompositionTarget {
   name: string;
@@ -122,10 +136,16 @@ interface SkillsCompositionTarget {
   public: boolean;
   artifactPath: string;
   templatePath: string | null;
-  placeholders: { kind: string; arg: string | null; line: number }[];
-  /** The slots the template declares. Optional because an rt older than the
-      field answers without it. */
-  slots?: { name: string; contract: string; required: boolean }[];
+  /** A prop placeholder is `kind: "prop"` with `arg` `<block id>.<prop>`.
+      `file` is the block file, relative to its plugin. */
+  placeholders: {
+    kind: string;
+    arg: string | null;
+    file: string;
+    line: number;
+  }[];
+  /** The props the template's blocks declare, keyed by block id. */
+  props: Record<string, SkillsCompositionPropSpec[]>;
   engineError: string | null;
   /** A stage copy's own stage and the pipeline it was compiled for; absent
       on every other target. */
@@ -196,7 +216,7 @@ interface SkillsCheckResponse {
   droppedOverrides?: SkillsCheckDroppedOverride[];
 }
 interface SkillsCheckDroppedOverride {
-  /** `<pipeline>/<engine ref> <slot>`, as materialize writes it. */
+  /** `<pipeline>/<engine ref> <prop>`, as materialize writes it. */
   key: string;
   layer: string;
 }
@@ -266,22 +286,6 @@ interface SkillsSurfaceApplyResponse {
   reReadError?: string;
 }
 
-/** One `rt skills bind <verb> <slot> <fill> --pack <pack>` invocation and
-    what it did. `ok: false` carries rt's own stderr as `error` -- the same
-    honest-failure shape `SkillsSurfaceApplyStep` uses. */
-interface SkillsBindResponse {
-  pack: string;
-  verb: string;
-  slot: string;
-  /** Absent when the write removed `pipeline`'s override. */
-  fill?: string;
-  /** Set when the write was that pipeline's override. */
-  pipeline?: string;
-  unset?: true;
-  ok: boolean;
-  error?: string;
-}
-
 interface SkillsCompilePreviewResponse {
   content: string;
 }
@@ -311,11 +315,10 @@ interface SkillsAnatomyTarget {
   path: string;
   lines: number | null;
 }
-/** Line ranges are 1-based and inclusive. For a stale skill the text,
-    variable and verb.path parts carry `renderedLines: null`: the fresh build's
-    ranges would not match the file on disk. */
+/** Line ranges are 1-based and inclusive. A prop part's `name` is
+    `<block id>.<prop>`; an add prop has one part per value. */
 interface SkillsAnatomyPart {
-  kind: 'text' | 'include' | 'slot' | 'verb.path' | 'variable' | 'section';
+  kind: 'text' | 'block' | 'include' | 'prop' | 'section';
   name: string | null;
   templateLines: [number, number] | null;
   renderedLines: [number, number] | null;
@@ -354,6 +357,8 @@ interface SkillsPendingFile {
 interface SkillsChangedFile extends SkillsPendingFile {
   hash: string | null;
 }
+/** `engineRef` is the bindings key, `<plugin>:<block id>`. rt froze the
+    envelope, so `slot` is the prop's name. */
 interface SkillsBindingChange {
   engineRef: string;
   slot: string;
@@ -413,7 +418,8 @@ interface SkillsHistoryResponse {
       demo pack, `packDir` sits three levels under this root. Reported
       so a reader can see what the history was actually taken over. */
   repoRoot: string;
-  /** The pathspec the log was scoped to, relative to `packDir`. */
+  /** The pathspec the log was scoped to, relative to `packDir`; a block's
+      files, space-separated, when the request named them. */
   scope: string;
   /** The `:(top,literal)` pathspecs of the org base fill folders the verb binds,
       added after `scope`. Absent when there are none. */
@@ -435,7 +441,7 @@ interface SkillsDiffResponse {
   packDir: string;
   repoRoot: string;
   /** The pathspec the diff was taken over, relative to `packDir`. Whole-pack:
-      a verb's slot fills live under `attachments/`, outside its own
+      a verb's prop fills live under `attachments/`, outside its own
       `skills/<verb>/`, so scoping to the verb would drop exactly the hunks a
       seam can attribute. */
   scope: string;
@@ -456,12 +462,23 @@ interface SkillsDiffResponse {
 
 const historyQuery = validator(
   'query',
-  (value): { pack?: string; verb?: string; limit?: string } => {
-    const v = value as { pack?: unknown; verb?: unknown; limit?: unknown };
+  (
+    value
+  ): { pack?: string; verb?: string; limit?: string; path?: string[] } => {
+    const v = value as {
+      pack?: unknown;
+      verb?: unknown;
+      limit?: unknown;
+      path?: unknown;
+    };
+    const paths = typeof v?.path === 'string' ? [v.path] : v?.path;
     return {
       pack: typeof v?.pack === 'string' ? v.pack : undefined,
       verb: typeof v?.verb === 'string' ? v.verb : undefined,
       limit: typeof v?.limit === 'string' ? v.limit : undefined,
+      path: Array.isArray(paths)
+        ? paths.filter((p): p is string => typeof p === 'string')
+        : undefined,
     };
   }
 );
@@ -483,10 +500,19 @@ const diffQuery = validator(
     and a leading `:` (which would make it one of git's magic pathspecs). */
 const VERB_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+/** A block file reaches git as a literal pathspec relative to the pack, so
+    it is held to plain segments: no `..`, no leading `/` or `:`. */
+const PACK_PATH = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+const isPackPath = (path: string) =>
+  PACK_PATH.test(path) && !path.split('/').some(segment => segment === '..');
+
 /** A commit reaches git as a revision, where a branch name, `HEAD@{1}` and
     `..` all mean something. Only an object name gets through, so the only
     revisions this route can name are ones the history route listed. */
 const COMMIT_SHA = /^[0-9a-f]{7,40}$/;
+
+/** The title rt's CLI gives a failure it did not expect. */
+const RT_UNEXPECTED = 'rt hit an unexpected error';
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 100;
@@ -594,6 +620,8 @@ function findPackDir(payload: unknown, pack: string): string | null {
 
 type RtRunResult = { code: number; stdout: string; stderr: string };
 
+type RtFailureEnvelope = { error?: { code?: string; message?: string } };
+
 /**
  * `rt skills check`/`compile` set exit 1 for the NORMAL case this surface
  * exists to show (drift, lint errors) as well as for every usage error --
@@ -647,41 +675,6 @@ const surfaceApplyBody = validator(
   }
 );
 
-const bindBody = validator(
-  'json',
-  (
-    value
-  ): {
-    pack?: string;
-    verb?: string;
-    slot?: string;
-    fill?: string;
-    pipeline?: string;
-    unset?: boolean;
-  } => {
-    const v = value as {
-      pack?: unknown;
-      verb?: unknown;
-      slot?: unknown;
-      fill?: unknown;
-      pipeline?: unknown;
-      unset?: unknown;
-    };
-    return {
-      pack: typeof v?.pack === 'string' ? v.pack : undefined,
-      verb: typeof v?.verb === 'string' ? v.verb : undefined,
-      slot: typeof v?.slot === 'string' ? v.slot : undefined,
-      // A non-string reads as "", so an unset that sends one is still
-      // refused for carrying a fill.
-      fill: expectOf(v?.fill),
-      // A non-string reads as "", which no pack declares, so it is refused
-      // rather than read as a default write.
-      pipeline: expectOf(v?.pipeline),
-      unset: v?.unset === true,
-    };
-  }
-);
-
 const SIGNATURE = /^[0-9a-f]{64}$/;
 
 /** A non-string `expect` reads as the empty string, so it fails the
@@ -721,16 +714,22 @@ const discardBody = validator(
   }
 );
 
-const skillQuery = validator(
-  'query',
-  (value): { pack?: string; skill?: string } => {
-    const v = value as { pack?: unknown; skill?: unknown };
-    return {
-      pack: typeof v?.pack === 'string' ? v.pack : undefined,
-      skill: typeof v?.skill === 'string' ? v.skill : undefined,
-    };
+/** A skill name as rt and the apps spell it; a board skill carries its app's prefix, as in `board:respond`. */
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+/** Both reach rt's argv, so a value shaped like a flag never passes. */
+const skillQuery = validator('query', (value, c) => {
+  const v = value as { pack?: unknown; skill?: unknown };
+  const pack = typeof v?.pack === 'string' ? v.pack : undefined;
+  const skill = typeof v?.skill === 'string' ? v.skill : undefined;
+  if (pack && !VERB_NAME.test(pack)) {
+    return c.json({ error: `invalid pack name: ${pack}` }, 400);
   }
-);
+  if (skill && !SKILL_NAME.test(skill)) {
+    return c.json({ error: `invalid skill name: ${skill}` }, 400);
+  }
+  return { pack, skill };
+});
 
 const sourceQuery = validator(
   'query',
@@ -1220,134 +1219,6 @@ export function mountSkills(
         return c.json({ error: (err as Error).message }, 502);
       }
     })
-    .post('/api/skills/bind', bindBody, async c => {
-      const { pack, verb, slot, fill, pipeline, unset } = c.req.valid('json');
-      if (!pack) return c.json({ error: 'pack is required' }, 400);
-      if (!verb) return c.json({ error: 'verb is required' }, 400);
-      if (!slot) return c.json({ error: 'slot is required' }, 400);
-      if (unset) {
-        if (pipeline === undefined) {
-          return c.json(
-            { error: 'unset removes a pipeline override; name the pipeline' },
-            400
-          );
-        }
-        if (fill !== undefined) {
-          return c.json({ error: 'unset takes no fill' }, 400);
-        }
-      } else if (!fill) {
-        return c.json({ error: 'fill is required' }, 400);
-      }
-      if (pipeline === '') {
-        return c.json({ error: 'pipeline must be a pipeline name' }, 400);
-      }
-      const rt = heldOpen(c.env, c.req.raw);
-
-      try {
-        // Never `cachedRun` here: this is about to write, so `verb`/`slot`/
-        // `fill` are checked against the roster and fills as they really are
-        // right now, not up to CACHE_TTL_MS stale -- the same rule the
-        // surface-apply route follows before its own write.
-        const compositionRun = await rt([
-          'skills',
-          'composition',
-          '--pack',
-          pack,
-          '--json',
-        ]);
-        const compositionPayload = parseJsonPayload(compositionRun.stdout);
-        if (compositionPayload === undefined) {
-          return c.json(
-            {
-              error: compositionRun.stderr.trim() || 'rt produced no output',
-            },
-            502
-          );
-        }
-        const composition = compositionPayload as SkillsCompositionResponse;
-
-        // Checked against the roster/composition BEFORE any of these
-        // names reaches an argv -- a name that is not really this pack's is
-        // rejected here, never handed to a spawn.
-        const verbEntry = composition.verbs.find(v => v.name === verb);
-        const stageEntry = composition.targets?.find(
-          t => t.kind === 'stage' && t.name === verb
-        );
-        if (!verbEntry && !stageEntry) {
-          return c.json(
-            { error: `"${verb}" is neither in ${pack}'s roster nor a stage` },
-            400
-          );
-        }
-        const declared = verbEntry?.slots ?? stageEntry?.slots ?? [];
-        const slotEntry = declared.find(s => s.name === slot);
-        if (!slotEntry) {
-          return c.json({ error: `"${slot}" is not a slot on "${verb}"` }, 400);
-        }
-        if (!unset) {
-          const fillEntry = composition.fills.find(f => f.binding === fill);
-          if (!fillEntry) {
-            return c.json(
-              { error: `"${fill}" is not a known fill in ${pack}` },
-              400
-            );
-          }
-          if (fillEntry.provides !== slotEntry.contract) {
-            return c.json(
-              {
-                error: `"${fill}" provides "${fillEntry.provides}", not "${slotEntry.contract}" required by ${verb}'s "${slot}" slot`,
-              },
-              400
-            );
-          }
-        }
-        if (
-          pipeline !== undefined &&
-          !Object.hasOwn(composition.pipelines ?? {}, pipeline)
-        ) {
-          return c.json(
-            { error: `"${pipeline}" is not a pipeline ${pack} declares` },
-            400
-          );
-        }
-
-        // `bind` recompiles the verb, so composition/check/compile all go
-        // stale too -- the same per-pack cache sweep the surface-apply route
-        // runs. Never a narrower invalidation, and never skipped on a failure
-        // or a kill: the binding may already be written.
-        const run = await rt(
-          [
-            'skills',
-            'bind',
-            verb,
-            slot,
-            ...(unset || fill === undefined ? [] : [fill]),
-            ...(pipeline !== undefined ? ['--pipeline', pipeline] : []),
-            ...(unset ? ['--unset'] : []),
-            '--pack',
-            pack,
-          ],
-          WRITE
-        ).finally(() => dropCachedReads(pack));
-        const ok = run.code === 0;
-
-        const response: SkillsBindResponse = {
-          pack,
-          verb,
-          slot,
-          ...(unset ? { unset: true as const } : { fill }),
-          ...(pipeline !== undefined ? { pipeline } : {}),
-          ok,
-          error: ok ? undefined : run.stderr.trim() || 'rt exited nonzero',
-        };
-        return c.json(response, ok ? 200 : 502);
-      } catch (err) {
-        if (err instanceof RtNotFoundError) {
-          return c.json({ error: err.message }, 503);
-        }
-        return c.json({ error: (err as Error).message }, 502);
-      }
-    })
     .get('/api/skills/compile', compileQuery, async c => {
       const { pack, verb } = c.req.valid('query');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
@@ -1380,10 +1251,15 @@ export function mountSkills(
       }
     })
     .get('/api/skills/history', historyQuery, async c => {
-      const { pack, verb, limit: rawLimit } = c.req.valid('query');
+      const { pack, verb, limit: rawLimit, path } = c.req.valid('query');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
       if (verb !== undefined && !VERB_NAME.test(verb)) {
         return c.json({ error: `invalid verb name: ${verb}` }, 400);
+      }
+      const files = path ?? [];
+      const outside = files.find(file => !isPackPath(file));
+      if (outside !== undefined) {
+        return c.json({ error: `not a path inside the pack: ${outside}` }, 400);
       }
       const limit = clampLimit(rawLimit);
 
@@ -1418,15 +1294,19 @@ export function mountSkills(
         }
 
         const repoRoot = root.stdout.trim();
-        const scope = verb ? `skills/${verb}` : '.';
-        const baseScopes = await baseScopesOf(
-          pack,
-          packDir,
-          verb ?? null,
-          repoRoot
-        );
+        const scope =
+          files.length > 0 ? files.join(' ') : verb ? `skills/${verb}` : '.';
+        // A block's files name exactly what to log; the verb's base folders
+        // would widen it back to the whole skill.
+        const baseScopes =
+          files.length > 0
+            ? []
+            : await baseScopesOf(pack, packDir, verb ?? null, repoRoot);
         const basePathspecs = baseScopes.map(basePathspec);
-        const pathspecs = [scope, ...basePathspecs];
+        const pathspecs =
+          files.length > 0
+            ? files.map(file => `:(literal)${file}`)
+            : [scope, ...basePathspecs];
         const toCoordinate = (path: string) =>
           toBaseCoordinate(path, baseScopes, repoRoot);
         // One over the bound, so "there is more history" is observed rather
@@ -1613,6 +1493,65 @@ export function mountSkills(
           );
         }
         return c.json(payload as SkillsAnatomyResponse, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/blocks', skillQuery, async c => {
+      const { pack, skill } = c.req.valid('query');
+      if (!pack || !skill) {
+        return c.json({ error: 'pack and skill are required' }, 400);
+      }
+      try {
+        const { code, stdout, stderr } = await cachedRun([
+          'skills',
+          'blocks',
+          '--pack',
+          pack,
+          '--skill',
+          skill,
+          '--json',
+        ]);
+        const payload = parseJsonPayload(stdout);
+        // A skill rt will not build (an unbound required prop, a missing
+        // fill, a value it cannot resolve) exits 1 with its failure on
+        // stderr; a crash says it was unexpected.
+        const said = stderr.trim();
+        if (
+          payload === undefined &&
+          code === 1 &&
+          said &&
+          !said.startsWith(RT_UNEXPECTED)
+        ) {
+          return c.json({ error: said }, 422);
+        }
+        if (payload === undefined) {
+          return c.json({ error: said || 'rt produced no output' }, 502);
+        }
+        // rt prints its failure envelope on stdout and exits 1
+        const refusal = (payload as RtFailureEnvelope).error;
+        if (refusal?.code === 'not-a-block-tree') {
+          return c.json({ error: refusal.message }, 404);
+        }
+        if (refusal?.code === 'stale-engine') {
+          return c.json(
+            { error: refusal.message, code: 'stale-engine' as const },
+            409
+          );
+        }
+        if (refusal) {
+          return c.json(
+            {
+              error:
+                refusal.message ?? refusal.code ?? 'rt skills blocks failed',
+            },
+            502
+          );
+        }
+        return c.json(payload as BlocksPayload, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

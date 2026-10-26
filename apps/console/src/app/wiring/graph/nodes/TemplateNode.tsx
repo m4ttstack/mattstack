@@ -27,7 +27,7 @@ import { parityName } from './parity';
 type Tag = { label: string; color?: 'warn' | 'bad' };
 
 /** The tag a placeholder row's state earns: a hue where it needs attention,
-    quiet where it only says how the slot is filled. A card says the same in
+    quiet where it only says how the prop is filled. A card says the same in
     its subtitle, so a card shows only `unsynced`. */
 export function tagOf(state: RowState, fill: string | null): Tag | null {
   switch (state) {
@@ -85,7 +85,7 @@ function RowButton({
       data-selected={selected || undefined}
       data-parity={parityName.row(row)}
       data-testid="template-row"
-      onClick={() => onSelect(`row:${row.line}`)}
+      onClick={() => onSelect(`row:${row.id}`)}
     >
       <Box className={classes.gutter} data-parity="gutter">
         <Text
@@ -149,7 +149,7 @@ function TemplateNodeComponent({
   const { select, onSelect } = useCanvas();
   const targeted = new Set(view.inputs.map(card => card.rowId));
   const linked = new Set(view.links.map(card => card.rowId));
-  const selectedRow = view.rows.find(row => select === `row:${row.line}`);
+  const selectedRow = view.rows.find(row => select === `row:${row.id}`);
 
   return (
     <div className={classes.shell} data-testid="template-node">

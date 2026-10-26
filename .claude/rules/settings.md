@@ -98,13 +98,13 @@ forge access, and refuses a copy behind `dataBranchTip`. The `org.main` row
 CI or other tooling on the host repo.
 `rt team branch use <name>` (`lib/team/trial-branch.ts`; org admins and
 owners) switches the clone in place to a trial branch and records it in
-the team-local record. On a layout 4 clone a missing branch is made from
+the team-local record. On a layout 4 or 5 clone a missing branch is made from
 the data branch's published tip; on a layout 3 clone only an existing
 branch holding the org store is accepted (a script `--no-pointer` trial),
 since there is no data branch to start from. A target is a trial unless it
 is the data branch origin `main`'s pointer names, or `main` itself when it
 names none, so `rt team branch use main` (layout 3) or `rt team branch use
-<dataBranch>` (layout 4) returns and clears the trial. The trial flow is
+<dataBranch>` (layout 4 or 5) returns and clears the trial. The trial flow is
 the script with `--data-branch <trial> --no-pointer --write`, then `rt team
 branch use <trial>` on the dev app's Mac. The daemon auto-commits only on an approved branch, the
 data branch or the recorded trial (`approvedBranches` in
@@ -126,9 +126,11 @@ marker rt writes carries an explicit `layout`: `rt team create` writes
 `scripts/move-to-team-directory.ts` writes 3, and
 `scripts/move-to-data-branch.ts` writes 4 with `dataBranch`
 (`--data-branch <name>`; `--no-pointer` leaves `main` alone for a trial;
-a pointer `main` refuses lands on `<data branch>-pointer`).
-`ORG_LAYOUT` in `lib/team/org-marker.ts` is 4; layouts 3 and 4
-(`READABLE_LAYOUTS`) share every path, so both are readable. It moves only with a breaking change to the repo's shape or to the shared settings' shape, never with a
+a pointer `main` refuses lands on `<data branch>-pointer`), and
+`scripts/move-to-block-packs.ts` writes 5 on the checked-out branch, keeping
+`dataBranch`, once every pack is in block form (no pointer on `main`).
+`ORG_LAYOUT` in `lib/team/org-marker.ts` is 5 (block packs); layouts 3, 4
+and 5 (`READABLE_LAYOUTS`) share every path, so all three are readable. It moves only with a breaking change to the repo's shape or to the shared settings' shape, never with a
 release; the admin's runbook for such a change is the `rt-settings` skill
 (`skills/rt-settings/SKILL.md`, "Changing the org repo's layout"). `orgLayoutState` (`lib/team/org-layout.ts`) is the one classifier
 every reader uses, and it shares `pickOrgClone` with `readZonesFrom`: a clone

@@ -1,0 +1,4 @@
+1. run_field_get {mode}, worktree_provision (precheck: true), worktree_provision (codes: true, runDb, stage: provision, budget provision-refusals/2); the stage then ends with no gate, since the provisioned result goes to EnterWorktree, which isn't an MCP tool, and `recorded: true` means no run_field_set calls.
+2. Yes: the widgets squad rule counts as an inlined domain rule, so the graph routes through that step, although it supplies no acquisition flow of its own.
+3. Not shown: with a domain rule inlined, the `sameTicket` tree is not offered for resume, so the precheck finds nothing in the way and goes straight to provisioning.
+4. None: the provision gate is never presented, so the added `squad` question and `next` never appear.

@@ -269,16 +269,16 @@ export function packDescription(pack: string): string {
 }
 
 const SEED_BINDINGS: Record<string, Record<string, string>> = {
-  "mattstack:work": { tiering: "mattstack:model-tiering" },
-  "mattstack:stage-watch-ci": { forge: "mattstack:ci-forge-gitlab" },
+  "mattstack:work/sub-agent-tiering": { tiering: "mattstack:model-tiering" },
+  "mattstack:stage-watch-ci/forge": { forge: "mattstack:ci-forge-gitlab" },
 };
 
-/** The seed's bindings minus every slot `base` sets: a pack's layer sits over its base's at materialize, so a seeded default would replace the base's choice. */
+/** The seed's bindings minus every prop `base` sets: a pack's layer sits over its base's at materialize, so a seeded default would replace the base's choice. */
 function seedBindingsOver(base: Fragment | undefined): Record<string, Record<string, string>> {
   const out: Record<string, Record<string, string>> = {};
-  for (const [engineRef, slots] of Object.entries(SEED_BINDINGS)) {
-    const kept = Object.entries(slots).filter(([slot]) => !(base?.bindings?.[engineRef] && Object.hasOwn(base.bindings[engineRef], slot)));
-    if (kept.length > 0) out[engineRef] = Object.fromEntries(kept);
+  for (const [key, props] of Object.entries(SEED_BINDINGS)) {
+    const kept = Object.entries(props).filter(([prop]) => !(base?.bindings?.[key] && Object.hasOwn(base.bindings[key], prop)));
+    if (kept.length > 0) out[key] = Object.fromEntries(kept);
   }
   return out;
 }
@@ -290,7 +290,7 @@ export function renderPackFiles(opts: { pack: string; workDescription: string; e
   const baseHasFeature = Object.hasOwn(normalizePipelines(baseFragment?.pipelines).stages, "feature");
   const bindings = seedBindingsOver(baseFragment);
   const manifest = {
-    version: 1,
+    version: 2,
     ...(extendsBase ? { extends: extendsBase } : {}),
     skills: { enabled: ["mattstack:work", "mattstack:model-tiering"] },
     ...(baseHasFeature ? {} : { pipelines: { feature: PIPELINE_STAGES.map((s) => `mattstack:${s}`) } }),
@@ -313,7 +313,7 @@ export function renderPackFiles(opts: { pack: string; workDescription: string; e
     "pack/skills.jsonc":
       `// ${pack} bindings fragment. rt skills materialize layers it under mattstack's\n` +
       "// defaults and over any base pack into the per-pack file at\n" +
-      `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain slot is\n` +
+      `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain prop is\n` +
       "// optional; bind one with rt skills bind (see mattstack:extending-a-pack).\n" +
       `${pipelineNote} To give a kind of work its own\n` +
       "// stages or fills, add a specialized pipeline with mattstack:extending-a-pack.\n" +
@@ -326,7 +326,7 @@ function renderPackMd(pack: string): string {
     `# ${pack} pack`,
     "",
     "Scaffolded by `rt skills init`. The roster (`pack/stubs.jsonc`) names one",
-    "verb, `work`, compiled from the mattstack engine with every domain slot",
+    "verb, `work`, compiled from the mattstack engine with every domain prop",
     "unbound, so `/" + pack + ":work` runs the generic pipeline until the team",
     "adds rules. The verb's description is a placeholder seeded from the",
     "engine; rewrite it in your team's words.",
@@ -374,7 +374,11 @@ export type InitDeps = {
   registerRepo(repoDir: string): Promise<string>;
   materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
   compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[]; missing?: MissingMarker[] }>;
-  check(packDir: string, manifestPath: string): Promise<{ drift: boolean }>;
+  /**
+   * `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`.
+   * `pointerErrors`: compiled pointers that lead nowhere in what a recompile would write.
+   */
+  check(packDir: string, manifestPath: string): Promise<{ drift: boolean; handErrors?: string[]; pointerErrors?: string[] }>;
   /** `paths` are relative to the org clone. */
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
   /** Remembers a share for `rt team publish` to finish if init stops before its own share. */
@@ -395,7 +399,7 @@ export type InitRefusalCode =
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host" | "base-missing"
   | "pack-exists" | "mattstack-missing" | "claude-missing" | "team-marketplace-conflict" | "needs-newer-app" | "params-missing" | "extends-conflict" | "base-chained";
 
-export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
+export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "hand-skill-failed" | "pointer-failed" | "install-failed";
 
 export type InitRemedy = { commands: string[]; folder?: string };
 
@@ -630,7 +634,8 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
   const remedyFor = (code: FailureCode): InitRemedy => {
     if (code === "write-failed") return { commands: [retry("")], folder: packDir };
     if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`, share] };
-    if (code === "compile-failed" || code === "check-drift") {
+    if (code === "hand-skill-failed") return { commands: [`rt skills check --pack-dir ${packDir}`, share] };
+    if (code === "compile-failed" || code === "check-drift" || code === "pointer-failed") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
     }
     const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
@@ -714,6 +719,10 @@ export async function initPack(opts: { repoDir: string; repoFlag?: string | null
   const checkedAttempt = await attempt("check-drift", () => deps.check(packDir, manifestPath));
   if ("outcome" in checkedAttempt) return checkedAttempt.outcome;
   if (checkedAttempt.value.drift) return failed("check-drift", "The pack was out of date right after it compiled");
+  const handErrors = checkedAttempt.value.handErrors ?? [];
+  if (handErrors.length > 0) return failed("hand-skill-failed", handErrors.join("\n"));
+  const pointerErrors = checkedAttempt.value.pointerErrors ?? [];
+  if (pointerErrors.length > 0) return failed("pointer-failed", pointerErrors.join("\n"));
 
   const admission = admit(readFloor(deps.fs.readFile, packDir), (deps.engine ?? runnableEngine)());
   if (!admission.ok) {

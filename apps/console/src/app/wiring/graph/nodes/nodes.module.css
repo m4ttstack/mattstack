@@ -165,7 +165,7 @@
   padding: 0 12px;
 }
 
-/* A slot card with team sections keeps its face at the card height and
+/* A prop card with team sections keeps its face at the card height and
    hangs a row per section under it; the Paper sets both heights from the
    layout. */
 .card[data-sections] {
@@ -218,21 +218,6 @@
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-}
-
-/* A card's action is the card's sibling, not its child (a button cannot hold
-   a button), laid over the card's end; the card leaves it that room. It is
-   centred by its margins, not a transform: a pressed button's own transform
-   would replace that one and move it out from under the pointer. */
-.card[data-action] {
-  padding-inline-end: 64px;
-}
-
-.cardAction {
-  position: absolute;
-  inset-block: 0;
-  right: 12px;
-  margin-block: auto;
 }
 
 .step {

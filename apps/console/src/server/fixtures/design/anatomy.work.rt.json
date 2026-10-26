@@ -1,0 +1,524 @@
+{
+  "pack": "widgets",
+  "skill": "work",
+  "kind": "verb",
+  "public": false,
+  "description": "Run a widget through the pipeline",
+  "template": {
+    "ref": "mattstack:work",
+    "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/work/index.block.md",
+    "version": "0.32.23",
+    "builtVersion": "0.32.23",
+    "lines": 16
+  },
+  "rendered": {
+    "path": "/fixture/packs/acme/attachments/work/SKILL.md",
+    "exists": true,
+    "lines": 841
+  },
+  "status": "in-sync",
+  "staleBecause": [],
+  "parts": [
+    {
+      "kind": "block",
+      "name": "work",
+      "templateLines": null,
+      "renderedLines": [12, 18],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages",
+      "templateLines": null,
+      "renderedLines": [20, 160],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages/recapture-asked",
+      "templateLines": null,
+      "renderedLines": [162, 174],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages/gate-resume-or-fresh",
+      "templateLines": null,
+      "renderedLines": [176, 182],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages/tracker-in-progress",
+      "templateLines": null,
+      "renderedLines": [184, 188],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages/follow-stage-file",
+      "templateLines": null,
+      "renderedLines": [190, 194],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages/reenter-at-gate",
+      "templateLines": null,
+      "renderedLines": [196, 201],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages/gate-stage-failed",
+      "templateLines": null,
+      "renderedLines": [203, 207],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/stages/gate-close",
+      "templateLines": null,
+      "renderedLines": [209, 216],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run",
+      "templateLines": null,
+      "renderedLines": [218, 308],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/run-position",
+      "templateLines": null,
+      "renderedLines": [310, 321],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/stop-board-handoff",
+      "templateLines": null,
+      "renderedLines": [323, 330],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/own-real-job",
+      "templateLines": null,
+      "renderedLines": [332, 337],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/fix-on-my-branch",
+      "templateLines": null,
+      "renderedLines": [339, 346],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/git-rebase-own",
+      "templateLines": null,
+      "renderedLines": [348, 351],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/resolve-board-conflicts",
+      "templateLines": null,
+      "renderedLines": [353, 357],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/rerun-after-rebase",
+      "templateLines": null,
+      "renderedLines": [359, 364],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/judge-stacked-cause",
+      "templateLines": null,
+      "renderedLines": [366, 371],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/stacked-after-ship",
+      "templateLines": null,
+      "renderedLines": [373, 380],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/git-log-board-shas",
+      "templateLines": null,
+      "renderedLines": [382, 386],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/gate-armed",
+      "templateLines": null,
+      "renderedLines": [388, 393],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/a-board-frame-mid-run/run-field-set-board-note",
+      "templateLines": null,
+      "renderedLines": [395, 406],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/what-the-graph-cannot-show",
+      "templateLines": null,
+      "renderedLines": [408, 439],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/gate-questions",
+      "templateLines": null,
+      "renderedLines": [441, 462],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/sub-agent-tiering",
+      "templateLines": null,
+      "renderedLines": [464, 464],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/gate-protocol",
+      "templateLines": null,
+      "renderedLines": [466, 467],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol",
+      "templateLines": null,
+      "renderedLines": [469, 590],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/build-questions",
+      "templateLines": null,
+      "renderedLines": [592, 621],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/trigger-site-opened",
+      "templateLines": null,
+      "renderedLines": [623, 628],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/gate-ask-result",
+      "templateLines": null,
+      "renderedLines": [630, 637],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/fix-refusal",
+      "templateLines": null,
+      "renderedLines": [639, 647],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/present-form-no-registry",
+      "templateLines": null,
+      "renderedLines": [649, 653],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/boards-to-open",
+      "templateLines": null,
+      "renderedLines": [655, 662],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/present-pane-form",
+      "templateLines": null,
+      "renderedLines": [664, 673],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/map-answer",
+      "templateLines": null,
+      "renderedLines": [675, 684],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/say-surface",
+      "templateLines": null,
+      "renderedLines": [686, 690],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/end-turn-holding",
+      "templateLines": null,
+      "renderedLines": [692, 697],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/reconcile-status",
+      "templateLines": null,
+      "renderedLines": [699, 709],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/write-in-to-act",
+      "templateLines": null,
+      "renderedLines": [711, 718],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/act-write-in",
+      "templateLines": null,
+      "renderedLines": [720, 727],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/attendance",
+      "templateLines": null,
+      "renderedLines": [729, 734],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/runs-integration",
+      "templateLines": null,
+      "renderedLines": [736, 754],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/off-script-gate",
+      "templateLines": null,
+      "renderedLines": [756, 770],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/structured-context-gate-ctx-1",
+      "templateLines": null,
+      "renderedLines": [772, 780],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/answers-are-option-values",
+      "templateLines": null,
+      "renderedLines": [782, 790],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/closed-gates-hold-iterate",
+      "templateLines": null,
+      "renderedLines": [792, 796],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/doorbell",
+      "templateLines": null,
+      "renderedLines": [798, 802],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/red-flags",
+      "templateLines": null,
+      "renderedLines": [804, 809],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "work/wrap-up-form-contract",
+      "templateLines": null,
+      "renderedLines": [811, 812],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "wrap-up-form",
+      "templateLines": null,
+      "renderedLines": [814, 841],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    }
+  ],
+  "links": []
+}

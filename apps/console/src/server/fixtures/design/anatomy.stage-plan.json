@@ -30,16 +30,6 @@
       "changed": false
     },
     {
-      "kind": "variable",
-      "name": "stage.fields",
-      "templateLines": [16, 16],
-      "renderedLines": [16, 24],
-      "mode": null,
-      "source": null,
-      "target": null,
-      "changed": false
-    },
-    {
       "kind": "text",
       "name": null,
       "templateLines": [17, 75],
@@ -76,8 +66,8 @@
       "changed": false
     },
     {
-      "kind": "slot",
-      "name": "domain",
+      "kind": "prop",
+      "name": "stage-plan.domain",
       "templateLines": [136, 136],
       "renderedLines": [223, 302],
       "mode": "inline",

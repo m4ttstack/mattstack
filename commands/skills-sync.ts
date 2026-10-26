@@ -19,9 +19,10 @@ import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/or
 import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
-import { LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { BLOCK_PACKS_FIRST_STEP, LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
-import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
+import { checkFailures, checkPack, compilePackAll, NO_PACKS_WHY, type CheckPayload } from "./skills.ts";
+import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { runSkillsOrigin, spawnCapture } from "../lib/skills/origin-git.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
@@ -113,6 +114,7 @@ const STEP_TITLE: Record<string, string> = {
   guards: "Safety checks",
   "pull-engine": "Pull the engine",
   "pull-pack": "Pull the pack",
+  "org-layout": "Check the org's layout",
   "commit-pending": "Stage your pack edits",
   "update-engine": "Update the installed engine",
   materialize: "Rebuild the bindings files",
@@ -129,7 +131,7 @@ const STEP_TITLE: Record<string, string> = {
 const STEP_STATUS: Record<SyncStep["status"], RenderStatus> = { ran: "done", skipped: "skipped", refused: "refused", failed: "failed" };
 
 /** The command that clears a refusal, for the steps whose refusal one command clears. */
-const STEP_NEXT: Record<string, (pack: string) => string> = { check: (pack) => `rt skills check --pack ${pack}` };
+const STEP_NEXT: Record<string, (pack: string) => string> = { check: (pack) => `rt skills check --pack ${pack}`, "org-layout": () => BLOCK_PACKS_FIRST_STEP };
 
 const stepTitle = (step: SyncStep): string => STEP_TITLE[step.name] ?? step.name;
 
@@ -191,6 +193,12 @@ export function claudeMissingBlocks(): Block[] {
   return [out.line("needs-you", "Claude Code is not installed", "rt installs and syncs packs through it"), out.callout("next", "Install Claude Code, then run this again")];
 }
 
+/** What sync's check step reads from a check: what fails apart from drift rides beside it, so sync refuses on it instead of recompiling. */
+export function syncCheckOf(payload: CheckPayload): Awaited<ReturnType<SyncDeps["checkPack"]>> {
+  const { handSkills, pointers, conflicts } = checkFailures(payload);
+  return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint, handErrors: handSkills.map(formatDiagnostic), pointerErrors: pointers.map(formatDiagnostic), pointerConflicts: conflicts, brokenSkills: conflicts.length > 0 ? payload.targetCompileErrors ?? [] : [] };
+}
+
 export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {
   const json = args.includes("--json");
   const packFlag = flagValue(args, "--pack");
@@ -243,10 +251,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     run: (cmd, cmdArgs, opts) => spawnCapture([cmd, ...cmdArgs], opts?.cwd),
     runOrigin: (gitArgs, opts) => runSkillsOrigin(gitArgs, opts),
     claudeBin: resolveClaudeBin(),
-    checkPack: async (name) => {
-      const payload = await checkPack({ pack: name, ...target });
-      return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint };
-    },
+    checkPack: async (name) => syncCheckOf(await checkPack({ pack: name, ...target })),
     compilePack: (name) => compilePackAll({ pack: name, ...target }),
     materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
