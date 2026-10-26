@@ -90,6 +90,8 @@ flowchart TB
     gate_post_legacy
     post_next_answer{Review-post next answer?}
     take_human_changes
+    revised_finding_in_json{Revised finding id in the report json?}
+    revise_from_board
     iterate_wants_depth{Review iterate note asks for another depth?}
     posting_forge{Review posting forge?}
     gh_pr_review[/gh pr review <ref> with the disposition and the summary body/]
@@ -262,6 +264,10 @@ flowchart TB
     hand_back_severity --> caller_answer
     caller_answer -->|"{findings, outcome}"| posting_forge
     caller_answer -->|hold| run_hold
+    caller_answer -->|"a revision {findingId, revised, original}"| revised_finding_in_json
+    revised_finding_in_json -->|yes| revise_from_board
+    revised_finding_in_json -->|no: hold, quoting the id| run_hold
+    revise_from_board --> sh_review_source
     gate_post_carry --> post_next_answer
     gate_post_legacy --> post_next_answer
     post_next_answer -->|proceed| posting_forge

@@ -11,6 +11,8 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*)
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:question`, use it; otherwise call `skills_resolve {id: "skills:board:question"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
+
 <!-- part: step source=question/SKILL.md path=question/SKILL.md lines=12-121 -->
 # mr-board question pane
 
@@ -57,7 +59,7 @@ below, and only after the human says yes to it.
 
 1. Run `<status-bin> question status <state> live`.
 2. Resolve the launch: run
-   `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh" <mrUrl> --state <handle>
+   `"@question/scripts/resolve-args.sh" <mrUrl> --state <handle>
    --status-bin <path> --report <path> --report-json <path> --finding <id>
    --gate <id>`, passing the launch's values verbatim, each one quoted.
    On exit 0 it prints one JSON line: the flags, `finding` (the finding as

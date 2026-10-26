@@ -1,0 +1,10 @@
+{
+  "id": "skills:board:question",
+  "dir": "skills/question",
+  "covers": [
+    "skills:board:question"
+  ],
+  "keys": {
+    "question/scripts/resolve-args.sh": "skills/question/scripts/resolve-args.sh"
+  }
+}
