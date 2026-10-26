@@ -245,3 +245,30 @@
   margin-block: -6px;
   margin-inline-end: -1px;
 }
+
+/* The phrases that call a skill, quoted after a small label. */
+.asks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 13px;
+}
+
+.asksLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tk-text-3);
+}
+
+.ask {
+  color: var(--tk-text-1);
+}
+
+.ask + .ask::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--tk-text-3);
+}

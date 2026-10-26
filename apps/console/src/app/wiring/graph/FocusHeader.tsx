@@ -15,6 +15,7 @@ import { pluginOf } from '../outline';
 import type { SkillsAnatomy } from '../useWiring';
 import classes from './graph.module.css';
 import { workTypeOf, type FocusItem } from './model/focusModel';
+import { splitDescription } from './model/skillDescription';
 import { STATUS_TONE, type StatusTone } from './model/statusTone';
 import { countOf, type TemplateView } from './model/templateModel';
 
@@ -98,6 +99,34 @@ const KIND_WORD: Record<PayloadBlock['kind'], string> = {
   note: 'note',
   shared: 'include',
 };
+
+/** What the skill is for, then the phrases that call it, when rt's
+    description has that shape; otherwise the description whole. */
+function Description({ text, inline }: { text: string; inline: boolean }) {
+  const { purpose, asks } = splitDescription(text);
+  return (
+    <Stack gap={6}>
+      <Text
+        fz={inline ? 15 : 13}
+        lh={inline ? 1.5 : 'normal'}
+        c={inline ? 'var(--tk-text-2)' : MUTED}
+        data-parity="desc"
+      >
+        {purpose}
+      </Text>
+      {asks.length > 0 && (
+        <div className={classes.asks} data-testid="description-asks">
+          <span className={classes.asksLabel}>Asked as</span>
+          {asks.map(ask => (
+            <span key={ask} className={classes.ask}>
+              “{ask}”
+            </span>
+          ))}
+        </div>
+      )}
+    </Stack>
+  );
+}
 
 function BlockChips({ block }: { block: HeaderBlock }) {
   const blocks =
@@ -230,14 +259,7 @@ export function FocusHeader({
           {actions ?? statusBadge}
         </Group>
         {description ? (
-          <Text
-            fz={inline ? 14 : 13}
-            lh={inline ? 1.5 : 'normal'}
-            c={MUTED}
-            data-parity="desc"
-          >
-            {description}
-          </Text>
+          <Description text={description} inline={inline} />
         ) : null}
         {meta}
         {checkError !== null && (

@@ -127,88 +127,6 @@ function Crumbs({
   );
 }
 
-function StackNode({
-  tone,
-  name,
-  sub = null,
-}: {
-  tone: 'team' | 'org' | 'mattstack';
-  name: string;
-  sub?: string | null;
-}) {
-  return (
-    <span className={classes.stackNode} data-testid="pack-line-layer">
-      <span className={classes.stackDot} data-tone={tone} aria-hidden />
-      <span className={classes.stackName}>{name}</span>
-      {sub && <span className={classes.stackSub}>{sub}</span>}
-    </span>
-  );
-}
-
-/** The packs the skill is read through, as a path from the team's down to
-    mattstack's engine, then the counts of what is in it. */
-function PackLine({
-  payload,
-  version,
-}: {
-  payload: BlocksPayload;
-  version: string | null;
-}) {
-  const org = payload.layers.find(layer => layer.color === 'org');
-  const engine = payload.engineRef.split(':').pop() ?? payload.skill;
-  const stats = scopeStats(payload, null);
-  const facts: [number, string][] = [
-    [stats.blocks, stats.blocks === 1 ? 'block' : 'blocks'],
-    [stats.withProps, 'with props'],
-    ...(stats.values > 0
-      ? [
-          [stats.values, stats.values === 1 ? 'prop value' : 'prop values'] as [
-            number,
-            string,
-          ],
-        ]
-      : []),
-    ...(stats.graphs > 0
-      ? [
-          [stats.graphs, stats.graphs === 1 ? 'graph' : 'graphs'] as [
-            number,
-            string,
-          ],
-        ]
-      : []),
-    ...(stats.shared > 0 ? [[stats.shared, 'shared'] as [number, string]] : []),
-  ];
-  const sep = (
-    <Icon name="chevronRight" size={12} className={classes.stackSep} />
-  );
-  return (
-    <div className={classes.packLine} data-testid="pack-line">
-      <div className={classes.stack} aria-label="Packs">
-        <StackNode tone="team" name={payload.pack} />
-        {sep}
-        {org && (
-          <>
-            <StackNode tone="org" name={org.name} />
-            {sep}
-          </>
-        )}
-        <StackNode
-          tone="mattstack"
-          name="mattstack"
-          sub={[engine, ...(version ? [version] : [])].join(' ')}
-        />
-      </div>
-      <div className={classes.facts}>
-        {facts.map(([count, word]) => (
-          <span key={word} className={classes.fact}>
-            <span className={classes.factCount}>{count}</span> {word}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 const HEADING_OR_GRAPH = /^#{1,6}\s.*$|```mermaid\n[\s\S]*?\n```/gm;
 
 /** The compiled file, cut to the lines a block renders to. */
@@ -495,11 +413,6 @@ export function BlockView({
               : null
           }
           actions={actions}
-          meta={
-            zoom.level === 'skill' && !readOnly ? (
-              <PackLine payload={payload} version={skill?.version ?? null} />
-            ) : null
-          }
         />
         {missing !== null && (
           <Text fz={13} c="dimmed" data-testid="block-missing">

@@ -278,7 +278,6 @@ a.propBandSource {
   min-height: 40px;
   padding: 4px 8px 4px 14px;
   border-bottom: 1px solid var(--tk-border-soft);
-  background: var(--tk-panel);
 }
 
 .docFile {
@@ -717,76 +716,6 @@ a.propBandSource {
 
 .crumbs {
   flex-wrap: wrap;
-}
-
-/* The packs as a path, team to mattstack, then the counts: a number and
-   its word, no chips. */
-.packLine {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.stack,
-.facts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.stack {
-  gap: 4px 8px;
-}
-
-.facts {
-  gap: 4px 18px;
-  color: var(--tk-text-3);
-  font-size: 13px;
-  line-height: normal;
-}
-
-.stackNode {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.stackDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: var(--tk-line-1);
-}
-
-.stackDot[data-tone='team'] {
-  background-color: var(--tk-fill-purple);
-}
-
-.stackDot[data-tone='org'] {
-  background-color: var(--tk-fill-gold);
-}
-
-.stackName {
-  color: var(--tk-text-1);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: normal;
-}
-
-.stackSub {
-  color: var(--tk-text-3);
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 12px;
-}
-
-.stackSep {
-  color: var(--tk-text-3);
-}
-
-.factCount {
-  color: var(--tk-text-1);
-  font-weight: 600;
 }
 
 .extra {
