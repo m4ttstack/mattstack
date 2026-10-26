@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
-import { Tooltip, UnstyledButton } from '@mattstack/app-kit/core';
+import { Menu, Tooltip, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import {
   Handle,
@@ -21,7 +21,7 @@ import type { Dot } from './model/blockFacts';
 import type { MapKind } from './model/blockMap';
 import type { BandNode } from './model/foldBand';
 import { countOf } from './model/labels';
-import type { MapBox } from './model/mapLayout';
+import { jumpsLabel, type MapBox } from './model/mapLayout';
 
 const ICON_STROKE = 2;
 
@@ -154,20 +154,26 @@ export function JumpPill({
       onFocus={() => setHovered(true)}
       onBlur={() => setHovered(false)}
     >
-      {label && <span className={classes.mapPillLabel}>{label}</span>}
       <Icon
         name={direction === 'back' ? 'cornerUpLeft' : 'arrowRight'}
-        size={11}
+        size={12}
         strokeWidth={ICON_STROKE}
         className={classes.mapPillIcon}
       />
       <span className={classes.mapPillTarget}>{target}</span>
     </UnstyledButton>
   );
-  if (steps.length === 0) return pill;
+  // The pill names where it goes; the exit it takes, and any steps it
+  // passes, show on hover.
+  if (!label && steps.length === 0) return pill;
   return (
     <Tooltip
-      label={<FoldSteps steps={steps} />}
+      label={
+        <>
+          {label && <span className={classes.mapPillExit}>{label}</span>}
+          {steps.length > 0 && <FoldSteps steps={steps} />}
+        </>
+      }
       opened={hovered}
       multiline
       w={280}
@@ -178,13 +184,63 @@ export function JumpPill({
   );
 }
 
+/** One jump is a pill naming its target; several are one chip that lists
+    each jump's target and the exit it takes when opened. */
 function Pills({ pills }: { pills: JumpPillProps[] }) {
   if (pills.length === 0) return null;
+  if (pills.length === 1) {
+    return (
+      <span className={classes.mapPills}>
+        <JumpPill {...pills[0]!} />
+      </span>
+    );
+  }
+  const direction = pills.every(pill => pill.direction === 'back')
+    ? 'back'
+    : pills.every(pill => pill.direction === 'forward')
+      ? 'forward'
+      : null;
   return (
     <span className={classes.mapPills}>
-      {pills.map(pill => (
-        <JumpPill key={pill.id} {...pill} />
-      ))}
+      <Menu position="bottom-start" withinPortal shadow="md" width={300}>
+        <Menu.Target>
+          <UnstyledButton className={classes.mapPill} data-testid="jumps-chip">
+            <Icon
+              name={direction === 'forward' ? 'arrowRight' : 'cornerUpLeft'}
+              size={12}
+              strokeWidth={ICON_STROKE}
+              className={classes.mapPillIcon}
+            />
+            <span className={classes.mapPillTarget}>{jumpsLabel(pills)}</span>
+            <Icon
+              name="chevronDown"
+              size={12}
+              strokeWidth={ICON_STROKE}
+              className={classes.mapPillIcon}
+            />
+          </UnstyledButton>
+        </Menu.Target>
+        <Menu.Dropdown>
+          {pills.map(pill => (
+            <Menu.Item
+              key={pill.id}
+              onClick={pill.onClick}
+              leftSection={
+                <Icon
+                  name={pill.direction === 'back' ? 'cornerUpLeft' : 'arrowRight'}
+                  size={12}
+                />
+              }
+              data-testid="jump-item"
+            >
+              <span className={classes.jumpTarget}>{pill.target}</span>
+              {pill.label && (
+                <span className={classes.jumpExit}>{pill.label}</span>
+              )}
+            </Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
     </span>
   );
 }

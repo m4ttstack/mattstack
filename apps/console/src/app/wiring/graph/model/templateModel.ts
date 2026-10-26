@@ -213,7 +213,7 @@ const OWN_TEXT_ID = 'text';
     `own` marks the skill's own part, which a card words as "its template". */
 const STALE_CHANGES: [DriftCause, { what: string; own: boolean }][] = [
   ['source', { what: 'template', own: true }],
-  ['include', { what: 'a pasted file', own: false }],
+  ['include', { what: 'an included file', own: false }],
   ['fill', { what: 'pack text', own: true }],
   ['team', { what: 'team values', own: false }],
   ['frontmatter', { what: 'header', own: true }],

@@ -1,11 +1,15 @@
 import 'github-markdown-css/github-markdown.css';
 
+import { Icon } from '@mattstack/app-kit/icons';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import classes from './markdownText.module.css';
 
 const REMARK_PLUGINS = [remarkGfm];
+
+/** Graph sources fold shut: the flow row draws them. */
+const GRAPH_LANGS = new Set(['dot', 'graphviz', 'mermaid']);
 
 const SAFE: Components = {
   a: ({ href, children }) => (
@@ -16,6 +20,33 @@ const SAFE: Components = {
   // A block can quote text from anywhere; an image would make the console
   // fetch any URL it names.
   img: ({ alt }) => <span>{alt}</span>,
+  pre: ({ node, children }) => {
+    const code = node?.children[0];
+    const names =
+      code && code.type === 'element' ? code.properties.className : null;
+    const lang = Array.isArray(names)
+      ? names.map(String).find(name => name.startsWith('language-'))
+      : undefined;
+    const graph = lang?.slice('language-'.length);
+    if (!graph || !GRAPH_LANGS.has(graph)) return <pre>{children}</pre>;
+    const text =
+      code?.type === 'element' && code.children[0]?.type === 'text'
+        ? code.children[0].value
+        : '';
+    const lines = text.replace(/\n$/, '').split('\n').length;
+    return (
+      <details className={classes.graphFold} data-testid="graph-fold">
+        <summary>
+          <Icon name="workflow" size={14} className={classes.foldIcon} />
+          <span className={classes.foldName}>Graph source</span>
+          <span className={classes.foldMeta}>{`${graph} · ${lines} lines`}</span>
+          <span className={classes.foldAction} aria-hidden />
+          <Icon name="chevronDown" size={14} className={classes.foldChevron} />
+        </summary>
+        <pre>{children}</pre>
+      </details>
+    );
+  },
 };
 
 const FRONT_MATTER = /^---\n([\s\S]*?)\n---\n?/;

@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { UnstyledButton } from '@mattstack/app-kit/core';
+import { Anchor, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 
 import classes from './blocks.module.css';
@@ -67,20 +68,27 @@ export function LayerDots({ dots }: { dots: Dot[] }) {
 }
 
 /** One folded block: glyph, short label, first sentence, layer dots and a
-    plug when the block has props. A click opens the block. */
+    plug when the block has props. A click on the row shows its text in
+    place; Open goes into the block. */
 export function BlockRow({
   row,
   onOpen,
   body,
+  allOpen = false,
   usedBy = null,
 }: {
   row: FoldedRow;
   onOpen: (blockId: string) => void;
-  /** The block's text, shown under the row when it is expanded. */
+  /** The block's text, shown under the row when it is open. */
   body?: ReactNode;
-  /** On a Shared row, how many skills paste the tree in. */
+  /** Expand all is on. */
+  allOpen?: boolean;
+  /** On an include's row, how many skills include the tree. */
   usedBy?: number | null;
 }) {
+  const [own, setOwn] = useState<{ all: boolean; open: boolean } | null>(
+    null
+  );
   const expanded = body !== undefined && body !== null;
   if (row.shared) {
     const facts = [
@@ -102,7 +110,7 @@ export function BlockRow({
           <span className={classes.sharedFacts}>{facts}</span>
           <Icon name="chevronRight" size={12} className={classes.rowGo} />
         </UnstyledButton>
-        {expanded && (
+        {expanded && allOpen && (
           <div className={classes.rowBody} data-testid="block-row-body">
             {body}
           </div>
@@ -110,25 +118,36 @@ export function BlockRow({
       </li>
     );
   }
+  // Expand all sets every row; a click on one row overrides it until Expand
+  // all changes again.
+  const open = own !== null && own.all === allOpen ? own.open : allOpen;
+  const shown = open && expanded;
+  const toggle = () =>
+    expanded ? setOwn({ all: allOpen, open: !open }) : onOpen(row.id);
   return (
     <li className={classes.rowItem}>
-      <UnstyledButton
-        className={classes.row}
-        data-selected={row.selected || undefined}
-        data-testid="block-row"
-        onClick={() => onOpen(row.id)}
-      >
-        {row.glyph === 'shared' ? (
-          <span aria-hidden />
-        ) : (
-          <KindBadge glyph={row.glyph} />
-        )}
-        <span className={classes.rowText}>
-          <span className={classes.rowLabel}>{row.label}</span>
-          {row.summary && !expanded && (
-            <span className={classes.rowSummary}>{row.summary}</span>
+      <div className={classes.row} data-selected={row.selected || undefined}>
+        <UnstyledButton
+          className={classes.rowToggle}
+          aria-expanded={expanded ? shown : undefined}
+          data-testid="block-row"
+          onClick={toggle}
+        >
+          <Icon
+            name={shown ? 'chevronDown' : 'chevronRight'}
+            size={12}
+            className={classes.rowCaret}
+            data-hidden={!expanded || undefined}
+          />
+          {row.glyph === 'shared' ? (
+            <span aria-hidden />
+          ) : (
+            <KindBadge glyph={row.glyph} />
           )}
-        </span>
+          <span className={classes.rowText}>
+            <span className={classes.rowLabel}>{row.label}</span>
+          </span>
+        </UnstyledButton>
         <span className={classes.rowMarks}>
           <LayerDots dots={row.dots} />
           {row.hasProps && (
@@ -140,10 +159,21 @@ export function BlockRow({
               data-testid="row-has-props"
             />
           )}
-          <Icon name="chevronRight" size={12} className={classes.rowGo} />
+          <Anchor
+            component="button"
+            type="button"
+            fz={13}
+            fw={500}
+            className={classes.rowOpen}
+            onClick={() => onOpen(row.id)}
+            data-testid="block-row-open"
+          >
+            Open
+            <Icon name="chevronRight" size={12} />
+          </Anchor>
         </span>
-      </UnstyledButton>
-      {expanded && (
+      </div>
+      {shown && (
         <div className={classes.rowBody} data-testid="block-row-body">
           {body}
         </div>

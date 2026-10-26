@@ -18,6 +18,84 @@
   font-size: 14px;
 }
 
+/* A graph's source, folded under one line that says what it is. */
+.graphFold {
+  margin-bottom: 16px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background-color: var(--tk-panel);
+}
+
+.graphFold > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.graphFold > summary::-webkit-details-marker {
+  display: none;
+}
+
+@media (hover: hover) {
+  .graphFold > summary:hover {
+    background-color: var(--tk-raised);
+  }
+}
+
+.foldIcon {
+  flex: none;
+  color: var(--tk-text-2);
+}
+
+.foldName {
+  color: var(--tk-text-1);
+  font-weight: 600;
+}
+
+.foldMeta {
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.foldAction {
+  margin-left: auto;
+  color: var(--tk-text-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.foldAction::before {
+  content: 'Show';
+}
+
+.graphFold[open] .foldAction::before {
+  content: 'Hide';
+}
+
+.foldChevron {
+  flex: none;
+  color: var(--tk-text-accent);
+}
+
+.graphFold[open] .foldChevron {
+  transform: rotate(180deg);
+}
+
+.graphFold[open] > summary {
+  border-bottom: 1px solid var(--tk-border-soft);
+  border-radius: 8px 8px 0 0;
+}
+
+.graphFold > pre {
+  margin: 0;
+  border-radius: 0 0 6px 6px;
+}
+
 /* A front-matter value keeps its own lines and wraps a long one. */
 .frontValue {
   font-size: 13px;

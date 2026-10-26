@@ -26,7 +26,7 @@ export const CARD = {
   pillsGap: 8,
 } as const;
 
-export const PILL = { padX: 10, gap: 5, icon: 11, between: 6 } as const;
+export const PILL = { padX: 10, gap: 6, icon: 12 } as const;
 
 export const SPLIT = { size: 10, pillsGap: 9 } as const;
 
@@ -180,10 +180,26 @@ export function cardWidth(
   );
 }
 
-export function pillWidth(pill: Pill, measure: Measure): number {
-  const label = pill.label ? measure(pill.label, 11, 400) + PILL.gap : 0;
+/** What a card's chip says when it jumps more than once: the count, and
+    which way when every jump goes the same way. */
+export function jumpsLabel(pills: Pick<Pill, 'direction'>[]): string {
+  const way = pills.every(pill => pill.direction === 'back')
+    ? ' back'
+    : pills.every(pill => pill.direction === 'forward')
+      ? ' ahead'
+      : '';
+  return `${pills.length} jumps${way}`;
+}
+
+/** One jump is a pill naming its target; several are one chip that lists
+    them when opened. */
+export function pillsWidth(pills: Pill[], measure: Measure): number {
+  if (pills.length === 0) return 0;
+  const text =
+    pills.length === 1 ? pills[0]!.target : jumpsLabel(pills);
+  const caret = pills.length === 1 ? 0 : PILL.gap + PILL.icon;
   return Math.ceil(
-    2 * PILL.padX + label + PILL.icon + PILL.gap + measure(pill.target, 11, 500)
+    2 * PILL.padX + PILL.icon + PILL.gap + measure(text, 12, 500) + caret
   );
 }
 
@@ -238,16 +254,15 @@ export function mapLayout(
     const { dots, width: own } = natural.get(node.id)!;
     const width = split ? SPLIT.size : onMain.has(node.id) ? mainWidth : own;
     const pills = pillsOf.get(node.id) ?? [];
-    const pillsWidth =
+    const jumpsWidth =
       pills.length === 0
         ? 0
         : (split ? SPLIT.pillsGap : CARD.pillsGap) +
-          pills.reduce((sum, pill) => sum + pillWidth(pill, measure), 0) +
-          PILL.between * (pills.length - 1);
+          pillsWidth(pills, measure);
     boxes.set(node.id, { node, dots, width, pills, main: onMain.has(node.id) });
     nodes.push({
       id: node.id,
-      width: width + pillsWidth,
+      width: width + jumpsWidth,
       height: split ? SPLIT.size : CARD.height,
       anchorX: width / 2,
     });

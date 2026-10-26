@@ -126,7 +126,6 @@ export type CanvasPlane = {
   offsetY: number;
   /** Set on a canvas framed to the page: its zoom steps and fit. */
   fill: {
-    fitted: boolean;
     zoomIn: () => void;
     zoomOut: () => void;
     fit: () => void;
@@ -134,11 +133,11 @@ export type CanvasPlane = {
 };
 
 /** The smallest zoom a framed map fits down to; past it, the map pans. */
-const MIN_FIT_ZOOM = 0.5;
+const MIN_FIT_ZOOM = 0.85;
 const ZOOM_STEP = 1.2;
-/** Room a framed map leaves: the hint over its top edge, the zoom buttons
-    and key over its bottom one. */
-const FRAME_PAD = { x: 24, top: 52, bottom: 64 };
+/** Room a framed map leaves round its edges: the zoom buttons and key sit
+    over its bottom one. */
+const FRAME_PAD = { x: 24, top: 24, bottom: 64 };
 
 /** The scroller's size and the plane a map `mapWidth` wide draws on in it.
     A framed canvas (`fill`) fits the whole map to its frame instead of its
@@ -194,7 +193,6 @@ export function useCanvasPlane(
     planeHeight,
     offsetY: FRAME_PAD.top + spare / 2,
     fill: {
-      fitted: scale === 1,
       zoomIn: () => setScale(now => now * ZOOM_STEP),
       zoomOut: () => setScale(now => now / ZOOM_STEP),
       fit: () => setScale(1),
@@ -266,13 +264,6 @@ export function GraphCanvas({
   const pan = usePan(element, fill !== null);
   return (
     <div className={classes.graphFrame} data-fill={fill ? true : undefined}>
-      {fill && (
-        <span className={classes.frameHint}>
-          {fill.fitted
-            ? 'Fitted to the frame · drag to pan'
-            : `${Math.round(zoom * 100)}% · drag to pan`}
-        </span>
-      )}
       <div
         ref={ref}
         className={
@@ -284,11 +275,15 @@ export function GraphCanvas({
         data-zoom={zoom}
         {...pan}
       >
+        {/* Plain px, as measured: Mantine's w/h turn px into rem times the
+            app's scale, which grows the plane past the frame it fits. */}
         <Box
           className={classes.mapPlane}
-          w={plane > 0 ? plane : '100%'}
+          style={{
+            width: plane > 0 ? `${plane}px` : '100%',
+            height: `${planeHeight}px`,
+          }}
           data-plane={plane}
-          h={planeHeight}
         >
           <ReactFlow
             nodes={nodes}

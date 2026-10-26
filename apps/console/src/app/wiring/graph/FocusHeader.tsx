@@ -90,6 +90,16 @@ const BLOCK_KIND_ICON: Record<
   shared: 'package',
 };
 
+/** A tree's top reached through `{{include:…}}`, which rt kinds `shared`,
+    is named for the include that brings it in. */
+const KIND_WORD: Record<PayloadBlock['kind'], string> = {
+  step: 'step',
+  question: 'question',
+  gate: 'gate',
+  note: 'note',
+  shared: 'include',
+};
+
 function BlockChips({ block }: { block: HeaderBlock }) {
   const blocks =
     block.blocks === undefined
@@ -104,7 +114,7 @@ function BlockChips({ block }: { block: HeaderBlock }) {
         data-hue={block.kind}
         data-testid="block-kind"
       >
-        {blocks ? `${block.kind} · ${blocks}` : block.kind}
+        {blocks ? `${KIND_WORD[block.kind]} · ${blocks}` : KIND_WORD[block.kind]}
       </Badge>
       {block.hasProps && (
         <Badge

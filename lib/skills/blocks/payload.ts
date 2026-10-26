@@ -132,10 +132,14 @@ function walkSeams(compiled: string, instances: Instance[], values: BlocksPayloa
       const resumed = open.get(id);
       const isEntry = !resumed || (Number(block[2]) <= resumed.block.textStartLine && instances[next]?.block.id === id);
       if (isEntry) {
-        while (next < instances.length && instances[next]!.block.id !== id) next++;
-        const inst = instances[next];
+        // A tree a prop value pastes in has seams but no rendering of its
+        // own, so a seam found nowhere ahead leaves the walk where it was:
+        // its lines stay with the block whose value pasted them.
+        let at = next;
+        while (at < instances.length && instances[at]!.block.id !== id) at++;
+        const inst = instances[at];
         if (!inst) continue;
-        next++;
+        next = at + 1;
         inst.firstSeam = i + 1;
         open.set(id, inst);
         current = inst;

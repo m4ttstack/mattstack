@@ -368,7 +368,7 @@ a.propBandSource {
 /* The card grows with the page; its text keeps a reading width, centred,
    as GitHub sets a file's preview. */
 .docBody {
-  padding: 22px 28px 26px;
+  padding: 36px 28px 40px;
 }
 
 .docBody > * {
@@ -610,7 +610,7 @@ a.propBandSource {
   padding: 0 12px 0 8px;
   border: 1px dashed var(--tk-line-1);
   border-radius: 8px;
-  background-color: transparent;
+  background-color: var(--tk-panel);
   color: var(--tk-text-2);
   font-size: 12px;
   font-weight: 500;
@@ -828,6 +828,16 @@ a.propBandSource {
   margin-left: auto;
 }
 
+/* Expand all, where the skill's blocks start. */
+.bandAction {
+  align-self: center;
+  margin-left: auto;
+}
+
+.bandLink + .bandAction {
+  margin-left: 12px;
+}
+
 .bandTitle {
   color: var(--tk-text-1);
   font-size: 15px;
@@ -915,13 +925,43 @@ a.propBandSource {
   --row-hover: var(--mantine-color-dark-5);
 }
 
+/* A row's click shows its text in place, so its badge and marks keep to
+   the title's line whether the summary or the text sits under it. */
 .row {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 12px;
   width: 100%;
   padding: 10px 12px;
+}
+
+.rowToggle {
+  display: grid;
+  grid-template-columns: 12px 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  text-align: left;
+}
+
+.rowCaret {
+  margin-top: 6px;
+  color: var(--tk-text-3);
+}
+
+.rowCaret[data-hidden] {
+  visibility: hidden;
+}
+
+.rowToggle .rowText {
+  padding-top: 3px;
+}
+
+.rowOpen {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 @media (hover: hover) {
@@ -950,7 +990,12 @@ a.propBandSource {
 }
 
 .rowBody {
-  padding: 0 12px 12px 48px;
+  padding: 16px 12px 18px 68px;
+}
+
+/* An open row's header stands apart from the text it shows. */
+.rowItem:has(> .rowBody) > .row {
+  border-bottom: 1px solid var(--tk-border-soft);
 }
 
 .chevron,
@@ -973,21 +1018,13 @@ a.propBandSource {
   line-height: normal;
 }
 
-.rowSummary {
-  overflow: hidden;
-  color: var(--tk-text-3);
-  font-size: 13px;
-  line-height: normal;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .rowMarks {
   display: inline-flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 64px;
+  height: 24px;
 }
 
 .dots {
@@ -1251,26 +1288,17 @@ a.propBandSource {
   min-height: 0;
   overflow: auto;
   cursor: grab;
-  scrollbar-width: thin;
+  /* A framed map pans by drag or trackpad; a bar would take room from the
+     frame it was fitted to and push the other axis into scrolling. */
+  scrollbar-width: none;
+}
+
+.graphFrame[data-fill] .graphCanvas::-webkit-scrollbar {
+  display: none;
 }
 
 .graphFrame[data-fill] .graphCanvas:active {
   cursor: grabbing;
-}
-
-.frameHint {
-  position: absolute;
-  z-index: 5;
-  top: 12px;
-  right: 14px;
-  padding: 2px 10px;
-  border: 1px solid var(--tk-border);
-  border-radius: 999px;
-  background: var(--tk-card);
-  color: var(--tk-text-3);
-  font-size: 11px;
-  line-height: 18px;
-  pointer-events: none;
 }
 
 .frameTools {
@@ -1397,7 +1425,7 @@ a.propBandSource {
   background-color: color-mix(
     in srgb,
     var(--tk-fill-ok) var(--ui-wash),
-    transparent
+    var(--tk-card)
   );
 }
 
@@ -1406,13 +1434,13 @@ a.propBandSource {
   background-color: color-mix(
     in srgb,
     var(--tk-fill-bad) var(--ui-wash),
-    transparent
+    var(--tk-card)
   );
 }
 
 .mapCard[data-hue='end'] {
   border: 1px dashed var(--tk-line-1);
-  background-color: transparent;
+  background-color: var(--tk-panel);
   box-shadow: none;
   color: var(--tk-text-2);
 }
@@ -1506,32 +1534,27 @@ a.propBandSource {
   gap: 6px;
 }
 
+/* A jump reads as a plain control: a card-white pill naming where it goes,
+   in body text; the exit it takes shows on hover. */
 .mapPill {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   box-sizing: border-box;
-  height: 22px;
+  height: 24px;
   padding: 0 10px;
-  border-radius: 11px;
-  background-color: color-mix(
-    in srgb,
-    var(--tk-fill-accent) var(--ui-wash),
-    transparent
-  );
-  font-size: 11px;
+  border: 1px solid var(--tk-border);
+  border-radius: 12px;
+  background-color: var(--tk-card);
+  font-size: 12px;
   line-height: normal;
   white-space: nowrap;
 }
 
 @media (hover: hover) {
   .mapPill:hover {
-    background-color: color-mix(
-      in srgb,
-      var(--tk-fill-accent) var(--ui-wash-hover),
-      transparent
-    );
+    border-color: var(--tk-fill-accent);
   }
 }
 
@@ -1540,17 +1563,31 @@ a.propBandSource {
   outline-offset: 1px;
 }
 
-.mapPillLabel {
+.mapPillIcon {
   color: var(--tk-text-2);
 }
 
-.mapPillIcon {
-  color: var(--tk-text-accent);
+.mapPillTarget {
+  color: var(--tk-text-1);
+  font-weight: 500;
 }
 
-.mapPillTarget {
-  color: var(--tk-text-accent);
+.mapPillExit {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.jumpTarget {
+  display: block;
+  color: var(--tk-text-1);
+  font-size: 13px;
   font-weight: 500;
+}
+
+.jumpExit {
+  display: block;
+  color: var(--tk-text-2);
+  font-size: 12px;
 }
 
 .mapDots {
@@ -1712,7 +1749,6 @@ a.propBandSource {
   background-color: var(--tk-fill-accent);
 }
 
-.mapPill[aria-pressed='true'] .mapPillLabel,
 .mapPill[aria-pressed='true'] .mapPillIcon,
 .mapPill[aria-pressed='true'] .mapPillTarget {
   color: var(--tk-on-fill-accent);

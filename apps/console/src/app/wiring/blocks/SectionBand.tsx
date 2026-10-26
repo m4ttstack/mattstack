@@ -34,18 +34,24 @@ export function SectionBand({
   graph = null,
   introText = null,
   bodyOf,
+  allOpen = false,
   usedByCount,
   limit,
+  action = null,
 }: {
   band: Band;
   /** Rows shown before Show all; every row when unset. */
   limit?: number;
+  /** A control at the head's end, as the first band's Expand all. */
+  action?: ReactNode;
   /** The band's block's graph, as a one-line card under the header. */
   graph?: ReactNode;
   /** The band's block's whole text, which Show more opens. */
   introText?: ReactNode;
   /** A row's text, when the rows are expanded. */
   bodyOf?: (blockId: string) => ReactNode;
+  /** Expand all is on: every row shows its text. */
+  allOpen?: boolean;
   /** The band of the block in view: its rows alone, the header names it. */
   bare?: boolean;
   onOpen: (blockId: string) => void;
@@ -66,7 +72,7 @@ export function SectionBand({
   );
   const meta =
     band.id === 'shared'
-      ? `${blocks(band.blockCount)} · same for everyone`
+      ? `${band.blockCount} ${band.blockCount === 1 ? 'attachment' : 'attachments'}`
       : `${blocks(band.blockCount)} · ${band.propsCount} with props`;
   return (
     <section
@@ -91,6 +97,7 @@ export function SectionBand({
               <Icon name="chevronRight" size={13} />
             </Anchor>
           )}
+          {action && <span className={classes.bandAction}>{action}</span>}
         </div>
       )}
       {!bare && band.intro && (
@@ -118,6 +125,7 @@ export function SectionBand({
             row={row}
             onOpen={onOpen}
             body={bodyOf?.(row.id)}
+            allOpen={allOpen}
             usedBy={
               row.shared?.name ? (usedByCount?.(row.shared.name) ?? null) : null
             }

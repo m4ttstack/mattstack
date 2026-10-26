@@ -64,7 +64,8 @@ function BlockNode({ data: { card, focus } }: NodeProps<FlowNode>) {
         width={card.width}
         pills={[]}
         hot={focus}
-        onClick={blockId ? () => onSelect(blockId) : undefined}
+        // The block in focus is the page already open, so it opens nothing.
+        onClick={blockId && !focus ? () => onSelect(blockId) : undefined}
       />
       <Handles />
     </>

@@ -88,7 +88,7 @@ export function sidebarRows(
     rows.push({
       id: 'shared',
       depth: 0,
-      label: 'Shared',
+      label: 'Includes',
       glyph: 'shared',
       dots: [],
       count: shared.length,

@@ -3,10 +3,10 @@ import type { ReactNode } from 'react';
 import {
   Anchor,
   Breadcrumbs,
+  Button,
   Skeleton,
   Text,
   Title,
-  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
@@ -39,7 +39,6 @@ import {
   renderedRangeOf,
   scopeStats,
   sharedRootOf,
-  withoutLead,
   type MapGraph,
 } from './model/blockView';
 import { sectionsAt } from './model/sections';
@@ -339,11 +338,13 @@ export function BlockView({
     : (skill?.title ?? payload.skill);
   // A block or a parent reads its whole text in the document, lead and all;
   // the skill leads with its first paragraph under the title.
+  // The skill's own description; its file's first paragraph stays in the
+  // document, which reads as the file is written.
   const description =
     zoom.level !== 'skill'
       ? null
-      : ((root ? leadOf(bodyOf(root)) : null) ??
-        skill?.description ??
+      : (skill?.description ??
+        (root ? leadOf(bodyOf(root)) : null) ??
         root?.summary ??
         null);
 
@@ -384,23 +385,13 @@ export function BlockView({
   // The document reads as the file is written, its own heading included:
   // the page title is the block's short label, which can say less.
   const docBlock = owner ?? null;
-  const docText =
-    zoom.level === 'skill' && docBlock
-      ? withoutLead(docBlock, description)
-      : docBlock;
+  const docText = docBlock;
   const status =
     block || skill?.status?.tone === 'ok' ? null : (skill?.status ?? null);
 
   const actions =
     block && !readOnly ? (
       <CopyForClaude payload={payload} block={block} />
-    ) : canExpand ? (
-      <UnstyledButton
-        className={classes.graphLink}
-        onClick={() => setExpandedAt(expanded ? null : zoomKey)}
-      >
-        {expanded ? 'Collapse all' : 'Expand all'}
-      </UnstyledButton>
     ) : null;
 
   const textOf = (id: string) => {
@@ -413,12 +404,25 @@ export function BlockView({
 
   // A file holding only its heading (and its graph, which the flow row
   // opens) has nothing to read, so its card is the file's bar alone.
+  // A block rt sent no text for is not one with a heading alone: the bar
+  // says which, and points below only when there are blocks there.
+  const noText = !docText || docText.segments.length === 0;
   const headingOnly =
     !rendered &&
     (docText?.props.length ?? 0) === 0 &&
     (docText?.segments ?? []).every(
       segment => segment.text.replace(HEADING_OR_GRAPH, '').trim() === ''
     );
+  const hasChildren =
+    owner !== undefined &&
+    payload.blocks.some(candidate => candidate.parentId === owner.id);
+  const docNote = !headingOnly
+    ? null
+    : noText
+      ? 'rt sent no text for this block'
+      : hasChildren
+        ? 'a heading only: its blocks are below'
+        : 'a heading only';
   const document = (
     <DocumentCard
       payload={payload}
@@ -426,7 +430,7 @@ export function BlockView({
       rendered={rendered}
       onRendered={next => patch({ view: next ? 'rendered' : null })}
       strip={zoom.level === 'block' && !headingOnly}
-      note={headingOnly ? 'a heading only: its blocks are below' : null}
+      note={docNote}
     >
       {headingOnly ? null : rendered ? (
         <RenderedText
@@ -523,6 +527,7 @@ export function BlockView({
               onOpen={open}
               opensBlock
               limit={INSIDE_SHOWN}
+              bodyOf={textOf}
               usedByCount={usedByCount}
             />
           </section>
@@ -530,10 +535,28 @@ export function BlockView({
 
         {!rendered &&
           zoom.level === 'skill' &&
-          sectionsAt(payload, zoom).map(band => (
+          sectionsAt(payload, zoom).map((band, index) => (
             <SectionBand
               key={band.id}
               band={band}
+              action={
+                index === 0 && canExpand ? (
+                  <Button
+                    size="xs"
+                    variant="default"
+                    leftSection={
+                      <Icon
+                        name={expanded ? 'chevronUp' : 'chevronsUpDown'}
+                        size={13}
+                      />
+                    }
+                    onClick={() => setExpandedAt(expanded ? null : zoomKey)}
+                    data-testid="expand-all"
+                  >
+                    {expanded ? 'Collapse all' : 'Expand all'}
+                  </Button>
+                ) : null
+              }
               onOpen={open}
               opensBlock={payload.blocks.some(b => b.id === band.id)}
               graph={
@@ -544,7 +567,8 @@ export function BlockView({
                 />
               }
               introText={textOf(band.id)}
-              bodyOf={expanded ? textOf : undefined}
+              bodyOf={textOf}
+              allOpen={expanded}
               usedByCount={usedByCount}
             />
           ))}
@@ -598,7 +622,7 @@ function UsedBySection({
   return (
     <Section
       title="Used by"
-      meta={`${plural(sites.length, 'skill')} ${sites.length === 1 ? 'pastes' : 'paste'} this block in`}
+      meta={`${plural(sites.length, 'skill')} ${sites.length === 1 ? 'includes' : 'include'} this block`}
     >
       <UsedBy
         skill={skill}

@@ -175,6 +175,9 @@ export function flowLayout(
                   measure(exitLabel(edge.label), 11, 400) + 2 * CHIP.padX
                 ),
                 height: CHIP.height,
+                layoutOptions: {
+                  'org.eclipse.elk.edgeLabels.placement': 'HEAD',
+                },
               },
             }
           : {}),
@@ -183,7 +186,9 @@ export function flowLayout(
   return { cards, edges, order, input };
 }
 
-/** How far a label may sit from its edge's start or first bend. */
+/** How far a label may sit from its edge's end or last bend. An exit's
+    label sits by the step it leads into: a question's several exits all
+    start at one card, so labels there would pile up. */
 export const LABEL_REACH = 40;
 
 type Point = [number, number];
@@ -234,10 +239,11 @@ function turnOf(points: Point[]): 1 | -1 {
   return points[2]![0] < points[1]![0] ? -1 : 1;
 }
 
-/** Spots within LABEL_REACH of the edge's start and first bend, on a
+/** Spots within LABEL_REACH of the edge's end and last bend, on a
     SPOT_STEP grid, nearest first, and among equally near spots those on
-    the side the edge turns to first. */
-function spotsNear(points: Point[], width: number, height: number): Box[] {
+    the side the edge turns to last. */
+function spotsNear(forward: Point[], width: number, height: number): Box[] {
+  const points = [...forward].reverse();
   const turn = turnOf(points);
   const spots: { box: Box; distance: number; away: number }[] = [];
   for (const anchor of points.slice(0, points.length > 2 ? 2 : 1)) {
@@ -257,10 +263,10 @@ function spotsNear(points: Point[], width: number, height: number): Box[] {
     .map(spot => spot.box);
 }
 
-/** ELK sets a tail label in the first layer gap its edge crosses, which on
-    an edge that runs sideways first can be far down its drop. ELK's spot
-    stands when it meets the label rules: within LABEL_REACH of the start or
-    first bend, and off every line, card and label. Otherwise the label
+/** ELK sets a head label in the last layer gap its edge crosses, which on
+    an edge that runs sideways last can be far up its drop. ELK's spot
+    stands when it meets the label rules: within LABEL_REACH of the end or
+    last bend, and off every line, card and label. Otherwise the label
     moves to the nearest spot that meets them with CLEARANCE to spare, then
     to the nearest that meets them at all; with none it stays put. */
 export function placeLabels(laidOut: LaidOut): LaidOut {
@@ -268,8 +274,8 @@ export function placeLabels(laidOut: LaidOut): LaidOut {
   const lines = Object.values(laidOut.edges).map(edge => edge.points);
   const placed: Box[] = [];
   const near = (box: Box, points: Point[]) =>
-    reach(box, points[0]!) <= LABEL_REACH ||
-    (points.length > 2 && reach(box, points[1]!) <= LABEL_REACH);
+    reach(box, points.at(-1)!) <= LABEL_REACH ||
+    (points.length > 2 && reach(box, points.at(-2)!) <= LABEL_REACH);
   const inside = (box: Box) =>
     box.x >= 0 &&
     box.y >= 0 &&

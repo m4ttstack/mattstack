@@ -107,7 +107,7 @@ export function UsedBy({
   if (sites.length === 0) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-used-by">
-        {`No skill in this pack pastes ${name} in directly.`}
+        {`No skill in this pack includes ${name} directly.`}
       </Text>
     );
   }

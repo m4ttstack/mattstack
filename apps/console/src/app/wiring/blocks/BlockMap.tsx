@@ -192,12 +192,14 @@ function MapCanvas({
       : null;
     if (shown.current || width <= 0 || !target) return;
     shown.current = true;
+    // A framed map already fits: it scrolls only when the block lies
+    // outside the frame, never to centre it.
     target.scrollIntoView({
       behavior: reduceMotion ? 'instant' : 'smooth',
-      block: 'center',
-      inline: 'center',
+      block: fill ? 'nearest' : 'center',
+      inline: fill ? 'nearest' : 'center',
     });
-  }, [element, highlight, width, nodes, reduceMotion]);
+  }, [element, highlight, width, nodes, reduceMotion, fill]);
   return (
     <MapActionsContext.Provider value={actions}>
       <GraphCanvas

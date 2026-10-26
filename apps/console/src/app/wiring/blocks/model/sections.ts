@@ -160,7 +160,7 @@ function skillBands(
     const rows = shared.map(block => sharedRowOf(payload, block, selectedId));
     bands.push({
       id: 'shared',
-      title: 'Shared',
+      title: 'Includes',
       glyph: 'shared',
       icon: 'shared',
       intro: null,
