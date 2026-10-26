@@ -116,6 +116,7 @@ export const TabBar = ({
           color={color}
           radius={radius}
           h="100%"
+          classNames={{ list: classes.tabBarList }}
         >
           <Tabs.List id="page-shell-tab-bar" aria-label="Page tabs" h="100%">
             {tabs.map(tab => {

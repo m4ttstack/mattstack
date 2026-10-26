@@ -4,7 +4,6 @@ import {
   Badge,
   Group,
   Paper,
-  Skeleton,
   Stack,
   Text,
   Title,
@@ -114,7 +113,9 @@ function BlockChips({ block }: { block: HeaderBlock }) {
         data-hue={block.kind}
         data-testid="block-kind"
       >
-        {blocks ? `${KIND_WORD[block.kind]} · ${blocks}` : KIND_WORD[block.kind]}
+        {blocks
+          ? `${KIND_WORD[block.kind]} · ${blocks}`
+          : KIND_WORD[block.kind]}
       </Badge>
       {block.hasProps && (
         <Badge
@@ -142,7 +143,6 @@ export function FocusHeader({
   title,
   kind,
   description,
-  loading,
   status,
   checkError = null,
   block = null,
@@ -157,7 +157,6 @@ export function FocusHeader({
   /** The skill's kind in words; null on a block, which shows `block`'s chips. */
   kind: string | null;
   description: string | null;
-  loading: boolean;
   status: HeaderStatus | null;
   /** Why `rt skills check` failed; the status it would have given is then
       unknown, so none is drawn. */
@@ -239,9 +238,7 @@ export function FocusHeader({
           >
             {description}
           </Text>
-        ) : (
-          loading && <Skeleton height={16} width={420} />
-        )}
+        ) : null}
         {meta}
         {checkError !== null && (
           <Alert

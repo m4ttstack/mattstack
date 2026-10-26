@@ -54,7 +54,6 @@ export type SkillHeader = {
   description: string | null;
   status: HeaderStatus | null;
   checkError: string | null;
-  loading: boolean;
   /** The installed engine's version, when rt's anatomy names it. */
   version?: string | null;
 };
@@ -477,7 +476,6 @@ export function BlockView({
           title={title}
           kind={block ? null : (skill?.kind ?? null)}
           description={description}
-          loading={!block && (skill?.loading ?? false)}
           status={status}
           checkError={block ? null : (skill?.checkError ?? null)}
           block={

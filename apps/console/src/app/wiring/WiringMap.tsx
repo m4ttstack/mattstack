@@ -22,13 +22,14 @@ import { Icons } from '@mattstack/app-kit/icons';
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { useEditorHref } from '../editorHref';
 import { CommandProvenance } from '../runs/CommandProvenance';
+import { StepLoader } from '../StepLoader';
 import { DevPackSwitch } from './DevPackSwitch';
 import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
 import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
-import { HealthTab, HealthTabSkeleton } from './HealthTab';
-import { SurfaceGridSkeleton, SurfaceTab } from './SurfaceTab';
+import { HealthTab } from './HealthTab';
+import { SurfaceTab } from './SurfaceTab';
 import {
   useAttentionCount,
   useCompositionSnapshot,
@@ -241,13 +242,10 @@ export function WiringMap() {
                 />
               ) : !pack ? (
                 packsQuery.isPending ? (
-                  <div data-testid="packs-loading">
-                    {url.tab === 'surface' ? (
-                      <SurfaceGridSkeleton />
-                    ) : (
-                      <HealthTabSkeleton />
-                    )}
-                  </div>
+                  <StepLoader
+                    testId="packs-loading"
+                    steps={['rt skills packs']}
+                  />
                 ) : (
                   <Text size="sm" c={text.dimmed} data-testid="no-packs">
                     No skills packs found.

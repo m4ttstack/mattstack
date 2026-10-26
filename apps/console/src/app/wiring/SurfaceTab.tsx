@@ -8,7 +8,6 @@ import {
   GenericError,
   Group,
   Paper,
-  Skeleton,
   Stack,
   Switch,
   Text,
@@ -21,6 +20,7 @@ import { Icons } from '@mattstack/app-kit/icons';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useEditorHref } from '../editorHref';
+import { StepLoader, useHeldLoading } from '../StepLoader';
 import { suffixOf } from './outline';
 import type { SkillsSurfaceRow } from './useWiring';
 import {
@@ -274,31 +274,6 @@ function FilterChip({ label, count, active, onClick }: FilterChipProps) {
   );
 }
 
-/** Mirrors the loaded grid's two columns of switch, name and kind badge rows. */
-export function SurfaceGridSkeleton() {
-  const widths = [96, 132, 84, 120, 108, 72, 140, 90, 116, 100];
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(2, minmax(0,1fr))',
-        gap: '2px 22px',
-        padding: '12px 16px',
-      }}
-      data-testid="surface-loading"
-      aria-busy
-    >
-      {widths.map((width, i) => (
-        <Group key={i} gap={ROW_GAP} wrap="nowrap" px="sm" py={6}>
-          <Skeleton height={20} width={34} radius="xl" />
-          <Skeleton height={13} width={width} radius="sm" />
-          <Skeleton height={16} width={52} radius="xl" />
-        </Group>
-      ))}
-    </div>
-  );
-}
-
 interface SurfaceGridRowProps {
   row: SkillsSurfaceRow;
   next: 'public' | 'internal';
@@ -429,6 +404,7 @@ export interface SurfaceTabProps {
 export function SurfaceTab({ pack }: SurfaceTabProps) {
   const { bg, text, border } = useSchemeColors();
   const surfaceQuery = useSurface(pack);
+  const held = useHeldLoading(surfaceQuery.isPending);
   const { surfaceApply, writing } = useSkillsApply(pack);
   const queryClient = useQueryClient();
   // Memoized so the `?? []` fallback isn't a fresh array reference on every
@@ -553,8 +529,13 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
             onRetry={() => void surfaceQuery.refetch()}
           />
         </Box>
-      ) : surfaceQuery.isPending ? (
-        <SurfaceGridSkeleton />
+      ) : held ? (
+        <Box px={28} py={12}>
+          <StepLoader
+            testId="surface-loading"
+            steps={[`rt skills surface list --pack ${pack}`]}
+          />
+        </Box>
       ) : (
         <div
           style={{

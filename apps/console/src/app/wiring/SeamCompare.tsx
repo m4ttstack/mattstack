@@ -1,15 +1,9 @@
 import { useMemo } from 'react';
-import {
-  Alert,
-  Group,
-  Paper,
-  Skeleton,
-  Stack,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Alert, Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 
+import { StepLoader, useHeldLoading } from '../StepLoader';
 import { parseSeam, type Seam } from './parseSeam';
 import { QuietBadge } from './QuietBadge';
 import {
@@ -272,8 +266,11 @@ export function SeamCompare({
   const shown = attributed.hunks.slice(0, MAX_HUNKS);
   const ownCount = attributed.hunks.filter(h => h.thisVerb).length;
   const elsewhere = attributed.hunks.length - ownCount;
+  const held = useHeldLoading(isPending);
 
-  if (isPending) return <Skeleton height={320} data-testid="compare-loading" />;
+  if (isPending || held) {
+    return <StepLoader testId="compare-loading" steps={['git diff']} />;
+  }
 
   if (error) {
     return (

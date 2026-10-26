@@ -11,6 +11,18 @@ const STEPS_AFTER_MS = 300;
 /** Once steps show, the log stays at least this long, so it never flashes. */
 const MIN_STEPS_MS = 600;
 
+/** The steps for loads that run side by side: the ones done, ticked, then
+    the first still running. */
+export function loadSteps(
+  loads: readonly { step: string; done: boolean }[]
+): string[] {
+  const pending = loads.find(load => !load.done);
+  return [
+    ...loads.filter(load => load.done).map(load => load.step),
+    ...(pending ? [pending.step] : []),
+  ];
+}
+
 /** Whether to show the loader for `loading`. A load that ends before
     STEPS_AFTER_MS lets go at once, having shown only the cursor; a longer
     one holds the loader MIN_STEPS_MS from when its steps began. */

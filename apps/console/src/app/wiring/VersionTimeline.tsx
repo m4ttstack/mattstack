@@ -6,7 +6,6 @@ import {
   Checkbox,
   Group,
   Paper,
-  Skeleton,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
@@ -15,6 +14,7 @@ import { Icons } from '@mattstack/app-kit/icons';
 
 import { pluginRootOf } from '../../shared/pluginRoot';
 import { CommandProvenance } from '../runs/CommandProvenance';
+import { StepLoader, useHeldLoading } from '../StepLoader';
 import type { PropOutlineNode, WiringHealth } from './outline';
 import { QuietBadge } from './QuietBadge';
 import { propValueKey, type SeamSourceIndex } from './seamAttribution';
@@ -225,6 +225,7 @@ export function VersionTimeline({
   }, [verb, scopeKey]);
 
   const history = useSkillsHistory(pack, verb, paths);
+  const historyHeld = useHeldLoading(history.isPending);
   const commits = useMemo(() => history.data?.commits ?? [], [history.data]);
   const runtime = history.data?.runtime;
 
@@ -425,7 +426,7 @@ export function VersionTimeline({
               </Button>
             </Group>
 
-            {history.isPending && <Skeleton height={240} />}
+            {historyHeld && <StepLoader steps={['git log']} />}
             {history.isError && (
               <Alert
                 variant="light"
@@ -436,13 +437,13 @@ export function VersionTimeline({
                 <Text size="xs">{(history.error as Error).message}</Text>
               </Alert>
             )}
-            {history.data && commits.length === 0 && (
+            {!historyHeld && history.data && commits.length === 0 && (
               <Text size="xs" c={text.dimmed} data-testid="history-empty">
                 No commit in this repo has touched {where}.
               </Text>
             )}
 
-            {commits.length > 0 && (
+            {!historyHeld && commits.length > 0 && (
               <Paper
                 bg={bg.level3}
                 radius="sm"

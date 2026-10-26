@@ -6,13 +6,13 @@ import {
   Divider,
   Group,
   NavLink,
-  Skeleton,
   Stack,
   Switch,
   Text,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { StepLoader, useHeldLoading } from '../../StepLoader';
 import type { SkillsCheck } from '../outline';
 import classes from './graph.module.css';
 import {
@@ -389,6 +389,7 @@ export function GraphSidebar({ pack }: { pack: string }) {
   // The filter reads drift from check, so its rows wait for check to answer.
   const ready =
     shown && !(url.attention && checkQuery.isPending) ? shown : null;
+  const held = useHeldLoading(!ready);
 
   return (
     <Stack
@@ -410,12 +411,15 @@ export function GraphSidebar({ pack }: { pack: string }) {
           </Text>
         </Alert>
       )}
-      {!ready ? (
-        <Stack gap={2} data-testid="focus-list-loading">
-          {[0, 1, 2, 3, 4, 5].map(i => (
-            <Skeleton key={i} height={32} />
-          ))}
-        </Stack>
+      {!ready || held ? (
+        <StepLoader
+          testId="focus-list-loading"
+          steps={[
+            url.attention && groups
+              ? `rt skills check --pack ${pack}`
+              : `rt skills composition --pack ${pack}`,
+          ]}
+        />
       ) : url.attention && isEmpty(ready) ? (
         <AttentionEmpty check={checkQuery.data} />
       ) : (

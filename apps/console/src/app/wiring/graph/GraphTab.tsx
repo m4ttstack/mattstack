@@ -192,7 +192,6 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
           title={focused.step !== null ? focused.label : focused.skill}
           kind={kindOf(focused, pipeline)}
           description={anatomy?.description ?? null}
-          loading={anatomyQuery.isPending}
           status={statusOf(view, anatomy)}
           checkError={
             checkQuery.isError && !check

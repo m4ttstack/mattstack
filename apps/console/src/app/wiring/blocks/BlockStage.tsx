@@ -74,7 +74,6 @@ export function BlockStage({
         : statusOf(view, anatomy),
     checkError:
       checkQuery.isError && !check ? (checkQuery.error as Error).message : null,
-    loading: !board && anatomyQuery.isPending,
     version: anatomy?.template.version ?? null,
   };
 
@@ -121,7 +120,6 @@ export function BlockStage({
             description={header.description}
             status={header.status}
             checkError={header.checkError}
-            loading={header.loading}
           />
           {held && (
             <StepLoader

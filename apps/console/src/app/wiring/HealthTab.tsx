@@ -5,7 +5,6 @@ import {
   GenericError,
   Group,
   Paper,
-  Skeleton,
   Stack,
   Text,
   UnstyledButton,
@@ -14,6 +13,7 @@ import type { MantineColor } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 
+import { loadSteps, StepLoader, useHeldLoading } from '../StepLoader';
 import { InstalledCachesBar } from './InstalledCachesBar';
 import {
   buildSpine,
@@ -143,98 +143,6 @@ function StatCard({ count, label, color }: StatCardProps) {
         </Text>
       </Group>
     </Paper>
-  );
-}
-
-/** Mirrors the loaded tab's stats, caches bar and one group card, so nothing jumps when the data lands. */
-export function HealthTabSkeleton() {
-  const { bg } = useSchemeColors();
-
-  return (
-    <Stack gap={0} data-testid="health-tab-loading" aria-busy>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(0,1fr))',
-          gap: 14,
-        }}
-      >
-        {[0, 1, 2, 3].map(i => (
-          <Paper
-            key={i}
-            variant="ground"
-            withBorder
-            radius="xl"
-            style={{ padding: '15px 16px' }}
-          >
-            <Skeleton height={26} width={34} radius="sm" />
-            <Group gap={7} align="center" wrap="nowrap" mt={8}>
-              <Skeleton height={8} width={8} circle />
-              <Skeleton height={12} width={i % 2 ? 96 : 72} radius="sm" />
-            </Group>
-          </Paper>
-        ))}
-      </div>
-
-      <Paper
-        variant="ground"
-        withBorder
-        radius="xl"
-        mt={18}
-        style={{ padding: '13px 16px' }}
-      >
-        <Group gap={9} align="center" wrap="nowrap">
-          <Skeleton height={8} width={8} circle />
-          <Skeleton height={12} width={110} radius="sm" />
-          <Skeleton height={16} width={64} radius="xl" />
-          <Skeleton height={11} width={90} radius="sm" />
-          <div style={{ flex: 1 }} />
-          <Skeleton height={26} width={64} radius="sm" />
-        </Group>
-      </Paper>
-
-      <Paper
-        variant="ground"
-        withBorder
-        radius="xl"
-        mt={14}
-        style={{ overflow: 'hidden' }}
-      >
-        <Group
-          gap={9}
-          align="center"
-          wrap="nowrap"
-          bg={bg.level3}
-          style={{
-            padding: '13px 16px',
-            borderBottom: `1px solid ${SOFT_RULE}`,
-          }}
-        >
-          <Skeleton height={8} width={8} circle />
-          <Skeleton height={12} width={120} radius="sm" />
-          <div style={{ flex: 1 }} />
-          <Skeleton height={11} width={220} radius="sm" />
-        </Group>
-        {[0, 1].map(i => (
-          <Group
-            key={i}
-            gap={11}
-            align="center"
-            wrap="nowrap"
-            style={{
-              padding: '11px 16px',
-              borderTop: i ? `1px solid ${SOFT_RULE}` : undefined,
-            }}
-          >
-            <Skeleton height={13} width={i ? 64 : 48} radius="sm" />
-            <Skeleton height={11} width={i ? 120 : 104} radius="sm" />
-            <div style={{ flex: 1 }} />
-            <Skeleton height={11} width={64} radius="sm" />
-            <Skeleton height={26} width={112} radius="sm" />
-          </Group>
-        ))}
-      </Paper>
-    </Stack>
   );
 }
 
@@ -464,6 +372,7 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
     () => (spine ? computeHealthGroups(spine) : null),
     [spine]
   );
+  const held = useHeldLoading(!groups);
 
   if (compositionQuery.isError) {
     return (
@@ -485,8 +394,22 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
     );
   }
 
-  if (!groups) {
-    return <HealthTabSkeleton />;
+  if (!groups || held) {
+    return (
+      <StepLoader
+        testId="health-tab-loading"
+        steps={loadSteps([
+          {
+            step: `rt skills composition --pack ${pack}`,
+            done: Boolean(compositionQuery.data),
+          },
+          {
+            step: `rt skills check --pack ${pack}`,
+            done: Boolean(checkQuery.data),
+          },
+        ])}
+      />
+    );
   }
 
   const openSkill = (verb: string | null) => {
