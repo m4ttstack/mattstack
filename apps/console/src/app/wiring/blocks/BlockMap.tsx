@@ -5,7 +5,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
-import { useHeldLoading } from '../../StepLoader';
+import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import {
@@ -461,7 +461,7 @@ export function BlockMap({
   ]);
 
   const loading = !(laidOut && shown);
-  const held = useHeldLoading(loading);
+  const { show: held, bind: heldBind } = useStepLoading(loading);
 
   return (
     <GraphPage
@@ -499,6 +499,7 @@ export function BlockMap({
         />
       ) : (
         <GraphLoading
+          bind={heldBind}
           height={320}
           testId="map-loading"
           steps={['laying out the map']}

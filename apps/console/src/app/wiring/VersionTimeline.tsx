@@ -14,7 +14,7 @@ import { Icons } from '@mattstack/app-kit/icons';
 
 import { pluginRootOf } from '../../shared/pluginRoot';
 import { CommandProvenance } from '../runs/CommandProvenance';
-import { StepLoader, useHeldLoading } from '../StepLoader';
+import { StepLoader, useStepLoading } from '../StepLoader';
 import type { PropOutlineNode, WiringHealth } from './outline';
 import { QuietBadge } from './QuietBadge';
 import { propValueKey, type SeamSourceIndex } from './seamAttribution';
@@ -225,7 +225,9 @@ export function VersionTimeline({
   }, [verb, scopeKey]);
 
   const history = useSkillsHistory(pack, verb, paths);
-  const historyHeld = useHeldLoading(history.isPending);
+  const { show: historyHeld, bind: historyBind } = useStepLoading(
+    history.isPending
+  );
   const commits = useMemo(() => history.data?.commits ?? [], [history.data]);
   const runtime = history.data?.runtime;
 
@@ -426,7 +428,7 @@ export function VersionTimeline({
               </Button>
             </Group>
 
-            {historyHeld && <StepLoader steps={['git log']} />}
+            {historyHeld && <StepLoader {...historyBind} steps={['git log']} />}
             {history.isError && (
               <Alert
                 variant="light"

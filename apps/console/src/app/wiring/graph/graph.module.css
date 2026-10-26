@@ -74,6 +74,11 @@
 }
 
 /* The stage's own middle, wherever the canvas would have been. */
+.canvasLoading {
+  position: absolute;
+  inset: 0;
+}
+
 .canvasError {
   position: absolute;
   inset: 0;
@@ -153,7 +158,11 @@
 }
 
 .chip[data-hue='gate'] {
-  --badge-bg: color-mix(in srgb, var(--tk-fill-bad) var(--ui-wash), transparent);
+  --badge-bg: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--ui-wash),
+    transparent
+  );
   --badge-bd: 1px solid transparent;
 }
 

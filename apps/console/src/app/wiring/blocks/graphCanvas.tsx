@@ -33,7 +33,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 
-import { StepLoader } from '../../StepLoader';
+import { StepLoader, type StepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
@@ -353,17 +353,19 @@ export function GraphCanvas({
 }
 
 export function GraphLoading({
+  bind,
   height,
   testId,
   steps,
 }: {
+  bind: StepLoading['bind'];
   height: number;
   testId: string;
   steps: readonly string[];
 }) {
   return (
     <div style={{ height }}>
-      <StepLoader placement="centre" testId={testId} steps={steps} />
+      <StepLoader {...bind} placement="centre" testId={testId} steps={steps} />
     </div>
   );
 }

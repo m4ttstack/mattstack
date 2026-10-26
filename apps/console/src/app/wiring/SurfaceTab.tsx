@@ -20,7 +20,7 @@ import { Icons } from '@mattstack/app-kit/icons';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useEditorHref } from '../editorHref';
-import { StepLoader, useHeldLoading } from '../StepLoader';
+import { StepLoader, useStepLoading } from '../StepLoader';
 import { suffixOf } from './outline';
 import type { SkillsSurfaceRow } from './useWiring';
 import {
@@ -404,7 +404,7 @@ export interface SurfaceTabProps {
 export function SurfaceTab({ pack }: SurfaceTabProps) {
   const { bg, text, border } = useSchemeColors();
   const surfaceQuery = useSurface(pack);
-  const held = useHeldLoading(surfaceQuery.isPending);
+  const { show: held, bind: heldBind } = useStepLoading(surfaceQuery.isPending);
   const { surfaceApply, writing } = useSkillsApply(pack);
   const queryClient = useQueryClient();
   // Memoized so the `?? []` fallback isn't a fresh array reference on every
@@ -532,6 +532,7 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
       ) : held ? (
         <Box px={28} py={12}>
           <StepLoader
+            {...heldBind}
             testId="surface-loading"
             steps={[`rt skills surface list --pack ${pack}`]}
           />

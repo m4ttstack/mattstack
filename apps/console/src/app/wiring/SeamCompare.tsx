@@ -3,7 +3,7 @@ import { Alert, Group, Paper, Stack, Text } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 
-import { StepLoader, useHeldLoading } from '../StepLoader';
+import { StepLoader, useStepLoading } from '../StepLoader';
 import { parseSeam, type Seam } from './parseSeam';
 import { QuietBadge } from './QuietBadge';
 import {
@@ -266,10 +266,12 @@ export function SeamCompare({
   const shown = attributed.hunks.slice(0, MAX_HUNKS);
   const ownCount = attributed.hunks.filter(h => h.thisVerb).length;
   const elsewhere = attributed.hunks.length - ownCount;
-  const held = useHeldLoading(isPending);
+  const { show: held, bind: heldBind } = useStepLoading(isPending);
 
   if (isPending || held) {
-    return <StepLoader testId="compare-loading" steps={['git diff']} />;
+    return (
+      <StepLoader {...heldBind} testId="compare-loading" steps={['git diff']} />
+    );
   }
 
   if (error) {

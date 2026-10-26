@@ -9,6 +9,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { loadSteps, StepLoader, useStepLoading } from '../../StepLoader';
 import { BlockSidebar } from '../blocks/BlockSidebar';
 import { BlockStage } from '../blocks/BlockStage';
 import { FailureText } from '../FailureText';
@@ -106,6 +107,12 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
     [pipeline]
   );
   const header = useBottomInStage();
+  const failed =
+    (compositionQuery.isError && !composition) ||
+    (anatomyQuery.isError && !anatomy);
+  const { show: held, bind: heldBind } = useStepLoading(
+    focused !== null && !failed && !(view && layout)
+  );
 
   return (
     <Box
@@ -170,7 +177,26 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
           </Alert>
         </Center>
       )}
-      {view && layout && (
+      {held && focused && (
+        <div className={classes.canvasLoading}>
+          <StepLoader
+            {...heldBind}
+            placement="centre"
+            testId="canvas-loading"
+            steps={loadSteps([
+              {
+                step: `rt skills composition --pack ${pack}`,
+                done: Boolean(composition),
+              },
+              {
+                step: `rt skills anatomy --skill ${focused.skill}`,
+                done: Boolean(anatomy),
+              },
+            ])}
+          />
+        </div>
+      )}
+      {!held && view && layout && (
         <Suspense fallback={null}>
           <TemplateCanvas
             key={view.skill}

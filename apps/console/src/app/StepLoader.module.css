@@ -17,13 +17,14 @@
 }
 
 .frame[data-placement='centre'] .log {
-  min-width: 300px;
+  min-width: min(300px, 100%);
 }
 
 .line {
   position: relative;
   padding-left: 2.2ch;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   transition: color 320ms ease;
 }
 
@@ -66,12 +67,12 @@
 
 @keyframes stepLoaderLineIn {
   from {
-    height: 0;
+    max-height: 0;
     opacity: 0;
     transform: translateY(5px);
   }
   to {
-    height: 1.9em;
+    max-height: 10em;
     opacity: 1;
     transform: none;
   }

@@ -11,7 +11,7 @@ import { useReducedMotion } from '@mattstack/app-kit/hooks';
 import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
-import { useHeldLoading } from '../../StepLoader';
+import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import {
@@ -236,7 +236,7 @@ export function FlowGraph({
     () => (laidOut ? placeLabels(laidOut) : null),
     [laidOut]
   );
-  const held = useHeldLoading(!placed || !shown);
+  const { show: held, bind: heldBind } = useStepLoading(!placed || !shown);
 
   if (layout === null) {
     return (
@@ -249,6 +249,7 @@ export function FlowGraph({
   if (!placed || !shown || held) {
     return (
       <GraphLoading
+        bind={heldBind}
         height={loadingHeight}
         testId="flow-loading"
         steps={['laying out the flow']}

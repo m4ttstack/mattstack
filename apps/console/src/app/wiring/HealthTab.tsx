@@ -13,7 +13,7 @@ import type { MantineColor } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 
-import { loadSteps, StepLoader, useHeldLoading } from '../StepLoader';
+import { loadSteps, StepLoader, useStepLoading } from '../StepLoader';
 import { InstalledCachesBar } from './InstalledCachesBar';
 import {
   buildSpine,
@@ -372,7 +372,7 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
     () => (spine ? computeHealthGroups(spine) : null),
     [spine]
   );
-  const held = useHeldLoading(!groups);
+  const { show: held, bind: heldBind } = useStepLoading(!groups);
 
   if (compositionQuery.isError) {
     return (
@@ -397,6 +397,7 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
   if (!groups || held) {
     return (
       <StepLoader
+        {...heldBind}
         testId="health-tab-loading"
         steps={loadSteps([
           {

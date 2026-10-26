@@ -10,7 +10,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import { StepLoader, useHeldLoading } from '../../StepLoader';
+import { StepLoader, useStepLoading } from '../../StepLoader';
 import { FailureText } from '../FailureText';
 import { FocusHeader, statusOf } from '../graph/FocusHeader';
 import { workTypeOf, type FocusItem } from '../graph/model/focusModel';
@@ -42,7 +42,9 @@ export function BlockStage({
   const changes = usePendingChanges(pack).data;
   const anatomy = anatomyQuery.data;
   const skill = useSkillBlocks(pack, focused, composition);
-  const held = useHeldLoading(skill.state === 'loading');
+  const { show: held, bind: heldBind } = useStepLoading(
+    skill.state === 'loading'
+  );
 
   const view = useMemo(() => {
     if (!anatomy || !composition) return null;
@@ -123,6 +125,7 @@ export function BlockStage({
           />
           {held && (
             <StepLoader
+              {...heldBind}
               testId="block-view-loading"
               steps={[
                 board

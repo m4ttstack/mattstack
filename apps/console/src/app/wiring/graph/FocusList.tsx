@@ -12,7 +12,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import { StepLoader, useHeldLoading } from '../../StepLoader';
+import { StepLoader, useStepLoading } from '../../StepLoader';
 import type { SkillsCheck } from '../outline';
 import classes from './graph.module.css';
 import {
@@ -389,7 +389,7 @@ export function GraphSidebar({ pack }: { pack: string }) {
   // The filter reads drift from check, so its rows wait for check to answer.
   const ready =
     shown && !(url.attention && checkQuery.isPending) ? shown : null;
-  const held = useHeldLoading(!ready);
+  const { show: held, bind: heldBind } = useStepLoading(!ready);
 
   return (
     <Stack
@@ -413,6 +413,7 @@ export function GraphSidebar({ pack }: { pack: string }) {
       )}
       {!ready || held ? (
         <StepLoader
+          {...heldBind}
           testId="focus-list-loading"
           steps={[
             url.attention && groups

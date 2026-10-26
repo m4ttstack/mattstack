@@ -13,7 +13,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../server/blocksPayload';
-import { StepLoader, useHeldLoading } from '../../StepLoader';
+import { StepLoader, useStepLoading } from '../../StepLoader';
 import { FocusHeader, type HeaderStatus } from '../graph/FocusHeader';
 import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
 import type { BlockGraphSelect, WiringUrl } from '../graph/useWiringUrl';
@@ -222,7 +222,9 @@ function RenderedText({
   range: [number, number] | null;
 }) {
   const source = useSkillSource(pack, path);
-  const held = useHeldLoading(path !== null && source.isPending);
+  const { show: held, bind: heldBind } = useStepLoading(
+    path !== null && source.isPending
+  );
   if (!path) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
@@ -238,7 +240,9 @@ function RenderedText({
     );
   }
   if (!source.data || held) {
-    return <StepLoader steps={[`reading ${path.split('/').at(-1)}`]} />;
+    return (
+      <StepLoader {...heldBind} steps={[`reading ${path.split('/').at(-1)}`]} />
+    );
   }
   const lines = source.data.content.split('\n');
   const shown = range ? lines.slice(range[0] - 1, range[1]) : lines;
