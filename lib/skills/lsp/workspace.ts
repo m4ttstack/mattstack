@@ -36,7 +36,8 @@ const INDEX = "index.block.md";
 const MANIFEST = "skills.jsonc";
 const BLOCK_SUFFIX = ".block.md";
 const PLUGIN_JSON = join(".claude-plugin", "plugin.json");
-const SKIP_DIRS = new Set(["node_modules"]);
+// A repo's test fixtures and example manifests bind packs that are not really there.
+const SKIP_DIRS = new Set(["node_modules", "__tests__", "fixtures", "examples"]);
 
 const diskRead = (p: string) => readFileSync(p, "utf8");
 
@@ -48,7 +49,7 @@ function listDir(dir: string) {
   }
 }
 
-/** Every directory under `root`, root included, skipping dot and dependency folders. */
+/** Every directory under `root`, root included, skipping dot, dependency, fixture and example folders. */
 function walkDirs(root: string): string[] {
   const out: string[] = [];
   const visit = (dir: string) => {

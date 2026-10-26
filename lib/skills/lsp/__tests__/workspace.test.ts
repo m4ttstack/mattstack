@@ -269,6 +269,21 @@ describe("Workspace plugin discovery", () => {
     expect(ws.plugins()).toEqual([]);
   });
 
+  test("test fixtures and example manifests are not discovered, but an opened one is still checked", () => {
+    const stray = [join(pack, "__tests__/case/skills.jsonc"), join(pack, "fixtures/repo/skills.jsonc"), join(plugin, "plugin/examples/skills.jsonc")];
+    for (const file of stray) {
+      mkdirSync(join(file, ".."), { recursive: true });
+      writeFileSync(file, nopeManifest());
+    }
+    mkdirSync(join(tmp, "fixtures/ghost/.claude-plugin"), { recursive: true });
+    writeFileSync(join(tmp, "fixtures/ghost/.claude-plugin/plugin.json"), JSON.stringify({ name: "ghost", version: "0.1.0" }));
+    const ws = new Workspace([tmp]);
+    expect(allDiagnostics(ws)).toEqual([]);
+    expect(ws.plugins().map((p) => p.name).sort()).toEqual(["mattstack", "widgets"]);
+    ws.open(stray[2]!, nopeManifest());
+    expect(ws.analysis().diagnostics.get(stray[2]!)?.map((d) => d.code)).toEqual(["missing-block"]);
+  });
+
   test("refresh follows a folder moved on disk, carrying its open documents to the new path", () => {
     const ws = new Workspace([plugin, pack]);
     const run = join(mini, "run");
