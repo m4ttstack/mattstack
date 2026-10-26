@@ -4,7 +4,9 @@
  * compared with the boards without rt, git or a real pack on the machine.
  * `CONSOLE_FIXTURE_SCENARIO=unsynced` serves the pack after a rebind that has
  * not been synced yet; `scenarios.ts` lists the others, each a state no board
- * draws.
+ * draws. Every scenario answers `rt skills blocks` from `blocks.<skill>.json`,
+ * with rt's refusal for a skill it will not build (`BLOCKS_REFUSED`, which
+ * its anatomy gets too), and any other skill as not a block tree.
  *
  * Files the routes read live under `files/`, at their path below `/fixture`.
  * Everything is read at call time, so nothing here is bundled into the app.
@@ -18,6 +20,7 @@ import { GIT_LOG_FORMAT, type GitCommit } from '../../gitLog';
 import type { RunRt } from '../../rt-bin';
 import type { ReadPackFile } from '../../skills';
 import {
+  BLOCKS_REFUSED,
   isFailure,
   isScenario,
   scenarioOf,
@@ -33,6 +36,9 @@ export interface FixtureRt {
   runGit: RunGit;
   readPackFile: ReadPackFile;
   realpath: (path: string) => Promise<string>;
+  /** Where the apps installed their skills: the fixture's own, never the
+      machine's `~/.claude/skills`. */
+  skillsDir: () => string;
 }
 
 const FIXTURE_PACK = 'acme';
@@ -45,6 +51,28 @@ const SKILLS_WITH_ANATOMY = new Set([
   'stage-evidence',
   'stage-evidence--accessibility',
 ]);
+
+/** The skill names a fixture file, so only a plain skill name reaches the
+    disk. */
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+const NOT_A_BLOCK_TREE = JSON.stringify({
+  contract: 1,
+  at: '2026-10-22T00:00:00.000Z',
+  error: {
+    code: 'not-a-block-tree',
+    message: 'The plain skill is not built from blocks',
+  },
+});
+
+const STALE_ENGINE = JSON.stringify({
+  contract: 1,
+  at: '2026-10-22T00:00:00.000Z',
+  error: {
+    code: 'stale-engine',
+    message: 'The installed mattstack plugin is older than this rt',
+  },
+});
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const FILES = join(HERE, 'files');
@@ -179,9 +207,6 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     }
     if (flagValue(argv, '--pack') !== FIXTURE_PACK) return refuse(argv);
 
-    if (verb === 'bind' && argv.length === 7) return answer('');
-    if (verb === 'bind' && argv.length === 9 && flagValue(argv, '--pipeline'))
-      return answer('');
     if (!argv.includes('--json')) return refuse(argv);
     switch (verb) {
       case 'composition':
@@ -200,9 +225,26 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         const own = skill ? def.anatomy?.[skill] : undefined;
         if (isFailure(own)) return fail(own);
         if (own) return answer(await payload(own.file, own.edit));
+        // rt compiles a skill for its anatomy as for its blocks, so a skill
+        // it will not build refuses both the same way.
+        const refused = skill ? BLOCKS_REFUSED[skill] : undefined;
+        if (refused) return fail(refused);
         if (!skill || !SKILLS_WITH_ANATOMY.has(skill)) return refuse(argv);
         const variant = unsynced && skill === 'stage-plan' ? '.unsynced' : '';
         return answer(await readJsonText(`anatomy.${skill}${variant}.json`));
+      }
+      case 'blocks': {
+        const skill = flagValue(argv, '--skill');
+        if (!skill || !SKILL_NAME.test(skill)) return refuse(argv);
+        const refused = def.blocks?.[skill] ?? BLOCKS_REFUSED[skill];
+        if (refused) return fail(refused);
+        try {
+          const blocks = await readJsonText(`blocks.${skill}.json`);
+          return def.staleEngine ? answer(STALE_ENGINE, 1) : answer(blocks);
+        } catch {
+          // rt's refusal for a skill that is not a block tree: the envelope on stdout, exit 1.
+          return answer(NOT_A_BLOCK_TREE, 1);
+        }
       }
       case 'changes':
         if (def.changes) return fail(def.changes);
@@ -235,9 +277,18 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         stderr: `fatal: not a git repository: ${dir}`,
       };
     }
-    const history = await readJson<History>('history.json');
+    const read = await readJson<History>('history.json');
+    const history = {
+      ...read,
+      commits: [...(def.history?.commits ?? []), ...read.commits],
+    };
     const dashDash = rest.indexOf('--');
     const scope = dashDash === -1 ? '.' : (rest[dashDash + 1] ?? '.');
+    // The route hands a block's files over as literal pathspecs.
+    const scopes =
+      dashDash === -1
+        ? ['.']
+        : rest.slice(dashDash + 1).map(spec => spec.replace(/^:\([^)]*\)/, ''));
     switch (command) {
       case 'rev-parse':
         return rest[0] === '--show-toplevel'
@@ -249,8 +300,10 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         );
         const inScope = history.commits.filter(
           c =>
-            scope === '.' ||
-            c.files.some(f => f === scope || f.startsWith(`${scope}/`))
+            scopes.includes('.') ||
+            c.files.some(f =>
+              scopes.some(at => f === at || f.startsWith(`${at}/`))
+            )
         );
         return answer(
           formatLog(Number.isFinite(max) ? inScope.slice(0, max) : inScope)
@@ -295,5 +348,11 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     return posix.normalize(path);
   };
 
-  return { runRt, runGit, readPackFile, realpath };
+  return {
+    runRt,
+    runGit,
+    readPackFile,
+    realpath,
+    skillsDir: () => `${FIXTURE_ROOT}/claude/skills`,
+  };
 }

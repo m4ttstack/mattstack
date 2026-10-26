@@ -1,0 +1,4 @@
+1. `run_field_get {key: mode}`, `worktree_provision {precheck: true}`, then `worktree_provision {codes: true, runDb, stage: provision, budget}`. `EnterWorktree` follows as a built-in tool, not MCP. The stage ends there with no gate, assuming the result comes back `recorded: true`, which is why no `run_field_set` is needed.
+2. Yes, because the Follow the domain's provision flow section is inlined and it provisions a tree rather than raising a question, so it leads to the precheck.
+3. Not shown. With a domain flow inlined, the `sameTicket` tree is not offered, so the precheck finds nothing in the way.
+4. None, because the gate is never presented, so the `squad` question never appears either.

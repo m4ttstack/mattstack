@@ -1,0 +1,20 @@
+// CI-only verb roster. The plugin job copies it over a temp pack copy's
+// pack/stubs.jsonc so a real compile writes every engine that carries a graph;
+// pack/stubs.jsonc stays the plugin's shipped roster. Stages and includes
+// compile through work and the engines that include them.
+{
+  "verbs": {
+    "shepherdr": { "engine": "shepherdr", "description": "CI graph roster: shepherdr" },
+    "work": { "engine": "work", "pipeline": "feature","description": "CI graph roster: work and its pipeline stages" },
+    "ship": { "engine": "ship", "description": "CI graph roster: ship" },
+    "watch-ci": { "engine": "watch-ci", "description": "CI graph roster: watch-ci" },
+    "review": { "engine": "review", "description": "CI graph roster: review" },
+    "self-review": { "engine": "self-review", "description": "CI graph roster: self-review" },
+    "receive-review": { "engine": "receive-review", "description": "CI graph roster: receive-review" },
+    "checkout": { "engine": "checkout", "description": "CI graph roster: checkout" },
+    "rebase-worktree": { "engine": "rebase-worktree", "description": "CI graph roster: rebase-worktree" },
+    "sync-open-mrs": { "engine": "sync-open-mrs", "description": "CI graph roster: sync-open-mrs" },
+    "map-open-mrs": { "engine": "map-open-mrs", "description": "CI graph roster: map-open-mrs, the verb sync-open-mrs names" },
+    "checkout-and-open": { "engine": "checkout-and-open", "description": "CI graph roster: checkout-and-open" }
+  }
+}

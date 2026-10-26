@@ -1,0 +1,4 @@
+1. `run_field_get`, `worktree_provision` (precheck: true), `gate_ask`
+2. Yes, because the domain's slug rule is inlined under "Follow the domain's provision flow", so mode `interactive` routes into it.
+3. Not shown. A domain rule is inlined, so the `sameTicket` tree isn't offered as a resume option (the domain asks its own slug-reuse question), and with no `attached` tree and no surviving branch there is nothing else to offer.
+4. The domain's own reuse-the-slug question (its id isn't specified by the rules) and `next`; there is no `resume_in`, `ticket` or `slug`.

@@ -22,9 +22,42 @@ function verb(name: string, over: Partial<SpineComposition['verbs'][number]>) {
     public: true,
     sourcePath: `/steps/${name}/SKILL.md`,
     artifactPath: `/p/skills/${name}`,
-    slots: [],
+    props: {},
+    includes: [],
     ...over,
   } as SpineComposition['verbs'][number];
+}
+
+type Prop = SpineComposition['verbs'][number]['props'][string][number];
+type Value = Prop['values'][number];
+
+function value(boundTo: string, over: Partial<Value> = {}): Value {
+  return {
+    boundTo,
+    layer: 'pack',
+    fillSourcePath: `/fills/${boundTo}`,
+    fillVersion: '0.8.0',
+    registered: false,
+    inlined: true,
+    ...over,
+  };
+}
+
+function prop(
+  name: string,
+  contract: string,
+  values: Value[],
+  over: Partial<Prop> = {}
+): Prop {
+  return {
+    name,
+    merge: 'replace',
+    contract,
+    required: false,
+    default: '',
+    values,
+    ...over,
+  };
 }
 
 function fill(binding: string, provides: string) {
@@ -42,32 +75,22 @@ function fill(binding: string, provides: string) {
 const PACK: SpineComposition = {
   verbs: [
     verb('work', {
-      slots: [
-        {
-          name: 'tiering',
-          contract: 'model-tiering@1',
-          required: false,
-          boundTo: 'mattstack:model-tiering',
-          fillSourcePath: '/fills/mattstack:model-tiering',
-          fillVersion: '0.8.0',
-          registered: false,
-          inlined: true,
-        },
-      ],
+      props: {
+        work: [
+          prop('tiering', 'model-tiering@1', [
+            value('mattstack:model-tiering'),
+          ]),
+        ],
+      },
     }),
     verb('ship', {
-      slots: [
-        {
-          name: 'domain',
-          contract: 'ship-domain@1',
-          required: false,
-          boundTo: 'demo:ship-domain',
-          fillSourcePath: '/fills/demo:ship-domain',
-          fillVersion: '1.0.0',
-          registered: false,
-          inlined: true,
-        },
-      ],
+      props: {
+        ship: [
+          prop('domain', 'ship-domain@1', [
+            value('demo:ship-domain', { fillVersion: '1.0.0' }),
+          ]),
+        ],
+      },
     }),
     // Binds nothing, so rt emits no binder for it and no pipeline names it.
     verb('rebase-worktree', {}),
@@ -84,37 +107,41 @@ const PACK: SpineComposition = {
       ref: 'mattstack:work',
       verb: 'work',
       kind: 'verb',
-      slots: [{ name: 'tiering', boundTo: 'mattstack:model-tiering' }],
+      props: [
+        { name: 'tiering', boundTo: 'mattstack:model-tiering', layer: null },
+      ],
     },
     {
       ref: 'mattstack:stage-provision',
       verb: null,
       kind: 'stage',
-      slots: [{ name: 'domain', boundTo: 'demo:work-provision' }],
+      props: [{ name: 'domain', boundTo: 'demo:work-provision', layer: null }],
     },
     {
       ref: 'mattstack:stage-ship',
       verb: null,
       kind: 'stage',
-      slots: [{ name: 'domain', boundTo: 'demo:ship-domain' }],
+      props: [{ name: 'domain', boundTo: 'demo:ship-domain', layer: null }],
     },
     {
       ref: 'mattstack:ship',
       verb: 'ship',
       kind: 'verb',
-      slots: [{ name: 'domain', boundTo: 'demo:ship-domain' }],
+      props: [{ name: 'domain', boundTo: 'demo:ship-domain', layer: null }],
     },
     {
       ref: 'mattstack:review-core',
       verb: null,
       kind: 'skill',
-      slots: [{ name: 'criteria', boundTo: 'demo:work-provision' }],
+      props: [
+        { name: 'criteria', boundTo: 'demo:work-provision', layer: null },
+      ],
     },
     {
       ref: 'board:review',
       verb: null,
       kind: 'external',
-      slots: [{ name: 'skill', boundTo: 'demo:mr-board-review' }],
+      props: [{ name: 'skill', boundTo: 'demo:mr-board-review', layer: null }],
     },
   ],
   pipelines: {
@@ -151,11 +178,11 @@ describe('buildSpine: the run order comes from pipelines and nowhere else', () =
     ]);
   });
 
-  it('a stage no binder covers still gets its numbered row, with no slots', () => {
+  it('a stage no binder covers still gets its numbered row, with no props', () => {
     const stage = buildSpine(PACK, EMPTY_CHECK).stages[1];
 
     expect(stage.ref).toBe('mattstack:stage-implement');
-    expect(stage.slots).toEqual([]);
+    expect(stage.props).toEqual([]);
   });
 
   it('tells an rt with no pipelines field apart from a pack with no pipelines', () => {
@@ -237,21 +264,23 @@ describe('buildSpine: a roster verb no binder names', () => {
   });
 });
 
-describe('buildSpine: slots', () => {
-  it("shows a binder-only slot's contract as what the bound fill provides", () => {
+describe('buildSpine: props', () => {
+  it("shows a binder-only prop's contract as what the bound fill provides", () => {
     const stage = buildSpine(PACK, EMPTY_CHECK).stages[0];
 
-    expect(stage.slots).toEqual([
+    expect(stage.props).toEqual([
       expect.objectContaining({
+        key: 'stage-provision.domain',
+        block: 'stage-provision',
         name: 'domain',
         contract: 'provision-domain@1',
         required: null,
-        boundTo: 'demo:work-provision',
+        values: [expect.objectContaining({ boundTo: 'demo:work-provision' })],
       }),
     ]);
   });
 
-  it('leaves a binder-only slot contract null when no fill answers it, rather than inventing one', () => {
+  it('leaves a binder-only prop contract null when no fill answers it, rather than inventing one', () => {
     const composition: SpineComposition = {
       ...PACK,
       binders: [
@@ -259,84 +288,193 @@ describe('buildSpine: slots', () => {
           ref: 'mattstack:stage-provision',
           verb: null,
           kind: 'stage',
-          slots: [{ name: 'domain', boundTo: 'demo:vanished' }],
+          props: [{ name: 'domain', boundTo: 'demo:vanished', layer: null }],
         },
       ],
     };
 
-    expect(buildSpine(composition, EMPTY_CHECK).stages[0].slots[0]).toEqual(
-      expect.objectContaining({ contract: null, fill: null })
-    );
+    const domain = buildSpine(composition, EMPTY_CHECK).stages[0].props[0];
+    expect(domain?.contract).toBeNull();
+    expect(domain?.values[0]?.fill).toBeNull();
   });
 
-  it('a slot with a resolveError carries the error through, not a fill', () => {
+  it('a prop with a resolveError carries the error through, not a fill', () => {
     const composition: SpineComposition = {
       ...PACK,
       verbs: [
         verb('work', {
-          slots: [
-            {
-              name: 'tiering',
-              contract: 'model-tiering@1',
-              required: true,
-              boundTo: 'mattstack:missing',
-              fillSourcePath: null,
-              fillVersion: null,
-              registered: null,
-              inlined: null,
-              resolveError: 'no fill provides model-tiering@1',
-            },
-          ],
+          props: {
+            work: [
+              prop(
+                'tiering',
+                'model-tiering@1',
+                [
+                  value('mattstack:missing', {
+                    fillSourcePath: null,
+                    fillVersion: null,
+                    registered: null,
+                    inlined: null,
+                    resolveError: 'no fill provides model-tiering@1',
+                  }),
+                ],
+                { required: true, default: null }
+              ),
+            ],
+          },
         }),
       ],
     };
 
-    const slot = buildSpine(composition, EMPTY_CHECK).orchestrator?.slots[0];
-    expect(slot?.resolveError).toBe('no fill provides model-tiering@1');
-    expect(slot?.fill).toBeNull();
+    const tiering = buildSpine(composition, EMPTY_CHECK).orchestrator?.props[0];
+    expect(tiering?.values[0]?.resolveError).toBe(
+      'no fill provides model-tiering@1'
+    );
+    expect(tiering?.values[0]?.fill).toBeNull();
   });
 
-  it('carries the layer that set a verb slot, and null where rt states none', () => {
-    const composition: SpineComposition = {
-      ...PACK,
-      verbs: PACK.verbs.map(v =>
-        v.name === 'work'
-          ? { ...v, slots: [{ ...v.slots[0], layer: 'base:acme-base' }] }
-          : v
-      ),
-    };
-    const spine = buildSpine(composition, EMPTY_CHECK);
-
-    expect(spine.orchestrator?.slots[0].layer).toBe('base:acme-base');
-    expect(
-      buildSpine(PACK, EMPTY_CHECK).orchestrator?.slots[0].layer
-    ).toBeNull();
-    expect(spine.stages[0].slots[0].layer).toBeNull();
-    const external = spine.outside.find(e => e.key === 'external:board');
-    expect(external?.slots.map(s => s.layer)).toEqual([null]);
-  });
-});
-
-describe('buildSpine: base slots', () => {
-  it('keeps the origin and base of a slot filled from an org base', () => {
+  it('carries the layer that set a verb prop, and null for a binder-only one', () => {
     const composition: SpineComposition = {
       ...PACK,
       verbs: PACK.verbs.map(v =>
         v.name === 'work'
           ? {
               ...v,
-              slots: [
-                { ...v.slots[0], origin: 'base' as const, base: 'acme-base' },
-              ],
+              props: {
+                work: [
+                  prop('tiering', 'model-tiering@1', [
+                    value('mattstack:model-tiering', {
+                      layer: 'base:acme-base',
+                    }),
+                  ]),
+                ],
+              },
             }
           : v
       ),
     };
-    const slot = buildSpine(composition, EMPTY_CHECK).orchestrator?.slots[0];
+    const spine = buildSpine(composition, EMPTY_CHECK);
 
-    expect(slot?.origin).toBe('base');
-    expect(slot?.base).toBe('acme-base');
-    const plain = buildSpine(PACK, EMPTY_CHECK).orchestrator?.slots[0];
+    expect(spine.orchestrator?.props[0]?.values[0]?.layer).toBe(
+      'base:acme-base'
+    );
+    expect(
+      buildSpine(PACK, EMPTY_CHECK).orchestrator?.props[0]?.values[0]?.layer
+    ).toBe('pack');
+    expect(spine.stages[0].props[0]?.values[0]?.layer).toBeNull();
+    const external = spine.outside.find(e => e.key === 'external:board');
+    expect(external?.props.map(p => p.values[0]?.layer)).toEqual([null]);
+  });
+
+  it('keeps every value of an add prop, in order', () => {
+    const composition: SpineComposition = {
+      ...PACK,
+      verbs: [
+        verb('work', {
+          props: {
+            work: [
+              prop(
+                'rules',
+                'rules@1',
+                [
+                  value('mattstack:model-tiering', { layer: 'base:acme-base' }),
+                  value('demo:ship-domain'),
+                ],
+                { merge: 'add' }
+              ),
+            ],
+          },
+        }),
+      ],
+    };
+
+    expect(
+      buildSpine(composition, EMPTY_CHECK).orchestrator?.props[0]?.values.map(
+        v => [v.boundTo, v.layer]
+      )
+    ).toEqual([
+      ['mattstack:model-tiering', 'base:acme-base'],
+      ['demo:ship-domain', 'pack'],
+    ]);
+  });
+
+  it("reads a nested block's props from that block's binder, on its skill's row", () => {
+    const composition: SpineComposition = {
+      ...PACK,
+      verbs: [
+        ...PACK.verbs,
+        verb('review', {
+          props: {
+            'review/gate': [
+              prop('tiering', 'model-tiering@1', [
+                value('mattstack:model-tiering'),
+              ]),
+            ],
+          },
+        }),
+      ],
+      binders: [
+        ...PACK.binders!,
+        {
+          ref: 'mattstack:review/gate',
+          verb: null,
+          kind: 'skill',
+          props: [
+            {
+              name: 'tiering',
+              boundTo: 'mattstack:model-tiering',
+              layer: 'pack',
+            },
+          ],
+        },
+      ],
+    };
+    const spine = buildSpine(composition, EMPTY_CHECK);
+
+    expect(spine.outside.map(e => e.key)).toContain('mattstack:review');
+    expect(spine.outside.map(e => e.key)).not.toContain(
+      'mattstack:review/gate'
+    );
+    expect(
+      spine.outside.find(e => e.key === 'mattstack:review')?.props
+    ).toEqual([
+      expect.objectContaining({
+        key: 'review/gate.tiering',
+        block: 'review/gate',
+        name: 'tiering',
+      }),
+    ]);
+  });
+});
+
+describe('buildSpine: base props', () => {
+  it('keeps the origin and base of a value filled from an org base', () => {
+    const composition: SpineComposition = {
+      ...PACK,
+      verbs: PACK.verbs.map(v =>
+        v.name === 'work'
+          ? {
+              ...v,
+              props: {
+                work: [
+                  prop('tiering', 'model-tiering@1', [
+                    value('mattstack:model-tiering', {
+                      origin: 'base',
+                      base: 'acme-base',
+                    }),
+                  ]),
+                ],
+              },
+            }
+          : v
+      ),
+    };
+    const tiering = buildSpine(composition, EMPTY_CHECK).orchestrator?.props[0]
+      ?.values[0];
+
+    expect(tiering?.origin).toBe('base');
+    expect(tiering?.base).toBe('acme-base');
+    const plain = buildSpine(PACK, EMPTY_CHECK).orchestrator?.props[0]
+      ?.values[0];
     expect(plain?.origin).toBeUndefined();
     expect(plain?.base).toBeUndefined();
   });
@@ -400,7 +538,7 @@ describe('buildSpine: check-status health mapping', () => {
     expect(spine.stages.every(s => s.health === 'unknown')).toBe(true);
   });
 
-  it('counts drift, engine errors and unresolved required slots as needing attention', () => {
+  it('counts drift, engine errors and unresolved required props as needing attention', () => {
     const spine = buildSpine(PACK, {
       verbs: [
         {
@@ -532,12 +670,12 @@ describe('invertBindings: every site that resolves to a fill', () => {
 
     expect(sites).toHaveLength(2);
     expect(sites).toEqual([
-      { ref: 'mattstack:ship', verb: 'ship', kind: 'verb', slot: 'domain' },
+      { ref: 'mattstack:ship', verb: 'ship', kind: 'verb', prop: 'domain' },
       {
         ref: 'mattstack:stage-ship',
         verb: null,
         kind: 'stage',
-        slot: 'domain',
+        prop: 'domain',
       },
     ]);
   });
@@ -550,7 +688,7 @@ describe('invertBindings: every site that resolves to a fill', () => {
     expect(skill).toBeDefined();
     expect(skill?.ref).toBe('mattstack:review-core');
     expect(skill?.verb).toBeNull();
-    expect(skill?.slot).toBe('criteria');
+    expect(skill?.prop).toBe('criteria');
   });
 
   it('a cross-plugin binder is a real binding site, not an orphan', () => {
@@ -561,7 +699,7 @@ describe('invertBindings: every site that resolves to a fill', () => {
       ref: 'board:review',
       verb: null,
       kind: 'external',
-      slot: 'skill',
+      prop: 'skill',
     });
   });
 
@@ -574,7 +712,7 @@ describe('invertBindings: every site that resolves to a fill', () => {
     expect(sites['mattstack:self-review']).toEqual([]);
   });
 
-  it('a slot the payload leaves unbound contributes nothing, not a null-keyed entry', () => {
+  it('a prop the payload leaves unbound contributes nothing, not a null-keyed entry', () => {
     // The response type says `boundTo: string`, but it is unvalidated JSON
     // off an rt subprocess -- the guard is what keeps `null` out of the keys.
     const composition: SpineComposition = {
@@ -585,7 +723,9 @@ describe('invertBindings: every site that resolves to a fill', () => {
           ref: 'mattstack:watch-ci',
           verb: 'watch-ci',
           kind: 'verb',
-          slots: [{ name: 'domain', boundTo: null as unknown as string }],
+          props: [
+            { name: 'domain', boundTo: null as unknown as string, layer: null },
+          ],
         },
       ],
     };
@@ -602,13 +742,13 @@ describe('invertBindings: every site that resolves to a fill', () => {
           ref: 'mattstack:zeta',
           verb: 'zeta',
           kind: 'verb',
-          slots: [{ name: 'domain', boundTo: 'demo:shared' }],
+          props: [{ name: 'domain', boundTo: 'demo:shared', layer: null }],
         },
         {
           ref: 'mattstack:alpha',
           verb: 'alpha',
           kind: 'verb',
-          slots: [{ name: 'domain', boundTo: 'demo:shared' }],
+          props: [{ name: 'domain', boundTo: 'demo:shared', layer: null }],
         },
       ],
     };
@@ -657,7 +797,7 @@ describe('buildSpine: a base fill and its compiled team copy', () => {
         ref: 'board:review',
         verb: null,
         kind: 'external',
-        slots: [
+        props: [
           {
             name: 'review',
             boundTo: 'acme:board-review',
@@ -708,10 +848,10 @@ describe('buildSpine: a base fill and its compiled team copy', () => {
 
 describe('per-pipeline fills', () => {
   const composition = designFixture('composition');
-  const evidenceSlots = (workType: string) =>
+  const evidenceProps = (workType: string) =>
     buildSpine(composition, EMPTY_CHECK, workType).stages.find(
       stage => stage.ref === 'mattstack:stage-evidence'
-    )!.slots;
+    )!.props;
 
   it('lists a fill only an override binds under its pipeline', () => {
     const sites = invertBindings(composition);
@@ -721,7 +861,7 @@ describe('per-pipeline fills', () => {
         ref: 'mattstack:stage-evidence',
         verb: null,
         kind: 'stage',
-        slot: 'domain',
+        prop: 'domain',
         pipeline: 'accessibility',
       },
     ]);
@@ -730,7 +870,7 @@ describe('per-pipeline fills', () => {
         ref: 'mattstack:stage-evidence',
         verb: null,
         kind: 'stage',
-        slot: 'domain',
+        prop: 'domain',
       },
     ]);
   });
@@ -748,8 +888,8 @@ describe('per-pipeline fills', () => {
         binder.ref === 'mattstack:stage-evidence'
           ? {
               ...binder,
-              slots: binder.slots.map(slot => ({
-                ...slot,
+              props: binder.props.map(prop => ({
+                ...prop,
                 boundTo: '',
                 layer: null,
               })),
@@ -762,18 +902,26 @@ describe('per-pipeline fills', () => {
   });
 
   it('shows the override under its pipeline and the default under the other', () => {
-    expect(evidenceSlots('accessibility')).toMatchObject([
+    expect(evidenceProps('accessibility')).toMatchObject([
       {
         name: 'domain',
-        boundTo: 'acme:evidence-a11y',
-        fill: { binding: 'acme:evidence-a11y' },
+        values: [
+          {
+            boundTo: 'acme:evidence-a11y',
+            fill: { binding: 'acme:evidence-a11y' },
+          },
+        ],
       },
     ]);
-    expect(evidenceSlots('feature')).toMatchObject([
+    expect(evidenceProps('feature')).toMatchObject([
       {
         name: 'domain',
-        boundTo: 'acme:evidence-policy',
-        fill: { binding: 'acme:evidence-policy' },
+        values: [
+          {
+            boundTo: 'acme:evidence-policy',
+            fill: { binding: 'acme:evidence-policy' },
+          },
+        ],
       },
     ]);
   });

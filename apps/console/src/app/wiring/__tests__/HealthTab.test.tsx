@@ -39,7 +39,8 @@ function verb(name: string, engineRef: string, isPublic = true) {
     public: isPublic,
     sourcePath: `/plugins/${engineRef.split(':')[0]}/attachments/${name}/SKILL.md`,
     artifactPath: `/p/skills/${name}`,
-    slots: [],
+    props: {},
+    includes: [],
   };
 }
 
@@ -47,8 +48,8 @@ function verb(name: string, engineRef: string, isPublic = true) {
     bound by a `verb`-kind binder, so they are wired -- their drift is real
     drift, not a side effect of also being unwired. `checkout` and
     `checkout-and-open` are in neither `binders` nor the pipeline, so
-    `buildSpine` sweeps them in as unwired; `checkout` has no slots, so it is
-    no loose end, while `checkout-and-open`'s required slot is bound to
+    `buildSpine` sweeps them in as unwired; `checkout` has no props, so it is
+    no loose end, while `checkout-and-open`'s required prop is bound to
     nothing. Both are otherwise in-sync. */
 const COMPOSITION = {
   pack: 'demo',
@@ -60,18 +61,18 @@ const COMPOSITION = {
     verb('checkout', 'mattstack:checkout', false),
     {
       ...verb('checkout-and-open', 'mattstack:checkout-and-open', false),
-      slots: [
-        {
-          name: 'target',
-          contract: 'target@1',
-          required: true,
-          boundTo: null,
-          fillSourcePath: null,
-          fillVersion: null,
-          registered: null,
-          inlined: null,
-        },
-      ],
+      props: {
+        'checkout-and-open': [
+          {
+            name: 'target',
+            merge: 'replace' as const,
+            contract: 'target@1',
+            required: true,
+            default: null,
+            values: [],
+          },
+        ],
+      },
     },
   ],
   fills: [],
@@ -80,13 +81,13 @@ const COMPOSITION = {
       ref: 'acme:review-criteria',
       verb: 'review-criteria',
       kind: 'verb' as const,
-      slots: [],
+      props: [],
     },
     {
       ref: 'acme:reply-rules',
       verb: 'reply-rules',
       kind: 'verb' as const,
-      slots: [],
+      props: [],
     },
   ],
   pipelines: { feature: [] as string[] },
@@ -130,7 +131,7 @@ const ALL_IN_SYNC_COMPOSITION = {
       ref: 'acme:review-criteria',
       verb: 'review-criteria',
       kind: 'verb' as const,
-      slots: [],
+      props: [],
     },
   ],
 };
@@ -198,7 +199,7 @@ describe('HealthTab: stat cards', () => {
     expect(screen.getByTestId('health-stat-never-compiled')).toHaveTextContent(
       '1'
     );
-    // checkout-and-open's slot is bound to nothing; checkout has no slots.
+    // checkout-and-open's prop is bound to nothing; checkout has no props.
     expect(screen.getByTestId('health-stat-unwired')).toHaveTextContent('1');
   });
 });
@@ -224,13 +225,13 @@ describe('HealthTab: grouped issues', () => {
     expect(group).toHaveTextContent('no artifact on disk yet');
   });
 
-  it('lists a verb whose slots nothing binds under Unwired, without a Preview compile action', async () => {
+  it('lists a verb whose props nothing binds under Unwired, without a Preview compile action', async () => {
     renderHealthTab();
 
     const group = await screen.findByTestId('health-group-unwired');
     expect(group).toHaveTextContent('checkout-and-open');
-    expect(group).toHaveTextContent('1 slot · nothing binds it');
-    // A verb with no slots has nothing to bind, so it is no loose end.
+    expect(group).toHaveTextContent('1 prop · nothing binds it');
+    // A verb with no props has nothing to bind, so it is no loose end.
     expect(group.textContent).not.toMatch(/checkout(?!-and-open)/);
     expect(
       screen.queryByTestId('health-preview-compile-mattstack:checkout')
@@ -245,7 +246,7 @@ describe('HealthTab: grouped issues', () => {
     expect(group).toHaveTextContent('unused');
     expect(group).toHaveTextContent('unused@1');
     expect(group).toHaveTextContent('unregistered fill · nothing binds it');
-    // 1 verb whose slot nothing binds + 1 orphan fill; the Graph tab's
+    // 1 verb whose prop nothing binds + 1 orphan fill; the Graph tab's
     // Unwired row counts the same two, so the two surfaces agree.
     expect(screen.getByTestId('health-stat-unwired')).toHaveTextContent('2');
     // A fill has no skill to open, so its row opens nothing.

@@ -1,3 +1,9 @@
-`pipelines` lists each pipeline's stages. A slot that a pipeline overrides carries an `overrides` list in its binder entry, one `{ pipeline, boundTo, layer }` per pipeline, beside the default `boundTo`. A slot that only pipeline overrides bind has an empty default `boundTo`.
+Each binder entry is one block, keyed by its `ref` (`mattstack:ship/flow/domain-fast-checks`), with one entry per prop:
+
+```json
+{"ref":"mattstack:ship/flow/domain-fast-checks","verb":"ship","kind":"verb","props":[{"name":"rules","boundTo":"widgets:lint-changed","layer":null}]}
+```
+
+`pipelines` lists each pipeline's stages. A prop that a pipeline overrides carries an `overrides` list beside its default `boundTo`, one `{ pipeline, boundTo, layer }` per pipeline. A prop that only pipeline overrides bind has an empty default `boundTo`.
 
 Stage copies (`stage-evidence--accessibility`) appear as their own targets.

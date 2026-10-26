@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FragmentError, mergeLayers, parseFragment, readManifestDropped, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
+import { VALUE_FILE_RE } from "../sources.ts";
+import { FragmentError, isBlankOverridesText, layeredFromManifest, mergeLayers, parseFragment, readManifestDropped, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
 
 const defaults = { label: "default", fragment: { bindings: { "mattstack:stage-gates": { domain: "mattstack:generic-gates" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } } };
 const base = { label: "base:acme-base", fragment: { skills: { enabled: ["acme-base:shared"] }, bindings: { "mattstack:stage-gates": { domain: "acme-base:gates" }, "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" } } } };
@@ -116,6 +117,100 @@ describe("mergeLayers", () => {
     expect(() => mergeLayers(layers)).toThrow(FragmentError);
     expect(() => mergeLayers(layers)).toThrow('pipeline "a" binds s2 but does not list it');
   });
+
+  test("a block-path key belongs to the engine the pipeline lists", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["mattstack:mini"] } } } },
+      { label: "pack", fragment: { pipelines: { a: { bindings: { "mattstack:mini/gate": { tiering: "" } } } } } },
+    ]);
+    expect(merged.pipelineBindings.a?.["mattstack:mini/gate"]).toEqual({ tiering: "" });
+    expect(merged.dropped).toEqual([]);
+    expect(() => mergeLayers([{ label: "pack", fragment: { pipelines: { a: { stages: ["mattstack:mini"], bindings: { "mattstack:mini/gate": { tiering: "" } } } } } }])).not.toThrow();
+  });
+});
+
+describe("mergeLayers layered bindings", () => {
+  const KEY = "mattstack:ship/flow/fast-checks";
+  const opts = { repo: "gitlab.example.com/acme/widgets", pack: "widgets", zone: "acme-w" };
+  const body = (text: string) => JSON.parse(text.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
+  const twoLayers = [
+    { label: "base:acme-base", fragment: { bindings: { [KEY]: { rules: "acme-base:fast-rules" } } } },
+    { label: "pack", fragment: { bindings: { [KEY]: { rules: "widgets:fast-rules" } } } },
+  ];
+
+  test("every layer's value per prop is kept in layer order", () => {
+    const merged = mergeLayers(twoLayers);
+    expect(merged.layered[KEY]!.rules).toEqual([
+      { layer: "base:acme-base", value: "acme-base:fast-rules" },
+      { layer: "pack", value: "widgets:fast-rules" },
+    ]);
+    expect(merged.bindings[KEY]).toEqual({ rules: "widgets:fast-rules" });
+  });
+
+  test("a pack layer's empty value is kept so compile can see who cleared", () => {
+    const merged = mergeLayers([twoLayers[0]!, { label: "pack", fragment: { bindings: { [KEY]: { rules: "" } } } }]);
+    expect(merged.layered[KEY]!.rules).toEqual([
+      { layer: "base:acme-base", value: "acme-base:fast-rules" },
+      { layer: "pack", value: "" },
+    ]);
+    expect(merged.bindings[KEY]).toEqual({ rules: "" });
+  });
+
+  test("pipeline bindings keep every layer's value, and a dropped stage leaves none behind", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["r", "q"], bindings: { r: { x: "acme:one" }, q: { y: "acme:q" } } } } } },
+      { label: "pack", fragment: { pipelines: { a: { stages: ["r"], bindings: { r: { x: "widgets:two" } } } } } },
+    ]);
+    expect(merged.pipelineLayered.a!.r!.x).toEqual([{ layer: "default", value: "acme:one" }, { layer: "pack", value: "widgets:two" }]);
+    expect(merged.pipelineLayered.a!.q).toBeUndefined();
+  });
+
+  test("renderManifest round-trips to the same layered bindings", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { bindings: { "mattstack:ship": { domain: "mattstack:generic" } }, pipelines: { a: { stages: ["r"], bindings: { r: { x: "acme:one" } } } } } },
+      ...twoLayers,
+      { label: "override", fragment: { bindings: { [KEY]: { rules: "" } }, pipelines: { a: { bindings: { r: { x: "me:two" } } } } } },
+    ]);
+    const text = renderManifest(merged, opts);
+    expect(layeredFromManifest(text)).toEqual({ layered: merged.layered, pipelineLayered: merged.pipelineLayered });
+  });
+
+  test("only a prop several layers bound appears in the layered section; bindings stay last-wins strings", () => {
+    const merged = mergeLayers([{ label: "default", fragment: { bindings: { "mattstack:ship": { domain: "mattstack:generic" } } } }, ...twoLayers]);
+    const doc = body(renderManifest(merged, opts));
+    expect(doc.version).toBe(2);
+    expect(doc.bindings).toEqual({ "mattstack:ship": { domain: "mattstack:generic" }, [KEY]: { rules: "widgets:fast-rules" } });
+    expect(doc.layered).toEqual({ [KEY]: { rules: [{ layer: "base:acme-base", value: "acme-base:fast-rules" }, { layer: "pack", value: "widgets:fast-rules" }] } });
+  });
+
+  test("a pipeline's several-layer props sit in its own layered section", () => {
+    const merged = mergeLayers([
+      { label: "default", fragment: { pipelines: { a: { stages: ["r"], bindings: { r: { x: "acme:one", y: "acme:y" } } } } } },
+      { label: "pack", fragment: { pipelines: { a: { bindings: { r: { x: "widgets:two" } } } } } },
+    ]);
+    const doc = body(renderManifest(merged, opts));
+    expect(doc.pipelines.a).toEqual({
+      stages: ["r"],
+      bindings: { r: { x: "widgets:two", y: "acme:y" } },
+      layered: { r: { x: [{ layer: "default", value: "acme:one" }, { layer: "pack", value: "widgets:two" }] } },
+    });
+    expect(doc.layered).toBeUndefined();
+    expect(doc.version).toBe(2);
+  });
+
+  test("version 2 for a block-path key or a per-file value even with one layer", () => {
+    expect(body(renderManifest(mergeLayers([{ label: "pack", fragment: { bindings: { [KEY]: { rules: "widgets:fast-rules" } } } }]), opts)).version).toBe(2);
+    expect(body(renderManifest(mergeLayers([{ label: "pack", fragment: { bindings: { "mattstack:ship": { rules: "widgets:rules/fast" } } } }]), opts)).version).toBe(2);
+    expect(body(renderManifest(mergeLayers([{ label: "pack", fragment: { bindings: { "mattstack:ship": { rules: "widgets:rules" } } } }]), opts)).version).toBe(1);
+  });
+
+  test("layeredFromManifest reads a string binding as the pack layer when the file has no provenance lines", () => {
+    const text = '// a fragment\n{ "version": 1, "bindings": { "mattstack:ship": { "domain": "widgets:d" } }, "pipelines": { "a": { "stages": ["r"], "bindings": { "r": { "x": "" } } } } }';
+    expect(layeredFromManifest(text)).toEqual({
+      layered: { "mattstack:ship": { domain: [{ layer: "pack", value: "widgets:d" }] } },
+      pipelineLayered: { a: { r: { x: [{ layer: "pack", value: "" }] } } },
+    });
+  });
 });
 
 describe("parseFragment", () => {
@@ -128,6 +223,27 @@ describe("parseFragment", () => {
   });
   test("throws FragmentError when the document is not an object", () => {
     expect(() => parseFragment("[]", "/f.jsonc")).toThrow(FragmentError);
+  });
+  test.each([
+    ["{ nope", "fragment is not valid JSONC: /f.jsonc", "is not valid JSONC"],
+    ["// only a comment\n", "fragment is not valid JSONC: /f.jsonc", "is not valid JSONC"],
+    ["[]", "fragment is not a JSON object: /f.jsonc", "is not a JSON object"],
+    ['{ "bindings": { "a:b": "x" } }', "fragment bindings.a:b is not an object: /f.jsonc", "bindings.a:b is not an object"],
+  ])("a FragmentError for %j carries the problem as reason and keeps its message", (text, message, reason) => {
+    let caught: unknown;
+    try {
+      parseFragment(text, "/f.jsonc");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FragmentError);
+    expect((caught as FragmentError).message).toBe(message);
+    expect((caught as FragmentError).reason).toBe(reason);
+  });
+  test("only the overrides file reads comment-only text as blank", () => {
+    expect(isBlankOverridesText("// off\n/* { } */\n")).toBe(true);
+    expect(isBlankOverridesText("{}")).toBe(false);
+    expect(() => parseFragment("// off\n", "/zone/packs/widgets/pack/skills.jsonc")).toThrow(FragmentError);
   });
   test.each([
     ["a null binding value", '{ "bindings": { "mattstack:stage-gates": null } }'],
@@ -180,7 +296,7 @@ describe("parseFragment", () => {
 });
 
 describe("renderManifest + readManifestProvenance", () => {
-  test("round-trips the provenance header and emits version 1", () => {
+  test("round-trips the provenance header; a slot two layers bound makes it version 2", () => {
     const merged = mergeLayers([defaults, base, pack]);
     const text = renderManifest(merged, { repo: "gitlab.example.com/acme/widgets", pack: "widgets", zone: "acme-w" });
     expect(text).toContain("// repo: gitlab.example.com/acme/widgets");
@@ -188,8 +304,9 @@ describe("renderManifest + readManifestProvenance", () => {
     expect(readManifestZone(text)).toBe("acme-w");
     expect(readManifestProvenance(text)).toEqual(merged.provenance);
     const body = JSON.parse(text.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
-    expect(body.version).toBe(1);
+    expect(body.version).toBe(2);
     expect(body.bindings["mattstack:stage-gates"].domain).toBe("widgets:gates");
+    expect(body.layered["mattstack:stage-gates"].domain.map((v: { layer: string }) => v.layer)).toEqual(["default", "base:acme-base", "pack"]);
     expect(body.skills.enabled).toEqual(["acme-base:shared", "widgets:work"]);
   });
   test("readManifestProvenance ignores non-provenance comment lines", () => {
@@ -208,8 +325,9 @@ describe("renderManifest with pipeline overrides", () => {
   const opts = { repo: "gitlab.example.com/acme/widgets", pack: "widgets", zone: "acme-w" };
   const body = (text: string) => JSON.parse(text.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
 
-  test("render: no overrides stays a plain list", () => {
-    expect(renderManifest(mergeLayers([defaults, pack]), opts)).toBe(PINNED_PLAIN_RENDER);
+  test("render: no overrides and no slot two layers bind stays a plain list and version 1", () => {
+    const stagesOnly = { label: "default", fragment: { pipelines: defaults.fragment.pipelines } };
+    expect(renderManifest(mergeLayers([stagesOnly, pack]), opts)).toBe(PINNED_PLAIN_RENDER);
   });
 
   test("render: overrides use the object form", () => {
@@ -298,5 +416,40 @@ describe("skills-manifest.schema.json", () => {
   test("an empty top-level binding still fails the schema", () => {
     expect(accepts({ bindings: { "mattstack:stage-plan": { x: "acme:y" } } })).toBe(true);
     expect(accepts({ bindings: { "mattstack:stage-plan": { x: "" } } })).toBe(false);
+  });
+
+  test("version 1 refuses the version 2 forms", () => {
+    expect(accepts({ bindings: { "mattstack:ship/flow/fast-checks": { rules: "acme:r" } } })).toBe(false);
+    expect(accepts({ bindings: { "mattstack:ship": { rules: "acme:r/fast" } } })).toBe(false);
+    expect(accepts({ layered: { "mattstack:ship": { rules: [{ layer: "pack", value: "acme:r" }, { layer: "override", value: "" }] } } })).toBe(false);
+  });
+
+  describe("version 2", () => {
+    const accepts2 = (doc: object) => validates(schema, schema, { version: 2, ...doc });
+    const layers = [{ layer: "base:acme-base", value: "acme-base:fast-rules" }, { layer: "pack", value: "" }];
+
+    test("string form: block-path keys, per-file values and empty values", () => {
+      expect(accepts2({ bindings: { "mattstack:ship/flow/fast-checks": { rules: "acme:rules/fast" }, "mattstack:ship": { domain: "" } } })).toBe(true);
+      expect(accepts2({ bindings: { "mattstack:ship": { rules: "acme:rules/a/b" } } })).toBe(false);
+      expect(accepts2({ bindings: { "mattstack:ship": { rules: "acme:rules/fast.md" } } })).toBe(false);
+    });
+
+    test("the value's file tail accepts exactly what the loader's file name check accepts", () => {
+      const samples = ["fast", "fast-checks", "a1", "0x", "fast.md", "fast_checks", "Fast", "-fast", "", "fast checks"];
+      const valuePattern = new RegExp(schema.definitions.bindingValueV2.anyOf[0].pattern);
+      for (const name of samples) expect([name, valuePattern.test(`acme:rules/${name}`)]).toEqual([name, VALUE_FILE_RE.test(name)]);
+      expect(accepts2({ bindings: { "ship/flow": { rules: "acme:r" } } })).toBe(false);
+    });
+
+    test("array form in the layered sections", () => {
+      expect(accepts2({ layered: { "mattstack:ship/flow/fast-checks": { rules: layers } } })).toBe(true);
+      expect(accepts2({ pipelines: { a: { stages: ["mattstack:ship"], bindings: { "mattstack:ship": { x: "" } }, layered: { "mattstack:ship": { x: layers } } } } })).toBe(true);
+      expect(accepts2({ layered: { "mattstack:ship": { rules: [{ layer: "pack" }] } } })).toBe(false);
+      expect(accepts2({ bindings: { "mattstack:ship": { rules: layers } } })).toBe(false);
+    });
+
+    test("a version 1 manifest's key form is still a valid version 2 key", () => {
+      expect(accepts2({ bindings: { "mattstack:ship": { domain: "x" } } })).toBe(true);
+    });
   });
 });

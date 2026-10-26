@@ -6,15 +6,16 @@ import { parseSeam, splitCompiledBody } from './parseSeam';
     would pass this file's header test for the wrong reason -- every line
     that is not `<!-- part: ` returns null -- and pin nothing. */
 const HEADER_COMMENT =
-  '<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->';
+  '<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->';
 
 const STEP_SEAM =
   '<!-- part: step source=mattstack:work version=0.8.0 path=attachments/pipeline/work/SKILL.md lines=17-135 -->';
-const SLOT_SEAM =
-  '<!-- part: slot:tiering binding=mattstack:model-tiering version=0.8.0 path=attachments/model-tiering/SKILL.md lines=8-117 -->';
-/** The compile-native refactor's third shape (spec section 1, reply
-    2026-08-24): an author-fixed inline, so it carries `source=` like a step,
-    with the attachment name inside the kind token like a slot. */
+const BLOCK_SEAM =
+  '<!-- part: block:ship/flow source=mattstack:ship version=0.32.23 path=attachments/pipeline/ship/flow/index.block.md lines=4-60 -->';
+const PROP_SEAM =
+  '<!-- part: prop:ship/flow.tiering binding=mattstack:model-tiering version=0.8.0 path=attachments/model-tiering/SKILL.md lines=8-117 -->';
+/** An author-fixed inline, so it carries `source=` like a step, with the
+    attachment name inside the kind token like a prop. */
 const INCLUDE_SEAM =
   '<!-- part: include:review-shared source=mattstack:review-shared version=0.9.0 path=attachments/review-shared/SKILL.md lines=3-40 -->';
 
@@ -22,7 +23,7 @@ describe('parseSeam: the shapes the compiler emits', () => {
   it('reads a step seam as its source, version, path and inclusive line span', () => {
     expect(parseSeam(STEP_SEAM)).toEqual({
       kind: 'step',
-      slot: null,
+      name: null,
       ref: 'mattstack:work',
       version: '0.8.0',
       path: 'attachments/pipeline/work/SKILL.md',
@@ -30,13 +31,24 @@ describe('parseSeam: the shapes the compiler emits', () => {
     });
   });
 
-  it('reads a slot seam by its binding, and names the slot the kind token carries', () => {
-    // The slot's name lives INSIDE the kind token (`slot:tiering`) and the
-    // ref arrives under `binding=`, not `source=` -- a parser written for the
-    // step shape alone reports every fill as unattributed.
-    expect(parseSeam(SLOT_SEAM)).toEqual({
-      kind: 'slot',
-      slot: 'tiering',
+  it('reads a block seam by its source, naming the block the kind token carries', () => {
+    expect(parseSeam(BLOCK_SEAM)).toEqual({
+      kind: 'block',
+      name: 'ship/flow',
+      ref: 'mattstack:ship',
+      version: '0.32.23',
+      path: 'attachments/pipeline/ship/flow/index.block.md',
+      lines: [4, 60],
+    });
+  });
+
+  it('reads a prop seam by its binding, naming the block and prop the kind token carries', () => {
+    // The prop's key lives INSIDE the kind token (`prop:<block>.<prop>`) and
+    // the ref arrives under `binding=`, not `source=` -- a parser written for
+    // the step shape alone reports every fill as unattributed.
+    expect(parseSeam(PROP_SEAM)).toEqual({
+      kind: 'prop',
+      name: 'ship/flow.tiering',
       ref: 'mattstack:model-tiering',
       version: '0.8.0',
       path: 'attachments/model-tiering/SKILL.md',
@@ -47,11 +59,11 @@ describe('parseSeam: the shapes the compiler emits', () => {
   it('reads an include seam by its source, naming the attachment the kind token carries', () => {
     // include is author-fixed, so its ref arrives under `source=` (not
     // `binding=`), and its target name lives inside the kind token like a
-    // slot's. A parser that only knew step/slot would drop it, leaving the
+    // prop's. A parser that only knew step/prop would drop it, leaving the
     // inlined region unattributed.
     expect(parseSeam(INCLUDE_SEAM)).toEqual({
       kind: 'include',
-      slot: 'review-shared',
+      name: 'review-shared',
       ref: 'mattstack:review-shared',
       version: '0.9.0',
       path: 'attachments/review-shared/SKILL.md',
@@ -59,8 +71,8 @@ describe('parseSeam: the shapes the compiler emits', () => {
     });
   });
 
-  it('reads two include seams for one attachment split around a slot, by their spans', () => {
-    // A shared attachment interrupted by a verb's slot emits as two includes
+  it('reads two include seams for one attachment split around a prop, by their spans', () => {
+    // A shared attachment interrupted by a verb's prop emits as two includes
     // with the same ref and different spans (reply 2026-08-24). Both parse;
     // enumeration by ref must expect the repeat.
     const head = parseSeam(
@@ -84,7 +96,7 @@ describe('parseSeam: a team section', () => {
       )
     ).toEqual({
       kind: 'section',
-      slot: 'ci-extra',
+      name: 'ci-extra',
       ref: 'widgets:pack/sections/ci-extra.md',
       version: '0.4.0',
       path: 'pack/sections/ci-extra.md',
@@ -114,7 +126,7 @@ describe('parseSeam: everything else is not a seam', () => {
   });
 
   it('returns null when the kind and the ref key disagree', () => {
-    // The emitter pairs `step` with `source=` and `slot:<name>` with
+    // The emitter pairs `step` with `source=` and `prop:<key>` with
     // `binding=`. Accepting a crossed pair would invent a seam shape rt
     // cannot produce and attribute a section from it.
     expect(
@@ -124,7 +136,7 @@ describe('parseSeam: everything else is not a seam', () => {
     ).toBeNull();
     expect(
       parseSeam(
-        '<!-- part: slot:tiering source=mattstack:model-tiering version=0.8.0 path=a/SKILL.md lines=1-2 -->'
+        '<!-- part: prop:work.tiering source=mattstack:model-tiering version=0.8.0 path=a/SKILL.md lines=1-2 -->'
       )
     ).toBeNull();
     // include is author-fixed like a step, so it pairs with `source=`; a
@@ -134,12 +146,26 @@ describe('parseSeam: everything else is not a seam', () => {
         '<!-- part: include:review-shared binding=mattstack:review-shared version=0.9.0 path=a/SKILL.md lines=1-2 -->'
       )
     ).toBeNull();
-  });
-
-  it('returns null for a slot seam with no slot name', () => {
     expect(
       parseSeam(
-        '<!-- part: slot: binding=mattstack:x version=1 path=a/SKILL.md lines=1-2 -->'
+        '<!-- part: block:ship binding=mattstack:ship version=1 path=a.md lines=1-2 -->'
+      )
+    ).toBeNull();
+  });
+
+  it('returns null for a prop seam with no block or no prop name', () => {
+    for (const key of ['', 'tiering', '.tiering', 'work.'])
+      expect(
+        parseSeam(
+          `<!-- part: prop:${key} binding=mattstack:x version=1 path=a/SKILL.md lines=1-2 -->`
+        )
+      ).toBeNull();
+  });
+
+  it('returns null for a slot seam, which rt no longer writes', () => {
+    expect(
+      parseSeam(
+        '<!-- part: slot:tiering binding=mattstack:x version=1 path=a/SKILL.md lines=1-2 -->'
       )
     ).toBeNull();
   });
@@ -176,7 +202,7 @@ describe('splitCompiledBody', () => {
     '',
     'The orchestrator body.',
     '',
-    SLOT_SEAM,
+    PROP_SEAM,
     '',
     '# Model Tiering',
   ].join('\n');
@@ -193,10 +219,10 @@ describe('splitCompiledBody', () => {
   it('gives each seam its own section and keeps the seam line out of the text', () => {
     const sections = splitCompiledBody(BODY);
 
-    expect(sections.map(s => s.seam?.slot ?? s.seam?.kind ?? null)).toEqual([
+    expect(sections.map(s => s.seam?.name ?? s.seam?.kind ?? null)).toEqual([
       null,
       'step',
-      'tiering',
+      'ship/flow.tiering',
     ]);
     expect(sections[1].text).toBe('# work\n\nThe orchestrator body.');
     expect(sections[2].text).toBe('# Model Tiering');

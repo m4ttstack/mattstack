@@ -28,7 +28,7 @@ export type FocusGroups = {
   pipelines: FocusItem[];
   standalone: FocusItem[];
   board: FocusItem[];
-  /** `count` is the verbs whose slots nothing binds plus the fills nothing
+  /** `count` is the verbs whose props nothing binds plus the fills nothing
       binds; `items` holds only the verbs, since a fill has no template to
       focus. */
   unwired: { count: number; attention: boolean; items: FocusItem[] };

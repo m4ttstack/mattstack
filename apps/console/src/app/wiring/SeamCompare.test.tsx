@@ -2,7 +2,7 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import type { SeamSourceIndex } from './seamAttribution';
+import { propValueKey, type SeamSourceIndex } from './seamAttribution';
 import { attributeDiff, SeamCompare, seamsOf } from './SeamCompare';
 
 /** Shaped exactly as `rt skills compile` emits them: five whitespace-separated
@@ -14,7 +14,7 @@ const BODY = [
   '',
   '<!-- part: step source=mattstack:watch-ci version=0.8.0 path=attachments/pipeline/watch-ci/SKILL.md lines=21-88 -->',
   'step text',
-  '<!-- part: slot:domain binding=demo:watch-ci-domain version=0.4.11 path=attachments/watch-ci-domain/SKILL.md lines=13-161 -->',
+  '<!-- part: prop:watch-ci.domain binding=demo:watch-ci-domain version=0.4.11 path=attachments/watch-ci-domain/SKILL.md lines=13-161 -->',
   'domain text',
 ].join('\n');
 
@@ -56,7 +56,8 @@ const INDEX: SeamSourceIndex = {
   artifactPath: `${PACK_DIR}/skills/watch-ci`,
   stepSourcePath: `${MATTSTACK_ROOT}/attachments/pipeline/watch-ci/SKILL.md`,
   fillSourcePaths: {
-    domain: `${DEMO_ROOT}/attachments/watch-ci-domain/SKILL.md`,
+    [propValueKey('watch-ci.domain', 'demo:watch-ci-domain')]:
+      `${DEMO_ROOT}/attachments/watch-ci-domain/SKILL.md`,
   },
 };
 
@@ -171,7 +172,9 @@ describe('SeamCompare: what each hunk header claims', () => {
     renderCompare();
 
     const attributed = screen.getByTestId('attributed-hunk');
-    expect(within(attributed).getByText('slot domain')).toBeInTheDocument();
+    expect(
+      within(attributed).getByText('prop watch-ci.domain')
+    ).toBeInTheDocument();
     expect(
       within(attributed).getByText('demo:watch-ci-domain')
     ).toBeInTheDocument();
@@ -275,7 +278,7 @@ describe('SeamCompare: saying how much attribution had to work with', () => {
   });
 
   it('says plainly when every seam names a file this repo does not hold', () => {
-    // A verb whose slots are all bound from other plugins: seams read fine,
+    // A verb whose props are all bound from other plugins: seams read fine,
     // and not one of them can ever place a hunk.
     renderCompare({
       index: { ...INDEX, fillSourcePaths: {} },

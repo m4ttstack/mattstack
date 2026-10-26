@@ -7,7 +7,6 @@
  * implementation.
  */
 
-import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { RT_BUNDLE_PATH } from "../../bundle-layout.ts";
 import type { DaemonResponse } from "../../daemon-client.ts";
@@ -41,6 +40,8 @@ import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { memberPath } from "../member-path.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverOrgs } from "../team-settings.ts";
+import { BUNDLED_VSIX_FILES } from "../tools-install.ts";
+import { detectEditorsVia, type DetectedEditorWithExtensions } from "../../editors.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
 import { named } from "./tools.ts";
 
@@ -53,38 +54,76 @@ export interface ExtensionCheckResult {
   severity: "warning" | "info";
 }
 
+const RT_EXTENSIONS = [
+  { label: "rt-context", prefix: "local.rt-context-" },
+  { label: "skill-blocks", prefix: "local.skill-blocks-" },
+];
+
 /**
- * Pure directory reads against a fixture `home`, no subprocess and no
- * version comparison — the extension versions independently of the CLI, so
- * a version check is underivable here. Shape matches `rt verify`'s
+ * The folder under $HOME an editor keeps its extensions in. Every VS Code
+ * fork names its data folder in `product.json`'s `dataFolderName`, and forks
+ * rename it between builds, so that wins; the editor table is only the
+ * fallback when the file can't be read or names none.
+ */
+function editorExtensionsDir(p: Pick<Probes, "readFile">, editor: DetectedEditorWithExtensions): string | null {
+  const raw = p.readFile(join(editor.appPath, "Contents", "Resources", "app", "product.json"));
+  if (raw !== null) {
+    try {
+      const folder = (JSON.parse(raw) as { dataFolderName?: unknown }).dataFolderName;
+      if (typeof folder === "string" && /^[^/\\]+$/.test(folder) && folder !== "." && folder !== "..") return join(folder, "extensions");
+    } catch {
+      // Unparseable product.json: fall back to the table.
+    }
+  }
+  return editor.extensionsDir;
+}
+
+/**
+ * Directory reads only, no subprocess and no version comparison — the
+ * extensions version independently of the CLI, so a version check is
+ * underivable here. Every VS Code-family editor found in `appDirs` is
+ * checked through its extensions folder under `home`; an editor whose folder
+ * is not known is named as unchecked. Shape matches `rt verify`'s
  * CheckResult (name/status/detail/severity) so commands/verify.ts's
  * re-export slots straight into its existing `results.push(...)`.
  */
-export function checkRtContextExtension(home: string): ExtensionCheckResult {
-  const editors = [
-    { name: "VS Code", dir: join(home, ".vscode", "extensions") },
-    { name: "Cursor", dir: join(home, ".cursor", "extensions") },
-  ];
+export function checkRtContextExtension(
+  p: Pick<Probes, "exists" | "readDir" | "readFile" | "home">,
+  appDirs: string[] = ["/Applications", join(p.home, "Applications")],
+): ExtensionCheckResult {
+  const complete: string[] = [];
+  const partial: string[] = [];
+  const bare: string[] = [];
+  const unchecked: string[] = [];
 
-  const dirsFound: string[] = [];
-  const editorsWithExtension: string[] = [];
-
-  for (const editor of editors) {
-    if (!existsSync(editor.dir)) continue;
-    dirsFound.push(editor.name);
-    let entries: string[];
-    try {
-      entries = readdirSync(editor.dir);
-    } catch {
+  for (const editor of detectEditorsVia(p.exists, appDirs)) {
+    const extensionsDir = editorExtensionsDir(p, editor);
+    if (!extensionsDir) {
+      unchecked.push(editor.name);
       continue;
     }
-    if (entries.some((e) => e.toLowerCase().includes("rt-context"))) editorsWithExtension.push(editor.name);
+    const dir = join(p.home, extensionsDir);
+    let entries: string[] = [];
+    try {
+      if (p.exists(dir)) entries = p.readDir(dir).map((e) => e.toLowerCase());
+    } catch {
+      entries = [];
+    }
+    const missing = RT_EXTENSIONS.filter((x) => !entries.some((e) => e.startsWith(x.prefix))).map((x) => x.label);
+    if (missing.length === 0) complete.push(editor.name);
+    else if (missing.length < RT_EXTENSIONS.length) partial.push(`${editor.name} is missing ${missing.join(" and ")}`);
+    else bare.push(editor.name);
   }
 
   const name = "rt-context extension";
-  if (editorsWithExtension.length > 0) return { name, status: "pass", detail: `Installed in ${editorsWithExtension.join(", ")}`, severity: "warning" };
-  if (dirsFound.length > 0) return { name, status: "warn", detail: `Not installed in ${dirsFound.join(", ")}. Run rt settings extension`, severity: "warning" };
-  return { name, status: "skip", detail: "No editor extension folders found", severity: "info" };
+  const uncheckedNote = unchecked.length > 0 ? `. rt can't check ${unchecked.join(", ")}` : "";
+  if (partial.length > 0 || bare.length > 0) {
+    const gaps = [...partial, ...(bare.length > 0 ? [`${partial.length > 0 ? "not" : "Not"} installed in ${bare.join(", ")}`] : [])];
+    return { name, status: "warn", detail: `${gaps.join("; ")}. Run rt settings extension`, severity: "warning" };
+  }
+  if (complete.length > 0) return { name, status: "pass", detail: `Installed in ${complete.join(", ")}${uncheckedNote}`, severity: "warning" };
+  if (unchecked.length > 0) return { name, status: "skip", detail: `rt can't check ${unchecked.join(", ")}`, severity: "info" };
+  return { name, status: "skip", detail: "No VS Code-family editor found", severity: "info" };
 }
 
 // ─── injectable seams ─────────────────────────────────────────────────────────
@@ -265,16 +304,17 @@ function vsixRow(p: Probes): Row {
     id: "tool.vsix",
     kind: "tool" as const,
     title: "Bundled extension",
-    why: "mattstack.app can carry the rt-context editor extension pre-bundled.",
+    why: "mattstack.app can carry rt's editor extensions, rt-context and skill-blocks, pre-bundled.",
     required: false,
-    optionalNote: "Works without this; the rt-context editor extension just won't be pre-installed for you.",
+    optionalNote: "Works without this; rt's editor extensions just won't be pre-installed for you.",
   };
   const root = appBundlePath(p);
   if (!root) return row({ ...base, status: "skipped", detail: "mattstack.app not found" });
 
-  const vsix = join(root, "Contents", "Resources", "rt-context.vsix");
-  if (p.exists(vsix)) return row({ ...base, status: "ready", detail: "The extension ships in the app" });
-  return row({ ...base, status: "skipped", detail: "This build does not ship the extension" });
+  const missing = BUNDLED_VSIX_FILES.filter((file) => !p.exists(join(root, "Contents", "Resources", file)));
+  if (missing.length === 0) return row({ ...base, status: "ready", detail: "Both editor extensions ship in the app" });
+  if (missing.length === BUNDLED_VSIX_FILES.length) return row({ ...base, status: "skipped", detail: "This build does not ship the editor extensions" });
+  return row({ ...base, status: "skipped", detail: `This build does not ship ${missing.join(" or ")}` });
 }
 
 function extensionRow(p: Probes): Row {
@@ -286,7 +326,7 @@ function extensionRow(p: Probes): Row {
     required: false,
     optionalNote: "Works without this; your editor just won't have rt-aware context.",
   };
-  const result = checkRtContextExtension(p.home);
+  const result = checkRtContextExtension(p);
   if (result.status === "pass") return row({ ...base, status: "ready", detail: result.detail });
   if (result.status === "warn") return row({ ...base, status: "needs-you", detail: result.detail, action: INSTALL_EXTENSION_ACTION });
   return row({ ...base, status: "skipped", detail: result.detail });

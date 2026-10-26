@@ -7,40 +7,60 @@ import {
 } from './baseScopes';
 
 const repoRoot = '/o/acme';
-const composition = {
+const composition: Parameters<typeof baseScopesFor>[0] & { pack: string } = {
   pack: 'acme',
   packDir: '/o/acme/mattstack/teams/acme/packs/acme',
   verbs: [
     {
       name: 'plan',
-      slots: [
-        {
-          name: 'domain',
-          fillSourcePath:
-            '/o/acme/mattstack/org/packs/acme-base/attachments/plan-policy/SKILL.md',
-          origin: 'base' as const,
-          base: 'acme-base',
-        },
-        {
-          name: 'tiering',
-          fillSourcePath: '/m/mattstack/attachments/model-tiering/SKILL.md',
-        },
-      ],
+      props: {
+        plan: [
+          {
+            name: 'domain',
+            values: [
+              {
+                fillSourcePath:
+                  '/o/acme/mattstack/org/packs/acme-base/attachments/plan-policy/SKILL.md',
+                origin: 'base' as const,
+                base: 'acme-base',
+              },
+            ],
+          },
+        ],
+        'plan/gate': [
+          {
+            name: 'tiering',
+            values: [
+              {
+                fillSourcePath:
+                  '/m/mattstack/attachments/model-tiering/SKILL.md',
+              },
+            ],
+          },
+        ],
+      },
     },
     {
       name: 'ship',
-      slots: [
-        {
-          name: 'domain',
-          fillSourcePath:
-            '/o/acme/mattstack/teams/acme/packs/acme/attachments/board-fill/SKILL.md',
-          origin: 'base' as const,
-          base: 'acme-base',
-        },
-      ],
+      props: {
+        ship: [
+          {
+            name: 'domain',
+            values: [
+              {
+                fillSourcePath:
+                  '/o/acme/mattstack/teams/acme/packs/acme/attachments/board-fill/SKILL.md',
+                origin: 'base' as const,
+                base: 'acme-base',
+              },
+            ],
+          },
+        ],
+      },
     },
   ],
 };
+const verbs = composition.verbs!;
 const realpath = async (p: string) => p;
 
 describe('baseScopesFor', () => {
@@ -80,7 +100,7 @@ describe('baseScopesFor', () => {
   it('takes every verb when no verb is named, one scope per fill dir', async () => {
     const twice = {
       ...composition,
-      verbs: [...composition.verbs, { ...composition.verbs[0], name: 'work' }],
+      verbs: [...verbs, { ...verbs[0]!, name: 'work' }],
     };
     expect(
       (await baseScopesFor(twice, null, repoRoot, realpath)).map(s => s.top)

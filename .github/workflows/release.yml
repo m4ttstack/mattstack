@@ -227,6 +227,12 @@ jobs:
           RT_VSIX="$(ls "$PWD"/*.vsix 2>/dev/null | head -1)"
           [ -n "$RT_VSIX" ] || { echo "::error::no .vsix produced by bun run package"; exit 1; }
           echo "RT_VSIX=$RT_VSIX" >> "$GITHUB_ENV"
+          cd "$GITHUB_WORKSPACE/extensions/vscode/skill-blocks"
+          bun run package
+          node scripts/load-smoke.mjs
+          RT_SKILL_BLOCKS_VSIX="$(ls "$PWD"/*.vsix 2>/dev/null | head -1)"
+          [ -n "$RT_SKILL_BLOCKS_VSIX" ] || { echo "::error::no skill-blocks .vsix produced by bun run package"; exit 1; }
+          echo "RT_SKILL_BLOCKS_VSIX=$RT_SKILL_BLOCKS_VSIX" >> "$GITHUB_ENV"
 
       # Sparkle now vendors through deps.lock as a local binaryTarget — SPM's
       # own download of the binary-artifact zip hung indefinitely on tag runs

@@ -27,7 +27,7 @@ test("a pipeline whose stage has a copy points its entry at the copy; the defaul
   const dir = mkdtempSync(join(tmpdir(), "rt-layout-"));
   for (const [name, stage] of [["stage-plan", "plan"], ["stage-evidence", "evidence"]] as const) {
     mkdirSync(join(dir, "attachments", "pipeline", name), { recursive: true });
-    writeFileSync(join(dir, "attachments", "pipeline", name, "SKILL.md"), stageEngine(name, stage));
+    writeFileSync(join(dir, "attachments", "pipeline", name, "index.block.md"), stageEngine(name, stage));
   }
   const stages = ["mattstack:stage-plan", "mattstack:stage-evidence"];
 

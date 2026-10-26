@@ -200,6 +200,18 @@ VM truths that only a real run surfaced (all encoded in the harness now):
   admin, ~2 min, success claimed only after a green `git --version`
   re-probe (`lib/setup/tools-install.ts`). Dialog trigger is the fallback
   and reports `ok: false` (progress, not completion).
+- The app carries two editor extensions in `Contents/Resources`:
+  `rt-context.vsix` and `skill-blocks.vsix` (the client for
+  `rt skills lsp`). release.yml's `Build extension` step packages and
+  smoke-loads both and exports `RT_VSIX` and `RT_SKILL_BLOCKS_VSIX`; a
+  missing `.vsix` fails the step. `rt-tray/build.sh` copies each one in.
+  The `extension.install` setup step installs every file it finds into
+  every VS Code fork `detectEditors` finds (`lib/editors.ts`: VS Code,
+  Cursor, Antigravity and the rest), and records an editor in setup-state
+  only when every file installed. The step is update-safe, so
+  `rt setup update` at the next launch after an update reinstalls both,
+  but only into the editors setup-state records: an existing rt-context
+  user gets skill-blocks that way. `rt uninstall` removes both ids.
 
 ### Flavor exclusivity
 

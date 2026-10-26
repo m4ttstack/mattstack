@@ -12,14 +12,17 @@ export interface BaseScope {
   top: string;
 }
 
-interface ScopeSlot {
+interface ScopeValue {
   fillSourcePath?: string | null;
   origin?: 'base';
   base?: string;
 }
 interface ScopeComposition {
   packDir: string;
-  verbs?: { name: string; slots: ScopeSlot[] }[];
+  verbs?: {
+    name: string;
+    props: Record<string, { name: string; values: ScopeValue[] }[]>;
+  }[];
 }
 
 const inside = (child: string, parent: string) =>
@@ -29,7 +32,7 @@ const outsideRepo = (top: string) =>
   top === '' || top === '..' || top.startsWith(`..${sep}`) || isAbsolute(top);
 
 /** A team-pack copy of a base fill is already in the pack's own scope, so
-    only a fill outside the pack adds one. A pipeline stage's slots carry no
+    only a fill outside the pack adds one. A pipeline stage's props carry no
     `fillSourcePath`, so a stage adds none. */
 export async function baseScopesFor(
   composition: ScopeComposition,
@@ -43,13 +46,16 @@ export async function baseScopesFor(
   );
   for (const v of composition.verbs ?? []) {
     if (verb !== null && v.name !== verb) continue;
-    for (const slot of v.slots ?? []) {
-      if (slot.origin !== 'base' || !slot.base || !slot.fillSourcePath)
+    const values = Object.values(v.props ?? {}).flatMap(props =>
+      props.flatMap(prop => prop.values)
+    );
+    for (const value of values) {
+      if (value.origin !== 'base' || !value.base || !value.fillSourcePath)
         continue;
-      if (inside(slot.fillSourcePath, composition.packDir)) continue;
-      const pluginRoot = pluginRootOf(slot.fillSourcePath);
+      if (inside(value.fillSourcePath, composition.packDir)) continue;
+      const pluginRoot = pluginRootOf(value.fillSourcePath);
       if (!pluginRoot) continue;
-      const dir = await realpath(dirname(slot.fillSourcePath)).catch(
+      const dir = await realpath(dirname(value.fillSourcePath)).catch(
         () => null
       );
       const root = await realpath(pluginRoot).catch(() => null);
@@ -57,7 +63,7 @@ export async function baseScopesFor(
       if (inside(dir, packDir)) continue;
       const top = relative(repoRoot, dir);
       if (outsideRepo(top)) continue;
-      scopes.set(top, { base: slot.base, root, top });
+      scopes.set(top, { base: value.base, root, top });
     }
   }
   return [...scopes.values()];

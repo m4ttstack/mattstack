@@ -1,10 +1,14 @@
 import { layerLabel } from '../../layerLabel';
 import {
+  blockOf,
+  engineRefOf,
   invertBindings,
   leadsAPipeline,
   ORCHESTRATOR_VERB,
   overrideOf,
   pluginOf,
+  propKey,
+  splitPropKey,
   suffixOf,
   type SkillsCheck,
   type SkillsComposition,
@@ -22,13 +26,15 @@ export type RowState =
   | 'referenced'
   | 'unsynced';
 
-export type PlaceholderKind = 'include' | 'slot' | 'verb.path' | 'variable';
+export type PlaceholderKind = 'include' | 'prop' | 'verb.path' | 'variable';
 export type LineRange = [number, number];
 
 /**
- * `line` is what a `row:<line>` select names: the first template line, or
- * the first rendered line for an engine with no template trace (whose
- * template ranges are null).
+ * A `row:<id>` select names a row by its `id`. `line` is the first template
+ * line, or the first rendered line for an engine with no template trace, so
+ * rows can share a line in two different line spaces; `id` stays unique, and
+ * is the bare line for the first row at that line, which keeps an older
+ * `row:<line>` link resolving.
  */
 export type TemplateRow =
   | {
@@ -51,13 +57,13 @@ export type TemplateRow =
       renderedLines: LineRange | null;
       state: RowState;
       name: string | null;
-      /** A slot's contract; null for every other placeholder. */
+      /** A prop's contract; null for every other placeholder. */
       contract: string | null;
-      /** What a slot is filled from, by name; null when nothing fills it. */
+      /** What a prop is filled from, by name; null when nothing fills it. */
       fill: string | null;
-      /** The binding a slot names, found or not; null when nothing is bound. */
+      /** The binding a prop names, found or not; null when nothing is bound. */
       boundTo: string | null;
-      /** rt's message for a slot it could not resolve. */
+      /** rt's message for a prop it could not resolve. */
       resolveError: string | null;
       /** Which layer chose the binding: `pack`, `override` or `base:<name>`. */
       layer: string | null;
@@ -68,7 +74,7 @@ export type InputCard = {
   rowId: string;
   title: string;
   subtitle: string;
-  /** `fileX` for a slot rt could not load a fill file for. */
+  /** `fileX` for a prop rt could not load a fill file for. */
   icon: 'fileText' | 'cpu' | 'fileX';
   path: string | null;
   subtitleTone: 'dimmed' | 'accent' | 'warn' | 'bad';
@@ -78,7 +84,7 @@ export type InputCard = {
   /** Who owns the fill, set only for a skill another app owns, whose card has
       no anatomy part to read it from. */
   owner?: Owner;
-  /** The team sections a slot's fill renders, in rendered order. */
+  /** The team sections a prop's fill renders, in rendered order. */
   sections: SectionCard[];
 };
 
@@ -118,11 +124,11 @@ export type OutputPart = {
 export type OutputLink = {
   label: string;
   /** The path the rendered text names; null for a fill it names by its
-      binding instead, as a referenced slot renders. */
+      binding instead, as a referenced prop renders. */
   path: string | null;
   /** The compile target the link resolves to, when it is one. */
   skill: string | null;
-  /** What choosing the link selects: the linked file, or the slot row. */
+  /** What choosing the link selects: the linked file, or the prop row. */
   select: string;
 };
 
@@ -148,23 +154,33 @@ export type TemplateView = {
   links: LinkCard[];
   output: OutputCard | null;
   textNoun: TextNoun;
-  /** The app that owns the skill (`board` for `board:doctor`), when it is
-      not this pack's own and the view shows only the slots the pack fills. */
-  app?: string;
-  /** That skill's installed SKILL.md, when the app installed one. */
-  skillFile?: string | null;
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
+/** An anatomy part, or a placeholder rt names only in composition: a step
+    link (`verb.path`) or a run variable, which anatomy carries no part for. */
+type RowSource = Omit<AnatomyPart, 'kind'> & {
+  kind: AnatomyPart['kind'] | 'verb.path' | 'variable';
+  /** The block whose file holds a composition placeholder, by block id. */
+  block?: string | null;
+};
+type BindingChange = SkillsChanges['bindings'][number];
 type DriftCause = SkillsAnatomy['staleBecause'][number];
 type CheckRow = SkillsCheck['verbs'][number];
 
-export type SlotFacts = {
+/** What a row says about the prop value it pastes. */
+export type PropFacts = {
   contract: string | null;
   required: boolean | null;
   boundTo: string | null;
   resolveError: string | null;
   layer: string | null;
+};
+
+type ValueFacts = Pick<PropFacts, 'boundTo' | 'resolveError' | 'layer'>;
+/** An add prop takes several values, one anatomy part each. */
+type DeclaredFacts = Pick<PropFacts, 'contract' | 'required'> & {
+  values: ValueFacts[];
 };
 
 const OWN_TEXT_ID = 'text';
@@ -218,8 +234,8 @@ export function resolveFrom(file: string, relative: string): string {
   return segments.join('/');
 }
 
-/** A team section renders inside the slot whose lines hold it, and rt lists
-    it right after that slot: it has no row of its own. */
+/** A team section renders inside the prop whose lines hold it, and rt lists
+    it right after that prop: it has no row of its own. */
 export function withoutSections(anatomy: SkillsAnatomy): SkillsAnatomy {
   return {
     ...anatomy,
@@ -227,17 +243,17 @@ export function withoutSections(anatomy: SkillsAnatomy): SkillsAnatomy {
   };
 }
 
-/** Whether rt placed a section inside a slot's rendered range; a stale file
+/** Whether rt placed a section inside a prop's rendered range; a stale file
     may not place it at all, and then rt's order is all there is. */
-function holds(slot: AnatomyPart, section: AnatomyPart): boolean {
-  const outer = slot.renderedLines;
+function holds(prop: RowSource, section: RowSource): boolean {
+  const outer = prop.renderedLines;
   const inner = section.renderedLines;
   if (!inner) return true;
   return outer !== null && outer[0] <= inner[0] && inner[1] <= outer[1];
 }
 
 /** A fill can paste one section twice; the second takes its place as `@n`. */
-function sectionCard(part: AnatomyPart, card: InputCard): SectionCard {
+function sectionCard(part: RowSource, card: InputCard): SectionCard {
   const name = part.name ?? '';
   const base = partKey(part);
   const repeats = card.sections.filter(
@@ -251,7 +267,7 @@ function sectionCard(part: AnatomyPart, card: InputCard): SectionCard {
   };
 }
 
-export function partKey(part: AnatomyPart): string {
+export function partKey(part: RowSource): string {
   return `${part.kind}:${part.name ?? ''}`;
 }
 
@@ -260,7 +276,7 @@ export function partKey(part: AnatomyPart): string {
  * located it, else the size of its source. rt gives every placeholder on one
  * template line that line's whole rendered range, so a range shared with
  * another part says nothing about this part's size and its source decides.
- * A section sits inside its slot's range and shares nothing with it.
+ * A section sits inside its prop's range and shares nothing with it.
  */
 export function pastedLines(
   part: AnatomyPart,
@@ -271,6 +287,7 @@ export function pastedLines(
   const sharing = parts.filter(
     other =>
       other.kind !== 'text' &&
+      other.kind !== 'block' &&
       other.kind !== 'section' &&
       other.renderedLines?.[0] === range[0] &&
       other.renderedLines[1] === range[1]
@@ -278,10 +295,10 @@ export function pastedLines(
   return sharing > 1 ? (part.source?.lines ?? 0) : spanOf(range);
 }
 
-/** What an output part is called: an include by its name, a slot by the fill
+/** What an output part is called: an include by its name, a prop by the fill
     that fills it. */
-export function partLabel(part: AnatomyPart): string {
-  if (part.kind === 'slot' && part.source) return suffixOf(part.source.ref);
+export function partLabel(part: RowSource): string {
+  if (part.kind === 'prop' && part.source) return suffixOf(part.source.ref);
   return part.name ?? part.kind;
 }
 
@@ -294,10 +311,147 @@ function textLabel(lines: number, noun: TextNoun): string {
   return countOf(lines, 'line', 'lines');
 }
 
-function codeOf(part: AnatomyPart): string {
-  return part.kind === 'variable'
-    ? `{{${part.name}}}`
-    : `{{${part.kind}:${part.name}}}`;
+/** The placeholder as the template writes it: a prop by its own name, which
+    its block's text names. */
+function codeOf(part: RowSource): string {
+  if (part.kind === 'variable') return `{{${part.name}}}`;
+  if (part.kind === 'prop')
+    return `{{props.${splitPropKey(part.name ?? '').name}}}`;
+  return `{{${part.kind}:${part.name}}}`;
+}
+
+/** A prop of the skill's own root block by its name; a nested block's by
+    `<block>.<prop>`, since two blocks can name a prop alike. */
+function propTitle(key: string, root: string): string {
+  const { block, name } = splitPropKey(key);
+  return `${block === root ? name : key} prop`;
+}
+
+/** The placeholders rt fills per run, as their template writes them. */
+const VARIABLE_KINDS = new Set(['stage.fields', 'run-start.flags']);
+
+/**
+ * The step links and run variables a skill's template names, from its
+ * composition target. A `{{pipeline.table}}` reaches it already expanded to
+ * one `verb.path` per stage the pipeline runs.
+ */
+function placeholderSources(
+  composition: Pick<SkillsComposition, 'targets'>,
+  anatomy: SkillsAnatomy
+): RowSource[] {
+  const targets = composition.targets ?? [];
+  const placeholders =
+    targets.find(target => target.name === anatomy.skill)?.placeholders ?? [];
+  return placeholders.flatMap((placeholder): RowSource[] => {
+    const at = {
+      block: blockIdOf(placeholder.file, anatomy),
+      templateLines: [placeholder.line, placeholder.line] as LineRange,
+      renderedLines: null,
+      mode: null,
+      source: null,
+      changed: false,
+    };
+    if (placeholder.kind === 'verb.path' && placeholder.arg) {
+      const linked = targets.find(target => target.name === placeholder.arg);
+      return [
+        {
+          ...at,
+          kind: 'verb.path',
+          name: placeholder.arg,
+          target: {
+            skill: placeholder.arg,
+            path: linked?.artifactPath ?? `${placeholder.arg}/SKILL.md`,
+            lines: null,
+          },
+        },
+      ];
+    }
+    if (VARIABLE_KINDS.has(placeholder.kind)) {
+      return [
+        {
+          ...at,
+          kind: 'variable',
+          name: placeholder.arg
+            ? `${placeholder.kind}:${placeholder.arg}`
+            : placeholder.kind,
+          target: null,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
+/** Whether rt reported the skill as a tree of blocks, one part per block. */
+export function isBlockTree(anatomy: SkillsAnatomy): boolean {
+  return anatomy.parts.some(part => part.kind === 'block');
+}
+
+const lastSegment = (id: string) => id.split('/').pop() ?? id;
+
+/**
+ * The block a file of the skill's tree holds, by rt's block id: the root's
+ * id, then the file's path inside the engine folder, an `index.block.md`
+ * naming its folder. `file` is relative to the plugin, so the engine folder
+ * is the longest folder of it the template's own folder ends with.
+ */
+function blockIdOf(file: string, anatomy: SkillsAnatomy): string | null {
+  const root = anatomy.parts.find(part => part.kind === 'block')?.name;
+  if (!root) return null;
+  const templateDir = anatomy.template.path.replace(/\/index\.block\.md$/, '');
+  const segments = file.split('/');
+  for (let at = segments.length - 1; at > 0; at--) {
+    if (!templateDir.endsWith(`/${segments.slice(0, at).join('/')}`)) continue;
+    const rest = segments
+      .slice(at)
+      .join('/')
+      .replace(/(^|\/)index\.block\.md$/, '')
+      .replace(/\.block\.md$/, '');
+    return rest ? `${root}/${rest}` : root;
+  }
+  return null;
+}
+
+/**
+ * The anatomy parts with the composition-only placeholders among them. Where
+ * anatomy traces template lines, each placeholder goes before the first part
+ * at or past its line. A block tree's placeholders follow the block whose
+ * file holds them. Elsewhere rt places parts by rendered line only, which a
+ * template line cannot be ordered against, so there they lead.
+ */
+function rowSourcesOf(
+  anatomy: SkillsAnatomy,
+  composition: Pick<SkillsComposition, 'targets'>
+): RowSource[] {
+  const extra = placeholderSources(composition, anatomy).sort(
+    (a, b) => a.templateLines![0] - b.templateLines![0]
+  );
+  if (isBlockTree(anatomy)) {
+    const ids = new Set(anatomy.parts.map(part => part.name));
+    const placed = (source: RowSource) =>
+      source.block != null && ids.has(source.block);
+    const out: RowSource[] = extra.filter(source => !placed(source));
+    for (const part of anatomy.parts) {
+      out.push(part);
+      if (part.kind === 'block')
+        out.push(...extra.filter(source => source.block === part.name));
+    }
+    return out;
+  }
+  if (!anatomy.parts.some(part => part.templateLines))
+    return [...extra, ...anatomy.parts];
+  const out: RowSource[] = [];
+  for (const part of anatomy.parts) {
+    const start = part.kind === 'section' ? null : part.templateLines?.[0];
+    while (
+      start != null &&
+      extra.length > 0 &&
+      extra[0]!.templateLines![0] <= start
+    )
+      out.push(extra.shift()!);
+    out.push(part);
+  }
+  return [...out, ...extra];
 }
 
 function variableTitle(name: string): string {
@@ -307,88 +461,114 @@ function variableTitle(name: string): string {
 }
 
 /**
- * What the payload says about each of a skill's slots. A roster verb states
- * them all; anything else has the slots its template declares and the
- * binder's bindings, and a binding the template does not declare is known
- * only by the contract its fill provides.
+ * What the payload says about each of a skill's props, keyed `<block>.<prop>`.
+ * A roster verb states them all; anything else has the props its template
+ * declares and its blocks' binders, and a binding the template does not
+ * declare is known only by the contract its fill provides.
  */
-export function slotFactsOf(
+function propFactsOf(
   composition: SkillsComposition,
   skill: string,
   ref: string,
   workType: string | null = null
-): Map<string, SlotFacts> {
-  const facts = new Map<string, SlotFacts>();
+): Map<string, DeclaredFacts> {
+  const facts = new Map<string, DeclaredFacts>();
   const provides = new Map(
     composition.fills.map(fill => [fill.binding, fill.provides] as const)
   );
   const target = composition.targets?.find(t => t.name === skill);
   const pipeline = target?.pipeline ?? workType;
-  const binder = composition.binders.find(b => b.ref === ref);
-  const bound = new Map(binder?.slots.map(slot => [slot.name, slot]));
+  const plugin = pluginOf(ref);
+  const binders = composition.binders.filter(
+    b => engineRefOf(b.ref) === engineRefOf(ref)
+  );
   /** The binder's fill and the layer that chose it, in this pipeline. */
-  const binding = (name: string) => {
-    const slot = bound.get(name);
-    if (!slot) return null;
-    const override = overrideOf(slot, pipeline);
+  const binding = (block: string, name: string) => {
+    const prop = binders
+      .find(b => b.ref === `${plugin}:${block}`)
+      ?.props.find(candidate => candidate.name === name);
+    if (!prop) return null;
+    const override = overrideOf(prop, pipeline);
     return {
-      boundTo: (override?.boundTo ?? slot.boundTo) || null,
-      layer: (override ? override.layer : slot.layer) ?? null,
+      boundTo: (override?.boundTo ?? prop.boundTo) || null,
+      layer: (override ? override.layer : prop.layer) ?? null,
       overridden: override !== undefined,
     };
   };
+  const bound = (block: string, name: string): ValueFacts[] => {
+    const own = binding(block, name);
+    return own?.boundTo
+      ? [{ boundTo: own.boundTo, resolveError: null, layer: own.layer }]
+      : [];
+  };
 
   const verb = composition.verbs.find(v => v.name === skill);
-  for (const slot of verb?.slots ?? []) {
-    const own = binding(slot.name);
-    facts.set(
-      slot.name,
-      own?.overridden
-        ? {
-            contract: slot.contract,
-            required: slot.required,
-            boundTo: own.boundTo,
-            resolveError: null,
-            layer: own.layer,
-          }
-        : {
-            contract: slot.contract,
-            required: slot.required,
-            boundTo: slot.boundTo,
-            resolveError: slot.resolveError ?? null,
-            layer: slot.layer ?? null,
-          }
-    );
+  for (const [block, props] of Object.entries(verb?.props ?? {})) {
+    for (const prop of props) {
+      const own = binding(block, prop.name);
+      facts.set(propKey(block, prop.name), {
+        contract: prop.contract,
+        required: prop.required,
+        values: own?.overridden
+          ? bound(block, prop.name)
+          : prop.values.map(value => ({
+              boundTo: value.boundTo,
+              resolveError: value.resolveError ?? null,
+              layer: value.layer,
+            })),
+      });
+    }
   }
-  for (const slot of target?.slots ?? []) {
-    if (facts.has(slot.name)) continue;
-    const own = binding(slot.name);
-    facts.set(slot.name, {
-      contract: slot.contract,
-      required: slot.required,
-      boundTo: own?.boundTo ?? null,
-      resolveError: null,
-      layer: own?.layer ?? null,
-    });
+  for (const [block, props] of Object.entries(target?.props ?? {})) {
+    for (const prop of props) {
+      const key = propKey(block, prop.name);
+      if (facts.has(key)) continue;
+      facts.set(key, {
+        contract: prop.contract,
+        required: prop.required,
+        values: bound(block, prop.name),
+      });
+    }
   }
-  for (const slot of binder?.slots ?? []) {
-    if (facts.has(slot.name)) continue;
-    const own = binding(slot.name);
-    if (!own?.boundTo) continue;
-    facts.set(slot.name, {
-      contract: provides.get(own.boundTo) ?? null,
-      required: null,
-      boundTo: own.boundTo,
-      resolveError: null,
-      layer: own.layer,
-    });
+  for (const binder of binders) {
+    const block = blockOf(binder.ref);
+    for (const prop of binder.props) {
+      const key = propKey(block, prop.name);
+      if (facts.has(key)) continue;
+      const values = bound(block, prop.name);
+      if (values.length === 0) continue;
+      facts.set(key, {
+        contract: provides.get(values[0]!.boundTo!) ?? null,
+        required: null,
+        values,
+      });
+    }
   }
   return facts;
 }
 
-function slotState(
-  part: AnatomyPart,
-  facts: SlotFacts | undefined,
+/** The facts of the one value a part pastes: the value its source names,
+    else the prop's first. */
+function partFacts(
+  declared: DeclaredFacts | undefined,
+  part: RowSource
+): PropFacts | undefined {
+  if (!declared) return undefined;
+  const value =
+    declared.values.find(v => v.boundTo === part.source?.ref) ??
+    declared.values[0];
+  return {
+    contract: declared.contract,
+    required: declared.required,
+    boundTo: value?.boundTo ?? null,
+    resolveError: value?.resolveError ?? null,
+    layer: value?.layer ?? null,
+  };
+}
+
+function propState(
+  part: RowSource,
+  facts: PropFacts | undefined,
   pending: boolean
 ): RowState {
   if (facts?.resolveError) return 'resolve-error';
@@ -420,14 +600,16 @@ function usageCounts(composition: SkillsComposition) {
 
 export function textNounOf(
   anatomy: SkillsAnatomy,
-  composition?: Pick<SkillsComposition, 'verbs'>
+  composition?: Pick<SkillsComposition, 'verbs' | 'targets'>
 ): TextNoun {
   if (anatomy.kind === 'stage') return 'step';
   const verb = composition?.verbs.find(v => v.name === anatomy.skill);
   if (
     anatomy.skill === ORCHESTRATOR_VERB ||
     (verb !== undefined && leadsAPipeline(verb)) ||
-    anatomy.parts.some(part => part.kind === 'verb.path')
+    composition?.targets
+      ?.find(target => target.name === anatomy.skill)
+      ?.placeholders.some(placeholder => placeholder.kind === 'verb.path')
   )
     return 'orchestrator';
   return 'verb';
@@ -446,41 +628,41 @@ export function buildTemplateView(input: {
   const stepOf = stepNumbers(composition, input.workType ?? null);
   const pack = anatomy.pack;
   const textNoun = textNounOf(anatomy, composition);
-  const slotFacts = slotFactsOf(
+  const propFacts = propFactsOf(
     composition,
     anatomy.skill,
     anatomy.template.ref,
     input.workType ?? null
   );
+  const root = suffixOf(anatomy.template.ref);
   const { includeUses, fillUses } = usageCounts(composition);
   const checkRows = new Map<string, CheckRow>(
     (check?.verbs ?? []).map(row => [row.name, row] as const)
   );
   // A default change rebuilds the shown skill only where its pipeline does
-  // not override the slot.
+  // not override the prop.
   const shownPipeline =
     composition.targets?.find(target => target.name === anatomy.skill)
       ?.pipeline ??
     input.workType ??
     null;
-  const binderSlots = composition.binders.find(
-    binder => binder.ref === anatomy.template.ref
-  )?.slots;
-  const overriddenHere = (slot: string) =>
+  const overriddenHere = (change: BindingChange) =>
     overrideOf(
-      binderSlots?.find(candidate => candidate.name === slot) ?? {},
+      composition.binders
+        .find(binder => binder.ref === change.engineRef)
+        ?.props.find(candidate => candidate.name === change.slot) ?? {},
       shownPipeline
     ) !== undefined;
-  const pendingSlots = new Set(
+  const pendingProps = new Set(
     (changes?.bindings ?? [])
       .filter(
         change =>
-          change.engineRef === anatomy.template.ref &&
+          engineRefOf(change.engineRef) === anatomy.template.ref &&
           (change.pipeline
             ? change.pipeline === shownPipeline
-            : !overriddenHere(change.slot))
+            : !overriddenHere(change))
       )
-      .map(change => change.slot)
+      .map(change => propKey(blockOf(change.engineRef), change.slot))
   );
 
   const rows: TemplateRow[] = [];
@@ -496,31 +678,37 @@ export function buildTemplateView(input: {
     return cardId;
   };
 
-  let slot: { part: AnatomyPart; card: InputCard } | null = null;
-  for (const part of anatomy.parts) {
+  let prop: { part: RowSource; card: InputCard } | null = null;
+  for (const part of rowSourcesOf(anatomy, composition)) {
     if (part.kind === 'section') {
-      if (slot && holds(slot.part, part))
-        slot.card.sections.push(sectionCard(part, slot.card));
+      if (prop && holds(prop.part, part))
+        prop.card.sections.push(sectionCard(part, prop.card));
       continue;
     }
-    if (part.kind === 'slot') slot = null;
+    if (part.kind === 'prop') prop = null;
     const anchor = part.templateLines ?? part.renderedLines;
     if (!anchor) continue;
     const line = anchor[0];
     const nth = (rowsAtLine.get(line) ?? 0) + 1;
     rowsAtLine.set(line, nth);
     const id = nth === 1 ? String(line) : `${line}.${nth}`;
+    // A placeholder in a block file counts its line in that file.
     const gutter = part.templateLines
-      ? gutterOf(part.templateLines)
+      ? part.block
+        ? `${lastSegment(part.block)} ${gutterOf(part.templateLines)}`
+        : gutterOf(part.templateLines)
       : `rendered ${gutterOf(anchor)}`;
 
-    if (part.kind === 'text') {
+    if (part.kind === 'text' || part.kind === 'block') {
       rows.push({
         id,
         line,
         kind: 'text',
         gutter,
-        label: textLabel(spanOf(anchor), textNoun),
+        label:
+          part.kind === 'block' && part.name
+            ? `${lastSegment(part.name)} · ${countOf(spanOf(anchor), 'line', 'lines')}`
+            : textLabel(spanOf(anchor), textNoun),
         templateLines: part.templateLines,
         renderedLines: part.renderedLines,
       });
@@ -528,10 +716,12 @@ export function buildTemplateView(input: {
     }
 
     const facts =
-      part.kind === 'slot' ? slotFacts.get(part.name ?? '') : undefined;
+      part.kind === 'prop'
+        ? partFacts(propFacts.get(part.name ?? ''), part)
+        : undefined;
     const state =
-      part.kind === 'slot'
-        ? slotState(part, facts, pendingSlots.has(part.name ?? ''))
+      part.kind === 'prop'
+        ? propState(part, facts, pendingProps.has(part.name ?? ''))
         : 'ok';
     rows.push({
       id,
@@ -545,7 +735,7 @@ export function buildTemplateView(input: {
       state,
       name: part.name,
       contract: facts?.contract ?? null,
-      fill: part.kind === 'slot' && part.source ? partLabel(part) : null,
+      fill: part.kind === 'prop' && part.source ? partLabel(part) : null,
       boundTo: facts?.boundTo ?? null,
       resolveError: facts?.resolveError ?? null,
       layer: facts?.layer ?? null,
@@ -571,22 +761,22 @@ export function buildTemplateView(input: {
     const card: InputCard = {
       id: cardIdFor(partKey(part), id),
       rowId: id,
-      ...cardFace(part, state, facts, pack),
+      ...cardFace(part, state, facts, pack, root),
       state,
       usedBy:
         part.kind === 'include'
           ? includeUses(part.name ?? '')
-          : part.kind === 'slot' && facts?.boundTo
+          : part.kind === 'prop' && facts?.boundTo
             ? fillUses(facts.boundTo)
             : 0,
       sections: [],
     };
     inputs.push(card);
-    if (part.kind === 'slot') slot = { part, card };
+    if (part.kind === 'prop') prop = { part, card };
   }
 
   const pendingSkill =
-    pendingSlots.size > 0 ||
+    pendingProps.size > 0 ||
     (changes?.surface ?? []).some(change => change.skill === anatomy.skill);
 
   return {
@@ -614,7 +804,7 @@ export function buildTemplateView(input: {
 
 /**
  * The output part a canvas selection names, or null: the part itself
- * (`output:<part>`), or the include or slot row or card that pastes it in.
+ * (`output:<part>`), or the include or prop row or card that pastes it in.
  * A repeated card's `@<row>` suffix names the same part.
  */
 export function selectedPartId(
@@ -627,10 +817,10 @@ export function selectedPartId(
   let id: string | null = null;
   if (kind === 'output' || kind === 'input') id = ref.split('@')[0] ?? null;
   if (kind === 'row') {
-    const row = view.rows.find(candidate => `row:${candidate.line}` === select);
+    const row = view.rows.find(candidate => `row:${candidate.id}` === select);
     if (
       row?.kind === 'placeholder' &&
-      (row.placeholder === 'include' || row.placeholder === 'slot')
+      (row.placeholder === 'include' || row.placeholder === 'prop')
     )
       id = `${row.placeholder}:${row.name ?? ''}`;
   }
@@ -640,10 +830,11 @@ export function selectedPartId(
 }
 
 function cardFace(
-  part: AnatomyPart,
+  part: RowSource,
   state: RowState,
-  facts: SlotFacts | undefined,
-  pack: string
+  facts: PropFacts | undefined,
+  pack: string,
+  root: string
 ): Pick<InputCard, 'title' | 'subtitle' | 'icon' | 'path' | 'subtitleTone'> {
   if (part.kind === 'variable') {
     return {
@@ -673,28 +864,32 @@ function cardFace(
     };
   }
 
-  const slotTitle = `${part.name} slot`;
+  const propName = part.name ?? '';
+  const title = propTitle(propName, root);
   switch (state) {
     case 'required-unbound':
       return {
         ...file,
-        title: slotTitle,
-        subtitle: 'required, nothing bound',
+        title,
+        subtitle: 'Not bound',
         subtitleTone: 'warn',
       };
     case 'resolve-error':
       return {
         ...file,
         icon: 'fileX',
-        title: slotTitle,
-        subtitle: causeOf(facts?.resolveError ?? '', part.name ?? ''),
+        title,
+        subtitle: causeOf(
+          facts?.resolveError ?? '',
+          splitPropKey(propName).name
+        ),
         subtitleTone: 'bad',
       };
     case 'no-matching-fill':
       return {
         ...file,
         icon: 'fileX',
-        title: slotTitle,
+        title,
         subtitle: `no fill named ${facts?.boundTo} in this pack`,
         subtitleTone: 'warn',
       };
@@ -730,118 +925,14 @@ function cardFace(
   }
 }
 
-/** rt's message without the `<step>: slot "<name>": ` it opens with, which
+/** rt's message without the `<step>: prop "<name>": ` it opens with, which
     the card's title already says. */
-function causeOf(message: string, slot: string): string {
-  const marker = `: slot "${slot}": `;
+function causeOf(message: string, prop: string): string {
+  const marker = `: prop "${prop}": `;
   const at = message.indexOf(marker);
   return at > 0 && !/\s/.test(message.slice(0, at))
     ? message.slice(at + marker.length)
     : message;
-}
-
-/**
- * A skill another app owns, such as the board's `board:doctor`, which this
- * pack only fills: rt has no anatomy for it, so the view is the slots the
- * pack's binders fill and a card per fill. The anatomy is a stand-in that
- * carries the pack and the skill's description, with no file of its own.
- */
-export function appSkillView(
-  composition: SkillsComposition,
-  ref: string,
-  pack: string
-): { view: TemplateView; anatomy: SkillsAnatomy } | null {
-  const binder = composition.binders.find(
-    b => b.ref === ref && b.kind === 'external'
-  );
-  if (!binder) return null;
-  const app = pluginOf(ref);
-  const fills = new Map(composition.fills.map(fill => [fill.binding, fill]));
-  const rows: TemplateRow[] = [];
-  const inputs: InputCard[] = [];
-  binder.slots.forEach((slot, index) => {
-    const id = String(index + 1);
-    const fill = fills.get(slot.boundTo);
-    const state: RowState = fill ? 'ok' : 'no-matching-fill';
-    rows.push({
-      id,
-      line: index + 1,
-      kind: 'placeholder',
-      placeholder: 'slot',
-      gutter: 'slot',
-      code: `{{slot:${slot.name}}}`,
-      templateLine: null,
-      renderedLines: null,
-      state,
-      name: slot.name,
-      contract: fill?.provides ?? null,
-      fill: slot.boundTo,
-      boundTo: slot.boundTo,
-      resolveError: null,
-      layer: slot.layer ?? null,
-    });
-    const owner = ownerOf(slot.boundTo, fill?.origin ? fill : slot, pack);
-    inputs.push({
-      id: `slot:${slot.name}`,
-      rowId: id,
-      state,
-      usedBy: composition.binders.filter(other =>
-        other.slots.some(s => s.boundTo === slot.boundTo)
-      ).length,
-      owner,
-      sections: [],
-      ...(fill
-        ? {
-            title: fileLabelOf(fill.sourcePath),
-            icon: 'fileText' as const,
-            path: fill.sourcePath,
-            ...(owner.kind === 'pack'
-              ? {
-                  subtitle: `written by ${pack}`,
-                  subtitleTone: 'accent' as const,
-                }
-              : {
-                  subtitle: `${owner.kind === 'base' ? `${owner.name} · org base` : `${owner.name} default`}${pickedBy(slot.layer ?? null)}`,
-                  subtitleTone: 'dimmed' as const,
-                }),
-          }
-        : {
-            title: `${slot.name} slot`,
-            icon: 'fileX' as const,
-            path: null,
-            subtitle: `no fill named ${slot.boundTo} in this pack`,
-            subtitleTone: 'warn' as const,
-          }),
-    });
-  });
-  const slots = countOf(binder.slots.length, 'slot', 'slots');
-  return {
-    view: {
-      skill: ref,
-      templateFile: ref,
-      templateMeta: `${app} app · ${slots}`,
-      rows,
-      inputs,
-      links: [],
-      output: null,
-      textNoun: 'verb',
-      app,
-      skillFile: binder.skillFile ?? null,
-    },
-    anatomy: {
-      pack,
-      skill: ref,
-      kind: 'verb',
-      public: false,
-      description: `Lives in the ${app} app. ${pack} fills its ${slots}.`,
-      template: { ref, path: '', version: '', builtVersion: null, lines: 0 },
-      rendered: { path: '', exists: false, lines: 0 },
-      status: 'in-sync',
-      staleBecause: [],
-      parts: [],
-      links: [],
-    },
-  };
 }
 
 /** Who chose a default fill, for the layers rt names a chooser for. */
@@ -879,7 +970,7 @@ const LINK_STATUS_WORDS: Record<SkillStatus, string | null> = {
 };
 
 function linkCard(
-  part: AnatomyPart,
+  part: RowSource,
   cardId: string,
   skill: string,
   rowId: string,
@@ -888,8 +979,7 @@ function linkCard(
   copyLabel: string | null
 ): LinkCard {
   const lines = part.target?.lines ?? null;
-  const status: SkillStatus =
-    row?.status ?? (lines === null ? 'never-compiled' : 'unknown');
+  const status: SkillStatus = row?.status ?? 'unknown';
   const reason = status === 'stale' ? staleReason(row?.staleBecause) : null;
   const subtitle = [
     step === null ? null : `step ${step}`,
@@ -914,11 +1004,18 @@ function linkCard(
 
 function templateMeta(anatomy: SkillsAnatomy, links: boolean): string {
   const { template, rendered } = anatomy;
-  if (links && rendered.exists)
-    return `${template.lines} lines → renders ${rendered.lines}`;
+  // A block tree's root file is one of many; the tree is counted in blocks.
+  const size = isBlockTree(anatomy)
+    ? countOf(
+        anatomy.parts.filter(part => part.kind === 'block').length,
+        'block',
+        'blocks'
+      )
+    : `${template.lines} lines`;
+  if (links && rendered.exists) return `${size} → renders ${rendered.lines}`;
   if (!rendered.exists || template.builtVersion === null)
-    return `${template.lines} lines · never compiled`;
-  return `${template.lines} lines · ${pluginOf(template.ref)} ${template.builtVersion}`;
+    return `${size} · never compiled`;
+  return `${size} · ${pluginOf(template.ref)} ${template.builtVersion}`;
 }
 
 function outputCard(
@@ -955,7 +1052,7 @@ function outputParts(anatomy: SkillsAnatomy, textNoun: TextNoun): OutputPart[] {
   const pasted = anatomy.parts
     .filter(
       part =>
-        (part.kind === 'include' || part.kind === 'slot') &&
+        (part.kind === 'include' || part.kind === 'prop') &&
         part.mode !== 'reference' &&
         pastedLines(part, anatomy.parts) > 0
     )
@@ -970,7 +1067,8 @@ function outputParts(anatomy: SkillsAnatomy, textNoun: TextNoun): OutputPart[] {
       };
     });
   const placedText = anatomy.parts.filter(
-    part => part.kind === 'text' && part.renderedLines
+    part =>
+      (part.kind === 'text' || part.kind === 'block') && part.renderedLines
   );
   // A stale skill places no text on disk, so its own text is what the pasted
   // parts leave over.
@@ -991,7 +1089,7 @@ function outputParts(anatomy: SkillsAnatomy, textNoun: TextNoun): OutputPart[] {
 }
 
 /** What the rendered text links to, in the order it reads: the paths it
-    names, and the fills a referenced slot names by their binding. */
+    names, and the fills a referenced prop names by their binding. */
 function outputLinks(
   anatomy: SkillsAnatomy,
   composition: SkillsComposition,
@@ -1011,15 +1109,15 @@ function outputLinks(
     } satisfies OutputLink,
   }));
   // A row's state names only its loudest fact, so an unsynced rebind hides
-  // that the slot still renders as a reference; the mode comes from the part.
+  // that the prop still renders as a reference; the mode comes from the part.
   const referenced = new Set(
     anatomy.parts
-      .filter(part => part.kind === 'slot' && part.mode === 'reference')
+      .filter(part => part.kind === 'prop' && part.mode === 'reference')
       .map(part => part.name)
   );
   const byBinding = rows.flatMap(row =>
     row.kind === 'placeholder' &&
-    row.placeholder === 'slot' &&
+    row.placeholder === 'prop' &&
     referenced.has(row.name) &&
     row.fill
       ? [
@@ -1029,7 +1127,7 @@ function outputLinks(
               label: row.fill,
               path: null,
               skill: null,
-              select: `row:${row.line}`,
+              select: `row:${row.id}`,
             } satisfies OutputLink,
           },
         ]

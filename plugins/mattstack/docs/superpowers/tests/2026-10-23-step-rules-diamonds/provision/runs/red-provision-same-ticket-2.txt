@@ -1,0 +1,4 @@
+1. run_field_get {mode}, run_field_get for the consumes (ticket, repo, and the title for ticketTitle), worktree_provision {precheck: true}, worktree_provision {codes: true, runDb, stage: provision, budget}. The last call is followed by EnterWorktree, which is not an MCP tool. I assume it comes back `recorded: true`, so there are no `run_field_set` calls. whoami is never called and the gate is never presented.
+2. Yes, because the widgets squad rule is a domain rule inlined in this stage. The flow adds no ticket lookup and no provisioning of its own, so it raises no question and the graph goes on to the precheck.
+3. Not shown. With a domain rule inlined, the `sameTicket` tree is not offered for resume, since the domain flow asks its own slug question for it. That leaves nothing in the way, so the precheck goes to a fresh provision and no gate opens.
+4. None. The gate is never presented, and the squad rule only adds a question to a gate that is already open.

@@ -1,0 +1,7 @@
+1. Add it to `plugins/mattstack/attachments/pipeline/stage-ship/index.block.md`, whose graph is a Graphviz `dot` digraph. Declare the node between `commit_named_files` and `domain_fast_checks`: `check_changelog [label="Check the changelog" shape=box];`
+
+2. The guidance goes in a new child file, `plugins/mattstack/attachments/pipeline/stage-ship/check-changelog.block.md`, under the title line `### Check the changelog` (the exact node label). The skill doesn't define the block frontmatter schema, so I'd copy the frontmatter keys from a sibling `*.block.md` file rather than guess them.
+
+3. Replace the edge `commit_named_files -> domain_fast_checks;` with two edges: `commit_named_files -> check_changelog;` and `check_changelog -> domain_fast_checks;`. Both are id-only and the step has a single exit, so no labels are needed.
+
+4. Run `python3 check-dot.py --short-ids plugins/mattstack/attachments/pipeline/stage-ship/index.block.md`. I'd also run `bash render.sh` on the same file, since certify runs both.

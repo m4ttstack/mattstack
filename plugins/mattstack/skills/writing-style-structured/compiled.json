@@ -1,0 +1,10 @@
+{
+  "id": "mattstack@0.32.28:writing-style-structured",
+  "dir": "skills/writing-style-structured",
+  "covers": [
+    "mattstack@0.32.28:writing-style-structured"
+  ],
+  "keys": {
+    "writing-style-structured/pr-description.md": "skills/writing-style-structured/pr-description.md"
+  }
+}

@@ -13,22 +13,38 @@ function write(path: string, text: string): void {
   writeFileSync(path, text);
 }
 
-const stageEngine = (name: string, slots: string) => `---
+const stageEngine = (name: string) => `---
 name: ${name}
 description: "Pipeline stage ${name}."
 disable-model-invocation: true
 type: pipeline-step
-slots:
-${slots}
 metadata:
   stage: "${name.slice("stage-".length)}"
   stage-consumes: "ticket"
   stage-produces: "-"
+props:
+  rules:
+    merge: add
+    default: ""
 ---
 
 # ${name}
 
-{{slot:domain}}
+{{props.rules}}
+`;
+
+/** A block holding one replace prop with a contract, the shape of work's tiering and stage-watch-ci's forge. */
+const contractBlock = (title: string, prop: string, contract: string) => `---
+props:
+  ${prop}:
+    merge: replace
+    default: ""
+    contract: "${contract}"
+---
+
+# ${title}
+
+{{props.${prop}}}
 `;
 
 const workEngine = `---
@@ -36,8 +52,6 @@ name: work
 description: "Use when running a unit of work through a configured pipeline."
 disable-model-invocation: true
 type: pipeline-step
-slots:
-  tiering: { contract: model-tiering@1, required: false }
 ---
 
 # work
@@ -45,15 +59,11 @@ slots:
 Stages:
 
 {{pipeline.stages}}
-
-## Tiering
-
-{{slot:tiering}}
 `;
 
 const fill = (name: string, provides: string, body: string) => `---
 name: ${name}
-description: "Use when a slot resolves here."
+description: "Use when a prop resolves here."
 disable-model-invocation: true
 metadata:
   provides: "${provides}"
@@ -67,16 +77,15 @@ async function build() {
   cpSync(FIX, root, { recursive: true });
   const ms = join(root, "mattstack-home");
   const engines = join(ms, "plugins", "mattstack", "attachments");
-  // The fixture's own work engine declares no slots, so the tiering bind would be
-  // silently ignored; this one exercises it.
-  write(join(engines, "pipeline", "work", "SKILL.md"), workEngine);
+  // The fixture's own work engine declares no props, so the seeded tiering binding would
+  // name a block it lacks; this one carries the block the seed binds.
+  write(join(engines, "pipeline", "work", "index.block.md"), workEngine);
+  write(join(engines, "pipeline", "work", "sub-agent-tiering.block.md"), contractBlock("Tiering", "tiering", "model-tiering@1"));
   for (const stage of PIPELINE_STAGES) {
-    const path = join(engines, "pipeline", stage, "SKILL.md");
+    const path = join(engines, "pipeline", stage, "index.block.md");
     if (existsSync(path)) continue;
-    const slots = stage === "stage-watch-ci"
-      ? "  domain: { contract: watch-ci-domain@1, required: false }\n  forge: { contract: ci-forge@1, required: false }"
-      : `  domain: { contract: ${stage.slice("stage-".length)}-domain@1, required: false }`;
-    write(path, stageEngine(stage, slots));
+    write(path, stageEngine(stage));
+    if (stage === "stage-watch-ci") write(join(engines, "pipeline", stage, "forge.block.md"), contractBlock("Forge", "forge", "ci-forge@1"));
   }
   write(join(engines, "model-tiering", "SKILL.md"), fill("model-tiering", "model-tiering@1", "tiering rules"));
   write(join(engines, "ci-forge-gitlab", "SKILL.md"), fill("ci-forge-gitlab", "ci-forge@1", "gitlab forge"));
@@ -85,7 +94,7 @@ async function build() {
     write(join(pack, rel), text);
   }
   const manifest = join(ms, "repos", "acme-repo", "skills.jsonc");
-  write(manifest, "// mattstack:work tiering <- acme@acme\n" + readFileSync(join(pack, "pack", "skills.jsonc"), "utf8"));
+  write(manifest, "// mattstack:work/sub-agent-tiering tiering <- acme@acme\n" + readFileSync(join(pack, "pack", "skills.jsonc"), "utf8"));
   return { pack, ms, manifest };
 }
 

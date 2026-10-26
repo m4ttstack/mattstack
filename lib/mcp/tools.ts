@@ -21,6 +21,7 @@ import { selfPaneRef } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
 import { abortableSleep, ciToolDefs } from "./ci-tools.ts";
 import { whoamiToolDefs } from "./whoami-tool.ts";
+import { skillsResolveToolDefs } from "./skills-resolve-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
@@ -899,6 +900,7 @@ export function mcpTools(): McpToolDef[] {
     ...herdToolDefs(),
     ...chatToolDefs(),
     ...whoamiToolDefs(),
+    ...skillsResolveToolDefs(),
     ...ciToolDefs(),
     ...evidenceToolDefs(),
   ];

@@ -10,12 +10,14 @@ type DesignPayloads = {
   'composition.unsynced': SkillsComposition;
   check: SkillsCheck;
   'anatomy.work': SkillsAnatomy;
+  'anatomy.work.rt': SkillsAnatomy;
   'anatomy.work-a11y': SkillsAnatomy;
   'anatomy.stage-evidence': SkillsAnatomy;
   'anatomy.stage-evidence--accessibility': SkillsAnatomy;
   'anatomy.stage-plan': SkillsAnatomy;
   'anatomy.stage-plan.unsynced': SkillsAnatomy;
   'anatomy.release-notes': SkillsAnatomy;
+  'anatomy.ship': SkillsAnatomy;
   'changes.clean': SkillsChanges;
   'changes.unsynced': SkillsChanges;
 };

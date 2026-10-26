@@ -1,0 +1,4 @@
+1. run_field_get {key: mode}, worktree_provision {precheck: true}, worktree_provision {codes: true, runDb, stage: provision, budget: {key: provision-refusals, limit: 2}}; the stage then ends with the built-in EnterWorktree (not an MCP tool) and no run_field_set, since `recorded: true` means the tool wrote branch and worktree, and the ticket came in known.
+2. Yes, because the "Follow the domain's provision flow" section is inlined in the skill, so the diamond answers yes. That flow only confirms the known ticket and title and raises no question.
+3. Not shown. With a domain flow inlined, the `sameTicket` tree is not offered for resume (the domain asks its own slug question instead). That leaves no `attached` tree and no surviving branch, so the precheck reads "nothing in the way".
+4. None, because no gate is presented. The `squad` question only adds to a gate that is already opened, and nothing here opens one.

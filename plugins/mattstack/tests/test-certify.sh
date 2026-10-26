@@ -150,6 +150,35 @@ check digraph_sentence_ids_outside_plugin 0 'ok   digraphs'
 OUT=$("$CERTIFY" "$WORK/plug/attachments/x"); STATUS=$?
 check digraph_sentence_ids_in_plugin 1 'graph uses sentence ids'
 
+# a block-tree dir is certified from index.block.md, and its dot-free
+# Mermaid graph skips the digraph gate (compile checks Mermaid)
+mkdir -p "$WORK/blocks/run"
+printf -- '---\nname: fake:blocks\ndescription: "Use when testing block trees."\n---\n\n# blocks\n' > "$WORK/blocks/index.block.md"
+printf -- '# Run\n\n```mermaid\nflowchart TB\n    go([Trigger: go])\n```\n' > "$WORK/blocks/run/index.block.md"
+OUT=$("$CERTIFY" "$WORK/blocks"); STATUS=$?
+check block_tree 0 'ok   fm-name'
+if printf '%s' "$OUT" | grep -q 'digraph'; then
+  echo "FAIL block_tree_no_digraph_gate: output names a digraph check"; echo "  out: $OUT"; FAIL=$((FAIL+1))
+else echo "ok   block_tree_no_digraph_gate"; PASS=$((PASS+1)); fi
+
+# the purity greps reach a child block file
+mkdir -p "$WORK/blockdash/run"
+cp "$WORK/blocks/index.block.md" "$WORK/blockdash/index.block.md"
+printf -- '# Run\n\nbad \342\200\224 dash\n' > "$WORK/blockdash/run/index.block.md"
+OUT=$("$CERTIFY" "$WORK/blockdash"); STATUS=$?
+check block_tree_child_dash 1 'FAIL no-em-dashes'
+
+# a block-tree root without a name fails fm-name
+mkdir -p "$WORK/blocknoname"
+printf -- '---\ndescription: "Use when testing block trees."\n---\n\n# blocks\n' > "$WORK/blocknoname/index.block.md"
+OUT=$("$CERTIFY" "$WORK/blocknoname"); STATUS=$?
+check block_tree_no_name 1 'FAIL fm-name'
+
+# a dir with neither SKILL.md nor index.block.md fails skill-md
+mkdir -p "$WORK/empty"
+OUT=$("$CERTIFY" "$WORK/empty"); STATUS=$?
+check no_skill_source 1 'FAIL skill-md'
+
 # usage: missing arg exits 2
 OUT=$("$CERTIFY" 2>&1); STATUS=$?
 check usage 2 'usage'

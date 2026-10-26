@@ -8,7 +8,7 @@ set -euo pipefail
 #   ./build.sh dev        mattstack-dev.app (dev; Contents/MacOS/rt is the source-runner shim)
 #   ./build.sh install    release + copy to /Applications + launch
 #
-# Env: RT_DAEMON_BIN RT_VSIX RT_VERSION RT_REQUIRE_DEPS SPARKLE_PUBLIC_ED_KEY RT_BUILD_TOOL
+# Env: RT_DAEMON_BIN RT_VSIX RT_SKILL_BLOCKS_VSIX RT_VERSION RT_REQUIRE_DEPS SPARKLE_PUBLIC_ED_KEY RT_BUILD_TOOL
 #      RT_SANDBOX_PRESIGN (sandboxed dev gates only — never CI, never a real release)
 #
 # The bundle id, daemon label, and display name live ONLY here; Info.plist is a
@@ -359,6 +359,10 @@ fi
 if [ -n "${RT_VSIX:-}" ]; then
     [ -f "$RT_VSIX" ] || { echo "  ✗ RT_VSIX=$RT_VSIX not found"; exit 1; }
     cp "$RT_VSIX" "$CONTENTS/Resources/rt-context.vsix" && echo "  ✓ rt-context.vsix"
+fi
+if [ -n "${RT_SKILL_BLOCKS_VSIX:-}" ]; then
+    [ -f "$RT_SKILL_BLOCKS_VSIX" ] || { echo "  ✗ RT_SKILL_BLOCKS_VSIX=$RT_SKILL_BLOCKS_VSIX not found"; exit 1; }
+    cp "$RT_SKILL_BLOCKS_VSIX" "$CONTENTS/Resources/skill-blocks.vsix" && echo "  ✓ skill-blocks.vsix"
 fi
 
 # ─── Sparkle framework (from the deps.lock xcframework; xcodebuild embeds it itself) ───

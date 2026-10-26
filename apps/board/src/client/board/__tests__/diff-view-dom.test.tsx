@@ -96,7 +96,11 @@ test('a mounted view waits again when its language changes to one not loaded yet
   };
   await React.act(async () => root.render(<Probe lang="typescript" />));
   expect(await until('ready')).toBe(true);
-  await React.act(async () => root.render(<Probe lang="rust" />));
+  // A sync act renders and starts the load without awaiting it, so the
+  // waiting state is seen before the grammar lands.
+  React.act(() => {
+    root.render(<Probe lang="rust" />);
+  });
   expect(container.textContent).toBe('waiting');
   expect(await until('ready')).toBe(true);
 });

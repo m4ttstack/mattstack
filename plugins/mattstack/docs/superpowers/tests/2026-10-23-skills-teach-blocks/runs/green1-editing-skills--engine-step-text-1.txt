@@ -1,0 +1,4 @@
+1. `plugins/mattstack/attachments/pipeline/stage-ship/domain-fast-checks.block.md`
+2. `python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py --short-ids <compiled SKILL.md>`, run on the compiled stage-ship `SKILL.md` (the compiled verb under `skills/<verb>/`, or a scratch pack that rosters the engine), after compiling with `rt skills compile --pack mattstack --pack-dir <your monorepo worktree>/plugins/mattstack`.
+3. `rt_verb {args: ["skills", "bind", "stage-ship", "domain-fast-checks", "<prop>", "widgets:a11y-checks", "--pipeline", "accessibility", "--pack", "widgets"]}`. The `<prop>` is the fast-checks block's prop name, which I'd look up in `mattstack:extending-a-pack`'s `props.md`; the skill text doesn't give it.
+4. `plugins/mattstack/attachments/pipeline/stage-ship/`

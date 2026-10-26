@@ -121,31 +121,40 @@ The skill sorts the ask into one of five places:
 | the ask is about | where it lands |
 | --- | --- |
 | a rule that holds even outside a pipeline (branch names, forbidden ops, where things live) | `skills/context/SKILL.md`, a public skill in the pack |
-| something one stage or verb should do differently | a fill bound to that stage's slot (`slots.md` in the skill lists them) |
+| something one stage or verb should do differently | a fill bound to a prop on one of that engine's blocks (`props.md` in the skill lists them) |
 | a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` |
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
 | one kind of work (accessibility, a bug fix) that runs its own stages or fills | a specialized pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb (below) |
 
-Browser screenshot evidence is a fill on the evidence stage's `domain`
-slot with a `## Browser target` section: four blocks of facts about your
-app and no capture steps, as
+Each engine is a tree of blocks: an `index.block.md` root and one
+`*.block.md` file per section. A block that takes your team's text
+declares a prop; a rule for one step binds to that step's block, and a
+rule for the whole stage binds to its `domain-rules` block.
+`rt skills blocks --skill <verb> --pack widgets` prints a verb's blocks.
+
+Browser screenshot evidence is a fill on the evidence stage's
+`stage-evidence/domain-rules` block with a `## Browser target` section:
+four blocks of facts about your app and no capture steps, as
 [browser-target.md](../plugin/skills/extending-a-pack/browser-target.md)
 shows.
 
-For the lint example that is a fill on the ship stage's `domain` slot. What
-you will see, in order:
+For the lint example that is a fill on the `rules` prop of the ship
+stage's fast-checks step, `stage-ship/domain-fast-checks`. What you will
+see, in order:
 
 1. **RED.** The skill runs the ship stage without the rule on a small task in
    a worktree and stops before the push, recording that nothing ran lint.
 2. **The fill.** `mattstack/teams/widgets/plugin/attachments/ship-lint/SKILL.md`, a
-   small skill whose frontmatter declares `metadata.provides:
-   "ship-domain@1"` and whose body is the rule in your team's words: run
-   `bun run lint`, and on failure do not push.
+   small skill whose frontmatter declares `metadata.provides` and whose
+   body is the rule in your team's words: run `bun run lint`, and on
+   failure do not push.
 3. **Bind, certify, check.**
-   `rt skills bind stage-ship domain widgets:ship-lint` writes the binding into
-   `pack/skills.jsonc` (the file teammates receive), regenerates the pack's
-   bindings file for your repo and recompiles; `tests/certify.sh` and
-   `rt skills check` pass.
+   `rt skills bind stage-ship stage-ship/domain-fast-checks rules widgets:ship-lint`
+   writes the binding into `pack/skills.jsonc` (the file teammates
+   receive), as `"mattstack:stage-ship/domain-fast-checks": { "rules": "widgets:ship-lint" }`,
+   regenerates the pack's bindings file for your repo and recompiles;
+   `tests/certify.sh` and `rt skills check` pass. A pack that also has a
+   `ship` verb binds the same fill to `ship/flow/domain-fast-checks`.
 4. **GREEN.** The same task again, in a session started with
    `claude --plugin-dir <pack dir>` so it loads the pack source instead of
    the installed copy: lint runs, a failure blocks the push.
@@ -184,7 +193,7 @@ specialized pipeline:
 
 4. **Binds its fills**, one round each with RED and GREEN on
    `/widgets:work-a11y`:
-   `rt skills bind stage-evidence domain widgets:a11y-evidence --pipeline accessibility`
+   `rt skills bind stage-evidence stage-evidence/domain-rules rules widgets:a11y-evidence --pipeline accessibility`
    writes the override under `pipelines.accessibility.bindings`. Stages it
    does not override run the default fills.
 5. **Compiles and checks.** Where the pipeline's fills differ, compile
@@ -204,8 +213,9 @@ pipeline `accessibility`. Each verb resumes only runs of its own pipeline.
   hand: `rt skills materialize` regenerates it; `pack/skills.jsonc` is the
   source.
 - Do not copy another team's pack: its fills carry that team's rules.
-- Do not write a fill "to have something there": an unbound slot renders as
-  nothing, and that is the correct state until a rule exists.
+- Do not write a fill "to have something there": a `rules` prop with
+  nothing bound renders as nothing, and that is the correct state until a
+  rule exists.
 
 ## Fills the whole org shares
 
@@ -216,16 +226,17 @@ admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo:
 - `pack/surface.jsonc` is `{ "public": [] }`.
 - The fills sit under `attachments/<fill>/`, never `skills/`: nothing
   installs a base pack, so its fills are inlined into each team's
-  compiled verbs (a fill only `board:*` slots bind is copied into the team
-  pack as well, since the board opens it by name while it runs).
+  compiled verbs (a fill only `board:*` bindings name is copied into the
+  team pack as well, since the board opens it by name while it runs).
 
 A team pack uses it with `"extends": "acme-base"` in its
-`pack/skills.jsonc`, and its own fills override the base's slot by slot.
+`pack/skills.jsonc`. On an `add` prop the team's fill follows the base's;
+on a `replace` prop it replaces the base's.
 The base is never listed in `claude.plugins` and has no marketplace entry.
 
 A verb the org defines (for example `watch-ci`) reaches a team when the
-team lists it in `pack/stubs.jsonc` and compiles: with no team fill for a
-slot, the org's fill lands, and the verb is the team's (`/widgets:watch-ci`).
+team lists it in `pack/stubs.jsonc` and compiles: with no team fill on a
+prop, the org's fill lands, and the verb is the team's (`/widgets:watch-ci`).
 
 Bindings follow the base at once on every machine. Compiled fills follow
 at the team owner's next `rt skills compile`.

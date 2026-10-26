@@ -14,11 +14,10 @@ import { rolesFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { isOrgAdmin, roleOf } from "../packages/rt-client/src/settings/org-roles.ts";
 import { ORG_STORE_REL } from "../packages/rt-client/src/settings/paths.ts";
 import { parseStoreText } from "../packages/rt-client/src/settings/stores.ts";
-import { ConversionRefusal, cloneRoot } from "./lib/org-conversion.ts";
+import { ConversionRefusal, DATA_LAYOUT, cloneRoot } from "./lib/org-conversion.ts";
 
 const USAGE = "bun scripts/move-to-data-branch.ts <clone-dir> --admin <username> [--data-branch <name>] [--no-pointer] [--write]";
 const SOURCE_LAYOUT = 3;
-const DATA_LAYOUT = 4;
 const DEFAULT_DATA_BRANCH = "mattstack";
 const DATA_PATHS = ["mattstack", ".sops.yaml", ".claude-plugin", ".gitignore"];
 // .gitignore is copied but not compared: main's own ignore rules change for reasons that have nothing to do with the org's data.

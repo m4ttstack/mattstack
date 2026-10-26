@@ -38,6 +38,7 @@
     "@mattstack/settings-kit": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "@xyflow/react": "catalog:",
+    "elkjs": "catalog:",
     "hono": "catalog:",
     "lucide-react": "^1.25.0",
     "react": "catalog:",

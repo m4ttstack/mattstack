@@ -121,6 +121,12 @@ export function parseDiffHunks(diff: string): DiffHunk[] {
   return hunks;
 }
 
+/** An add prop takes one value per binding, so a prop seam pairs with its
+    value by the prop's key and the seam's binding together. */
+export function propValueKey(prop: string, binding: string): string {
+  return `${prop} ${binding}`;
+}
+
 /**
  * What rt's composition says about the sources behind ONE verb's seams. Every
  * absolute path here is rt's own `join(<plugin root>, srcPath)`, computed
@@ -134,10 +140,11 @@ export interface SeamSourceIndex {
   artifactPath: string | null;
   /** `verbs[].sourcePath` -- the step's source. */
   stepSourcePath: string | null;
-  /** Slot name -> `slots[].fillSourcePath`. Paired by NAME, which is why a
-      seam is never matched to a source by comparing two relative paths. */
+  /** `propValueKey(prop, binding)` -> that value's `fillSourcePath`. Paired
+      by NAME, which is why a seam is never matched to a source by comparing
+      two relative paths. */
   fillSourcePaths: Record<string, string | null>;
-  /** Base name -> the org base pack's root, for the slots filled from a base
+  /** Base name -> the org base pack's root, for the props filled from a base
       outside this pack. A hunk in such a fill arrives as
       `base:<name>/<path>`, never as a pack path. */
   baseRoots?: Record<string, string>;
@@ -153,8 +160,9 @@ export interface SeamSourceIndex {
  * the two only appear to agree, so three things are checked before a seam is
  * allowed to claim a pack file:
  *
- * 1. **rt states an absolute source for it.** Paired by slot name (or by the
- *    seam being the step), never by path. No path, no attribution.
+ * 1. **rt states an absolute source for it.** Paired by prop and binding (or
+ *    by the seam being the step or a block), never by path. No path, no
+ *    attribution.
  * 2. **rt's absolute path agrees with the seam text.** The seam is a comment
  *    in a compiled artifact and the composition is a separate read; if they
  *    disagree about where the source is, neither is trustworthy here.
@@ -177,11 +185,11 @@ export function seamPackPath(
   index: SeamSourceIndex
 ): string | null {
   const absolute =
-    seam.kind === 'step'
+    seam.kind === 'step' || seam.kind === 'block'
       ? index.stepSourcePath
-      : seam.slot === null
-        ? null
-        : (index.fillSourcePaths[seam.slot] ?? null);
+      : seam.kind === 'prop' && seam.name !== null
+        ? (index.fillSourcePaths[propValueKey(seam.name, seam.ref)] ?? null)
+        : null;
   if (absolute === null) return null;
   if (!absolute.endsWith(`/${seam.path}`)) return null;
   const base = pluginOf(seam.ref);

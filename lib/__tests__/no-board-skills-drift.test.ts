@@ -37,7 +37,7 @@ describe("board skills are expanded and current", () => {
   for (const name of ["review", "respond", "doctor"]) {
     test(`${name} carries gate-protocol and no path into another artifact`, () => {
       const md = readFileSync(join(OUT, name, "SKILL.md"), "utf8");
-      expect(md).toContain("<!-- part: include:gate-protocol source=mattstack:gate-protocol");
+      expect(md).toContain("<!-- part: block:gate-protocol source=mattstack:gate-protocol");
       expect(md).not.toContain("plugins/mattstack");
       expect(md).not.toContain("Documents/GitHub");
       expect(md).toContain("disable-model-invocation: true");

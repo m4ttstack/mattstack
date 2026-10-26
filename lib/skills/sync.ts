@@ -3,7 +3,10 @@ import { dirname, join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import { gateVerdict, MOVED_SENTENCE, showMarkerAt, shownDataBranch, updateSentence, type GateVerdict } from "../team/org-layout.ts";
-import { ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
+import { ORG_MARKER_REL, markerState, parseMarker } from "../team/org-marker.ts";
+import { readOrgRoster, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { readForgeUsername } from "../../packages/rt-client/src/settings/team-local-read.ts";
+import { parseFragment, type Fragment } from "./manifest-merge.ts";
 import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor } from "../engine-floor.ts";
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
 import { mattstackFloor } from "../setup/mattstack-floor.ts";
@@ -19,7 +22,21 @@ export type SyncDeps = {
   /** A git command that reaches the pack's origin. An https org clone has no credential helper of its own, so the real one retries with rt's forge token; without it, `run` is used. */
   runOrigin?: (args: string[], opts: { cwd: string; push?: boolean }) => Promise<RunResult>;
   claudeBin: string | null;
-  checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean }>;
+  /**
+   * `handErrors`: hand-written skills a recompile cannot fix, each `file:line:col: reason`.
+   * `pointerErrors`: compiled pointers that lead nowhere in what a recompile would write, so the fix is in the pack's sources.
+   * `pointerConflicts`: two units claiming one key, which leaves check no map to trust.
+   * `brokenSkills`: with a conflict, each target whose compile failed in that check, which is what lends its stale map.
+   */
+  checkPack: (packName: string) => Promise<{
+    drift: boolean;
+    lintHits: number;
+    strict: boolean;
+    handErrors?: string[];
+    pointerErrors?: string[];
+    pointerConflicts?: string[];
+    brokenSkills?: string[];
+  }>;
   /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[]; written: string[]; removed: string[] }>;
   /** Regenerates every registered repo's per-pack files; a base pack the pack extends may have moved since the last install. Only the named pack's failures fail the step. */
@@ -33,6 +50,8 @@ export type SyncDeps = {
   engine?: () => string | null;
   /** The floor the mattstack marketplace's cached copy publishes. */
   engineFloor?: () => Promise<Floor>;
+  /** This Mac's forge username in an org, which the org's roster lists it by. */
+  forgeUsername?: (org: string) => string | null;
 };
 
 /**
@@ -182,6 +201,52 @@ function orgCloneTop(dir: string): string | null {
   }
 }
 
+/** The layout that says every pack in the org is a block pack. */
+const BLOCK_PACKS_LAYOUT = 5;
+
+const RUNBOOK = "Moving to block packs (docs.mattstack.dev/start/teams#moving-to-block-packs, or the release notes)";
+
+/** The first command of that runbook: an admin turns team sync off before anything moves. */
+export const BLOCK_PACKS_FIRST_STEP = `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`;
+
+/** A block-form key names a block under its engine: `<plugin>:<engine>/<block path>`. */
+function blockFormKeys(fragment: Fragment): string[] {
+  const keysOf = (bindings: Record<string, unknown> | undefined) => Object.keys(bindings ?? {}).filter((key) => key.indexOf("/") > key.indexOf(":") && key.includes(":"));
+  const pipelines = Object.values(fragment.pipelines ?? {}).flatMap((value) => (Array.isArray(value) ? [] : keysOf(value.bindings)));
+  return [...keysOf(fragment.bindings), ...pipelines];
+}
+
+/**
+ * An older app cannot merge block-form bindings, so a pack holding them reaches
+ * an org's data branch only once the org is on layout 5. A Just Me org, whose
+ * roster lists no one but this Mac's user, has no older app to break.
+ */
+function orgLayoutGate(clone: string, packDir: string, forgeUsername: (org: string) => string | null): Outcome {
+  const marker = markerState({ readFile: readFileOrNull }, clone);
+  if (marker.kind !== "org") return skipped("the pack's checkout is not an org's");
+  if (marker.layout >= BLOCK_PACKS_LAYOUT) return skipped(`the org is on layout ${marker.layout}, which reads block packs`);
+  const text = readFileOrNull(join(packDir, "pack", "skills.jsonc"));
+  if (text === null) return skipped("the pack has no bindings");
+  let keys: string[];
+  try {
+    keys = blockFormKeys(parseFragment(text, join(packDir, "pack", "skills.jsonc")));
+  } catch {
+    return skipped("the pack's bindings do not parse; the check step says why");
+  }
+  if (keys.length === 0) return skipped("the pack has no block-form bindings");
+  const me = forgeUsername(marker.org);
+  const others = readOrgRoster(marker.org).filter((entry) => me === null || !sameUser(entry.username, me));
+  if (others.length === 0) return skipped("no one else is on the org's roster");
+  if (me === null) {
+    return refused(
+      `This pack's bindings are in block form (${keys[0]}), and the ${marker.org} org is still on layout ${marker.layout}. This Mac's forge username is not recorded, so rt cannot tell whether the org has other members, whose older apps cannot read block-form bindings. Move the org to layout 5 first: your org admin follows ${RUNBOOK}`,
+    );
+  }
+  return refused(
+    `This pack's bindings are in block form (${keys[0]}), and the ${marker.org} org is still on layout ${marker.layout}. Members on an older app cannot read block-form bindings, so the org moves to layout 5 before a converted pack syncs. Your org admin follows ${RUNBOOK}`,
+  );
+}
+
 /** Pack dirs arrive realpath'd, so the root is compared in the same form. */
 function isInside(dir: string, root: string | null): boolean {
   if (root === null) return false;
@@ -224,6 +289,10 @@ async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function deadPointers(n: number): string {
+  return n === 1 ? "1 pointer that leads nowhere" : `${n} pointers that lead nowhere`;
 }
 
 function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null, pendingCount: number): string {
@@ -623,6 +692,17 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   steps.push({ name: "pull-pack", ...pullPack });
   if (stops(pullPack)) return finish();
 
+  // After the pull, so the gate reads the marker and roster origin holds now; before anything is staged or written.
+  const clone = packInTree ? null : orgCloneTop(pack.dir);
+  if (clone !== null && mayWritePack) {
+    const orgLayout = await tryStep(async () => orgLayoutGate(clone, pack.dir, deps.forgeUsername ?? readForgeUsername));
+    // Listed only when it stops the sync, so a settled org's every sync stays as it was.
+    if (stops(orgLayout)) {
+      steps.push({ name: "org-layout", ...orgLayout });
+      return finish();
+    }
+  }
+
   // Staging only, after the pull: the commit waits for commit-push, so a stop
   // anywhere before it leaves the edits uncommitted, where changes and discard
   // still see them, and never strands an unpushed local commit.
@@ -706,11 +786,38 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const checkStep = await tryStep(async () => {
     const result = await deps.checkPack(pack.name);
     drift = result.drift;
+    const handErrors = result.handErrors ?? [];
+    const pointerErrors = result.pointerErrors ?? [];
+    const pointerConflicts = result.pointerConflicts ?? [];
+    const brokenSkills = pointerConflicts.length > 0 ? result.brokenSkills ?? [] : [];
+    if (pointerConflicts.length > 0 && mayWritePack) {
+      const cause = brokenSkills.length === 0
+        ? ["Compile the whole pack with rt skills compile, then sync again."]
+        : brokenSkills.length === 1
+          ? ["A skill in this pack no longer compiles, so the pointer map its last compile wrote is still in place. Its error:", ...brokenSkills, "Fix it, then compile the whole pack with rt skills compile and sync again."]
+          : [`${brokenSkills.length} skills in this pack no longer compile, so the pointer maps their last compiles wrote are still in place. Their errors:`, ...brokenSkills, "Fix them, then compile the whole pack with rt skills compile and sync again."];
+      return refused(["Compiled skills in this pack disagree about where a pointer leads, so rt stopped before the version bump:", ...pointerConflicts, ...cause].join("\n"));
+    }
+    if (handErrors.length > 0 && mayWritePack) {
+      const problems = plural(handErrors.length, "problem");
+      return refused([`Hand-written skills have ${problems} a recompile cannot fix, so rt stopped before the version bump. Fix each file, then sync again:`, ...handErrors].join("\n"));
+    }
+    if (pointerErrors.length > 0 && mayWritePack) {
+      const it = pointerErrors.length === 1 ? "it" : "them";
+      return refused([`Compiled skills in this pack have ${deadPointers(pointerErrors.length)}, and a recompile cannot fix ${it}, so rt stopped before the version bump. Fix ${it} in the pack's source files, then sync again:`, ...pointerErrors].join("\n"));
+    }
+    // A member who cannot write the pack still installs it; only its owners can fix the files.
+    warnings.push(...handErrors.map((e) => `For the pack's owners to fix: ${e}`));
+    warnings.push(...pointerErrors.map((e) => `For the pack's owners to fix in its source files: ${e}`));
+    warnings.push(...pointerConflicts.map((e) => `For the pack's owners to fix with a full compile: ${e}`));
+    warnings.push(...brokenSkills.map((e) => `For the pack's owners to fix, a skill that no longer compiles: ${e}`));
     if (result.strict && result.lintHits > 0) {
       return refused(`This pack is strict, and mcp lint found ${hitCount(result.lintHits)}. Fix them before syncing`);
     }
     const lintNote = result.lintHits > 0 ? `; mcp lint found ${hitCount(result.lintHits)}, advisory for this pack` : "";
-    return ran(`${drift ? "the compiled skills are out of date" : "the compiled skills are current"}${lintNote}`);
+    const handNote = handErrors.length > 0 ? `; hand-written skills have ${plural(handErrors.length, "problem")} for the pack's owners, listed in the warnings` : "";
+    const pointerNote = pointerErrors.length > 0 ? `; compiled skills have ${deadPointers(pointerErrors.length)}, for the pack's owners, listed in the warnings` : "";
+    return ran(`${drift ? "the compiled skills are out of date" : "the compiled skills are current"}${lintNote}${handNote}${pointerNote}`);
   });
   steps.push({ name: "check", ...checkStep });
   if (stops(checkStep)) return finish();

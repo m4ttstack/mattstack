@@ -1,0 +1,4 @@
+1. `run_field_get {key: mode}`, then `worktree_provision` with `precheck: true`, then `worktree_provision` with `codes: true, runDb, stage: provision, budget`. (`EnterWorktree` follows as a non-MCP tool; the stage then ends with no `whoami` and no gate.)
+2. Yes: the squad rule is a domain rule inlined in this stage. It supplies no provision flow, so the step is empty and falls through to the precheck.
+3. Not shown.
+4. None: the sameTicket tree is not offered because a domain rule is inlined, so the precheck finds nothing in the way, provisioning proceeds directly, and no gate is presented (the squad question has no gate to attach to).

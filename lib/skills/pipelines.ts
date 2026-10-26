@@ -1,4 +1,9 @@
+import type { LayerValue } from "./blocks/props.ts";
+
 export type BindingsMap = Record<string, Record<string, string>>;
+
+/** Keyed `<engineRef>[/<blockPath>]` -> prop -> every layer's value in layer order. */
+export type LayeredBindings = Record<string, Record<string, LayerValue[]>>;
 
 export type PipelineValue = string[] | { stages?: string[]; bindings?: BindingsMap };
 
@@ -30,29 +35,55 @@ export function normalizePipelines(raw: unknown): { stages: Record<string, strin
     const refs = Object.entries(value.bindings ?? {});
     if (refs.length === 0) continue;
     const copy: BindingsMap = Object.create(null);
-    for (const [engineRef, slots] of refs) copy[engineRef] = { ...slots };
+    for (const [key, props] of refs) copy[key] = { ...props };
     bindings[type] = copy;
   }
   return { stages, bindings };
 }
 
-export function pipelineBindingKey(type: string, engineRef: string, slot: string): string {
-  return `${type}/${engineRef} ${slot}`;
+export function pipelineBindingKey(type: string, key: string, prop: string): string {
+  return `${type}/${key} ${prop}`;
 }
 
 export function stageCopyName(stage: string, pipeline: string): string {
   return `${stage}--${pipeline}`;
 }
 
-export function effectiveSlotBindings(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): Record<string, string> {
-  return { ...own(defaults, engineRef), ...own(overrides, engineRef) };
+/** The last-wins value of each prop a pipeline's stage copy reads: the pipeline's own where it binds the prop, else the top level's. */
+export function lastWinsBindings(defaults: BindingsMap, overrides: BindingsMap | undefined, key: string): Record<string, string> {
+  return { ...own(defaults, key), ...own(overrides, key) };
 }
 
-export function fillsDiffer(defaults: BindingsMap, overrides: BindingsMap | undefined, engineRef: string): boolean {
-  const base = own(defaults, engineRef) ?? {};
-  const effective = effectiveSlotBindings(defaults, overrides, engineRef);
-  for (const slot of new Set([...Object.keys(base), ...Object.keys(effective)])) {
-    if ((base[slot] ?? "") !== (effective[slot] ?? "")) return true;
+/** A pipeline's binding is not a layer: for each prop it binds, its values replace the top level's, stacked among themselves. */
+export function effectiveBindings(defaults: LayeredBindings, overrides: LayeredBindings | undefined, key: string): Record<string, LayerValue[]> {
+  const out: Record<string, LayerValue[]> = Object.create(null);
+  for (const source of [own(defaults, key), own(overrides, key)]) {
+    for (const [prop, values] of Object.entries(source ?? {})) out[prop] = [...values];
+  }
+  return out;
+}
+
+/** The stage a binding key belongs to: a block engine's keys add `/<block path>` to the engine ref a pipeline lists. */
+export function engineRefOf(key: string): string {
+  const slash = key.indexOf("/");
+  return slash < 0 ? key : key.slice(0, slash);
+}
+
+/** A `""` drops every value before it whatever the prop's merge, so only what follows the last one reaches a compiled verb. */
+function afterLastClear(values: LayerValue[]): string[] {
+  return values.slice(values.findLastIndex((v) => v.value === "") + 1).map((v) => v.value);
+}
+
+/** True when a pipeline's own values change a prop of the engine, at its root key or any `<engineRef>/<block path>` key. */
+export function fillsDiffer(defaults: LayeredBindings, overrides: LayeredBindings | undefined, engineRef: string): boolean {
+  const ownsKey = (key: string) => key === engineRef || key.startsWith(`${engineRef}/`);
+  for (const key of Object.keys(overrides ?? {}).filter(ownsKey)) {
+    const base = own(defaults, key) ?? {};
+    for (const [prop, values] of Object.entries(own(overrides, key) ?? {})) {
+      const before = afterLastClear(base[prop] ?? []);
+      const after = afterLastClear(values);
+      if (before.length !== after.length || before.some((v, i) => v !== after[i])) return true;
+    }
   }
   return false;
 }

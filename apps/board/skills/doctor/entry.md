@@ -1,3 +1,5 @@
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:doctor`, use it; otherwise call `skills_resolve {id: "skills:board:doctor"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
+
 # board:doctor: launch and resume entry
 
 This is a stage of the board:doctor skill. Every escalation box here
@@ -21,7 +23,7 @@ digraph doctor_entry {
     "--skill-path given (doctor)?" [shape=diamond];
     "Read <--skill-path> (doctor)" [shape=plaintext];
     "Load the --skill domain skill by name (doctor)" [shape=box];
-    "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" [shape=plaintext];
+    "@doctor/scripts/resolve-args.sh (doctor)" [shape=plaintext];
     "resolve-args.sh exit (doctor)?" [shape=diamond];
     "Read <the tier's resolved path> (doctor)" [shape=plaintext];
     "Print the resolver's errors verbatim (doctor)" [shape=box];
@@ -66,12 +68,12 @@ digraph doctor_entry {
     "<status-bin> doctor-status <state> fixing (resumed gate)" -> "<status-bin> gate wait <state> (resumed escalation)";
     "<status-bin> doctor-status <state> diagnosing" -> "--skill given (doctor)?";
     "--skill given (doctor)?" -> "--skill-path given (doctor)?" [label="yes"];
-    "--skill given (doctor)?" -> "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" [label="no"];
+    "--skill given (doctor)?" -> "@doctor/scripts/resolve-args.sh (doctor)" [label="no"];
     "--skill-path given (doctor)?" -> "Read <--skill-path> (doctor)" [label="yes"];
     "--skill-path given (doctor)?" -> "Load the --skill domain skill by name (doctor)" [label="no"];
     "Read <--skill-path> (doctor)" -> "Branch-writing class under --tier api?";
     "Load the --skill domain skill by name (doctor)" -> "Branch-writing class under --tier api?";
-    "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" -> "resolve-args.sh exit (doctor)?";
+    "@doctor/scripts/resolve-args.sh (doctor)" -> "resolve-args.sh exit (doctor)?";
     "resolve-args.sh exit (doctor)?" -> "Read <the tier's resolved path> (doctor)" [label="0"];
     "resolve-args.sh exit (doctor)?" -> "Print the resolver's errors verbatim (doctor)" [label="nonzero: generic path"];
     "Read <the tier's resolved path> (doctor)" -> "Branch-writing class under --tier api?";

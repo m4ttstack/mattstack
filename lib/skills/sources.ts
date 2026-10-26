@@ -8,20 +8,62 @@ import { stripJsonc } from "../jsonc.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
+import { BlockError } from "./blocks/diagnostics.ts";
+import { isBlockTree, loadBlockTree } from "./blocks/tree.ts";
+import type { BlockTree } from "./blocks/types.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import { firstTeamMarker } from "./team-params.ts";
-import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap } from "./pipelines.ts";
+import { layeredFromManifest } from "./manifest-merge.ts";
+import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap, type LayeredBindings } from "./pipelines.ts";
 import { packPluginIdentity } from "./provenance.ts";
-import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
+import type { AttachmentSource, StepSource, VerbDef } from "./types.ts";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+
+/** `fill-missing`: the value names nothing on disk; `bad-value`: it names something compile cannot use. */
+export class AttachmentLoadError extends Error {
+  constructor(
+    message: string,
+    readonly code: "fill-missing" | "bad-value",
+  ) {
+    super(message);
+  }
+}
+
+/** An engine folder found with a `SKILL.md` and no `index.block.md`: `rt skills blocks` answers not-a-block-tree for it. */
+export class NotABlockTreeError extends Error {}
 
 /** Single definition lives in lib/jsonc.ts — a line-filter fork here previously missed block comments, trailing commas, and inline `//` after content. */
 export { stripJsonc };
 
+/** The width of the trimmed lead after its last newline: the first body line's indent. */
+function firstLineIndent(lead: string): number {
+  return lead.length - (lead.lastIndexOf("\n") + 1);
+}
+
+/** The trimmed body after any frontmatter, found without parsing it, so a file whose YAML does not parse still has one. */
+export function bodyAfterFrontmatter(md: string): string {
+  const match = md.match(FRONTMATTER_RE);
+  return (match ? md.slice(match[0].length) : md).trim();
+}
+
+/** Where and why a file's frontmatter fails to parse as YAML, in file lines; null when it parses or there is none. */
+export function frontmatterYamlError(md: string): { line: number; col: number; reason: string } | null {
+  const match = md.match(FRONTMATTER_RE);
+  if (!match) return null;
+  try {
+    parseYaml(match[1] ?? "");
+    return null;
+  } catch (err) {
+    const at = (err as { linePos?: { line: number; col: number }[] }).linePos?.[0];
+    const reason = ((err as Error).message.split("\n")[0] ?? "").replace(/ at line \d+, column \d+:?$/, "");
+    return { line: (at?.line ?? 1) + 1, col: at?.col ?? 1, reason };
+  }
+}
+
 export function stripFrontmatter(
   md: string,
-): { body: string; frontmatter: Record<string, unknown>; bodyStartLine: number } {
+): { body: string; frontmatter: Record<string, unknown>; bodyStartLine: number; bodyIndent: number } {
   const match = md.match(FRONTMATTER_RE);
   const fmBlock = match?.[0] ?? "";
   const rest = match ? md.slice(match[0].length) : md;
@@ -36,7 +78,7 @@ export function stripFrontmatter(
   const countLines = (s: string) => (s.match(/\n/g) ?? []).length;
   const bodyStartLine = countLines(fmBlock) + countLines(rest.slice(0, lead)) + 1;
 
-  return { body, frontmatter, bodyStartLine };
+  return { body, frontmatter, bodyStartLine, bodyIndent: firstLineIndent(rest.slice(0, lead)) };
 }
 
 export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
@@ -151,21 +193,6 @@ export function resolvePluginRootsFromDir(dir: string): PluginRoots {
     byName[name] = { dir: pluginDir, version };
   }
   return { byName, list: [] };
-}
-
-function parseSlots(raw: unknown): Record<string, SlotSpec> {
-  if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, SlotSpec> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!value || typeof value !== "object") continue;
-    const spec = value as Record<string, unknown>;
-    if (typeof spec.contract !== "string") continue;
-    out[key] = {
-      contract: spec.contract,
-      ...(typeof spec.required === "boolean" ? { required: spec.required } : {}),
-    };
-  }
-  return out;
 }
 
 function parseAllowedTools(raw: unknown): string[] {
@@ -317,7 +344,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
   for (const group of listDirs(skillsDir)) {
     const candidate = join(skillsDir, group, engineName, "SKILL.md");
     searched.push(candidate);
-    if (existsSync(candidate)) {
+    if (holdsEngine(candidate)) {
       foundDir = join(skillsDir, group, engineName);
       break;
     }
@@ -330,7 +357,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
   if (!foundDir) {
     const flatCandidate = join(attachmentsDir, engineName, "SKILL.md");
     searched.push(flatCandidate);
-    if (existsSync(flatCandidate)) {
+    if (holdsEngine(flatCandidate)) {
       foundDir = join(attachmentsDir, engineName);
     }
   }
@@ -339,7 +366,7 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
     for (const group of listDirs(attachmentsDir)) {
       const candidate = join(attachmentsDir, group, engineName, "SKILL.md");
       searched.push(candidate);
-      if (existsSync(candidate)) {
+      if (holdsEngine(candidate)) {
         foundDir = join(attachmentsDir, group, engineName);
         break;
       }
@@ -352,39 +379,72 @@ export function loadStepSource(engineName: string, roots: PluginRoots): StepSour
     );
   }
 
-  const skillMdPath = join(foundDir, "SKILL.md");
-  const { body, frontmatter, bodyStartLine } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
-
-  if (frontmatter.type !== "pipeline-step") {
-    throw new Error(`loadStepSource: "${skillMdPath}" is not typed "type: pipeline-step"`);
+  if (!isBlockTree(foundDir)) {
+    throw new NotABlockTreeError(`loadStepSource: engine "${engineName}" at ${foundDir} has no index.block.md; an engine is a block tree`);
   }
+  return blockStepSource(engineName, foundDir, mattstack);
+}
 
+/** Found by its `index.block.md`; a folder holding only a `SKILL.md` is found too, so loadStepSource can say it is not a block tree. */
+function holdsEngine(skillMdPath: string): boolean {
+  return existsSync(skillMdPath) || isBlockTree(dirname(skillMdPath));
+}
+
+/** Every `*.block.md` is compiled into the body, and the compiled SKILL.md is written in place of any source one, so none of them is vendored. */
+function nonBlockFiles(dir: string): string[] {
+  return listFilesUnder(dir, new Set(["SKILL.md"])).filter((rel) => !rel.endsWith(".block.md"));
+}
+
+/** A SKILL.md left beside index.block.md (a half-done conversion) leaves two sources for one skill, and compile writes its own SKILL.md. */
+function loadTree(dir: string, idPrefix: string, pluginDir: string): BlockTree {
+  const relRoot = relative(pluginDir, dir).split(sep).join("/");
+  if (existsSync(join(dir, "SKILL.md"))) {
+    throw new BlockError([{
+      file: `${relRoot}/SKILL.md`,
+      line: 1,
+      col: 1,
+      message: "the block tree in index.block.md replaces this SKILL.md; delete it",
+      code: "bad-value",
+    }]);
+  }
+  return loadBlockTree(dir, { idPrefix, relRoot });
+}
+
+function blockStepSource(engineName: string, dir: string, mattstack: { dir: string; version: string }): StepSource {
+  const tree = loadTree(dir, engineName, mattstack.dir);
+  const root = tree.root;
+  if (root.frontmatter.type !== "pipeline-step") {
+    throw new Error(`loadStepSource: "${root.path}" is not typed "type: pipeline-step"`);
+  }
   return {
     name: engineName,
     plugin: "mattstack",
     version: mattstack.version,
-    dir: foundDir,
-    srcPath: relative(mattstack.dir, skillMdPath),
-    bodyStartLine,
-    body,
-    slots: parseSlots(frontmatter.slots),
-    allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),
-    stepFiles: listFilesUnder(foundDir, new Set(["SKILL.md"])),
-    stageMeta: readStageMeta(frontmatter),
-    description: typeof frontmatter.description === "string" ? frontmatter.description : "",
+    dir,
+    srcPath: relative(mattstack.dir, root.path),
+    bodyStartLine: root.bodyStartLine,
+    allowedTools: parseAllowedTools(root.frontmatter["allowed-tools"]),
+    stepFiles: nonBlockFiles(dir),
+    stageMeta: readStageMeta(root.frontmatter),
+    description: typeof root.frontmatter.description === "string" ? root.frontmatter.description : "",
+    tree,
   };
 }
 
-export function loadAttachment(binding: string, slot: string, roots: PluginRoots): AttachmentSource {
-  const [plugin, skillName] = binding.split(":");
-  if (!plugin || !skillName) {
-    throw new Error(`loadAttachment: slot "${slot}": binding "${binding}" is not "<plugin>:<skill>"`);
+export const VALUE_FILE_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+export function loadAttachment(binding: string, prop: string, roots: PluginRoots, readFile: (path: string) => string = (path) => readFileSync(path, "utf8")): AttachmentSource {
+  const [plugin, skillPart] = binding.split(":");
+  const [skillName, fileName, ...rest] = (skillPart ?? "").split("/");
+  if (!plugin || !skillName || rest.length > 0 || (fileName !== undefined && !VALUE_FILE_RE.test(fileName))) {
+    throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}" is not "<plugin>:<skill>" or "<plugin>:<skill>/<file>"`, "bad-value");
   }
 
   const pluginRoot = roots.byName[plugin];
   if (!pluginRoot) {
-    throw new Error(
-      `loadAttachment: slot "${slot}": no plugin root registered for "${plugin}" (binding "${binding}")`,
+    throw new AttachmentLoadError(
+      `loadAttachment: prop "${prop}": no plugin root registered for "${plugin}" (binding "${binding}")`,
+      "fill-missing",
     );
   }
 
@@ -422,20 +482,22 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   }
 
   if (!foundDir) {
-    throw new Error(
-      `loadAttachment: slot "${slot}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
+    throw new AttachmentLoadError(
+      `loadAttachment: prop "${prop}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
+      "fill-missing",
     );
   }
 
   if (registered && roots.folderOnly?.has(plugin)) {
-    throw new Error(
-      `loadAttachment: slot "${slot}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
+    throw new AttachmentLoadError(
+      `loadAttachment: prop "${prop}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
+      "bad-value",
     );
   }
 
   const skillMdPath = join(foundDir, "SKILL.md");
-  const raw = readFileSync(skillMdPath, "utf8");
-  const { body, frontmatter, bodyStartLine } = stripFrontmatter(raw);
+  const raw = readFile(skillMdPath);
+  const { body, frontmatter, bodyStartLine, bodyIndent } = stripFrontmatter(raw);
   const frontmatterHit = firstTeamMarker(raw.match(FRONTMATTER_RE)?.[0] ?? "");
 
   const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object"
@@ -443,7 +505,43 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
     : {};
   const provides = typeof metadata.provides === "string" ? metadata.provides : "";
   if (!provides) {
-    throw new Error(`loadAttachment: slot "${slot}": "${skillMdPath}" has no metadata.provides`);
+    throw new AttachmentLoadError(`loadAttachment: prop "${prop}": "${skillMdPath}" has no metadata.provides`, "bad-value");
+  }
+
+  // Under a per-file value each top-level .md sibling is a value some other
+  // binding may name, so none is vendored; a whole-skill load vendors them as a whole fill always has.
+  const exclude = new Set(["SKILL.md"]);
+  if (body === "" && fileName !== undefined) {
+    for (const entry of readdirSync(foundDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) exclude.add(entry.name);
+    }
+  }
+
+  let value = { srcPath: relative(pluginRoot.dir, skillMdPath), bodyStartLine, bodyIndent, body, file: null as string | null };
+  if (fileName !== undefined) {
+    if (body !== "") {
+      throw new AttachmentLoadError(
+        `loadAttachment: prop "${prop}": ${binding}: SKILL.md carries text, but a per-file value's SKILL.md is frontmatter only`,
+        "bad-value",
+      );
+    }
+    const file = `${fileName}.md`;
+    const filePath = join(foundDir, file);
+    if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+      throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}": no file at ${filePath}`, "fill-missing");
+    }
+    const text = readFile(filePath);
+    if (/^---\r?\n/.test(text)) {
+      throw new AttachmentLoadError(`loadAttachment: prop "${prop}": binding "${binding}": a per-file value carries no frontmatter (${filePath})`, "bad-value");
+    }
+    const lead = text.length - text.trimStart().length;
+    value = {
+      srcPath: relative(pluginRoot.dir, filePath),
+      bodyStartLine: (text.slice(0, lead).match(/\n/g) ?? []).length + 1,
+      bodyIndent: firstLineIndent(text.slice(0, lead)),
+      body: text.trim(),
+      file,
+    };
   }
 
   return {
@@ -452,20 +550,22 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
     plugin,
     version: pluginRoot.version,
     dir: foundDir,
-    srcPath: relative(pluginRoot.dir, skillMdPath),
-    bodyStartLine,
-    body,
+    srcPath: value.srcPath,
+    bodyStartLine: value.bodyStartLine,
+    bodyIndent: value.bodyIndent,
+    body: value.body,
     provides,
     allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),
-    extraFiles: listFilesUnder(foundDir, new Set(["SKILL.md"])),
+    extraFiles: listFilesUnder(foundDir, exclude),
     registered,
+    file: value.file,
   };
 }
 
 /**
- * An include target is inlined verbatim wherever {{include:<name>}}
+ * A flat include target is inlined verbatim wherever {{include:<name>}}
  * appears, so it must carry nothing that depends on call-site context:
- * no slots to fill, no placeholders left for a later substitution pass.
+ * no placeholders left for a later substitution pass.
  */
 export function loadInclude(name: string, roots: PluginRoots): AttachmentSource {
   if (!isSafeName(name)) {
@@ -476,16 +576,14 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
   const mattstack = roots.byName.mattstack;
   if (!mattstack) throw new Error(`loadInclude: no "mattstack" plugin root registered`);
   const dir = join(mattstack.dir, "attachments", name);
+  if (isBlockTree(dir)) return blockInclude(name, dir, mattstack);
   const skillMdPath = join(dir, "SKILL.md");
   if (!existsSync(skillMdPath)) throw new Error(`loadInclude: include "${name}" not found at ${skillMdPath}`);
 
-  const { body, frontmatter, bodyStartLine } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
+  const { body, frontmatter, bodyStartLine, bodyIndent } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
   const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object"
     ? (frontmatter.metadata as Record<string, unknown>)
     : {};
-  if (frontmatter.slots || metadata.slots) {
-    throw new Error(`loadInclude: include "${name}" declares slots; an include target must be slotless`);
-  }
   if (findPlaceholders(body).length > 0) {
     throw new Error(`loadInclude: include "${name}" contains a placeholder; an include target must be inert`);
   }
@@ -497,11 +595,35 @@ export function loadInclude(name: string, roots: PluginRoots): AttachmentSource 
     dir,
     srcPath: relative(mattstack.dir, skillMdPath),
     bodyStartLine,
+    bodyIndent,
     body,
     provides: typeof metadata.provides === "string" ? metadata.provides : "",
     allowedTools: parseAllowedTools(frontmatter["allowed-tools"]),
     extraFiles: listFilesUnder(dir, new Set(["SKILL.md"])),
     registered: false,
+    file: null,
+  };
+}
+
+/** A block include renders through its tree, so its blocks may carry props and includes. */
+function blockInclude(name: string, dir: string, mattstack: { dir: string; version: string }): AttachmentSource {
+  const tree = loadTree(dir, name, mattstack.dir);
+  const fm = tree.root.frontmatter;
+  const metadata = fm.metadata && typeof fm.metadata === "object" ? (fm.metadata as Record<string, unknown>) : {};
+  return {
+    binding: `mattstack:${name}`,
+    plugin: "mattstack",
+    version: mattstack.version,
+    dir,
+    srcPath: relative(mattstack.dir, tree.root.path),
+    bodyStartLine: tree.root.bodyStartLine,
+    body: "",
+    provides: typeof metadata.provides === "string" ? metadata.provides : "",
+    allowedTools: parseAllowedTools(fm["allowed-tools"]),
+    extraFiles: nonBlockFiles(dir),
+    registered: false,
+    file: null,
+    tree,
   };
 }
 
@@ -570,6 +692,15 @@ export function readManifestBindings(manifestPath: string): Record<string, Recor
   return parsed.bindings ?? {};
 }
 
+/** Every layer's value per (key, prop); `readManifestBindings` is the last-wins view of the same bindings. */
+export function readManifestLayered(manifestPath: string): LayeredBindings {
+  return layeredFromManifest(readFileSync(manifestPath, "utf8")).layered;
+}
+
+export function readManifestPipelineLayered(manifestPath: string): Record<string, LayeredBindings> {
+  return layeredFromManifest(readFileSync(manifestPath, "utf8")).pipelineLayered;
+}
+
 /**
  * Separate reader rather than widening readManifestBindings: that function's
  * flat-Record return is depended on by every existing compile/check call
@@ -597,8 +728,8 @@ function readNormalizedPipelines(manifestPath: string): ReturnType<typeof normal
  */
 export function stageRoster(
   pipelines: Record<string, string[]>,
-  pipelineBindings: Record<string, BindingsMap>,
-  defaults: BindingsMap,
+  pipelineBindings: Record<string, LayeredBindings>,
+  defaults: LayeredBindings,
 ): VerbDef[] {
   for (const type of Object.keys(pipelineBindings)) {
     const problem = pipelineNameError(type);

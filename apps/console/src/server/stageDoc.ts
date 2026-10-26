@@ -1,5 +1,3 @@
-import { normalize } from 'node:path';
-
 import type { RunGit } from './git-bin';
 
 export interface PackToken {
@@ -14,8 +12,6 @@ export interface PackDir {
 export interface StageDocDeps {
   runGit: RunGit;
   packDirs: () => Promise<PackDir[]>;
-  readFile: (path: string) => Promise<string | null>;
-  pluginCacheDir: string;
 }
 export interface StageDocInput {
   packCommits: string | null;
@@ -136,26 +132,16 @@ export async function resolveStageDoc(
 ): Promise<StageDocHit | null> {
   const tokens = parsePackTokens(input.packCommits);
   if (tokens.length === 0) return null;
+  const dirs = await deps.packDirs().catch((): PackDir[] => []);
+  const stages = stageNames(input);
   const ordered = [
     ...tokens.filter(t => t.pack !== 'mattstack'),
     ...tokens.filter(t => t.pack === 'mattstack'),
   ];
-  const dirs = await deps.packDirs().catch((): PackDir[] => []);
-  const stages = stageNames(input);
   for (const t of ordered) {
-    if (t.kind === 'sha') {
-      const hit = await fromSha(deps, t, stages, dirs);
-      if (hit) return hit;
-    } else if (t.pack === 'mattstack') {
-      for (const stage of stages) {
-        const path = normalize(
-          `${deps.pluginCacheDir}/${t.ref}/attachments/pipeline/stage-${stage}/SKILL.md`
-        );
-        if (!path.startsWith(normalize(deps.pluginCacheDir) + '/')) break;
-        const text = await deps.readFile(path);
-        if (text != null) return { text, pack: 'mattstack', sha: t.ref };
-      }
-    }
+    if (t.kind !== 'sha') continue;
+    const hit = await fromSha(deps, t, stages, dirs);
+    if (hit) return hit;
   }
   return null;
 }

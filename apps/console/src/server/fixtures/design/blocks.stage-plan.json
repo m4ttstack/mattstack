@@ -1,0 +1,2056 @@
+{
+  "pack": "widgets",
+  "skill": "stage-plan",
+  "kind": "stage",
+  "engineRef": "mattstack:stage-plan",
+  "dir": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan",
+  "layers": [
+    {
+      "name": "mattstack",
+      "label": "default",
+      "color": "mattstack"
+    },
+    {
+      "name": "widgets",
+      "label": "pack",
+      "color": "team"
+    }
+  ],
+  "blocks": [
+    {
+      "id": "stage-plan",
+      "parentId": null,
+      "depth": 0,
+      "title": "stage: plan",
+      "label": "Stage plan",
+      "kind": "note",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/index.block.md",
+      "relPath": "attachments/pipeline/stage-plan/index.block.md",
+      "lines": [13, 57],
+      "summary": "You consume ticket.",
+      "text": "# stage: plan\n\nYou consume `ticket`. You must produce `approach`, `evidence-plan`.\n\nThe orchestrator owns this stage's rows: read consumes with\n`run_field_get`, write produces with `run_field_set {stage: \"plan\"}`, and\nend a failure with `run_stage {action: fail, stage: \"plan\", reason}`.\n\n```mermaid\nflowchart TB\n%% name: plan\n    plan_entered([Plan stage entered])\n    run_field_get_ticket[/\"run_field_get {key: ticket}\"/]\n    read_ticket\n    next_move_after_ticket{Next move after reading the ticket?}\n    stop_code_before_triage[STOP: no code, no file, no implementer dispatch before the printed block]:::stop\n    pick_tier\n    print_triage_block\n    gate_plan\n    plan_answer{plan answer?}\n    run_decision_strategy[/\"run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}\"/]\n    run_field_set_approach[/\"run_field_set {key: approach, value: <the recorded tier>, stage: plan}\"/]\n    run_field_set_evidence_plan[/\"run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}\"/]\n    hand_back_go_back(((Hand the Go back answer to the orchestrator)))\n    run_hold[/\"run_hold {runDb, stage: plan, reason, decidedBy}\"/]\n    held_end_turn(((Held: end the turn naming run and stage)))\n    plan_done(((Plan done: return to the orchestrator))):::done\n    plan_entered --> run_field_get_ticket\n    run_field_get_ticket --> read_ticket\n    read_ticket --> next_move_after_ticket\n    next_move_after_ticket -->|triage: pick the tier| pick_tier\n    next_move_after_ticket -->|tempted to start on the code| stop_code_before_triage\n    stop_code_before_triage --> pick_tier\n    pick_tier --> print_triage_block\n    print_triage_block --> gate_plan\n    gate_plan --> plan_answer\n    plan_answer -->|proceed| run_decision_strategy\n    plan_answer -->|iterate: re-read with their note| read_ticket\n    plan_answer -->|go back| hand_back_go_back\n    plan_answer -->|hold| run_hold\n    run_hold --> held_end_turn\n    run_decision_strategy --> run_field_set_approach\n    run_field_set_approach --> run_field_set_evidence_plan\n    run_field_set_evidence_plan --> plan_done\n```",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "# stage: plan\n\nYou consume `ticket`. You must produce `approach`, `evidence-plan`.\n\nThe orchestrator owns this stage's rows: read consumes with\n`run_field_get`, write produces with `run_field_set {stage: \"plan\"}`, and\nend a failure with `run_stage {action: fail, stage: \"plan\", reason}`.\n\n```mermaid\nflowchart TB\n%% name: plan\n    plan_entered([Plan stage entered])\n    run_field_get_ticket[/\"run_field_get {key: ticket}\"/]\n    read_ticket\n    next_move_after_ticket{Next move after reading the ticket?}\n    stop_code_before_triage[STOP: no code, no file, no implementer dispatch before the printed block]:::stop\n    pick_tier\n    print_triage_block\n    gate_plan\n    plan_answer{plan answer?}\n    run_decision_strategy[/\"run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}\"/]\n    run_field_set_approach[/\"run_field_set {key: approach, value: <the recorded tier>, stage: plan}\"/]\n    run_field_set_evidence_plan[/\"run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}\"/]\n    hand_back_go_back(((Hand the Go back answer to the orchestrator)))\n    run_hold[/\"run_hold {runDb, stage: plan, reason, decidedBy}\"/]\n    held_end_turn(((Held: end the turn naming run and stage)))\n    plan_done(((Plan done: return to the orchestrator))):::done\n    plan_entered --> run_field_get_ticket\n    run_field_get_ticket --> read_ticket\n    read_ticket --> next_move_after_ticket\n    next_move_after_ticket -->|triage: pick the tier| pick_tier\n    next_move_after_ticket -->|tempted to start on the code| stop_code_before_triage\n    stop_code_before_triage --> pick_tier\n    pick_tier --> print_triage_block\n    print_triage_block --> gate_plan\n    gate_plan --> plan_answer\n    plan_answer -->|proceed| run_decision_strategy\n    plan_answer -->|iterate: re-read with their note| read_ticket\n    plan_answer -->|go back| hand_back_go_back\n    plan_answer -->|hold| run_hold\n    run_hold --> held_end_turn\n    run_decision_strategy --> run_field_set_approach\n    run_field_set_approach --> run_field_set_evidence_plan\n    run_field_set_evidence_plan --> plan_done\n```"
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": null,
+      "headless": false,
+      "renderedLines": [10, 59]
+    },
+    {
+      "id": "stage-plan/read-ticket",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Read the ticket",
+      "label": "Read ticket",
+      "kind": "step",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/read-ticket.block.md",
+      "relPath": "attachments/pipeline/stage-plan/read-ticket.block.md",
+      "lines": [9, 14],
+      "summary": "The ticket, or the task description standing in for one, and whatever the domain rules below say to read alongside it.",
+      "text": "## Read the ticket\n\nThe ticket, or the task description standing in for one, and whatever the\ndomain rules below say to read alongside it.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Read the ticket\n\nThe ticket, or the task description standing in for one, and whatever the\ndomain rules below say to read alongside it."
+        }
+      ],
+      "props": [
+        {
+          "name": "rules",
+          "merge": "add",
+          "default": "",
+          "contract": null,
+          "marker": {
+            "line": 14,
+            "col": 1
+          },
+          "values": [],
+          "fromDefault": true
+        }
+      ],
+      "node": "read_ticket",
+      "order": null,
+      "headless": false,
+      "renderedLines": [60, 65]
+    },
+    {
+      "id": "stage-plan/pick-tier",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Pick the tier",
+      "label": "Pick tier",
+      "kind": "step",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/pick-tier.block.md",
+      "relPath": "attachments/pipeline/stage-plan/pick-tier.block.md",
+      "lines": [9, 17],
+      "summary": "REQUIRED SUB-FLOW: follow the strategy flow below to pick the tier.",
+      "text": "## Pick the tier\n\n**REQUIRED SUB-FLOW:** follow the strategy flow below to pick the tier.\nThe three tiers are its strategies of the same names; its other\nstrategies are not tiers of this stage. The domain may set a tier floor.\n\n\n\n<!-- part: include:execution-strategy source=mattstack:execution-strategy version=0.32.23 path=attachments/execution-strategy/SKILL.md lines=8-96 -->\n# Execution Strategy\n\nGiven a unit of work and the surface it will execute on, name the method\nthe executor runs and the report contract that method produces. A brief\nthat names no method leaves its executor to improvise one.\n\n## The six strategies\n\n| Strategy | Executor runs |\n|---|---|\n| `trivial` | the change directly; no test, because there is no runtime behavior to test |\n| `direct-tdd` | superpowers:test-driven-development inline: RED -> GREEN -> REFACTOR, failing test named before code |\n| `from-spec` | the superpowers chain entered at the supplied spec: writing-plans, then subagent-driven-development |\n| `from-plan` | superpowers:subagent-driven-development on the supplied plan |\n| `superpowers` | the full chain: brainstorming -> spec -> writing-plans -> subagent-driven-development |\n| `delegate` | triages against this table, picks one of the other five, runs it |\n\n`delegate` never picks itself, must respect the surface table below, and\nnames its choice in its report so the dispatcher knows which report\ncontract applies.\n\nExcluded: superpowers:executing-plans -- it defers to\nsubagent-driven-development wherever subagents are available, and\ndispatched workers are full Claude Code sessions, so it is dominated.\n\n## Picking the strategy\n\n- `trivial` -- no runtime behavior to test: pure docs, comments, config,\n  or a mechanical rename with zero logic change.\n- `direct-tdd` -- real code with clear criteria and an existing pattern.\n- `superpowers` -- everything else: new features, multiple valid\n  approaches, vague criteria, cross-layer work, product decisions.\n- `from-spec` -- a completed spec is already supplied.\n- `from-plan` -- a completed plan is already supplied.\n- `delegate` -- the dispatcher is not triaging; the executor triages\n  against this section and picks one of the other five.\n\nWhen in doubt between `direct-tdd` and `superpowers`, go `superpowers`;\nbetween `trivial` and `direct-tdd`, go `direct-tdd`.\n\nTDD is the floor, never a tier: any path that writes production code\nwrites its failing test first. `trivial` is the single escape hatch and it\nis tight -- \"it's simple\", \"it's small\", or \"I'll test after\" is the\n`direct-tdd` tell, not a `trivial` pass.\n\n## Surface support\n\n| Surface | `trivial` | `direct-tdd` | `from-spec` | `from-plan` | `superpowers` | `delegate` |\n|---|---|---|---|---|---|---|\n| Pane worker with a question relay | yes | yes | yes | yes | yes | yes |\n| Agent-tool subagent | yes | yes | yes | yes | **no** | yes |\n\n`superpowers` starts with brainstorming, which needs a human in the loop\nthroughout; an Agent-tool subagent cannot stop and wait for one.\n\nWhen the picking rules land on `superpowers` and the surface is an\nAgent-tool subagent, the unit fails on this surface: report the conflict\nto the dispatcher rather than recording a strategy the surface cannot\nrun (not `superpowers`-and-continue, not a downgraded tier to fit the\nsurface). Name the two re-dispatch paths in the report: a pane worker\nwith a question relay, or a supplied spec or plan that re-enters the work\nas `from-spec` or `from-plan`, which this surface supports.\n\n## One plan, one executor\n\nA plan is never sliced across parallel executors: it has one sequential\ncontroller, its tasks chain by Consumes/Produces interfaces, and its\nledger is keyed by plan identity within one worktree. Fan out one level\nup: 1 job = 1 sub-project = 1 spec = 1 plan = 1 branch = 1 worktree =\n1 ledger.\n\n## Report shape is per strategy\n\n| Strategy | Report |\n|---|---|\n| `trivial`, `direct-tdd` | item-coded: one line per task item, plus verification results |\n| `from-spec`, `superpowers` | milestone lines (`spec: <path>`, `plan: <path>`) as they land, then commit range and final-review verdict |\n| `from-plan` | commit range and final-review verdict |\n| `delegate` | the chosen strategy's shape, with the choice named first |\n\n## Briefing an executor\n\nWhen the caller has no brief-assembly verb, copy the assigned strategy's\nbody from `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-execution-strategy/references/strategies.md` verbatim into the\nbrief and fill its `<angle-bracket>` slots yourself. A caller that has one\n(the `herd_brief` tool and its `strategy`/`strategies` fields) does this copy\nfor you -- name the strategy and pass it, nothing more. Either way, do not\ncompose method prose per job; the bodies carry the worker-boundary rules\nand the report contract.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Pick the tier\n\n**REQUIRED SUB-FLOW:** follow the strategy flow below to pick the tier.\nThe three tiers are its strategies of the same names; its other\nstrategies are not tiers of this stage. The domain may set a tier floor.\n\n\n\n# Execution Strategy\n\nGiven a unit of work and the surface it will execute on, name the method\nthe executor runs and the report contract that method produces. A brief\nthat names no method leaves its executor to improvise one.\n\n## The six strategies\n\n| Strategy | Executor runs |\n|---|---|\n| `trivial` | the change directly; no test, because there is no runtime behavior to test |\n| `direct-tdd` | superpowers:test-driven-development inline: RED -> GREEN -> REFACTOR, failing test named before code |\n| `from-spec` | the superpowers chain entered at the supplied spec: writing-plans, then subagent-driven-development |\n| `from-plan` | superpowers:subagent-driven-development on the supplied plan |\n| `superpowers` | the full chain: brainstorming -> spec -> writing-plans -> subagent-driven-development |\n| `delegate` | triages against this table, picks one of the other five, runs it |\n\n`delegate` never picks itself, must respect the surface table below, and\nnames its choice in its report so the dispatcher knows which report\ncontract applies.\n\nExcluded: superpowers:executing-plans -- it defers to\nsubagent-driven-development wherever subagents are available, and\ndispatched workers are full Claude Code sessions, so it is dominated.\n\n## Picking the strategy\n\n- `trivial` -- no runtime behavior to test: pure docs, comments, config,\n  or a mechanical rename with zero logic change.\n- `direct-tdd` -- real code with clear criteria and an existing pattern.\n- `superpowers` -- everything else: new features, multiple valid\n  approaches, vague criteria, cross-layer work, product decisions.\n- `from-spec` -- a completed spec is already supplied.\n- `from-plan` -- a completed plan is already supplied.\n- `delegate` -- the dispatcher is not triaging; the executor triages\n  against this section and picks one of the other five.\n\nWhen in doubt between `direct-tdd` and `superpowers`, go `superpowers`;\nbetween `trivial` and `direct-tdd`, go `direct-tdd`.\n\nTDD is the floor, never a tier: any path that writes production code\nwrites its failing test first. `trivial` is the single escape hatch and it\nis tight -- \"it's simple\", \"it's small\", or \"I'll test after\" is the\n`direct-tdd` tell, not a `trivial` pass.\n\n## Surface support\n\n| Surface | `trivial` | `direct-tdd` | `from-spec` | `from-plan` | `superpowers` | `delegate` |\n|---|---|---|---|---|---|---|\n| Pane worker with a question relay | yes | yes | yes | yes | yes | yes |\n| Agent-tool subagent | yes | yes | yes | yes | **no** | yes |\n\n`superpowers` starts with brainstorming, which needs a human in the loop\nthroughout; an Agent-tool subagent cannot stop and wait for one.\n\nWhen the picking rules land on `superpowers` and the surface is an\nAgent-tool subagent, the unit fails on this surface: report the conflict\nto the dispatcher rather than recording a strategy the surface cannot\nrun (not `superpowers`-and-continue, not a downgraded tier to fit the\nsurface). Name the two re-dispatch paths in the report: a pane worker\nwith a question relay, or a supplied spec or plan that re-enters the work\nas `from-spec` or `from-plan`, which this surface supports.\n\n## One plan, one executor\n\nA plan is never sliced across parallel executors: it has one sequential\ncontroller, its tasks chain by Consumes/Produces interfaces, and its\nledger is keyed by plan identity within one worktree. Fan out one level\nup: 1 job = 1 sub-project = 1 spec = 1 plan = 1 branch = 1 worktree =\n1 ledger.\n\n## Report shape is per strategy\n\n| Strategy | Report |\n|---|---|\n| `trivial`, `direct-tdd` | item-coded: one line per task item, plus verification results |\n| `from-spec`, `superpowers` | milestone lines (`spec: <path>`, `plan: <path>`) as they land, then commit range and final-review verdict |\n| `from-plan` | commit range and final-review verdict |\n| `delegate` | the chosen strategy's shape, with the choice named first |\n\n## Briefing an executor\n\nWhen the caller has no brief-assembly verb, copy the assigned strategy's\nbody from `${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-execution-strategy/references/strategies.md` verbatim into the\nbrief and fill its `<angle-bracket>` slots yourself. A caller that has one\n(the `herd_brief` tool and its `strategy`/`strategies` fields) does this copy\nfor you -- name the strategy and pass it, nothing more. Either way, do not\ncompose method prose per job; the bodies carry the worker-boundary rules\nand the report contract."
+        }
+      ],
+      "props": [
+        {
+          "name": "rules",
+          "merge": "add",
+          "default": "",
+          "contract": null,
+          "marker": {
+            "line": 15,
+            "col": 1
+          },
+          "values": [],
+          "fromDefault": true
+        }
+      ],
+      "node": "pick_tier",
+      "order": null,
+      "headless": false,
+      "renderedLines": [66, 165]
+    },
+    {
+      "id": "stage-plan/print-triage-block",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Print the triage block",
+      "label": "Print triage block",
+      "kind": "step",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/print-triage-block.block.md",
+      "relPath": "attachments/pipeline/stage-plan/print-triage-block.block.md",
+      "lines": [9, 44],
+      "summary": "<HARD-GATE> Print the block before any implementation action: before writing or editing code, before creating a file, before dispatching an implementer\u2026",
+      "text": "## Print the triage block\n\n<HARD-GATE>\nPrint the block before any implementation action: before writing or\nediting code, before creating a file, before dispatching an implementer\nsubagent. Not optional, not internal reasoning, not skippable for\n\"obvious\" work.\n</HARD-GATE>\n\nPrint verbatim, one tier, plus every line the domain policy defines,\nexactly as it specifies:\n\n> APPROACH: trivial -- <one-line reason>\n> EVIDENCE: <per the domain policy; \"none -- no policy bound\" otherwise>\n\n> APPROACH: direct-tdd -- <one-line reason>\n> FAILING TEST: <the test you will write first, named>\n> EVIDENCE: <as above>\n\n> APPROACH: superpowers -- <one-line reason>\n> EVIDENCE: <as above>\n\nOn direct-tdd the FAILING TEST line is mandatory: naming the test before\ntouching code is the point. Record nothing yet: the printed block is the\nproposal, and the gate records the decision.\n\n| Thought | Reality |\n|---|---|\n| \"This is an obvious one-line fix, I'll just do it\" | Print the block. An obvious fix is `direct-tdd`, not an exemption. |\n| \"I'll state the approach after I look at the code\" | The gate is before code, not after. Print it now. |\n| \"It's basically trivial\" | Only docs, config or a rename are trivial. Behavior change is direct-tdd. |\n| \"I already know this is a superpowers job\" | Say so. The block is how the human and the run verify the triage. |\n| \"I'll skip the FAILING TEST line, I know what I'll test\" | Then writing it costs nothing. Skipping it is how TDD becomes tests-after. |\n| \"The tier is obvious, I'll record it and move on\" | Printing is the proposal. Recording without the gate takes the human's decision. |",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Print the triage block\n\n<HARD-GATE>\nPrint the block before any implementation action: before writing or\nediting code, before creating a file, before dispatching an implementer\nsubagent. Not optional, not internal reasoning, not skippable for\n\"obvious\" work.\n</HARD-GATE>\n\nPrint verbatim, one tier, plus every line the domain policy defines,\nexactly as it specifies:\n\n> APPROACH: trivial -- <one-line reason>\n> EVIDENCE: <per the domain policy; \"none -- no policy bound\" otherwise>\n\n> APPROACH: direct-tdd -- <one-line reason>\n> FAILING TEST: <the test you will write first, named>\n> EVIDENCE: <as above>\n\n> APPROACH: superpowers -- <one-line reason>\n> EVIDENCE: <as above>\n\nOn direct-tdd the FAILING TEST line is mandatory: naming the test before\ntouching code is the point. Record nothing yet: the printed block is the\nproposal, and the gate records the decision.\n\n| Thought | Reality |\n|---|---|\n| \"This is an obvious one-line fix, I'll just do it\" | Print the block. An obvious fix is `direct-tdd`, not an exemption. |\n| \"I'll state the approach after I look at the code\" | The gate is before code, not after. Print it now. |\n| \"It's basically trivial\" | Only docs, config or a rename are trivial. Behavior change is direct-tdd. |\n| \"I already know this is a superpowers job\" | Say so. The block is how the human and the run verify the triage. |\n| \"I'll skip the FAILING TEST line, I know what I'll test\" | Then writing it costs nothing. Skipping it is how TDD becomes tests-after. |\n| \"The tier is obvious, I'll record it and move on\" | Printing is the proposal. Recording without the gate takes the human's decision. |"
+        }
+      ],
+      "props": [
+        {
+          "name": "rules",
+          "merge": "add",
+          "default": "",
+          "contract": null,
+          "marker": {
+            "line": 44,
+            "col": 1
+          },
+          "values": [],
+          "fromDefault": true
+        }
+      ],
+      "node": "print_triage_block",
+      "order": null,
+      "headless": false,
+      "renderedLines": [166, 201]
+    },
+    {
+      "id": "stage-plan/gate-plan",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Gate plan (table below)",
+      "label": "Plan gate",
+      "kind": "gate",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/gate-plan.block.md",
+      "relPath": "attachments/pipeline/stage-plan/gate-plan.block.md",
+      "lines": [11, 31],
+      "summary": "Walk gate-protocol's Runs integration with kind plan, runDb and stage: \"plan\"; the gate tools record the answers.",
+      "text": "## Gate plan (table below)\n\nWalk gate-protocol's Runs integration with kind `plan`, `runDb` and\n`stage: \"plan\"`; the gate tools record the answers. One sentence above the\nform: the printed tier and why.\n\n| Question | Options (recommended first) | Shown when |\n|---|---|---|\n| `tier` (write-in) | the printed tier, its label ending ` (Recommended)`, then the other two | always |\n| `failing_test` | the FAILING TEST line to keep, or their rename as text | direct-tdd |\n| the domain's own | as the domain policy words them | the domain declares them |\n| `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |\n| `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |\n\nWrite `approach` = the tier the gate recorded and `evidence-plan` = the\nEVIDENCE value, after the `execution-strategy@1` record: the gate tools\nrecord the gate's answers, not that contract.\nHold passes their words (or `held`) as `reason` and the gate result's\n`decidedBy`.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Gate plan (table below)\n\nWalk gate-protocol's Runs integration with kind `plan`, `runDb` and\n`stage: \"plan\"`; the gate tools record the answers. One sentence above the\nform: the printed tier and why.\n\n| Question | Options (recommended first) | Shown when |\n|---|---|---|\n| `tier` (write-in) | the printed tier, its label ending ` (Recommended)`, then the other two | always |\n| `failing_test` | the FAILING TEST line to keep, or their rename as text | direct-tdd |\n| the domain's own | as the domain policy words them | the domain declares them |\n| `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |\n| `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |\n\nWrite `approach` = the tier the gate recorded and `evidence-plan` = the\nEVIDENCE value, after the `execution-strategy@1` record: the gate tools\nrecord the gate's answers, not that contract.\nHold passes their words (or `held`) as `reason` and the gate result's\n`decidedBy`."
+        }
+      ],
+      "props": [
+        {
+          "name": "rules",
+          "merge": "add",
+          "default": "",
+          "contract": null,
+          "marker": {
+            "line": 31,
+            "col": 1
+          },
+          "values": [],
+          "fromDefault": true
+        }
+      ],
+      "node": "gate_plan",
+      "order": null,
+      "headless": false,
+      "renderedLines": [202, 222]
+    },
+    {
+      "id": "stage-plan/run-field-set-evidence-plan",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}",
+      "label": "Set evidence plan",
+      "kind": "step",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/run-field-set-evidence-plan.block.md",
+      "relPath": "attachments/pipeline/stage-plan/run-field-set-evidence-plan.block.md",
+      "lines": [10, 12],
+      "summary": "The plan names the widget evidence cases.",
+      "text": "## run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}\n\n<!-- part: prop:stage-plan/run-field-set-evidence-plan.rules binding=widgets:ship-lint/evidence-plan version=0.1.0 path=attachments/ship-lint/evidence-plan.md lines=1-1 -->\nThe plan names the widget evidence cases.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}"
+        },
+        {
+          "layer": "pack",
+          "color": "team",
+          "prop": "rules",
+          "text": "The plan names the widget evidence cases."
+        }
+      ],
+      "props": [
+        {
+          "name": "rules",
+          "merge": "add",
+          "default": "",
+          "contract": null,
+          "marker": {
+            "line": 12,
+            "col": 1
+          },
+          "values": [
+            {
+              "layer": "pack",
+              "color": "team",
+              "binding": "widgets:ship-lint/evidence-plan",
+              "path": "/fixture/packs/acme/attachments/ship-lint/evidence-plan.md",
+              "lines": 1
+            }
+          ],
+          "fromDefault": false
+        }
+      ],
+      "node": "run_field_set_evidence_plan",
+      "order": null,
+      "headless": false,
+      "renderedLines": [223, 228]
+    },
+    {
+      "id": "stage-plan/hand-back-go-back",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Hand the Go back answer to the orchestrator",
+      "label": "Hand back",
+      "kind": "step",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/hand-back-go-back.block.md",
+      "relPath": "attachments/pipeline/stage-plan/hand-back-go-back.block.md",
+      "lines": [6, 11],
+      "summary": "End the stage handing back {to, note, decidedBy}: to is the gate's to answer (the one earlier stage when to was not shown), note their words, decidedBy the\u2026",
+      "text": "## Hand the Go back answer to the orchestrator\n\nEnd the stage handing back `{to, note, decidedBy}`: `to` is the gate's\n`to` answer (the one earlier stage when `to` was not shown), `note` their\nwords, `decidedBy` the gate result's `decidedBy`. Write nothing else: the\norchestrator applies it with `run_resolve`.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Hand the Go back answer to the orchestrator\n\nEnd the stage handing back `{to, note, decidedBy}`: `to` is the gate's\n`to` answer (the one earlier stage when `to` was not shown), `note` their\nwords, `decidedBy` the gate result's `decidedBy`. Write nothing else: the\norchestrator applies it with `run_resolve`."
+        }
+      ],
+      "props": [],
+      "node": "hand_back_go_back",
+      "order": null,
+      "headless": false,
+      "renderedLines": [229, 236]
+    },
+    {
+      "id": "stage-plan/domain-rules",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Domain rules",
+      "label": "Domain rules",
+      "kind": "note",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/domain-rules.block.md",
+      "relPath": "attachments/pipeline/stage-plan/domain-rules.block.md",
+      "lines": [9, 16],
+      "summary": "The domain policy below supplies extra block lines, evidence rules, a tier floor and extra gate questions.",
+      "text": "## Domain rules\n\nThe domain policy below supplies extra block lines, evidence rules, a tier\nfloor and extra gate questions. Where a domain step names a move the graph\nabove marks STOP (code or files before the printed block), the STOP node\nwins.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Domain rules\n\nThe domain policy below supplies extra block lines, evidence rules, a tier\nfloor and extra gate questions. Where a domain step names a move the graph\nabove marks STOP (code or files before the printed block), the STOP node\nwins."
+        }
+      ],
+      "props": [
+        {
+          "name": "rules",
+          "merge": "add",
+          "default": "",
+          "contract": null,
+          "marker": {
+            "line": 16,
+            "col": 1
+          },
+          "values": [],
+          "fromDefault": true
+        }
+      ],
+      "node": null,
+      "order": 2,
+      "headless": false,
+      "renderedLines": [237, 244]
+    },
+    {
+      "id": "stage-plan/gate-protocol",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Gate protocol",
+      "label": "Gate protocol",
+      "kind": "note",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/gate-protocol.block.md",
+      "relPath": "attachments/pipeline/stage-plan/gate-protocol.block.md",
+      "lines": [5, 7],
+      "summary": "",
+      "text": "## Gate protocol",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Gate protocol"
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 3,
+      "headless": false,
+      "renderedLines": [245, 247]
+    },
+    {
+      "id": "gate-protocol",
+      "parentId": "stage-plan/gate-protocol",
+      "depth": 2,
+      "title": "Gate protocol",
+      "label": "Gate protocol",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/index.block.md",
+      "relPath": "attachments/gate-protocol/index.block.md",
+      "lines": [7, 126],
+      "summary": "The daemon's gate registry is the single arbiter; under a run the gate tools record the decision.",
+      "text": "The daemon's gate registry is the single arbiter; under a run the gate\ntools record the decision.\n\nIf a site's questions or a rule in the including verb ask for a move this\ngraph marks STOP, open the Off-script gate (below) instead.\n\n```mermaid\nflowchart TB\n%% name: gate_protocol\n    trigger_site_reaches([Trigger: a site reaches its gate])\n    build_questions\n    trigger_site_opened([Trigger: a site opened its gate with gate_open])\n    gate_ask[/\"gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?}\"/]\n    gate_ask_result{gate_ask result?}\n    ask_under_run{\"Under a run (gate_ask fix)?\"}\n    run_budget_fix[/\"run_budget {key: gate-fix:<scope>, limit: 2, stage}\"/]\n    fixed_ask_once{Fixed this gate_ask call once already?}\n    fix_refusal\n    daemon_down_unattended{Daemon down: is the gated pane unattended?}\n    fail_stage_at_gate{Under a run: fail the stage at the gate?}\n    run_stage_fail[/\"run_stage {action: fail, stage, reason: <the gate_ask refusal, verbatim>}\"/]\n    present_form_no_registry\n    no_registry_under_run{\"Under a run (no-registry answer)?\"}\n    gate_record[/\"gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}\"/]\n    pane_action{paneAction?}\n    boards_to_open{A boards@1 context in an attended session, with a board not yet opened?}\n    open_board[/open <board path>/]\n    present_pane_form\n    form_result{Gate form result?}\n    map_answer\n    gate_answer[/\"gate_answer {id, answers, runDb?, stage?}\"/]\n    gate_answer_result{gate_answer result?}\n    remap_under_run{\"Under a run (answer remap)?\"}\n    run_budget_remap[/\"run_budget {key: gate-remap:<scope>, limit: 2, stage}\"/]\n    resubmitted_once{Resubmitted this gate_answer once already?}\n    say_surface\n    hold_under_run{Holding an open gate: under a run?}\n    run_field_set[/\"run_field_set {key: waiting-gate, value: <id>, stage}\"/]\n    rt_gate_wait[/rt gate wait <id> as a background Bash task/]\n    end_turn_holding\n    trigger_wait_finished([Trigger: the gate wait finished])\n    trigger_human_words([Trigger: the human answers in words])\n    trigger_doorbell([Trigger: a doorbell push arrives])\n    gate_reconcile[/\"gate_reconcile {id, runDb?, stage?}\"/]\n    reconcile_status{gate_reconcile status?}\n    write_in_to_act{\"A write-in to act on (actOnWriteIn)?\"}\n    act_write_in\n    stop_no_invented_answer[STOP: never invent an answer or re-ask a closed gate]:::stop\n    stage_failed(((Gate stage failed)))\n    verb_ends(((Verb ends quoting the refusal)))\n    held_no_run(((No run: held at the open gate)))\n    late_signal(((Late gate signal discarded)))\n    path_ended(((Path ended per the verb's policy)))\n    write_in_new_gate(((Write-in acted on: a new gate opens)))\n    act_on_answer(((Act on the gate answer at the site))):::done\n    trigger_site_reaches --> build_questions\n    build_questions --> gate_ask\n    gate_ask --> gate_ask_result\n    gate_ask_result -->|ok| pane_action\n    gate_ask_result -->|refused: daemon unreachable| daemon_down_unattended\n    gate_ask_result -->|refused: other| ask_under_run\n    ask_under_run -->|yes| run_budget_fix\n    ask_under_run -->|no| fixed_ask_once\n    run_budget_fix --> fixed_ask_once\n    fixed_ask_once -->|no| fix_refusal\n    fixed_ask_once -->|yes| fail_stage_at_gate\n    fix_refusal --> gate_ask\n    daemon_down_unattended -->|no| present_form_no_registry\n    daemon_down_unattended -->|yes| fail_stage_at_gate\n    fail_stage_at_gate -->|yes| run_stage_fail\n    fail_stage_at_gate -->|no| verb_ends\n    run_stage_fail --> stage_failed\n    present_form_no_registry --> no_registry_under_run\n    no_registry_under_run -->|yes| gate_record\n    no_registry_under_run -->|no| write_in_to_act\n    gate_record --> write_in_to_act\n    trigger_site_opened --> pane_action\n    pane_action -->|form| boards_to_open\n    boards_to_open -->|yes: the next board| open_board\n    boards_to_open -->|no, or every board opened| present_pane_form\n    open_board --> boards_to_open\n    pane_action -->|wait| rt_gate_wait\n    present_pane_form --> form_result\n    form_result -->|answered| map_answer\n    form_result -.->|dismissed| trigger_doorbell\n    form_result -->|cancelled| hold_under_run\n    map_answer --> gate_answer\n    gate_answer --> gate_answer_result\n    gate_answer_result -->|this answer won| write_in_to_act\n    gate_answer_result -->|conflict: true| say_surface\n    gate_answer_result -->|refused: not an option| remap_under_run\n    gate_answer_result -->|refused: closed or not found| stop_no_invented_answer\n    remap_under_run -->|yes| run_budget_remap\n    remap_under_run -->|no| resubmitted_once\n    run_budget_remap --> resubmitted_once\n    resubmitted_once -->|no| map_answer\n    resubmitted_once -->|yes| hold_under_run\n    say_surface --> write_in_to_act\n    hold_under_run -->|yes| run_field_set\n    hold_under_run -->|no| held_no_run\n    run_field_set --> rt_gate_wait\n    rt_gate_wait --> end_turn_holding\n    end_turn_holding -.-> trigger_wait_finished\n    trigger_wait_finished --> gate_reconcile\n    gate_reconcile --> reconcile_status\n    trigger_human_words --> gate_reconcile\n    trigger_doorbell --> gate_reconcile\n    reconcile_status -->|late: reconciled, stale, or acted on| late_signal\n    reconcile_status -->|answered| say_surface\n    reconcile_status -->|closed or not found| stop_no_invented_answer\n    reconcile_status -->|open, words| map_answer\n    reconcile_status -->|open, no words| end_turn_holding\n    reconcile_status -->|refused: daemon unreachable| daemon_down_unattended\n    stop_no_invented_answer --> path_ended\n    write_in_to_act -->|yes| act_write_in\n    write_in_to_act -->|no| act_on_answer\n    act_write_in --> write_in_new_gate\n```",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "The daemon's gate registry is the single arbiter; under a run the gate\ntools record the decision.\n\nIf a site's questions or a rule in the including verb ask for a move this\ngraph marks STOP, open the Off-script gate (below) instead.\n\n```mermaid\nflowchart TB\n%% name: gate_protocol\n    trigger_site_reaches([Trigger: a site reaches its gate])\n    build_questions\n    trigger_site_opened([Trigger: a site opened its gate with gate_open])\n    gate_ask[/\"gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?}\"/]\n    gate_ask_result{gate_ask result?}\n    ask_under_run{\"Under a run (gate_ask fix)?\"}\n    run_budget_fix[/\"run_budget {key: gate-fix:<scope>, limit: 2, stage}\"/]\n    fixed_ask_once{Fixed this gate_ask call once already?}\n    fix_refusal\n    daemon_down_unattended{Daemon down: is the gated pane unattended?}\n    fail_stage_at_gate{Under a run: fail the stage at the gate?}\n    run_stage_fail[/\"run_stage {action: fail, stage, reason: <the gate_ask refusal, verbatim>}\"/]\n    present_form_no_registry\n    no_registry_under_run{\"Under a run (no-registry answer)?\"}\n    gate_record[/\"gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}\"/]\n    pane_action{paneAction?}\n    boards_to_open{A boards@1 context in an attended session, with a board not yet opened?}\n    open_board[/open <board path>/]\n    present_pane_form\n    form_result{Gate form result?}\n    map_answer\n    gate_answer[/\"gate_answer {id, answers, runDb?, stage?}\"/]\n    gate_answer_result{gate_answer result?}\n    remap_under_run{\"Under a run (answer remap)?\"}\n    run_budget_remap[/\"run_budget {key: gate-remap:<scope>, limit: 2, stage}\"/]\n    resubmitted_once{Resubmitted this gate_answer once already?}\n    say_surface\n    hold_under_run{Holding an open gate: under a run?}\n    run_field_set[/\"run_field_set {key: waiting-gate, value: <id>, stage}\"/]\n    rt_gate_wait[/rt gate wait <id> as a background Bash task/]\n    end_turn_holding\n    trigger_wait_finished([Trigger: the gate wait finished])\n    trigger_human_words([Trigger: the human answers in words])\n    trigger_doorbell([Trigger: a doorbell push arrives])\n    gate_reconcile[/\"gate_reconcile {id, runDb?, stage?}\"/]\n    reconcile_status{gate_reconcile status?}\n    write_in_to_act{\"A write-in to act on (actOnWriteIn)?\"}\n    act_write_in\n    stop_no_invented_answer[STOP: never invent an answer or re-ask a closed gate]:::stop\n    stage_failed(((Gate stage failed)))\n    verb_ends(((Verb ends quoting the refusal)))\n    held_no_run(((No run: held at the open gate)))\n    late_signal(((Late gate signal discarded)))\n    path_ended(((Path ended per the verb's policy)))\n    write_in_new_gate(((Write-in acted on: a new gate opens)))\n    act_on_answer(((Act on the gate answer at the site))):::done\n    trigger_site_reaches --> build_questions\n    build_questions --> gate_ask\n    gate_ask --> gate_ask_result\n    gate_ask_result -->|ok| pane_action\n    gate_ask_result -->|refused: daemon unreachable| daemon_down_unattended\n    gate_ask_result -->|refused: other| ask_under_run\n    ask_under_run -->|yes| run_budget_fix\n    ask_under_run -->|no| fixed_ask_once\n    run_budget_fix --> fixed_ask_once\n    fixed_ask_once -->|no| fix_refusal\n    fixed_ask_once -->|yes| fail_stage_at_gate\n    fix_refusal --> gate_ask\n    daemon_down_unattended -->|no| present_form_no_registry\n    daemon_down_unattended -->|yes| fail_stage_at_gate\n    fail_stage_at_gate -->|yes| run_stage_fail\n    fail_stage_at_gate -->|no| verb_ends\n    run_stage_fail --> stage_failed\n    present_form_no_registry --> no_registry_under_run\n    no_registry_under_run -->|yes| gate_record\n    no_registry_under_run -->|no| write_in_to_act\n    gate_record --> write_in_to_act\n    trigger_site_opened --> pane_action\n    pane_action -->|form| boards_to_open\n    boards_to_open -->|yes: the next board| open_board\n    boards_to_open -->|no, or every board opened| present_pane_form\n    open_board --> boards_to_open\n    pane_action -->|wait| rt_gate_wait\n    present_pane_form --> form_result\n    form_result -->|answered| map_answer\n    form_result -.->|dismissed| trigger_doorbell\n    form_result -->|cancelled| hold_under_run\n    map_answer --> gate_answer\n    gate_answer --> gate_answer_result\n    gate_answer_result -->|this answer won| write_in_to_act\n    gate_answer_result -->|conflict: true| say_surface\n    gate_answer_result -->|refused: not an option| remap_under_run\n    gate_answer_result -->|refused: closed or not found| stop_no_invented_answer\n    remap_under_run -->|yes| run_budget_remap\n    remap_under_run -->|no| resubmitted_once\n    run_budget_remap --> resubmitted_once\n    resubmitted_once -->|no| map_answer\n    resubmitted_once -->|yes| hold_under_run\n    say_surface --> write_in_to_act\n    hold_under_run -->|yes| run_field_set\n    hold_under_run -->|no| held_no_run\n    run_field_set --> rt_gate_wait\n    rt_gate_wait --> end_turn_holding\n    end_turn_holding -.-> trigger_wait_finished\n    trigger_wait_finished --> gate_reconcile\n    gate_reconcile --> reconcile_status\n    trigger_human_words --> gate_reconcile\n    trigger_doorbell --> gate_reconcile\n    reconcile_status -->|late: reconciled, stale, or acted on| late_signal\n    reconcile_status -->|answered| say_surface\n    reconcile_status -->|closed or not found| stop_no_invented_answer\n    reconcile_status -->|open, words| map_answer\n    reconcile_status -->|open, no words| end_turn_holding\n    reconcile_status -->|refused: daemon unreachable| daemon_down_unattended\n    stop_no_invented_answer --> path_ended\n    write_in_to_act -->|yes| act_write_in\n    write_in_to_act -->|no| act_on_answer\n    act_write_in --> write_in_new_gate\n```"
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": null,
+      "headless": false,
+      "renderedLines": [248, 370]
+    },
+    {
+      "id": "gate-protocol/build-questions",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Build the gate's questions and context",
+      "label": "Build questions",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/build-questions.block.md",
+      "relPath": "attachments/gate-protocol/build-questions.block.md",
+      "lines": [5, 33],
+      "summary": "Open before anything that depends on the answer.",
+      "text": "### Build the gate's questions and context\n\nOpen before anything that depends on the answer. A question is `{\"id\",\n\"label\", \"multi\", \"options\"}`, plus `\"writeIn\": true` where the site marks\n`(write-in)`; `kind` is the gate's scope. Pass `subject` only for a subject\nnot your own.\n\n- **Context** is a VERBATIM QUOTE of the material under decision (the\n  brief's task, the plan section, the failing output), never a fresh\n  summary, and never sent empty. Lay it out as Markdown that reads the same\n  unrendered: a framing line, then label lines (`Important:`) with one `-`\n  bullet per item. Never trim it; the daemon drops what overflows. A\n  question's own `context` sets up that question alone; an option's\n  `description` is its one-line why.\n- **Options** are `{value, label}` objects when values are not\n  human-readable; a recommended pick's `label` ends ` (Recommended)`, its\n  `value` bare. In a site table headed `Options (recommended first)`, mark\n  the option the table writes; a row with none, such as the stage-end\n  `next`, marks none.\n- **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,\n  and `abandon` or `done` where offered; the tools read `proceed` and\n  `iterate`.\n- **Write-ins** go only on a decision question whose free text you can act\n  on, never on `next` or a review-post, respond, doctor or pane-attention\n  question.\n- **At most 4 options per question**, or the whole gate goes to the wait.\n  Navigation (Iterate here, Go back, Hold, Abandon) is its own `next`\n  question; a longer list splits into `<id>-1`, `<id>-2`, ... read as one\n  union.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Build the gate's questions and context\n\nOpen before anything that depends on the answer. A question is `{\"id\",\n\"label\", \"multi\", \"options\"}`, plus `\"writeIn\": true` where the site marks\n`(write-in)`; `kind` is the gate's scope. Pass `subject` only for a subject\nnot your own.\n\n- **Context** is a VERBATIM QUOTE of the material under decision (the\n  brief's task, the plan section, the failing output), never a fresh\n  summary, and never sent empty. Lay it out as Markdown that reads the same\n  unrendered: a framing line, then label lines (`Important:`) with one `-`\n  bullet per item. Never trim it; the daemon drops what overflows. A\n  question's own `context` sets up that question alone; an option's\n  `description` is its one-line why.\n- **Options** are `{value, label}` objects when values are not\n  human-readable; a recommended pick's `label` ends ` (Recommended)`, its\n  `value` bare. In a site table headed `Options (recommended first)`, mark\n  the option the table writes; a row with none, such as the stage-end\n  `next`, marks none.\n- **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,\n  and `abandon` or `done` where offered; the tools read `proceed` and\n  `iterate`.\n- **Write-ins** go only on a decision question whose free text you can act\n  on, never on `next` or a review-post, respond, doctor or pane-attention\n  question.\n- **At most 4 options per question**, or the whole gate goes to the wait.\n  Navigation (Iterate here, Go back, Hold, Abandon) is its own `next`\n  question; a longer list splits into `<id>-1`, `<id>-2`, ... read as one\n  union."
+        }
+      ],
+      "props": [],
+      "node": "build_questions",
+      "order": null,
+      "headless": false,
+      "renderedLines": [371, 401]
+    },
+    {
+      "id": "gate-protocol/trigger-site-opened",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Trigger: a site opened its gate with gate_open",
+      "label": "Site opened its gate",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/trigger-site-opened.block.md",
+      "relPath": "attachments/gate-protocol/trigger-site-opened.block.md",
+      "lines": [6, 10],
+      "summary": "A site opening a structured gate calls gate_open itself and enters here.",
+      "text": "### Trigger: a site opened its gate with gate_open\n\nA site opening a structured gate calls `gate_open` itself and enters here.\nIts result carries what `gate_ask`'s does (see gate_ask result?), and under\na run it has already written `gate` and, on `wait`, armed `waiting-gate`.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Trigger: a site opened its gate with gate_open\n\nA site opening a structured gate calls `gate_open` itself and enters here.\nIts result carries what `gate_ask`'s does (see gate_ask result?), and under\na run it has already written `gate` and, on `wait`, armed `waiting-gate`."
+        }
+      ],
+      "props": [],
+      "node": "trigger_site_opened",
+      "order": null,
+      "headless": false,
+      "renderedLines": [402, 408]
+    },
+    {
+      "id": "gate-protocol/gate-ask-result",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "gate_ask result?",
+      "label": "Gate ask result",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/gate-ask-result.block.md",
+      "relPath": "attachments/gate-protocol/gate-ask-result.block.md",
+      "lines": [5, 11],
+      "summary": "ok: keep id, paneAction, formContext and formChunks; labelsTruncated lists labels the tool shortened, so never shorten one yourself.",
+      "text": "### gate_ask result?\n\n**ok:** keep `id`, `paneAction`, `formContext` and `formChunks`;\n`labelsTruncated` lists labels the tool shortened, so never shorten one\nyourself. **`runErrors`:** the gate is open but a run write failed: quote it\nin one line and carry on at `paneAction?`, never re-asking the gate or\nwriting that field yourself.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### gate_ask result?\n\n**ok:** keep `id`, `paneAction`, `formContext` and `formChunks`;\n`labelsTruncated` lists labels the tool shortened, so never shorten one\nyourself. **`runErrors`:** the gate is open but a run write failed: quote it\nin one line and carry on at `paneAction?`, never re-asking the gate or\nwriting that field yourself."
+        }
+      ],
+      "props": [],
+      "node": "gate_ask_result",
+      "order": null,
+      "headless": false,
+      "renderedLines": [409, 417]
+    },
+    {
+      "id": "gate-protocol/fix-refusal",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Fix what the gate_ask refusal names",
+      "label": "Fix refusal",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/fix-refusal.block.md",
+      "relPath": "attachments/gate-protocol/fix-refusal.block.md",
+      "lines": [5, 12],
+      "summary": "Fix exactly what it names (a blank context, several running runs, a bad runDb) and ask again, once.",
+      "text": "### Fix what the gate_ask refusal names\n\nFix exactly what it names (a blank context, several running runs, a bad\n`runDb`) and ask again, once. Under a run each counter diamond reads\n`run_budget`'s `exhausted` and a `run_budget` error counts as exhausted;\nwith no run, count in context. A second refusal fails the stage or ends the\nverb, quoting it verbatim; never off-script, which opens through `gate_ask`\ntoo.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Fix what the gate_ask refusal names\n\nFix exactly what it names (a blank context, several running runs, a bad\n`runDb`) and ask again, once. Under a run each counter diamond reads\n`run_budget`'s `exhausted` and a `run_budget` error counts as exhausted;\nwith no run, count in context. A second refusal fails the stage or ends the\nverb, quoting it verbatim; never off-script, which opens through `gate_ask`\ntoo."
+        }
+      ],
+      "props": [],
+      "node": "fix_refusal",
+      "order": null,
+      "headless": false,
+      "renderedLines": [418, 427]
+    },
+    {
+      "id": "gate-protocol/present-form-no-registry",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Present the gate form with no registry",
+      "label": "Form without registry",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/present-form-no-registry.block.md",
+      "relPath": "attachments/gate-protocol/present-form-no-registry.block.md",
+      "lines": [6, 9],
+      "summary": "Form-only, with no other gate call: the answer is the decision (no CAS), decidedBy pane, and under a run gate_record records it.",
+      "text": "### Present the gate form with no registry\n\nForm-only, with no other gate call: the answer is the decision (no CAS),\n`decidedBy` `pane`, and under a run `gate_record` records it.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Present the gate form with no registry\n\nForm-only, with no other gate call: the answer is the decision (no CAS),\n`decidedBy` `pane`, and under a run `gate_record` records it."
+        }
+      ],
+      "props": [],
+      "node": "present_form_no_registry",
+      "order": null,
+      "headless": false,
+      "renderedLines": [428, 433]
+    },
+    {
+      "id": "gate-protocol/boards-to-open",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "A boards@1 context in an attended session, with a board not yet opened?",
+      "label": "Boards to open",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/boards-to-open.block.md",
+      "relPath": "attachments/gate-protocol/boards-to-open.block.md",
+      "lines": [5, 11],
+      "summary": "A terminal form cannot show an image, so in an attended session (see Attendance) a gate whose context is boards@1 opens each board on Bash before its form:\u2026",
+      "text": "### A boards@1 context in an attended session, with a board not yet opened?\n\nA terminal form cannot show an image, so in an attended session (see\nAttendance) a gate whose context is `boards@1` opens each board on Bash\nbefore its form: `open '<path>'`, once per entry, the path as the entry\ngives it. Unattended, the human answers in the console, which shows every\nboard as a thumbnail, so nothing opens on this machine's screen.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### A boards@1 context in an attended session, with a board not yet opened?\n\nA terminal form cannot show an image, so in an attended session (see\nAttendance) a gate whose context is `boards@1` opens each board on Bash\nbefore its form: `open '<path>'`, once per entry, the path as the entry\ngives it. Unattended, the human answers in the console, which shows every\nboard as a thumbnail, so nothing opens on this machine's screen."
+        }
+      ],
+      "props": [],
+      "node": "boards_to_open",
+      "order": null,
+      "headless": false,
+      "renderedLines": [434, 442]
+    },
+    {
+      "id": "gate-protocol/present-pane-form",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Present the in-pane gate form",
+      "label": "Present pane form",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/present-pane-form.block.md",
+      "relPath": "attachments/gate-protocol/present-pane-form.block.md",
+      "lines": [5, 13],
+      "summary": "The paneAction: form branch (older sites say the presentation: \"form\" branch).",
+      "text": "### Present the in-pane gate form\n\nThe `paneAction: form` branch (older sites say the\n`presentation: \"form\"` branch). Show `formContext`, when present, in the\npane before the first chunk, then ask `formChunks` in order, one\nAskUserQuestion call per chunk, rendering each chunk as given; answer once,\nafter the last. Dismissed: another surface answered, and the doorbell is\nyour next input. Cancelled: the gate stays open; never re-present it\nyourself.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Present the in-pane gate form\n\nThe `paneAction: form` branch (older sites say the\n`presentation: \"form\"` branch). Show `formContext`, when present, in the\npane before the first chunk, then ask `formChunks` in order, one\nAskUserQuestion call per chunk, rendering each chunk as given; answer once,\nafter the last. Dismissed: another surface answered, and the doorbell is\nyour next input. Cancelled: the gate stays open; never re-present it\nyourself."
+        }
+      ],
+      "props": [],
+      "node": "present_pane_form",
+      "order": null,
+      "headless": false,
+      "renderedLines": [443, 453]
+    },
+    {
+      "id": "gate-protocol/map-answer",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Map the gate answer to exact option values",
+      "label": "Map answer",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/map-answer.block.md",
+      "relPath": "attachments/gate-protocol/map-answer.block.md",
+      "lines": [5, 13],
+      "summary": "answers is one object keyed by question id, values per Answers are option values (below); a question with no options takes the human's text, and words at a\u2026",
+      "text": "### Map the gate answer to exact option values\n\n`answers` is one object keyed by question id, values per Answers are option\nvalues (below); a question with no options takes the human's text, and\nwords at a held gate map the same way. On a `writeIn` question, \"Other\"\ntext with nothing ticked is `{\"writeIn\": \"<text>\"}`, never the nearest\noption; beside ticks on a multi it is `{\"value\": [<ticks>], \"note\":\n\"<text>\"}`. A refused value is remapped once, counted as in Fix what the\ngate_ask refusal names, then left open for another surface.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Map the gate answer to exact option values\n\n`answers` is one object keyed by question id, values per Answers are option\nvalues (below); a question with no options takes the human's text, and\nwords at a held gate map the same way. On a `writeIn` question, \"Other\"\ntext with nothing ticked is `{\"writeIn\": \"<text>\"}`, never the nearest\noption; beside ticks on a multi it is `{\"value\": [<ticks>], \"note\":\n\"<text>\"}`. A refused value is remapped once, counted as in Fix what the\ngate_ask refusal names, then left open for another surface."
+        }
+      ],
+      "props": [],
+      "node": "map_answer",
+      "order": null,
+      "headless": false,
+      "renderedLines": [454, 464]
+    },
+    {
+      "id": "gate-protocol/say-surface",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Say which surface won",
+      "label": "Say surface",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/say-surface.block.md",
+      "relPath": "attachments/gate-protocol/say-surface.block.md",
+      "lines": [5, 8],
+      "summary": "Say in one line which answer won and from where (decidedBy), drop the pane's own answer or words, and go on with the result's answers.",
+      "text": "### Say which surface won\n\nSay in one line which answer won and from where (`decidedBy`), drop the\npane's own answer or words, and go on with the result's `answers`.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Say which surface won\n\nSay in one line which answer won and from where (`decidedBy`), drop the\npane's own answer or words, and go on with the result's `answers`."
+        }
+      ],
+      "props": [],
+      "node": "say_surface",
+      "order": null,
+      "headless": false,
+      "renderedLines": [465, 470]
+    },
+    {
+      "id": "gate-protocol/end-turn-holding",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "End the turn: holding at gate <id>",
+      "label": "End turn holding",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/end-turn-holding.block.md",
+      "relPath": "attachments/gate-protocol/end-turn-holding.block.md",
+      "lines": [5, 9],
+      "summary": "Never launch a second wait for this gate.",
+      "text": "### End the turn: holding at gate <id>\n\nNever launch a second wait for this gate. End the turn in one line,\n`holding at gate <id>`. Under a run a turn ends only with `waiting-gate`\nset.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### End the turn: holding at gate <id>\n\nNever launch a second wait for this gate. End the turn in one line,\n`holding at gate <id>`. Under a run a turn ends only with `waiting-gate`\nset."
+        }
+      ],
+      "props": [],
+      "node": "end_turn_holding",
+      "order": null,
+      "headless": false,
+      "renderedLines": [471, 477]
+    },
+    {
+      "id": "gate-protocol/reconcile-status",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "gate_reconcile status?",
+      "label": "Reconcile status",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/reconcile-status.block.md",
+      "relPath": "attachments/gate-protocol/reconcile-status.block.md",
+      "lines": [5, 14],
+      "summary": "It re-reads the gate (up to 2 seconds), records the answer under a run and clears waiting-gate; never a timed rt gate wait or a hand record.",
+      "text": "### gate_reconcile status?\n\nIt re-reads the gate (up to 2 seconds), records the answer under a run and\nclears `waiting-gate`; never a timed `rt gate wait` or a hand record. Late\nmeans `alreadyReconciled`, a `skipped` naming a stale gate, or, with no run,\na gate this pane already acted on. Otherwise `answered` is the decision, and\nwords in hand lose to it. `open` with words: map them and let\n`gate_answer`'s CAS decide; with none, end the turn again (the wait and\nmarker stand). A daemon-unreachable refusal takes the daemon-down branch,\nquoting it.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### gate_reconcile status?\n\nIt re-reads the gate (up to 2 seconds), records the answer under a run and\nclears `waiting-gate`; never a timed `rt gate wait` or a hand record. Late\nmeans `alreadyReconciled`, a `skipped` naming a stale gate, or, with no run,\na gate this pane already acted on. Otherwise `answered` is the decision, and\nwords in hand lose to it. `open` with words: map them and let\n`gate_answer`'s CAS decide; with none, end the turn again (the wait and\nmarker stand). A daemon-unreachable refusal takes the daemon-down branch,\nquoting it."
+        }
+      ],
+      "props": [],
+      "node": "reconcile_status",
+      "order": null,
+      "headless": false,
+      "renderedLines": [478, 489]
+    },
+    {
+      "id": "gate-protocol/write-in-to-act",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "A write-in to act on (actOnWriteIn)?",
+      "label": "Write-in to act on",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/write-in-to-act.block.md",
+      "relPath": "attachments/gate-protocol/write-in-to-act.block.md",
+      "lines": [6, 12],
+      "summary": "Read actOnWriteIn off the tool result: it is the deliberate-pick rule.",
+      "text": "### A write-in to act on (actOnWriteIn)?\n\nRead `actOnWriteIn` off the tool result: it is the deliberate-pick rule. A\nwrite-in is acted on only when `next` is absent, Proceed or Iterate here;\nany other `next` (Hold, Go back, Abandon) was picked on purpose, and the\nsite takes it with the write-in as its note. With no tool result, apply the\nrule yourself.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### A write-in to act on (actOnWriteIn)?\n\nRead `actOnWriteIn` off the tool result: it is the deliberate-pick rule. A\nwrite-in is acted on only when `next` is absent, Proceed or Iterate here;\nany other `next` (Hold, Go back, Abandon) was picked on purpose, and the\nsite takes it with the write-in as its note. With no tool result, apply the\nrule yourself."
+        }
+      ],
+      "props": [],
+      "node": "write_in_to_act",
+      "order": null,
+      "headless": false,
+      "renderedLines": [490, 498]
+    },
+    {
+      "id": "gate-protocol/act-write-in",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Act on a write-in",
+      "label": "Act write in",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/act-write-in.block.md",
+      "relPath": "attachments/gate-protocol/act-write-in.block.md",
+      "lines": [5, 11],
+      "summary": "Handle the gate like Iterate here: skip the site's own branch (a Proceed beside it is the form's preselection), do what the write-in asks, reading the whole\u2026",
+      "text": "### Act on a write-in\n\nHandle the gate like Iterate here: skip the site's own branch (a Proceed\nbeside it is the form's preselection), do what the write-in asks, reading\nthe whole answer set, then open a NEW gate at the same site so the human\nsees the result first. One too unclear to act on goes straight to that new\ngate, which asks about it.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Act on a write-in\n\nHandle the gate like Iterate here: skip the site's own branch (a Proceed\nbeside it is the form's preselection), do what the write-in asks, reading\nthe whole answer set, then open a NEW gate at the same site so the human\nsees the result first. One too unclear to act on goes straight to that new\ngate, which asks about it."
+        }
+      ],
+      "props": [],
+      "node": "act_write_in",
+      "order": null,
+      "headless": false,
+      "renderedLines": [499, 507]
+    },
+    {
+      "id": "gate-protocol/attendance",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Attendance",
+      "label": "Attendance",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/attendance.block.md",
+      "relPath": "attachments/gate-protocol/attendance.block.md",
+      "lines": [5, 9],
+      "summary": "Attendance comes from the invocation context, never from asking: under a run, spawnedBy set means unattended; with no run, the launch instruction says (a pane\u2026",
+      "text": "### Attendance\n\nAttendance comes from the invocation context, never from asking: under a\nrun, `spawnedBy` set means unattended; with no run, the launch instruction\nsays (a pane a surface launched is unattended).",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Attendance\n\nAttendance comes from the invocation context, never from asking: under a\nrun, `spawnedBy` set means unattended; with no run, the launch instruction\nsays (a pane a surface launched is unattended)."
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 1,
+      "headless": false,
+      "renderedLines": [508, 514]
+    },
+    {
+      "id": "gate-protocol/runs-integration",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Runs integration",
+      "label": "Runs integration",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/runs-integration.block.md",
+      "relPath": "attachments/gate-protocol/runs-integration.block.md",
+      "lines": [5, 22],
+      "summary": "A site that says \"run gate-protocol's Runs integration with kind <k> and these questions\" enters at the trigger and walks every branch.",
+      "text": "### Runs integration\n\nA site that says \"run gate-protocol's Runs integration with kind `<k>` and\nthese questions\" enters at the trigger and walks every branch. Under a run\nevery gate tool call passes `runDb` and the site's `stage`: the tools\nbracket the gate, arm `waiting-gate` on a wait, record the answers map\n(`decidedBy` the CAS winner) and clear the marker. Without them the stop\nhook bounces the turn. With no run, omit both; nothing here calls a `run_*`\ntool.\n\n- **Every site is on the tools.** No host brackets a gate with\n  `run_field_set {key: gate}` or records its answer with a `run_decision`\n  gate@1 line: the tools record the answers map (a write-in as `{\"writeIn\": \"<their\n  words>\"}` in that question's slot), and `Selection:` lines only name its\n  keys. The board's wrappers run under no run, so they pass neither.\n- **Review shapes.** `gate_answer` and `gate_reconcile` record nothing on a\n  review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)\n  unless passed `record: true`; the site records with `gate_record`.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Runs integration\n\nA site that says \"run gate-protocol's Runs integration with kind `<k>` and\nthese questions\" enters at the trigger and walks every branch. Under a run\nevery gate tool call passes `runDb` and the site's `stage`: the tools\nbracket the gate, arm `waiting-gate` on a wait, record the answers map\n(`decidedBy` the CAS winner) and clear the marker. Without them the stop\nhook bounces the turn. With no run, omit both; nothing here calls a `run_*`\ntool.\n\n- **Every site is on the tools.** No host brackets a gate with\n  `run_field_set {key: gate}` or records its answer with a `run_decision`\n  gate@1 line: the tools record the answers map (a write-in as `{\"writeIn\": \"<their\n  words>\"}` in that question's slot), and `Selection:` lines only name its\n  keys. The board's wrappers run under no run, so they pass neither.\n- **Review shapes.** `gate_answer` and `gate_reconcile` record nothing on a\n  review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)\n  unless passed `record: true`; the site records with `gate_record`."
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 2,
+      "headless": false,
+      "renderedLines": [515, 534]
+    },
+    {
+      "id": "gate-protocol/off-script-gate",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Off-script gate",
+      "label": "Off script gate",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/off-script-gate.block.md",
+      "relPath": "attachments/gate-protocol/off-script-gate.block.md",
+      "lines": [5, 18],
+      "summary": "A host STOP opens it through the graph: scope off-script:<site>:<n> (n from 1 within the site's attempt), context quoting the refusal or the line asking for\u2026",
+      "text": "### Off-script gate\n\nA host STOP opens it through the graph: scope `off-script:<site>:<n>` (`n`\nfrom 1 within the site's attempt), `context` quoting the refusal or the\nline asking for the move.\n\n| Question | Options |\n|---|---|\n| `action` | **Take the proposed move** (its value spells the whole move) / **Hand back** |\n| `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |\n\nTake: make exactly that move once, then continue from the node it led to.\nHand back: under a run, `run_stage {action: fail}` with the why as reason;\nwith no run, end the verb quoting it.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Off-script gate\n\nA host STOP opens it through the graph: scope `off-script:<site>:<n>` (`n`\nfrom 1 within the site's attempt), `context` quoting the refusal or the\nline asking for the move.\n\n| Question | Options |\n|---|---|\n| `action` | **Take the proposed move** (its value spells the whole move) / **Hand back** |\n| `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |\n\nTake: make exactly that move once, then continue from the node it led to.\nHand back: under a run, `run_stage {action: fail}` with the why as reason;\nwith no run, end the verb quoting it."
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 3,
+      "headless": false,
+      "renderedLines": [535, 550]
+    },
+    {
+      "id": "gate-protocol/structured-context-gate-ctx-1",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Structured context (gate-ctx@1)",
+      "label": "Structured context",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/structured-context-gate-ctx-1.block.md",
+      "relPath": "attachments/gate-protocol/structured-context-gate-ctx-1.block.md",
+      "lines": [6, 13],
+      "summary": "A site that opens a structured gate builds its source per ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-gate-protocol/structured-context.txt\u2026",
+      "text": "### Structured context (gate-ctx@1)\n\nA site that opens a structured gate builds its source per\n`${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-gate-protocol/structured-context.txt` and opens it with\n`gate_open {kind: <scope>, source: {context: <the object>, questions}, runDb?, stage?}`:\nthe context is the object itself, never a string of it. A gate that asks the human about evidence boards (`evidence-attach`,\n`evidence-boards`, `evidence-redaction`) carries them as a `boards@1`\ncontext, so the console shows each board itself rather than its path.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Structured context (gate-ctx@1)\n\nA site that opens a structured gate builds its source per\n`${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/include-gate-protocol/structured-context.txt` and opens it with\n`gate_open {kind: <scope>, source: {context: <the object>, questions}, runDb?, stage?}`:\nthe context is the object itself, never a string of it. A gate that asks the human about evidence boards (`evidence-attach`,\n`evidence-boards`, `evidence-redaction`) carries them as a `boards@1`\ncontext, so the console shows each board itself rather than its path."
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 4,
+      "headless": false,
+      "renderedLines": [551, 560]
+    },
+    {
+      "id": "gate-protocol/answers-are-option-values",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Answers are option values",
+      "label": "Answers are option values",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/answers-are-option-values.block.md",
+      "relPath": "attachments/gate-protocol/answers-are-option-values.block.md",
+      "lines": [5, 12],
+      "summary": "An answer to a question with options is one of its option VALUES verbatim (an array on a multi), never an index, label or paraphrase.",
+      "text": "### Answers are option values\n\nAn answer to a question with options is one of its option VALUES verbatim\n(an array on a multi), never an index, label or paraphrase. Nuance rides\n`{\"value\": ..., \"note\": \"...\"}`; an edited replacement for offered text\nrides `text`, which the in-pane form never sends. The verb's act step\ndecides what either changes. A `writeIn: true` question may instead take\n`{\"writeIn\": \"<their words>\"}` alone.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Answers are option values\n\nAn answer to a question with options is one of its option VALUES verbatim\n(an array on a multi), never an index, label or paraphrase. Nuance rides\n`{\"value\": ..., \"note\": \"...\"}`; an edited replacement for offered text\nrides `text`, which the in-pane form never sends. The verb's act step\ndecides what either changes. A `writeIn: true` question may instead take\n`{\"writeIn\": \"<their words>\"}` alone."
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 5,
+      "headless": false,
+      "renderedLines": [561, 570]
+    },
+    {
+      "id": "gate-protocol/closed-gates-hold-iterate",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Closed gates, Hold / Iterate",
+      "label": "Closed gates",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/closed-gates-hold-iterate.block.md",
+      "relPath": "attachments/gate-protocol/closed-gates-hold-iterate.block.md",
+      "lines": [6, 9],
+      "summary": "closed ends that path per the verb's policy.",
+      "text": "### Closed gates, Hold / Iterate\n\n`closed` ends that path per the verb's policy. The verb handles Hold and\nIterate in the pane once the answer is recorded; a re-ask opens a NEW gate.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Closed gates, Hold / Iterate\n\n`closed` ends that path per the verb's policy. The verb handles Hold and\nIterate in the pane once the answer is recorded; a re-ask opens a NEW gate."
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 6,
+      "headless": false,
+      "renderedLines": [571, 576]
+    },
+    {
+      "id": "gate-protocol/doorbell",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Doorbell",
+      "label": "Doorbell",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/doorbell.block.md",
+      "relPath": "attachments/gate-protocol/doorbell.block.md",
+      "lines": [5, 8],
+      "summary": "Verify-only: it never carries the answer, only \"re-read the registry\", which is gate_reconcile.",
+      "text": "### Doorbell\n\nVerify-only: it never carries the answer, only \"re-read the registry\",\nwhich is `gate_reconcile`.",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Doorbell\n\nVerify-only: it never carries the answer, only \"re-read the registry\",\nwhich is `gate_reconcile`."
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 7,
+      "headless": false,
+      "renderedLines": [577, 582]
+    },
+    {
+      "id": "gate-protocol/red-flags",
+      "parentId": "gate-protocol",
+      "depth": 3,
+      "title": "Red flags",
+      "label": "Red flags",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/gate-protocol/red-flags.block.md",
+      "relPath": "attachments/gate-protocol/red-flags.block.md",
+      "lines": [5, 9],
+      "summary": "| Thought | Reality | |---|---| | \"The doorbell says what they picked\" | Call gate_reconcile.",
+      "text": "### Red flags\n\n| Thought | Reality |\n|---|---|\n| \"The doorbell says what they picked\" | Call `gate_reconcile`. |",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Red flags\n\n| Thought | Reality |\n|---|---|\n| \"The doorbell says what they picked\" | Call `gate_reconcile`. |"
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 8,
+      "headless": false,
+      "renderedLines": [583, 589]
+    },
+    {
+      "id": "stage-plan/wrap-up-form-contract",
+      "parentId": "stage-plan",
+      "depth": 1,
+      "title": "Wrap-up form contract",
+      "label": "Wrap-up form contract",
+      "kind": "note",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/stage-plan/wrap-up-form-contract.block.md",
+      "relPath": "attachments/pipeline/stage-plan/wrap-up-form-contract.block.md",
+      "lines": [6, 8],
+      "summary": "",
+      "text": "## Wrap-up form contract",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "## Wrap-up form contract"
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": 4,
+      "headless": false,
+      "renderedLines": [590, 592]
+    },
+    {
+      "id": "wrap-up-form",
+      "parentId": "stage-plan/wrap-up-form-contract",
+      "depth": 2,
+      "title": "Wrap-up",
+      "label": "Wrap up form",
+      "kind": "shared",
+      "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/wrap-up-form/index.block.md",
+      "relPath": "attachments/wrap-up-form/index.block.md",
+      "lines": [7, 33],
+      "summary": "The reply is one optional sentence of context, then a form, then stop.",
+      "text": "### Wrap-up\n\nThe reply is one optional sentence of context, then a form, then stop. Wait\nfor the answers before doing more work.\n\nThe form is this runtime's structured-question tool (`AskUserQuestion` in\nClaude Code). One question per open item, in three buckets; omit an empty\nbucket:\n\n| Bucket | The question is | Options |\n|---|---|---|\n| Important details | a confirmation or pick among facts that still matter | concrete values |\n| Decisions | a choice only the user can make | the real alternatives, recommended first and labelled `(Recommended)` |\n| Next steps | whether or in what order to do remaining work | do now / later / skip |\n\nSingle or multiple choice as the item needs. If the tool caps how many\nquestions fit in one call, fill the first call and wait; the rest go in the\nnext call after the answers return, never into the context sentence.\n\n| Thought | Reality |\n|---|---|\n| \"A summary with the options listed is just as clear\" | A list is text the user has to type back. The form is the answer channel. |\n| \"They asked me to be quick, so a compact list\" | The form is the quick version: one tap per item. |\n| \"The options are obvious, prose is faster\" | Obvious to you. The form records which one they picked. |\n| \"Next steps can go in prose after the form\" | Next steps are questions: do now / later / skip. |\n| \"I can hand them a default to save them answering\" | Recommended options already do that in the form; a typed reply still costs more than a tap and leaves no record of the pick. |\n| \"The context sentence, then a line introducing the form\" | Two sentences. The form needs no introduction; the sentence is the whole preamble. |",
+      "segments": [
+        {
+          "layer": "default",
+          "color": "mattstack",
+          "prop": null,
+          "text": "### Wrap-up\n\nThe reply is one optional sentence of context, then a form, then stop. Wait\nfor the answers before doing more work.\n\nThe form is this runtime's structured-question tool (`AskUserQuestion` in\nClaude Code). One question per open item, in three buckets; omit an empty\nbucket:\n\n| Bucket | The question is | Options |\n|---|---|---|\n| Important details | a confirmation or pick among facts that still matter | concrete values |\n| Decisions | a choice only the user can make | the real alternatives, recommended first and labelled `(Recommended)` |\n| Next steps | whether or in what order to do remaining work | do now / later / skip |\n\nSingle or multiple choice as the item needs. If the tool caps how many\nquestions fit in one call, fill the first call and wait; the rest go in the\nnext call after the answers return, never into the context sentence.\n\n| Thought | Reality |\n|---|---|\n| \"A summary with the options listed is just as clear\" | A list is text the user has to type back. The form is the answer channel. |\n| \"They asked me to be quick, so a compact list\" | The form is the quick version: one tap per item. |\n| \"The options are obvious, prose is faster\" | Obvious to you. The form records which one they picked. |\n| \"Next steps can go in prose after the form\" | Next steps are questions: do now / later / skip. |\n| \"I can hand them a default to save them answering\" | Recommended options already do that in the form; a typed reply still costs more than a tap and leaves no record of the pick. |\n| \"The context sentence, then a line introducing the form\" | Two sentences. The form needs no introduction; the sentence is the whole preamble. |"
+        }
+      ],
+      "props": [],
+      "node": null,
+      "order": null,
+      "headless": false,
+      "renderedLines": [593, 620]
+    }
+  ],
+  "graphs": [
+    {
+      "blockId": "stage-plan",
+      "nodes": [
+        {
+          "id": "plan_entered",
+          "label": "Plan stage entered",
+          "shape": "ellipse",
+          "cls": null,
+          "line": 24,
+          "blockId": null
+        },
+        {
+          "id": "run_field_get_ticket",
+          "label": "run_field_get {key: ticket}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 25,
+          "blockId": null
+        },
+        {
+          "id": "read_ticket",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 26,
+          "blockId": "stage-plan/read-ticket"
+        },
+        {
+          "id": "next_move_after_ticket",
+          "label": "Next move after reading the ticket?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 27,
+          "blockId": null
+        },
+        {
+          "id": "stop_code_before_triage",
+          "label": "STOP: no code, no file, no implementer dispatch before the printed block",
+          "shape": "box",
+          "cls": "stop",
+          "line": 28,
+          "blockId": null
+        },
+        {
+          "id": "pick_tier",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 29,
+          "blockId": "stage-plan/pick-tier"
+        },
+        {
+          "id": "print_triage_block",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 30,
+          "blockId": "stage-plan/print-triage-block"
+        },
+        {
+          "id": "gate_plan",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 31,
+          "blockId": "stage-plan/gate-plan"
+        },
+        {
+          "id": "plan_answer",
+          "label": "plan answer?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 32,
+          "blockId": null
+        },
+        {
+          "id": "run_decision_strategy",
+          "label": "run_decision {contract: execution-strategy@1, scope: run, selection: {tier}, decidedBy: stage-plan}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 33,
+          "blockId": null
+        },
+        {
+          "id": "run_field_set_approach",
+          "label": "run_field_set {key: approach, value: <the recorded tier>, stage: plan}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 34,
+          "blockId": null
+        },
+        {
+          "id": "run_field_set_evidence_plan",
+          "label": "run_field_set {key: evidence-plan, value: <the EVIDENCE value>, stage: plan}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 35,
+          "blockId": "stage-plan/run-field-set-evidence-plan"
+        },
+        {
+          "id": "hand_back_go_back",
+          "label": "Hand the Go back answer to the orchestrator",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 36,
+          "blockId": "stage-plan/hand-back-go-back"
+        },
+        {
+          "id": "run_hold",
+          "label": "run_hold {runDb, stage: plan, reason, decidedBy}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 37,
+          "blockId": null
+        },
+        {
+          "id": "held_end_turn",
+          "label": "Held: end the turn naming run and stage",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 38,
+          "blockId": null
+        },
+        {
+          "id": "plan_done",
+          "label": "Plan done: return to the orchestrator",
+          "shape": "doublecircle",
+          "cls": "done",
+          "line": 39,
+          "blockId": null
+        }
+      ],
+      "edges": [
+        {
+          "from": "plan_entered",
+          "to": "run_field_get_ticket",
+          "label": null,
+          "style": null,
+          "line": 40
+        },
+        {
+          "from": "run_field_get_ticket",
+          "to": "read_ticket",
+          "label": null,
+          "style": null,
+          "line": 41
+        },
+        {
+          "from": "read_ticket",
+          "to": "next_move_after_ticket",
+          "label": null,
+          "style": null,
+          "line": 42
+        },
+        {
+          "from": "next_move_after_ticket",
+          "to": "pick_tier",
+          "label": "triage: pick the tier",
+          "style": null,
+          "line": 43
+        },
+        {
+          "from": "next_move_after_ticket",
+          "to": "stop_code_before_triage",
+          "label": "tempted to start on the code",
+          "style": null,
+          "line": 44
+        },
+        {
+          "from": "stop_code_before_triage",
+          "to": "pick_tier",
+          "label": null,
+          "style": null,
+          "line": 45
+        },
+        {
+          "from": "pick_tier",
+          "to": "print_triage_block",
+          "label": null,
+          "style": null,
+          "line": 46
+        },
+        {
+          "from": "print_triage_block",
+          "to": "gate_plan",
+          "label": null,
+          "style": null,
+          "line": 47
+        },
+        {
+          "from": "gate_plan",
+          "to": "plan_answer",
+          "label": null,
+          "style": null,
+          "line": 48
+        },
+        {
+          "from": "plan_answer",
+          "to": "run_decision_strategy",
+          "label": "proceed",
+          "style": null,
+          "line": 49
+        },
+        {
+          "from": "plan_answer",
+          "to": "read_ticket",
+          "label": "iterate: re-read with their note",
+          "style": null,
+          "line": 50
+        },
+        {
+          "from": "plan_answer",
+          "to": "hand_back_go_back",
+          "label": "go back",
+          "style": null,
+          "line": 51
+        },
+        {
+          "from": "plan_answer",
+          "to": "run_hold",
+          "label": "hold",
+          "style": null,
+          "line": 52
+        },
+        {
+          "from": "run_hold",
+          "to": "held_end_turn",
+          "label": null,
+          "style": null,
+          "line": 53
+        },
+        {
+          "from": "run_decision_strategy",
+          "to": "run_field_set_approach",
+          "label": null,
+          "style": null,
+          "line": 54
+        },
+        {
+          "from": "run_field_set_approach",
+          "to": "run_field_set_evidence_plan",
+          "label": null,
+          "style": null,
+          "line": 55
+        },
+        {
+          "from": "run_field_set_evidence_plan",
+          "to": "plan_done",
+          "label": null,
+          "style": null,
+          "line": 56
+        }
+      ]
+    },
+    {
+      "blockId": "gate-protocol",
+      "nodes": [
+        {
+          "id": "trigger_site_reaches",
+          "label": "Trigger: a site reaches its gate",
+          "shape": "ellipse",
+          "cls": null,
+          "line": 18,
+          "blockId": null
+        },
+        {
+          "id": "build_questions",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 19,
+          "blockId": "gate-protocol/build-questions"
+        },
+        {
+          "id": "trigger_site_opened",
+          "label": "Trigger: a site opened its gate with gate_open",
+          "shape": "ellipse",
+          "cls": null,
+          "line": 20,
+          "blockId": "gate-protocol/trigger-site-opened"
+        },
+        {
+          "id": "gate_ask",
+          "label": "gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 21,
+          "blockId": null
+        },
+        {
+          "id": "gate_ask_result",
+          "label": "gate_ask result?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 22,
+          "blockId": "gate-protocol/gate-ask-result"
+        },
+        {
+          "id": "ask_under_run",
+          "label": "Under a run (gate_ask fix)?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 23,
+          "blockId": null
+        },
+        {
+          "id": "run_budget_fix",
+          "label": "run_budget {key: gate-fix:<scope>, limit: 2, stage}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 24,
+          "blockId": null
+        },
+        {
+          "id": "fixed_ask_once",
+          "label": "Fixed this gate_ask call once already?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 25,
+          "blockId": null
+        },
+        {
+          "id": "fix_refusal",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 26,
+          "blockId": "gate-protocol/fix-refusal"
+        },
+        {
+          "id": "daemon_down_unattended",
+          "label": "Daemon down: is the gated pane unattended?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 27,
+          "blockId": null
+        },
+        {
+          "id": "fail_stage_at_gate",
+          "label": "Under a run: fail the stage at the gate?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 28,
+          "blockId": null
+        },
+        {
+          "id": "run_stage_fail",
+          "label": "run_stage {action: fail, stage, reason: <the gate_ask refusal, verbatim>}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 29,
+          "blockId": null
+        },
+        {
+          "id": "present_form_no_registry",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 30,
+          "blockId": "gate-protocol/present-form-no-registry"
+        },
+        {
+          "id": "no_registry_under_run",
+          "label": "Under a run (no-registry answer)?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 31,
+          "blockId": null
+        },
+        {
+          "id": "gate_record",
+          "label": "gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 32,
+          "blockId": null
+        },
+        {
+          "id": "pane_action",
+          "label": "paneAction?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 33,
+          "blockId": null
+        },
+        {
+          "id": "boards_to_open",
+          "label": "A boards@1 context in an attended session, with a board not yet opened?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 34,
+          "blockId": "gate-protocol/boards-to-open"
+        },
+        {
+          "id": "open_board",
+          "label": "open <board path>",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 35,
+          "blockId": null
+        },
+        {
+          "id": "present_pane_form",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 36,
+          "blockId": "gate-protocol/present-pane-form"
+        },
+        {
+          "id": "form_result",
+          "label": "Gate form result?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 37,
+          "blockId": null
+        },
+        {
+          "id": "map_answer",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 38,
+          "blockId": "gate-protocol/map-answer"
+        },
+        {
+          "id": "gate_answer",
+          "label": "gate_answer {id, answers, runDb?, stage?}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 39,
+          "blockId": null
+        },
+        {
+          "id": "gate_answer_result",
+          "label": "gate_answer result?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 40,
+          "blockId": null
+        },
+        {
+          "id": "remap_under_run",
+          "label": "Under a run (answer remap)?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 41,
+          "blockId": null
+        },
+        {
+          "id": "run_budget_remap",
+          "label": "run_budget {key: gate-remap:<scope>, limit: 2, stage}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 42,
+          "blockId": null
+        },
+        {
+          "id": "resubmitted_once",
+          "label": "Resubmitted this gate_answer once already?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 43,
+          "blockId": null
+        },
+        {
+          "id": "say_surface",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 44,
+          "blockId": "gate-protocol/say-surface"
+        },
+        {
+          "id": "hold_under_run",
+          "label": "Holding an open gate: under a run?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 45,
+          "blockId": null
+        },
+        {
+          "id": "run_field_set",
+          "label": "run_field_set {key: waiting-gate, value: <id>, stage}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 46,
+          "blockId": null
+        },
+        {
+          "id": "rt_gate_wait",
+          "label": "rt gate wait <id> as a background Bash task",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 47,
+          "blockId": null
+        },
+        {
+          "id": "end_turn_holding",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 48,
+          "blockId": "gate-protocol/end-turn-holding"
+        },
+        {
+          "id": "trigger_wait_finished",
+          "label": "Trigger: the gate wait finished",
+          "shape": "ellipse",
+          "cls": null,
+          "line": 49,
+          "blockId": null
+        },
+        {
+          "id": "trigger_human_words",
+          "label": "Trigger: the human answers in words",
+          "shape": "ellipse",
+          "cls": null,
+          "line": 50,
+          "blockId": null
+        },
+        {
+          "id": "trigger_doorbell",
+          "label": "Trigger: a doorbell push arrives",
+          "shape": "ellipse",
+          "cls": null,
+          "line": 51,
+          "blockId": null
+        },
+        {
+          "id": "gate_reconcile",
+          "label": "gate_reconcile {id, runDb?, stage?}",
+          "shape": "plaintext",
+          "cls": null,
+          "line": 52,
+          "blockId": null
+        },
+        {
+          "id": "reconcile_status",
+          "label": "gate_reconcile status?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 53,
+          "blockId": "gate-protocol/reconcile-status"
+        },
+        {
+          "id": "write_in_to_act",
+          "label": "A write-in to act on (actOnWriteIn)?",
+          "shape": "diamond",
+          "cls": null,
+          "line": 54,
+          "blockId": "gate-protocol/write-in-to-act"
+        },
+        {
+          "id": "act_write_in",
+          "label": null,
+          "shape": "box",
+          "cls": null,
+          "line": 55,
+          "blockId": "gate-protocol/act-write-in"
+        },
+        {
+          "id": "stop_no_invented_answer",
+          "label": "STOP: never invent an answer or re-ask a closed gate",
+          "shape": "box",
+          "cls": "stop",
+          "line": 56,
+          "blockId": null
+        },
+        {
+          "id": "stage_failed",
+          "label": "Gate stage failed",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 57,
+          "blockId": null
+        },
+        {
+          "id": "verb_ends",
+          "label": "Verb ends quoting the refusal",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 58,
+          "blockId": null
+        },
+        {
+          "id": "held_no_run",
+          "label": "No run: held at the open gate",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 59,
+          "blockId": null
+        },
+        {
+          "id": "late_signal",
+          "label": "Late gate signal discarded",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 60,
+          "blockId": null
+        },
+        {
+          "id": "path_ended",
+          "label": "Path ended per the verb's policy",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 61,
+          "blockId": null
+        },
+        {
+          "id": "write_in_new_gate",
+          "label": "Write-in acted on: a new gate opens",
+          "shape": "doublecircle",
+          "cls": null,
+          "line": 62,
+          "blockId": null
+        },
+        {
+          "id": "act_on_answer",
+          "label": "Act on the gate answer at the site",
+          "shape": "doublecircle",
+          "cls": "done",
+          "line": 63,
+          "blockId": null
+        }
+      ],
+      "edges": [
+        {
+          "from": "trigger_site_reaches",
+          "to": "build_questions",
+          "label": null,
+          "style": null,
+          "line": 64
+        },
+        {
+          "from": "build_questions",
+          "to": "gate_ask",
+          "label": null,
+          "style": null,
+          "line": 65
+        },
+        {
+          "from": "gate_ask",
+          "to": "gate_ask_result",
+          "label": null,
+          "style": null,
+          "line": 66
+        },
+        {
+          "from": "gate_ask_result",
+          "to": "pane_action",
+          "label": "ok",
+          "style": null,
+          "line": 67
+        },
+        {
+          "from": "gate_ask_result",
+          "to": "daemon_down_unattended",
+          "label": "refused: daemon unreachable",
+          "style": null,
+          "line": 68
+        },
+        {
+          "from": "gate_ask_result",
+          "to": "ask_under_run",
+          "label": "refused: other",
+          "style": null,
+          "line": 69
+        },
+        {
+          "from": "ask_under_run",
+          "to": "run_budget_fix",
+          "label": "yes",
+          "style": null,
+          "line": 70
+        },
+        {
+          "from": "ask_under_run",
+          "to": "fixed_ask_once",
+          "label": "no",
+          "style": null,
+          "line": 71
+        },
+        {
+          "from": "run_budget_fix",
+          "to": "fixed_ask_once",
+          "label": null,
+          "style": null,
+          "line": 72
+        },
+        {
+          "from": "fixed_ask_once",
+          "to": "fix_refusal",
+          "label": "no",
+          "style": null,
+          "line": 73
+        },
+        {
+          "from": "fixed_ask_once",
+          "to": "fail_stage_at_gate",
+          "label": "yes",
+          "style": null,
+          "line": 74
+        },
+        {
+          "from": "fix_refusal",
+          "to": "gate_ask",
+          "label": null,
+          "style": null,
+          "line": 75
+        },
+        {
+          "from": "daemon_down_unattended",
+          "to": "present_form_no_registry",
+          "label": "no",
+          "style": null,
+          "line": 76
+        },
+        {
+          "from": "daemon_down_unattended",
+          "to": "fail_stage_at_gate",
+          "label": "yes",
+          "style": null,
+          "line": 77
+        },
+        {
+          "from": "fail_stage_at_gate",
+          "to": "run_stage_fail",
+          "label": "yes",
+          "style": null,
+          "line": 78
+        },
+        {
+          "from": "fail_stage_at_gate",
+          "to": "verb_ends",
+          "label": "no",
+          "style": null,
+          "line": 79
+        },
+        {
+          "from": "run_stage_fail",
+          "to": "stage_failed",
+          "label": null,
+          "style": null,
+          "line": 80
+        },
+        {
+          "from": "present_form_no_registry",
+          "to": "no_registry_under_run",
+          "label": null,
+          "style": null,
+          "line": 81
+        },
+        {
+          "from": "no_registry_under_run",
+          "to": "gate_record",
+          "label": "yes",
+          "style": null,
+          "line": 82
+        },
+        {
+          "from": "no_registry_under_run",
+          "to": "write_in_to_act",
+          "label": "no",
+          "style": null,
+          "line": 83
+        },
+        {
+          "from": "gate_record",
+          "to": "write_in_to_act",
+          "label": null,
+          "style": null,
+          "line": 84
+        },
+        {
+          "from": "trigger_site_opened",
+          "to": "pane_action",
+          "label": null,
+          "style": null,
+          "line": 85
+        },
+        {
+          "from": "pane_action",
+          "to": "boards_to_open",
+          "label": "form",
+          "style": null,
+          "line": 86
+        },
+        {
+          "from": "boards_to_open",
+          "to": "open_board",
+          "label": "yes: the next board",
+          "style": null,
+          "line": 87
+        },
+        {
+          "from": "boards_to_open",
+          "to": "present_pane_form",
+          "label": "no, or every board opened",
+          "style": null,
+          "line": 88
+        },
+        {
+          "from": "open_board",
+          "to": "boards_to_open",
+          "label": null,
+          "style": null,
+          "line": 89
+        },
+        {
+          "from": "pane_action",
+          "to": "rt_gate_wait",
+          "label": "wait",
+          "style": null,
+          "line": 90
+        },
+        {
+          "from": "present_pane_form",
+          "to": "form_result",
+          "label": null,
+          "style": null,
+          "line": 91
+        },
+        {
+          "from": "form_result",
+          "to": "map_answer",
+          "label": "answered",
+          "style": null,
+          "line": 92
+        },
+        {
+          "from": "form_result",
+          "to": "trigger_doorbell",
+          "label": "dismissed",
+          "style": "dashed",
+          "line": 93
+        },
+        {
+          "from": "form_result",
+          "to": "hold_under_run",
+          "label": "cancelled",
+          "style": null,
+          "line": 94
+        },
+        {
+          "from": "map_answer",
+          "to": "gate_answer",
+          "label": null,
+          "style": null,
+          "line": 95
+        },
+        {
+          "from": "gate_answer",
+          "to": "gate_answer_result",
+          "label": null,
+          "style": null,
+          "line": 96
+        },
+        {
+          "from": "gate_answer_result",
+          "to": "write_in_to_act",
+          "label": "this answer won",
+          "style": null,
+          "line": 97
+        },
+        {
+          "from": "gate_answer_result",
+          "to": "say_surface",
+          "label": "conflict: true",
+          "style": null,
+          "line": 98
+        },
+        {
+          "from": "gate_answer_result",
+          "to": "remap_under_run",
+          "label": "refused: not an option",
+          "style": null,
+          "line": 99
+        },
+        {
+          "from": "gate_answer_result",
+          "to": "stop_no_invented_answer",
+          "label": "refused: closed or not found",
+          "style": null,
+          "line": 100
+        },
+        {
+          "from": "remap_under_run",
+          "to": "run_budget_remap",
+          "label": "yes",
+          "style": null,
+          "line": 101
+        },
+        {
+          "from": "remap_under_run",
+          "to": "resubmitted_once",
+          "label": "no",
+          "style": null,
+          "line": 102
+        },
+        {
+          "from": "run_budget_remap",
+          "to": "resubmitted_once",
+          "label": null,
+          "style": null,
+          "line": 103
+        },
+        {
+          "from": "resubmitted_once",
+          "to": "map_answer",
+          "label": "no",
+          "style": null,
+          "line": 104
+        },
+        {
+          "from": "resubmitted_once",
+          "to": "hold_under_run",
+          "label": "yes",
+          "style": null,
+          "line": 105
+        },
+        {
+          "from": "say_surface",
+          "to": "write_in_to_act",
+          "label": null,
+          "style": null,
+          "line": 106
+        },
+        {
+          "from": "hold_under_run",
+          "to": "run_field_set",
+          "label": "yes",
+          "style": null,
+          "line": 107
+        },
+        {
+          "from": "hold_under_run",
+          "to": "held_no_run",
+          "label": "no",
+          "style": null,
+          "line": 108
+        },
+        {
+          "from": "run_field_set",
+          "to": "rt_gate_wait",
+          "label": null,
+          "style": null,
+          "line": 109
+        },
+        {
+          "from": "rt_gate_wait",
+          "to": "end_turn_holding",
+          "label": null,
+          "style": null,
+          "line": 110
+        },
+        {
+          "from": "end_turn_holding",
+          "to": "trigger_wait_finished",
+          "label": null,
+          "style": "dashed",
+          "line": 111
+        },
+        {
+          "from": "trigger_wait_finished",
+          "to": "gate_reconcile",
+          "label": null,
+          "style": null,
+          "line": 112
+        },
+        {
+          "from": "gate_reconcile",
+          "to": "reconcile_status",
+          "label": null,
+          "style": null,
+          "line": 113
+        },
+        {
+          "from": "trigger_human_words",
+          "to": "gate_reconcile",
+          "label": null,
+          "style": null,
+          "line": 114
+        },
+        {
+          "from": "trigger_doorbell",
+          "to": "gate_reconcile",
+          "label": null,
+          "style": null,
+          "line": 115
+        },
+        {
+          "from": "reconcile_status",
+          "to": "late_signal",
+          "label": "late: reconciled, stale, or acted on",
+          "style": null,
+          "line": 116
+        },
+        {
+          "from": "reconcile_status",
+          "to": "say_surface",
+          "label": "answered",
+          "style": null,
+          "line": 117
+        },
+        {
+          "from": "reconcile_status",
+          "to": "stop_no_invented_answer",
+          "label": "closed or not found",
+          "style": null,
+          "line": 118
+        },
+        {
+          "from": "reconcile_status",
+          "to": "map_answer",
+          "label": "open, words",
+          "style": null,
+          "line": 119
+        },
+        {
+          "from": "reconcile_status",
+          "to": "end_turn_holding",
+          "label": "open, no words",
+          "style": null,
+          "line": 120
+        },
+        {
+          "from": "reconcile_status",
+          "to": "daemon_down_unattended",
+          "label": "refused: daemon unreachable",
+          "style": null,
+          "line": 121
+        },
+        {
+          "from": "stop_no_invented_answer",
+          "to": "path_ended",
+          "label": null,
+          "style": null,
+          "line": 122
+        },
+        {
+          "from": "write_in_to_act",
+          "to": "act_write_in",
+          "label": "yes",
+          "style": null,
+          "line": 123
+        },
+        {
+          "from": "write_in_to_act",
+          "to": "act_on_answer",
+          "label": "no",
+          "style": null,
+          "line": 124
+        },
+        {
+          "from": "act_write_in",
+          "to": "write_in_new_gate",
+          "label": null,
+          "style": null,
+          "line": 125
+        }
+      ]
+    }
+  ],
+  "includes": [
+    {
+      "name": "gate-protocol",
+      "blockId": "stage-plan/gate-protocol"
+    },
+    {
+      "name": "wrap-up-form",
+      "blockId": "stage-plan/wrap-up-form-contract"
+    }
+  ],
+  "lines": [
+    {
+      "layer": "default",
+      "count": 467
+    },
+    {
+      "layer": "pack",
+      "count": 1
+    }
+  ]
+}

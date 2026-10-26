@@ -30,131 +30,9 @@
       "changed": false
     },
     {
-      "kind": "verb.path",
-      "name": "stage-provision",
-      "templateLines": [29, 29],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-provision",
-        "path": "/fixture/packs/acme/attachments/stage-provision/SKILL.md",
-        "lines": 777
-      },
-      "changed": false
-    },
-    {
-      "kind": "verb.path",
-      "name": "stage-plan",
-      "templateLines": [30, 30],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-plan",
-        "path": "/fixture/packs/acme/attachments/stage-plan/SKILL.md",
-        "lines": 780
-      },
-      "changed": false
-    },
-    {
-      "kind": "verb.path",
-      "name": "stage-gates",
-      "templateLines": [31, 31],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-gates",
-        "path": "/fixture/packs/acme/attachments/stage-gates/SKILL.md",
-        "lines": 212
-      },
-      "changed": false
-    },
-    {
-      "kind": "verb.path",
-      "name": "stage-evidence",
-      "templateLines": [32, 32],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-evidence",
-        "path": "/fixture/packs/acme/attachments/stage-evidence/SKILL.md",
-        "lines": 1152
-      },
-      "changed": false
-    },
-    {
-      "kind": "verb.path",
-      "name": "stage-implement",
-      "templateLines": [33, 33],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-implement",
-        "path": "/fixture/packs/acme/attachments/stage-implement/SKILL.md",
-        "lines": 91
-      },
-      "changed": false
-    },
-    {
-      "kind": "verb.path",
-      "name": "stage-self-review",
-      "templateLines": [34, 34],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-self-review",
-        "path": "/fixture/packs/acme/attachments/stage-self-review/SKILL.md",
-        "lines": 105
-      },
-      "changed": false
-    },
-    {
-      "kind": "verb.path",
-      "name": "stage-ship",
-      "templateLines": [35, 35],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-ship",
-        "path": "/fixture/packs/acme/attachments/stage-ship/SKILL.md",
-        "lines": 1091
-      },
-      "changed": false
-    },
-    {
-      "kind": "verb.path",
-      "name": "stage-watch-ci",
-      "templateLines": [36, 36],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": {
-        "skill": "stage-watch-ci",
-        "path": "/fixture/packs/acme/attachments/stage-watch-ci/SKILL.md",
-        "lines": 1116
-      },
-      "changed": false
-    },
-    {
       "kind": "text",
       "name": null,
       "templateLines": [37, 39],
-      "renderedLines": null,
-      "mode": null,
-      "source": null,
-      "target": null,
-      "changed": false
-    },
-    {
-      "kind": "variable",
-      "name": "run-start.flags:work",
-      "templateLines": [40, 40],
       "renderedLines": null,
       "mode": null,
       "source": null,
@@ -172,8 +50,8 @@
       "changed": false
     },
     {
-      "kind": "slot",
-      "name": "tiering",
+      "kind": "prop",
+      "name": "work.tiering",
       "templateLines": [242, 242],
       "renderedLines": [249, 340],
       "mode": "inline",

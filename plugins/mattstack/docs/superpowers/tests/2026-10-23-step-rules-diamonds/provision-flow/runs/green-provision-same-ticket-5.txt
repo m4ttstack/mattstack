@@ -1,0 +1,4 @@
+1. run_field_get, worktree_provision (precheck), gate_ask
+2. Yes, because the widgets rule is inlined under "Follow the domain's provision flow", so the flow runs and raises its own same-ticket slug question.
+3. Not shown
+4. slug, next

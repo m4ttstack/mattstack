@@ -1,0 +1,4 @@
+1. `run_field_get {key: mode}`, `worktree_provision {precheck: true}`, `whoami`, `gate_ask`
+2. No: the domain rules supply no provision flow, only the extra `squad` gate question, so the graph goes straight to the precheck.
+3. **Resume in `/wt/widgets-123-badge-levels` (Recommended)**, **Fresh tree**
+4. `resume_in`, `squad`, `next`

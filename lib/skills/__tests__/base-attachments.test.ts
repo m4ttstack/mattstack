@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { HEADER_COMMENT } from "../compile.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
+import type { AttachmentSource } from "../types.ts";
 import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, walkAttachmentFiles } from "../base-attachments.ts";
 
 let root: string;
@@ -47,27 +48,60 @@ describe("planBaseAttachments", () => {
     );
   });
 
-  test("a relative link the team pack cannot satisfy is a warning on the emitted copy", () => {
+  test("a hand-typed path to a skill that does not exist is a plan error with no fix", () => {
     put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nRead [the gates](../missing/SKILL.md) first.\n");
     const result = plan();
-    expect(result.errors).toEqual([]);
-    expect(result.emits.map((e) => [e.name, e.warnings])).toEqual([
-      ["review-kit", ["SKILL.md references ../missing/SKILL.md which is not an emitted file"]],
+    expect(result.errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: hand-typed path ../missing/SKILL.md breaks when its target moves; name it with {{pack.path:<attachment>/<file>}} or {{verb.path:<verb>}} (line 4)",
     ]);
+    expect(result.emits).toEqual([]);
   });
 
-  test("a relative link onto another emitted attachment or a team file on disk is not a warning", () => {
+  test("a hand-typed path onto another emitted attachment or a team file on disk is a plan error naming pack.path", () => {
     put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "See `../stage-gates/SKILL.md` and [ours](../own/SKILL.md).\n");
     put(join(baseDir(), "attachments", "stage-gates", "SKILL.md"), "gates\n");
     put(join(packDir(), "attachments", "own", "SKILL.md"), "mine\n");
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: hand-typed path ../stage-gates/SKILL.md breaks when its target moves; write {{pack.path:stage-gates/SKILL.md}} instead (line 1)",
+      "acme-base:attachments/review-kit/SKILL.md: hand-typed path ../own/SKILL.md breaks when its target moves; write {{pack.path:own/SKILL.md}} instead (line 1)",
+    ]);
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "See `{{pack.path:stage-gates/SKILL.md}}` and [ours]({{pack.path:own/SKILL.md}}).\n");
     const result = plan();
     expect(result.errors).toEqual([]);
     expect(result.emits.map((e) => [e.name, e.warnings])).toEqual([["review-kit", []], ["stage-gates", []]]);
   });
 
-  test("a relative link onto a compiled verb is not a warning", () => {
+  test("a nested file's paths into its own kit are not hand-typed, and one into another kit is", () => {
+    const kit = join(baseDir(), "attachments", "review-kit");
+    put(join(kit, "SKILL.md"), "kit\n");
+    put(join(kit, "scripts", "x.sh"), "echo x\n");
+    put(join(kit, "references", "guide.md"), "Run `../scripts/x.sh`, then reread ../SKILL.md.\n");
+    expect(plan().errors).toEqual([]);
+    put(join(kit, "references", "guide.md"), "ok\nSee ../../other-kit/SKILL.md.\n");
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/references/guide.md: hand-typed path ../../other-kit/SKILL.md breaks when its target moves; name it with {{pack.path:<attachment>/<file>}} or {{verb.path:<verb>}} (line 2)",
+    ]);
+  });
+
+  test("frontmatter is not scanned for hand-typed paths, and body lines count from the top of the file", () => {
+    const skill = join(baseDir(), "attachments", "review-kit", "SKILL.md");
+    put(skill, "---\nname: review-kit\ndescription: pairs with ../other/SKILL.md\n---\nBody.\n");
+    expect(plan().errors).toEqual([]);
+    put(skill, "---\nname: review-kit\ndescription: pairs with ../other/SKILL.md\n---\nBody.\nSee ../other/SKILL.md.\n");
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: hand-typed path ../other/SKILL.md breaks when its target moves; name it with {{pack.path:<attachment>/<file>}} or {{verb.path:<verb>}} (line 6)",
+    ]);
+  });
+
+  test("a hand-typed path onto a compiled verb is a plan error naming verb.path", () => {
     put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "Then run `../../skills/ship/SKILL.md`.\n");
-    expect(plan().emits.map((e) => e.warnings)).toEqual([[]]);
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: hand-typed path ../../skills/ship/SKILL.md breaks when its target moves; write {{verb.path:ship}} instead (line 1)",
+    ]);
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "Then run `{{verb.path:ship}}`.\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.emits.map((e) => e.warnings)).toEqual([[]]);
   });
 
   test("a relative link that leaves the team pack is a warning", () => {
@@ -207,6 +241,89 @@ describe("planBaseAttachments", () => {
   test("a clashing name is reported once", () => {
     put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "{{pack.path:review-kit/x.md}}\n");
     expect(plan({ "review-kit": "attachments" }).errors).toEqual([clash]);
+  });
+});
+
+describe("pointers from a base copy to the team's own source", () => {
+  const kit = () => join(baseDir(), "attachments", "review-kit");
+  const emitOf = (result: ReturnType<typeof plan>, name = "review-kit") => result.emits.find((e) => e.name === name)!;
+  const fileOf = (result: ReturnType<typeof plan>, path: string, name = "review-kit") => emitOf(result, name).files.find((f) => f.path === path);
+  const COPY = "${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references";
+
+  test("the target unit is vendored into the copy's references/ and rendered there", () => {
+    put(join(kit(), "SKILL.md"), "See `{{pack.path:widgets-evidence/rules.md}}`.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "Run `python3 {{pack.path:widgets-evidence/probe.py}}`.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "probe.py"), "print('probe')\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect((fileOf(result, "SKILL.md") as { content: string }).content).toBe(`See \`${COPY}/widgets-evidence/rules.md\`.\n`);
+    expect((fileOf(result, "references/widgets-evidence/rules.md") as { content: string }).content).toBe(`Run \`python3 ${COPY}/widgets-evidence/probe.py\`.\n`);
+    expect(fileOf(result, "references/widgets-evidence/probe.py")).toEqual({
+      path: "references/widgets-evidence/probe.py",
+      copyFrom: join(packDir(), "attachments", "widgets-evidence", "probe.py"),
+    });
+  });
+
+  test("a pointer to another base copy still names that copy", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:stage-gates/SKILL.md}}.\n");
+    put(join(baseDir(), "attachments", "stage-gates", "SKILL.md"), "gates\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect((fileOf(result, "SKILL.md") as { content: string }).content).toBe("See ${CLAUDE_SKILL_DIR}/../../attachments/stage-gates/SKILL.md.\n");
+    expect(emitOf(result).files.map((f) => f.path)).toEqual(["SKILL.md", "compiled.json"]);
+  });
+
+  test("a pointer whose target still holds {{ is refused, whether vendored or another base copy", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-evidence/rules.md}} and {{pack.path:stage-gates/SKILL.md}}.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "Intro.\nName the {{ticket}} here.\n");
+    put(join(baseDir(), "attachments", "stage-gates", "SKILL.md"), "{{include:gate-protocol}}\n");
+    expect(plan().errors).toEqual([
+      "acme-base:attachments/review-kit/SKILL.md: {{pack.path:widgets-evidence/rules.md}} points at a copy that still holds {{ at its line 2, which a reader would meet unrendered",
+      "acme-base:attachments/review-kit/SKILL.md: {{pack.path:stage-gates/SKILL.md}} points at a copy that still holds {{ at its line 1, which a reader would meet unrendered",
+    ]);
+  });
+
+  test("an include in a vendored team file is loaded, placed, and its files vendor under parts/", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-evidence/rules.md}}.\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "Rules.\n\n{{include:style-floor}}\n");
+    const incDir = join(root, "mattstack-plugin", "attachments", "style-floor");
+    put(join(incDir, "lint.sh"), "echo lint\n");
+    const styleFloor: AttachmentSource = {
+      binding: "mattstack:style-floor", plugin: "mattstack", version: "1.0.0", dir: incDir, srcPath: "attachments/style-floor/SKILL.md",
+      bodyStartLine: 5, body: "Run ${CLAUDE_SKILL_DIR}/lint.sh first.", provides: "", allowedTools: [], extraFiles: ["lint.sh"], registered: false, file: null,
+    };
+    const result = planBaseAttachments({
+      packDir: packDir(), packName: "widgets", verbSides: { ship: "skills" }, team: null,
+      loadInclude: (name) => {
+        if (name !== "style-floor") throw new Error(`no include ${name}`);
+        return styleFloor;
+      },
+    });
+    expect(result.errors).toEqual([]);
+    const rules = (fileOf(result, "references/widgets-evidence/rules.md") as { content: string }).content;
+    expect(rules).toContain("<!-- part: include:style-floor source=mattstack:style-floor version=1.0.0");
+    expect(rules).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/review-kit/parts/include-style-floor/lint.sh first.");
+    expect(fileOf(result, "parts/include-style-floor/lint.sh")).toEqual({ path: "parts/include-style-floor/lint.sh", copyFrom: join(incDir, "lint.sh") });
+  });
+
+  test("a vendored hand-authored skill's link that no longer resolves is a warning on the copy", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-guide/SKILL.md}}.\n");
+    put(join(packDir(), "skills", "widgets-guide", "SKILL.md"), "---\nname: widgets-guide\n---\nRead [the notes](../widgets-notes/SKILL.md) too.\n");
+    put(join(packDir(), "skills", "widgets-notes", "SKILL.md"), "---\nname: widgets-notes\n---\nnotes\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(emitOf(result).warnings).toEqual([
+      "skills/widgets-guide/SKILL.md: ../widgets-notes/SKILL.md does not resolve from its copy in references/widgets-guide/",
+    ]);
+  });
+
+  test("a vendored file that lands on one of the copy's own files is refused", () => {
+    put(join(kit(), "SKILL.md"), "See {{pack.path:widgets-evidence/rules.md}}.\n");
+    put(join(kit(), "references", "widgets-evidence", "rules.md"), "the kit's own\n");
+    put(join(packDir(), "attachments", "widgets-evidence", "rules.md"), "team rules\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment review-kit has its own references/widgets-evidence/rules.md, where its copy of widgets-evidence/rules.md would land; rename one of them",
+    ]);
   });
 });
 
@@ -467,6 +584,17 @@ describe("team markers in copied base attachments", () => {
     expect(textOf(result, "SKILL.md")).toBe("---\nname: review-kit\n---\nTickets live in Widgets.\n\nGate one.\nGate two.\n\nEnd.\n");
   });
 
+  test("a section's pack.path and verb.path render the way the copied attachment's own do", () => {
+    put(join(packDir(), "attachments", "widgets-gates", "SKILL.md"), "gates\n");
+    put(join(kit(), "SKILL.md"), "Rules:\n{{team.section:gates}}\n");
+    put(join(kit(), "references", "guide.md"), "Also {{team.provision}}.\n");
+    const team = teamWith({ provision: "{{verb.path:ship}}" }, { gates: "Read {{pack.path:widgets-gates/SKILL.md}} first.\n" });
+    const result = plan({ ship: "skills" }, team);
+    expect(result.errors).toEqual([]);
+    expect(textOf(result, "SKILL.md")).toBe("Rules:\nRead ${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/widgets-gates/SKILL.md first.\n");
+    expect(textOf(result, "references/guide.md")).toBe("Also ../../../skills/ship/SKILL.md.\n");
+  });
+
   test("copied md attachment records a missing required value", () => {
     put(join(kit(), "SKILL.md"), "ok\n");
     put(join(kit(), "references", "guide.md"), "Team {{team.linear-team}}\n");
@@ -475,6 +603,66 @@ describe("team markers in copied base attachments", () => {
     expect(result.errors).toEqual([]);
     expect(team.missing.get("param:linear-team")).toEqual({
       kind: "param", name: "linear-team", file: "pack/params.jsonc", askedBy: ["acme-base:attachments/review-kit/references/guide.md"],
+    });
+  });
+
+  describe("pack.path picking its attachment by team value", () => {
+    const shipRules = () => join(baseDir(), "attachments", "ship-rules", "SKILL.md");
+    beforeEach(() => {
+      put(shipRules(), "Read {{pack.path:{{team.gates-fill}}/SKILL.md}} first.\n");
+      put(join(baseDir(), "attachments", "fast-gates", "SKILL.md"), "fast\n");
+      put(join(packDir(), "attachments", "own-gates", "SKILL.md"), "own\n");
+    });
+    const shipText = (result: ReturnType<typeof plan>) =>
+      (result.emits.find((e) => e.name === "ship-rules")!.files.find((f) => f.path === "SKILL.md") as { content: string }).content;
+
+    test("a value naming another base attachment resolves to its emitted copy", () => {
+      const result = plan({ ship: "skills" }, teamWith({ "gates-fill": "fast-gates" }));
+      expect(result.errors).toEqual([]);
+      expect(shipText(result)).toBe("Read ${CLAUDE_SKILL_DIR}/../../attachments/fast-gates/SKILL.md first.\n");
+    });
+
+    test("a value naming the team's own attachment resolves to it", () => {
+      const result = plan({ ship: "skills" }, teamWith({ "gates-fill": "own-gates" }));
+      expect(result.errors).toEqual([]);
+      expect(shipText(result)).toBe("Read ${CLAUDE_SKILL_DIR}/../../attachments/ship-rules/references/own-gates/SKILL.md first.\n");
+    });
+
+    test("a value naming a missing attachment fails with pack.path's error", () => {
+      expect(plan({ ship: "skills" }, teamWith({ "gates-fill": "gone-gates" })).errors).toEqual([
+        "acme-base:attachments/ship-rules/SKILL.md: {{pack.path:gone-gates/SKILL.md}} -- gone-gates is not a directory under attachments/ or skills/",
+      ]);
+    });
+
+    test("an absent value is recorded as missing", () => {
+      const team = teamWith({});
+      expect(plan({ ship: "skills" }, team).errors).toEqual([]);
+      expect([...team.missing.keys()]).toEqual(["param:gates-fill"]);
+    });
+
+    test("an optional marker is refused", () => {
+      put(shipRules(), "Read {{pack.path:{{team.gates-fill?}}/SKILL.md}}.\n");
+      expect(plan({ ship: "skills" }, teamWith({ "gates-fill": "fast-gates" })).errors).toEqual([
+        "acme-base:attachments/ship-rules/SKILL.md: {{team.gates-fill?}} is optional, but pack.path needs a value (line 1)",
+      ]);
+    });
+
+    test("a hand-typed path built from the team value fails with the team-value fix, and the fix compiles", () => {
+      put(shipRules(), "Read ../../attachments/{{team.gates-fill}}/SKILL.md first.\n");
+      expect(plan({ ship: "skills" }, teamWith({ "gates-fill": "fast-gates" })).errors).toEqual([
+        "acme-base:attachments/ship-rules/SKILL.md: hand-typed path ../../attachments/{{team.gates-fill}}/SKILL.md breaks when its target moves; write {{pack.path:{{team.gates-fill}}/SKILL.md}} instead (line 1)",
+      ]);
+      put(shipRules(), "Read {{pack.path:{{team.gates-fill}}/SKILL.md}} first.\n");
+      const result = plan({ ship: "skills" }, teamWith({ "gates-fill": "fast-gates" }));
+      expect(result.errors).toEqual([]);
+      expect(shipText(result)).toBe("Read ${CLAUDE_SKILL_DIR}/../../attachments/fast-gates/SKILL.md first.\n");
+    });
+
+    test("a hand-typed path built from a team value the team does not set gets no fix", () => {
+      put(shipRules(), "Read ../../attachments/{{team.gates-fill}}/SKILL.md first.\n");
+      expect(plan({ ship: "skills" }, teamWith({})).errors).toEqual([
+        "acme-base:attachments/ship-rules/SKILL.md: hand-typed path ../../attachments/{{team.gates-fill}}/SKILL.md breaks when its target moves; name it with {{pack.path:<attachment>/<file>}} or {{verb.path:<verb>}} (line 1)",
+      ]);
     });
   });
 

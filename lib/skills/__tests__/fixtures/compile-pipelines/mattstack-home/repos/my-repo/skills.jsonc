@@ -1,5 +1,6 @@
 // acme bindings
 {
+  "version": 2,
   "pipelines": {
     "feature": [
       "mattstack:stage-provision",
@@ -22,8 +23,8 @@
         "mattstack:stage-ship",
         "mattstack:stage-watch-ci"
       ],
-      "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-b" } }
+      "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-b" } }
     }
   },
-  "bindings": { "mattstack:stage-evidence": { "domain": "acme:evidence-a" } }
+  "bindings": { "mattstack:stage-evidence/domain-rules": { "rules": "acme:evidence-a" } }
 }

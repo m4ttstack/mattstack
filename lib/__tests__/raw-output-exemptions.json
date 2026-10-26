@@ -13,5 +13,10 @@
     "file": "lib/daemon/inject.ts",
     "reason": "Parses escape sequences in a captured pane to read the text under them; it prints nothing.",
     "lines": 1
+  },
+  {
+    "file": "lib/skills/lsp/server.ts",
+    "reason": "The language server hands process.stdout to vscode-languageserver as its LSP channel and writes nothing itself; without explicit streams the library needs --stdio in argv, which a client need not pass.",
+    "lines": 1
   }
 ]

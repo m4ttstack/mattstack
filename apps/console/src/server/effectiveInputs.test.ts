@@ -541,7 +541,6 @@ describe('stage-doc route', () => {
     }
     return { code: 128, stdout: '', stderr: 'no path' };
   };
-  const noFile = async () => null;
   const acmePacks = packsStdout([
     { name: 'acme', dir: '/org/mattstack/teams/acme/plugin' },
     { name: 'mattstack', dir: '/mono/plugins/mattstack' },
@@ -554,14 +553,7 @@ describe('stage-doc route', () => {
     });
     const rtFake = fakeRt({ code: 0, stdout: acmePacks, stderr: '' });
     const git = fakeRun(orgGit);
-    const app = mountEffectiveInputs(
-      new Hono(),
-      rtFake.run,
-      git.run,
-      null,
-      noFile,
-      '/cache'
-    );
+    const app = mountEffectiveInputs(new Hono(), rtFake.run, git.run);
 
     const res = await app.request(
       '/api/runs/repo-tools/run-1/stage-doc?stage=plan'
@@ -590,14 +582,7 @@ describe('stage-doc route', () => {
     });
     const rtFake = fakeRt({ code: 0, stdout: acmePacks, stderr: '' });
     const git = fakeRun(orgGit);
-    const app = mountEffectiveInputs(
-      new Hono(),
-      rtFake.run,
-      git.run,
-      null,
-      noFile,
-      '/cache'
-    );
+    const app = mountEffectiveInputs(new Hono(), rtFake.run, git.run);
 
     const res = await app.request(
       '/api/runs/repo-tools/run-1/stage-doc?stage=plan'
@@ -611,37 +596,20 @@ describe('stage-doc route', () => {
     });
   });
 
-  it('reads a version-recorded mattstack doc through the injected reader', async () => {
+  it('answers a mattstack version token alone with the 404 copy', async () => {
     vi.mocked(rt.getRun).mockResolvedValue({
       ok: true,
       data: baseDetail({ run: baseRun({ pack_commits: 'mattstack=0.30.20' }) }),
     });
     const rtFake = fakeRt({ code: 0, stdout: acmePacks, stderr: '' });
     const git = fakeRun(() => ({ code: 128, stdout: '', stderr: '' }));
-    const readFile = vi.fn(async (path: string) =>
-      path === '/cache/0.30.20/attachments/pipeline/stage-ship/SKILL.md'
-        ? 'SHIP DOC'
-        : null
-    );
-    const app = mountEffectiveInputs(
-      new Hono(),
-      rtFake.run,
-      git.run,
-      null,
-      readFile,
-      '/cache'
-    );
+    const app = mountEffectiveInputs(new Hono(), rtFake.run, git.run);
 
     const res = await app.request(
       '/api/runs/repo-tools/run-1/stage-doc?stage=ship'
     );
 
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({
-      text: 'SHIP DOC',
-      pack: 'mattstack',
-      sha: '0.30.20',
-    });
+    expect(res.status).toBe(404);
   });
 
   it('answers a missing doc (git show exit 128) with the exact 404 copy', async () => {

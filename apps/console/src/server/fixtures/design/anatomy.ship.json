@@ -1,0 +1,1004 @@
+{
+  "pack": "widgets",
+  "skill": "ship",
+  "kind": "verb",
+  "public": false,
+  "description": "Ship the widget branch",
+  "template": {
+    "ref": "mattstack:ship",
+    "path": "/Users/acme/.mattstack-fixture/mattstack-home/plugins/mattstack/attachments/pipeline/ship/index.block.md",
+    "version": "0.32.23",
+    "builtVersion": "0.32.23",
+    "lines": 14
+  },
+  "rendered": {
+    "path": "/fixture/packs/acme/attachments/ship/SKILL.md",
+    "exists": true,
+    "lines": 2195
+  },
+  "status": "in-sync",
+  "staleBecause": [],
+  "parts": [
+    {
+      "kind": "block",
+      "name": "ship",
+      "templateLines": null,
+      "renderedLines": [10, 16],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run",
+      "templateLines": null,
+      "renderedLines": [18, 118],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/gate-resume-offer",
+      "templateLines": null,
+      "renderedLines": [120, 128],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/recapture-asked",
+      "templateLines": null,
+      "renderedLines": [130, 136],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/find-recapture-run",
+      "templateLines": null,
+      "renderedLines": [138, 141],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/standalone-done",
+      "templateLines": null,
+      "renderedLines": [143, 149],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/find-shipped-run",
+      "templateLines": null,
+      "renderedLines": [151, 160],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/revise-board",
+      "templateLines": null,
+      "renderedLines": [162, 185],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/resumed-run",
+      "templateLines": null,
+      "renderedLines": [187, 196],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/run/run-identity",
+      "templateLines": null,
+      "renderedLines": [198, 199],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "run-identity",
+      "templateLines": null,
+      "renderedLines": [201, 220],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow",
+      "templateLines": null,
+      "renderedLines": [222, 522],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/reopened-recapture",
+      "templateLines": null,
+      "renderedLines": [524, 536],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/domain-steps-before-gate",
+      "templateLines": null,
+      "renderedLines": [538, 554],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/gate-ship",
+      "templateLines": null,
+      "renderedLines": [556, 582],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/commit-named-files",
+      "templateLines": null,
+      "renderedLines": [584, 591],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "prop",
+      "name": "ship/flow/commit-named-files.rules",
+      "templateLines": null,
+      "renderedLines": [590, 591],
+      "mode": "inline",
+      "source": {
+        "ref": "widgets:ship-lint/base-commit",
+        "path": "/fixture/orgbase/acme-base/attachments/ship-lint/base-commit.md",
+        "version": "0.1.0",
+        "builtVersion": "0.1.0",
+        "lines": 1,
+        "origin": "base",
+        "base": "acme-base",
+        "baseVersion": "0.1.0"
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/stash-them",
+      "templateLines": null,
+      "renderedLines": [593, 598],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/domain-fast-checks",
+      "templateLines": null,
+      "renderedLines": [600, 614],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "prop",
+      "name": "ship/flow/domain-fast-checks.rules",
+      "templateLines": null,
+      "renderedLines": [609, 610],
+      "mode": "inline",
+      "source": {
+        "ref": "widgets:ship-lint/base-checks",
+        "path": "/fixture/orgbase/acme-base/attachments/ship-lint/base-checks.md",
+        "version": "0.1.0",
+        "builtVersion": "0.1.0",
+        "lines": 1,
+        "origin": "base",
+        "base": "acme-base",
+        "baseVersion": "0.1.0"
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "prop",
+      "name": "ship/flow/domain-fast-checks.rules",
+      "templateLines": null,
+      "renderedLines": [612, 614],
+      "mode": "inline",
+      "source": {
+        "ref": "widgets:ship-lint/fast-checks",
+        "path": "/fixture/packs/acme/attachments/ship-lint/fast-checks.md",
+        "version": "0.1.0",
+        "builtVersion": "0.1.0",
+        "lines": 2
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/fix-test-first",
+      "templateLines": null,
+      "renderedLines": [616, 619],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/domain-rebases-unfinished",
+      "templateLines": null,
+      "renderedLines": [621, 621],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/resolve-conflict-files",
+      "templateLines": null,
+      "renderedLines": [623, 627],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/gate-which-forge",
+      "templateLines": null,
+      "renderedLines": [629, 636],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/gate-push-refused",
+      "templateLines": null,
+      "renderedLines": [638, 647],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/confirm-human-push",
+      "templateLines": null,
+      "renderedLines": [649, 654],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/mr-create",
+      "templateLines": null,
+      "renderedLines": [656, 656],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/capture-after-browser",
+      "templateLines": null,
+      "renderedLines": [658, 710],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/capture-after-case",
+      "templateLines": null,
+      "renderedLines": [712, 722],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/record-evidence",
+      "templateLines": null,
+      "renderedLines": [724, 735],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/attach-evidence",
+      "templateLines": null,
+      "renderedLines": [737, 745],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/write-title-description",
+      "templateLines": null,
+      "renderedLines": [747, 758],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "prop",
+      "name": "ship/flow/write-title-description.rules",
+      "templateLines": null,
+      "renderedLines": [757, 758],
+      "mode": "inline",
+      "source": {
+        "ref": "widgets:ship-lint/title",
+        "path": "/fixture/packs/acme/attachments/ship-lint/title.md",
+        "version": "0.1.0",
+        "builtVersion": "0.1.0",
+        "lines": 1
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/domain-runs-ci",
+      "templateLines": null,
+      "renderedLines": [760, 760],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/run-watch-ci",
+      "templateLines": null,
+      "renderedLines": [762, 780],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/flow/gate-mark-ready",
+      "templateLines": null,
+      "renderedLines": [782, 796],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/what-the-graph-cannot-show",
+      "templateLines": null,
+      "renderedLines": [798, 825],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/budgets-in-this-verb",
+      "templateLines": null,
+      "renderedLines": [827, 835],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/domain-rules",
+      "templateLines": null,
+      "renderedLines": [837, 852],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/browser-evidence",
+      "templateLines": null,
+      "renderedLines": [854, 855],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence",
+      "templateLines": null,
+      "renderedLines": [857, 872],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/the-browser-target",
+      "templateLines": null,
+      "renderedLines": [874, 906],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/draw-the-boards",
+      "templateLines": null,
+      "renderedLines": [908, 1065],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/get-ready",
+      "templateLines": null,
+      "renderedLines": [1067, 1087],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/write-one-brief-per-board",
+      "templateLines": null,
+      "renderedLines": [1089, 1119],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/labels",
+      "templateLines": null,
+      "renderedLines": [1121, 1144],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/delegate-to-the-driver",
+      "templateLines": null,
+      "renderedLines": [1146, 1160],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/ask-the-developer-to-sign-in",
+      "templateLines": null,
+      "renderedLines": [1162, 1174],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/read-the-board-yourself",
+      "templateLines": null,
+      "renderedLines": [1176, 1244],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/gate-evidence-redaction-below",
+      "templateLines": null,
+      "renderedLines": [1246, 1325],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/record-the-board",
+      "templateLines": null,
+      "renderedLines": [1327, 1349],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "browser-evidence/revise-a-board",
+      "templateLines": null,
+      "renderedLines": [1351, 1404],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/evidence-record",
+      "templateLines": null,
+      "renderedLines": [1406, 1407],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record",
+      "templateLines": null,
+      "renderedLines": [1409, 1416],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/the-record",
+      "templateLines": null,
+      "renderedLines": [1418, 1438],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/record-the-evidence",
+      "templateLines": null,
+      "renderedLines": [1440, 1494],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover",
+      "templateLines": null,
+      "renderedLines": [1496, 1548],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover/compose-board",
+      "templateLines": null,
+      "renderedLines": [1550, 1566],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover/write-caption",
+      "templateLines": null,
+      "renderedLines": [1568, 1572],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/annotate-or-waive-each-image-the-record-does-not-yet-cover/gate-evidence-waiver",
+      "templateLines": null,
+      "renderedLines": [1574, 1591],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence",
+      "templateLines": null,
+      "renderedLines": [1593, 1703],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence/files-to-show",
+      "templateLines": null,
+      "renderedLines": [1705, 1724],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence/files-left",
+      "templateLines": null,
+      "renderedLines": [1726, 1735],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence/gate-evidence-boards",
+      "templateLines": null,
+      "renderedLines": [1737, 1761],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence/revise-named-boards",
+      "templateLines": null,
+      "renderedLines": [1763, 1776],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence/gate-upload-refused",
+      "templateLines": null,
+      "renderedLines": [1778, 1783],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence/repair-board",
+      "templateLines": null,
+      "renderedLines": [1785, 1804],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/attach-the-evidence/rerecord-images",
+      "templateLines": null,
+      "renderedLines": [1806, 1810],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "evidence-record/domain-precedence",
+      "templateLines": null,
+      "renderedLines": [1812, 1818],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/gate-protocol",
+      "templateLines": null,
+      "renderedLines": [1820, 1821],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol",
+      "templateLines": null,
+      "renderedLines": [1823, 1944],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/build-questions",
+      "templateLines": null,
+      "renderedLines": [1946, 1975],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/trigger-site-opened",
+      "templateLines": null,
+      "renderedLines": [1977, 1982],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/gate-ask-result",
+      "templateLines": null,
+      "renderedLines": [1984, 1991],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/fix-refusal",
+      "templateLines": null,
+      "renderedLines": [1993, 2001],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/present-form-no-registry",
+      "templateLines": null,
+      "renderedLines": [2003, 2007],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/boards-to-open",
+      "templateLines": null,
+      "renderedLines": [2009, 2016],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/present-pane-form",
+      "templateLines": null,
+      "renderedLines": [2018, 2027],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/map-answer",
+      "templateLines": null,
+      "renderedLines": [2029, 2038],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/say-surface",
+      "templateLines": null,
+      "renderedLines": [2040, 2044],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/end-turn-holding",
+      "templateLines": null,
+      "renderedLines": [2046, 2051],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/reconcile-status",
+      "templateLines": null,
+      "renderedLines": [2053, 2063],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/write-in-to-act",
+      "templateLines": null,
+      "renderedLines": [2065, 2072],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/act-write-in",
+      "templateLines": null,
+      "renderedLines": [2074, 2081],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/attendance",
+      "templateLines": null,
+      "renderedLines": [2083, 2088],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/runs-integration",
+      "templateLines": null,
+      "renderedLines": [2090, 2108],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/off-script-gate",
+      "templateLines": null,
+      "renderedLines": [2110, 2124],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/structured-context-gate-ctx-1",
+      "templateLines": null,
+      "renderedLines": [2126, 2134],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/answers-are-option-values",
+      "templateLines": null,
+      "renderedLines": [2136, 2144],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/closed-gates-hold-iterate",
+      "templateLines": null,
+      "renderedLines": [2146, 2150],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/doorbell",
+      "templateLines": null,
+      "renderedLines": [2152, 2156],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "gate-protocol/red-flags",
+      "templateLines": null,
+      "renderedLines": [2158, 2163],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "ship/wrap-up-form-contract",
+      "templateLines": null,
+      "renderedLines": [2165, 2166],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "block",
+      "name": "wrap-up-form",
+      "templateLines": null,
+      "renderedLines": [2168, 2195],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    }
+  ],
+  "links": []
+}

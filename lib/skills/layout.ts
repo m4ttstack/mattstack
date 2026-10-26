@@ -43,7 +43,7 @@ export function buildStageEntries(
       try {
         step = loadStepSource(name, input.pluginRoots);
       } catch (err) {
-        throw new Error(`pipeline "${type}": "${name}": ${(err as Error).message}`);
+        throw new Error(`pipeline "${type}": "${name}": ${(err as Error).message}`, { cause: err });
       }
       if (!step.stageMeta) {
         throw new Error(`pipeline "${type}": "${name}" has no metadata.stage; it cannot appear in a pipeline`);

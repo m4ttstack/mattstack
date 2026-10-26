@@ -100,6 +100,23 @@ describe("release.yml", () => {
     expect(pkg).toBeGreaterThanOrEqual(0);
     expect(smoke).toBeGreaterThan(pkg);
   });
+  test("the skill-blocks extension is packaged, smoke-loaded and exported beside rt-context", () => {
+    const step = wf.jobs.release.steps.find((s: any) => s.name === "Build extension");
+    const lines = (step.run as string).split("\n").map((l) => l.trim());
+    const cd = lines.findIndex((l) => l.includes("extensions/vscode/skill-blocks"));
+    expect(cd).toBeGreaterThanOrEqual(0);
+    const pkg = lines.indexOf("bun run package", cd);
+    const smoke = lines.indexOf("node scripts/load-smoke.mjs", cd);
+    expect(pkg).toBeGreaterThan(cd);
+    expect(smoke).toBeGreaterThan(pkg);
+    expect(step.run).toContain('echo "RT_SKILL_BLOCKS_VSIX=$RT_SKILL_BLOCKS_VSIX" >> "$GITHUB_ENV"');
+    expect(step.run).toContain("no skill-blocks .vsix produced");
+  });
+  test("build.sh copies the skill-blocks vsix into the bundle's Resources", () => {
+    const build = readFileSync(join(import.meta.dir, "..", "..", "rt-tray", "build.sh"), "utf8");
+    expect(build).toContain('cp "$RT_SKILL_BLOCKS_VSIX" "$CONTENTS/Resources/skill-blocks.vsix"');
+    expect(build).toMatch(/^# Env:.*RT_SKILL_BLOCKS_VSIX/m);
+  });
   test("release assets are asserted present before Create Release, which stays lenient on deltas", () => {
     const guard = wf.jobs.release.steps.find((s: any) => s.name === "Assert release assets are complete");
     expect(guard.if).toBe("steps.meta.outputs.publish == 'true'");

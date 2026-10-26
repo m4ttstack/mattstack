@@ -37,8 +37,10 @@ export interface UninstallAction {
   kind: StepKind;
 }
 
-/** The extension id `--uninstall-extension`/`--install-extension` take — `<publisher>.<name>` from extensions/vscode/rt-context/package.json ("local"/"rt-context"). */
+/** The extension ids `--uninstall-extension` takes — `<publisher>.<name>` from each extensions/vscode/<name>/package.json. */
 export const RT_CONTEXT_EXTENSION_ID = "local.rt-context";
+export const SKILL_BLOCKS_EXTENSION_ID = "local.skill-blocks";
+const RT_EXTENSION_IDS = [RT_CONTEXT_EXTENSION_ID, SKILL_BLOCKS_EXTENSION_ID];
 
 export interface UninstallSeams {
   detectEditors: () => DetectedEditor[];
@@ -93,7 +95,7 @@ export function computeUninstallActions(p: Probes, opts: { keepData: boolean }, 
   const state = readSetupState(p);
 
   if (state.extensionEditors.length > 0 || seams.detectEditors().length > 0) {
-    actions.push({ id: "extension.uninstall", title: "Uninstall the rt-context editor extension", kind: "rt" });
+    actions.push({ id: "extension.uninstall", title: "Uninstall rt's editor extensions", kind: "rt" });
   }
 
   if (state.plugins.length > 0 || state.marketplaces.length > 0) {
@@ -245,9 +247,13 @@ async function extensionUninstallRun(ctx: ApplyContext, seams: UninstallSeams = 
   const uninstalled: string[] = [];
   const failed: string[] = [];
   for (const editor of editors) {
-    const res = await ctx.p.exec([editor.cliPath, "--uninstall-extension", RT_CONTEXT_EXTENSION_ID]);
-    if (res.code === 0 || isAlreadyGone(res)) uninstalled.push(editor.name);
-    else failed.push(`${editor.name} (exit ${res.code})`);
+    const exits: number[] = [];
+    for (const id of RT_EXTENSION_IDS) {
+      const res = await ctx.p.exec([editor.cliPath, "--uninstall-extension", id]);
+      if (res.code !== 0 && !isAlreadyGone(res)) exits.push(res.code);
+    }
+    if (exits.length === 0) uninstalled.push(editor.name);
+    else failed.push(`${editor.name} (exit ${exits.join(", ")})`);
   }
 
   updateSetupState(ctx.p, (s) => ({ ...s, extensionEditors: s.extensionEditors.filter((e) => !uninstalled.includes(e)) }));

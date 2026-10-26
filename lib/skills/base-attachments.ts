@@ -3,16 +3,23 @@ import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { hasCompiledHeader, unresolvedRelativePaths } from "./compile.ts";
-import { assertNoTeamMarkerInRawFile, readTextUnlessBinary, substituteAttachmentPlaceholders } from "./placeholders.ts";
+import { handPathDiagnostics } from "./hand-paths.ts";
+import { FRONTMATTER_RE } from "./frontmatter-re.ts";
+import { hostDir } from "./layout.ts";
+import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, referencePath, sourcePackPath, substituteAttachmentPlaceholders, type PackTarget } from "./placeholders.ts";
+import { referenceCopies } from "./references.ts";
 import type { TeamContext } from "./team-params.ts";
+import { unitId, type Target } from "./pointers.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
-import type { CompiledFile, PlannedAttachments, Side } from "./types.ts";
+import { keyFiles, leafOf, MAP_FILE, unitTableOf, writtenBeforeCompile } from "./unit-maps.ts";
+import type { AttachmentSource, CompiledFile, PlaceholderContext, PlannedAttachments, PlannedSource, Side } from "./types.ts";
 
-export const PROVENANCE_FILE = "compiled.json";
+export const PROVENANCE_FILE = MAP_FILE;
 
 export type BaseRef = { name: string; dir: string; version: string | null };
-export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[] };
+/** `pointers` is set when the copy's files were keyed: its own keys and the leaf of every unit it reads by path. */
+export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource; pointers?: { keys: Record<string, Target>; reads: string[] } };
 export type StaleAttachment = { name: string; why: "dropped" | "no-base" };
 export type BaseAttachmentPlan = {
   base: BaseRef | null;
@@ -165,8 +172,17 @@ function isTeamOwned(dir: string): boolean {
     !isSkippedAttachmentPath(entry.name) && !(entry.isDirectory() && isEmittedAttachmentDir(join(dir, entry.name))));
 }
 
-export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side>; team: TeamContext | null }): BaseAttachmentPlan {
-  const { packDir, packName, verbSides, team } = input;
+/** `loadInclude` loads an include a file vendored into a copy's references/ names, as a built skill's copies load theirs. */
+export function planBaseAttachments(input: {
+  packDir: string;
+  packName: string;
+  verbSides: Record<string, Side>;
+  team: TeamContext | null;
+  loadInclude?: (name: string) => AttachmentSource;
+  /** The team pack's plugin identity, which stamps each copy's id; without a version, nothing is keyed. */
+  identity?: { name: string; version: string } | null;
+}): BaseAttachmentPlan {
+  const { packDir, packName, verbSides, team, loadInclude, identity } = input;
   const own = readJsoncObject(join(packDir, "pack", "skills.jsonc"));
   const ext = own?.extends;
   const attachmentsDir = join(packDir, "attachments");
@@ -234,16 +250,36 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
 
   const recorded = new Set(records.map((r) => r.name));
   const stale = onDiskEmitted.filter((name) => !recorded.has(name)).map((name) => ({ name, why: "dropped" as const }));
-  const planned = new Map<string, Set<string>>([
+  const planned = Object.assign(new Map<string, Set<string>>([
     ...records.map((r): [string, Set<string>] => [r.name, new Set([...r.files, PROVENANCE_FILE])]),
     ...stale.map((s): [string, Set<string>] => [s.name, new Set()]),
-  ]);
+  ]), { sources: new Map(records.map((r): [string, PlannedSource] => [r.name, { dir: r.srcDir, base: base.name }])) });
 
   const emits: EmittedAttachment[] = [];
+  const pointers: Pointer[] = [];
+  const unitTable = unitTableOf(verbSides, records.map((r) => r.name));
   const verbDirs = Object.entries(verbSides).map(([verb, side]) => join(packDir, side, verb));
+  const pathView = { verbSides, packRoot: packDir, plannedAttachments: planned };
+  const fixView = {
+    verbs: new Set(Object.keys(verbSides)),
+    packSource: (arg: string) => packPathResolves(pathView, arg),
+    teamValue: team ? (key: string) => (Object.hasOwn(team.values.params, key) ? team.values.params[key] : undefined) : undefined,
+  };
   for (const { name, srcDir, files } of records) {
     const out: CompiledFile[] = [];
     const warnings: string[] = [];
+    const vendored: PackTarget[] = [];
+    const reads: string[] = [];
+    const copyDir = hostDir(name, "attachments");
+    const packPath = (where: string) => (target: PackTarget, raw: string): string => {
+      pointers.push({ where, raw, unit: name, target });
+      if (target.planned) {
+        reads.push(leafOf(target.unit));
+        return sourcePackPath(target);
+      }
+      vendored.push(target);
+      return referencePath({ stageDir: copyDir }, target);
+    };
     for (const file of files) {
       const abs = join(srcDir, file);
       if (!file.endsWith(".md")) {
@@ -256,15 +292,30 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
         out.push({ path: file, copyFrom: abs });
         continue;
       }
+      const where = `${base.name}:attachments/${name}/${file}`;
+      const raw = readFileSync(abs, "utf8");
+      // Read before team markers resolve, so a path built from a team value is still the hand-typed text the author wrote.
+      const head = raw.match(FRONTMATTER_RE)?.[0] ?? "";
+      const handPaths = handPathDiagnostics(raw.slice(head.length), file, {
+        ...fixView,
+        startLine: (head.match(/\n/g)?.length ?? 0) + 1,
+        depth: file.split("/").length - 1,
+      });
+      if (handPaths.length > 0) {
+        errors.push(...handPaths.map((d) => `${where}: ${d.message} (line ${d.line})`));
+        continue;
+      }
       try {
-        const content = substituteAttachmentPlaceholders(readFileSync(abs, "utf8"), {
+        const content = substituteAttachmentPlaceholders(raw, {
           packName,
           fileRel: `attachments/${name}/${file}`,
           verbSides,
           packRoot: packDir,
           plannedAttachments: planned,
-          where: `${base.name}:attachments/${name}/${file}`,
+          where,
           team,
+          packPath: packPath(where),
+          verbPaths: reads,
         });
         out.push({ path: file, content });
         const layout = { packRoot: packDir, compiledDir: dirname(join(attachmentsDir, name, file)) };
@@ -275,17 +326,92 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
         errors.push(err instanceof Error ? err.message : String(err));
       }
     }
-    out.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
-    emits.push({ name, files: out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), warnings });
+    if (vendored.length > 0) {
+      const v = vendorTeamSources(vendored, out, { name, label: `${base.name} attachment ${name}`, copyDir, packDir, packName, verbSides, planned, team, loadInclude });
+      errors.push(...v.errors);
+      warnings.push(...v.warnings);
+      reads.push(...v.verbPaths);
+    }
+    const keyed = identity?.version ? keyFiles(out, { id: unitId(identity.name, identity.version, leafOf(name)), dir: `attachments/${name}`, units: unitTable, writtenElsewhere: writtenBeforeCompile(verbSides, planned) }) : null;
+    const emitted = keyed?.files ?? out;
+    emitted.push({ path: PROVENANCE_FILE, content: JSON.stringify({ base: base.name, version: base.version, files }, null, 2) + "\n" });
+    emits.push({
+      name,
+      files: emitted.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      warnings,
+      source: { dir: srcDir, base: base.name },
+      ...(keyed ? { pointers: { keys: keyed.keys, reads: [...new Set(reads)] } } : {}),
+    });
   }
 
+  errors.push(...unrenderedPointers(pointers, emits));
   if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], errors };
   return { base, emits, kept, stale, retired, errors };
 }
 
+/** `unit` is the base copy the pointer sits in; `target` is what its `{{pack.path}}` named. */
+type Pointer = { where: string; raw: string; unit: string; target: PackTarget };
+
+type VendorInput = {
+  name: string;
+  label: string;
+  copyDir: string;
+  packDir: string;
+  packName: string;
+  verbSides: Record<string, Side>;
+  planned: PlannedAttachments;
+  team: TeamContext | null;
+  loadInclude?: (name: string) => AttachmentSource;
+};
+
+/** The team's source ships as written, so a base copy reads its own rendered copy of each unit it names, as a built skill does. */
+function vendorTeamSources(targets: PackTarget[], out: CompiledFile[], v: VendorInput): { errors: string[]; warnings: string[]; verbPaths: string[] } {
+  const ctx: PlaceholderContext = {
+    partsPrefix: `${v.copyDir}/parts`, includes: {}, pipelines: {}, repoKey: "", mattstackSha: "", mattstackDirty: 0, packSha: "",
+    stageDir: v.copyDir, stageMeta: null, compiledFrom: "", verbSides: v.verbSides, side: "attachments", packRoot: v.packDir,
+    plannedAttachments: v.planned, pipeline: null, team: v.team,
+  };
+  let copies;
+  try {
+    copies = referenceCopies(targets, ctx, { skillRel: `attachments/${v.name}`, packName: v.packName, loadInclude: v.loadInclude });
+  } catch (err) {
+    return { errors: [err instanceof Error ? err.message : String(err)], warnings: [], verbPaths: [] };
+  }
+  const errors = copies.diagnostics.map((d) => `${d.file}: ${d.message} (line ${d.line})`);
+  const own = new Set(out.map((f) => f.path));
+  const includeFiles = Object.entries(copies.includes).flatMap(([name, inc]) =>
+    inc.extraFiles.map((entry): CompiledFile => ({ path: `parts/include-${name}/${entry}`, copyFrom: `${inc.dir}/${entry}` })));
+  for (const file of [...copies.files.map((c) => c.file), ...includeFiles]) {
+    const what = file.path.startsWith("references/") ? `its copy of ${file.path.slice("references/".length)}` : "an include's file";
+    if (own.has(file.path)) errors.push(`${v.label} has its own ${file.path}, where ${what} would land; rename one of them`);
+    else {
+      own.add(file.path);
+      out.push(file);
+    }
+  }
+  return { errors, warnings: copies.warnings, verbPaths: copies.verbPaths };
+}
+
+/** A reader follows a base copy's pointer to the file it names, so that file must carry no placeholder left unrendered. */
+function unrenderedPointers(pointers: Pointer[], emits: EmittedAttachment[]): string[] {
+  const errors: string[] = [];
+  for (const p of pointers) {
+    const { unit, path } = p.target.planned
+      ? { unit: p.target.unit, path: p.target.unit === p.target.attachment ? p.target.file : p.target.file.slice(p.target.unit.length - p.target.attachment.length) }
+      : { unit: p.unit, path: `references/${p.target.attachment}/${p.target.file}` };
+    const file = emits.find((e) => e.name === unit)?.files.find((f) => f.path === path);
+    if (!file || !("content" in file) || !path.endsWith(".md")) continue;
+    const line = file.content.split("\n").findIndex((l) => l.includes("{{"));
+    if (line >= 0) errors.push(`${p.where}: ${p.raw} points at a copy that still holds {{ at its line ${line + 1}, which a reader would meet unrendered`);
+  }
+  return errors;
+}
+
 export function plannedAttachmentsOf(plan: BaseAttachmentPlan): PlannedAttachments {
-  return new Map<string, ReadonlySet<string>>([
+  const planned = new Map<string, ReadonlySet<string>>([
     ...plan.emits.map((e): [string, ReadonlySet<string>] => [e.name, new Set(e.files.map((f) => f.path))]),
     ...plan.stale.map((s): [string, ReadonlySet<string>] => [s.name, new Set<string>()]),
   ]);
+  const sources = new Map(plan.emits.flatMap((e): [string, PlannedSource][] => (e.source ? [[e.name, e.source]] : [])));
+  return Object.assign(planned, { sources });
 }

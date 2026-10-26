@@ -3,6 +3,8 @@
 # Usage: tests/certify.sh <skill-dir> [--domain]
 #   --domain  domain-pack mode: skip the two purity greps (a domain pack is
 #             allowed to be domain-specific); all structural checks still run.
+# A block-tree skill (its dir holds index.block.md) is certified from that
+# file; its Mermaid graphs are checked when it compiles, not here.
 # Exit 0 = certified. Exit 1 = at least one FAIL line. Exit 2 = usage.
 # The written rule this enforces lives in CERTIFICATION.md at the repo root.
 set -u
@@ -11,7 +13,9 @@ DIR=${1:-}
 if [ -z "$DIR" ]; then echo "usage: certify.sh <skill-dir> [--domain]"; exit 2; fi
 MODE=stack
 [ "${2:-}" = "--domain" ] && MODE=domain
-if [ ! -f "$DIR/SKILL.md" ]; then echo "FAIL skill-md: no SKILL.md in $DIR"; exit 1; fi
+if [ -f "$DIR/index.block.md" ]; then SRC="$DIR/index.block.md"
+elif [ -f "$DIR/SKILL.md" ]; then SRC="$DIR/SKILL.md"
+else echo "FAIL skill-md: no SKILL.md or index.block.md in $DIR"; exit 1; fi
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CANONICAL="$HERE/../attachments/parameterized-skills/scripts/resolve-args.sh"
@@ -52,9 +56,9 @@ if [ -z "$HITS" ]; then ok no-em-dashes; else fail no-em-dashes "$HITS"; fi
 HITS=$(grep -rnE '\b(RT|SKILLS|BOARD|MAT)-[0-9]+\b' "$DIR" 2>/dev/null | grep -v '^[^:]*/\.git/' || true)
 if [ -z "$HITS" ]; then ok no-ticket-ids; else fail no-ticket-ids "$HITS"; fi
 
-if [ "$(sed -n 1p "$DIR/SKILL.md")" = "---" ]; then ok fm-open; else fail fm-open "line 1 of SKILL.md is not ---"; fi
+if [ "$(sed -n 1p "$SRC")" = "---" ]; then ok fm-open; else fail fm-open "line 1 of $(basename "$SRC") is not ---"; fi
 
-fm_top() { # $1=key -> value from $DIR/SKILL.md frontmatter (single-line)
+fm_top() { # $1=key -> value from $SRC frontmatter (single-line)
   awk -v key="$1" '
     NR == 1 { if ($0 == "---") { fm = 1; next } else exit }
     fm && $0 == "---" { exit }
@@ -63,7 +67,7 @@ fm_top() { # $1=key -> value from $DIR/SKILL.md frontmatter (single-line)
       sub(/^[[:space:]]*/, "", val); sub(/^"/, "", val); sub(/"$/, "", val)
       print val; exit
     }
-  ' "$DIR/SKILL.md"
+  ' "$SRC"
 }
 fm_meta() { # $1=key -> value under metadata:
   awk -v key="$1" '
@@ -79,7 +83,7 @@ fm_meta() { # $1=key -> value under metadata:
         print val; exit
       }
     }
-  ' "$DIR/SKILL.md"
+  ' "$SRC"
 }
 
 NAME=$(fm_top name)
@@ -95,7 +99,7 @@ if [ -z "$DESC" ]; then
     fm && $0 ~ /^description:[[:space:]]*>-?[[:space:]]*$/ { folded = 1; next }
     folded && $0 !~ /^[[:space:]]/ { folded = 0 }
     folded { sub(/^[[:space:]]+/, ""); printf "%s ", $0 }
-  ' "$DIR/SKILL.md")
+  ' "$SRC")
 fi
 DLEN=$(printf '%s' "$DESC" | wc -c | tr -d ' ')
 if [ -z "$DESC" ]; then fail fm-description "no description: in frontmatter"
@@ -113,7 +117,7 @@ fm_typed_slots() { # -> "1" when a non-empty top-level slots: block is declared
     }
     slots && $0 ~ /^[[:space:]]/ { print "1"; exit }
     slots { exit }
-  ' "$DIR/SKILL.md"
+  ' "$SRC"
 }
 
 SLOTS=$(fm_meta slots); PROVIDES=$(fm_meta provides)
@@ -130,7 +134,7 @@ fi
 
 # A skill that resolves slots at run time (metadata.slots + resolve-args.sh)
 # must never carry a compile-time placeholder: the two modes do not mix.
-if grep -q '^  slots:' "$DIR/SKILL.md" 2>/dev/null && grep -q '{{' "$DIR/SKILL.md"; then
+if grep -q '^  slots:' "$SRC" 2>/dev/null && grep -q '{{' "$SRC"; then
   fail no-placeholders-in-runtime-native "metadata.slots skill contains {{"
 else
   ok no-placeholders-in-runtime-native
@@ -146,7 +150,7 @@ fi
 
 # A skill that carries process digraphs must render them cleanly and pass the
 # structure check (conventions: plugin/skills/process-digraphs/SKILL.md).
-if grep -qE '^[[:space:]]*```dot[[:space:]]*$' "$DIR/SKILL.md"; then
+if [ "$SRC" = "$DIR/SKILL.md" ] && grep -qE '^[[:space:]]*```dot[[:space:]]*$' "$SRC"; then
   DG="$HERE/../plugin/skills/process-digraphs"
   # Decided by the skill's own ancestry: CLAUDE_PLUGIN_ROOT runs this script
   # from the installed cache, not from the checkout the skill lives in.

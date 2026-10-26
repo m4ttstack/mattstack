@@ -71,7 +71,7 @@ Install runs each step and streams its progress:
 - registers the rt daemon and deck (which serves the bundled apps) as background services and starts them
 - clones the repos set to **New checkout**, with git's clone progress under the running step
 - installs the mattstack Claude Code plugins, turns on your team's pack, and seeds Claude Code's permissions (see [Claude Code setup](#claude-code-setup))
-- installs the `rt-context` editor extension into every editor it finds
+- installs the `rt-context` and `skill-blocks` editor extensions into every VS Code-family editor it finds
 
 ### Summary
 
@@ -141,7 +141,8 @@ It installs the `mattstack`, `fast-browser`, and `chat` plugins from the mattsta
 | `rt` | Ships inside the app (`Contents/MacOS/rt`), linked at `~/.local/bin/rt` |
 | Background daemon | Caches branch and MR data, scans ports, guards git hooks, snapshots the home repo. See [The daemon](/start/daemon) |
 | Bundled apps | board, console, chat, and boxscore, served locally through deck |
-| `rt-context` extension | VS Code / Cursor: worktree, branch, and linked ticket in the status bar. See [Editor extension](/rt/guides/context-extension) |
+| `rt-context` extension | Every VS Code-family editor: worktree, branch, and linked ticket in the status bar. See [Editor extensions](/rt/guides/context-extension) |
+| `skill-blocks` extension | Every VS Code-family editor: errors, hover, completion and rename while you write skills. See [Editor extensions](/rt/guides/context-extension) |
 | Shell integration | `~/.local/bin` first on PATH, plus the `rtcd` alias, for zsh, bash, and fish |
 | Bundled helpers | `jq`, `gh`, `glab`, `bun`, `node`, `sops`, `age`, `zstd`, `git-lfs`, `cloudflared`, `fast-browser`, `gitq`, and `deck`, among others, pinned and shipped inside the app |
 

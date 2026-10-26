@@ -1,0 +1,4 @@
+1. run_field_get, worktree_provision (precheck), whoami, gate_ask
+2. No. The compiled domain rules only add a `squad` gate question and supply no provision flow of their own, so the precheck runs directly.
+3. Resume in `/wt/widgets-123-badge-levels` (Recommended), Fresh tree
+4. resume_in, squad, next

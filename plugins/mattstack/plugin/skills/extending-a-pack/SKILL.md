@@ -25,9 +25,6 @@ digraph extend_pack {
     rt_skills_materialize [label="rt skills materialize" shape=plaintext];
     add_work_verb [label="Add the work-<kind> verb in pack/stubs.jsonc" shape=box];
     rt_verb_surface_set [label="rt_verb {args: [\"skills\", \"surface\", \"set\", \"<verb>\", \"--public\", \"--pack\", \"<pack>\"]}" shape=plaintext];
-    shepherdr_door [label="A shepherdr door?" shape=diamond];
-    rt_verb_bind_tiering [label="rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"tiering\", \"mattstack:model-tiering\", \"--pack\", \"<pack>\"]}" shape=plaintext];
-    rt_verb_bind_strategy [label="rt_verb {args: [\"skills\", \"bind\", \"shepherdr\", \"strategy\", \"mattstack:execution-strategy\", \"--pack\", \"<pack>\"]}" shape=plaintext];
     reword_description [label="Reword the description in pack/stubs.jsonc" shape=box];
     rt_verb_compile_pack [label="rt_verb {args: [\"skills\", \"compile\", \"--pack\", \"<pack>\"]}" shape=plaintext];
     round_change [label="What did this round change?" shape=diamond];
@@ -39,9 +36,9 @@ digraph extend_pack {
     write_rule [label="Write the rule in the author's words" shape=box];
     is_fill [label="A fill?" shape=diamond];
     one_pipeline_fill [label="One pipeline's fill only?" shape=diamond];
-    rt_verb_bind_fill [label="rt_verb {args: [\"skills\", \"bind\", \"<stage-or-verb>\", \"<slot>\", \"<pack>:<fill>\", \"--pack\", \"<pack>\"]}" shape=plaintext];
-    rt_verb_bind_pipeline_fill [label="rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"<pack>:<fill>\", \"--pipeline\", \"<name>\", \"--pack\", \"<pack>\"]}" shape=plaintext];
-    rt_verb_bind_unset [label="rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<slot>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" shape=plaintext];
+    rt_verb_bind_fill [label="rt_verb {args: [\"skills\", \"bind\", \"<stage-or-verb>\", \"<block>\", \"<prop>\", \"<pack>:<fill>\", \"--pack\", \"<pack>\"]}" shape=plaintext];
+    rt_verb_bind_pipeline_fill [label="rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<block>\", \"<prop>\", \"<pack>:<fill>\", \"--pipeline\", \"<name>\", \"--pack\", \"<pack>\"]}" shape=plaintext];
+    rt_verb_bind_unset [label="rt_verb {args: [\"skills\", \"bind\", \"<stage>\", \"<block>\", \"<prop>\", \"--pipeline\", \"<name>\", \"--unset\", \"--pack\", \"<pack>\"]}" shape=plaintext];
     unset_result [label="Unset result?" shape=diamond];
     bind_result [label="Bind result?" shape=diamond];
     bind_attempts_spent [label="Bind attempts = 2?" shape=diamond];
@@ -87,11 +84,7 @@ digraph extend_pack {
     unset_result -> handed_to_author [label="refused: stop and report the refusal"];
     ask_lands -> red_run_stage [label="a context rule, or a fill for one stage or verb"];
     add_roster_entry -> rt_verb_surface_set;
-    rt_verb_surface_set -> shepherdr_door;
-    shepherdr_door -> rt_verb_bind_tiering [label="yes"];
-    shepherdr_door -> round_change [label="no: surface set compiled the pack"];
-    rt_verb_bind_tiering -> rt_verb_bind_strategy;
-    rt_verb_bind_strategy -> round_change;
+    rt_verb_surface_set -> round_change;
     reword_description -> rt_verb_compile_pack;
     rt_verb_compile_pack -> round_change;
     round_change -> round_done [label="a new door or a reworded verb"];
@@ -192,18 +185,20 @@ Bash, and only as a one-time lookup, not a per-round call.
 | the ask is about | goes to |
 | --- | --- |
 | a rule that holds even outside a pipeline (branch names, forbidden ops, where things live) | `skills/context/SKILL.md`, a hand-authored public skill |
-| something one stage or verb should do differently | a fill bound to that stage's `domain` slot (or the review cluster's `criteria` / `reply-rules`) |
+| something one stage or verb should do differently | a fill bound to a prop on one of that engine's blocks: a step's block for a rule at that step, `domain-rules` for the whole stage (or the review cluster's `criteria` / `reply-rules`) |
 | a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` plus `rt_verb {args: ["skills", "surface", "set", "<verb>", "--public", "--pack", "<pack>"]}` |
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
 | one kind of work (accessibility, a bug fix) that runs its own stages or its own fills | a pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb that names it (see Add a specialized pipeline) |
 | taking a pipeline's override back off | one `bind --pipeline <name> --unset`, then check (see Undo a pipeline's override) |
 
-`slots.md` beside this file maps asks to slots and contracts.
+`props.md` beside this file maps asks to blocks, and lists every block's
+props with their merge, contract and default.
 An ask for browser screenshot evidence is a `## Browser target` section in
 the `evidence-domain@1` fill, facts only: `browser-target.md` beside this
 file is its shape.
-`rt skills composition --pack <pack>` (Bash, one-time) is the live list; use
-it when the table and the pack disagree.
+`rt skills blocks --skill <verb> --pack <pack>` (Bash, one-time) prints a
+verb's live tree of blocks and props; use it when the table and the pack
+disagree.
 
 ### Add a specialized pipeline
 
@@ -243,13 +238,12 @@ is not agent-safe: `rt_verb` refuses it, so run it as plain Bash. Later
 #### Undo a pipeline's override
 
 This is the `undo a pipeline's override` edge: unset, check, hand off. The
-form is `<stage> <slot> --pipeline <name> --unset`, with no fill. To put the
-accessibility pipeline's evidence back on the default fill, run
-`rt_verb {args: ["skills", "bind", "stage-evidence", "domain", "--pipeline",
-"accessibility", "--unset", "--pack", "<pack>"]}`. The bare stage name works
-on every rt, including one older than the plugin. It needs no materialize
-first. It removes the override from the fragment, rebuilds the bindings
-file and recompiles the pack:
+form is `<stage> <block> <prop> --pipeline <name> --unset`, with no fill.
+To put the accessibility pipeline's evidence back on the default fill, run
+`rt_verb {args: ["skills", "bind", "stage-evidence", "domain-rules",
+"rules", "--pipeline", "accessibility", "--unset", "--pack", "<pack>"]}`.
+It needs no materialize first. It removes the override from the fragment,
+rebuilds the bindings file and recompiles the pack:
 
 - When this was the pipeline's last override, `pipelines.accessibility` in
   the fragment goes back to a plain stage list. A pipeline that keeps
@@ -258,8 +252,8 @@ file and recompiles the pack:
   (`attachments/stage-evidence--accessibility/`) once that stage's fills
   match the default again. Never delete the copy by hand.
 
-Bind refuses an unset when the pipeline has no override at that slot
-(`<pipeline> has no override for <stage>.<slot>`) or the override comes
+Bind refuses an unset when the pipeline has no override at that prop
+(`<pipeline> has no override for <stage> <block id>.<prop>`) or the override comes
 from another layer (`... comes from <layer>; remove it there`). A refused
 unset changed nothing: stop, quote the refusal to the author, and publish
 nothing (the `Unset result?` refused edge).
@@ -382,15 +376,30 @@ A fill has this frontmatter and nothing else in it:
 ```markdown
 ---
 name: <fill>
-description: "Use when mattstack:<engine> resolves its <slot> slot here; the pack manifest binds <contract> to this skill. Not for manual invocation."
+description: "Use when mattstack:<engine> inlines this fill at its <block> block's <prop> prop; the pack manifest binds it there. Not for manual invocation."
 disable-model-invocation: true
 metadata:
   provides: "<contract>"
 ---
 ```
 
+`provides` is the prop's contract when it has one (`criteria` takes
+`review-criteria@1`); a `rules` prop has none, so any `provides` binds.
+
 The body: the rule, its reason, and the decision it changes. The stage
 keeps its own flow; the fill carries only what the team adds.
+
+A fill whose rules are separate files binds them one file at a time: its
+`SKILL.md` is frontmatter only, each rule sits in `<file>.md` beside it
+with no frontmatter, and the bind names `<pack>:<fill>/<file>`.
+
+A pointer in a fill names its file in source form, as Writing a fill in
+mattstack:editing-skills shows it: the skill-dir variable plus the file
+name for a file beside the fill,
+`{{pack.path:<attachment>/<file>}}` for one in another attachment,
+`{{verb.path:<verb>}}` for a sibling verb. Compile writes each as an
+`@key` in the compiled skill; `skills_resolve {id: "<id>"}` shows that skill's
+map, each key with its absolute path (the id is on its opening line).
 
 Before a fill tells an agent to run a command, open
 `${CLAUDE_SKILL_DIR}/../../../attachments/mcp-tools/reference.md` (the
@@ -403,19 +412,27 @@ for plain-words instructions.
 
 A fill or pack skill that describes a process of its own (a trigger, steps,
 an end) gets a digraph map per mattstack:process-digraphs. A fill that only
-adds rules to an engine's steps keys its sections to that step's node text,
-and never adds a move the engine's graph marks STOP.
+adds rules to one engine step binds to that step's block, and its rules land
+in that step's section; it never adds a move the engine's graph marks STOP.
 
 ### Fix what the refusal names
 
 The bind validates `provides`, writes the fragment
 `pack/skills.jsonc`, regenerates the pack's bindings file for the repo
-(`rt skills materialize`), and recompiles. A slot the base pack named by
-`extends` already fills is overridden, never an error, and a user override
+(`rt skills materialize`), and recompiles. A prop the base pack named by
+`extends` already binds is never an error: an `add` prop inlines the base's
+value, then the team's; a `replace` prop takes the team's. A user override
 that still wins is reported. It refuses a fill that does not exist
 yet: write it first. Other causes a refusal can name:
 
-- the fill's `provides` needs to match the slot's contract;
+- the fill's `provides` needs to match the prop's contract;
+- a block the engine does not have (`block "<block>" is not in verb
+  "<verb>"'s engine (blocks with props: ...)`) or a prop the block does not
+  declare (`block "<id>" declares no prop "<prop>" (its props: ...)`): pick
+  one the message lists;
+- three arguments where the block and prop go (`"mattstack:ship" no longer
+  has slot "domain"; its props are: ...`): bind one of the
+  `<block id>.<prop>` pairs it lists, block and prop as two arguments;
 - a verb-level bind (`ship`) needs the door rostered first, and names the
   door with no plugin prefix. The stage-level bind (`mattstack:stage-ship`)
   works either way.
@@ -438,7 +455,7 @@ yet: write it first. Other causes a refusal can name:
 
 ### What did this round change?
 
-Reached after surface set, the shepherdr binds, or a compile. A compile
+Reached after surface set or a compile. A compile
 that follows `Revise the rule` (GREEN failed) is always `a revised rule
 (GREEN failed)`, even in a round that also declared a pipeline or added a
 door. Only a first pass through this diamond picks the other edges.
@@ -520,8 +537,11 @@ again at zero. Takes over: the author finishes the rule.
   bindings file
   (`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`) is regenerated on
   every materialize. That is why the fragment, not the generated file, is
-  checked for the new `bindings` entry. A `--pipeline` bind lands under
-  `pipelines.<name>.bindings.<engine ref>.<slot>` instead.
+  checked for the new `bindings` entry, keyed `<plugin>:<block id>` with
+  the prop inside (`"mattstack:stage-ship/domain-fast-checks": { "rules":
+  "widgets:lint-changed" }`). A `--pipeline` bind lands under
+  `pipelines.<name>.bindings` instead, and there it replaces the top-level
+  value for that prop in that pipeline only.
 - Compile writes a stage copy `<stage>--<pipeline>`
   (`attachments/stage-evidence--accessibility/`) only where a pipeline's
   fills differ from the default, and removes it once they match again.
@@ -534,10 +554,12 @@ again at zero. Takes over: the author finishes the rule.
   (`ship`, `work-a11y`).
 - When the ask has both a stage level and a verb level
   (`mattstack:stage-ship` and the `ship` door), bind both, one bind call
-  each.
-- A `shepherdr` door compiles only with its two required slots bound:
-  `tiering` to `mattstack:model-tiering`, `strategy` to
-  `mattstack:execution-strategy`.
+  each: the door's blocks are its own (`ship/flow/domain-fast-checks`,
+  `stage-ship/domain-fast-checks`).
+- A bind writes one value per prop per layer, so binding the same block
+  and prop again replaces the pack's earlier value.
+- A `shepherdr` door compiles with nothing bound: its `tiering`,
+  `strategy` and `accounts` props default to the mattstack fills.
 
 ## The org base pack
 
@@ -546,16 +568,16 @@ admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo:
 
 - `pack/skills.jsonc` says `"base": true` and binds the shared fills the
   way a team fragment does:
-  `"mattstack:watch-ci": { "domain": "acme-base:watch-ci-rules" }`, plus
-  the same entry for `mattstack:stage-watch-ci`.
+  `"mattstack:watch-ci/domain-rules": { "rules": "acme-base:watch-ci-rules" }`,
+  plus the same entry for `mattstack:stage-watch-ci/domain-rules`.
 - `pack/surface.jsonc` is `{ "public": [] }`.
 - Its fills sit under `attachments/<fill>/`, never `skills/`: nothing
   installs a base pack, so its fills are inlined into a team's compiled
-  verbs. The one exception is a fill that only `board:*` slots bind:
+  verbs. The one exception is a fill that only `board:*` bindings name:
   compile copies it into the team pack too, at `plugin/attachments/<name>/`,
   because the board opens a fill by `<plugin>:<name>` while it runs, and
   materialize points those board bindings at `<team plugin>:<name>`.
-  Compile refuses a base that binds a board slot to a fill it has no
+  Compile refuses a base that binds a board key to a fill it has no
   `attachments/<name>/` for, or keeps that fill one group deep: the board
   finds `attachments/<name>` only.
 
@@ -564,8 +586,9 @@ A team pack uses it with `"extends": "acme-base"` in its own
 no marketplace entry, and a compile reads only its own org's base packs.
 
 An org-defined verb reaches a team the same way as any door: the team lists
-it in `pack/stubs.jsonc` and compiles. With no team fill for a slot, the
-org's fill lands; a team fill bound to the slot overrides it. The verb is
+it in `pack/stubs.jsonc` and compiles. With no team fill on a prop, the
+org's fill lands; a team fill bound to the same prop follows the org's on an
+`add` prop and replaces it on a `replace` prop. The verb is
 the team's (`/widgets:watch-ci`), and its stages stay internal.
 
 Bindings follow the base at once on every Mac, since materialize reads the
@@ -581,7 +604,7 @@ it into the team pack. When a team pack `extends` a base, each compile:
 
 - copies every base `attachments/<name>/` (or `attachments/<group>/<name>/`)
   that holds a `SKILL.md` and is not a fill (no `metadata.provides`), plus
-  every fill that only `board:*` slots bind, to the
+  every fill that only `board:*` bindings name, to the
   same path in the team pack;
 - writes `compiled.json` (the base, its version, the files) into each
   copied folder: that file marks compile's output, which the next compile
@@ -590,9 +613,9 @@ it into the team pack. When a team pack `extends` a base, each compile:
   drift;
 - expands, in a copied `.md` file only, `{{pack.name}}` to the team pack's
   plugin name (`{{pack.name}}:watch-ci` becomes `widgets:watch-ci`), plus
-  `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` as in a
-  fill and `{{team.*}}` markers (next section); any other `{{...}}` and
-  every non-`.md` file copies as written;
+  `{{verb.path:<verb>}}`, `{{pack.path:<attachment>/<file>}}` (a path
+  into the pack) and `{{team.*}}` markers (next section); any other
+  `{{...}}` and every non-`.md` file copies as written;
 - leaves a team's own `attachments/<name>/` (no `compiled.json` in
   compile's shape) alone and
   copies nothing for that name: to override a base attachment, delete the
@@ -601,6 +624,13 @@ it into the team pack. When a team pack `extends` a base, each compile:
   skill, or a team attachment at another path, naming both;
 - removes a copied folder whose base attachment is gone, or every copied
   folder once the pack stops extending a base.
+
+A built skill never reads those copies. Its `{{pack.path:<attachment>/<file>}}`
+copies the whole attachment into its own `references/<attachment>/` and
+points there. The copy renders like the team pack's copy, plus a flat
+`{{include}}`; its `{{pack.path}}` points into the same `references/`. A
+placeholder that depends on the reading skill (`{{stage.dir}}`,
+`{{pipeline.table}}` and the like) fails the compile.
 
 Every compile also writes `pack/requires.json`, the engine floor
 (`minEngine`) copied from the mattstack it compiled against. It is compile
@@ -631,10 +661,13 @@ them in, so a compiled verb never shows a marker.
    `{{team.section:<name>?}}`) makes one optional: a team without it gets
    nothing there. Names are lowercase letters, digits and hyphens, and no
    key is named `section`. A section marker sits alone on its line. A
-   value marker may sit inside prose or a plain path
-   (`../../attachments/{{team.gates-fill}}/SKILL.md`), never inside another
-   marker or in frontmatter. Compile refuses each of those, and any
-   `{{team.*}}` in a team's own fill.
+   value marker sits inside prose, never inside another marker or in
+   frontmatter. Compile refuses each of those, and any `{{team.*}}` in a
+   team's own fill. A path into another skill or attachment uses
+   `{{pack.path:<attachment>/<file>}}`, never a hand-typed path. The one
+   marker that nests: a required value marker as the whole attachment
+   segment, `{{pack.path:{{team.<key>}}/<file>}}`, picks the attachment by
+   team value.
 
    ```markdown
    Look up the ticket in the {{team.linear-team}} Linear team. Its id
@@ -654,8 +687,11 @@ them in, so a compiled verb never shows a marker.
    ```
 
    A value is one line. A multi-line block is a section instead:
-   `pack/sections/ci-extra-jobs.md`, plain markdown. Neither may contain
-   `{{`, and an empty value or a blank section counts as missing.
+   `pack/sections/ci-extra-jobs.md`, plain markdown. A path into another
+   skill or attachment from either one uses `{{pack.path:<attachment>/<file>}}`
+   or `{{verb.path:<verb>}}`, never a hand-typed path: it resolves in the
+   text it lands in. Neither may contain any other `{{`, and an empty value
+   or a blank section counts as missing.
 
 3. Compile each team pack:
    `rt_verb {args: ["skills", "compile", "--pack", "widgets"]}`. Compile
@@ -685,8 +721,9 @@ has it.
 
 Hand to `mattstack:editing-skills`: bump, commit, push, check and sync each
 pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
-`/reload-plugins`. Every hand-off enters editing-skills at `What changed?`,
-with no RED baseline there:
+`/reload-plugins`. The version bump changes every compiled skill's id, so
+the pack recompiles after the bump and before the commit. Every hand-off
+enters editing-skills at `What changed?`, with no RED baseline there:
 
 - A round that wrote or revised a skill or fill already passed its RED and
   GREEN here, and certifies that folder.

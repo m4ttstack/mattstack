@@ -1,0 +1,10 @@
+{
+  "skill-blocks": {
+    "command": "rt",
+    "args": ["skills", "lsp"],
+    "extensionToLanguage": {
+      ".md": "markdown",
+      ".jsonc": "jsonc"
+    }
+  }
+}

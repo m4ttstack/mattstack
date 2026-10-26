@@ -1,0 +1,111 @@
+.spacer {
+  flex: 1;
+}
+
+.siteRow {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+/* A NavLink label set as a block, so its box is its own line height rather
+   than the line box of the span around it. */
+.rowLabel {
+  display: block;
+}
+
+.siteSection[data-position='left'] {
+  margin-inline-end: 10px;
+}
+
+.siteSection[data-position='right'] {
+  margin-inline-start: 10px;
+}
+
+.sources {
+  overflow: hidden;
+}
+
+.cell {
+  padding: 0 8px 0 0;
+  vertical-align: middle;
+}
+
+.cell:first-child {
+  padding-left: 12px;
+}
+
+/* The file takes the room the others leave; built with fits an engine's
+   name and version on one line. */
+.builtColumn {
+  width: 120px;
+}
+
+.installedColumn {
+  width: 88px;
+}
+
+.statusColumn {
+  width: 96px;
+}
+
+/* Each body row's rule straddles the edge above it, as the board draws it,
+   so the header row ends half a pixel into the first rule. */
+.head > tr {
+  height: 27.5px;
+}
+
+.rows > tr {
+  height: 38px;
+}
+
+.changed {
+  --badge-height: 17px;
+  --badge-padding-x: 6px;
+  --badge-fz: 10px;
+  --badge-lh: normal;
+  letter-spacing: 0;
+}
+
+.note {
+  padding: 10px 12px;
+}
+
+.staleRow {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+.staleSection[data-position='left'] {
+  margin-inline-end: 8px;
+}
+
+.staleSection[data-position='right'] {
+  margin-inline-start: 8px;
+}
+
+/* Mantine pads a block Code through `[data-block]`. */
+.fix[data-block] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.command {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A 21px target around the 13px glyph the board draws, without growing
+   the block. */
+.copy {
+  flex: none;
+  margin: -4px;
+}
+
+.timeline {
+  padding-top: 12px;
+}

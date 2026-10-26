@@ -9,12 +9,12 @@
  * and a dir expand did not write stops the run before anything is touched.
  */
 
-import { readFileSync } from "fs";
 import { join } from "path";
 import { TREE } from "../lib/command-tree-def.ts";
+import { failureFor, UserActionableError } from "../lib/errors.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
-import { checkExpanded, expandSkills, planRemoval, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
+import { checkExpanded, expandSkills, planRemoval, textOf, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
 import { deriveRules, formatHit, isScriptPath, lintScriptFile, lintSkillText } from "../lib/skills/mcp-lint.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
 import * as out from "../lib/ui/out.ts";
@@ -76,9 +76,9 @@ function lintExpanded(outDir: string, skills: ExpandedSkill[]): { lint: string[]
     lint.push(...lintSkillText(s.skillMd, join(home, "SKILL.md"), rules).map(formatHit));
     for (const f of s.files) {
       if (f.path.endsWith(".md")) {
-        lint.push(...lintSkillText(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
+        lint.push(...lintSkillText(textOf(f), join(home, f.path), rules).map(formatHit));
       } else if (isScriptPath(f.path)) {
-        advisory.push(...lintScriptFile(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
+        advisory.push(...lintScriptFile(textOf(f), join(home, f.path), rules).map(formatHit));
       }
     }
   }
@@ -93,6 +93,15 @@ function emit(flags: Flags, payload: { ok: boolean; mode: "expand" | "check"; sk
   out.print(...blocks);
 }
 
+const rerunCommand = (flags: Flags): string =>
+  `rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`;
+
+/** An expand refusal that names its own command keeps it; the rerun is what fixes a source error. */
+export function expandFailure(err: unknown, rerun: string): out.FailureInput {
+  if (!(err instanceof UserActionableError)) return { title: (err as Error).message };
+  return { ...failureFor(err), ...(err.next ? {} : { next: out.cmd(rerun) }) };
+}
+
 const hits = (n: number): string => `${n} lint ${n === 1 ? "hit" : "hits"}`;
 
 export async function skillsExpand(args: string[]): Promise<void> {
@@ -103,7 +112,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
   try {
     skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots });
   } catch (err) {
-    fail({ title: (err as Error).message });
+    fail(expandFailure(err, rerunCommand(flags)));
   }
 
   const { lint, advisory } = flags.strict ? lintExpanded(flags.out, skills) : { lint: [], advisory: [] };
@@ -120,7 +129,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
     if (!ok) {
       fail({
         title: drift.length > 0 ? "The expanded skills are out of date" : `The expanded skills have ${hits(lint.length)}`,
-        ...(drift.length > 0 ? { next: out.cmd(`rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`) } : {}),
+        ...(drift.length > 0 ? { next: out.cmd(rerunCommand(flags)) } : {}),
       }, out.verbatim([...drift.map((d) => `${d.skill}: ${d.causes.join(", ")}`), ...lint], "diagnostics"));
     }
     return;

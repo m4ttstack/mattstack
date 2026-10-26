@@ -1,0 +1,4 @@
+1. `run_field_get {key: mode}`, then `worktree_provision {precheck: true}`, then `gate_ask` (kind `provision`, with `runDb` and `stage`) to open the gate. `whoami` is not called, because the precheck lists no trees to resume.
+2. Yes: the domain rules are inlined under "Follow the domain's provision flow", and its rule says to ask at the gate whether to reuse the same-ticket tree's slug.
+3. Not shown: the `sameTicket` tree is not a tree to resume when a domain flow is inlined, and there is no `attached` tree or surviving local branch.
+4. The domain's own reuse-slug question and `next`. The domain declares no id for it, so I'd call it `reuse_slug`.

@@ -1,0 +1,4 @@
+1. `plugins/mattstack/attachments/pipeline/stage-ship/domain-fast-checks.block.md`
+2. `python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py --short-ids <compiled stage-ship SKILL.md>`. It runs on the compiled stage-ship output (under the pack's `attachments/stage-ship/`) written by `rt skills compile --pack mattstack --pack-dir <my worktree>/plugins/mattstack`, not on the block tree.
+3. `rt_verb {args: ["skills", "bind", "stage-ship", "domain-fast-checks", "<prop>", "widgets:a11y-checks", "--pipeline", "accessibility", "--pack", "widgets"]}`. Here `<prop>` is the block's prop name from `props.md` in `mattstack:extending-a-pack`, which I haven't read, so I can't fill it in. I'm also assuming the pipeline is named `accessibility`, taken from the `stage-evidence--accessibility` example.
+4. `plugins/mattstack/attachments/pipeline/stage-ship/`

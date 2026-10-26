@@ -45,7 +45,7 @@ import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/errors.ts";
+import { UserActionableError, exitUserError, failureFor, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
@@ -53,8 +53,15 @@ import { validateChain } from "../lib/skills/chain.ts";
 import { fieldContractErrors, routeFieldContract, type CompiledDoc } from "../lib/skills/field-contract.ts";
 import { pipelinesWrite } from "../lib/skills/pipeline-manifest.ts";
 import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan, type EmittedAttachment } from "../lib/skills/base-attachments.ts";
-import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
-import { buildParts, linksIn, partsFromMarkers, partsOnDisk, withSectionParts, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
+import { dedupePreserveOrder, hasCompiledHeader, isInlined, type CompileSkillOpts } from "../lib/skills/compile.ts";
+import { blockPropValues, compileBlockSkill, includeNamesIn, includeSitesIn, oldSlotBindingMessage, replacedSlots, unclaimedBlockKeys, type BlockValues } from "../lib/skills/compile-blocks.ts";
+import { keptLayers, type LayerValue } from "../lib/skills/blocks/props.ts";
+import { BlockError, formatDiagnostic, type BlockDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
+import { brokenSkillPathDiagnostics, teamInputPathDiagnostics } from "../lib/skills/hand-paths.ts";
+import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../lib/skills/blocks/payload.ts";
+import { isBlockTree, walk } from "../lib/skills/blocks/tree.ts";
+import type { Block as BlockNode, BlockTree, PropSpec } from "../lib/skills/blocks/types.ts";
+import { linksIn, partsFromMarkers, type AnatomyPayload, type AnatomySource } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
@@ -66,24 +73,44 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
-import { assertNoTeamMarkerInAllowedTools, findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
-import { newTeamContext, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
+import { assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves } from "../lib/skills/placeholders.ts";
+import { newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
+import type { PointerMap } from "../lib/skills/pointers.ts";
+import {
+  attachMaps,
+  emittedUnits,
+  withMapFile,
+  fileCheckFor,
+  MAP_FILE,
+  pointerErrorsIn,
+  PointerConflictError,
+  readPackIdentity,
+  stageReadsOf,
+  unitsInMemory,
+  unitsOnDisk,
+  unitTableOf,
+  type Identity,
+  type PackIdentity,
+} from "../lib/skills/unit-maps.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { defaultPipeline, effectiveSlotBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
+import { defaultPipeline, effectiveBindings, engineRefOf, lastWinsBindings, pipelineBindingKey, pipelineNameError, type BindingsMap } from "../lib/skills/pipelines.ts";
 import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
+  frontmatterYamlError,
   installedVersionFor,
   invocableRoster,
   loadAttachment,
   loadInclude,
   loadStepSource,
+  NotABlockTreeError,
   orgBasePackRoots,
   orgOfPackDir,
-  parseStageQualifiedName,
   readManifestBindings,
+  readManifestLayered,
   readManifestPipelineBindings,
+  readManifestPipelineLayered,
   readManifestPipelines,
   readSurface,
   readVerbRoster,
@@ -94,6 +121,7 @@ import {
   type PluginRoots,
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlannedAttachments, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
 
 export const NO_PACKS_WHY = "A pack is a folder with a surface file: a plugin from a directory marketplace, or a team's or the org's pack folder in your org repo.";
@@ -115,6 +143,26 @@ export class SkillsUsageError extends Error {
 }
 
 export class SkillsRefusal extends SkillsUsageError {}
+
+const STALE_ENGINE_UPDATE = "Update the plugin, or update the mattstack app, which updates it.";
+const STALE_ENGINE_NEXT = "claude plugin update mattstack@mattstack";
+const STALE_ENGINE_WHY = `Its skills are single SKILL.md files, and this rt compiles only block trees. ${STALE_ENGINE_UPDATE}`;
+
+/** A new rt over an old plugin cache meets an engine that is one SKILL.md on every verb, so the failure names the update. */
+export function staleEngineFailure(message: string): out.FailureInput {
+  return {
+    title: "The installed mattstack plugin is older than this rt",
+    why: STALE_ENGINE_WHY,
+    next: out.cmd(STALE_ENGINE_NEXT),
+    details: message,
+  };
+}
+
+class StaleEngineError extends SkillsUsageError {
+  constructor(message: string) {
+    super(message, staleEngineFailure(message));
+  }
+}
 
 function refuseUnlessPackOwned(packDir: string): void {
   const owner = packOrg(packDir);
@@ -579,6 +627,10 @@ type Resolved = {
   packSha: string;
   /** Built once per resolve(), so each compile run starts with nothing missing or used; null for a pack with no plugin identity. */
   teamContext: TeamContext | null;
+  /** `<plugin>:<root id>` of every block tree a compile in this run resolved props for. */
+  claimedTrees: Set<string>;
+  /** Read once per resolve(); `planUnits` refuses a run that writes or checks a unit without it. */
+  identity: PackIdentity;
 };
 
 /**
@@ -667,7 +719,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const pipelineBindings = manifestPath ? readManifestPipelineBindings(manifestPath) : {};
   let stages: VerbDef[];
   try {
-    stages = stageRoster(pipelines, pipelineBindings, bindings);
+    stages = stageRoster(pipelines, manifestPath ? readManifestPipelineLayered(manifestPath) : {}, manifestPath ? readManifestLayered(manifestPath) : {});
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
@@ -679,6 +731,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
     const copies = new Set(stages.filter((s) => s.pipeline !== undefined).map((s) => s.name));
     stageEntries = buildStageEntries({ pipelines, pluginRoots, publicSet: surface ? new Set(surface.public) : null, copies });
   } catch (err) {
+    if ((err as Error).cause instanceof NotABlockTreeError) throw new StaleEngineError((err as Error).message);
     throw new SkillsUsageError((err as Error).message);
   }
 
@@ -694,29 +747,11 @@ async function resolve(flags: Flags): Promise<Resolved> {
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
     pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha, teamContext,
+    claimedTrees: new Set<string>(), identity: readPackIdentity(packDir),
   };
 }
 
-function loadFillsFor(step: StepSource, resolved: Resolved, where: string, pipeline?: string): Record<string, AttachmentSource | null> {
-  const overrides = pipeline !== undefined && Object.hasOwn(resolved.pipelineBindings, pipeline) ? resolved.pipelineBindings[pipeline] : undefined;
-  const slotBindings = effectiveSlotBindings(resolved.bindings, overrides, `${step.plugin}:${step.name}`);
-  const fills: Record<string, AttachmentSource | null> = {};
-  for (const slotName of Object.keys(step.slots)) {
-    const bindingName = slotBindings[slotName];
-    if (!bindingName) {
-      fills[slotName] = null;
-      continue;
-    }
-    try {
-      fills[slotName] = loadAttachment(bindingName, slotName, resolved.pluginRoots);
-    } catch (err) {
-      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
-    }
-  }
-  return fills;
-}
-
-/** Composition and compile share this scan so their include lists cannot drift. */
+/** The `{{include:<name>}}` names written directly in these bodies; an include's own includes are not followed. */
 function includeNames(bodies: string[]): string[] {
   const names: string[] = [];
   for (const body of bodies) {
@@ -727,30 +762,98 @@ function includeNames(bodies: string[]): string[] {
   return names;
 }
 
+/** Every block's text, joined, for the scans that look for one placeholder anywhere in an engine. */
+function stepText(step: StepSource): string {
+  return walk(step.tree).map((b) => b.text).join("\n");
+}
+
+/** Block text names includes, and an include tree's text names more, so the walk follows tree includes until none is new. */
+function loadBlockIncludes(tree: BlockTree, resolved: Resolved, loaded: Record<string, AttachmentSource> = {}): Record<string, AttachmentSource> {
+  const queue = includeSitesIn(tree);
+  while (queue.length > 0) {
+    const { name, ...at } = queue.shift()!;
+    if (Object.hasOwn(loaded, name)) continue;
+    try {
+      loaded[name] = loadInclude(name, resolved.pluginRoots);
+    } catch (err) {
+      if (err instanceof BlockError) throw err;
+      throw new BlockError([{ ...at, code: "fill-missing", message: (err as Error).message }]);
+    }
+    const inner = loaded[name]!.tree;
+    if (inner) queue.push(...includeSitesIn(inner));
+  }
+  return loaded;
+}
+
 /**
- * Scans the step body plus every INLINED bound fill's body, so a fill's own
- * `{{include}}` lines resolve too -- a reference-mode fill's body never
- * reaches the compiled output, so an `{{include}}` line inside one names
- * nothing a compile emits.
+ * An inlined value's own `{{include}}` lines name flat includes and trees
+ * alike; a tree it names is walked like a block's include. Returns whether
+ * anything new loaded, since a new tree's props need values of their own.
  */
-function loadIncludesFor(
-  step: StepSource,
-  fills: Record<string, AttachmentSource | null>,
-  resolved: Resolved,
-  where: string,
-): Record<string, AttachmentSource> {
-  const loaded: Record<string, AttachmentSource> = {};
-  const fillBodies = Object.values(fills)
-    .filter((f): f is AttachmentSource => f !== null && isInlined(f, resolved.internalRoster))
-    .map((f) => f.body);
-  for (const name of includeNames([step.body, ...fillBodies])) {
+function loadValueIncludes(values: BlockValues, loaded: Record<string, AttachmentSource>, resolved: Resolved, where: string): boolean {
+  const bodies = [...values.values()].flatMap((props) => [...props.values()].flatMap((v) => v.sources.filter((s) => s.mode === "inline").map((s) => s.fill.body)));
+  let grew = false;
+  for (const name of includeNames(bodies)) {
+    if (Object.hasOwn(loaded, name)) continue;
     try {
       loaded[name] = loadInclude(name, resolved.pluginRoots);
     } catch (err) {
       throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
     }
+    grew = true;
+    const inner = loaded[name]!.tree;
+    if (inner) loadBlockIncludes(inner, resolved, loaded);
   }
-  return loaded;
+  return grew;
+}
+
+/** Values can name includes whose trees carry props of their own, so includes and values grow together until no value names anything new. */
+function loadIncludesAndValues(step: StepSource, resolved: Resolved, where: string, pipeline?: string): { includes: Record<string, AttachmentSource>; values: BlockValues } {
+  const includes = loadBlockIncludes(step.tree, resolved);
+  let values = loadPropValuesFor(step, resolved, where, pipeline, includes);
+  while (loadValueIncludes(values, includes, resolved, where)) values = loadPropValuesFor(step, resolved, where, pipeline, includes);
+  return { includes, values };
+}
+
+/** Every block's prop values, the engine's and its tree includes', from each layer the manifest records; keys come from `effectiveBindings`. */
+function loadPropValuesFor(
+  step: StepSource,
+  resolved: Resolved,
+  where: string,
+  pipeline?: string,
+  includes: Record<string, AttachmentSource> = {},
+): BlockValues {
+  const path = resolved.manifestPath;
+  const pipelineLayered = path ? readManifestPipelineLayered(path) : {};
+  const trees = [
+    { tree: step.tree, plugin: step.plugin, version: step.version },
+    ...Object.values(includes).flatMap((inc) => (inc.tree ? [{ tree: inc.tree, plugin: inc.plugin, version: inc.version }] : [])),
+  ];
+  for (const { tree, plugin } of trees) resolved.claimedTrees.add(`${plugin}:${tree.root.id}`);
+  try {
+    return blockPropValues(
+      trees,
+      {
+        layered: path ? readManifestLayered(path) : {},
+        manifest: path ? { path, text: readFileSync(path, "utf8") } : null,
+        pipelineSections: pipelineLayered,
+        ...(pipeline !== undefined && Object.hasOwn(pipelineLayered, pipeline) ? { pipeline, pipelineLayered: pipelineLayered[pipeline] } : {}),
+      },
+      (binding, prop) => loadAttachment(binding, prop, resolved.pluginRoots),
+      resolved.internalRoster,
+    );
+  } catch (err) {
+    if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+    throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+  }
+}
+
+/** Run once every verb has compiled: only then has every tree a binding key could name been loaded. */
+function unclaimedBlockKeyErrors(resolved: Resolved): string[] {
+  const path = resolved.manifestPath;
+  if (!path) return [];
+  const bindings = { layered: readManifestLayered(path), pipelineSections: readManifestPipelineLayered(path), manifest: { path, text: readFileSync(path, "utf8") } };
+  return unclaimedBlockKeys(bindings, resolved.claimedTrees).map(formatDiagnostic);
 }
 
 /** Every stage's own rules plus its bound fills' rules; unioned into the orchestrator because a stage read as a file loads no frontmatter of its own. */
@@ -763,21 +866,58 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
       seen.add(entry.name);
       const step = loadStepSource(entry.engine, resolved.pluginRoots);
       rules.push(...step.allowedTools);
-      for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`, type))) {
-        if (!fill) continue;
-        assertNoTeamMarkerInAllowedTools(fill);
-        rules.push(...fill.allowedTools);
+      const { values } = loadIncludesAndValues(step, resolved, `stage "${entry.name}"`, type);
+      for (const props of values.values()) {
+        for (const value of props.values()) {
+          for (const { fill } of value.sources) {
+            assertNoTeamMarkerInAllowedTools(fill);
+            rules.push(...fill.allowedTools);
+          }
+        }
       }
     }
   }
   return rules;
 }
 
+class PackIdentityError extends SkillsUsageError {}
+
+function identityRefusal(identity: Extract<PackIdentity, { ok: false }>): PackIdentityError {
+  return new PackIdentityError(`${identity.file} ${identity.fault}; every compiled skill is stamped with the pack's name and version`, {
+    title: `This pack's plugin.json ${identity.fault.split(":")[0]}`,
+    why: "Each compiled skill is stamped with its pack's name and version, so its pointers resolve against the copy that is installed.",
+    next: ["Fix it, then run ", out.cmd("rt skills compile")],
+    details: identity.file,
+  });
+}
+
+/** The identity a read-only view keys with when it has one; such a view never refuses for want of it. */
+function identityIfAny(resolved: Resolved): Identity | null {
+  return resolved.identity.ok ? resolved.identity : null;
+}
+
+/**
+ * A view of one target shows its files as a compile would write them: the
+ * units it reads lend the maps their last compile wrote, as in a scoped
+ * `--verb` compile. A conflict leaves the files unclosed; compile reports it.
+ */
+function closedViewFiles(resolved: Resolved, target: CompileTarget, files: CompiledFile[], pointers: CompileResult["pointers"], verbSides: Record<string, Side>, planned: PlannedAttachments): CompiledFile[] {
+  const identity = identityIfAny(resolved);
+  if (!identity || !pointers) return files;
+  try {
+    const { maps } = attachMaps({ packDir: resolved.packDir, identity, units: unitTableOf(verbSides, emittedUnits(planned)), compiled: [{ leaf: target.verb.name, files, pointers }], emits: [] });
+    return withMapFile(files, maps.get(target.verb.name));
+  } catch (err) {
+    if (err instanceof PointerConflictError) return files;
+    throw err;
+  }
+}
+
+/** What a compile resolved, for anatomy and blocks: the engine, its includes and every block's prop values. */
 type CompileAnatomy = {
   step: StepSource;
   includes: Record<string, AttachmentSource>;
-  fills: Record<string, AttachmentSource | null>;
-  slotMode: Record<string, "inline" | "reference">;
+  values: BlockValues;
 };
 
 function compileVerb(
@@ -785,9 +925,9 @@ function compileVerb(
   resolved: Resolved,
   emittedTargetDirs: string[],
   verbSides: Record<string, Side>,
-  trace?: (entry: TraceEntry) => void,
-  planned?: PlannedAttachments,
-): CompileResult & { anatomy?: CompileAnatomy } {
+  planned: PlannedAttachments | undefined,
+  identity: Identity | null,
+): CompileResult & { anatomy: CompileAnatomy } {
   const { isPublic, isStage } = target;
   let verb = target.verb;
   const where = `${isStage ? "stage" : "verb"} "${verb.name}"`;
@@ -795,6 +935,9 @@ function compileVerb(
   try {
     step = loadStepSource(verb.engine, resolved.pluginRoots);
   } catch (err) {
+    // A block diagnostic already names its file, line and column.
+    if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+    if (err instanceof NotABlockTreeError) throw new StaleEngineError(`${where}: ${err.message}`);
     throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
   }
   if (isStage) verb = { ...verb, description: step.description };
@@ -811,46 +954,49 @@ function compileVerb(
   const internalVerbDirs = Object.entries(verbSides)
     .filter(([name, side]) => side === "attachments" && !stageNames.has(name))
     .map(([name]) => hostDir(name, "attachments"));
-  const isOrchestrator = findPlaceholders(step.body).some((p) => p.kind === "pipeline.stages");
+  const isOrchestrator = findPlaceholders(stepText(step)).some((p) => p.kind === "pipeline.stages");
   const pipeline = !isStage && rendersTable(step) ? verbPipeline(verb, resolved.pipelines).pipeline : null;
 
+  const opts = (includes: Record<string, AttachmentSource>): CompileSkillOpts => ({
+    internalRoster: resolved.internalRoster,
+    includes,
+    pipelines: entries,
+    repoKey: resolved.repoKey,
+    mattstackSha: resolved.mattstackSha,
+    mattstackDirty: resolved.mattstackDirty,
+    packSha: resolved.packSha,
+    stageDir,
+    stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
+    emittedSiblingDirs: [...allStageDirs, ...internalVerbDirs],
+    packRoot: resolved.packDir,
+    team: resolved.teamContext,
+    compiledDir: outDirFor(resolved.packDir, verb.name, isPublic),
+    emittedTargetDirs,
+    where,
+    verbSides,
+    side: isPublic ? "skills" : "attachments",
+    plannedAttachments: planned,
+    pipeline,
+    loadInclude: (name) => loadInclude(name, resolved.pluginRoots),
+    packName: identity?.name ?? resolved.team,
+    ...(identity ? { identity, units: unitTableOf(verbSides, emittedUnits(planned)) } : {}),
+  });
+
   try {
-    const fills = loadFillsFor(step, resolved, where, isStage ? verb.pipeline : undefined);
-    const includes = loadIncludesFor(step, fills, resolved, where);
-    const result = compileSkill(verb, step, fills, resolved.invocable, {
-      internalRoster: resolved.internalRoster,
-      includes,
-      pipelines: entries,
-      repoKey: resolved.repoKey,
-      mattstackSha: resolved.mattstackSha,
-      mattstackDirty: resolved.mattstackDirty,
-      packSha: resolved.packSha,
-      stageDir,
-      stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
-      emittedSiblingDirs: [...allStageDirs, ...internalVerbDirs],
-      packRoot: resolved.packDir,
-      team: resolved.teamContext,
-      compiledDir: outDirFor(resolved.packDir, verb.name, isPublic),
-      emittedTargetDirs,
-      where,
-      verbSides,
-      side: isPublic ? "skills" : "attachments",
-      plannedAttachments: planned,
-      pipeline,
-      trace,
-    });
-    if (!trace) return result;
-    const slotMode: Record<string, "inline" | "reference"> = {};
-    for (const [slot, fill] of Object.entries(fills)) {
-      if (fill) slotMode[slot] = isInlined(fill, resolved.internalRoster) ? "inline" : "reference";
-    }
-    return { ...result, anatomy: { step, includes, fills, slotMode } };
+    const { includes, values } = loadIncludesAndValues(step, resolved, where, isStage ? verb.pipeline : undefined);
+    const result = compileBlockSkill(verb, step, values, resolved.invocable, opts(includes));
+    if (result.diagnostics.length > 0) throw new BlockError(result.diagnostics);
+    // An orchestrator reads its pipeline's stages by path, so they join its reads whether or not a placeholder recorded them.
+    const stageReads = stageReadsOf(entries, pipeline, isOrchestrator);
+    const pointers = result.pointers && { ...result.pointers, reads: dedupePreserveOrder([...result.pointers.reads, ...stageReads]) };
+    return { ...result, ...(pointers ? { pointers } : {}), anatomy: { step, includes, values } };
   } catch (err) {
+    if (err instanceof BlockError) throw new SkillsUsageError(err.message);
     const message = (err as Error).message;
-    // loadFillsFor/loadIncludesFor's SkillsUsageError already carries this same
-    // `where` prefix; a bare Error from compileSkill (e.g. a fill's own
-    // {{slot}} misuse) never does, and would otherwise surface with no verb
-    // or stage named at all.
+    // loadPropValuesFor/loadValueIncludes's SkillsUsageError already carries
+    // this same `where` prefix; a bare Error from compileBlockSkill (e.g. a
+    // fill's own illegal placeholder) never does, and would otherwise surface
+    // with no verb or stage named at all.
     const isPrefixed = err instanceof SkillsUsageError || message.startsWith(`${where}: `);
     throw new SkillsUsageError(isPrefixed ? message : `${where}: ${message}`);
   }
@@ -909,26 +1055,33 @@ type CompileVerbRow = {
   side: Side;
 };
 
-type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message: string };
+type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message: string; staleEngine?: boolean };
 
 /**
  * compileVerb fails two ways: it throws (loadStepSource/loadAttachment/
- * compileSkill's lints and resolveBoundSlots), or it returns a result whose
+ * compileBlockSkill's lints and prop resolution), or it returns a result whose
  * errors[] is non-empty (lintInternalRoster only). Every skillsCompile mode
  * needs both outcomes as data rather than a thrown SkillsUsageError -- --json
  * and --preview to report them, the writing mode to collect every target's
  * verdict before touching disk -- so this is the one place that catches both.
  */
-function tryCompileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDirs: string[], verbSides: Record<string, Side>, planned?: PlannedAttachments): CompileOutcome {
+function tryCompileVerb(
+  target: CompileTarget,
+  resolved: Resolved,
+  emittedTargetDirs: string[],
+  verbSides: Record<string, Side>,
+  planned: PlannedAttachments | undefined,
+  identity: Identity | null,
+): CompileOutcome {
   const { verb, isStage } = target;
   try {
-    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, undefined, planned);
+    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
     if (result.errors.length > 0) {
       return { ok: false, message: `${isStage ? "stage" : "verb"} "${verb.name}": ${result.errors.join("; ")}` };
     }
     return { ok: true, result };
   } catch (err) {
-    return { ok: false, message: (err as Error).message };
+    return { ok: false, message: (err as Error).message, ...(err instanceof StaleEngineError ? { staleEngine: true } : {}) };
   }
 }
 
@@ -942,7 +1095,7 @@ function pipelineChainErrors(resolved: Resolved): string[] {
 }
 
 function rendersTable(step: StepSource): boolean {
-  return findPlaceholders(step.body).some((p) => p.kind === "pipeline.table");
+  return findPlaceholders(stepText(step)).some((p) => p.kind === "pipeline.table");
 }
 
 /** Roster verbs whose engine renders `{{pipeline.table}}`; an engine that cannot load is compile's error to report, not this one's. */
@@ -990,7 +1143,7 @@ function pipelineErrors(resolved: Resolved): string[] {
       continue;
     }
     for (const ref of Object.keys(refs)) {
-      if (!stages.includes(ref)) errors.push(`pipeline "${type}" binds ${ref} but does not list it`);
+      if (!stages.includes(engineRefOf(ref))) errors.push(`pipeline "${type}" binds ${ref} but does not list it`);
     }
   }
   const shaped = new Set<string>();
@@ -1050,16 +1203,50 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
   return { targets, verbSides, knownTargetDirs };
 }
 
+/** Sections and param values land in base text after its own check, so theirs runs on them where they are written. */
+function teamInputErrors(resolved: Resolved, verbSides: Record<string, Side>, planned: PlannedAttachments): string[] {
+  if (!resolved.teamContext) return [];
+  const view = { verbSides, packRoot: resolved.packDir, plannedAttachments: planned };
+  const fix = { verbs: new Set(Object.keys(verbSides)), packSource: (arg: string) => packPathResolves(view, arg) };
+  return teamInputPathDiagnostics(resolved.packDir, fix).map(formatDiagnostic);
+}
+
 /** A pack that extends a base only for its fills copies nothing, so it needs no plugin name; one that would copy an attachment does. */
 function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
   const pluginName = packPluginIdentity(resolved.packDir)?.name;
-  const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides, team: resolved.teamContext });
+  const plan = planBaseAttachments({
+    packDir: resolved.packDir,
+    packName: pluginName ?? resolved.team,
+    verbSides,
+    team: resolved.teamContext,
+    loadInclude: (name) => loadInclude(name, resolved.pluginRoots),
+    identity: identityIfAny(resolved),
+  });
   if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
   return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
 }
 
+/** What a compile or check writes or reads: its targets, the base plan, and the identity each unit's id is stamped with. */
+type UnitPlan = CompilePlan & { base: BaseAttachmentPlan; identity: Identity | null };
+
+/**
+ * The one place a run that writes or checks a unit, a target or a base copy,
+ * refuses without a usable plugin.json. A run with no unit needs no identity.
+ */
+function planUnits(resolved: Resolved, verbFilter: string[] | null): UnitPlan {
+  const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
+  const targets = compileTargets(resolved, publicSet, verbFilter);
+  const base = basePlanFor(resolved, targets.verbSides);
+  if (targets.targets.length === 0 && base.emits.length === 0) return { ...targets, base, identity: null };
+  if (!resolved.identity.ok) throw identityRefusal(resolved.identity);
+  return { ...targets, base, identity: resolved.identity };
+}
+
 function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
-  const plan = basePlanFor(resolved, verbSides);
+  return refuseBaseErrors(basePlanFor(resolved, verbSides));
+}
+
+function refuseBaseErrors(plan: BaseAttachmentPlan): BaseAttachmentPlan {
   if (plan.errors.length > 0) {
     const errors = plan.errors.join("\n");
     throw new SkillsUsageError(errors, { title: "This pack's base cannot be used", details: errors });
@@ -1097,12 +1284,14 @@ export function floorWrite(
   readFile: (path: string) => string | null,
   write: boolean,
   usesTeamMarkers: boolean,
+  carriesKeys = false,
 ): { written: string[]; removed: string[]; stale: boolean } {
   const engineDir = resolved.pluginRoots.byName.mattstack?.dir ?? null;
   if (engineDir !== null && resolvePath(engineDir) === resolvePath(resolved.packDir)) return { written: [], removed: [], stale: false };
-  if (engineDir === null && !usesTeamMarkers) return { written: [], removed: [], stale: false };
+  if (engineDir === null && !usesTeamMarkers && !carriesKeys) return { written: [], removed: [], stale: false };
   const engineFloor = engineDir === null ? null : readFloor(readFile, engineDir);
-  const floor = usesTeamMarkers && (engineFloor === null || compareVersions(engineFloor, TEAM_MARKERS_MIN_ENGINE) < 0) ? TEAM_MARKERS_MIN_ENGINE : engineFloor;
+  const raises = [...(usesTeamMarkers ? [TEAM_MARKERS_MIN_ENGINE] : []), ...(carriesKeys ? [POINTER_KEYS_MIN_ENGINE] : [])];
+  const floor = raises.reduce<string | null>((high, v) => (high === null || compareVersions(high, v) < 0 ? v : high), engineFloor);
   const target = join(resolved.packDir, FLOOR_REL);
   const current = readFile(target);
   const want = floor === null ? null : JSON.stringify({ minEngine: floor }) + "\n";
@@ -1148,7 +1337,7 @@ function staleStageCopies(packDir: string, verbSides: Record<string, Side>): { n
  * and no process.exit here: callers own how outcomes/failures/misplaced
  * become human or JSON output and how the process exits.
  */
-function performCompile(resolved: Resolved, verbFilter: string[] | null, write: boolean, plan: BaseAttachmentPlan): {
+function performCompile(resolved: Resolved, verbFilter: string[] | null, write: boolean, units: UnitPlan): {
   outcomes: { target: CompileTarget; outcome: CompileOutcome }[];
   failures: string[];
   misplaced: string[];
@@ -1157,12 +1346,15 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   staleCopies: string[];
   removedCopies: string[];
   fieldContract: string[];
+  unclaimedBlockKeys: string[];
   missing: MissingMarker[];
   unusedParams: string[];
+  /** The closure found two units claiming one key: a full compile writes every unit from one table again. */
+  pointerConflict: boolean;
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
-  const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, verbFilter);
+  const { targets, verbSides, knownTargetDirs, base: plan, identity } = units;
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
@@ -1170,12 +1362,30 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   // Every target is compiled before any is written: a run that aborts midway
   // leaves already-emitted verbs referencing stage dirs that never landed.
   const planned = plannedAttachmentsOf(plan);
-  const outcomes: { target: CompileTarget; outcome: CompileOutcome }[] = targets.map(
-    (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned) }),
+  let outcomes: { target: CompileTarget; outcome: CompileOutcome }[] = targets.map(
+    (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity) }),
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
+  let emits = plan.emits;
+  let pointerConflict = false;
+  if (failures.length === 0 && identity) {
+    try {
+      const compiled = outcomes.flatMap(({ target, outcome }) => (outcome.ok ? [{ leaf: target.verb.name, ...outcome.result }] : []));
+      const closed = attachMaps({ packDir: resolved.packDir, identity, units: unitTableOf(verbSides, plan.emits.map((e) => e.name)), compiled, emits: plan.emits });
+      emits = closed.emits;
+      outcomes = outcomes.map(({ target, outcome }) => ({
+        target,
+        outcome: outcome.ok ? { ok: true, result: { ...outcome.result, files: withMapFile(outcome.result.files, closed.maps.get(target.verb.name)) } } : outcome,
+      }));
+    } catch (err) {
+      if (!(err instanceof PointerConflictError)) throw err;
+      failures.push(err.message);
+      pointerConflict = true;
+    }
+  }
   // A target that failed stopped partway, so the missing list is only whole once every target compiled.
   const missing = failures.length === 0 ? missingOf(resolved.teamContext) : [];
+  failures.push(...teamInputErrors(resolved, verbSides, planned));
   let fieldContract: string[] = [];
   if (verbFilter === null && failures.length === 0 && missing.length === 0) {
     const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(outcomes, plan.emits), resolved.stageEntries));
@@ -1183,6 +1393,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     // --json has no failures key, so an error-routed line rides here too or the exit-1 envelope never says why.
     fieldContract = [...routed.warnings, ...routed.errors];
   }
+  const unclaimedBlockKeys = verbFilter === null && failures.length === 0 ? unclaimedBlockKeyErrors(resolved) : [];
+  failures.push(...unclaimedBlockKeys);
   const unusedParams = verbFilter === null && failures.length === 0 && missing.length === 0 ? unusedParamsOf(resolved.teamContext) : [];
 
   const blocked = failures.length > 0 || missing.length > 0;
@@ -1193,11 +1405,11 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
     for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
     for (const rel of plan.retired) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", rel), writes);
-    for (const e of plan.emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
+    for (const e of emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
       const { verb, isPublic } = target;
-      // A pack's own engine source may live at attachments/<verb>/SKILL.md while
+      // A pack's own engine source may live at attachments/<verb>/ while
       // its door compiles into skills/<verb>/: the other side is only stale when
       // it carries the compiler header, never when it is the hand-written source.
       const stale = otherSideDir(resolved.packDir, verb.name, isPublic);
@@ -1207,7 +1419,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     for (const copy of staleCopies) removeCompiledDir(resolved.packDir, copy.dir, writes);
     // A scoped compile sees only its own targets' markers, so it never lowers a floor a full compile raised for the rest.
     const keptRaise = verbFilter !== null && floorAtLeast(readFloor(readIfPresent, resolved.packDir), TEAM_MARKERS_MIN_ENGINE);
-    const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise);
+    const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise, outcomes.length > 0 || emits.length > 0);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
     if (verbFilter === null) {
@@ -1248,7 +1460,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   ];
 
   const staleNames = staleCopies.map((c) => c.name);
-  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract, missing, unusedParams };
+  return { outcomes, failures, misplaced, writes, emitted, staleCopies: staleNames, removedCopies: writing ? staleNames : [], fieldContract, unclaimedBlockKeys, missing, unusedParams, pointerConflict };
 }
 
 function floorAtLeast(floor: string | null, version: string): boolean {
@@ -1314,10 +1526,12 @@ export function staleCopyBlocks(names: string[], writing: boolean): Block[] {
 }
 
 // Field-contract lines only run once every verb compiled, so a failure list is all one kind or all the other.
-export function compileFailure(failures: string[]): out.FailureInput {
+export function compileFailure(failures: string[], staleEngine = false, pointerConflict = false): out.FailureInput {
   const title = failures.every((f) => f.startsWith("field contract: "))
     ? countOf(failures.length, "field-contract error", "field-contract errors")
     : `${countOf(failures.length, "verb", "verbs")} did not compile`;
+  if (staleEngine) return { title, why: STALE_ENGINE_WHY, next: out.cmd(STALE_ENGINE_NEXT), details: failures.join("\n") };
+  if (pointerConflict) return { title, next: ["Compile the whole pack, with no --verb: ", out.cmd("rt skills compile")], details: failures.join("\n") };
   return { title, details: failures.join("\n") };
 }
 
@@ -1375,13 +1589,13 @@ export async function skillsCompile(args: string[]): Promise<void> {
     if (flags.preview) out.payloadOnStdout();
 
     const resolved = await resolve(flags);
-    const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
 
     const chainErrors = pipelineErrors(resolved);
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 
-    const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
-    const plan = requireBasePlan(resolved, verbSides);
+    const units = planUnits(resolved, flags.verbs);
+    const { targets, verbSides, knownTargetDirs, identity } = units;
+    const plan = refuseBaseErrors(units.base);
 
     if (flags.preview) {
       // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
@@ -1390,7 +1604,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       const planned = plannedAttachmentsOf(plan);
       for (const target of targets) {
         const { verb } = target;
-        const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
+        const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
         if (!outcome.ok) {
           // A lint-erroring verb has no previewable body -- say so on stderr
           // and leave stdout empty rather than silently producing nothing.
@@ -1401,7 +1615,8 @@ export async function skillsCompile(args: string[]): Promise<void> {
         refuseMissingValues(resolved);
         // The body is the product here: no summary lines and no warnings
         // interleaved, so the output pipes straight into a file or a preview pane.
-        const main = outcome.result.files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
+        const files = closedViewFiles(resolved, target, outcome.result.files, outcome.result.pointers, verbSides, planned);
+        const main = files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
         if (!main || !("content" in main)) throw new SkillsUsageError(`verb "${verb.name}": produced no SKILL.md`);
         out.payload(`${main.content}\n`);
       }
@@ -1413,7 +1628,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
 
     let compiledResult: ReturnType<typeof performCompile>;
     try {
-      compiledResult = performCompile(resolved, flags.verbs, !flags.dryRun, plan);
+      compiledResult = performCompile(resolved, flags.verbs, !flags.dryRun, units);
     } catch (err) {
       if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
       const shown = skillsFailure(err);
@@ -1421,9 +1636,9 @@ export async function skillsCompile(args: string[]): Promise<void> {
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract, missing, unusedParams } = compiledResult;
+    const { outcomes, failures, misplaced, emitted, staleCopies, removedCopies, fieldContract, unclaimedBlockKeys, missing, unusedParams } = compiledResult;
     if (failures.length > 0 && !flags.json) {
-      out.fail(compileFailure(failures));
+      out.fail(compileFailure(failures, outcomes.some(({ outcome }) => !outcome.ok && outcome.staleEngine === true), compiledResult.pointerConflict));
       process.exit(1);
     }
     if (missing.length > 0 && !flags.json) {
@@ -1450,6 +1665,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
         pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced, fieldContract,
         ...(unusedParams.length > 0 ? { unusedParams } : {}),
         ...(missing.length > 0 ? { missing } : {}),
+        ...(unclaimedBlockKeys.length > 0 ? { unclaimedBlockKeys } : {}),
         ...(removedCopies.length > 0 ? { removedCopies } : {}),
       });
       return;
@@ -1488,11 +1704,16 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   const resolved = await resolve(parseFlags(args));
   const chainErrors = pipelineErrors(resolved);
   if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
-  const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
-  const plan = basePlanFor(resolved, compileTargets(resolved, publicSet, opts.verbs ?? null).verbSides);
-  if (plan.errors.length > 0) return { ok: false, errors: plan.errors, written: [], removed: [] };
+  let units: UnitPlan;
   try {
-    const { failures, misplaced, writes, missing } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true, plan);
+    units = planUnits(resolved, opts.verbs ?? null);
+  } catch (err) {
+    if (!(err instanceof PackIdentityError)) throw err;
+    return { ok: false, errors: [err.message], written: [], removed: [] };
+  }
+  if (units.base.errors.length > 0) return { ok: false, errors: units.base.errors, written: [], removed: [] };
+  try {
+    const { failures, misplaced, writes, missing } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true, units);
     if (missing.length > 0) {
       const shown = missingValuesFailure(resolved.team, missing);
       return { ok: false, errors: [shown.title, ...shown.details.split("\n")], missing, ...writes };
@@ -1571,7 +1792,57 @@ export type CheckPayload = {
   droppedOverrides?: DroppedOverride[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
+  /** Cross-skill paths in hand-authored skills that resolve to nothing; they fail the check. In check --json only when non-empty. */
+  skillPaths?: BlockDiagnostic[];
+  /** Hand-authored skills whose frontmatter does not parse as YAML; they fail the check. In check --json only when non-empty. */
+  skillFrontmatter?: BlockDiagnostic[];
+  /** Compiled bodies on disk whose `@keys` resolve to no file, or that still hold `${CLAUDE_SKILL_DIR}`; they fail the check. In check --json only when non-empty. */
+  pointerErrors?: BlockDiagnostic[];
+  /** The same rows in what this compile would write, so they come from the pack's sources and no recompile clears them. Not part of check --json. */
+  sourcePointerErrors?: BlockDiagnostic[];
+  /** Two units claiming one key: check cannot trust any map then. --json carries it in compileErrors. */
+  pointerConflicts?: string[];
+  /** Each target whose compile failed in this check, its message only: what lends a stale map to a conflict. Not part of check --json. */
+  targetCompileErrors?: string[];
 };
+
+/** A hand-written skill's own fault: no compile fixes it, so it fails check apart from `drift`, which sync reads as "recompile". */
+export function handSkillFailures(payload: Pick<CheckPayload, "skillPaths" | "skillFrontmatter">): BlockDiagnostic[] {
+  return [...(payload.skillFrontmatter ?? []), ...(payload.skillPaths ?? [])];
+}
+
+/**
+ * What fails a check apart from `drift`: hand-written skills, and compiled
+ * pointers that lead nowhere in what a recompile would write. A pointer row
+ * only on disk is drift, which a recompile clears.
+ */
+export function checkFailures(
+  payload: Pick<CheckPayload, "skillPaths" | "skillFrontmatter" | "sourcePointerErrors" | "pointerConflicts">,
+): { handSkills: BlockDiagnostic[]; pointers: BlockDiagnostic[]; conflicts: string[] } {
+  return { handSkills: handSkillFailures(payload), pointers: payload.sourcePointerErrors ?? [], conflicts: payload.pointerConflicts ?? [] };
+}
+
+/** The registered skills compile does not produce, each checked from its own folder. */
+function handWrittenSkills(packDir: string, compiledNames: ReadonlySet<string>): { dir: string; file: string; text: string }[] {
+  const found: { dir: string; file: string; text: string }[] = [];
+  for (const entry of enumerateRegistered(packDir).values()) {
+    const skillMd = join(entry.dir, "SKILL.md");
+    if (compiledNames.has(entry.name) || isCompiledDir(entry.dir) || !existsSync(skillMd)) continue;
+    found.push({ dir: entry.dir, file: relativePath(packDir, skillMd).split(sep).join("/"), text: readFileSync(skillMd, "utf8") });
+  }
+  return found;
+}
+
+function brokenSkillPaths(skills: { dir: string; file: string; text: string }[], packDir: string): BlockDiagnostic[] {
+  return skills.flatMap((s) => brokenSkillPathDiagnostics(s.text, s.file, { skillDir: s.dir, pluginRoot: packDir }));
+}
+
+function badSkillFrontmatter(skills: { file: string; text: string }[]): BlockDiagnostic[] {
+  return skills.flatMap((s) => {
+    const bad = frontmatterYamlError(s.text);
+    return bad ? [{ file: s.file, line: bad.line, col: bad.col, code: "bad-frontmatter", message: `frontmatter is not valid YAML: ${bad.reason}` }] : [];
+  });
+}
 
 /** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
 function leftovers(packDir: string, name: string): string[] {
@@ -1620,8 +1891,6 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
 
 async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const resolved = await resolve(flags);
-  // No surface.jsonc means the pack has no public/internal split yet -- every roster verb is public.
-  const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
 
   let anyStale = false;
   const rows: CheckVerbRow[] = [];
@@ -1635,18 +1904,25 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const chainErrors = pipelineErrors(resolved);
   if (chainErrors.length > 0) anyStale = true;
 
-  const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
+  const unitPlan = planUnits(resolved, flags.verbs);
+  const { targets, verbSides, knownTargetDirs, identity, base: basePlan } = unitPlan;
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
-  const plan = basePlanFor(resolved, verbSides);
-  const planned = plannedAttachmentsOf(plan);
+  const planned = plannedAttachmentsOf(basePlan);
+  const units = unitTableOf(verbSides, basePlan.emits.map((e) => e.name));
   // chainErrors already names why these cannot run a pipeline; compiling them would only repeat it as a placeholder error.
   const noPipeline = new Set(tableVerbs(resolved).filter((verb) => verbPipeline(verb, resolved.pipelines).error !== null).map((verb) => verb.name));
 
   const compiled: { target: CompileTarget; outcome: CompileOutcome }[] = [];
   let neverCompiled = false;
   let compileFailed = false;
+  // A unit's map reads the maps of the units it reaches, so every target compiles before any is compared.
+  const slots: ({ target: CompileTarget; result: CompileResult } | { row: CheckVerbRow })[] = [];
+  // A target with no folder yet still compiles in memory, so the source scan reads all a recompile would write.
+  const unwritten: { target: CompileTarget; result: CompileResult }[] = [];
+  let freshWhole = true;
+  const targetCompileErrors: string[] = [];
   for (const target of targets) {
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
@@ -1655,20 +1931,58 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     if (!existsSync(outDir)) {
       anyStale = true;
       neverCompiled = true;
-      rows.push({ name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side });
+      slots.push({ row: { name: verb.name, status: "never-compiled", staleFiles: [], orphanFiles: [], side } });
+      const inMemory = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
+      if (inMemory.ok) unwritten.push({ target, result: inMemory.result });
+      else freshWhole = false;
       continue;
     }
-    if (!target.isStage && noPipeline.has(verb.name)) continue;
+    if (!target.isStage && noPipeline.has(verb.name)) {
+      freshWhole = false;
+      continue;
+    }
 
-    const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
+    const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
     if (!outcome.ok) {
       anyStale = true;
       compileFailed = true;
+      freshWhole = false;
       compileErrors.push(outcome.message);
+      targetCompileErrors.push(outcome.message);
       continue;
     }
     compiled.push({ target, outcome });
-    const { result } = outcome;
+    slots.push({ target, result: outcome.result });
+  }
+
+  let plan = basePlan;
+  let maps = new Map<string, PointerMap>();
+  const pointerConflicts: string[] = [];
+  const results = [...slots.flatMap((slot) => ("result" in slot ? [slot] : [])), ...unwritten];
+  if (identity) {
+    try {
+      const closed = attachMaps({ packDir: resolved.packDir, identity, units, compiled: results.map(({ target, result }) => ({ leaf: target.verb.name, ...result })), emits: basePlan.emits });
+      plan = { ...basePlan, emits: closed.emits };
+      maps = closed.maps;
+    } catch (err) {
+      if (!(err instanceof PointerConflictError)) throw err;
+      anyStale = true;
+      compileErrors.push(err.message);
+      pointerConflicts.push(err.message);
+    }
+  }
+  const filesOf = (target: CompileTarget, result: CompileResult) => withMapFile(result.files, maps.get(target.verb.name));
+
+  for (const slot of slots) {
+    if ("row" in slot) {
+      rows.push(slot.row);
+      continue;
+    }
+    const { target } = slot;
+    const result = { ...slot.result, files: filesOf(target, slot.result) };
+    const { verb, isPublic } = target;
+    const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
+    const side: Side = isPublic ? "skills" : "attachments";
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
     const expectedPaths = new Set(result.files.map((f) => f.path));
@@ -1694,7 +2008,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
         const stale = !existsSync(dest) || !readFileSync(dest).equals(expected);
         if (stale) {
           staleFiles.push(file.path);
-          addCause("vendored");
+          // A unit's map moves with the bodies it was read from, so its own drift names no cause of its own.
+          if (file.path !== MAP_FILE) addCause("vendored");
         }
       }
     }
@@ -1725,6 +2040,15 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     anyStale = true;
     for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.status === "stale") rows.splice(i, 1);
   }
+  const teamPaths = teamInputErrors(resolved, verbSides, planned);
+  if (teamPaths.length > 0) anyStale = true;
+  compileErrors.push(...teamPaths);
+
+  if (flags.verbs === null && !neverCompiled && !compileFailed && chainErrors.length === 0) {
+    const unclaimed = unclaimedBlockKeyErrors(resolved);
+    if (unclaimed.length > 0) anyStale = true;
+    compileErrors.push(...unclaimed);
+  }
 
   if (flags.verbs === null && !neverCompiled && !compileFailed && missing.length === 0) {
     const routed = routeFieldContract(fieldContractErrors(compiledDocsOf(compiled, plan.emits), resolved.stageEntries));
@@ -1743,7 +2067,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false, resolved.teamContext?.sawMarker === true).stale) {
+  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false, resolved.teamContext?.sawMarker === true, targets.length > 0 || plan.emits.length > 0).stale) {
     compileErrors.push("pack/requires.json is out of date with the engine's floor");
     anyStale = true;
   }
@@ -1758,8 +2082,20 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
   if (staleCopies.length > 0) anyStale = true;
   const droppedOverrides = resolved.manifestPath ? readManifestDropped(readFileSync(resolved.manifestPath, "utf8")) : [];
+  const handSkills = flags.verbs === null ? handWrittenSkills(resolved.packDir, new Set(Object.keys(verbSides))) : [];
+  const skillPaths = brokenSkillPaths(handSkills, resolved.packDir);
+  const skillFrontmatter = badSkillFrontmatter(handSkills);
+  const unitDirs = [...targets.map((t) => units[t.verb.name]!), ...(flags.verbs === null ? plan.emits.map((e) => `attachments/${e.name}`) : [])];
+  const pointerErrors = pointerErrorsIn(unitsOnDisk(resolved.packDir, unitDirs), units, fileCheckFor(resolved.packDir, []));
+  // What this run would write: a row here comes from the sources, so a recompile cannot clear it.
+  // Without every unit compiled, or with the maps in conflict, the scan has nothing whole to read.
+  const fresh = [
+    ...results.map(({ target, result }) => ({ dir: units[target.verb.name]!, files: filesOf(target, result) })),
+    ...plan.emits.map((e) => ({ dir: `attachments/${e.name}`, files: e.files })),
+  ];
+  const sourcePointerErrors = identity && freshWhole && pointerConflicts.length === 0 ? pointerErrorsIn(unitsInMemory(fresh), units, fileCheckFor(resolved.packDir, fresh)) : [];
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter, pointerErrors, sourcePointerErrors, pointerConflicts, targetCompileErrors };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1829,6 +2165,21 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
   blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
   if (payload.compileErrors.length > 0) stale = true;
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
+  const skillFrontmatter = payload.skillFrontmatter ?? [];
+  if (skillFrontmatter.length > 0) {
+    blocks.push(out.verbatim(skillFrontmatter.map(formatDiagnostic), "hand-authored skills, frontmatter"));
+    blocks.push(out.line("failed", `skill frontmatter: ${countOf(skillFrontmatter.length, "file does", "files do")} not parse as YAML`, "fix the YAML at that line"));
+  }
+  const skillPaths = payload.skillPaths ?? [];
+  if (skillPaths.length > 0) {
+    blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "hand-authored skills, paths"));
+    blocks.push(out.line("failed", `skill paths: ${countOf(skillPaths.length, "path points", "paths point")} at nothing`, "fix the path in the skill"));
+  }
+  const pointerErrors = payload.pointerErrors ?? [];
+  if (pointerErrors.length > 0) {
+    blocks.push(out.verbatim(pointerErrors.map(formatDiagnostic), "compiled skills, pointers"));
+    blocks.push(out.line("failed", `pointers: ${countOf(pointerErrors.length, "pointer problem", "pointer problems")}`, "fix it in the source, then compile again"));
+  }
   blocks.push(...fieldContractBlocks(payload.fieldContract, "advisory; it never fails a check"));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -1855,16 +2206,20 @@ export async function skillsCheck(args: string[]): Promise<void> {
     const flags = parseFlags(args);
     const payload = await computeCheck(flags);
 
-    if (payload.drift) process.exitCode = 1;
+    const failures = checkFailures(payload);
+    if (payload.drift || failures.handSkills.length + failures.pointers.length + failures.conflicts.length > 0 || (payload.pointerErrors?.length ?? 0) > 0) process.exitCode = 1;
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [] } = payload;
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [], skillFrontmatter = [], pointerErrors = [] } = payload;
       // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
       out.json({
         pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract,
         ...(staleCopies.length > 0 ? { staleCopies } : {}),
         ...(droppedOverrides.length > 0 ? { droppedOverrides } : {}),
+        ...(skillPaths.length > 0 ? { skillPaths } : {}),
+        ...(skillFrontmatter.length > 0 ? { skillFrontmatter } : {}),
+        ...(pointerErrors.length > 0 ? { pointerErrors } : {}),
       });
       return;
     }
@@ -1905,12 +2260,10 @@ export async function skillsPacks(args: string[]): Promise<void> {
 
 type OriginFields = Partial<Origin>;
 
-type CompositionSlot = {
-  name: string;
-  contract: string;
-  required: boolean;
-  boundTo: string | null;
-  layer: string | null;
+/** One value a prop keeps for the default pipeline; a prop no layer binds keeps its non-empty `default` as layer "default". */
+type CompositionPropValue = {
+  boundTo: string;
+  layer: string;
   // Fill fields (registered/inlined/fillVersion/fillSourcePath) are the
   // PLUGIN's version, not the fill's own -- AttachmentSource.version is
   // assigned pluginRoot.version, so every fill from one plugin reports an
@@ -1924,6 +2277,10 @@ type CompositionSlot = {
   resolveError?: string;
 } & OriginFields;
 
+type CompositionPropSpec = { name: string; merge: "add" | "replace"; contract: string | null; required: boolean; default: string | null };
+
+type CompositionProp = CompositionPropSpec & { values: CompositionPropValue[] };
+
 type CompositionVerb = {
   name: string;
   engine: string;
@@ -1933,7 +2290,8 @@ type CompositionVerb = {
   public: boolean;
   sourcePath: string | null;
   artifactPath: string;
-  slots: CompositionSlot[];
+  /** Keyed by block id; only blocks that declare a prop appear. */
+  props: Record<string, CompositionProp[]>;
   includes: string[];
   engineError?: string;
   /** The pipeline a work verb runs, when its stub names one. */
@@ -1947,11 +2305,11 @@ type CompositionBinder = {
   verb: string | null;
   kind: CompositionBinderKind;
   /**
-   * `layer` names the bindings layer that set the slot, as a verb slot's does.
-   * `boundTo` is "" when only pipeline overrides bind the slot; `overrides` is
+   * `layer` names the bindings layer that set the prop's last value.
+   * `boundTo` is "" when only pipeline overrides bind the prop; `overrides` is
    * present only when a pipeline overrides it.
    */
-  slots: ({ name: string; boundTo: string; layer: string | null; overrides?: CompositionBinderOverride[] } & OriginFields)[];
+  props: ({ name: string; boundTo: string; layer: string | null; overrides?: CompositionBinderOverride[] } & OriginFields)[];
 };
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean } & OriginFields;
@@ -1962,10 +2320,10 @@ type CompositionTarget = {
   public: boolean;
   artifactPath: string;
   templatePath: string | null;
-  /** Line numbers count the engine file's frontmatter, so they open the template at the right line. */
-  placeholders: { kind: string; arg: string | null; line: number }[];
-  /** The slots the template declares, so a stage's slots are known without a roster entry. */
-  slots: { name: string; contract: string; required: boolean }[];
+  /** `file` is the block file, relative to its plugin; line numbers count that file's frontmatter, so they open it at the right line. */
+  placeholders: { kind: string; arg: string | null; file: string; line: number }[];
+  /** The props the template's blocks declare, keyed by block id, so a stage's props are known without a roster entry. */
+  props: Record<string, CompositionPropSpec[]>;
   engineError: string | null;
   /** A stage copy's own stage and the pipeline it was compiled for; absent on every other target. */
   engine?: string;
@@ -1977,7 +2335,7 @@ export type CompositionPayload = {
   packDir: string;
   /**
    * The manifest that supplies these bindings, absolute -- the file to edit to
-   * rebind a slot. For a team pack it lives in a registered repo under
+   * rebind a prop. For a team pack it lives in a registered repo under
    * `~/.mattstack/repos/<repoName>/`, whose dir name is the repo, not the
    * pack, so it cannot be reconstructed from `pack`; a standalone pack's is
    * its own `<packDir>/pack/skills.jsonc`. Null when the pack has no roster
@@ -2002,10 +2360,10 @@ export type CompositionPayload = {
 };
 
 /**
- * Per-verb degradation: loadStepSource throws above the slot loop (no
- * mattstack root, engine not found, or frontmatter.type !== "pipeline-step")
- * -- any one of those would otherwise blank the whole composition payload
- * before a single verb is emitted. engineRef/plugin/sourcePath are derived
+ * Per-verb degradation: loadStepSource throws before any prop is read (no
+ * mattstack root, engine not found or not a block tree, or the root not typed
+ * "pipeline-step") -- any one of those would otherwise blank the whole
+ * composition payload before a single verb is emitted. engineRef/plugin/sourcePath are derived
  * from the loaded step, so a failed load genuinely has no bindings key: null
  * is the honest value, and the verb still appears rather than vanishing.
  */
@@ -2027,7 +2385,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
       public: isPublic,
       sourcePath: null,
       artifactPath,
-      slots: [],
+      props: {},
       includes: [],
       engineError: (err as Error).message,
       ...pipelineField,
@@ -2035,39 +2393,25 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
   }
 
   const engineRef = `${step.plugin}:${verb.engine}`;
-  const slotBindings = resolved.bindings[engineRef] ?? {};
   const stepPluginDir = resolved.pluginRoots.byName[step.plugin]?.dir ?? null;
   const sourcePath = stepPluginDir ? join(stepPluginDir, step.srcPath) : null;
+  const layered = resolved.manifestPath ? readManifestLayered(resolved.manifestPath) : {};
 
   const fillBodies: string[] = [];
-  const slots: CompositionSlot[] = Object.entries(step.slots).map(([slotName, spec]) => {
-    const boundTo = slotBindings[slotName] ?? null;
-    // required is optional on SlotSpec; default it explicitly so JSON carries
-    // "not required" rather than silently dropping the key.
-    const base = {
-      name: slotName,
-      contract: spec.contract,
-      required: spec.required ?? false,
-      boundTo,
-      layer: boundTo ? resolved.provenance[`${engineRef} ${slotName}`] ?? null : null,
-    };
-
-    if (!boundTo) {
-      return { ...base, fillSourcePath: null, fillVersion: null, registered: null, inlined: null };
-    }
-
-    // Per-slot degradation: loadAttachment throws on an unresolvable binding
+  const value = (prop: string, { layer, value: boundTo }: LayerValue): CompositionPropValue => {
+    // Per-value degradation: loadAttachment throws on an unresolvable binding
     // and on a fill missing metadata.provides -- one dangling binding must
-    // not take down every other slot's data, let alone the whole payload.
+    // not take down every other prop's data, let alone the whole payload.
     try {
-      const fill = loadAttachment(boundTo, slotName, resolved.pluginRoots);
+      const fill = loadAttachment(boundTo, prop, resolved.pluginRoots);
       const inlined = isInlined(fill, resolved.internalRoster);
       // A reference-mode fill's body never reaches the compiled output, so its
       // own {{include}} lines resolve nothing a compile emits either.
       if (inlined) fillBodies.push(fill.body);
       const fillPluginDir = resolved.pluginRoots.byName[fill.plugin]?.dir ?? null;
       return {
-        ...base,
+        boundTo,
+        layer,
         fillSourcePath: fillPluginDir ? join(fillPluginDir, fill.srcPath) : null,
         fillVersion: fill.version,
         registered: fill.registered,
@@ -2075,16 +2419,20 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
         ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
       };
     } catch (err) {
-      return {
-        ...base,
-        fillSourcePath: null,
-        fillVersion: null,
-        registered: null,
-        inlined: null,
-        resolveError: (err as Error).message,
-      };
+      return { boundTo, layer, fillSourcePath: null, fillVersion: null, registered: null, inlined: null, resolveError: (err as Error).message };
     }
-  });
+  };
+
+  const props: Record<string, CompositionProp[]> = {};
+  for (const block of walk(step.tree)) {
+    if (block.props.length === 0) continue;
+    const layers = effectiveBindings(layered, undefined, `${step.plugin}:${block.id}`);
+    props[block.id] = block.props.map((spec) => {
+      const { kept } = keptLayers(spec, layers[spec.name] ?? []);
+      const values = kept.length > 0 || !spec.default ? kept : [{ layer: "default", value: spec.default }];
+      return { ...propSpecOf(spec), values: values.map((v) => value(spec.name, v)) };
+    });
+  }
 
   return {
     name: verb.name,
@@ -2095,10 +2443,14 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
     public: isPublic,
     sourcePath,
     artifactPath,
-    slots,
-    includes: includeNames([step.body, ...fillBodies]),
+    props,
+    includes: dedupePreserveOrder([...includeNamesIn(step.tree), ...includeNames(fillBodies)]),
     ...pipelineField,
   };
+}
+
+function propSpecOf(spec: PropSpec): CompositionPropSpec {
+  return { name: spec.name, merge: spec.merge, contract: spec.contract, required: spec.default === null, default: spec.default };
 }
 
 /** A shared engine's binder names the verb that runs the default pipeline; with no default, the verb naming no pipeline, else the first listed. */
@@ -2145,31 +2497,31 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
   for (const [, overrides] of overridesByPipeline) for (const ref of Object.keys(overrides)) refs.add(ref);
 
   return [...refs].map((ref) => {
-    const verbName = verbByEngineRef.get(ref) ?? null;
+    const verbName = verbByEngineRef.get(engineRefOf(ref)) ?? null;
     const kind: CompositionBinderKind = verbName
       ? "verb"
-      : stageRefs.has(ref)
+      : stageRefs.has(engineRefOf(ref))
         ? "stage"
         : ref.startsWith("mattstack:")
           ? "skill"
           : "external";
     const defaults = Object.hasOwn(resolved.bindings, ref) ? resolved.bindings[ref]! : {};
-    const slotOverrides = (name: string): CompositionBinderOverride[] =>
+    const propOverrides = (name: string): CompositionBinderOverride[] =>
       overridesByPipeline.flatMap(([pipeline, overrides]) => {
-        const slots = Object.hasOwn(overrides, ref) ? overrides[ref]! : {};
-        if (!Object.hasOwn(slots, name)) return [];
-        return [{ pipeline, boundTo: slots[name]!, layer: resolved.provenance[pipelineBindingKey(pipeline, ref, name)] ?? null }];
+        const props = Object.hasOwn(overrides, ref) ? overrides[ref]! : {};
+        if (!Object.hasOwn(props, name)) return [];
+        return [{ pipeline, boundTo: props[name]!, layer: resolved.provenance[pipelineBindingKey(pipeline, ref, name)] ?? null }];
       });
-    const slotNames = new Set(Object.keys(defaults));
+    const propNames = new Set(Object.keys(defaults));
     for (const [, overrides] of overridesByPipeline) {
-      if (Object.hasOwn(overrides, ref)) for (const name of Object.keys(overrides[ref]!)) slotNames.add(name);
+      if (Object.hasOwn(overrides, ref)) for (const name of Object.keys(overrides[ref]!)) propNames.add(name);
     }
     return {
       ref,
       verb: verbName,
       kind,
-      slots: [...slotNames].map((name) => {
-        const overrides = slotOverrides(name);
+      props: [...propNames].map((name) => {
+        const overrides = propOverrides(name);
         const base = Object.hasOwn(defaults, name)
           ? { name, boundTo: defaults[name]!, layer: resolved.provenance[`${ref} ${name}`] ?? null, ...bindingOrigin(resolved.pluginRoots, defaults[name]!) }
           : { name, boundTo: "", layer: null };
@@ -2179,7 +2531,7 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
   });
 }
 
-/** A binder slot names its fill only by binding, so its origin is found where the verb slot's is: the dir loadAttachment resolves. */
+/** A binder prop names its fill only by binding, so its origin is found where a verb prop's is: the dir loadAttachment resolves. */
 function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
   const plugin = boundTo.split(":")[0] ?? "";
   try {
@@ -2191,14 +2543,17 @@ function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
 
 /** A `{{pipeline.table}}` expands to a `verb.path` per row, so a stage flipping public or internal still lists the work verb for rebuild. */
 function compositionPlaceholders(step: StepSource, target: CompileTarget, resolved: Resolved): CompositionTarget["placeholders"] {
-  return findPlaceholders(step.body).flatMap((p) => {
-    const line = step.bodyStartLine + p.line - 1;
-    if (p.kind !== "pipeline.table" || target.isStage) return [{ kind: p.kind, arg: p.arg, line }];
-    const { pipeline } = verbPipeline(target.verb, resolved.pipelines);
-    const entries = pipeline === null ? undefined : resolved.stageEntries[pipeline];
-    if (!entries) return [{ kind: p.kind, arg: p.arg, line }];
-    return entries.map((e) => ({ kind: "verb.path", arg: e.name, line }));
-  });
+  return walk(step.tree).flatMap((block) =>
+    findPlaceholders(block.text).flatMap((p) => {
+      const at = { file: block.relPath, line: block.textStartLine + p.line - 1 };
+      if (p.kind.startsWith("props.")) return [{ kind: "prop", arg: `${block.id}.${p.kind.slice("props.".length)}`, ...at }];
+      if (p.kind !== "pipeline.table" || target.isStage) return [{ kind: p.kind, arg: p.arg, ...at }];
+      const { pipeline } = verbPipeline(target.verb, resolved.pipelines);
+      const entries = pipeline === null ? undefined : resolved.stageEntries[pipeline];
+      if (!entries) return [{ kind: p.kind, arg: p.arg, ...at }];
+      return entries.map((e) => ({ kind: "verb.path", arg: e.name, ...at }));
+    }),
+  );
 }
 
 function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): CompositionTarget[] {
@@ -2215,11 +2570,11 @@ function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): Composi
       kind: t.isStage ? "stage" : "verb",
       public: t.isPublic,
       artifactPath: join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md"),
-      templatePath: step ? join(step.dir, "SKILL.md") : null,
+      templatePath: step ? step.tree.root.path : null,
       placeholders: step ? compositionPlaceholders(step, t, resolved) : [],
-      slots: step
-        ? Object.entries(step.slots).map(([name, spec]) => ({ name, contract: spec.contract, required: spec.required ?? false }))
-        : [],
+      props: step
+        ? Object.fromEntries(walk(step.tree).filter((b) => b.props.length > 0).map((b) => [b.id, b.props.map(propSpecOf)]))
+        : {},
       engineError,
       ...(t.isStage && t.verb.pipeline !== undefined ? { engine: t.verb.engine, pipeline: t.verb.pipeline } : {}),
     };
@@ -2233,7 +2588,7 @@ function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): Composi
  * bare names and no provides. This walks every plugin root's skills/ AND
  * attachments/ and keeps only entries carrying frontmatter metadata.provides
  * -- that field is what makes an entry a fill rather than a roster/verb
- * skill (a pipeline-step SKILL.md has slots, not provides).
+ * skill.
  */
 function enumerateFills(pluginRoots: PluginRoots): CompositionFill[] {
   const fills: CompositionFill[] = [];
@@ -2268,10 +2623,14 @@ export function compositionBlocks(payload: CompositionPayload): Block[] {
       ? out.line("failed", verb.name, verb.engineError)
       : out.tree(
           [out.strong(verb.name), "  ", out.dim(`${verb.engineRef ?? verb.engine}, ${verb.public ? "public" : "internal"}`)],
-          verb.slots.map((slot) => {
-            const bound = slot.resolveError ? `error: ${slot.resolveError}` : (slot.boundTo ?? "not bound");
-            return slot.layer ? [slot.name, bound, out.dim(slot.layer)] : [slot.name, bound];
-          }),
+          Object.entries(verb.props).flatMap(([block, props]) =>
+            props.map((prop) => {
+              const name = `${block}.${prop.name}`;
+              if (prop.values.length === 0) return [name, "not bound"];
+              const bound = prop.values.map((v) => (v.resolveError ? `error: ${v.resolveError}` : v.boundTo)).join(", ");
+              return [name, bound, out.dim(prop.values.map((v) => v.layer).join(", "))];
+            }),
+          ),
         ),
   );
   return [out.section(`Pack ${payload.pack}`, undefined, ...verbs), out.kv("Fills", String(payload.fills.length)), out.kv("Binders", String(payload.binders.length))];
@@ -2300,7 +2659,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
     // Only base text records a missing value, so a pack with no org base skips the in-memory compile.
     if (basePlan && resolved.teamContext && resolved.teamContext.basePlugins.size > 0) {
       const planned = plannedAttachmentsOf(basePlan);
-      for (const target of compilePlan.targets) tryCompileVerb(target, resolved, compilePlan.knownTargetDirs, compilePlan.verbSides, planned);
+      for (const target of compilePlan.targets) tryCompileVerb(target, resolved, compilePlan.knownTargetDirs, compilePlan.verbSides, planned, identityIfAny(resolved));
     }
     refuseMissingValues(resolved);
 
@@ -2326,7 +2685,8 @@ export async function skillsComposition(args: string[]): Promise<void> {
 
 // ─── rt skills anatomy ─────────────────────────────────────────────────────
 
-const STEP_VERSION_RE = /^<!-- part: step .*?\bversion=(\S+) /m;
+/** The engine root's seam is the file's first block seam, and it carries the engine's version. */
+const ROOT_VERSION_RE = /^<!-- part: block:\S+ .*?\bversion=(\S+) /m;
 
 /** A file's line count as an editor shows it: the trailing newline ends the last line rather than starting another. */
 function fileLineCount(text: string): number {
@@ -2361,27 +2721,43 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     }
 
     const basePlan = requireBasePlan(resolved, plan.verbSides);
-    const trace: TraceEntry[] = [];
-    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e), plannedAttachmentsOf(basePlan));
+    const planned = plannedAttachmentsOf(basePlan);
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, planned, identityIfAny(resolved));
     refuseMissingValues(resolved);
-    const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
-    if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    const main = closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned).find((f) => "content" in f && f.path === "SKILL.md");
+    if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const fresh = main.content;
-    const { step, includes, fills, slotMode } = result.anatomy;
+    const { step, includes, values } = result.anatomy;
     const renderedPath = join(outDirFor(resolved.packDir, skill, target.isPublic), "SKILL.md");
     const onDisk = readIfExists(renderedPath);
     const shown = onDisk ?? fresh;
 
-    const builtVersions = new Map(partExtents(onDisk ?? "").map((p) => [p.key, p.version]));
+    const extentsOnDisk = partExtents(onDisk ?? "");
+    const builtVersions = new Map(extentsOnDisk.map((p) => [p.key, p.version]));
+    // An add prop's values share one key, so each value reads the version on its own seam, in order.
+    const builtPropVersions = new Map<string, (string | null)[]>();
+    for (const x of extentsOnDisk) if (x.key.startsWith("prop:")) builtPropVersions.set(x.key, [...(builtPropVersions.get(x.key) ?? []), x.version]);
     const sources: Record<string, AnatomySource> = {};
+    // A tree include renders through block seams of its own, so only a flat include has an include part.
     for (const [name, inc] of Object.entries(includes)) {
+      if (inc.tree) continue;
       const key = `include:${name}`;
       sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length, ...originFor(resolved.pluginRoots, inc.plugin, inc.dir) };
     }
-    for (const [slot, fill] of Object.entries(fills)) {
-      if (!fill) continue;
-      const key = `slot:${slot}`;
-      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length, ...originFor(resolved.pluginRoots, fill.plugin, fill.dir) };
+    // An add prop renders one part per value under the same key, so each part takes its value's source in order.
+    const propSources = new Map<string, AnatomySource[]>();
+    for (const [id, props] of values) {
+      for (const [name, value] of props) {
+        const key = `prop:${id}.${name}`;
+        propSources.set(key, value.sources.map(({ fill }, i) => ({
+          ref: fill.binding,
+          path: join(fill.dir, fill.file ?? "SKILL.md"),
+          version: fill.version,
+          builtVersion: builtPropVersions.get(key)?.[i] ?? null,
+          lines: fill.body.split("\n").length,
+          ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
+        })));
+      }
     }
     const team = resolved.teamContext?.values;
     if (team) {
@@ -2391,24 +2767,16 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         sources[extent.key] = { ref: `${team.plugin}:pack/sections/${name}.md`, path: join(resolved.packDir, "pack", "sections", `${name}.md`), version: team.version, builtVersion: builtVersions.get(extent.key) ?? null, lines: extent.text.split("\n").length };
       }
     }
-    const targets: Record<string, AnatomyTarget> = {};
-    for (const t of plan.targets) {
-      const path = join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md");
-      const text = readIfExists(path);
-      targets[t.verb.name] = { skill: t.verb.name, path, lines: text === null ? null : fileLineCount(text) };
-    }
-
-    const bodyOffset = fresh.split("\n").findIndex((l) => l.startsWith("<!-- part: step ")) + 2;
     const changedKeys = onDisk ? changedPartKeys(onDisk, fresh) : new Set<string>();
     // check masks the compiler's version and sha stamps before comparing, and so must this, or the two disagree.
     const staleBecause = onDisk ? skillMdDriftCauses(maskProvenance(onDisk), maskProvenance(fresh)) : [];
     const status = onDisk === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync";
-    let parts = trace.length > 0
-      ? buildParts({ bodyStartLine: step.bodyStartLine, bodyOffset, trace, sources, targets, slotModes: slotMode, changedKeys })
-      : partsFromMarkers(shown, sources, changedKeys);
-    if (trace.length > 0) parts = withSectionParts(parts, fresh, sources, changedKeys);
-    if (trace.length > 0 && onDisk !== null && status === "stale") parts = partsOnDisk(parts, onDisk);
-    const templatePath = join(step.dir, "SKILL.md");
+    const parts = partsFromMarkers(shown, sources, changedKeys).map((part) => {
+      if (part.kind !== "prop") return part;
+      const source = propSources.get(`prop:${part.name}`)?.shift();
+      return source ? { ...part, source } : part;
+    });
+    const templatePath = step.tree.root.path;
 
     const payload: AnatomyPayload = {
       pack: resolved.team,
@@ -2420,7 +2788,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         ref: `${step.plugin}:${step.name}`,
         path: templatePath,
         version: step.version,
-        builtVersion: onDisk ? STEP_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
+        builtVersion: onDisk ? ROOT_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
         ...originFor(resolved.pluginRoots, step.plugin, step.dir),
       },
@@ -2439,6 +2807,83 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       payload.parts.map((p) => [p.kind, p.name ?? "", spanText(p.templateLines), spanText(p.renderedLines)]),
       ["Part", "Name", "Template lines", "Rendered lines"],
     ));
+  });
+}
+
+// ─── rt skills blocks ──────────────────────────────────────────────────────
+
+const KIND_GLYPH: Record<PayloadBlock["kind"], string> = { step: "○", question: "◇", gate: "⚑", note: "▤", shared: "⧉" };
+
+export function blocksTree(payload: BlocksPayload): Block {
+  const rows = payload.blocks.slice(1).map((b) => [`${"  ".repeat(b.depth - 1)}${KIND_GLYPH[b.kind]} ${b.label}`]);
+  return out.tree(payload.skill, rows);
+}
+
+/** The console reads the code: `not-a-block-tree` draws the hand-written fallback, `stale-engine` a note to update the plugin. */
+function refuseNotABlockTree(skill: string, json: boolean, staleEngine = false): void {
+  const err = staleEngine
+    ? new UserActionableError("stale-engine", "The installed mattstack plugin is older than this rt", {}, {
+        why: `Its copy of the ${skill} skill is one SKILL.md file, and this rt reads only block trees. ${STALE_ENGINE_UPDATE}`,
+        next: STALE_ENGINE_NEXT,
+      })
+    : new UserActionableError("not-a-block-tree", `The ${skill} skill is not built from blocks`, {}, { why: "It is written as one SKILL.md file, not a folder of block files." });
+  if (json) out.json(userErrorPayload(err));
+  else out.fail(failureFor(err));
+  process.exitCode = 1;
+}
+
+export async function skillsBlocks(args: string[]): Promise<void> {
+  await withCleanErrors(args, async () => {
+    const at = args.indexOf("--skill");
+    if (at < 0) throw new SkillsUsageError("rt skills blocks needs --skill <name>", usageFailure("Which skill?", "rt skills blocks --skill <name>"));
+    const skill = requireFlagValue("--skill", args[at + 1]);
+    const flags = parseFlags([...args.slice(0, at), ...args.slice(at + 2)]);
+    const resolved = await resolve(flags);
+    const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
+    const plan = compileTargets(resolved, publicSet, null);
+    const target = plan.targets.find((t) => t.verb.name === skill);
+    if (!target) {
+      if (enumerateRegistered(resolved.packDir).has(skill)) return refuseNotABlockTree(skill, flags.json);
+      throw new SkillsUsageError(`no skill named "${skill}" in pack ${resolved.team}`, {
+        title: `The ${resolved.team} pack has no skill called ${skill}`,
+        next: out.cmd(`rt skills surface list --pack ${resolved.team}`),
+      });
+    }
+
+    // Before compiling, so an engine with no block tree answers not-a-block-tree rather than a load error.
+    try {
+      loadStepSource(target.verb.engine, resolved.pluginRoots);
+    } catch (err) {
+      if (err instanceof NotABlockTreeError) return refuseNotABlockTree(skill, flags.json, true);
+      if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+      throw new SkillsUsageError(`skill "${skill}": ${(err as Error).message}`);
+    }
+
+    const basePlan = requireBasePlan(resolved, plan.verbSides);
+    const planned = plannedAttachmentsOf(basePlan);
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, planned, identityIfAny(resolved));
+    refuseMissingValues(resolved);
+    const main = closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned).find((f) => "content" in f && f.path === "SKILL.md");
+    if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    const { step, includes, values } = result.anatomy;
+    const tree = step.tree;
+
+    const payload = buildBlocksPayload({
+      pack: resolved.team,
+      skill,
+      kind: target.isStage ? "stage" : "verb",
+      plugin: step.plugin,
+      tree,
+      includes: Object.fromEntries(Object.entries(includes).flatMap(([name, inc]) => (inc.tree ? [[name, inc.tree] as const] : []))),
+      values,
+      compiled: main.content,
+      base: basePlan.base?.name ?? null,
+    });
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    out.print(blocksTree(payload));
   });
 }
 
@@ -2779,8 +3224,9 @@ async function resolveSurfacePaths(flags: SurfaceFlags): Promise<{ packDir: stri
   return { packDir: target.packDir };
 }
 
+/** A block tree is engine source, never compile output, so it is never swept as a stale compiled dir. */
 function isHandWrittenDir(dir: string): boolean {
-  return existsSync(join(dir, "SKILL.md")) && !isCompiledDir(dir);
+  return isBlockTree(dir) || (existsSync(join(dir, "SKILL.md")) && !isCompiledDir(dir));
 }
 
 function isCompiledDir(dir: string): boolean {
@@ -2794,7 +3240,7 @@ function classify(name: string, dir: string | null, verbNames: Set<string>): "co
   return "hand-authored";
 }
 
-/** An engine a team pack compiles from: published as-is, its slots would ship unfilled. */
+/** An engine a team pack compiles from: published as-is, its placeholders would ship unfilled. */
 function isTemplate(name: string, dir: string | undefined, verbNames: Set<string>, stageNames: Set<string>): boolean {
   if (!dir || verbNames.has(name) || stageNames.has(name) || isCompiledDir(dir)) return false;
   const skillMd = join(dir, "SKILL.md");
@@ -2844,7 +3290,7 @@ function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
     }
   }
   try {
-    return new Set(stageRoster(readManifestPipelines(manifest), readManifestPipelineBindings(manifest), readManifestBindings(manifest)).map((v) => v.name));
+    return new Set(stageRoster(readManifestPipelines(manifest), readManifestPipelineLayered(manifest), readManifestLayered(manifest)).map((v) => v.name));
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
@@ -2856,7 +3302,7 @@ export function computeRows(
   surface: SurfaceConfig | null,
   stageNames: Set<string>,
 ): { source: string; rows: SurfaceRow[] } {
-  const { skillsNames, attachmentNames, allNames, skillEntries, attachmentEntries } = collectRegistry(packDir, verbNames);
+  const { skillsNames, allNames, skillEntries, attachmentEntries } = collectRegistry(packDir, verbNames);
   const publicSet = surface ? new Set(surface.public) : defaultPublicSet(skillsNames, verbNames);
   const surfacePath = surfaceFileFor(packDir);
   const source = surface && surfacePath
@@ -3319,7 +3765,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
   });
 }
 
-// ─── rt skills bind -- write bindings.<engineRef>.<slot> = <fill>, preserving manifest comments ──
+// ─── rt skills bind -- write bindings.<engineRef>[/<block path>].<prop> = <fill>, preserving manifest comments ──
 
 type BindFlags = {
   team: string | null;
@@ -3365,16 +3811,9 @@ function parseBindFlags(args: string[]): BindFlags {
   return { team, manifest, repo, dryRun, packDir, mattstackDir, json, pipeline, unset };
 }
 
-type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: string[] };
+type PickedBind = { verbName: string; blockPath: string; propName: string; fill: string; flagArgs: string[] };
 
-/**
- * TTY-only chained pickers for an omitted <verb>/<slot>/<fill>, resolved left to
- * right from the pack's roster + manifest. Returns null when nothing needs
- * picking (all three positionals present) or a step's candidate set is empty, so
- * skillsBind falls through to its existing error -- the non-TTY / --json paths
- * never call this and stay byte-for-byte unchanged.
- */
-/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json/--unset boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir/--pipeline). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
+/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json/--unset boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir/--pipeline). Keeps the &lt;verb&gt; &lt;block&gt; &lt;prop&gt; &lt;fill&gt; count right even when flags are interleaved. */
 function separateBindArgs(args: string[]): { positionals: string[]; flagArgs: string[] } {
   const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir", "--pipeline"]);
   const positionals: string[] = [];
@@ -3399,9 +3838,25 @@ function splitPluginPrefix(name: string): { plugin: string | null; name: string 
   return colon === -1 ? { plugin: null, name } : { plugin: name.slice(0, colon), name: name.slice(colon + 1) };
 }
 
+/** The engine's blocks are found by id (`ship/flow/x`) or by their path under the engine root (`flow/x`). */
+function findBindBlock(tree: BlockTree, path: string): BlockNode | null {
+  return tree.byId.get(path) ?? tree.byId.get(`${tree.root.id}/${path}`) ?? null;
+}
+
+function propList(block: BlockNode): string {
+  return block.props.map((p) => p.name).join(", ") || "none";
+}
+
+/**
+ * TTY-only chained pickers for an omitted <verb>/<block>/<prop>/<fill>, resolved
+ * left to right from the pack's roster + manifest. Returns null when nothing needs
+ * picking (all four positionals present) or a step's candidate set is empty, so
+ * skillsBind falls through to its existing error -- the non-TTY / --json paths
+ * never call this and stay byte-for-byte unchanged.
+ */
 async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
   const { positionals, flagArgs } = separateBindArgs(args);
-  if (positionals.length >= 3) return null;
+  if (positionals.length >= 4) return null;
 
   const bindFlags = parseBindFlags(flagArgs);
   const resolved = await resolve({
@@ -3449,35 +3904,43 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
   } catch {
     return null;
   }
+  const tree = step.tree;
 
-  let slotName = positionals[1];
-  if (!slotName) {
-    const options = Object.entries(step.slots).map(([name, spec]) => ({
-      value: name,
-      label: name,
-      hint: `${spec.contract}${spec.required ? "  required" : ""}`,
-    }));
+  let blockPath = positionals[1];
+  if (!blockPath) {
+    const options = walk(tree).filter((b) => b.props.length > 0).map((b) => ({ value: b.id, label: b.id, hint: b.props.map((p) => p.name).join(" ") }));
     if (options.length === 0) return null;
-    const picked = await filterableSelect({ message: `which slot on "${verbName}"?`, options, stderr: true });
+    const picked = await filterableSelect({ message: `which block on "${verbName}"?`, options, stderr: true });
     if (picked === null) process.exit(0);
-    slotName = picked;
+    blockPath = picked;
+  }
+  const block = findBindBlock(tree, blockPath);
+  if (!block) return null;
+
+  let propName = positionals[2];
+  if (!propName) {
+    const options = block.props.map((p) => ({ value: p.name, label: p.name, hint: `${p.merge}${p.contract ? `  ${p.contract}` : ""}${p.default === null ? "  required" : ""}` }));
+    if (options.length === 0) return null;
+    const picked = await filterableSelect({ message: `which prop on "${block.id}"?`, options, stderr: true });
+    if (picked === null) process.exit(0);
+    propName = picked;
   }
 
-  const slotSpec = step.slots[slotName];
-  if (!slotSpec) return null;
+  const spec = block.props.find((p) => p.name === propName);
+  if (!spec) return null;
 
-  let fill = positionals[2];
+  let fill = positionals[3];
   if (!fill) {
     const options = enumerateFills(resolved.pluginRoots)
-      .filter((f) => f.provides === slotSpec.contract)
+      .filter((f) => spec.contract === null || f.provides === spec.contract)
       .map((f) => ({ value: f.binding, label: f.binding, hint: `${f.provides}  ${f.registered ? "registered" : "attachment"}` }));
     if (options.length === 0) return null;
-    const picked = await filterableSelect({ message: `which fill for "${slotName}" (${slotSpec.contract})?`, options, stderr: true });
+    const picked = await filterableSelect({ message: `which fill for "${block.id}.${propName}"${spec.contract ? ` (${spec.contract})` : ""}?`, options, stderr: true });
     if (picked === null) process.exit(0);
     fill = picked;
   }
 
-  return { verbName, slotName, fill, flagArgs };
+  return { verbName, blockPath, propName, fill, flagArgs };
 }
 
 export type RegenerateOutcome = { ok: true } | { ok: false; detail: string };
@@ -3488,7 +3951,7 @@ export type BindOutcome = {
   shadowedBy: string | null;
   regenerated?: boolean;
   regenerateDetail?: string;
-  /** An unset's fill the slot reads in the written manifest; absent when that manifest was not rebuilt. */
+  /** An unset's fill the prop reads in the written manifest; absent when that manifest was not rebuilt. */
   to?: string;
 };
 
@@ -3502,11 +3965,12 @@ export type BindOutcome = {
 export async function applyBind(opts: {
   manifestPath: string;
   packDir: string;
-  engineRef: string;
-  slotName: string;
+  /** The binding key: `<engineRef>` for the engine's root block, `<engineRef>/<block path>` for any other. */
+  key: string;
+  prop: string;
   fill: string;
   pipeline: string | null;
-  /** Removes this pack's override at the slot instead of writing `fill`; needs `pipeline`. */
+  /** Removes this pack's override at the prop instead of writing `fill`; needs `pipeline`. */
   unset?: boolean;
   fixtureMode: boolean;
   materialize: () => Promise<RegenerateOutcome>;
@@ -3514,11 +3978,11 @@ export async function applyBind(opts: {
   const formattingOptions = { insertSpaces: true, tabSize: 2 };
   const unsetPipeline = opts.unset ? opts.pipeline : null;
   if (opts.unset && unsetPipeline === null) throw new SkillsUsageError("--unset removes a pipeline override; name the pipeline with --pipeline");
-  const overrideKey = opts.pipeline === null ? `${opts.engineRef} ${opts.slotName}` : pipelineBindingKey(opts.pipeline, opts.engineRef, opts.slotName);
+  const overrideKey = opts.pipeline === null ? `${opts.key} ${opts.prop}` : pipelineBindingKey(opts.pipeline, opts.key, opts.prop);
   const edit = (text: string) => {
-    if (unsetPipeline !== null) return removePipelineOverride(text, unsetPipeline, opts.engineRef, opts.slotName);
+    if (unsetPipeline !== null) return removePipelineOverride(text, unsetPipeline, opts.key, opts.prop);
     if (opts.pipeline === null) {
-      return applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
+      return applyEdits(text, modify(text, ["bindings", opts.key, opts.prop], opts.fill, { formattingOptions }));
     }
     const pipelinePath = ["pipelines", opts.pipeline];
     const root = parseTree(text);
@@ -3527,16 +3991,16 @@ export async function applyBind(opts: {
     const objectForm = current?.type === "array"
       ? applyEdits(text, modify(text, pipelinePath, { stages: getNodeValue(current) }, { formattingOptions }))
       : text;
-    return applyEdits(objectForm, modify(objectForm, [...pipelinePath, "bindings", opts.engineRef, opts.slotName], opts.fill, { formattingOptions }));
+    return applyEdits(objectForm, modify(objectForm, [...pipelinePath, "bindings", opts.key, opts.prop], opts.fill, { formattingOptions }));
   };
   // A manifest edited in place gets no materialize to rewrite its header, so an unset drops the override's provenance line itself.
   const editManifest = (text: string) => (unsetPipeline === null ? edit(text) : dropProvenanceLine(edit(text), overrideKey));
   const afterUnset = (outcome: BindOutcome): BindOutcome => {
     if (unsetPipeline === null) return outcome;
     const overrides = readManifestPipelineBindings(opts.manifestPath)[unsetPipeline];
-    const stillOverridden = overrides?.[opts.engineRef]?.[opts.slotName] !== undefined;
+    const stillOverridden = overrides?.[opts.key]?.[opts.prop] !== undefined;
     const shadowedBy = stillOverridden ? readManifestProvenance(readFileSync(opts.manifestPath, "utf8"))[overrideKey] ?? "another layer" : null;
-    const to = effectiveSlotBindings(readManifestBindings(opts.manifestPath), overrides, opts.engineRef)[opts.slotName] || "(unbound)";
+    const to = lastWinsBindings(readManifestBindings(opts.manifestPath), overrides, opts.key)[opts.prop] || "(unbound)";
     return { ...outcome, shadowedBy, to };
   };
   const writeManifestOnly = (): BindOutcome => {
@@ -3573,8 +4037,8 @@ export async function applyBind(opts: {
   if (unsetPipeline !== null) return afterUnset({ fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true });
 
   const landed = opts.pipeline === null
-    ? readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName]
-    : readManifestPipelineBindings(opts.manifestPath)[opts.pipeline]?.[opts.engineRef]?.[opts.slotName];
+    ? readManifestBindings(opts.manifestPath)[opts.key]?.[opts.prop]
+    : readManifestPipelineBindings(opts.manifestPath)[opts.pipeline]?.[opts.key]?.[opts.prop];
   if (landed === opts.fill) {
     return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true };
   }
@@ -3609,9 +4073,10 @@ export async function regeneratePackFile(manifestPath: string): Promise<Regenera
   return regenerateOutcomeFor(await materializeSkills(p, { dir }), manifestPath);
 }
 
+/** `target` is `<block id>.<prop>`, the name compile's diagnostics and composition use. */
 export function bindBlocks(b: {
   verb: string;
-  slot: string;
+  target: string;
   from: string;
   to: string;
   dryRun: boolean;
@@ -3623,50 +4088,58 @@ export function bindBlocks(b: {
     if (u.rebuilt === false) return `Removed this pack's ${u.pipeline} override.`;
     return u.stillOverriddenBy
       ? `Removed this pack's ${u.pipeline} override, but ${u.stillOverriddenBy}'s override still applies.`
-      : `Removed the ${u.pipeline} override, so this slot falls back to the default.`;
+      : `Removed the ${u.pipeline} override, so this prop falls back to the default.`;
   };
   const unsetNote = !b.unset || b.dryRun ? [] : [out.callout("note", unsetText(b.unset))];
   return [
-    out.line(b.dryRun ? "pending" : "done", `${b.verb}.${b.slot}`, `${b.from} -> ${b.to}`),
+    out.line(b.dryRun ? "pending" : "done", `${b.verb} ${b.target}`, `${b.from} -> ${b.to}`),
     ...unsetNote,
     ...(b.fragmentUpdated ? [out.callout("note", ["Also saved in the pack's own bindings file: ", out.dim(b.fragmentUpdated)])] : []),
     ...(b.basePack ? [out.callout("note", `${b.basePack} is a base pack. Packs that extend it pick this up once it is published and their bindings are rebuilt.`)] : []),
   ];
 }
 
-export function shadowWarning(verb: string, slot: string, layer: string, manifestPath: string): Block[] {
+export function shadowWarning(verb: string, target: string, layer: string, manifestPath: string): Block[] {
   return [
-    out.line("warn", `${verb}.${slot} is still decided by the ${layer} layer`, "your change is saved, but that layer wins"),
+    out.line("warn", `${verb} ${target} is still decided by the ${layer} layer`, "your change is saved, but that layer wins"),
     out.callout("note", ["The winning value is in ", out.dim(manifestPath)]),
   ];
 }
 
+function bindUsageError(): SkillsUsageError {
+  return new SkillsUsageError("bind requires: rt skills bind <verb> <block> <prop> <fill>", usageFailure("Bind which verb, block, prop and fill?", "rt skills bind <verb> <block> <prop> <fill> [--pipeline <name>]"));
+}
+
 export async function skillsBind(args: string[]): Promise<void> {
   await withCleanErrors(args, async () => {
-    // Positionals, not raw args, so an interleaved flag (bind verb --pack x slot
-    // fill) doesn't read as a filled <slot>/<fill> and skip the picker.
+    // Positionals, not raw args, so an interleaved flag (bind verb --pack x block
+    // prop fill) doesn't read as a filled <block>/<prop>/<fill> and skip the picker.
     const { positionals, flagArgs } = separateBindArgs(args);
-    let [verbName, slotName, fill] = positionals;
+    let [verbName, blockPath, propName, fill] = positionals;
+    // Three positionals may be the old <verb> <slot> <fill>; whether the middle one names a replaced slot is known once the engine loads.
+    let slotForm: string | null = null;
     let rest = flagArgs;
     const unset = flagArgs.includes("--unset");
     if (unset) {
       if (parseBindFlags(flagArgs).pipeline === null) throw new SkillsUsageError("--unset removes a pipeline override; name the pipeline with --pipeline");
       if (fill !== undefined) throw new SkillsUsageError("--unset takes no fill");
-      if (!verbName || !slotName) {
-        throw new SkillsUsageError("bind --unset requires: rt skills bind <verb> <slot> --pipeline <name> --unset", usageFailure("Remove the override on which verb and slot?", "rt skills bind <verb> <slot> --pipeline <name> --unset"));
+      if (!verbName || !blockPath || !propName) {
+        throw new SkillsUsageError("bind --unset requires: rt skills bind <verb> <block> <prop> --pipeline <name> --unset", usageFailure("Remove the override on which verb, block and prop?", "rt skills bind <verb> <block> <prop> --pipeline <name> --unset"));
       }
     } else {
-      if ((!verbName || !slotName || !fill) && process.stdin.isTTY && !args.includes("--json") && !process.env.RT_BATCH) {
+      if ((!verbName || !blockPath || !propName || !fill) && process.stdin.isTTY && !args.includes("--json") && !process.env.RT_BATCH) {
         const picked = await pickBindArgs(args);
         if (picked) {
           verbName = picked.verbName;
-          slotName = picked.slotName;
+          blockPath = picked.blockPath;
+          propName = picked.propName;
           fill = picked.fill;
           rest = picked.flagArgs;
         }
       }
-      if (!verbName || !slotName || !fill) {
-        throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill> [--pipeline <name>]"));
+      if (!verbName || !blockPath || !propName || !fill) {
+        if (positionals.length !== 3) throw bindUsageError();
+        slotForm = positionals[1]!;
       }
     }
 
@@ -3691,7 +4164,7 @@ export async function skillsBind(args: string[]): Promise<void> {
     const pipelineProblem = pipeline === null ? null : pipelineNameError(pipeline);
     if (pipelineProblem) throw new SkillsUsageError(pipelineProblem);
 
-    const typedName = verbName;
+    const typedName = verbName!;
     const { plugin: typedPlugin, name: bareName } = splitPluginPrefix(typedName);
     verbName = bareName;
     // Roster verb wins on a name collision -- resolve() lets compileTargets reject
@@ -3707,9 +4180,9 @@ export async function skillsBind(args: string[]): Promise<void> {
     if (!verb && resolved.base && resolved.fullRoster.length === 0) {
       const fragment = join(resolved.packDir, "pack", "skills.jsonc");
       throw new SkillsUsageError(
-        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${fragment} directly`,
+        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the prop; edit ${fragment} directly`,
         {
-          title: `${resolved.team} is a base pack with no verbs of its own, so rt cannot check the slot`,
+          title: `${resolved.team} is a base pack with no verbs of its own, so rt cannot check the prop`,
           why: "Edit its bindings file by hand.",
           details: fragment,
         },
@@ -3727,8 +4200,11 @@ export async function skillsBind(args: string[]): Promise<void> {
     try {
       step = loadStepSource(verb.engine, resolved.pluginRoots);
     } catch (err) {
+      if (err instanceof BlockError) throw new SkillsUsageError(err.message);
+      if (err instanceof NotABlockTreeError) throw new StaleEngineError(`verb "${verbName}": ${err.message}`);
       throw new SkillsUsageError(`verb "${verbName}": ${(err as Error).message}`);
     }
+    const tree = step.tree;
 
     if (typedPlugin !== null && typedPlugin !== step.plugin) {
       throw new SkillsUsageError(`"${typedName}" names plugin ${typedPlugin}, but ${verbName} comes from ${step.plugin}; bind ${verbName} or ${step.plugin}:${verbName}`);
@@ -3738,22 +4214,38 @@ export async function skillsBind(args: string[]): Promise<void> {
       throw new SkillsUsageError(`${verbName} is not a stage of pipeline "${pipeline}"`);
     }
 
-    const slotSpec = step.slots[slotName];
-    if (!slotSpec) {
-      const known = Object.keys(step.slots).sort();
-      throw new SkillsUsageError(
-        `slot "${slotName}" not declared on verb "${verbName}"'s step (known slots: ${known.join(", ") || "none"})`,
-      );
+    if (slotForm !== null) {
+      if (tree.root.props.some((p) => p.name === slotForm)) {
+        const words = [verbName, tree.root.id, slotForm, positionals[2]!, ...rest.filter((a) => a !== "--json")];
+        const rootForm = ["rt skills bind", ...words.map(shellQuote)].join(" ");
+        throw new SkillsUsageError(`"${slotForm}" is a prop of ${verbName}'s root block "${tree.root.id}"; name the block too: ${rootForm}`, {
+          title: `Name the block before the prop: ${slotForm} is a prop of ${verbName}'s root block`,
+          next: out.cmd(rootForm),
+        });
+      }
+      if (replacedSlots(tree).includes(slotForm) && !findBindBlock(tree, slotForm)) throw new SkillsUsageError(oldSlotBindingMessage(engineRef, slotForm, tree));
+      throw bindUsageError();
     }
+    const block = findBindBlock(tree, blockPath!);
+    if (!block) {
+      const withProps = walk(tree).filter((b) => b.props.length > 0).map((b) => b.id);
+      throw new SkillsUsageError(`block "${blockPath}" is not in verb "${verbName}"'s engine (blocks with props: ${withProps.join(", ") || "none"})`);
+    }
+    const spec = block.props.find((p) => p.name === propName);
+    if (!spec) {
+      throw new SkillsUsageError(`block "${block.id}" declares no prop "${propName}" (its props: ${propList(block)})`);
+    }
+    const key = `${step.plugin}:${block.id}`;
+    const target = `${block.id}.${spec.name}`;
 
     const unsetPipeline = unset ? pipeline : null;
     if (unsetPipeline !== null) {
-      if (resolved.pipelineBindings[unsetPipeline]?.[engineRef]?.[slotName] === undefined) {
-        throw new SkillsUsageError(`${unsetPipeline} has no override for ${verbName}.${slotName}`);
+      if (resolved.pipelineBindings[unsetPipeline]?.[key]?.[spec.name] === undefined) {
+        throw new SkillsUsageError(`${unsetPipeline} has no override for ${verbName} ${target}`);
       }
-      const layer = resolved.provenance[pipelineBindingKey(unsetPipeline, engineRef, slotName)];
+      const layer = resolved.provenance[pipelineBindingKey(unsetPipeline, key, spec.name)];
       if (layer !== undefined && layer !== "pack") {
-        throw new SkillsUsageError(`${unsetPipeline}'s override for ${verbName}.${slotName} comes from ${layer}; remove it there`);
+        throw new SkillsUsageError(`${unsetPipeline}'s override for ${verbName} ${target} comes from ${layer}; remove it there`);
       }
     } else {
       // loadAttachment throws a plain Error on an unresolvable binding or a fill
@@ -3761,14 +4253,14 @@ export async function skillsBind(args: string[]): Promise<void> {
       // validation failure here, instead of surfacing as an uncaught crash.
       let attachment;
       try {
-        attachment = loadAttachment(fill ?? "", slotName, resolved.pluginRoots);
+        attachment = loadAttachment(fill ?? "", spec.name, resolved.pluginRoots);
       } catch (err) {
         throw new SkillsUsageError((err as Error).message);
       }
 
-      if (attachment.provides !== slotSpec.contract) {
+      if (spec.contract !== null && attachment.provides !== spec.contract) {
         throw new SkillsUsageError(
-          `fill "${fill}" provides "${attachment.provides}", but slot "${slotName}" demands "${slotSpec.contract}"`,
+          `fill "${fill}" provides "${attachment.provides}", but prop "${target}" demands "${spec.contract}"`,
         );
       }
     }
@@ -3778,10 +4270,10 @@ export async function skillsBind(args: string[]): Promise<void> {
     }
 
     const oldValue = pipeline === null
-      ? resolved.bindings[engineRef]?.[slotName] ?? "(unbound)"
-      : effectiveSlotBindings(resolved.bindings, resolved.pipelineBindings[pipeline], engineRef)[slotName] || "(unbound)";
+      ? resolved.bindings[key]?.[spec.name] ?? "(unbound)"
+      : lastWinsBindings(resolved.bindings, resolved.pipelineBindings[pipeline], key)[spec.name] || "(unbound)";
     // Before the write, an unset can only predict the default fill: provenance names the winning layer, not a lower one under it.
-    const predictedTo = unset ? resolved.bindings[engineRef]?.[slotName] || "(unbound)" : fill ?? "";
+    const predictedTo = unset ? resolved.bindings[key]?.[spec.name] || "(unbound)" : fill ?? "";
     const pipelineField = pipeline === null ? {} : { pipeline };
     const unsetField = unset ? { unset: true } : {};
     const label = pipeline === null ? verbName : `${pipeline}: ${verbName}`;
@@ -3790,15 +4282,15 @@ export async function skillsBind(args: string[]): Promise<void> {
         refuseUnlessPackOwned(resolved.packDir);
       } catch (err) {
         if (!(err instanceof SkillsRefusal) || !bindFlags.json) throw err;
-        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: predictedTo, ...unsetField, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
+        out.json({ ok: false, verb: verbName, block: block.id, prop: spec.name, ...pipelineField, from: oldValue, to: predictedTo, ...unsetField, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
         process.exit(2);
       }
     }
     const unsetNote = (stillOverriddenBy: string | null) => (unsetPipeline === null ? {} : { unset: { pipeline: unsetPipeline, stillOverriddenBy } });
-    const bound = { verb: label, slot: slotName, from: oldValue, to: predictedTo, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null, ...unsetNote(null) };
+    const bound = { verb: label, target, from: oldValue, to: predictedTo, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null, ...unsetNote(null) };
 
     if (bindFlags.dryRun) {
-      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to: predictedTo, ...unsetField });
+      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, block: block.id, prop: spec.name, ...pipelineField, from: oldValue, to: predictedTo, ...unsetField });
       else out.print(...bindBlocks(bound));
       return;
     }
@@ -3807,8 +4299,8 @@ export async function skillsBind(args: string[]): Promise<void> {
     const { fragmentUpdated, shadowedBy, regenerated, regenerateDetail, to: landedTo } = await applyBind({
       manifestPath,
       packDir: resolved.packDir,
-      engineRef,
-      slotName,
+      key,
+      prop: spec.name,
       fill: fill ?? "",
       pipeline,
       unset,
@@ -3819,7 +4311,7 @@ export async function skillsBind(args: string[]): Promise<void> {
     const written = { ...bound, to, ...unsetNote(shadowedBy) };
     if (resolved.base) {
       if (bindFlags.json) {
-        out.json({ ok: true, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to, ...unsetField, fragmentUpdated, shadowedBy, base: true });
+        out.json({ ok: true, verb: verbName, block: block.id, prop: spec.name, ...pipelineField, from: oldValue, to, ...unsetField, fragmentUpdated, shadowedBy, base: true });
         return;
       }
       out.print(...bindBlocks({ ...written, basePack: resolved.team }));
@@ -3829,14 +4321,14 @@ export async function skillsBind(args: string[]): Promise<void> {
     if (regenerated === false) {
       process.exitCode = 1;
       if (bindFlags.json) {
-        out.json({ ok: false, verb: verbName, slot: slotName, ...pipelineField, from: oldValue, to, ...unsetField, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
+        out.json({ ok: false, verb: verbName, block: block.id, prop: spec.name, ...pipelineField, from: oldValue, to, ...unsetField, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
         return;
       }
       out.print(...bindBlocks({ ...written, fragmentUpdated, ...(written.unset ? { unset: { ...written.unset, rebuilt: false } } : {}) }));
       out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
-    if (shadowedBy && !unset) out.note(...shadowWarning(label, slotName, shadowedBy, manifestPath));
+    if (shadowedBy && !unset) out.note(...shadowWarning(label, target, shadowedBy, manifestPath));
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
@@ -3859,7 +4351,8 @@ export async function skillsBind(args: string[]): Promise<void> {
       out.json({
         ok: compileResult.ok,
         verb: verbName,
-        slot: slotName,
+        block: block.id,
+        prop: spec.name,
         ...pipelineField,
         from: oldValue,
         to,

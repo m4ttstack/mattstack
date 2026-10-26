@@ -2,27 +2,26 @@ import { useCallback, useMemo } from 'react';
 import { useSearch } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
-export type DrawerTab = 'text' | 'used-by' | 'history';
 export type WiringTab = 'graph' | 'surface' | 'health';
 export type WiringView = 'template' | 'rendered';
+/** The block view's two graphs, as `select` names them: the block map and
+    Every step. */
+export type BlockGraphSelect = 'graph' | 'graph-steps';
 
 export type WiringUrl = {
   tab: WiringTab;
   pack: string | null;
   focus: string | null;
   select: string | null;
-  drawerTab: DrawerTab;
   view: WiringView | null;
-  rebind: boolean;
   attention: boolean;
+  block: string | null;
 };
 
 const TABS: readonly WiringTab[] = ['graph', 'surface', 'health'];
-const DRAWER_TABS: readonly DrawerTab[] = ['text', 'used-by', 'history'];
 const VIEWS: readonly WiringView[] = ['template', 'rendered'];
 
 const DEFAULT_TAB: WiringTab = 'graph';
-const DEFAULT_DRAWER_TAB: DrawerTab = 'text';
 
 /** Every key this module reads and writes, in the order `formatWiringUrl`
     emits them. */
@@ -31,10 +30,9 @@ const KEYS = [
   'pack',
   'focus',
   'select',
-  'drawerTab',
   'view',
-  'rebind',
   'attention',
+  'block',
 ] as const;
 
 function oneOf<T extends string>(
@@ -67,18 +65,20 @@ export function parseWiringUrl(search: string): WiringUrl {
     pack: text('pack'),
     focus: text('focus'),
     select: text('select'),
-    drawerTab: oneOf(DRAWER_TABS, params.get('drawerTab'), DEFAULT_DRAWER_TAB),
     view: oneOf(VIEWS, params.get('view'), null),
-    rebind: params.get('rebind') === '1',
     attention: params.get('attention') === '1',
+    block: text('block'),
   };
 }
 
-/** `:` and `@` stay literal: refs read as `pipeline:feature` and steps as
-    `stage-plan@accessibility` in a shared link, and both are legal in a
-    query string. */
+/** `:`, `@` and `/` stay literal: refs read as `pipeline:feature`, steps as
+    `stage-plan@accessibility` and blocks as `mini/run` in a shared link, and
+    all three are legal in a query string. */
 function encodeValue(value: string): string {
-  return encodeURIComponent(value).replace(/%3A/g, ':').replace(/%40/g, '@');
+  return encodeURIComponent(value)
+    .replace(/%3A/g, ':')
+    .replace(/%40/g, '@')
+    .replace(/%2F/g, '/');
 }
 
 /**
@@ -91,20 +91,16 @@ export function formatWiringUrl(state: WiringUrl): string {
     ['pack', state.pack],
     ['focus', state.focus],
     ['select', state.select],
-    [
-      'drawerTab',
-      state.drawerTab === DEFAULT_DRAWER_TAB ? null : state.drawerTab,
-    ],
     ['view', state.view],
-    ['rebind', state.rebind ? '1' : null],
     ['attention', state.attention ? '1' : null],
+    ['block', state.block],
   ];
   return pairs
     .flatMap(([key, value]) => (value ? [`${key}=${encodeValue(value)}`] : []))
     .join('&');
 }
 
-const TEXT_KEYS = ['pack', 'focus', 'select'] as const;
+const TEXT_KEYS = ['pack', 'focus', 'select', 'block'] as const;
 
 /** An omitted key keeps its value; an empty string is no value, the same as
     `null`, so `focus: ''` is neither written to the URL nor a refocus. */
@@ -116,9 +112,13 @@ function normalise(change: Partial<WiringUrl>): Partial<WiringUrl> {
   return defined;
 }
 
+/** Keys this module once wrote, for the drawer and its Rebind panel: an old
+    link still opens, and its next patch drops them. */
+const RETIRED = ['drawerTab', 'rebind'] as const;
+
 function otherParams(search: string): string {
   const params = new URLSearchParams(search);
-  for (const key of KEYS) params.delete(key);
+  for (const key of [...KEYS, ...RETIRED]) params.delete(key);
   return params.toString();
 }
 
@@ -138,7 +138,8 @@ function pushes(current: WiringUrl, next: WiringUrl): boolean {
  * The Graph tab's state, read from and written to the query string.
  *
  * Changes cascade down one chain: a new `pack` drops `focus`, a new `focus`
- * drops `select`, a new `select` drops `rebind` and `view`. A value set in
+ * drops `select` and `block` (a block id belongs to one skill), a new
+ * `select` drops `view`. A value set in
  * the same patch always wins over the drop, so a deep link patches the whole
  * chain in one call. Query keys this hook does not own are kept.
  */
@@ -161,8 +162,8 @@ export function useWiringUrl(): [
     if (packChanged && change.focus === undefined) next.focus = null;
     const focusChanged = packChanged || next.focus !== current.focus;
     if (focusChanged && change.select === undefined) next.select = null;
+    if (focusChanged && change.block === undefined) next.block = null;
     if (focusChanged || next.select !== current.select) {
-      if (change.rebind === undefined) next.rebind = false;
       if (change.view === undefined) next.view = null;
     }
 

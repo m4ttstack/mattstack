@@ -1,0 +1,4 @@
+1. run_field_get, worktree_provision (precheck), worktree_provision (codes), EnterWorktree
+2. Yes: the domain's rule is inlined under "Follow the domain's provision flow", so interactive mode routes into it, and its provisioning branch leads to the precheck.
+3. not shown
+4. None; the gate is never presented, because the inlined domain rule keeps the `sameTicket` tree off the resume list, so the precheck finds nothing in the way and provisioning proceeds without a gate.

@@ -428,8 +428,23 @@ for plain-words instructions.
 
 A fill or pack skill that describes a process of its own (a trigger, steps,
 an end) gets a digraph map per mattstack:process-digraphs. A fill that only
-adds rules to an engine's steps keys its sections to that step's node text,
-and never adds a move the engine's graph marks STOP.
+adds rules to one engine step carries just the rules, and the pack binds it
+to that step's block, so they land in that step's section; it never adds a
+move the engine's graph marks STOP. Init seeds `pack/skills.jsonc` at
+`"version": 2` with two bindings (none the base already sets), each keyed by the plugin and the block id
+with the prop inside; a step's fill joins them the same way (the last
+line):
+
+```jsonc
+"bindings": {
+  "mattstack:work/sub-agent-tiering": { "tiering": "mattstack:model-tiering" },
+  "mattstack:stage-watch-ci/forge": { "forge": "mattstack:ci-forge-gitlab" },
+  "mattstack:stage-ship/domain-fast-checks": { "rules": "widgets:lint-changed" }
+}
+```
+
+`mattstack:extending-a-pack` writes it with one bind call, and its
+`props.md` lists every block and prop.
 
 ## Red flags
 

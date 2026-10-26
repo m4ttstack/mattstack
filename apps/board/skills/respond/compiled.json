@@ -1,0 +1,17 @@
+{
+  "id": "skills:board:respond",
+  "dir": "skills/respond",
+  "covers": [
+    "skills:board:respond",
+    "skills:board:gate-cli-recipes"
+  ],
+  "keys": {
+    "gate-cli-recipes/SKILL.md": {
+      "skill": "board:gate-cli-recipes",
+      "path": "SKILL.md"
+    },
+    "respond/parts/include-gate-protocol/structured-context.txt": "skills/respond/parts/include-gate-protocol/structured-context.txt",
+    "respond/scripts/open-gate.sh": "skills/respond/scripts/open-gate.sh",
+    "respond/scripts/resolve-args.sh": "skills/respond/scripts/resolve-args.sh"
+  }
+}

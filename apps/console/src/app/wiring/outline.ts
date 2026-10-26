@@ -14,25 +14,51 @@ export type SkillsCheck = InferResponseType<
 type CompositionVerb = SkillsComposition['verbs'][number];
 type CompositionFill = SkillsComposition['fills'][number];
 type CompositionBinder = NonNullable<SkillsComposition['binders']>[number];
-type CompositionBinderSlot = CompositionBinder['slots'][number];
+type CompositionBinderProp = CompositionBinder['props'][number];
 type CompositionTarget = NonNullable<SkillsComposition['targets']>[number];
 type CheckVerb = SkillsCheck['verbs'][number];
 
-/** The fill a binder slot takes in `workType`: that pipeline's override when
+/** The fill a binder prop takes in `workType`: that pipeline's override when
     it has one, else the default. "" is bound to nothing. */
 export function effectiveBoundTo(
-  slot: Pick<CompositionBinderSlot, 'boundTo' | 'overrides'>,
+  prop: Pick<CompositionBinderProp, 'boundTo' | 'overrides'>,
   workType: string | null
 ): string {
-  return overrideOf(slot, workType)?.boundTo ?? slot.boundTo;
+  return overrideOf(prop, workType)?.boundTo ?? prop.boundTo;
 }
 
 export function overrideOf(
-  slot: Pick<CompositionBinderSlot, 'overrides'>,
+  prop: Pick<CompositionBinderProp, 'overrides'>,
   workType: string | null
 ) {
   if (workType === null) return undefined;
-  return slot.overrides?.find(override => override.pipeline === workType);
+  return prop.overrides?.find(override => override.pipeline === workType);
+}
+
+/** The skill a bindings key belongs to: `mattstack:ship/flow` binds a block
+    inside `mattstack:ship`. */
+export function engineRefOf(ref: string): string {
+  const slash = ref.indexOf('/');
+  return slash === -1 ? ref : ref.slice(0, slash);
+}
+
+/** The block a bindings key names, `ship/flow` for `mattstack:ship/flow`. */
+export function blockOf(ref: string): string {
+  return suffixOf(ref);
+}
+
+/** `<block id>.<prop>`, the name a prop seam, anatomy part and placeholder
+    carry. */
+export function propKey(block: string, name: string): string {
+  return `${block}.${name}`;
+}
+
+/** A prop key split at its last dot: block ids hold slashes, never dots. */
+export function splitPropKey(key: string): { block: string; name: string } {
+  const dot = key.lastIndexOf('.');
+  return dot === -1
+    ? { block: '', name: key }
+    : { block: key.slice(0, dot), name: key.slice(dot + 1) };
 }
 
 /** The pipeline the plain `work` verb runs, the way rt picks it: the only
@@ -122,46 +148,55 @@ export interface BoundFill {
   registered: boolean;
 }
 
-export interface SlotOutlineNode {
-  name: string;
-  /**
-   * A roster verb declares its slots' contracts; a stage or cross-plugin
-   * binder carries only `name -> boundTo`, so the contract shown for those
-   * is what the BOUND FILL provides, not what the slot demands. Null when
-   * neither is known, which renders as "contract unknown" rather than blank.
-   */
-  contract: string | null;
-  /** Null where the payload never states it -- a binder-only slot. */
-  required: boolean | null;
-  boundTo: string | null;
-  resolveError?: string;
+/** One value a prop takes. An add prop can take several. */
+export interface PropValueNode {
+  boundTo: string;
   /**
    * rt's ABSOLUTE path for the fill's own SKILL.md, computed inside rt as
    * `join(<fill's plugin root>, srcPath)`. The only sound way to say which
-   * file a slot seam's line span is measured in: the seam states a path
+   * file a prop seam's line span is measured in: the seam states a path
    * relative to a plugin root the client cannot resolve. Null for a
-   * binder-only slot and wherever rt states none.
+   * binder-only prop and wherever rt states none.
    */
   fillSourcePath: string | null;
   fill: BoundFill | null;
-  /** Null for a binder-only slot or an rt that predates the field. */
+  /** Null for a binder-only prop. */
   layer: string | null;
-  /** Set when the slot came from an org base; absent for a binder-only slot
-      and an rt that predates the field. */
+  resolveError?: string;
+  /** Set when the fill came from an org base. */
   origin?: 'base';
   base?: string;
 }
 
+export interface PropOutlineNode {
+  /** `<block id>.<prop>`. */
+  key: string;
+  block: string;
+  name: string;
+  /**
+   * A roster verb declares its props' contracts; a stage or cross-plugin
+   * binder carries only `name -> boundTo`, so the contract shown for those
+   * is what the BOUND FILL provides, not what the prop demands. Null when
+   * neither is known, which renders as "contract unknown" rather than blank.
+   */
+  contract: string | null;
+  /** Null where the payload never states it -- a binder-only prop. */
+  required: boolean | null;
+  /** Empty when nothing binds the prop. */
+  values: PropValueNode[];
+}
+
 export type BindingSiteKind = CompositionBinder['kind'];
 
-/** One place in the manifest that resolves to a fill: a ref, the slot on it,
+/** One place in the manifest that resolves to a fill: a ref, the prop on it,
     and what that ref is. `verb` is null wherever the ref is not a roster
     verb, which is most of them. */
 export interface BindingSite {
   ref: string;
   verb: string | null;
   kind: BindingSiteKind;
-  slot: string;
+  /** The prop's name on the block `ref` names. */
+  prop: string;
   /** The pipeline whose override binds here; absent for the default. */
   pipeline?: string;
 }
@@ -205,7 +240,7 @@ export interface SpineEntry {
   engineError?: string;
   staleFiles: string[];
   orphanFiles: string[];
-  slots: SlotOutlineNode[];
+  props: PropOutlineNode[];
 }
 
 export interface OrphanFillEntry {
@@ -277,11 +312,10 @@ export function pluginOf(ref: string): string {
  * inverted directly: its outer key is `${step.plugin}:${verb.engine}`, an
  * engine ref, not a verb name.
  *
- * Unioning `verbs[]` in would add nothing: rt reads a verb slot's `boundTo`
+ * Unioning `verbs[]` in would add nothing: rt reads a verb prop's values
  * out of the same `resolved.bindings` map it emits every `binders[]` entry
  * from, so `binders[]` is a superset of the roster's bindings by
- * construction (measured on the live demo pack: 18 binders cover all
- * 12 verbs' bound slots, ref/slot/binding identical).
+ * construction.
  */
 export function invertBindings(
   composition: SpineComposition
@@ -291,13 +325,13 @@ export function invertBindings(
 
   for (const binder of composition.binders ?? []) {
     const site = { ref: binder.ref, verb: binder.verb, kind: binder.kind };
-    for (const slot of binder.slots) {
-      if (slot.boundTo) {
-        (sites[slot.boundTo] ??= []).push({ ...site, slot: slot.name });
+    for (const prop of binder.props) {
+      if (prop.boundTo) {
+        (sites[prop.boundTo] ??= []).push({ ...site, prop: prop.name });
       }
-      for (const { pipeline, boundTo } of slot.overrides ?? []) {
+      for (const { pipeline, boundTo } of prop.overrides ?? []) {
         if (!boundTo) continue;
-        (sites[boundTo] ??= []).push({ ...site, slot: slot.name, pipeline });
+        (sites[boundTo] ??= []).push({ ...site, prop: prop.name, pipeline });
       }
     }
   }
@@ -307,7 +341,7 @@ export function invertBindings(
       (a, b) =>
         SITE_KIND_RANK[a.kind] - SITE_KIND_RANK[b.kind] ||
         (a.verb ?? a.ref).localeCompare(b.verb ?? b.ref) ||
-        a.slot.localeCompare(b.slot) ||
+        a.prop.localeCompare(b.prop) ||
         (a.pipeline ?? '').localeCompare(b.pipeline ?? '')
     );
   }
@@ -321,24 +355,26 @@ export function invertBindings(
  *
  * Every signal it reads reaches an entry through a ROSTER VERB: `health`
  * comes from `check` keyed by verb name, `engineError` off the verb, and
- * `required`/`resolveError` off the verb's declared slots. A binder-only
- * slot carries `required: null` and no `resolveError`, and a ref no verb
+ * `required`/`resolveError` off the verb's declared props. A binder-only
+ * prop carries `required: null` and no `resolveError`, and a ref no verb
  * backs gets `health: 'unknown'`. So this can only ever answer true for an
  * entry with `verb !== null` -- which is what makes `attentionCount`
  * independent of the work type. See `buildSpine`.
  */
-/** A verb rt sweeps in unwired whose slots nothing binds. A verb with no
-    slots has nothing to bind, so it stands on its own instead. */
+/** A verb rt sweeps in unwired whose props nothing binds. A verb with no
+    props has nothing to bind, so it stands on its own instead. */
 export function looseEnd(entry: SpineEntry): boolean {
-  return entry.unwired && entry.slots.length > 0;
+  return entry.unwired && entry.props.length > 0;
 }
 
 export function needsAttention(entry: SpineEntry): boolean {
   if (entry.health === 'source-newer' || entry.health === 'never-compiled')
     return true;
   if (entry.engineError) return true;
-  return entry.slots.some(
-    slot => slot.resolveError || (slot.required === true && !slot.boundTo)
+  return entry.props.some(
+    prop =>
+      prop.values.some(value => value.resolveError) ||
+      (prop.required === true && prop.values.length === 0)
   );
 }
 
@@ -385,6 +421,12 @@ export function buildSpine(
   );
   const binders = composition.binders ?? [];
   const bindersByRef = new Map(binders.map(b => [b.ref, b] as const));
+  /** Every binder of one skill, its own and its nested blocks'. */
+  const bindersOfSkill = new Map<string, CompositionBinder[]>();
+  for (const binder of binders) {
+    const own = engineRefOf(binder.ref);
+    bindersOfSkill.set(own, [...(bindersOfSkill.get(own) ?? []), binder]);
+  }
   const verbsByEngineRef = new Map(
     composition.verbs
       .filter(v => v.engineRef !== null)
@@ -393,8 +435,10 @@ export function buildSpine(
 
   const boundBindings = new Set<string>();
   for (const verb of composition.verbs) {
-    for (const slot of verb.slots) {
-      if (slot.boundTo) boundBindings.add(slot.boundTo);
+    for (const props of Object.values(verb.props)) {
+      for (const prop of props) {
+        for (const value of prop.values) boundBindings.add(value.boundTo);
+      }
     }
   }
   for (const [binding, sites] of Object.entries(invertBindings(composition))) {
@@ -414,56 +458,73 @@ export function buildSpine(
       : (workTypes[0] ?? null);
   const stageRefs = workType ? (composition.pipelines?.[workType] ?? []) : [];
 
-  function slotsFor(
-    verb: CompositionVerb | undefined,
-    binder: CompositionBinder | undefined
-  ): SlotOutlineNode[] {
-    const bound = new Map(binder?.slots.map(slot => [slot.name, slot]));
-    const slots: SlotOutlineNode[] = (verb?.slots ?? []).map(slot => {
-      const override = overrideOf(bound.get(slot.name) ?? {}, workType);
-      if (override) {
-        const fill = fillsByBinding.get(override.boundTo) ?? null;
-        return {
-          name: slot.name,
-          contract: slot.contract,
-          required: slot.required,
-          boundTo: override.boundTo || null,
-          fillSourcePath: fill?.sourcePath ?? null,
-          fill,
-          layer: override.layer,
-        };
-      }
-      return {
-        name: slot.name,
-        contract: slot.contract,
-        required: slot.required,
-        boundTo: slot.boundTo,
-        resolveError: slot.resolveError,
-        fillSourcePath: slot.fillSourcePath,
-        fill: slot.boundTo ? (fillsByBinding.get(slot.boundTo) ?? null) : null,
-        layer: slot.layer ?? null,
-        ...(slot.origin === 'base' ? { origin: slot.origin } : {}),
-        ...(slot.base !== undefined ? { base: slot.base } : {}),
-      };
-    });
-    const declared = new Set(slots.map(s => s.name));
+  function valueOf(boundTo: string, layer: string | null): PropValueNode {
+    const fill = fillsByBinding.get(boundTo) ?? null;
+    return { boundTo, fillSourcePath: fill?.sourcePath ?? null, fill, layer };
+  }
 
-    for (const slot of binder?.slots ?? []) {
-      if (declared.has(slot.name)) continue;
-      const boundTo = effectiveBoundTo(slot, workType);
-      if (!boundTo) continue;
-      const fill = fillsByBinding.get(boundTo) ?? null;
-      slots.push({
-        name: slot.name,
-        contract: fill?.provides ?? null,
-        required: null,
-        boundTo,
-        fillSourcePath: null,
-        fill,
-        layer: null,
-      });
+  /** A verb's declared props, then any prop the skill's binders bind that it
+      does not declare, known only by the contract its fill provides. A null
+      `ref` reads no binder. */
+  function propsFor(
+    verb: CompositionVerb | undefined,
+    ref: string | null
+  ): PropOutlineNode[] {
+    const bound = (block: string, name: string) =>
+      ref === null
+        ? undefined
+        : bindersByRef
+            .get(`${pluginOf(ref)}:${block}`)
+            ?.props.find(prop => prop.name === name);
+    const props: PropOutlineNode[] = [];
+    for (const [block, declared] of Object.entries(verb?.props ?? {})) {
+      for (const prop of declared) {
+        const override = overrideOf(bound(block, prop.name) ?? {}, workType);
+        props.push({
+          key: propKey(block, prop.name),
+          block,
+          name: prop.name,
+          contract: prop.contract,
+          required: prop.required,
+          values: override
+            ? override.boundTo
+              ? [valueOf(override.boundTo, override.layer)]
+              : []
+            : prop.values.map(value => ({
+                boundTo: value.boundTo,
+                resolveError: value.resolveError,
+                fillSourcePath: value.fillSourcePath,
+                fill: fillsByBinding.get(value.boundTo) ?? null,
+                layer: value.layer,
+                ...(value.origin === 'base' ? { origin: value.origin } : {}),
+                ...(value.base !== undefined ? { base: value.base } : {}),
+              })),
+        });
+      }
     }
-    return slots;
+    const declared = new Set(props.map(prop => prop.key));
+
+    const skillBinders =
+      ref === null ? [] : (bindersOfSkill.get(engineRefOf(ref)) ?? []);
+    for (const binder of skillBinders) {
+      const block = blockOf(binder.ref);
+      for (const prop of binder.props) {
+        const key = propKey(block, prop.name);
+        if (declared.has(key)) continue;
+        const boundTo = effectiveBoundTo(prop, workType);
+        if (!boundTo) continue;
+        const value = valueOf(boundTo, null);
+        props.push({
+          key,
+          block,
+          name: prop.name,
+          contract: value.fill?.provides ?? null,
+          required: null,
+          values: [{ ...value, fillSourcePath: null }],
+        });
+      }
+    }
+    return props;
   }
 
   function entryFor(
@@ -472,10 +533,8 @@ export function buildSpine(
     step: number | null,
     lead?: CompositionVerb
   ): SpineEntry {
-    const binder = bindersByRef.get(ref);
     const verb = lead ?? verbsByEngineRef.get(ref);
     const checkRow = verb ? checkByName.get(verb.name) : undefined;
-    const slots = slotsFor(verb, binder);
 
     return {
       kind,
@@ -493,7 +552,7 @@ export function buildSpine(
       engineError: verb?.engineError,
       staleFiles: checkRow?.staleFiles ?? [],
       orphanFiles: checkRow?.orphanFiles ?? [],
-      slots,
+      props: propsFor(verb, ref),
     };
   }
 
@@ -521,11 +580,13 @@ export function buildSpine(
   const outside: SpineEntry[] = [];
   // Cross-plugin binders group under their plugin: mr-board's four keys are
   // one neighbour of this pack, not four. Each row underneath is one of its
-  // binders (name column) at one of that binder's slots (contract column).
+  // binders at one of that binder's props.
   const externalGroups = new Map<string, SpineEntry>();
+  const placedRefs = new Set<string>();
 
   for (const binder of binders) {
-    if (spineRefs.has(binder.ref)) continue;
+    const own = engineRefOf(binder.ref);
+    if (spineRefs.has(own)) continue;
 
     if (binder.kind === 'external') {
       const plugin = pluginOf(binder.ref);
@@ -546,27 +607,29 @@ export function buildSpine(
           health: 'unknown',
           staleFiles: [],
           orphanFiles: [],
-          slots: [],
+          props: [],
         };
         externalGroups.set(plugin, group);
         outside.push(group);
       }
-      for (const slot of binder.slots) {
-        const fill = fillsByBinding.get(slot.boundTo) ?? null;
-        group.slots.push({
-          name: suffixOf(binder.ref),
-          contract: slot.name,
+      const block = blockOf(binder.ref);
+      for (const prop of binder.props) {
+        const value = valueOf(prop.boundTo, null);
+        group.props.push({
+          key: propKey(block, prop.name),
+          block,
+          name: prop.name,
+          contract: value.fill?.provides ?? null,
           required: null,
-          boundTo: slot.boundTo,
-          fillSourcePath: null,
-          fill,
-          layer: null,
+          values: prop.boundTo ? [{ ...value, fillSourcePath: null }] : [],
         });
       }
       continue;
     }
 
-    outside.push(entryFor('outside', binder.ref, null));
+    if (placedRefs.has(own)) continue;
+    placedRefs.add(own);
+    outside.push(entryFor('outside', own, null));
   }
 
   // Every roster verb reaches a row. rt emits no binder for a verb that binds
@@ -582,7 +645,6 @@ export function buildSpine(
   for (const rosterVerb of composition.verbs) {
     if (placedVerbs.has(rosterVerb.name)) continue;
     const checkRow = checkByName.get(rosterVerb.name);
-    const slots = slotsFor(rosterVerb, undefined);
 
     outside.push({
       kind: 'outside',
@@ -606,7 +668,7 @@ export function buildSpine(
       engineError: rosterVerb.engineError,
       staleFiles: checkRow?.staleFiles ?? [],
       orphanFiles: checkRow?.orphanFiles ?? [],
-      slots,
+      props: propsFor(rosterVerb, null),
     });
   }
 

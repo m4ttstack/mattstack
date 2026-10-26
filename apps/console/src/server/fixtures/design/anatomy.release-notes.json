@@ -30,8 +30,8 @@
       "changed": false
     },
     {
-      "kind": "slot",
-      "name": "changelog",
+      "kind": "prop",
+      "name": "release-notes.changelog",
       "templateLines": [22, 22],
       "renderedLines": null,
       "mode": null,

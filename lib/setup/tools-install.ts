@@ -64,21 +64,25 @@ export interface ToolsInstallSeams {
   bundledToolExec: typeof bundledToolExec;
   link: typeof link;
   detectEditors: typeof detectEditors;
-  findVsix: (p: Pick<Probes, "exists" | "home">) => string | null;
+  findVsixes: (p: Pick<Probes, "exists" | "home">) => string[];
 }
 
-/** `<appPath>/Contents/Resources/rt-context.vsix` first (the bundle rt runs from), else next to the running binary — mirrors commands/post-install.ts's own findVsix(). */
-function realFindVsix(p: Pick<Probes, "exists" | "home">): string | null {
+/** The editor extensions the app bundle carries, in install order. */
+export const BUNDLED_VSIX_FILES = ["rt-context.vsix", "skill-blocks.vsix"] as const;
+
+/** Each bundled file that exists: `<appPath>/Contents/Resources/<file>` first (the bundle rt runs from), else next to the running binary. */
+export function findBundledVsixes(p: Pick<Probes, "exists" | "home">, besideBinaryDir: string = dirname(process.execPath)): string[] {
   const appPath = appBundlePath(p);
-  if (appPath) {
-    const bundled = join(appPath, "Contents", "Resources", "rt-context.vsix");
-    if (p.exists(bundled)) return bundled;
+  const found: string[] = [];
+  for (const file of BUNDLED_VSIX_FILES) {
+    const bundled = appPath ? join(appPath, "Contents", "Resources", file) : null;
+    if (bundled && p.exists(bundled)) found.push(bundled);
+    else if (p.exists(join(besideBinaryDir, file))) found.push(join(besideBinaryDir, file));
   }
-  const besideBinary = join(dirname(process.execPath), "rt-context.vsix");
-  return p.exists(besideBinary) ? besideBinary : null;
+  return found;
 }
 
-const REAL_SEAMS: ToolsInstallSeams = { resolveTool, bundledToolExec, link, detectEditors, findVsix: realFindVsix };
+const REAL_SEAMS: ToolsInstallSeams = { resolveTool, bundledToolExec, link, detectEditors, findVsixes: (p) => findBundledVsixes(p) };
 
 // ─── installTool ───────────────────────────────────────────────────────────
 
@@ -355,14 +359,14 @@ async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult>
 }
 
 /** Exported so a caller classifying `SetupResult.detail` (extension.install's apply step) matches against the same value this emits, rather than a copy of the prose. */
-export const VSIX_NOT_FOUND_DETAIL = "The editor extension file was not found in the app or next to rt";
+export const VSIX_NOT_FOUND_DETAIL = "The editor extension files were not found in the app or next to rt";
 export const NO_EDITORS_DETAIL = "No compatible editor found";
 export const NO_RECORDED_EDITORS_DETAIL = "No editor on this Mac has the extension from an earlier setup";
 
 /** `onlyEditors` narrows the install to those editor names; an editor it leaves out is never touched. */
 async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: readonly string[] | undefined): Promise<SetupResult> {
-  const vsix = seams.findVsix(p);
-  if (!vsix) return { ok: false, detail: VSIX_NOT_FOUND_DETAIL };
+  const vsixes = seams.findVsixes(p);
+  if (vsixes.length === 0) return { ok: false, detail: VSIX_NOT_FOUND_DETAIL };
 
   const detected: DetectedEditor[] = seams.detectEditors();
   if (detected.length === 0) return { ok: false, detail: NO_EDITORS_DETAIL };
@@ -372,15 +376,19 @@ async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: 
   const installed: string[] = [];
   const failed: string[] = [];
   for (const editor of editors) {
-    const res = await p.exec([editor.cliPath, "--install-extension", vsix, "--force"], { timeoutMs: EXTENSION_INSTALL_TIMEOUT_MS });
-    if (res.code === 0) installed.push(editor.name);
-    else failed.push(`${editor.name} (exit ${res.code})`);
+    const exits: number[] = [];
+    for (const vsix of vsixes) {
+      const res = await p.exec([editor.cliPath, "--install-extension", vsix, "--force"], { timeoutMs: EXTENSION_INSTALL_TIMEOUT_MS });
+      if (res.code !== 0) exits.push(res.code);
+    }
+    if (exits.length === 0) installed.push(editor.name);
+    else failed.push(`${editor.name} (exit ${exits.join(", ")})`);
   }
 
-  // Only what actually verified installed goes into setup-state — a failed
-  // editor must never be recorded as if it succeeded.
+  // An editor is recorded only once every file installed into it: a
+  // half-installed editor must never read as done.
   if (installed.length > 0) {
-    updateSetupState(p, (s) => ({ ...s, extensionEditors: [...s.extensionEditors, ...installed] }));
+    updateSetupState(p, (s) => ({ ...s, extensionEditors: [...new Set([...s.extensionEditors, ...installed])] }));
   }
 
   const ok = installed.length > 0 && failed.length === 0;

@@ -30,3 +30,14 @@ export function findInstalledPluginDir(fs: PluginFs, home: string, ref: string):
   }
   return best === null ? null : join(root, best);
 }
+
+/** Every marketplace's copy of one exact version; a `temp_git_*` marketplace is Claude Code's in-flight clone, never an install. */
+export function findPluginVersionDirs(fs: PluginFs, home: string, plugin: string, version: string): string[] {
+  const cache = join(home, ".claude", "plugins", "cache");
+  return fs
+    .readDir(cache)
+    .filter((m) => !m.startsWith("temp_git_"))
+    .map((m) => join(cache, m, plugin, version))
+    .filter((dir) => fs.exists(dir))
+    .sort();
+}

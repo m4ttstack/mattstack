@@ -38,10 +38,11 @@ const COMPOSITION = {
     public: true,
     sourcePath: `/steps/${name}/SKILL.md`,
     artifactPath: `/p/skills/${name}`,
-    slots: [],
+    props: {},
+    includes: [],
   })),
   fills: [],
-  binders: [{ ref: 'mattstack:work', verb: 'work', kind: 'verb', slots: [] }],
+  binders: [{ ref: 'mattstack:work', verb: 'work', kind: 'verb', props: [] }],
   pipelines: { feature: [] },
 };
 

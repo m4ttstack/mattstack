@@ -1,0 +1,3 @@
+1. `rt_verb {args: ["skills", "bind", "ship", "ship/flow/domain-fast-checks", "rules", "widgets:lint-changed", "--pack", "widgets"]}` first, then `rt_verb {args: ["skills", "bind", "mattstack:stage-ship", "stage-ship/domain-fast-checks", "rules", "widgets:lint-changed", "--pack", "widgets"]}`.
+2. First call writes `"mattstack:ship/flow/domain-fast-checks": { "rules": "widgets:lint-changed" }`; second writes `"mattstack:stage-ship/domain-fast-checks": { "rules": "widgets:lint-changed" }`.
+3. "Run the domain's fast checks (none when unbound)"

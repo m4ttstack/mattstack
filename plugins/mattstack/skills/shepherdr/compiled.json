@@ -1,0 +1,13 @@
+{
+  "id": "mattstack@0.32.28:shepherdr",
+  "dir": "skills/shepherdr",
+  "covers": [
+    "mattstack@0.32.28:shepherdr"
+  ],
+  "keys": {
+    "shepherdr/SKILL.md": "skills/shepherdr/SKILL.md",
+    "shepherdr/parts/accounts/scripts/pick-account.py": "skills/shepherdr/parts/accounts/scripts/pick-account.py",
+    "shepherdr/parts/strategy/references/strategies.md": "skills/shepherdr/parts/strategy/references/strategies.md",
+    "shepherdr/references/job-template.md": "skills/shepherdr/references/job-template.md"
+  }
+}

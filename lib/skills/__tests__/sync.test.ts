@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -10,6 +10,7 @@ import { childEnv, runCapture } from "../../subprocess.ts";
 import { bumpPatchVersion, LAYOUT_HOLD, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
 import { skillsChanges } from "../../../commands/skills.ts";
 import { captureSkills } from "./helpers.ts";
+import { orgSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
 
 type Call = { cmd: string; args: string[]; cwd?: string };
 
@@ -48,6 +49,14 @@ type World = {
   drift?: boolean[];
   lintHits?: number[];
   lintStrict?: boolean[];
+  /** Per check call, the hand-written skill failures it reports. */
+  handErrors?: string[][];
+  /** Per check call, the compiled pointers that lead nowhere in what a recompile would write. */
+  pointerErrors?: string[][];
+  /** Per check call, the pointer-map conflicts it reports. */
+  pointerConflicts?: string[][];
+  /** Per check call, the targets whose compile failed, reported with a conflict. */
+  brokenSkills?: string[][];
   checkThrows?: boolean;
   compileOk?: boolean;
   compileErrors?: string[];
@@ -91,6 +100,10 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
   const driftAnswers = [...(world.drift ?? [])];
   const lintHitsAnswers = [...(world.lintHits ?? [])];
   const lintStrictAnswers = [...(world.lintStrict ?? [])];
+  const handErrorAnswers = [...(world.handErrors ?? [])];
+  const pointerErrorAnswers = [...(world.pointerErrors ?? [])];
+  const pointerConflictAnswers = [...(world.pointerConflicts ?? [])];
+  const brokenSkillAnswers = [...(world.brokenSkills ?? [])];
 
   function installDirFor(id: string): string {
     let dir = installDirs.get(id);
@@ -256,7 +269,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (world.checkThrows) throw new Error("checkPack: manifest discovery found nothing");
       const next = driftAnswers.shift();
       if (next === undefined) throw new Error("checkPack: fixture ran out of configured drift answers");
-      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false };
+      return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false, handErrors: handErrorAnswers.shift() ?? [], pointerErrors: pointerErrorAnswers.shift() ?? [], pointerConflicts: pointerConflictAnswers.shift() ?? [], brokenSkills: brokenSkillAnswers.shift() ?? [] };
     },
     compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [], written: world.compileWrites?.written ?? [], removed: world.compileWrites?.removed ?? [] }),
     materialize: async () => ({ ok: true, detail: "materialized 1" }),
@@ -1125,14 +1138,14 @@ describe("pull-pack in an org clone", () => {
     const { clone, pack } = orgClonePack();
     const engine = fixturePack("beacon", "local", "2.0.0");
     const calls: Call[] = [];
-    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 5 }` } }), orgsRoot: dirname(clone) };
+    const deps = { ...makeDeps(pack, engine, { calls, originMarker: { [clone]: `{ "role": "org", "org": "acme", "layout": 6 }` } }), orgsRoot: dirname(clone) };
 
     const report = await syncPack(pack, engine, deps);
 
     const held = report.steps.find((s) => s.name === "pull-pack")!;
-    expect(held).toMatchObject({ name: "pull-pack", status: "refused", detail: "Your org uses layout 5 and this app reads up to 4. Update the app." });
+    expect(held).toMatchObject({ name: "pull-pack", status: "refused", detail: "Your org uses layout 6 and this app reads up to 5. Update the app." });
     expect(held[LAYOUT_HOLD]).toBe(true);
-    expect(JSON.parse(JSON.stringify(held))).toEqual({ name: "pull-pack", status: "refused", detail: "Your org uses layout 5 and this app reads up to 4. Update the app." });
+    expect(JSON.parse(JSON.stringify(held))).toEqual({ name: "pull-pack", status: "refused", detail: "Your org uses layout 6 and this app reads up to 5. Update the app." });
     expect(merges(calls)).toEqual([]);
     expect(calls.some((c) => c.args[0] === "fetch" && c.cwd === clone)).toBe(true);
     expect(calls.some((c) => c.args[0] === "show" && c.args[1] === "refs/remotes/origin/main:mattstack/mattstack.jsonc" && c.cwd === clone)).toBe(true);
@@ -1263,6 +1276,99 @@ describe("pull-pack in an org clone", () => {
     expect(report.steps.find((s) => s.name === "pull-pack")).toEqual({ name: "pull-pack", status: "refused", detail: `Pulling ${pack.dir} failed: fatal: unable to access origin. Sort it out by hand, then run this again` });
     expect(calls.some((c) => c.args[0] === "show" && c.cwd === clone)).toBe(false);
     expect(pulls(calls, pack.dir)).toEqual([]);
+  });
+});
+
+describe("a block pack on an org below layout 5", () => {
+  const V2 = { bindings: { "mattstack:ship/flow/gate-ship": { rules: "widgets:ship-rules/gate" } } };
+  const OLD = { bindings: { "mattstack:ship": { domain: "widgets:ship-domain" } } };
+  const writes = (calls: Call[]) => calls.filter((c) => c.cmd === "git" && (c.args[0] === "commit" || c.args[0] === "push" || c.args[0] === "add"));
+  const origHome = process.env.HOME;
+  beforeEach(() => {
+    process.env.HOME = tmp("rt-sync-home-");
+  });
+  afterEach(() => {
+    rmSync(process.env.HOME!, { recursive: true, force: true });
+    process.env.HOME = origHome;
+  });
+
+  function seed(layout: number, fragment: object, roster: string[]): { clone: string; pack: PackInfo; engine: PackInfo; deps: SyncDeps; calls: Call[] } {
+    const { clone, pack } = orgClonePack();
+    writeFileSync(join(clone, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme", "layout": ${layout} }\n`);
+    // The org's own store, where a Mac keeps the acme clone.
+    mkdirSync(dirname(orgSettingsPath("acme")), { recursive: true });
+    writeFileSync(orgSettingsPath("acme"), JSON.stringify({ "mattstack.roster": roster.map((username) => ({ username, teams: ["widgets"] })) }));
+    mkdirSync(join(pack.dir, "pack"), { recursive: true });
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), JSON.stringify(fragment));
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, drift: [false], originMarker: { [clone]: null } }), orgsRoot: dirname(clone), forgeUsername: () => "dev1" };
+    return { clone, pack, engine, deps, calls };
+  }
+
+  test("refuses before any write in an org with other members on layout 4", async () => {
+    const { pack, engine, deps, calls } = seed(4, V2, ["dev1", "dev2"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    const step = report.steps.at(-1)!;
+    expect(step.name).toBe("org-layout");
+    expect(step.status).toBe("refused");
+    expect(step.detail).toContain("layout 5");
+    expect(step.detail).toContain("/start/teams#moving-to-block-packs");
+    expect(report.ok).toBe(false);
+    expect(stepNames(report.steps)).not.toContain("compile");
+    expect(writes(calls)).toEqual([]);
+  });
+
+  test("refuses without claiming other members when this Mac's forge username is not recorded", async () => {
+    const { pack, engine, deps } = seed(4, V2, ["dev1"]);
+
+    const report = await syncPack(pack, engine, { ...deps, forgeUsername: () => null });
+
+    const step = report.steps.at(-1)!;
+    expect(step).toMatchObject({ name: "org-layout", status: "refused" });
+    expect(step.detail).toContain("forge username is not recorded");
+    expect(step.detail).not.toContain("Members on an older app");
+    expect(step.detail).toContain("/start/teams#moving-to-block-packs");
+  });
+
+  test("adds no step for a pack outside an org", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    mkdirSync(join(pack.dir, "pack"), { recursive: true });
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), JSON.stringify(V2));
+    const engine = fixturePack("beacon", "local", "2.0.0");
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, { calls: [], drift: [false] }));
+
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+  });
+
+  test("passes in a Just Me org, where the roster lists only this Mac's user", async () => {
+    const { pack, engine, deps } = seed(4, V2, ["dev1"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+    expect(report.steps.find((s) => s.name === "check")).toBeDefined();
+  });
+
+  test("passes on an org already on layout 5", async () => {
+    const { pack, engine, deps } = seed(5, V2, ["dev1", "dev2"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+    expect(report.steps.find((s) => s.name === "check")).toBeDefined();
+  });
+
+  test("passes an old-form pack on layout 4", async () => {
+    const { pack, engine, deps } = seed(4, OLD, ["dev1", "dev2"]);
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(stepNames(report.steps)).not.toContain("org-layout");
+    expect(report.steps.find((s) => s.name === "check")).toBeDefined();
   });
 });
 
@@ -2943,5 +3049,180 @@ describe("git that talks to origin", () => {
 
     expect(report.steps.find((s) => s.name === "commit-push")!.status).toBe("ran");
     expect(origin).toContainEqual({ args: ["push"], cwd: pack.dir, push: true });
+  });
+});
+
+describe("compiled pointers that lead nowhere", () => {
+  const DEAD = "attachments/stage-plan/SKILL.md:12:5: @stage-plan/scripts/ points at attachments/stage-plan/scripts/, which is not a file";
+
+  test("an owner's pack refuses at check, before the bump, saying the fix is in the source files", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerErrors: [[DEAD]] };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("refused");
+    const [lead, ...rows] = check.detail.split("\n");
+    expect(lead).toBe("Compiled skills in this pack have 1 pointer that leads nowhere, and a recompile cannot fix it, so rt stopped before the version bump. Fix it in the pack's source files, then sync again:");
+    expect(rows).toEqual([DEAD]);
+    expect(check.detail).not.toContain("Hand-written");
+    expect(stepNames(report.steps).at(-1)).toBe("check");
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+  });
+
+  test("a member gets a warning per pointer and still installs the pack", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerErrors: [[DEAD]] };
+    const deps = { ...makeDeps(pack, engine, world), mayCompile: () => false };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("ran");
+    expect(check.detail).toContain("compiled skills have 1 pointer that leads nowhere, for the pack's owners");
+    expect(report.warnings).toEqual([`For the pack's owners to fix in its source files: ${DEAD}`]);
+    expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
+  });
+
+  test("a pointer conflict names the skill that no longer compiles, refusing an owner and warning a member", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const conflict = "pointer key @stage-x/SKILL.md has two targets in work's closure";
+    const broken = 'verb "receive-review": {{verb.path:nope}} -- nope is not a compiled verb of this pack';
+    const conflicted = (): World => ({ calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerConflicts: [[conflict]], brokenSkills: [[broken]] });
+    const owner = await syncPack(pack, engine, makeDeps(pack, engine, conflicted()));
+    const check = owner.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("refused");
+    expect(check.detail.split("\n")).toEqual([
+      "Compiled skills in this pack disagree about where a pointer leads, so rt stopped before the version bump:",
+      conflict,
+      "A skill in this pack no longer compiles, so the pointer map its last compile wrote is still in place. Its error:",
+      broken,
+      "Fix it, then compile the whole pack with rt skills compile and sync again.",
+    ]);
+
+    const member = await syncPack(pack, engine, { ...makeDeps(pack, engine, conflicted()), mayCompile: () => false });
+    expect(member.steps.find((s) => s.name === "check")).toMatchObject({ status: "ran" });
+    expect(member.warnings).toEqual([`For the pack's owners to fix with a full compile: ${conflict}`, `For the pack's owners to fix, a skill that no longer compiles: ${broken}`]);
+  });
+
+  test("a pointer conflict with several broken skills names each, and one with none names only the full compile", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const conflict = "pointer key @stage-x/SKILL.md has two targets in work's closure";
+    const world = (brokenSkills: string[]): World => ({ calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], pointerConflicts: [[conflict]], brokenSkills: [brokenSkills] });
+    const lead = "Compiled skills in this pack disagree about where a pointer leads, so rt stopped before the version bump:";
+
+    const two = await syncPack(pack, engine, makeDeps(pack, engine, world(["verb \"a\": boom", "verb \"b\": bang"])));
+    expect(two.steps.find((s) => s.name === "check")!.detail.split("\n")).toEqual([
+      lead,
+      conflict,
+      "2 skills in this pack no longer compile, so the pointer maps their last compiles wrote are still in place. Their errors:",
+      'verb "a": boom',
+      'verb "b": bang',
+      "Fix them, then compile the whole pack with rt skills compile and sync again.",
+    ]);
+
+    const none = await syncPack(pack, engine, makeDeps(pack, engine, world([])));
+    const detail = none.steps.find((s) => s.name === "check")!.detail;
+    expect(detail.split("\n")).toEqual([lead, conflict, "Compile the whole pack with rt skills compile, then sync again."]);
+    expect(detail).not.toContain("no longer compile");
+  });
+
+  test("an owner's pack compiled before keys has only drift, so it recompiles instead of refusing", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false], pointerErrors: [[]] };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+    expect(report.steps.find((s) => s.name === "check")).toMatchObject({ status: "ran" });
+    expect(report.steps.find((s) => s.name === "compile")).toMatchObject({ status: "ran" });
+    expect(report.steps.find((s) => s.name === "recheck")).toMatchObject({ status: "ran" });
+  });
+});
+
+describe("hand-written skill failures", () => {
+  const BAD_YAML = "plugin/skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings";
+  const BROKEN_PATH = "plugin/skills/gadgets/SKILL.md:5:7: ${CLAUDE_SKILL_DIR}/../widgets/gone.md does not resolve to a file from the skill's folder";
+
+  for (const [what, failure] of [["bad frontmatter", BAD_YAML], ["a broken skill path", BROKEN_PATH]] as const) {
+    test(`a team pack with ${what} refuses at check, before the bump, naming the file`, async () => {
+      const pack = fixturePack("acme", "local", "1.0.0");
+      const engine = fixturePack("beacon", "local", "2.0.0");
+      const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], handErrors: [[failure]] };
+
+      const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+      expect(report.ok).toBe(false);
+      const check = report.steps.find((s) => s.name === "check")!;
+      expect(check.status).toBe("refused");
+      expect(check.detail.split("\n")).toContain(failure);
+      expect(check.detail).toContain("rt stopped before the version bump");
+      expect(stepNames(report.steps).at(-1)).toBe("check");
+      expect(readVersion(pack.dir)).toBe("1.0.0");
+      expect(world.calls.filter((c) => c.cmd === "checkPack")).toHaveLength(1);
+    });
+  }
+
+  test("each failing file is its own row of the refusal", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [false], handErrors: [[BAD_YAML, BROKEN_PATH]] };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+    const rows = report.steps.find((s) => s.name === "check")!.detail.split("\n");
+    expect(rows.slice(1)).toEqual([BAD_YAML, BROKEN_PATH]);
+    expect(rows[0]).not.toContain(BAD_YAML);
+  });
+
+  test("a member who cannot write the pack gets a warning per file and still installs the pack", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" }, drift: [true], handErrors: [[BAD_YAML, BROKEN_PATH]] };
+    const deps = { ...makeDeps(pack, engine, world), mayCompile: () => false };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("ran");
+    expect(check.detail).toContain("for the pack's owners");
+    expect(report.warnings).toEqual([`For the pack's owners to fix: ${BAD_YAML}`, `For the pack's owners to fix: ${BROKEN_PATH}`]);
+    expect(report.steps.find((s) => s.name === "bump")).toMatchObject({ status: "skipped" });
+    expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+  });
+
+  test("a member whose current pack has only hand-written problems gets the warnings and an ok sync", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false], handErrors: [[BAD_YAML]] };
+    const deps = { ...makeDeps(pack, engine, world), mayCompile: () => false };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(report.steps.find((s) => s.name === "check")).toMatchObject({ status: "ran" });
+    expect(report.warnings).toEqual([`For the pack's owners to fix: ${BAD_YAML}`]);
+    expect(stepNames(report.steps)).not.toContain("bump");
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+  });
+
+  test("the in-tree mattstack plugin refuses at check with the file, not at the bump", async () => {
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.2" }, drift: [true], handErrors: [[BAD_YAML]] };
+    const deps = { ...makeDeps(engine, engine, world), inTreeRoot: engine.dir };
+
+    const report = await syncPack(engine, engine, deps);
+
+    const check = report.steps.find((s) => s.name === "check")!;
+    expect(check.status).toBe("refused");
+    expect(check.detail).toContain(BAD_YAML);
+    expect(stepNames(report.steps)).not.toContain("bump");
+    expect(readVersion(engine.dir)).toBe("1.2.3");
   });
 });

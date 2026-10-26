@@ -34,6 +34,7 @@ import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PR
 import { isValidBrewFormula } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
+import { skillsOverridesRowFor } from "./skills-overrides.ts";
 
 const HERDR_FLOOR = "0.7.5";
 /** Every exec in this module is bounded: a hung team-declared `--version`, or a wedged herdr/claude subprocess, must surface as "error" (124), never hang `rt setup plan` forever. This is the bound for a quick `--version`/status probe; `fast-browser doctor` is slow by design and uses DOCTOR_TIMEOUT_MS instead. */
@@ -807,6 +808,7 @@ export async function toolRows(
   const msFloor = await mattstackFloor(p, (args) => exec(p, ["claude", ...args]), { refresh: false }).catch((): Floor => null);
   rows.push(pluginsRow(pluginList, msFloor, engine));
   rows.push(writingStyleRowFor(p, pluginList));
+  rows.push(skillsOverridesRowFor(p));
 
   const only = opts.activeTeam !== undefined ? opts.activeTeam : opts.teamSlug ? activeTeamFor(p, opts.teamSlug).team : null;
   const served = opts.teamSlug ? readServedPacks(p, opts.teamSlug, { only }) : { packs: [], error: null };

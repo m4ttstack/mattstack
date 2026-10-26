@@ -1,0 +1,52 @@
+Every mattstack engine is a tree of blocks: an `index.block.md` root and one `*.block.md` file per section. Blocks prints a verb's tree with each block's title, the root first:
+
+```bash
+rt skills blocks --skill ship --pack widgets
+```
+
+```
+ship
+  - ▤ Run
+  -   ○ Gate resume offer
+  ...
+  - ▤ Flow
+  -   ○ Domain steps before gate
+  -   ○ Gate ship
+  -   ○ Commit named files
+  -   ○ Stash them
+  -   ○ Domain fast checks
+  ...
+  - ▤ Domain rules
+```
+
+`--skill` takes a roster verb (`ship`) or a pipeline stage (`stage-evidence`).
+
+`--json` carries each block's `id`, its `props` and the text each layer adds. A prop lists its `merge`, `contract` and `default`, and under `values` each layer that binds it. To list the blocks [`rt skills bind`](/rt/reference/skills/bind) can fill, with their props:
+
+```bash
+rt skills blocks --skill ship --pack widgets --json \
+  | jq -r '.blocks[] | select(.props | length > 0) | "\(.id)  \(.props | map("\(.name) (\(.merge))") | join(", "))"'
+```
+
+```
+ship/flow/domain-steps-before-gate  rules (add)
+ship/flow/gate-ship  rules (add)
+ship/flow/commit-named-files  rules (add)
+ship/flow/domain-fast-checks  rules (add)
+ship/flow/fix-test-first  rules (add)
+ship/flow/resolve-conflict-files  rules (add)
+ship/flow/capture-after-case  rules (add)
+ship/flow/write-title-description  rules (add)
+ship/flow/run-watch-ci  rules (add)
+ship/domain-rules  rules (add)
+```
+
+The `id` is what bind takes as its `<block>` argument. A prop with `merge: add` inlines every layer's value, the org base pack's first and then the team's. A prop with `merge: replace` takes the last layer's value only.
+
+Once the widgets pack binds `widgets:lint-changed` to `ship/flow/domain-fast-checks`, that block's prop in `--json` reads:
+
+```json
+{"name":"rules","merge":"add","default":"","contract":null,"values":[{"layer":"pack","binding":"widgets:lint-changed"}]}
+```
+
+The entry is trimmed here: the full one also carries `marker` and `fromDefault`, and each value carries the fill's `path`, `color` and `lines`.

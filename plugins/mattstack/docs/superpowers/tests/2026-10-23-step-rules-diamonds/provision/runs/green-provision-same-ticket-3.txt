@@ -1,0 +1,4 @@
+1. run_field_get, worktree_provision (precheck), whoami, gate_ask
+2. No: no domain rule is inlined under Domain rules or under Follow the domain's provision flow, since the squad rule sits only under Gate `provision` and just adds a gate question.
+3. Resume in `/wt/widgets-123-badge-levels` (Recommended), Fresh tree
+4. resume_in, squad, next

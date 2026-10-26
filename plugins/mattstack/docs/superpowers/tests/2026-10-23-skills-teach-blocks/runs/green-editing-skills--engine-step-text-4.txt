@@ -1,0 +1,4 @@
+1. `plugins/mattstack/attachments/pipeline/stage-ship/domain-fast-checks.block.md`
+2. `python3 plugins/mattstack/plugin/skills/process-digraphs/check-dot.py --short-ids <scratch>/pack/attachments/stage-ship/SKILL.md`, the compiled stage-ship `SKILL.md` (compile first in the scratch dir, since certify and the structure check don't read the block tree's graphs).
+3. `["skills", "bind", "stage-ship", "domain-fast-checks", "rules", "widgets:a11y-checks", "--pipeline", "accessibility", "--pack", "widgets"]`
+4. `plugins/mattstack/attachments/pipeline/stage-ship/`

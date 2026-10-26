@@ -101,7 +101,7 @@ export const herdrIntegrationStep: StepDef = {
 
 // ─── extension.install ───────────────────────────────────────────────────────
 
-/** `seams` is exposed only for tests — `detectEditors`/`findVsix` read the real machine, so a test drives them the same way tools-install.test.ts does rather than through Probes. Production always takes `setupTool`'s own real-seam default. */
+/** `seams` is exposed only for tests — `detectEditors`/`findVsixes` read the real machine, so a test drives them the same way tools-install.test.ts does rather than through Probes. Production always takes `setupTool`'s own real-seam default. */
 export async function extensionInstallRun(ctx: ApplyContext, seams?: ToolsInstallSeams): Promise<StepOutcome> {
   // An update run touches only editors setup-state records rt installing
   // into; any other detected editor is the member's to opt into.

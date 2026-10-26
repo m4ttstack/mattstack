@@ -1,0 +1,1 @@
+{"contract":1,"at":"<AT>","error":{"code":"not-a-block-tree","message":"The hand skill is not built from blocks"}}

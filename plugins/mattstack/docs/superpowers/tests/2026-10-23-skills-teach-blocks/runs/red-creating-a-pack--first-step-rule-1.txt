@@ -1,0 +1,3 @@
+1. The fill `widgets:lint-changed` has a body with one section, keyed to the node text of the ship stage's fast-check step, and that section says to run `bun run widgets:lint --changed`. Because the section is keyed to that node, the rule reaches only that step. The pack's binding names the fill (`widgets:lint-changed`) on the ship stage and carries no rule text. The fill adds a rule and adds no move the engine's graph marks STOP.
+2. `{"ship": ["widgets:lint-changed"]}`. This is my best reading of the shape, because this skill doesn't spell out the `bindings` schema. `mattstack:extending-a-pack` is where the exact key and shape are confirmed.
+3. `mattstack:extending-a-pack`, as one rule in its own round. The fill itself is written through `superpowers:writing-skills`.

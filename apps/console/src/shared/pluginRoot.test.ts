@@ -12,6 +12,12 @@ describe('pluginRootOf', () => {
     expect(pluginRootOf('/r/attachments/review/review/SKILL.md')).toBe('/r');
   });
 
+  it("strips a block tree's root file back to the plugin root", () => {
+    expect(pluginRootOf('/r/attachments/pipeline/work/index.block.md')).toBe(
+      '/r'
+    );
+  });
+
   it('resolves an org base pack fill back to the base pack root', () => {
     expect(
       pluginRootOf(

@@ -1,5 +1,6 @@
 import {
   effectiveBoundTo,
+  engineRefOf,
   overrideOf,
   stageCopyOf,
   suffixOf,
@@ -32,24 +33,34 @@ const FILE_STATUS: Record<string, string> = {
 const fillName = (binding: string | null) =>
   binding === null ? 'nothing' : suffixOf(binding);
 
-/** rt reports a removed pipeline override as `to: null`; the slot then
+type BindingChange = SkillsChanges['bindings'][number];
+
+/** A root block's prop by its name, a nested block's by `<block>.<prop>`.
+    rt froze the change envelope, so `slot` holds the prop's name. */
+function propLabel(change: BindingChange): string {
+  const own = engineRefOf(change.engineRef);
+  if (own === change.engineRef) return change.slot;
+  return `${change.engineRef.slice(own.length + 1)}.${change.slot}`;
+}
+
+/** rt reports a removed pipeline override as `to: null`; the prop then
     reads what the composition names: an override a lower layer still
     holds for that pipeline, else the default fill. */
 function bindingTarget(
-  change: SkillsChanges['bindings'][number],
+  change: BindingChange,
   composition: SkillsComposition | undefined
 ): string {
   if (change.to !== null || !change.pipeline) return fillName(change.to);
   if (!composition) return 'default';
-  const slot = composition.binders
+  const prop = composition.binders
     ?.find(binder => binder.ref === change.engineRef)
-    ?.slots.find(candidate => candidate.name === change.slot);
-  if (!slot) return 'default (unbound)';
+    ?.props.find(candidate => candidate.name === change.slot);
+  if (!prop) return 'default (unbound)';
   // An unset removes only this pack's override, which a composition read
   // before the write still lists; any other layer's override stays.
   const remaining = {
-    boundTo: slot.boundTo,
-    overrides: slot.overrides?.filter(
+    boundTo: prop.boundTo,
+    overrides: prop.overrides?.filter(
       override => override.layer && override.layer !== 'pack'
     ),
   };
@@ -67,7 +78,7 @@ const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
  * `rebuilt` directories hold only compiled files, and in `removed`
  * directories only deletions are compiled output going away.
  *
- * A binding change rebuilds the skill its binder belongs to. A surface
+ * A binding change rebuilds the skill its block belongs to. A surface
  * change rebuilds every skill that links to the moved one by path, and,
  * when the moved skill is itself compiled, writes its output on the new
  * side and removes it from the old. Both sides come from the change, read
@@ -93,16 +104,19 @@ function compiledOutputOf(
   const removed: string[] = [];
 
   for (const change of changes.bindings) {
+    const own = engineRefOf(change.engineRef);
     const copy = stageCopyOf(
       composition.targets,
-      suffixOf(change.engineRef),
+      suffixOf(own),
       change.pipeline ?? null
     );
     if (copy) names.add(copy.name);
-    else
-      for (const binder of composition.binders ?? [])
-        if (binder.ref === change.engineRef)
-          names.add(binder.verb ?? suffixOf(binder.ref));
+    else {
+      const binder = (composition.binders ?? []).find(
+        candidate => candidate.ref === change.engineRef
+      );
+      names.add(binder?.verb ?? suffixOf(own));
+    }
   }
 
   for (const change of changes.surface) {
@@ -144,8 +158,8 @@ export function pendingChangesOf(
   const named: PendingChange[] = [
     ...changes.bindings.map(change => ({
       key: `binding:${change.pipeline ?? ''}:${change.engineRef}:${change.slot}`,
-      name: stepLabel(suffixOf(change.engineRef)),
-      detail: `${change.pipeline ? `${change.slot} · ${change.pipeline}` : `${change.slot} slot`}: ${fillName(change.from)} → ${bindingTarget(change, composition)}`,
+      name: stepLabel(suffixOf(engineRefOf(change.engineRef))),
+      detail: `${change.pipeline ? `${propLabel(change)} · ${change.pipeline}` : `${propLabel(change)} prop`}: ${fillName(change.from)} → ${bindingTarget(change, composition)}`,
     })),
     ...changes.surface.map(change => ({
       key: `surface:${change.skill}`,

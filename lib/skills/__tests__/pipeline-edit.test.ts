@@ -3,7 +3,7 @@ import { parse } from "jsonc-parser";
 import { dropProvenanceLine, removePipelineOverride } from "../pipeline-edit";
 
 describe("removePipelineOverride", () => {
-  test("removes one slot and keeps the rest", () => {
+  test("removes one prop and keeps the rest", () => {
     const text = JSON.stringify({
       pipelines: {
         feature: {

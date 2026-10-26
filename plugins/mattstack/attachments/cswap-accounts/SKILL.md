@@ -1,6 +1,6 @@
 ---
 name: cswap-accounts
-description: "cswap provider for the account-pool@1 contract: given a herd's model mix and the accounts already assigned this run, names where to launch the next worker. Reached through a wrapper's accounts slot; not for direct invocation."
+description: "cswap provider for the account-pool@1 contract: given a herd's model mix and the accounts already assigned this run, names where to launch the next worker. Reached through shepherdr's accounts prop, whose default it is; not for direct invocation."
 disable-model-invocation: true
 allowed-tools:
   - Bash(*/scripts/pick-account.py:*)
@@ -15,9 +15,6 @@ name where to launch the next worker, or report that no pool account
 qualifies. **Spawn-time only:** an Agent-tool subagent runs in-process on
 the caller's credentials and exposes no account dimension, so this
 contract can only be honored where workers launch as their own sessions.
-
-Paths below are relative to this skill's directory; the compiler inlines
-this fill under `shepherdr`'s `## Accounts` section at compile time.
 
 ## The pool question
 
@@ -56,8 +53,9 @@ ACCT=$("${CLAUDE_SKILL_DIR}/scripts/pick-account.py" --pool 2,3 --model <model> 
 `--assigned` lists the account of every worker already launched this run,
 one entry per worker. The picker excludes accounts near their limits and
 answers with the healthiest account for that worker's model; a nonzero
-exit means no pool account qualifies -- surface that to the user as a
-structured question, never spawn anyway.
+exit means no pool account qualifies, or `cswap list` failed, and its
+message says which -- surface that to the user as a structured question,
+never spawn anyway.
 
 The launch command this provider hands to transport:
 `cswap run <account> --` (model and effort arguments are appended to it).
@@ -68,7 +66,8 @@ In smart-distribute mode with a qualifying account left in the pool,
 respawn automatically; the wrapper owns the respawn mechanics. In
 single-account mode, or with the pool exhausted, ask instead: 1. wait for
 reset (show the countdown from `cswap list --json`), 2. switch to an
-out-of-pool account, 3. abandon.
+out-of-pool account, 3. abandon. With no cswap installed, there is nowhere
+else to launch: report the stall (wait for the reset or abandon).
 
 ## Quirk
 

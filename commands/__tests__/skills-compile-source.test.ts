@@ -22,7 +22,7 @@ Ask one structured question, then stop.
 
 /**
  * The pack IS the mattstack plugin (self identity), so the verb's engine
- * source is read from the pack's own attachments/<verb>/SKILL.md while the
+ * source is read from the pack's own attachments/<verb>/index.block.md while the
  * public door compiles into skills/<verb>/. Those two paths are each other's
  * "other side" in the layout.
  */
@@ -35,7 +35,7 @@ function makeSelfPack(): { packDir: string; mattstackDir: string; manifestPath: 
   }
 }
 `);
-  writeFile(join(packDir, "attachments", "wrap-up", "SKILL.md"), WRAP_UP_SOURCE);
+  writeFile(join(packDir, "attachments", "wrap-up", "index.block.md"), WRAP_UP_SOURCE);
 
   const mattstackDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-self-mattstack-")));
   writeFile(join(mattstackDir, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0" }));
@@ -57,9 +57,9 @@ afterEach(() => {
 });
 
 describe("skillsCompile keeps a pack's own engine source", () => {
-  test("a hand-written attachments/<verb>/SKILL.md survives compiling <verb> as public", async () => {
+  test("a hand-written attachments/<verb>/index.block.md survives compiling <verb> as public", async () => {
     const { packDir, mattstackDir, manifestPath } = makeSelfPack();
-    const source = join(packDir, "attachments", "wrap-up", "SKILL.md");
+    const source = join(packDir, "attachments", "wrap-up", "index.block.md");
 
     await skillsCompile([
       "--team", "mattstack",
@@ -79,7 +79,7 @@ describe("skillsCompile keeps a pack's own engine source", () => {
     const { packDir, mattstackDir, manifestPath } = makeSelfPack();
     const priorCompile = join(packDir, "attachments", "stale-door", "SKILL.md");
     writeFile(priorCompile, `---\nname: stale-door\n---\n${HEADER_COMMENT}\nold output\n`);
-    writeFile(join(packDir, "attachments", "stale-door-src", "SKILL.md"), WRAP_UP_SOURCE.replace(/wrap-up/g, "stale-door-src"));
+    writeFile(join(packDir, "attachments", "stale-door-src", "index.block.md"), WRAP_UP_SOURCE.replace(/wrap-up/g, "stale-door-src"));
     writeFile(join(packDir, "pack", "stubs.jsonc"), `{
   "verbs": {
     "stale-door": { "engine": "stale-door-src", "description": "Use when testing stale cleanup." }

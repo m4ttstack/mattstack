@@ -3,8 +3,8 @@ name: stage-plan
 description: "Triage the approach and commit to it visibly before any implementation."
 disable-model-invocation: true
 type: pipeline-step
-slots:
-  domain: { contract: plan-domain@1, required: true }
+props:
+  domain: { merge: replace, contract: plan-domain@1 }
 metadata:
   stage: "plan"
   stage-consumes: "ticket"
@@ -133,7 +133,7 @@ If the ticket changes under you, re-read it and say what moved. When a
 tool refuses, report the refusal and the input that caused it. Prefer a
 short note in the run log over a long explanation in the chat.
 
-{{slot:domain}}
+{{props.domain}}
 
 ### Gates
 

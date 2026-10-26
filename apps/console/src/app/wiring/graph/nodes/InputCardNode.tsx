@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Button, Paper, Text, UnstyledButton } from '@mattstack/app-kit/core';
+import { Paper, Text, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
@@ -59,11 +59,9 @@ function InputCardNodeComponent({
   id,
   data: { card },
 }: NodeProps<Node<InputNodeData, 'input'>>) {
-  const { view, select, onSelect, onBind } = useCanvas();
+  const { view, select, onSelect } = useCanvas();
   const name = parityName.input(view, card);
   const file = card.icon !== 'cpu';
-  const row = view.rows.find(candidate => candidate.id === card.rowId);
-  const bindable = card.state === 'required-unbound' && row !== undefined;
   const sections = card.sections.length > 0;
   const face = (
     <>
@@ -114,7 +112,6 @@ function InputCardNodeComponent({
           radius={7}
           data-selected={select === `input:${id}` || undefined}
           data-attention={ATTENTION[card.state]}
-          data-action={bindable || undefined}
           data-sections={sections || undefined}
           w={LAYOUT.inputW}
           h={inputHeightOf(card)}
@@ -141,16 +138,6 @@ function InputCardNodeComponent({
           )}
         </Paper>
       </UnstyledButton>
-      {bindable && (
-        <Button
-          variant="card-outline"
-          size="compact-sm"
-          className={classes.cardAction}
-          onClick={() => onBind(row.line)}
-        >
-          Bind
-        </Button>
-      )}
       <Handle
         type="source"
         position={Position.Right}

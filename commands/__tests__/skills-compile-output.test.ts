@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
-import { compileBlocks, compileFailure, misplacedFailure } from "../skills.ts";
+import { compileBlocks, compileFailure, misplacedFailure, staleEngineFailure } from "../skills.ts";
 
 test("a compile lists each verb, with its warnings under it", () => {
   expect(
@@ -42,6 +42,17 @@ test("compile failures are one failure with every message under it", () => {
     '2 verbs did not compile\n  verb "a": slot "forge" has no binding\n  verb "b": engine not found\n',
   );
   expect(compileFailure(["only one"]).title).toBe("1 verb did not compile");
+});
+
+test("a compile that met an engine with no block tree names the plugin update", () => {
+  const line = 'verb "ship": loadStepSource: engine "ship" at /x/ship has no index.block.md; an engine is a block tree';
+  expect(renderPlain([out.failure(compileFailure([line], true))])).toBe(
+    "1 verb did not compile\n" +
+      "  why: Its skills are single SKILL.md files, and this rt compiles only block trees. Update the plugin, or update the mattstack app, which updates it.\n" +
+      "  next: claude plugin update mattstack@mattstack\n" +
+      `  ${line}\n`,
+  );
+  expect(renderPlain([out.failure(staleEngineFailure(line))])).toStartWith("The installed mattstack plugin is older than this rt\n");
 });
 
 test("a misplaced skill names the fix", () => {

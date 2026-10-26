@@ -203,12 +203,20 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
   });
 
   describe("tool.vsix", () => {
-    test("vsix present in the bundle -> ready", async () => {
+    test("a bundle carrying only rt-context.vsix -> skipped, naming the missing file", async () => {
       const vsix = join(appRoot, "Contents", "Resources", "rt-context.vsix");
       const p = bundleProbe({ files: { [vsix]: "" } });
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
+      expect(r.status).toBe("skipped");
+      expect(r.detail).toContain("skill-blocks");
+    });
+
+    test("both vsix files in the bundle -> ready", async () => {
+      const resources = join(appRoot, "Contents", "Resources");
+      const p = bundleProbe({ files: { [join(resources, "rt-context.vsix")]: "", [join(resources, "skill-blocks.vsix")]: "" } });
+      const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
       expect(r.status).toBe("ready");
-      expect(r.detail).toBe("The extension ships in the app");
+      expect(r.detail).toBe("Both editor extensions ship in the app");
       expect(r.required).toBe(false);
       expect(r.optionalNote).not.toBeNull();
     });
@@ -217,7 +225,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe();
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
       expect(r.status).toBe("skipped");
-      expect(r.detail).toContain("This build does not ship the extension");
+      expect(r.detail).toContain("This build does not ship the editor extensions");
     });
   });
 });
@@ -442,6 +450,95 @@ describe("rtHealthRows — tool.extension (checkRtContextExtension over p.home)"
     expect(r.status).toBe("skipped");
     expect(r.required).toBe(false);
     expect(r.optionalNote).not.toBeNull();
+  });
+
+  test("Antigravity missing skill-blocks -> needs-you, naming it", async () => {
+    const home = "/fake-home-rt-health-antigravity";
+    const p = fakeProbes({
+      home,
+      files: { [join(home, "Applications/Antigravity.app/Contents/Resources/app/bin/antigravity")]: "" },
+      dirs: { [join(home, ".antigravity/extensions")]: ["local.rt-context-0.1.0"] },
+    });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("Antigravity is missing skill-blocks. Run rt settings extension");
+  });
+
+  const AG_HOME = "/fake-home-rt-health-product-json";
+  const AG_APP = join(AG_HOME, "Applications/Antigravity.app");
+  const AG_CLI = join(AG_APP, "Contents/Resources/app/bin/antigravity");
+  const AG_PRODUCT = join(AG_APP, "Contents/Resources/app/product.json");
+  const BOTH = ["local.rt-context-0.1.0", "local.skill-blocks-0.1.0"];
+
+  test("an editor with neither extension -> needs-you, though another editor has both", async () => {
+    const codeCli = join(AG_HOME, "Applications/Visual Studio Code.app/Contents/Resources/app/bin/code");
+    const p = fakeProbes({
+      home: AG_HOME,
+      files: { [codeCli]: "", [AG_CLI]: "" },
+      dirs: { [join(AG_HOME, ".vscode/extensions")]: BOTH, [join(AG_HOME, ".antigravity/extensions")]: [] },
+    });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("Not installed in Antigravity. Run rt settings extension");
+  });
+
+  test("both kinds of gap are named together", async () => {
+    const codeCli = join(AG_HOME, "Applications/Visual Studio Code.app/Contents/Resources/app/bin/code");
+    const p = fakeProbes({
+      home: AG_HOME,
+      files: { [codeCli]: "", [AG_CLI]: "" },
+      dirs: { [join(AG_HOME, ".vscode/extensions")]: ["local.rt-context-0.1.0"] },
+    });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("Visual Studio Code is missing skill-blocks; not installed in Antigravity. Run rt settings extension");
+  });
+
+  test("product.json's dataFolderName picks the folder checked", async () => {
+    const p = fakeProbes({
+      home: AG_HOME,
+      files: { [AG_CLI]: "", [AG_PRODUCT]: JSON.stringify({ nameShort: "Antigravity", dataFolderName: ".antigravity-ide" }) },
+      dirs: { [join(AG_HOME, ".antigravity-ide/extensions")]: BOTH, [join(AG_HOME, ".antigravity/extensions")]: [] },
+    });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("Installed in Antigravity");
+  });
+
+  test("an unreadable product.json falls back to the editor table's folder", async () => {
+    const p = fakeProbes({
+      home: AG_HOME,
+      files: { [AG_CLI]: "", [AG_PRODUCT]: JSON.stringify({ dataFolderName: ".antigravity-ide" }) },
+      unreadable: [AG_PRODUCT],
+      dirs: { [join(AG_HOME, ".antigravity/extensions")]: BOTH },
+    });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+    expect(r.status).toBe("ready");
+  });
+
+  test("a product.json with no dataFolderName, or broken JSON, falls back to the table", async () => {
+    for (const body of [JSON.stringify({ nameShort: "Antigravity" }), "{not json"]) {
+      const p = fakeProbes({
+        home: AG_HOME,
+        files: { [AG_CLI]: "", [AG_PRODUCT]: body },
+        dirs: { [join(AG_HOME, ".antigravity/extensions")]: BOTH },
+      });
+      const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+      expect(r.status).toBe("ready");
+    }
+  });
+
+  test("product.json settles an editor the table has no folder for", async () => {
+    const cli = join(AG_HOME, "Applications/Cursor Personal.app/Contents/Resources/app/bin/cursor");
+    const product = join(AG_HOME, "Applications/Cursor Personal.app/Contents/Resources/app/product.json");
+    const p = fakeProbes({
+      home: AG_HOME,
+      files: { [cli]: "", [product]: JSON.stringify({ dataFolderName: ".cursor-personal" }) },
+      dirs: { [join(AG_HOME, ".cursor-personal/extensions")]: ["local.rt-context-0.1.0"] },
+    });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("Cursor Personal is missing skill-blocks. Run rt settings extension");
   });
 });
 

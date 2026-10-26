@@ -5,4 +5,4 @@ metadata:
   slots: "x"
 ---
 
-This skill uses {{slot:x}} at runtime.
+This skill uses {{props.x}} at runtime.

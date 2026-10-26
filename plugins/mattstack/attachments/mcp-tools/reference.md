@@ -3497,6 +3497,28 @@ Report this session's identity as the other tools see it: its Claude Code sessio
 }
 ```
 
+### skills_resolve
+
+<!-- mcp-lint: allow -->
+Resolve a compiled skill's @key pointers to absolute paths. Pass the id from the skill's opening line (<plugin>@<version>:<unit> or skills:<name>); returns { id, folder, covers, keys }, where keys maps each @key (without the @) to the path to use. Call it once per run and reuse the map for every id in covers. Reads only the installed plugin cache and ~/.claude/skills; a refusal means stop and say so, never look for the file another way.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^(?:[a-z0-9][a-z0-9-]*@\\d+(?:\\.\\d+)*:[a-z0-9][a-z0-9-]*|skills:[a-z0-9][a-z0-9:-]*)$",
+      "description": "The skill id, e.g. widgets@0.4.2:work or skills:board:respond"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### ci_lease_claim
 
 <!-- mcp-lint: allow -->

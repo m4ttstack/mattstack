@@ -1,15 +1,47 @@
-Without `--pipeline`, the fill becomes the default for every pipeline, under the fragment's top-level `bindings`:
+Each mattstack engine is a tree of blocks, and a block that takes your team's text declares a prop. Bind names the verb, the block, the prop and the fill. Without `--pipeline`, the fill becomes the default for every pipeline, under the fragment's top-level `bindings`:
 
 ```bash
-rt skills bind stage-evidence domain acme:capture-evidence --pack acme
+rt skills bind ship ship/flow/domain-fast-checks rules widgets:lint-changed --pack widgets
 ```
 
-A stage takes its bare name (`stage-evidence`) or the plugin-prefixed name the fragment stores it under (`mattstack:stage-evidence`). Both bind the same slot, and the output names the bare stage. Bind refuses a prefix that is not the stage's own plugin. A roster verb (`work`, `ship`) takes no prefix.
+The first line of the output names the change. A note naming the pack's own bindings file and the recompile's lines follow it:
 
-With `--pipeline`, the fill overrides that slot for one pipeline only. Every other slot, and every other pipeline, keeps the default:
+```
+[ok] ship ship/flow/domain-fast-checks.rules  (unbound) -> widgets:lint-changed
+```
+
+`<block>` is the block id as [`rt skills blocks`](/rt/reference/skills/blocks) prints it (`ship/flow/domain-fast-checks`), or its path under the engine (`flow/domain-fast-checks`). An engine's root block has the engine's name as its id (`shepherdr`). A fill is a fill folder (`widgets:lint-changed`) or one file of a fill (`widgets:ci-rules/flaky-jobs`). When the prop has a contract, the fill's `metadata.provides` must match it.
+
+The bind lands in the fragment under one key per block, the plugin prefix and the block id:
+
+```jsonc
+"bindings": {
+  "mattstack:ship/flow/domain-fast-checks": { "rules": "widgets:lint-changed" }
+}
+```
+
+A door and its stage are two engines with their own blocks. To run the same rule in `ship` and in the pipeline's ship stage, bind each one:
 
 ```bash
-rt skills bind stage-evidence domain acme:capture-a11y-evidence --pipeline accessibility --pack acme
+rt skills bind stage-ship stage-ship/domain-fast-checks rules widgets:lint-changed --pack widgets
+```
+
+A stage takes its bare name (`stage-ship`) or the plugin-prefixed name the fragment stores it under (`mattstack:stage-ship`). Both bind the same block, and the output names the bare stage. Bind refuses a prefix that is not the stage's own plugin. A roster verb (`work`, `ship`) takes no prefix.
+
+Binding the same block and prop again replaces the pack's earlier value:
+
+```
+[ok] stage-ship stage-ship/domain-fast-checks.rules  widgets:lint-changed -> widgets:lint-and-typecheck
+```
+
+`--dry-run` prints the same line as `[not yet]` and writes nothing.
+
+## Bind for one pipeline
+
+With `--pipeline`, the fill overrides that prop for one pipeline only. Every other prop, and every other pipeline, keeps the default:
+
+```bash
+rt skills bind stage-evidence stage-evidence/domain-rules rules widgets:capture-a11y-evidence --pipeline accessibility --pack widgets
 ```
 
 The override lands in the fragment under `pipelines.accessibility.bindings`. When the pipeline is still a plain stage list, bind turns it into the object form first:
@@ -19,13 +51,11 @@ The override lands in the fragment under `pipelines.accessibility.bindings`. Whe
   "accessibility": {
     "stages": ["mattstack:stage-provision", "...", "mattstack:stage-watch-ci"],
     "bindings": {
-      "mattstack:stage-evidence": { "domain": "acme:capture-a11y-evidence" }
+      "mattstack:stage-evidence/domain-rules": { "rules": "widgets:capture-a11y-evidence" }
     }
   }
 }
 ```
-
-A slot set to `""` under `pipelines.<name>.bindings` in the fragment unbinds that slot for that pipeline only. Bind itself refuses an empty fill, so write that value in the fragment by hand.
 
 Bind refuses `--pipeline` when:
 
@@ -35,23 +65,61 @@ Bind refuses `--pipeline` when:
 - the pipeline's stage list does not carry the stage,
 - the verb is a compiled stage copy (`stage-evidence--accessibility`): name the stage and pass `--pipeline` instead.
 
+## Clear a prop
+
+Bind takes no empty fill. To clear a prop, write `""` as its value in `pack/skills.jsonc` by hand:
+
+```jsonc
+"mattstack:stage-evidence/domain-rules": { "rules": "" }
+```
+
+`""` clears every value before it, such as the org base pack's, so the prop falls back to its default. Under `pipelines.<name>.bindings` it clears the prop for that pipeline only, the pack's top-level value included.
+
 ## Remove a pipeline's override
 
-`--unset` removes the override this pack's fragment sets for one pipeline, so the slot reads the default fill again. Name the pipeline with `--pipeline` and pass no fill:
+`--unset` removes the override this pack's fragment sets for one pipeline, so the prop reads the default fill again. Name the pipeline with `--pipeline` and pass no fill:
 
 ```bash
-rt skills bind stage-evidence domain --pipeline accessibility --unset --pack acme
+rt skills bind stage-evidence stage-evidence/domain-rules rules --pipeline accessibility --unset --pack widgets
 ```
 
 Bind then recompiles the pack. Once the stage's fills for that pipeline match the default again, the recompile removes the `stage-evidence--accessibility` copy. This holds even when the pipeline keeps overrides on other stages. A pipeline left with no overrides goes back to a plain stage list in the fragment; one that keeps others keeps its object form.
 
-The result reads `to` as the fill the slot has afterwards, and `--json` adds `"unset": true`. If a lower layer, such as a base pack the pack extends, still overrides the slot, the output says that layer's override still applies. `--dry-run` shows the default fill as `to` even then, because it cannot see the layer underneath.
+The result reads `to` as the fill the prop has afterwards, and `--json` adds `"unset": true`. If a lower layer, such as a base pack the pack extends, still overrides the prop, the output says that layer's override still applies. `--dry-run` shows the default fill as `to` even then, because it cannot see the layer underneath.
 
 Bind refuses `--unset` when:
 
 - `--pipeline` is missing (`--unset removes a pipeline override; name the pipeline with --pipeline`),
 - a fill is given (`--unset takes no fill`),
-- the pipeline has no override for that slot (`<pipeline> has no override for <verb>.<slot>`),
-- the override comes from another layer, such as a user override (`<pipeline>'s override for <verb>.<slot> comes from <layer>; remove it there`).
+- the pipeline has no override for that prop (`<pipeline> has no override for <verb> <block>.<prop>`),
+- the override comes from another layer, such as a user override (`<pipeline>'s override for <verb> <block>.<prop> comes from <layer>; remove it there`).
 
-An unset removes the override. Writing `""` under `pipelines.<name>.bindings` by hand does something different: it keeps the override and leaves the slot unbound for that pipeline.
+An unset removes the override. Writing `""` under `pipelines.<name>.bindings` by hand does something different: it keeps the override and clears the prop for that pipeline.
+
+## A block or prop bind cannot find
+
+Bind checks the block and the prop against the engine before it writes anything. A block the engine does not have lists the blocks that declare props:
+
+```
+block "no-such-block" is not in verb "ship"'s engine (blocks with props: ship/flow/domain-steps-before-gate, ship/flow/gate-ship, ...)
+```
+
+A prop the block does not declare lists the block's props:
+
+```
+block "ship/flow/domain-fast-checks" declares no prop "no-such-prop" (its props: rules)
+```
+
+A bind with three arguments, `<verb> <slot> <fill>`, names a slot the engine had before it became a block tree. Bind refuses it, writes nothing, and lists every prop the engine declares, with its merge:
+
+```
+"mattstack:ship" no longer has slot "domain"; its props are: ship/flow/domain-steps-before-gate.rules (add), ship/flow/gate-ship.rules (add), ship/flow/commit-named-files.rules (add), ship/flow/domain-fast-checks.rules (add), ship/flow/fix-test-first.rules (add), ship/flow/domain-rebases-unfinished.rules (add), ship/flow/resolve-conflict-files.rules (add), ship/flow/mr-create.rules (add), ship/flow/capture-after-case.rules (add), ship/flow/attach-evidence.rules (add), ship/flow/write-title-description.rules (add), ship/flow/domain-runs-ci.rules (add), ship/flow/run-watch-ci.rules (add), ship/domain-rules.rules (add)
+```
+
+Pick the block for your rule from that list and bind it with all four arguments. A `pack/skills.jsonc` key that still names such a slot is refused the same way by compile; see [`rt skills compile`](/rt/reference/skills/compile).
+
+Bind also refuses three arguments whose middle one is a prop of the engine's root block, such as `rt skills bind shepherdr tiering widgets:tiering`. It writes nothing and prints the four-argument form to run, with the root block named:
+
+```
+rt skills bind shepherdr shepherdr tiering widgets:tiering
+```

@@ -7,6 +7,9 @@ import { getSetting } from "../../lib/settings/resolve.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { readForgeUsername, sameUser } from "../../packages/rt-client/src/index.ts";
 
+/** The layout whose data lives on its own branch, the data-branch move writes. */
+export const DATA_LAYOUT = 4;
+
 /** A conversion that declines by policy; the script shell prints it with `refuse` and exits 2. */
 export class ConversionRefusal extends Error {
   constructor(message: string, readonly why?: string, readonly next?: string | string[]) {
@@ -24,6 +27,10 @@ export function cloneRoot(cloneArg: string): Clone {
   return { path, git };
 }
 
+export function linkRefusal(): ConversionRefusal {
+  return new ConversionRefusal("The move paths contain a symbolic link", "Use ordinary files and folders so the move stays inside this clone.");
+}
+
 /** Refuses when any segment of `rel` under the clone is a symbolic link. */
 export function assertNoLink(clone: string, rel: string): void {
   let path = clone;
@@ -34,7 +41,7 @@ export function assertNoLink(clone: string, rel: string): void {
       if (["ENOENT", "ENOTDIR"].includes((err as NodeJS.ErrnoException).code ?? "")) break;
       throw err;
     }
-    if (stat.isSymbolicLink()) throw new ConversionRefusal("The move paths contain a symbolic link", "Use ordinary files and folders so the move stays inside this clone.");
+    if (stat.isSymbolicLink()) throw linkRefusal();
   }
 }
 
@@ -49,7 +56,7 @@ export function preflight(clone: Clone, admin: string, opts: { managedFolders: r
   if (recorded === null || !sameUser(recorded, admin)) {
     throw new ConversionRefusal(recorded === null ? "This Mac has no recorded forge username" : `This Mac is recorded as ${recorded}`, `The recorded username must match ${admin} so you can publish as this org's admin.`, recorded === null ? "rt setup apply --only team.identity" : opts.usage);
   }
-  if (git("status", "--porcelain", "--untracked-files=all").trim() !== "") throw new ConversionRefusal("The clone has uncommitted changes", "Commit or discard them before moving.");
+  if (git("status", "--porcelain", "--untracked-files=all").trim() !== "") throw new ConversionRefusal("The clone has uncommitted changes", "Commit or discard them before moving.", `git -C ${quoted} status`);
   if (git("status", "--porcelain", "--untracked-files=all", "--ignored", "--", ...opts.managedFolders).trim() !== "") throw new ConversionRefusal("The clone has ignored files in its managed folders", "Move them aside before moving so a failed move can restore the clean start.");
   let branch: string | null;
   try {

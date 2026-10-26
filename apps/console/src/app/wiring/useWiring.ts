@@ -38,6 +38,10 @@ export type SkillsAnatomy = InferResponseType<
   typeof client.api.skills.anatomy.$get,
   200
 >;
+export type SkillsBlocks = InferResponseType<
+  typeof client.api.skills.blocks.$get,
+  200
+>;
 export type SkillsSource = InferResponseType<
   typeof client.api.skills.source.$get,
   200
@@ -174,13 +178,18 @@ export function useCompilePreview(
  */
 export function useSkillsHistory(
   pack: string | undefined,
-  verb: string | null
+  verb: string | null,
+  paths?: string[]
 ) {
   return useQuery({
-    queryKey: ['skills', 'history', pack ?? null, verb],
+    queryKey: ['skills', 'history', pack ?? null, verb, paths ?? null],
     queryFn: async () => {
       const res = await client.api.skills.history.$get({
-        query: { pack: pack ?? '', verb: verb ?? undefined },
+        query: {
+          pack: pack ?? '',
+          verb: verb ?? undefined,
+          ...(paths?.length ? { path: paths } : {}),
+        },
       });
       return readOrThrow<SkillsHistory>(res, 'skills history');
     },
@@ -189,7 +198,7 @@ export function useSkillsHistory(
   });
 }
 
-/** The diff between two commits, over the WHOLE pack -- a verb's slot fills
+/** The diff between two commits, over the WHOLE pack -- a verb's prop fills
     live outside its own `skills/<verb>/`, so a verb-scoped diff would drop
     exactly the hunks a seam can attribute. */
 export function useSkillsDiff(
@@ -222,6 +231,40 @@ export function useAnatomy(pack: string | null, skill: string | null) {
       return readOrThrow<SkillsAnatomy>(res, 'skills anatomy');
     },
     enabled: pack !== null && skill !== null,
+  });
+}
+
+/** rt declined to build the skill; its words say what to fix. */
+export class BlocksRefused extends Error {}
+
+/** The installed mattstack plugin is older than the app, so rt cannot read
+    its engines as blocks (the route's 409). */
+export class PluginStale extends Error {}
+
+/** One skill as a tree of blocks; `null` is rt's not-a-block-tree answer
+    (the route's 404). `retry: false` because that answer, a refusal
+    (422, `BlocksRefused`) and a stale plugin (409, `PluginStale`) are
+    final. */
+export function useBlocks(pack: string | null, skill: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'blocks', pack, skill],
+    queryFn: async (): Promise<SkillsBlocks | null> => {
+      const res = await client.api.skills.blocks.$get({
+        query: { pack: pack ?? '', skill: skill ?? '' },
+      });
+      if (res.status === 404) return null;
+      if (res.status === 409) {
+        const body = (await res.json()) as { error?: string };
+        throw new PluginStale(body.error ?? 'stale-engine');
+      }
+      if (res.status === 422) {
+        const body = (await res.json()) as { error?: string };
+        throw new BlocksRefused(body.error ?? 'rt will not build this skill');
+      }
+      return readOrThrow<SkillsBlocks>(res, 'skills blocks');
+    },
+    enabled: pack !== null && skill !== null,
+    retry: false,
   });
 }
 
@@ -290,31 +333,14 @@ export interface SkillsSurfaceApplyResponse {
   reReadError?: string;
 }
 
-export interface SkillsBindResponse {
-  pack: string;
-  verb: string;
-  slot: string;
-  /** Absent when the write removed `pipeline`'s override. */
-  fill?: string;
-  pipeline?: string;
-  unset?: true;
-  ok: boolean;
-  error?: string;
-}
-
-/** A fill for a slot, or the removal of a pipeline's override of it. */
-export type SkillsBindWrite =
-  | { verb: string; slot: string; fill: string; pipeline?: string }
-  | { verb: string; slot: string; pipeline: string; unset: true };
-
 type SkillsPostFn = (args: {
   json: Record<string, unknown>;
 }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 /**
- * Both write routes answer a genuine service failure (400 usage error, 503
+ * A write route answers a genuine service failure (400 usage error, 503
  * rt missing -- neither ever wrote anything) with an error body this throws
- * on, and a write ATTEMPT (200, or 502 for an apply/bind rt refused or only
+ * on, and a write ATTEMPT (200, or 502 for an apply rt refused or only
  * partly landed) by resolving with the body -- callers read `ok`/`steps` off
  * the data the same way the surface roster already reads a partial failure,
  * rather than off the HTTP status alone.
@@ -339,10 +365,9 @@ async function postSkillsWrite<TResponse>(
 }
 
 /** Every cached read a write to this pack can go stale -- the client mirror
-    of the server's own per-pack cache sweep (`e8f4163`, mirrored again for
-    `/api/skills/bind`): composition, surface, check, compile, history,
-    anatomy, source and the pending-changes poll all read the pack, and a
-    surface-apply or a bind recompiles it. */
+    of the server's own per-pack cache sweep (`e8f4163`): composition,
+    surface, check, compile, history, anatomy, source and the pending-changes
+    poll all read the pack, and a surface-apply recompiles it. */
 function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
   for (const scope of [
     'composition',
@@ -351,6 +376,7 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
     'compile',
     'history',
     'anatomy',
+    'blocks',
     'source',
     'changes',
   ]) {
@@ -358,7 +384,7 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
   }
 }
 
-/** Every write to a pack (bind, surface apply, sync, discard) runs under
+/** Every write to a pack (surface apply, sync, discard) runs under
     this key, so one count says whether any of them is in flight. */
 export const skillsWriteKey = (pack: string) => ['skills', 'write', pack];
 
@@ -390,11 +416,9 @@ export function guardedWrite(
   write();
 }
 
-/** The one client mutation surface for both skills writes -- the surface
-    roster's Apply and Rebind's Apply both go through this, so there is one
-    place that invalidates the pack's cache rather than two that could drift
-    apart. Swept on settle: the server drops its own cache whatever the
-    outcome, since a write that failed or was killed may have written. */
+/** The surface roster's Apply. Swept on settle: the server drops its own
+    cache whatever the outcome, since a write that failed or was killed may
+    have written. */
 export function useSkillsApply(pack: string) {
   const queryClient = useQueryClient();
   const onSettled = () => invalidateSkillsQueries(queryClient, pack);
@@ -412,21 +436,9 @@ export function useSkillsApply(pack: string) {
     onSettled,
   });
 
-  const bind = useMutation({
-    mutationKey,
-    mutationFn: (write: SkillsBindWrite) => {
-      if (!pack) return Promise.reject(new Error('no pack selected'));
-      return postSkillsWrite<SkillsBindResponse>(client.api.skills.bind.$post, {
-        pack,
-        ...write,
-      });
-    },
-    onSettled,
-  });
-
   const writing = useSkillsWriting(pack);
 
-  return { surfaceApply, bind, writing };
+  return { surfaceApply, writing };
 }
 
 export type SkillsCheckPayload = InferResponseType<

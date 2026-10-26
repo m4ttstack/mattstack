@@ -264,7 +264,7 @@ function uninstallActions(): { id: string; title: string; kind: "rt" | "app" | "
     { id: "proxy.remove", title: "Remove the local HTTPS proxy (admin prompt)", kind: "privileged" },
     { id: "path.unlink", title: "Remove ~/.local/bin links", kind: "rt" },
     { id: "shell.remove", title: "Remove the shell rc block", kind: "rt" },
-    { id: "extension.uninstall", title: "Uninstall the rt-context editor extension", kind: "rt" },
+    { id: "extension.uninstall", title: "Uninstall rt's editor extensions", kind: "rt" },
     { id: "plugins.uninstall", title: "Uninstall the mattstack plugins from Claude Code", kind: "rt" },
     ...(args.includes("--delete-data") ? [{ id: "data", title: "Delete ~/.mattstack (settings, state, logs)", kind: "rt" as const }] : []),
     { id: "app.trash", title: "Move mattstack.app to the Trash", kind: "rt" },

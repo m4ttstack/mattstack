@@ -176,7 +176,7 @@ flow below. The marker
 (`mattstack/mattstack.jsonc`) carries `layout`; `ORG_LAYOUT` in
 `lib/team/org-marker.ts` is the highest layout this rt reads, and it moves
 only with such a change, never with a release. A clone on a layout outside
-`READABLE_LAYOUTS` (3 and 4, which share every path) is
+`READABLE_LAYOUTS` (3, 4 and 5, which share every path) is
 `waiting`, not a failure: materialize writes nothing, the `rt skills`
 verbs refuse with the waiting sentence, the apps run as on a Mac with no
 org, and the `org.layout` row of `rt setup status` says why. The daemon
@@ -198,7 +198,7 @@ never merged into `main`, nor `main` into it. `rt team invite` reads
 the invite carries `dataBranch`, and a join clones that branch alone. An
 admin tries a change on a trial branch with `rt team branch use
 <name>` (org admins and owners): it switches the clone in place and
-records the trial so the daemon auto-commits there. On a layout 4 clone it
+records the trial so the daemon auto-commits there. On a layout 4 or 5 clone it
 makes the branch from the data branch's published tip when origin has
 none. On a layout 3 clone it switches only to an existing branch, such as
 one the conversion script made, because there is no data branch yet to
@@ -207,7 +207,7 @@ holds while the clone has unsaved changes or unpublished commits. Whether
 a target is a trial is decided by origin `main`'s pointer: the data branch
 is the `dataBranch` it names, or `main` itself when it names none.
 `rt team branch use main` (layout 3) or `rt team branch use <data
-branch>` (layout 4) switches back and clears the trial.
+branch>` (layout 4 or 5) switches back and clears the trial.
 
 In this order:
 
@@ -216,18 +216,22 @@ In this order:
    `bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username>`
    layout 3's is
    `bun scripts/move-to-team-directory.ts <clone-dir> --admin <username>`
-   and layout 4's is
+   layout 4's is
    `bun scripts/move-to-data-branch.ts <clone-dir> --admin <username>`
+   and layout 5's (every pack in block form) is
+   `bun scripts/move-to-block-packs.ts <clone-dir> --admin <username>`
    (each plans; `--write` acts). A conversion to layout 3 or later
    also writes `layout: <n>` in the marker. Every marker rt writes carries
    an explicit `layout` (`rt team create` writes `ORG_LAYOUT`, the layout 2
    script writes 2, the layout 3 script writes 3, the layout 4 script
-   writes 4 with `dataBranch`), and a `role: "org"`
+   writes 4 with `dataBranch`, the layout 5 script writes 5 and keeps
+   `dataBranch`), and a `role: "org"`
    marker with no field reads 2, a fixed default
    (`ORG_LAYOUT_ABSENT_DEFAULT`) that never follows the bump, so an
    unconverted clone never reads as ready.
-2. **Test it on the dev app.** The dev app runs rt from the shared
-   checkout (the one `rt dev setup` recorded, else
+2. **Test it on the dev app** (not for layout 4 or 5: see their paragraphs
+   below the steps). The dev app runs rt from the shared checkout (the one
+   `rt dev setup` recorded, else
    `~/Documents/GitHub/mattstack`), which sits on main, so once the change
    is merged, pulled there and the daemon restarted (rt:build-dev-app's
    pull and restart, with its #rt notice) its rt reads the new layout and
@@ -244,7 +248,8 @@ In this order:
    `ready` on your Mac, read from that branch, and members' clones stay on
    main. Use it until you are happy; to try again, reset the branch and
    rerun the script.
-3. **Merge the converted branch into the org repo's main**, before or after
+3. **Merge the converted branch into the org repo's main** (not for layout
+   4 or 5: their data lives on the data branch; see below), before or after
    the release. Merge first: every member's daemon holds at the last
    old-layout commit and their row names the app update, so nothing on
    their Macs changes until they update. Release first: a member on the new
@@ -265,8 +270,9 @@ In this order:
    update the pack plugin and rewrite the bindings; a launch's `rt setup
    update` (`org.folder`, `org.pull`, migrations, then the update-safe
    steps) sees a ready org. Nobody but the admin runs the conversion.
-6. **Delete the branch** once main holds the conversion and every member is
-   on the layout release, and switch your clone back: `git switch main`.
+6. **Delete the branch** (not for layout 4 or 5; see below) once main holds
+   the conversion and every member is on the layout release, and switch
+   your clone back: `git switch main`.
 
 Layout 4's conversion has its own shape, so steps 2, 3 and 6 above do not
 apply to it. The script creates the data branch from scratch (`--data-branch
@@ -296,6 +302,28 @@ that touch paths outside the org's data or clash hold the move. The
 `org.layout` row names the dirty, detached and outside-the-data holds; a
 clash shows only when the move tries, in `rt team pull`, the setup update
 and the daemon log.
+
+Layout 5's conversion runs on a data-branch org, so steps 2, 3 and 6 above
+do not apply to it either; the admin order in the docs' Teams and invites
+page ("Moving to block packs") is the runbook. Never merge into `main` or
+switch the clone to `main`: `main` holds only the pointer, and org data
+merged there is what the `org.main` row says to revert. Instead: turn team
+sync off; `rt team branch use <trial>` (made from the data branch's
+published tip); convert every pack there and `rt team publish`; run
+`bun scripts/move-to-block-packs.ts <clone-dir> --admin <username>`, then
+again with `--write` (it sets `layout: 5` in the branch's marker, keeps
+`dataBranch`, writes no pointer on `main`); review with
+`git -C <clone-dir> show`; `rt team publish`; turn sync back on. After the
+release, merge the trial branch into the data branch on the forge, then
+switch back with `rt team branch use <data branch>`. Never merge the trial
+branch locally and push the result to the data branch. Then `rt team pull`
+and run the script once more without `--write`: on a layout 5 clone it
+checks every pack and names any old slot key the merge brought back. Order
+against the release: merge after it. Since `READABLE_LAYOUTS` still
+includes 4, a member on the new app reads either layout and never sees a
+waiting row; a member on an app that reads only up to 4 holds its org pull
+until it updates, so a merge before the release would hold every member's
+pull.
 
 The gate itself reached the old line as v2.21.1, a patch release tagged from
 `release/v2.21.x`, a branch cut from the v2.21.0 tag because main already

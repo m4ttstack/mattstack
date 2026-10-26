@@ -15,9 +15,9 @@ import { Icons } from '@mattstack/app-kit/icons';
 
 import { pluginRootOf } from '../../shared/pluginRoot';
 import { CommandProvenance } from '../runs/CommandProvenance';
-import type { SlotOutlineNode, WiringHealth } from './outline';
+import type { PropOutlineNode, WiringHealth } from './outline';
 import { QuietBadge } from './QuietBadge';
-import type { SeamSourceIndex } from './seamAttribution';
+import { propValueKey, type SeamSourceIndex } from './seamAttribution';
 import { SeamCompare } from './SeamCompare';
 import { SOFT_RULE } from './softRule';
 import {
@@ -142,19 +142,20 @@ function RuntimeRow({
   );
 }
 
-/** Base name -> base pack root, for the slots a base fills from outside the
+/** Base name -> base pack root, for the props a base fills from outside the
     pack. A team-pack copy of a base fill sits in the pack's own diff, so it
     adds no root. */
 function baseRootsOf(
-  slots: SlotOutlineNode[],
+  props: PropOutlineNode[],
   packDir: string
 ): Record<string, string> {
   const roots: Record<string, string> = {};
-  for (const slot of slots) {
-    if (slot.origin !== 'base' || !slot.base || !slot.fillSourcePath) continue;
-    if (slot.fillSourcePath.startsWith(`${packDir}/`)) continue;
-    const root = pluginRootOf(slot.fillSourcePath);
-    if (root) roots[slot.base] = root;
+  for (const value of props.flatMap(prop => prop.values)) {
+    if (value.origin !== 'base' || !value.base || !value.fillSourcePath)
+      continue;
+    if (value.fillSourcePath.startsWith(`${packDir}/`)) continue;
+    const root = pluginRootOf(value.fillSourcePath);
+    if (root) roots[value.base] = root;
   }
   return roots;
 }
@@ -183,7 +184,9 @@ export interface VersionTimelineProps {
       `seamPackPath`. */
   sourcePath: string | null;
   artifactPath: string | null;
-  slots: SlotOutlineNode[];
+  props: PropOutlineNode[];
+  /** A block's own files, relative to the pack: the log covers only them. */
+  paths?: string[];
 }
 
 /**
@@ -203,7 +206,8 @@ export function VersionTimeline({
   staleFiles,
   sourcePath,
   artifactPath,
-  slots,
+  props,
+  paths,
 }: VersionTimelineProps) {
   const { bg, text } = useSchemeColors();
   const [selected, setSelected] = useState<string[]>([]);
@@ -214,12 +218,13 @@ export function VersionTimeline({
 
   // A selection is about one verb's commits; carrying it to the next verb
   // would offer a compare between shas that never appeared in this list.
+  const scopeKey = paths?.join('\n') ?? '';
   useEffect(() => {
     setSelected([]);
     setComparing(null);
-  }, [verb]);
+  }, [verb, scopeKey]);
 
-  const history = useSkillsHistory(pack, verb);
+  const history = useSkillsHistory(pack, verb, paths);
   const commits = useMemo(() => history.data?.commits ?? [], [history.data]);
   const runtime = history.data?.runtime;
 
@@ -269,12 +274,17 @@ export function VersionTimeline({
             artifactPath,
             stepSourcePath: sourcePath,
             fillSourcePaths: Object.fromEntries(
-              slots.map(slot => [slot.name, slot.fillSourcePath])
+              props.flatMap(prop =>
+                prop.values.map(value => [
+                  propValueKey(prop.key, value.boundTo),
+                  value.fillSourcePath,
+                ])
+              )
             ),
-            baseRoots: baseRootsOf(slots, diff.data.packDir),
+            baseRoots: baseRootsOf(props, diff.data.packDir),
           }
         : null,
-    [diff.data, pack, artifactPath, sourcePath, slots]
+    [diff.data, pack, artifactPath, sourcePath, props]
   );
   const diffText = diff.data
     ? joinDiffs(diff.data.diff, diff.data.baseDiff)

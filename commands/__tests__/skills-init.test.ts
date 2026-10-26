@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
+import { initCheckOf, initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
 import * as syncCommand from "../skills-sync.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { POLICY_REFUSALS, type InitDeps, type InitOutcome } from "../../lib/skills/init.ts";
@@ -167,6 +167,21 @@ describe("init outcome", () => {
       "disk full\n  next: Delete the pack folder it started, then run rt skills init\n  Pack folder: /z/mattstack/packs/acme\n",
     );
     expect(initFailureAfter(outcome)).toEqual([ui.verbatim(outcome.wrote, "written so far")]);
+  });
+
+  test("a hand-written skill failure lists each file, line and reason under its own caption", () => {
+    const outcome: Extract<InitOutcome, { ok: false; refused: false }> = {
+      ok: false,
+      refused: false,
+      code: "hand-skill-failed",
+      detail: "skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings\nskills/gizmos/SKILL.md:5:7: ../gone.md does not resolve to a file from the skill's folder",
+      wrote: ["/a"],
+      remedy: { commands: ["rt skills check --pack-dir /z/p", "rt team publish --team acme"] },
+    };
+    expect(renderPlain([ui.failure(initFailure(outcome))])).toBe(
+      "Hand-written skills in the new pack have problems a recompile cannot fix\n  next: Fix each file, then run rt skills check --pack-dir /z/p, then rt team publish --team acme\n",
+    );
+    expect(initFailureAfter(outcome)).toEqual([ui.verbatim(outcome.detail.split("\n"), "hand-written skill problems")]);
   });
 
   test("with no remedy, the next step is the general one", () => {
@@ -576,6 +591,31 @@ describe("skillsInit", () => {
     expect(Array.isArray(printed.error.wrote)).toBe(true);
     expect(printed.error.wrote.length).toBeGreaterThan(0);
     expect(process.exitCode).toBe(1);
+  });
+});
+
+describe("initCheckOf", () => {
+  test("a dead pointer in what a recompile would write reaches init apart from the hand-written failures", () => {
+    const at = (file: string, code: string, message: string) => ({ file, line: 4, col: 2, code, message });
+    const result = initCheckOf({
+      drift: false,
+      skillPaths: [at("skills/gadgets/SKILL.md", "broken-skill-path", "gone.md does not resolve to a file")],
+      sourcePointerErrors: [at("attachments/stage-plan/SKILL.md", "missing-target", "@stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file")],
+    });
+    expect(result).toEqual({
+      drift: false,
+      handErrors: ["skills/gadgets/SKILL.md:4:2: gone.md does not resolve to a file"],
+      pointerErrors: ["attachments/stage-plan/SKILL.md:4:2: @stage-plan/x.sh points at attachments/stage-plan/x.sh, which is not a file"],
+    });
+  });
+
+  test("a pointer failure names the source files as the fix, never hand-written skills", () => {
+    const o = { ok: false as const, refused: false as const, code: "pointer-failed" as const, detail: "a.md:1:1: x\nb.md:2:2: y", wrote: [], remedy: { commands: ["rt skills compile --pack-dir /p", "rt skills check --pack-dir /p", "rt team publish --team acme"] } };
+    const shown = renderPlain([ui.failure(initFailure(o)), ...initFailureAfter(o)]);
+    expect(shown).toContain("Compiled skills in the new pack have pointers that lead nowhere");
+    expect(shown).toContain("Fix them in the pack's source files, then run rt skills compile --pack-dir /p, then rt skills check --pack-dir /p, then rt team publish --team acme");
+    expect(shown).toContain("compiled skills, pointers:");
+    expect(shown).not.toContain("Hand-written");
   });
 });
 
