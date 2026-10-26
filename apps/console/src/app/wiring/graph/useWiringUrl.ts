@@ -126,11 +126,15 @@ function otherParams(search: string): string {
  * Where-you-are keys push so Back retraces them; in-place view state replaces
  * so Back does not step through every row click.
  */
+/** Every move between skills, blocks and their graphs is a page of its
+    own, so Back retraces it; a fold or a filter replaces in place. */
 function pushes(current: WiringUrl, next: WiringUrl): boolean {
   return (
     current.tab !== next.tab ||
     current.pack !== next.pack ||
-    current.focus !== next.focus
+    current.focus !== next.focus ||
+    current.block !== next.block ||
+    current.select !== next.select
   );
 }
 

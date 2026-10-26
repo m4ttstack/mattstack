@@ -4,7 +4,6 @@ import {
   Box,
   Button,
   Center,
-  Code,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
@@ -12,6 +11,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 
 import { BlockSidebar } from '../blocks/BlockSidebar';
 import { BlockStage } from '../blocks/BlockStage';
+import { FailureText } from '../FailureText';
 import { useAnatomy, usePendingChanges } from '../useWiring';
 import { FocusHeader, kindOf, statusOf } from './FocusHeader';
 import { GraphSidebar } from './FocusList';
@@ -38,27 +38,15 @@ function useBottomInStage() {
   return { ref, bottom };
 }
 
-/** rt's failure text with the command it suggests (its `next:` line) set
-    apart, so the command reads as one to run. */
-function FailureText({ message }: { message: string }) {
-  const [said, next] = message.split(/\n\s*next:\s*/);
-  return (
-    <>
-      <Text size="sm" data-testid="canvas-error-message">
-        {said}
-      </Text>
-      {next && <Code data-testid="canvas-error-next">{next.trim()}</Code>}
-    </>
-  );
-}
-
-/** A focused pipeline opens the map between skills; any other focus opens
-    that skill's block view. */
+/** A focused pipeline opens the map between skills, and its orchestrator's
+    block view once the URL names a block; any other focus opens that
+    skill's block view. */
 export function opensBlockView(
   focused: FocusItem | null,
-  pipeline: FocusItem | null
+  pipeline: FocusItem | null,
+  block: string | null = null
 ): focused is FocusItem {
-  return focused !== null && focused.key !== pipeline?.key;
+  return focused !== null && (focused.key !== pipeline?.key || block !== null);
 }
 
 /** The pipeline's template canvas, linking out to each stage, under its
@@ -96,7 +84,22 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
       workType: known ? workType : null,
     });
   }, [anatomy, composition, check, changes, step, workType]);
-  const layout = useMemo(() => (view ? layoutTemplate(view) : null), [view]);
+  // Every section starts folded; ids are block ids, so they never clash
+  // between skills.
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const onToggle = useCallback(
+    (section: string) =>
+      setOpen(current => {
+        const next = new Set(current);
+        if (!next.delete(section)) next.add(section);
+        return next;
+      }),
+    []
+  );
+  const layout = useMemo(
+    () => (view ? layoutTemplate(view, open) : null),
+    [view, open]
+  );
   const onSelect = useCallback((select: string) => patch({ select }), [patch]);
   const focusOf = useCallback(
     (skill: string) => focusUnder(pipeline, skill),
@@ -111,6 +114,34 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
       bg="var(--tk-bg)"
       data-parity="Stage"
     >
+      {compositionQuery.isError && !composition && (
+        <Center className={classes.canvasError}>
+          <Alert
+            variant="light"
+            color="bad"
+            title="This pack's skills failed to load"
+            icon={<Icon name="warning" size={16} />}
+            classNames={{ root: classes.canvasErrorAlert }}
+            data-testid="pack-error"
+          >
+            <Stack gap="xs" align="flex-start">
+              <FailureText
+                message={(compositionQuery.error as Error).message}
+                testId="pack-error"
+              />
+              <Button
+                variant="outline"
+                color="bad"
+                size="compact-sm"
+                loading={compositionQuery.isFetching}
+                onClick={() => void compositionQuery.refetch()}
+              >
+                Retry
+              </Button>
+            </Stack>
+          </Alert>
+        </Center>
+      )}
       {focused && anatomyQuery.isError && !anatomy && (
         <Center className={classes.canvasError}>
           <Alert
@@ -122,7 +153,10 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
             data-testid="canvas-error"
           >
             <Stack gap="xs" align="flex-start">
-              <FailureText message={(anatomyQuery.error as Error).message} />
+              <FailureText
+                message={(anatomyQuery.error as Error).message}
+                testId="canvas-error"
+              />
               <Button
                 variant="outline"
                 color="bad"
@@ -145,7 +179,10 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
             height={height}
             headerBottom={focused ? header.bottom : 0}
             focusOf={focusOf}
+            focusKey={focused?.key ?? null}
             onSelect={onSelect}
+            open={open}
+            onToggle={onToggle}
           />
         </Suspense>
       )}
@@ -184,7 +221,7 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
     lands back on it. */
 export function GraphTabSidebar({ pack }: { pack: string }) {
   const { url, focused, pipeline } = useGraphFocus(pack);
-  if (url.focus !== null && opensBlockView(focused, pipeline)) {
+  if (url.focus !== null && opensBlockView(focused, pipeline, url.block)) {
     return <BlockSidebar key={focused.key} pack={pack} />;
   }
   return <GraphSidebar pack={pack} />;
@@ -193,8 +230,8 @@ export function GraphTabSidebar({ pack }: { pack: string }) {
 /** The Graph tab's stage: a focused pipeline's map, or a focused skill's
     block view. */
 export function GraphTab({ pack, height }: { pack: string; height: string }) {
-  const { focused, pipeline } = useGraphFocus(pack);
-  if (opensBlockView(focused, pipeline)) {
+  const { url, focused, pipeline } = useGraphFocus(pack);
+  if (opensBlockView(focused, pipeline, url.block)) {
     return <BlockStage pack={pack} height={height} focused={focused} />;
   }
   return <PipelineMap pack={pack} height={height} />;

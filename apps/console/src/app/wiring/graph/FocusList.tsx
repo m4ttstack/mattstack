@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import {
   Alert,
   Box,
-  Button,
   Divider,
   Group,
   NavLink,
@@ -150,17 +149,12 @@ function StepRow({
       color="accent"
       active={active}
       label={
-        <RowLabel
-          text={item.label}
-          size={12}
-          active={active}
-          rest={SECONDARY}
-        />
+        <RowLabel text={item.label} size={13} active={active} rest={BODY} />
       }
       leftSection={
         <Text
           span
-          fz={10}
+          fz={11}
           lh="normal"
           c={active ? undefined : SECONDARY}
           className={classes.stepNumber}
@@ -389,41 +383,12 @@ function AttentionEmpty({ check }: { check: SkillsCheck | undefined }) {
 
 /** The Graph tab's focus list, rendered as `PageShell.Sidebar` content. */
 export function GraphSidebar({ pack }: { pack: string }) {
-  const { url, patch, compositionQuery, checkQuery, groups, focused } =
-    useGraphFocus(pack);
+  const { url, patch, checkQuery, groups, focused } = useGraphFocus(pack);
   const onFocus = (key: string) => patch({ focus: key });
   const shown = groups && url.attention ? onlyAttention(groups) : groups;
   // The filter reads drift from check, so its rows wait for check to answer.
   const ready =
     shown && !(url.attention && checkQuery.isPending) ? shown : null;
-
-  if (compositionQuery.isError) {
-    return (
-      <Stack
-        gap={2}
-        className={classes.list}
-        data-parity="Focus list"
-        data-testid="focus-list"
-      >
-        <Alert
-          variant="light"
-          color="bad"
-          title="This pack's skills failed to load"
-          icon={<Icon name="warning" size={16} />}
-        >
-          <Stack gap="xs" align="flex-start">
-            <Text size="sm">{(compositionQuery.error as Error).message}</Text>
-            <Button
-              variant="default"
-              onClick={() => void compositionQuery.refetch()}
-            >
-              Retry
-            </Button>
-          </Stack>
-        </Alert>
-      </Stack>
-    );
-  }
 
   return (
     <Stack

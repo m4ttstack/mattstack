@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { UnstyledButton } from '@mattstack/app-kit/core';
+import { Anchor, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { BlockGlyph, BlockRow } from './BlockRow';
@@ -35,8 +35,11 @@ export function SectionBand({
   introText = null,
   bodyOf,
   usedByCount,
+  limit,
 }: {
   band: Band;
+  /** Rows shown before Show all; every row when unset. */
+  limit?: number;
   /** The band's block's graph, as a one-line card under the header. */
   graph?: ReactNode;
   /** The band's block's whole text, which Show more opens. */
@@ -52,9 +55,12 @@ export function SectionBand({
   usedByCount?: (name: string) => number | null;
 }) {
   const [more, setMore] = useState(false);
+  const [all, setAll] = useState(false);
+  const cut = limit !== undefined && band.rows.length > limit && !all;
+  const rows = cut ? band.rows.slice(0, limit) : band.rows;
   const title = (
     <>
-      <BandMark icon={band.icon} />
+      {band.id !== 'notes' && <BandMark icon={band.icon} />}
       <span className={classes.bandTitle}>{band.title}</span>
     </>
   );
@@ -70,17 +76,21 @@ export function SectionBand({
     >
       {!bare && (
         <div className={classes.bandHead}>
-          {opensBlock ? (
-            <UnstyledButton
-              className={classes.bandOpen}
+          <span className={classes.bandOpen}>{title}</span>
+          <span className={classes.bandMeta}>{meta}</span>
+          {opensBlock && (
+            <Anchor
+              component="button"
+              type="button"
+              fz={13}
+              fw={500}
+              className={classes.bandLink}
               onClick={() => onOpen(band.id)}
             >
-              {title}
-            </UnstyledButton>
-          ) : (
-            <span className={classes.bandOpen}>{title}</span>
+              {`Open ${band.title}`}
+              <Icon name="chevronRight" size={13} />
+            </Anchor>
           )}
-          <span className={classes.bandMeta}>{meta}</span>
         </div>
       )}
       {!bare && band.intro && (
@@ -102,7 +112,7 @@ export function SectionBand({
       )}
       {graph}
       <ul className={classes.rows}>
-        {band.rows.map(row => (
+        {rows.map(row => (
           <BlockRow
             key={row.id}
             row={row}
@@ -114,6 +124,17 @@ export function SectionBand({
           />
         ))}
       </ul>
+      {limit !== undefined && band.rows.length > limit && (
+        <Anchor
+          component="button"
+          type="button"
+          fz={13}
+          className={classes.showAll}
+          onClick={() => setAll(open => !open)}
+        >
+          {all ? 'Show fewer' : `Show all ${band.rows.length}`}
+        </Anchor>
+      )}
     </section>
   );
 }

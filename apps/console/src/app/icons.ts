@@ -13,6 +13,7 @@ import {
   CircleMinus,
   CircleSlash,
   CircleX,
+  Code,
   Columns2,
   CornerDownRight,
   CornerUpLeft,
@@ -106,4 +107,5 @@ registerIcons({
   flag: lucideWrapperFn(Flag),
   plug: lucideWrapperFn(Plug),
   play: lucideWrapperFn(Play),
+  code: lucideWrapperFn(Code),
 });

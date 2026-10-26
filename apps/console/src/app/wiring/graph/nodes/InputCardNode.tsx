@@ -59,9 +59,10 @@ function InputCardNodeComponent({
   id,
   data: { card },
 }: NodeProps<Node<InputNodeData, 'input'>>) {
-  const { view, select, onSelect } = useCanvas();
+  const { view, select, onSelect, onOpenBlock } = useCanvas();
   const name = parityName.input(view, card);
   const file = card.icon !== 'cpu';
+  const block = card.block;
   const sections = card.sections.length > 0;
   const face = (
     <>
@@ -104,7 +105,10 @@ function InputCardNodeComponent({
       <UnstyledButton
         className={classes.cardButton}
         data-testid="input-card"
-        onClick={() => onSelect(`input:${id}`)}
+        title={block ? 'Open in the block view' : undefined}
+        onClick={() =>
+          block ? onOpenBlock(block) : onSelect(`input:${id}`)
+        }
       >
         <Paper
           withBorder

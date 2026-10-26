@@ -11,6 +11,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { FailureText } from '../FailureText';
 import { FocusHeader, statusOf } from '../graph/FocusHeader';
 import { workTypeOf, type FocusItem } from '../graph/model/focusModel';
 import { buildTemplateView } from '../graph/model/templateModel';
@@ -141,9 +142,10 @@ export function BlockStage({
               data-testid="block-view-refused"
             >
               <Stack gap="xs" align="flex-start">
-                <Text size="sm" className={classes.refusal}>
-                  {skill.message}
-                </Text>
+                <FailureText
+                  message={skill.message}
+                  testId="block-view-refused"
+                />
                 <Anchor
                   component="button"
                   type="button"
@@ -179,7 +181,10 @@ export function BlockStage({
               data-testid="block-view-error"
             >
               <Stack gap="xs" align="flex-start">
-                <Text size="sm">{skill.message}</Text>
+                <FailureText
+                  message={skill.message}
+                  testId="block-view-error"
+                />
                 <Button
                   variant="outline"
                   color="bad"

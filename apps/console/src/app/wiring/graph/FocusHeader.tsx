@@ -79,29 +79,37 @@ export function statusOf(
   }
 }
 
-/** A block's own kind chip names only the kinds a graph gives it. */
-const BLOCK_KIND_ICON: Partial<
-  Record<PayloadBlock['kind'], 'circle' | 'diamond' | 'flag'>
-> = { step: 'circle', question: 'diamond', gate: 'flag' };
+const BLOCK_KIND_ICON: Record<
+  PayloadBlock['kind'],
+  'circle' | 'diamond' | 'flag' | 'fileText' | 'package'
+> = {
+  step: 'circle',
+  question: 'diamond',
+  gate: 'flag',
+  note: 'fileText',
+  shared: 'package',
+};
 
 function BlockChips({ block }: { block: HeaderBlock }) {
-  const icon = BLOCK_KIND_ICON[block.kind];
+  const blocks =
+    block.blocks === undefined
+      ? null
+      : `${block.blocks} ${block.blocks === 1 ? 'block' : 'blocks'}`;
   return (
     <>
-      {icon && (
-        <Badge
-          variant="quiet"
-          classNames={{ root: classes.pill, section: classes.pillIcon }}
-          leftSection={<Icon name={icon} size={10} />}
-          data-testid="block-kind"
-        >
-          {block.kind}
-        </Badge>
-      )}
+      <Badge
+        variant="panel-outline"
+        classNames={{ root: classes.chip, section: classes.pillIcon }}
+        leftSection={<Icon name={BLOCK_KIND_ICON[block.kind]} size={10} />}
+        data-hue={block.kind}
+        data-testid="block-kind"
+      >
+        {blocks ? `${block.kind} · ${blocks}` : block.kind}
+      </Badge>
       {block.hasProps && (
         <Badge
-          variant="quiet"
-          classNames={{ root: classes.pill, section: classes.pillIcon }}
+          variant="panel-outline"
+          classNames={{ root: classes.chip, section: classes.pillIcon }}
           leftSection={<Icon name="plug" size={10} />}
           data-testid="block-has-props"
         >
@@ -112,7 +120,12 @@ function BlockChips({ block }: { block: HeaderBlock }) {
   );
 }
 
-export type HeaderBlock = { kind: PayloadBlock['kind']; hasProps: boolean };
+export type HeaderBlock = {
+  kind: PayloadBlock['kind'];
+  hasProps: boolean;
+  /** A parent's count of the blocks inside it. */
+  blocks?: number;
+};
 
 export function FocusHeader({
   ref,
@@ -194,8 +207,8 @@ export function FocusHeader({
             </Title>
             {kind !== null && (
               <Badge
-                variant="quiet"
-                classNames={{ root: classes.pill }}
+                variant={inline ? 'panel-outline' : 'quiet'}
+                classNames={{ root: inline ? classes.chip : classes.pill }}
                 data-parity="badge"
                 attributes={{ label: { 'data-parity': 'l' } }}
               >

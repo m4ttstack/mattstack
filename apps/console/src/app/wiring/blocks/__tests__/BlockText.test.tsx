@@ -8,7 +8,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../../server/blocksPayload';
-import { BlockText } from '../BlockText';
+import { BlockText, FlowRow } from '../BlockText';
 import { miniPayload } from './blocksFixture';
 
 const byId = (id: string) => {
@@ -23,7 +23,7 @@ describe('BlockText', () => {
       <BlockText
         block={byId('mini/gate')}
         payload={miniPayload}
-        level="block"
+       
       />
     );
     const heading = screen.getByRole('heading', { name: 'Ask the gate' });
@@ -44,60 +44,35 @@ describe('BlockText', () => {
       segments: [{ ...run.segments[0], text: 'Do the work\nfor the widget.' }],
     };
     renderWithProviders(
-      <BlockText block={wrapped} payload={miniPayload} level="block" />
+      <BlockText block={wrapped} payload={miniPayload} />
     );
     const body = screen.getByTestId('block-text');
     expect(body.querySelector('br')).toBeNull();
     expect(body).toHaveTextContent('Do the work for the widget.');
   });
 
-  it('names a value card by its layer, the default by "default"', () => {
+  it("titles a value's band by the layer that passed it", () => {
     renderWithProviders(
-      <BlockText block={byId('mini')} payload={miniPayload} level="block" />
+      <BlockText block={byId('mini')} payload={miniPayload} />
     );
     const card = screen.getByTestId('prop-card');
-    expect(card).toHaveTextContent(/^widgets/);
+    expect(card).toHaveTextContent(/by widgets/);
   });
 
   it('renders no box for a block with no markers', () => {
     renderWithProviders(
-      <BlockText block={byId('mini/run')} payload={miniPayload} level="block" />
+      <BlockText block={byId('mini/run')} payload={miniPayload} />
     );
     expect(screen.queryByTestId('prop-box')).not.toBeInTheDocument();
   });
 
-  it('shows the graph as a one-line card at parent level', () => {
-    const onViewGraph = vi.fn();
+  it('leaves the Mermaid graph out of the text', () => {
     renderWithProviders(
-      <BlockText
-        block={byId('mini')}
-        payload={miniPayload}
-        level="parent"
-        onViewGraph={onViewGraph}
-      />
-    );
-    expect(screen.queryByText(/flowchart/)).not.toBeInTheDocument();
-    expect(screen.getByText('4 steps · 3 links')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'View graph' }));
-    expect(onViewGraph).toHaveBeenCalledWith('mini');
-  });
-
-  it('omits the graph at block level', () => {
-    renderWithProviders(
-      <BlockText block={byId('mini')} payload={miniPayload} level="block" />
+      <BlockText block={byId('mini')} payload={miniPayload} />
     );
     expect(screen.queryByText(/steps ·/)).not.toBeInTheDocument();
     expect(screen.queryByText(/flowchart/)).not.toBeInTheDocument();
     expect(screen.getByTestId('prop-box')).toBeInTheDocument();
-  });
-
-  it('renders nothing for a fence with no matching graph', () => {
-    const payload: BlocksPayload = { ...miniPayload, graphs: [] };
-    renderWithProviders(
-      <BlockText block={byId('mini')} payload={payload} level="parent" />
-    );
-    expect(screen.queryByText(/steps ·/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/flowchart/)).not.toBeInTheDocument();
   });
 
   it('puts a marker-only block boxes after the text in marker order, no prose', () => {
@@ -115,7 +90,7 @@ describe('BlockText', () => {
       props: [mk('second', 9), mk('first', 3)],
     };
     renderWithProviders(
-      <BlockText block={block} payload={miniPayload} level="block" />
+      <BlockText block={block} payload={miniPayload} />
     );
     const boxes = screen.getAllByTestId('prop-box');
     expect(boxes.map(b => b.getAttribute('data-prop'))).toEqual([
@@ -124,5 +99,32 @@ describe('BlockText', () => {
     ]);
     expect(screen.getAllByText('nothing passed')).toHaveLength(2);
     expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+  });
+});
+
+describe('FlowRow', () => {
+  it("sizes a block's graph in one row that opens the flow", () => {
+    const onOpen = vi.fn();
+    renderWithProviders(
+      <FlowRow payload={miniPayload} blockId="mini" onOpen={onOpen} />
+    );
+    expect(screen.getByTestId('flow-row')).toHaveTextContent(
+      '4 steps · 2 blocks · how this block runs, step by step'
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Flow/ }));
+    expect(onOpen).toHaveBeenCalledWith('mini');
+  });
+
+  it('shows the Mermaid source on demand', () => {
+    renderWithProviders(<FlowRow payload={miniPayload} blockId="mini" />);
+    expect(screen.queryByTestId('graph-source')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    expect(screen.getByTestId('graph-source')).toHaveTextContent('flowchart');
+  });
+
+  it('draws nothing for a block with no graph', () => {
+    const payload: BlocksPayload = { ...miniPayload, graphs: [] };
+    renderWithProviders(<FlowRow payload={payload} blockId="mini" />);
+    expect(screen.queryByTestId('flow-row')).not.toBeInTheDocument();
   });
 });

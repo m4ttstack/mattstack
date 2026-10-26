@@ -247,18 +247,28 @@ describe('useWiringUrl', () => {
   });
 
   it.each<[string, Partial<WiringUrl>, string]>([
-    ['select', { select: 'row:2' }, '?select=row:2'],
-    ['view', { view: 'rendered' }, '?view=rendered'],
+    ['select', { select: 'graph' }, '?select=graph'],
     ['block', { block: 'mini/run' }, '?block=mini/run'],
-  ])('replaces on a %s change', (_name, patch, search) => {
+  ])('pushes a %s change, so Back retraces it', (_name, patch, search) => {
     const { result } = renderHook(() => useWiringUrl());
     replaceState.mockClear();
 
     act(() => result.current[1](patch));
 
+    expect(pushState).toHaveBeenCalledTimes(1);
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(window.location.search).toBe(search);
+  });
+
+  it('replaces on a view change', () => {
+    const { result } = renderHook(() => useWiringUrl());
+    replaceState.mockClear();
+
+    act(() => result.current[1]({ view: 'rendered' }));
+
     expect(replaceState).toHaveBeenCalledTimes(1);
     expect(pushState).not.toHaveBeenCalled();
-    expect(window.location.search).toBe(search);
+    expect(window.location.search).toBe('?view=rendered');
   });
 
   it('drops a key back to its default out of the URL', () => {
@@ -341,8 +351,8 @@ describe('useWiringUrl', () => {
       expect(patchFrom(DEEP, { select: 'row:2' })).toBe(
         '?pack=acme&focus=stage-plan&select=row:2'
       );
-      expect(replaceState).toHaveBeenCalledTimes(1);
-      expect(pushState).not.toHaveBeenCalled();
+      expect(pushState).toHaveBeenCalledTimes(1);
+      expect(replaceState).not.toHaveBeenCalled();
     });
 
     it('closing the drawer (select to null) clears view', () => {

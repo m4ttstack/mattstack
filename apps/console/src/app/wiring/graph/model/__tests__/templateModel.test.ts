@@ -1826,11 +1826,21 @@ describe("the pipeline map over rt's block tree", () => {
       step: null,
     });
 
-  it("seats each stage link after the block that holds it, at that block file's line", () => {
+  it("seats each stage link under the block that holds it, after that block's own blocks, at its file's line", () => {
     const rows = rowsOf(view().rows);
     const stages = rows.findIndex(([, text]) => text === 'stages · 141 lines');
     expect(stages).toBeGreaterThan(0);
-    expect(rows.slice(stages + 1, stages + 10)).toEqual([
+    // The section's own blocks fold right under its row, so opening it
+    // never pushes them below its links.
+    const links = rows.findIndex(
+      ([, text], index) => index > stages && text.startsWith('{{')
+    );
+    expect(
+      rows
+        .slice(stages + 1, links)
+        .every(([gutter]) => gutter.startsWith('rendered'))
+    ).toBe(true);
+    expect(rows.slice(links, links + 9)).toEqual([
       ['stages L9', '{{verb.path:stage-provision}}'],
       ['stages L9', '{{verb.path:stage-plan}}'],
       ['stages L9', '{{verb.path:stage-gates}}'],

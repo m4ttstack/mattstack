@@ -2,7 +2,7 @@ import type { BlocksPayload } from '../../../../server/blocksPayload';
 import type { Dot } from './blockFacts';
 import type { BlockMap, MapLink, MapNode } from './blockMap';
 import type { LayoutEdge, LayoutInput, LayoutNode } from './elkGraph';
-import { shortLabel } from './labels';
+import { exitLabel, shortLabel } from './labels';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -16,6 +16,10 @@ export const CARD = {
   badge: 20,
   badgeGap: 9,
   padRight: 14,
+  /** The › a card that opens a block ends with, a flex gap after the
+      label. */
+  goGap: 9,
+  go: 12,
   dotsGap: 9,
   dot: 6,
   dotGap: 4,
@@ -170,6 +174,8 @@ export function cardWidth(
       CARD.badgeGap +
       measure(label, 13, 500) +
       dotsWidth +
+      CARD.goGap +
+      CARD.go +
       CARD.padRight
   );
 }
@@ -329,8 +335,10 @@ export function mapLayout(
         ...(edge.label
           ? {
               label: {
-                text: edge.label,
-                width: Math.ceil(measure(edge.label, 11, 400) + 2 * CHIP.padX),
+                text: exitLabel(edge.label),
+                width: Math.ceil(
+                  measure(exitLabel(edge.label), 11, 400) + 2 * CHIP.padX
+                ),
                 height: CHIP.height,
               },
             }

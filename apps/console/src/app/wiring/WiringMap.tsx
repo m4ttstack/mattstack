@@ -125,6 +125,8 @@ export function WiringMap() {
     : [];
 
   const graphPack = url.tab === 'graph' ? pack : null;
+  // A pack whose skills failed to load has nothing to list; the stage says why.
+  const packFailed = snapshot.isError && !snapshot.data;
 
   // The pack this page reads, in the app's top bar beside the page's
   // other context.
@@ -213,13 +215,13 @@ export function WiringMap() {
       {devSwitch}
       <PageShell
         tabBarHeight={PAGE_ROW_HEIGHT}
-        sidebarWidth={256}
+        sidebarWidth={296}
         drawerStateKey="console-wiring-focus"
         tabs={tabs}
         tabBar={{ title: 'Wiring', actions }}
         topNotch={notch}
       >
-        {graphPack && (
+        {graphPack && !packFailed && (
           <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
             <GraphTabSidebar pack={graphPack} />
           </PageShell.Sidebar>

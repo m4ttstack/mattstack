@@ -50,6 +50,10 @@
   --gutter-min: 64.5px;
 }
 
+.rows[data-gutter='off'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .row {
   grid-column: 1 / -1;
   display: grid;
@@ -125,6 +129,65 @@
 .grow {
   flex: 1;
   min-width: 0;
+}
+
+/* A section's folded blocks keep the rows' two columns. */
+.fold {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+}
+
+/* Shared takes no scope hue: purple is the team's. */
+.row[data-shared] {
+  background-color: var(--tk-raised);
+}
+
+.blockBody {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 12px 0 calc(6px + var(--indent, 0px));
+}
+
+.caretSlot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+}
+
+.openAction {
+  flex: none;
+  visibility: hidden;
+}
+
+.row:hover .openAction,
+.openAction:focus-visible {
+  visibility: visible;
+}
+
+.blockOpen {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+}
+
+/* Shown, never faded: an opacity transition gives the hint a layer of its
+   own, and the scaled canvas re-rasterizes every node's text around it. */
+.openHint {
+  flex: none;
+  visibility: hidden;
+}
+
+.blockOpen:hover .openHint,
+.blockOpen:focus-visible .openHint {
+  visibility: visible;
 }
 
 /* Over a selected row, which is raised. */

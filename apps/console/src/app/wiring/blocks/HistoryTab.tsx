@@ -133,7 +133,7 @@ function HistoryNote({ children }: { children: string }) {
       data-parity="note"
       data-testid="history-note"
     >
-      <Text fz={12} lh="normal" c={MUTED} data-parity="t">
+      <Text fz={13} lh={1.5} c="var(--tk-text-2)" data-parity="t">
         {children}
       </Text>
     </Paper>

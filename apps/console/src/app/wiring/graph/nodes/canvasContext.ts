@@ -8,6 +8,11 @@ export type CanvasState = {
   select: string | null;
   onSelect: (select: string) => void;
   onOpenSkill: (skill: string) => void;
+  /** Opens the shown skill's block view at a block, by block id. */
+  onOpenBlock: (block: string) => void;
+  /** The sections whose blocks show. */
+  open: ReadonlySet<string>;
+  onToggle: (section: string) => void;
 };
 
 export const CanvasContext = createContext<CanvasState | null>(null);

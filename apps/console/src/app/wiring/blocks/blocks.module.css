@@ -39,22 +39,22 @@
 .segment[data-layer='org'],
 .square[data-fill='org'],
 .stripBar[data-layer='org'] {
-  background: var(--tk-fill-purple);
+  background: var(--tk-fill-gold);
 }
 
 .swatch[data-fill='team'],
 .segment[data-layer='team'],
 .square[data-fill='team'],
 .stripBar[data-layer='team'] {
-  background: var(--tk-fill-cyan);
+  background: var(--tk-fill-purple);
 }
 
 .swatch[data-fill='both'],
 .square[data-fill='both'] {
   background: linear-gradient(
     135deg,
-    var(--tk-fill-purple) 50%,
-    var(--tk-fill-cyan) 50%
+    var(--tk-fill-gold) 50%,
+    var(--tk-fill-purple) 50%
   );
 }
 
@@ -190,110 +190,190 @@
   --gate-context-lh: 1.6;
 }
 
-.propBox {
+/* A prop's values read like a GitHub alert: a rule in the layer's colour,
+   a title line, then the text, with no box of its own. */
+.propBands {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--tk-border);
-  border-radius: 8px;
-  background: var(--tk-card);
+  gap: 12px;
 }
 
-.propHead,
-.propCardHead {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-}
-
-.propName {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--tk-raised);
-  color: var(--tk-text-2);
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.propMeta {
-  color: var(--tk-text-2);
-  font-size: 13px;
-  font-weight: 400;
-}
-
-.propBinding {
-  color: var(--tk-text-3);
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-.propCard {
+.propBand {
+  --band-rule: var(--tk-line-1);
+  --band-title: var(--tk-text-2);
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: var(--tk-inset);
+  padding: 2px 0 2px 14px;
+  border-left: 4px solid var(--band-rule);
 }
 
-.propCard[data-layer='org'] {
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-purple) var(--ui-wash),
-    transparent
-  );
+.propBand[data-layer='org'] {
+  --band-rule: var(--tk-fill-gold);
+  --band-title: var(--tk-text-gold);
 }
 
-.propCard[data-layer='team'] {
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-cyan) var(--ui-wash),
-    transparent
-  );
+.propBand[data-layer='team'] {
+  --band-rule: var(--tk-fill-purple);
+  --band-title: var(--tk-text-purple);
 }
 
-.propLayer {
-  color: var(--tk-text-1);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.propValue {
-  --gate-context-fz: 16px;
-  --gate-context-lh: 1.7;
-}
-
-.graphCard {
+.propBandHead {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 5px 12px;
+  gap: 2px 8px;
+}
+
+.propBandIcon {
+  flex: none;
+  color: var(--band-title);
+}
+
+.propBandTitle {
+  color: var(--band-title);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: normal;
+}
+
+.propBandMeta,
+.propBandSource {
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.propBandSource {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+}
+
+a.propBandSource {
+  color: var(--tk-text-2);
+}
+
+@media (hover: hover) {
+  a.propBandSource:hover {
+    color: var(--tk-text-accent);
+  }
+}
+
+/* The block's text as a document: a file bar, the layers' strip, then the
+   text, in one card. */
+.doc {
+  overflow: hidden;
   border: 1px solid var(--tk-border);
   border-radius: 8px;
   background: var(--tk-card);
-  color: var(--tk-text-2);
-  font-size: 13px;
 }
 
-.graphTitle {
+.docBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 4px 8px 4px 14px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  background: var(--tk-panel);
+}
+
+.docFile {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.graphSize {
+.docFile .glyph {
+  margin-top: 0;
+}
+
+.docName {
+  overflow: hidden;
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docNote {
   color: var(--tk-text-3);
   font-size: 12px;
 }
 
-.graphName {
-  color: var(--tk-text-1);
+/* A file with only its heading is its bar alone. */
+.doc:not(:has(.docBody)) .docBar {
+  border-bottom: none;
+}
+
+.docViews {
+  flex: none;
+  margin-left: auto;
+}
+
+.docStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
+}
+
+.docStripTitle {
+  color: var(--tk-text-2);
   font-weight: 500;
+}
+
+.docStripBar {
+  display: flex;
+  gap: 2px;
+  width: 180px;
+  height: 6px;
+}
+
+.docStripBar .segment {
+  min-width: 3px;
+}
+
+.docStripLayer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.docStripLayer .dot {
+  width: 6px;
+  height: 6px;
+  color: var(--tk-line-1);
+}
+
+.docStripName {
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+}
+
+.docStripQuiet {
+  margin-left: auto;
+}
+
+/* The card grows with the page; its text keeps a reading width, centred,
+   as GitHub sets a file's preview. */
+.docBody {
+  padding: 22px 28px 26px;
+}
+
+.docBody > * {
+  max-width: 1012px;
+  margin-inline: auto;
 }
 
 .graphLink {
@@ -302,15 +382,163 @@
   font-weight: 500;
 }
 
-.graphActions {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
+/* A block's graph as one row: the whole row opens the flow, Source sits
+   over it. */
+.flowRowWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.graphSourceLink {
+.flowRow {
+  display: flex;
+  position: relative;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+}
+
+@media (hover: hover) {
+  .flowRow:has(.flowRowOpen:hover) {
+    background-color: var(--row-hover);
+  }
+}
+
+.flowRow:has(.flowRowOpen:focus-visible) {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+.flowRowOpen {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px 0;
+}
+
+/* Stretched over the row, so a click anywhere but Source opens the flow. */
+.flowRowOpen::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  content: '';
+}
+
+.flowRowOpen:focus-visible {
+  outline: none;
+}
+
+.flowRowIcon {
+  flex: none;
   color: var(--tk-text-2);
+}
+
+.flowRowName {
+  color: var(--tk-text-1);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: normal;
+}
+
+.flowRowFacts {
+  overflow: hidden;
+  color: var(--tk-text-3);
   font-size: 13px;
+  line-height: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowRowSource {
+  position: relative;
+  z-index: 1;
+  flex: none;
+}
+
+.flowRowGo {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--tk-text-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.listHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.listMeta {
+  color: var(--tk-text-3);
+  font-size: 13px;
+  line-height: normal;
+}
+
+.listBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.showAll {
+  align-self: flex-start;
+  padding-left: 4px;
+}
+
+.siteRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+}
+
+.siteRow .glyph,
+.siteRow .rowGo {
+  margin-top: 0;
+}
+
+.siteRow .rowGo {
+  margin-left: auto;
+}
+
+@media (hover: hover) {
+  button.siteRow:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.siteRow[data-here] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+}
+
+.siteName {
+  color: var(--tk-text-1);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.siteRow[data-here] .siteName {
+  color: var(--tk-text-accent);
+}
+
+.siteGroup {
+  color: var(--tk-text-3);
+  font-size: 12px;
+  line-height: normal;
 }
 
 .graphSource,
@@ -380,9 +608,9 @@
   width: var(--card-w);
   height: 36px;
   padding: 0 12px 0 8px;
-  border: 1px solid var(--tk-border-soft);
+  border: 1px dashed var(--tk-line-1);
   border-radius: 8px;
-  background-color: var(--tk-panel);
+  background-color: transparent;
   color: var(--tk-text-2);
   font-size: 12px;
   font-weight: 500;
@@ -427,49 +655,43 @@
   line-height: normal;
 }
 
+/* Each sample is drawn as its card is. */
 .flowSample {
   display: inline-block;
   flex-shrink: 0;
   box-sizing: border-box;
-  width: 14px;
-  height: 10px;
-  border: 1px solid var(--tk-border-soft);
-  border-radius: 3px;
+  width: 26px;
+  height: 14px;
+  border-radius: 4px;
 }
 
 .flowSample[data-kind='block'] {
+  border: 1px solid var(--tk-line-1);
   background-color: var(--tk-card);
+  box-shadow: var(--tk-shadow-card);
 }
 
 .flowSample[data-kind='step'] {
-  background-color: var(--tk-panel);
+  border: 1px dashed var(--tk-line-1);
+  background-color: transparent;
 }
 
 .page {
   overflow-y: auto;
 }
 
+/* Sized by the stage, never by its content: PageShell's scroll area sizes to
+   its content's min-content width, and a wide table would set it. */
 .layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  align-items: start;
-  gap: 22px 28px;
-  max-width: 1240px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
   padding: 24px 32px 48px;
-}
-
-.layout[data-rail='none'] {
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 880px;
-}
-
-.layout[data-rail='map'] {
-  grid-template-columns: minmax(0, 1fr);
+  contain: inline-size;
 }
 
 @media (max-width: 960px) {
   .layout {
-    grid-template-columns: minmax(0, 1fr);
     padding: 16px;
   }
 }
@@ -477,20 +699,12 @@
 .main {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-}
-
-.parentBody {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  gap: 24px;
   min-width: 0;
 }
 
 .head {
   display: flex;
-  grid-column: 1 / -1;
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
@@ -505,91 +719,80 @@
   flex-wrap: wrap;
 }
 
-.pathRow {
-  margin-top: 2px;
-}
-
-.blockPath {
-  color: var(--tk-text-2);
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 12px;
-}
-
+/* The packs as a path, team to mattstack, then the counts: a number and
+   its word, no chips. */
 .packLine {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.stack,
+.facts {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 6px;
-  margin-top: 2px;
 }
 
-.packChip {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--tk-raised);
-  color: var(--tk-text-2);
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 16px;
+.stack {
+  gap: 4px 8px;
 }
 
-.packChip[data-tone='team'] {
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-cyan) var(--ui-wash),
-    transparent
-  );
-  color: var(--tk-text-cyan-small);
+.facts {
+  gap: 4px 18px;
+  color: var(--tk-text-3);
+  font-size: 13px;
+  line-height: normal;
 }
 
-.packChip[data-tone='org'] {
-  background: color-mix(
-    in srgb,
-    var(--tk-fill-purple) var(--ui-wash),
-    transparent
-  );
-  color: var(--tk-text-purple-small);
-}
-
-.packHeld {
+.stackNode {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  white-space: nowrap;
 }
 
-.packWord {
-  color: var(--tk-text-2);
+.stackDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--tk-line-1);
+}
+
+.stackDot[data-tone='team'] {
+  background-color: var(--tk-fill-purple);
+}
+
+.stackDot[data-tone='org'] {
+  background-color: var(--tk-fill-gold);
+}
+
+.stackName {
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.stackSub {
+  color: var(--tk-text-3);
   font-family: var(--mantine-font-family-monospace);
-  font-size: 11px;
-}
-
-.packCounts {
-  color: var(--tk-text-2);
   font-size: 12px;
 }
 
-.rail {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  position: sticky;
-  top: 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--tk-border);
-  border-radius: 8px;
-  background: var(--tk-panel);
+.stackSep {
+  color: var(--tk-text-3);
+}
+
+.factCount {
+  color: var(--tk-text-1);
+  font-weight: 600;
 }
 
 .extra {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.rendered {
-  white-space: pre-wrap;
+  gap: 12px;
 }
 
 .band {
@@ -600,29 +803,41 @@
 
 .bandHead {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--tk-panel);
 }
 
 .bandOpen {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  border-radius: 4px;
+}
+
+.bandOpen .glyph {
+  margin-top: 0;
+}
+
+/* Opening a section's block is a link at the head's end, as the flow row's
+   Open the flow is. */
+.bandLink {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .bandTitle {
   color: var(--tk-text-1);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   line-height: normal;
 }
 
 .bandMeta {
   color: var(--tk-text-3);
-  font-size: 12px;
+  font-size: 13px;
   line-height: normal;
 }
 
@@ -655,7 +870,7 @@
 
 .sharedRow {
   display: grid;
-  grid-template-columns: 12px auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) 12px;
   align-items: baseline;
   gap: 10px;
   width: 100%;
@@ -690,19 +905,21 @@
   border-top: 1px solid var(--tk-border-soft);
 }
 
-:where([data-mantine-color-scheme='light']) :is(.row, .sharedRow) {
+:where([data-mantine-color-scheme='light'])
+  :is(.row, .sharedRow, .siteRow, .flowRow) {
   --row-hover: var(--mantine-color-gray-1);
 }
 
-:where([data-mantine-color-scheme='dark']) :is(.row, .sharedRow) {
+:where([data-mantine-color-scheme='dark'])
+  :is(.row, .sharedRow, .siteRow, .flowRow) {
   --row-hover: var(--mantine-color-dark-5);
 }
 
 .row {
   display: grid;
-  grid-template-columns: 12px 14px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 10px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   width: 100%;
   padding: 10px 12px;
 }
@@ -725,12 +942,15 @@
   );
 }
 
-.chevron[data-open] {
-  transform: rotate(90deg);
+/* A row is a link: its chevron trails, as in Used by. */
+.rowGo {
+  flex: none;
+  margin-top: 3px;
+  color: var(--tk-text-3);
 }
 
 .rowBody {
-  padding: 0 12px 12px 54px;
+  padding: 0 12px 12px 48px;
 }
 
 .chevron,
@@ -767,8 +987,7 @@
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  width: 44px;
-  margin-top: 3px;
+  min-width: 64px;
 }
 
 .dots {
@@ -786,11 +1005,11 @@
 }
 
 .dot[data-layer='org'] {
-  color: var(--tk-text-purple);
+  color: var(--tk-text-gold);
 }
 
 .dot[data-layer='team'] {
-  color: var(--tk-text-cyan);
+  color: var(--tk-text-purple);
 }
 
 .sidebar {
@@ -800,15 +1019,20 @@
   padding: 12px 10px;
 }
 
-.back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  color: var(--tk-text-2);
-  font-size: 13px;
+:where([data-mantine-color-scheme='light']) .sidebar {
+  --row-hover: var(--mantine-color-gray-1);
 }
 
+:where([data-mantine-color-scheme='dark']) .sidebar {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+.back {
+  align-self: flex-start;
+}
+
+/* Its meta line never wraps, so without containment the button would size
+   the sidebar to that line and push every row past the edge. */
 .switcher {
   display: flex;
   align-items: flex-start;
@@ -819,6 +1043,22 @@
   padding: 8px 10px;
   border-radius: 6px;
   text-align: left;
+  contain: inline-size;
+}
+
+/* At the skill's top already, so it has nowhere to go. */
+.switcher[data-selected] {
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .switcher:not([data-selected]):hover {
+    background-color: var(--row-hover);
+  }
+
+  .treeRow:not([data-active]):hover {
+    background-color: var(--row-hover);
+  }
 }
 
 .switcher[data-selected] {
@@ -856,13 +1096,6 @@
   min-width: 0;
 }
 
-/* Level with the name's line, as the board draws it. */
-.switcherChevron {
-  flex-shrink: 0;
-  margin-top: 3px;
-  color: var(--tk-text-2);
-}
-
 .groupLabel {
   padding: 2px 6px;
   color: var(--tk-text-3);
@@ -872,53 +1105,72 @@
   text-transform: uppercase;
 }
 
-.treeItem {
-  position: relative;
-}
-
 .treeRow {
   padding-block: 3px;
   padding-inline-start: calc(var(--depth, 0) * 16px + 6px);
   border-radius: 6px;
 }
 
-.glyph[data-selected] {
-  color: var(--tk-text-accent);
+/* One hue per block kind wherever a block shows: a glyph takes its ink, a
+   badge its wash. The scope hues stay the settings page's (gold org, purple
+   team, cyan user, orange machine) and blue stays links and selection. */
+.glyph[data-hue='step'] {
+  color: var(--tk-text-2);
 }
 
-.treeChevronSpace {
-  display: inline-block;
-  width: 13px;
+.glyph[data-hue='question'] {
+  color: var(--tk-text-ok);
 }
 
-.treeToggle {
+.glyph[data-hue='gate'] {
+  color: var(--tk-text-bad);
+}
+
+/* A neutral badge is a card with a rule, not the raised grey a hovered row
+   turns. */
+.kindBadge {
   display: inline-flex;
-  position: absolute;
-  top: 50%;
-  left: calc(var(--depth, 0) * 16px + 6px);
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 20px;
-  transform: translateY(-50%);
-  border-radius: 4px;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 6px;
+  background-color: var(--tk-card);
 }
 
-.treeToggle:focus-visible {
-  outline: 1.5px solid var(--tk-fill-accent);
+.kindBadge:is([data-hue='question'], [data-hue='gate']) {
+  border-color: transparent;
+}
+
+.kindBadge[data-hue='question'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-ok) var(--ui-wash),
+    transparent
+  );
+}
+
+.kindBadge[data-hue='gate'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--ui-wash),
+    transparent
+  );
+}
+
+.kindBadge .glyph {
+  margin-top: 0;
 }
 
 .treeChevron {
   color: var(--tk-text-3);
-  transition: transform 150ms ease;
 }
 
 .treeChevron[data-selected] {
   color: var(--tk-text-accent);
-}
-
-.treeChevron[data-open] {
-  transform: rotate(90deg);
 }
 
 .treeCount {
@@ -943,10 +1195,6 @@
   font-size: 11px;
 }
 
-.refusal {
-  white-space: pre-line;
-}
-
 .map {
   display: flex;
   flex-direction: column;
@@ -957,7 +1205,7 @@
 .mapHead {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
 }
 
 .mapTools {
@@ -967,10 +1215,99 @@
   margin-left: auto;
 }
 
-.mapClose {
-  color: var(--tk-text-accent);
-  font-size: 13px;
-  font-weight: 500;
+.mapBack {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+}
+
+/* The flow fills the page under its head and never scrolls the page: the
+   frame pans and zooms instead. */
+.flowPage {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
+  height: 100%;
+  padding: 24px 32px;
+  contain: inline-size;
+}
+
+.map[data-fill] {
+  flex: 1;
+  min-height: 0;
+}
+
+.graphFrame[data-fill] {
+  display: flex;
+  position: relative;
+  flex: 1;
+  flex-direction: column;
+  min-height: 360px;
+}
+
+.graphFrame[data-fill] .graphCanvas {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  cursor: grab;
+  scrollbar-width: thin;
+}
+
+.graphFrame[data-fill] .graphCanvas:active {
+  cursor: grabbing;
+}
+
+.frameHint {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  right: 14px;
+  padding: 2px 10px;
+  border: 1px solid var(--tk-border);
+  border-radius: 999px;
+  background: var(--tk-card);
+  color: var(--tk-text-3);
+  font-size: 11px;
+  line-height: 18px;
+  pointer-events: none;
+}
+
+.frameTools {
+  display: flex;
+  position: absolute;
+  z-index: 5;
+  bottom: 14px;
+  left: 14px;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.frameTools > * {
+  pointer-events: auto;
+}
+
+.frameTools > ul {
+  padding: 7px 12px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+}
+
+.frameSource {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 16px 18px;
+  overflow: auto;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 12px;
+  background: var(--tk-panel);
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .mapNote {
@@ -1048,6 +1385,49 @@
   line-height: normal;
 }
 
+/* A card that opens a block fills with its kind's wash and ends in a ›; the
+   end of a flow, which opens nothing, is an outline, as a step with no
+   block is. The badge inside a filled card is the glyph alone. */
+.mapCard[data-hue='step'] {
+  border-color: var(--tk-line-1);
+}
+
+.mapCard[data-hue='question'] {
+  border-color: color-mix(in srgb, var(--tk-fill-ok) 45%, transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-ok) var(--ui-wash),
+    transparent
+  );
+}
+
+.mapCard[data-hue='gate'] {
+  border-color: color-mix(in srgb, var(--tk-fill-bad) 45%, transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--ui-wash),
+    transparent
+  );
+}
+
+.mapCard[data-hue='end'] {
+  border: 1px dashed var(--tk-line-1);
+  background-color: transparent;
+  box-shadow: none;
+  color: var(--tk-text-2);
+}
+
+.mapCard:is([data-hue='step'], [data-hue='question'], [data-hue='gate'])
+  .mapBadge {
+  background-color: transparent;
+}
+
+.mapGo {
+  flex: none;
+  margin-left: auto;
+  color: var(--tk-text-3);
+}
+
 .mapCard[data-hot] {
   border-color: var(--tk-fill-accent);
 }
@@ -1084,30 +1464,32 @@
   border-radius: 4px;
 }
 
+/* The kind hues, as .kindBadge sets them. */
 .mapBadge[data-badge='step'],
 .mapKeyBadge[data-badge='step'] {
-  background-color: color-mix(
-    in srgb,
-    var(--tk-fill-accent) var(--ui-wash),
-    transparent
-  );
-  color: var(--tk-text-accent);
+  background-color: var(--tk-raised);
+  color: var(--tk-text-2);
 }
 
 .mapBadge[data-badge='question'],
-.mapKeyBadge[data-badge='question'] {
-  background-color: var(--tk-raised);
-  color: var(--tk-text-2);
+.mapKeyBadge[data-badge='question'],
+.flowStepBadge[data-badge='question'] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-ok) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-ok);
 }
 
 .mapBadge[data-badge='gate'],
 .mapKeyBadge[data-badge='gate'] {
   background-color: color-mix(
     in srgb,
-    var(--tk-dot-warn) var(--ui-wash),
+    var(--tk-fill-bad) var(--ui-wash),
     transparent
   );
-  color: var(--tk-dot-warn);
+  color: var(--tk-text-bad);
 }
 
 .mapBadge[data-badge='end'] {
@@ -1184,11 +1566,11 @@
 }
 
 .mapDot[data-layer='org'] {
-  background-color: var(--tk-fill-purple);
+  background-color: var(--tk-fill-gold);
 }
 
 .mapDot[data-layer='team'] {
-  background-color: var(--tk-fill-cyan);
+  background-color: var(--tk-fill-purple);
 }
 
 .mapSplit {
@@ -1229,15 +1611,19 @@
   box-sizing: border-box;
   width: var(--chip-w);
   height: 16px;
-  border: 1px solid var(--tk-border-soft);
-  border-radius: 8px;
-  background-color: var(--tk-card);
-  color: var(--tk-text-2);
+  border-radius: 4px;
+  background-color: var(--tk-panel);
+  color: var(--tk-text-3);
   font-size: 11px;
   line-height: 1;
   white-space: nowrap;
   transform: translate(var(--chip-x), var(--chip-y));
   pointer-events: none;
+}
+
+/* A cut label takes the pointer, so its whole text shows on hover. */
+.mapChip[title] {
+  pointer-events: auto;
 }
 
 .mapKey {

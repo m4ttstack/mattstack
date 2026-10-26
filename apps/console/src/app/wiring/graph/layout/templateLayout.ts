@@ -1,11 +1,12 @@
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
 
-import type {
-  InputCard,
-  LinkCard,
-  OutputCard,
-  TemplateRow,
-  TemplateView,
+import {
+  foldedAway,
+  type InputCard,
+  type LinkCard,
+  type OutputCard,
+  type TemplateRow,
+  type TemplateView,
 } from '../model/templateModel';
 
 /**
@@ -68,10 +69,15 @@ const edgeBetween = (
   markerEnd: { type: MarkerType.ArrowClosed },
 });
 
-export function layoutTemplate(view: TemplateView): LayoutResult {
+/** `open` names the sections whose blocks show; a folded row takes no room. */
+export function layoutTemplate(
+  view: TemplateView,
+  open: ReadonlySet<string> = new Set()
+): LayoutResult {
   const centres = new Map<string, number>();
   let top: number = LAYOUT.headerH;
   for (const row of view.rows) {
+    if (foldedAway(row, open)) continue;
     const height = rowHeightOf(view, row);
     centres.set(row.id, top + height / 2);
     top += height;

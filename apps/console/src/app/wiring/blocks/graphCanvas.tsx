@@ -1,15 +1,29 @@
 import '@xyflow/react/dist/base.css';
 
-import { useMemo, useRef, type RefCallback, type RefObject } from 'react';
 import {
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+  type Ref,
+  type RefCallback,
+  type RefObject,
+} from 'react';
+import {
+  ActionIcon,
+  Anchor,
   Box,
+  Button,
   SegmentedControl,
   Skeleton,
   Text,
+  Title,
   UnstyledButton,
   useComputedColorScheme,
 } from '@mattstack/app-kit/core';
 import { useElementSize, useMergedRef } from '@mattstack/app-kit/hooks';
+import { Icon } from '@mattstack/app-kit/icons';
 import {
   Background,
   BackgroundVariant,
@@ -107,42 +121,158 @@ export type CanvasPlane = {
   zoom: number;
   plane: number;
   offset: number;
+  /** The plane's height and the map's offset down from its top. */
+  planeHeight: number;
+  offsetY: number;
+  /** Set on a canvas framed to the page: its zoom steps and fit. */
+  fill: {
+    fitted: boolean;
+    zoomIn: () => void;
+    zoomOut: () => void;
+    fit: () => void;
+  } | null;
 };
 
-/** The scroller's size and the plane a map `mapWidth` wide draws on in it. */
-export function useCanvasPlane(mapWidth: number): CanvasPlane {
-  const { ref: sized, width } = useElementSize<HTMLDivElement>();
+/** The smallest zoom a framed map fits down to; past it, the map pans. */
+const MIN_FIT_ZOOM = 0.5;
+const ZOOM_STEP = 1.2;
+/** Room a framed map leaves: the hint over its top edge, the zoom buttons
+    and key over its bottom one. */
+const FRAME_PAD = { x: 24, top: 52, bottom: 64 };
+
+/** The scroller's size and the plane a map `mapWidth` wide draws on in it.
+    A framed canvas (`fill`) fits the whole map to its frame instead of its
+    width alone, and zooms in steps from there. */
+export function useCanvasPlane(
+  mapWidth: number,
+  mapHeight = 0,
+  fill = false
+): CanvasPlane {
+  const { ref: sized, width, height } = useElementSize<HTMLDivElement>();
   const element = useRef<HTMLDivElement | null>(null);
   const ref = useMergedRef(sized, element);
-  return { ref, element, width, ...canvasPlane(width, mapWidth) };
+  const [scale, setScale] = useState(1);
+  if (!fill) {
+    const plane = canvasPlane(width, mapWidth);
+    return {
+      ref,
+      element,
+      width,
+      ...plane,
+      planeHeight: Math.ceil(mapHeight * plane.zoom),
+      offsetY: 0,
+      fill: null,
+    };
+  }
+  const room = { w: Math.floor(width), h: Math.floor(height) };
+  const fit =
+    room.w > 0 && room.h > 0 && mapWidth > 0 && mapHeight > 0
+      ? Math.max(
+          MIN_FIT_ZOOM,
+          Math.min(
+            1,
+            (room.w - FRAME_PAD.x * 2) / mapWidth,
+            (room.h - FRAME_PAD.top - FRAME_PAD.bottom) / mapHeight
+          )
+        )
+      : 1;
+  const zoom = Math.min(2, Math.max(0.25, fit * scale));
+  const drawn = { w: mapWidth * zoom, h: mapHeight * zoom };
+  const plane = Math.max(room.w, Math.ceil(drawn.w + FRAME_PAD.x * 2));
+  const planeHeight = Math.max(
+    room.h,
+    Math.ceil(drawn.h + FRAME_PAD.top + FRAME_PAD.bottom)
+  );
+  const spare = planeHeight - drawn.h - FRAME_PAD.top - FRAME_PAD.bottom;
+  return {
+    ref,
+    element,
+    width,
+    zoom,
+    plane,
+    offset: (plane - drawn.w) / 2,
+    planeHeight,
+    offsetY: FRAME_PAD.top + spare / 2,
+    fill: {
+      fitted: scale === 1,
+      zoomIn: () => setScale(now => now * ZOOM_STEP),
+      zoomOut: () => setScale(now => now / ZOOM_STEP),
+      fit: () => setScale(1),
+    },
+  };
+}
+
+/** Drags the scroller by its background, so a framed map pans by hand. */
+function usePan(element: RefObject<HTMLDivElement | null>, on: boolean) {
+  const drag = useRef<{ x: number; y: number; left: number; top: number }>(
+    null
+  );
+  if (!on) return {};
+  return {
+    onPointerDown: (event: PointerEvent<HTMLDivElement>) => {
+      const scroller = element.current;
+      if (event.button !== 0 || !scroller) return;
+      if ((event.target as HTMLElement).closest('button, a, [role="button"]'))
+        return;
+      drag.current = {
+        x: event.clientX,
+        y: event.clientY,
+        left: scroller.scrollLeft,
+        top: scroller.scrollTop,
+      };
+      scroller.setPointerCapture(event.pointerId);
+    },
+    onPointerMove: (event: PointerEvent<HTMLDivElement>) => {
+      const scroller = element.current;
+      const start = drag.current;
+      if (!scroller || !start) return;
+      scroller.scrollLeft = start.left - (event.clientX - start.x);
+      scroller.scrollTop = start.top - (event.clientY - start.y);
+    },
+    onPointerUp: () => {
+      drag.current = null;
+    },
+  };
 }
 
 export interface GraphCanvasProps {
   canvas: CanvasPlane;
-  laidOut: LaidOut;
   nodes: Node[];
   edges: Edge[];
   nodeTypes: NodeTypes;
   testId: string;
   /** A modifier class on the scroller. */
   className?: string;
+  /** The map's key, drawn over a framed canvas's bottom edge. */
+  legend?: ReactNode;
 }
 
 export function GraphCanvas({
-  canvas: { ref, zoom, plane, offset },
-  laidOut,
+  canvas: { ref, element, zoom, plane, offset, planeHeight, offsetY, fill },
   nodes,
   edges,
   nodeTypes,
   testId,
   className,
+  legend,
 }: GraphCanvasProps) {
   const scheme = useComputedColorScheme('light');
   // Controlled, so a resize moves the map without remounting React Flow and
   // dropping an open tooltip or focus inside it.
-  const viewport = useMemo(() => ({ x: offset, y: 0, zoom }), [offset, zoom]);
+  const viewport = useMemo(
+    () => ({ x: offset, y: offsetY, zoom }),
+    [offset, offsetY, zoom]
+  );
+  const pan = usePan(element, fill !== null);
   return (
-    <div className={classes.graphFrame}>
+    <div className={classes.graphFrame} data-fill={fill ? true : undefined}>
+      {fill && (
+        <span className={classes.frameHint}>
+          {fill.fitted
+            ? 'Fitted to the frame · drag to pan'
+            : `${Math.round(zoom * 100)}% · drag to pan`}
+        </span>
+      )}
       <div
         ref={ref}
         className={
@@ -152,12 +282,13 @@ export function GraphCanvas({
         }
         data-testid={testId}
         data-zoom={zoom}
+        {...pan}
       >
         <Box
           className={classes.mapPlane}
           w={plane > 0 ? plane : '100%'}
           data-plane={plane}
-          h={Math.ceil(laidOut.height * zoom)}
+          h={planeHeight}
         >
           <ReactFlow
             nodes={nodes}
@@ -191,6 +322,37 @@ export function GraphCanvas({
           </ReactFlow>
         </Box>
       </div>
+      {fill && (
+        <div className={classes.frameTools}>
+          <ActionIcon.Group orientation="vertical">
+            <ActionIcon
+              variant="default"
+              size="md"
+              aria-label="Zoom in"
+              onClick={fill.zoomIn}
+            >
+              <Icon name="plus" size={14} />
+            </ActionIcon>
+            <ActionIcon
+              variant="default"
+              size="md"
+              aria-label="Zoom out"
+              onClick={fill.zoomOut}
+            >
+              <Icon name="minus" size={14} />
+            </ActionIcon>
+            <ActionIcon
+              variant="default"
+              size="md"
+              aria-label="Fit to the frame"
+              onClick={fill.fit}
+            >
+              <Icon name="fitView" size={14} />
+            </ActionIcon>
+          </ActionIcon.Group>
+          {legend}
+        </div>
+      )}
     </div>
   );
 }
@@ -252,35 +414,85 @@ export function GraphViews({
   );
 }
 
-/** A whole-graph view's title row: its name, its counts, the view switch
-    and Close. */
-export function GraphHead({
-  title,
+/** A whole graph on its page: a way back to its block, its counts, the
+    view switch and its Mermaid source, then the graph or that source. */
+export function GraphPage({
+  ref,
+  label,
+  testId,
   count,
   view,
   onView,
   onClose,
+  backLabel,
+  source = null,
+  fill = false,
+  children,
 }: {
-  title: string;
+  ref?: Ref<HTMLElement>;
+  label: string;
+  testId: string;
   count: string;
   view: BlockGraphSelect;
   onView: (view: BlockGraphSelect) => void;
   onClose: () => void;
+  /** The block the page goes back to. */
+  backLabel: string;
+  /** The graph's Mermaid source, shown in place of the graph on demand. */
+  source?: string | null;
+  /** Framed to the page's height. */
+  fill?: boolean;
+  children: ReactNode;
 }) {
+  const [showSource, setShowSource] = useState(false);
   return (
-    <div className={classes.mapHead}>
-      <Text fz={15} fw={600} lh="normal" c="var(--tk-text-1)">
-        {title}
-      </Text>
-      <Text fz={13} lh="normal" c="dimmed">
-        {count}
-      </Text>
-      <div className={classes.mapTools}>
-        <GraphViews value={view} onChange={onView} />
-        <UnstyledButton className={classes.mapClose} onClick={onClose}>
-          Close
-        </UnstyledButton>
+    <section
+      ref={ref}
+      className={classes.map}
+      data-fill={fill || undefined}
+      aria-label={label}
+      data-testid={testId}
+    >
+      <Anchor
+        component="button"
+        type="button"
+        fz={13}
+        className={classes.mapBack}
+        onClick={onClose}
+      >
+        <Icon name="chevronLeft" size={13} />
+        {backLabel}
+      </Anchor>
+      <div className={classes.mapHead}>
+        <Title order={3} fz={24} lh="normal" c="var(--tk-text-1)">
+          Flow
+        </Title>
+        <Text fz={13} lh="normal" c="dimmed">
+          {count}
+        </Text>
+        <div className={classes.mapTools}>
+          <GraphViews value={view} onChange={onView} />
+          {source !== null && (
+            <Button
+              variant="subtle"
+              color="gray"
+              size="compact-sm"
+              leftSection={<Icon name="code" size={13} />}
+              aria-pressed={showSource}
+              onClick={() => setShowSource(shown => !shown)}
+            >
+              Source
+            </Button>
+          )}
+        </div>
       </div>
-    </div>
+      {showSource && source !== null ? (
+        <pre className={classes.frameSource} data-testid="graph-source">
+          {source}
+        </pre>
+      ) : (
+        children
+      )}
+    </section>
   );
 }

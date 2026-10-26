@@ -50,6 +50,7 @@ declare module '@mattstack/app-kit/icons' {
     flag: true;
     plug: true;
     play: true;
+    code: true;
   }
 }
 export {};

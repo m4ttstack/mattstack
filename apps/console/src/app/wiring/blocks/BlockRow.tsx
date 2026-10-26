@@ -31,8 +31,18 @@ export function BlockGlyph({
       className={classes.glyph}
       aria-label={glyph}
       data-glyph={glyph}
+      data-hue={glyph}
       data-selected={selected || undefined}
     />
+  );
+}
+
+/** A block's glyph on a wash of its kind's hue, for a row or a card. */
+export function KindBadge({ glyph, size = 13 }: { glyph: Glyph; size?: number }) {
+  return (
+    <span className={classes.kindBadge} data-hue={glyph}>
+      <BlockGlyph glyph={glyph} size={size} />
+    </span>
   );
 }
 
@@ -88,14 +98,9 @@ export function BlockRow({
           data-testid="block-row"
           onClick={() => onOpen(row.id)}
         >
-          <Icon
-            name="chevronRight"
-            size={12}
-            className={classes.chevron}
-            data-open={expanded || undefined}
-          />
           <span className={classes.rowLabel}>{row.label}</span>
           <span className={classes.sharedFacts}>{facts}</span>
+          <Icon name="chevronRight" size={12} className={classes.rowGo} />
         </UnstyledButton>
         {expanded && (
           <div className={classes.rowBody} data-testid="block-row-body">
@@ -113,16 +118,10 @@ export function BlockRow({
         data-testid="block-row"
         onClick={() => onOpen(row.id)}
       >
-        <Icon
-          name="chevronRight"
-          size={12}
-          className={classes.chevron}
-          data-open={expanded || undefined}
-        />
         {row.glyph === 'shared' ? (
           <span aria-hidden />
         ) : (
-          <BlockGlyph glyph={row.glyph} />
+          <KindBadge glyph={row.glyph} />
         )}
         <span className={classes.rowText}>
           <span className={classes.rowLabel}>{row.label}</span>
@@ -141,6 +140,7 @@ export function BlockRow({
               data-testid="row-has-props"
             />
           )}
+          <Icon name="chevronRight" size={12} className={classes.rowGo} />
         </span>
       </UnstyledButton>
       {expanded && (

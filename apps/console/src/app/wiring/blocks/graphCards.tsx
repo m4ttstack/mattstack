@@ -260,14 +260,23 @@ export function BlockCard({
   const face = (
     <>
       <span className={classes.mapBadge} data-badge={kind}>
-        <Icon name={BADGE_ICON[kind]} size={12} strokeWidth={ICON_STROKE} />
+        <Icon name={BADGE_ICON[kind]} size={13} strokeWidth={ICON_STROKE} />
       </span>
       <span className={classes.mapCardLabel}>{label}</span>
       <MapDots dots={dots} />
+      {onClick && (
+        <Icon
+          name="chevronRight"
+          size={12}
+          strokeWidth={ICON_STROKE}
+          className={classes.mapGo}
+        />
+      )}
     </>
   );
   const shared = {
     className: classes.mapCard,
+    'data-hue': kind,
     'data-testid': 'map-card',
     'data-hot': hot || undefined,
     'data-ring': ring || undefined,

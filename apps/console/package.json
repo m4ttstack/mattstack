@@ -39,6 +39,7 @@
     "@tanstack/react-query": "catalog:",
     "@xyflow/react": "catalog:",
     "elkjs": "catalog:",
+    "github-markdown-css": "5.8.1",
     "hono": "catalog:",
     "lucide-react": "^1.25.0",
     "react": "catalog:",

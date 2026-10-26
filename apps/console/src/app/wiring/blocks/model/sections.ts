@@ -5,6 +5,7 @@ import type {
 import {
   childrenOf,
   dotsOf,
+  glyphOf,
   includedTree,
   isSharedTop,
   labelOf,
@@ -42,13 +43,14 @@ export type SectionBand = {
 };
 
 function rowOf(
+  payload: BlocksPayload,
   block: PayloadBlock,
   selectedId: string | null,
   summary = block.summary
 ): FoldedRow {
   return {
     id: block.id,
-    glyph: block.kind,
+    glyph: glyphOf(payload, block),
     label: labelOf(block),
     summary,
     dots: dotsOf(block),
@@ -88,6 +90,7 @@ function sharedRowOf(
     null;
   return {
     ...rowOf(
+      payload,
       block,
       selectedId,
       block.summary || (childrenOf(payload, block.id)[0]?.summary ?? '')
@@ -97,6 +100,7 @@ function sharedRowOf(
 }
 
 function bandOf(
+  payload: BlocksPayload,
   id: string,
   title: string,
   glyph: Glyph,
@@ -105,7 +109,7 @@ function bandOf(
   icon: BandIcon = glyph,
   intro: string | null = null
 ): SectionBand {
-  const rows = blocks.map(block => rowOf(block, selectedId));
+  const rows = blocks.map(block => rowOf(payload, block, selectedId));
   return {
     id,
     title,
@@ -139,6 +143,7 @@ function skillBands(
   const leaves = top.filter(block => !folders.includes(block));
   const bands = folders.map(block =>
     bandOf(
+      payload,
       block.id,
       labelOf(block),
       block.kind,
@@ -149,7 +154,7 @@ function skillBands(
     )
   );
   if (leaves.length > 0) {
-    bands.push(bandOf('notes', 'Notes', 'note', leaves, selectedId));
+    bands.push(bandOf(payload, 'notes', 'Inside this skill', 'note', leaves, selectedId));
   }
   if (shared.length > 0) {
     const rows = shared.map(block => sharedRowOf(payload, block, selectedId));
@@ -174,6 +179,7 @@ export function sectionsAt(payload: BlocksPayload, zoom: Zoom): SectionBand[] {
     const { block } = zoom;
     return [
       bandOf(
+        payload,
         block.id,
         labelOf(block),
         block.kind,
@@ -190,6 +196,7 @@ export function sectionsAt(payload: BlocksPayload, zoom: Zoom): SectionBand[] {
   }
   return [
     bandOf(
+      payload,
       parent.id,
       labelOf(parent),
       parent.kind,

@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import type { ReactNode } from 'react';
-import { UnstyledButton } from '@mattstack/app-kit/core';
+import { Button, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import type {
@@ -8,16 +8,14 @@ import type {
   PayloadBlock,
   PayloadSegment,
 } from '../../../server/blocksPayload';
-import { GateContext } from '../../runs/GateContext';
 import classes from './blocks.module.css';
-import { layerName } from './model/blockFacts';
+import { MarkdownText } from './MarkdownText';
+import { layerLabel } from './model/layers';
 import { PropBox } from './PropBox';
 
 export interface BlockTextProps {
   block: PayloadBlock;
   payload: BlocksPayload;
-  level: 'parent' | 'block';
-  onViewGraph?: (blockId: string) => void;
   /** `lg` is the reading size of a single block's own page. */
   size?: 'md' | 'lg';
 }
@@ -33,48 +31,58 @@ const markerKey = (prop: Prop) =>
 
 const FENCE_BODY = /```mermaid\n([\s\S]*?)\n```/;
 
-/** A graph as one line: its size, its Mermaid source on demand and a way to
-    open it. */
-export function GraphCard({
+/** A block's Mermaid graph source; null when its text draws none. */
+export const mermaidOf = (text: string) => FENCE_BODY.exec(text)?.[1] ?? null;
+
+const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+
+/** A block's graph as one row: its size and its Mermaid source on demand;
+    the rest of the row opens the flow. */
+export function FlowRow({
   payload,
   blockId,
-  onViewGraph,
+  onOpen,
 }: {
   payload: BlocksPayload;
   blockId: string;
-  onViewGraph?: (blockId: string) => void;
+  onOpen?: (blockId: string) => void;
 }) {
   const [showSource, setShowSource] = useState(false);
   const graph = payload.graphs.find(entry => entry.blockId === blockId);
   if (!graph) return null;
-  const text = payload.blocks.find(block => block.id === blockId)?.text ?? '';
-  const source = FENCE_BODY.exec(text)?.[1] ?? null;
+  const source = mermaidOf(
+    payload.blocks.find(block => block.id === blockId)?.text ?? ''
+  );
+  const blocks = graph.nodes.filter(node => node.blockId).length;
   return (
-    <>
-      <div className={classes.graphCard} data-testid="graph-card">
-        <span className={classes.graphTitle}>
-          <Icon name="workflow" size={14} />
-          <span className={classes.graphName}>Graph</span>
-          <span className={classes.graphSize}>
-            {`${graph.nodes.length} steps · ${graph.edges.length} links`}
+    <div className={classes.flowRowWrap}>
+      <div className={classes.flowRow} data-testid="flow-row">
+        <UnstyledButton
+          className={classes.flowRowOpen}
+          onClick={() => onOpen?.(blockId)}
+        >
+          <Icon name="workflow" size={14} className={classes.flowRowIcon} />
+          <span className={classes.flowRowName}>Flow</span>
+          <span className={classes.flowRowFacts}>
+            {`${count(graph.nodes.length, 'step')} · ${count(blocks, 'block')} · how this block runs, step by step`}
           </span>
-        </span>
-        <span className={classes.graphActions}>
-          {source !== null && (
-            <UnstyledButton
-              className={classes.graphSourceLink}
-              aria-expanded={showSource}
-              onClick={() => setShowSource(shown => !shown)}
-            >
-              Mermaid source
-            </UnstyledButton>
-          )}
-          <UnstyledButton
-            className={classes.graphLink}
-            onClick={() => onViewGraph?.(blockId)}
+        </UnstyledButton>
+        {source !== null && (
+          <Button
+            variant="subtle"
+            color="gray"
+            size="compact-sm"
+            className={classes.flowRowSource}
+            leftSection={<Icon name="code" size={13} />}
+            aria-expanded={showSource}
+            onClick={() => setShowSource(shown => !shown)}
           >
-            View graph
-          </UnstyledButton>
+            Source
+          </Button>
+        )}
+        <span className={classes.flowRowGo} aria-hidden>
+          Open the flow
+          <Icon name="chevronRight" size={13} />
         </span>
       </div>
       {showSource && source !== null && (
@@ -82,48 +90,27 @@ export function GraphCard({
           {source}
         </pre>
       )}
-    </>
+    </div>
   );
 }
 
-export function BlockText({
-  block,
-  payload,
-  level,
-  onViewGraph,
-  size = 'md',
-}: BlockTextProps) {
+/** A block's text with each prop's values in bands at its marker. A Mermaid
+    graph is left out: the flow row under the document opens it. */
+export function BlockText({ block, payload, size = 'md' }: BlockTextProps) {
   const propOf = new Map(block.props.map(prop => [prop.name, prop]));
-  const nameOf = (label: string) => layerName(payload, label);
+  const nameOf = (segment: PayloadSegment) =>
+    layerLabel(payload, segment.color);
+  const packs = payload.layers.map(layer => layer.name);
   const items: ReactNode[] = [];
   const placed = new Set<string>();
 
-  const prose = (text: string, key: string) => {
-    const [before, ...rest] = text.split(FENCE);
-    const parts: ReactNode[] = [];
-    if (before.trim())
-      parts.push(
-        <GateContext key={`${key}-a`} text={before} fill breaks={false} />
-      );
-    if (rest.length > 0) {
-      if (level === 'parent') {
-        parts.push(
-          <GraphCard
-            key={`${key}-g`}
-            payload={payload}
-            blockId={block.id}
-            onViewGraph={onViewGraph}
-          />
-        );
-      }
-      const after = rest.join('');
-      if (after.trim())
-        parts.push(
-          <GateContext key={`${key}-b`} text={after} fill breaks={false} />
-        );
-    }
-    return parts;
-  };
+  const prose = (text: string, key: string) =>
+    text
+      .split(FENCE)
+      .filter(part => part.trim())
+      .map((part, index) => (
+        <MarkdownText key={`${key}-${index}`} text={part} />
+      ));
 
   for (let i = 0; i < block.segments.length;) {
     const segment = block.segments[i];
@@ -145,7 +132,13 @@ export function BlockText({
     if (prop) {
       placed.add(prop.name);
       items.push(
-        <PropBox key={i} prop={prop} segments={group} layerName={nameOf} />
+        <PropBox
+          key={i}
+          prop={prop}
+          segments={group}
+          layerName={nameOf}
+          packs={packs}
+        />
       );
     }
     i = j;

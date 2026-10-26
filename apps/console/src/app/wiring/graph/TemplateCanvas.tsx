@@ -51,6 +51,8 @@ const EDGE_TYPES: EdgeTypes = { default: TemplateEdge };
 
 const MIN_ZOOM = 0.25;
 
+const NONE_OPEN: ReadonlySet<string> = new Set();
+
 type Column = { x: number; title: string; sub: string };
 
 function columnsOf(view: TemplateView): Column[] {
@@ -79,7 +81,9 @@ function columnsOf(view: TemplateView): Column[] {
     {
       x: LAYOUT.templateX,
       title: 'Template',
-      sub: `${view.skill} as written · click a line range to read it`,
+      sub: view.rows.some(row => row.kind === 'text' && row.block)
+        ? `${view.skill} as written · click a block to open it`
+        : `${view.skill} as written`,
     },
     {
       x: LAYOUT.rightX,
@@ -191,7 +195,10 @@ export default function TemplateCanvas({
   height,
   headerBottom = 0,
   focusOf = skill => skill,
+  focusKey = null,
   onSelect,
+  open = NONE_OPEN,
+  onToggle = () => {},
 }: {
   layout: LayoutResult;
   view: TemplateView;
@@ -200,7 +207,13 @@ export default function TemplateCanvas({
   headerBottom?: number;
   /** The focus key a link card opens its skill under. */
   focusOf?: (skill: string) => string;
+  /** The focus the shown skill's block view opens under, written with the
+      block so the sidebar follows. */
+  focusKey?: string | null;
   onSelect: (select: string) => void;
+  /** The sections whose blocks show. */
+  open?: ReadonlySet<string>;
+  onToggle?: (section: string) => void;
 }) {
   const [url, patch] = useWiringUrl();
   const scheme = useComputedColorScheme('light');
@@ -212,12 +225,12 @@ export default function TemplateCanvas({
       })),
     [layout, view]
   );
+  // A fold moves nodes without changing what the graph holds, so it never
+  // refits the stage.
   const geometry = useMemo(
     () =>
-      layout.nodes
-        .map(node => `${node.id}@${node.position.x},${node.position.y}`)
-        .join(' '),
-    [layout]
+      `${layout.nodes.map(node => node.id).join(' ')}|${view.rows.length}`,
+    [layout, view]
   );
   const state = useMemo<CanvasState>(
     () => ({
@@ -225,8 +238,12 @@ export default function TemplateCanvas({
       select: url.select,
       onSelect,
       onOpenSkill: skill => patch({ focus: focusOf(skill) }),
+      onOpenBlock: block =>
+        patch(focusKey ? { focus: focusKey, block } : { block }),
+      open,
+      onToggle,
     }),
-    [view, url.select, onSelect, patch, focusOf]
+    [view, url.select, onSelect, patch, focusOf, focusKey, open, onToggle]
   );
 
   return (

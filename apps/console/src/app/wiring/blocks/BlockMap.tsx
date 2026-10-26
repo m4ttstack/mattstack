@@ -17,8 +17,8 @@ import {
   edgesOf,
   GraphCanvas,
   GraphError,
-  GraphHead,
   GraphLoading,
+  GraphPage,
   handlesAt,
   useCanvasLayout,
   useCanvasPlane,
@@ -35,7 +35,7 @@ import {
 } from './graphCards';
 import type { MapFlowEdge } from './graphEdges';
 import { openBand, type BandedLayout } from './model/bandLayout';
-import { dotsOf, labelOf } from './model/blockFacts';
+import { dotsOf, glyphOf, labelOf } from './model/blockFacts';
 import { blockMap, type MapKind } from './model/blockMap';
 import type { LaidOut, LayoutEngine } from './model/elkGraph';
 import { foldBand } from './model/foldBand';
@@ -168,12 +168,14 @@ function MapCanvas({
   layout,
   laidOut,
   actions,
+  fill,
 }: {
   layout: BandedLayout;
   laidOut: LaidOut;
   actions: MapActions;
+  fill: boolean;
 }) {
-  const canvas = useCanvasPlane(laidOut.width);
+  const canvas = useCanvasPlane(laidOut.width, laidOut.height, fill);
   const { element, width } = canvas;
   const { nodes, edges } = useMemo(
     () => flowOf(layout, laidOut),
@@ -200,12 +202,13 @@ function MapCanvas({
     <MapActionsContext.Provider value={actions}>
       <GraphCanvas
         canvas={canvas}
-        laidOut={laidOut}
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
         testId="map-canvas"
+        legend={fill ? <MapKey /> : undefined}
       />
+      {!fill && <MapKey />}
     </MapActionsContext.Provider>
   );
 }
@@ -218,6 +221,12 @@ export interface BlockMapProps {
   onSelect: (blockId: string) => void;
   onView: (view: BlockGraphSelect) => void;
   onClose: () => void;
+  /** The block Close goes back to. */
+  backLabel: string;
+  /** The graph's Mermaid source. */
+  source?: string | null;
+  /** Framed to the page's height. */
+  fill?: boolean;
   engine?: () => Promise<LayoutEngine>;
 }
 
@@ -230,6 +239,9 @@ export function BlockMap({
   onSelect,
   onView,
   onClose,
+  backLabel,
+  source = null,
+  fill = false,
   engine,
 }: BlockMapProps) {
   const fontsLoaded = useFontsLoaded();
@@ -237,7 +249,7 @@ export function BlockMap({
     const byId = new Map(payload.blocks.map(block => [block.id, block]));
     return blockMap(graph, blockId => {
       const block = byId.get(blockId);
-      const kind = block?.kind;
+      const kind = block ? glyphOf(payload, block) : null;
       return {
         label: block ? labelOf(block) : blockId,
         kind: kind === 'question' || kind === 'gate' ? kind : ('step' as const),
@@ -443,19 +455,18 @@ export function BlockMap({
   ]);
 
   return (
-    <section
+    <GraphPage
       ref={sectionRef}
-      className={classes.map}
-      aria-label="Block map"
-      data-testid="block-map"
+      label="Block map"
+      testId="block-map"
+      count={`${countOf(blocks, 'block')} · ${countOf(map.foldedSteps, 'step')} folded`}
+      view="graph"
+      onView={onView}
+      onClose={onClose}
+      backLabel={backLabel}
+      source={source}
+      fill={fill}
     >
-      <GraphHead
-        title="Block map"
-        count={`${countOf(blocks, 'block')} · ${countOf(map.foldedSteps, 'step')} folded`}
-        view="graph"
-        onView={onView}
-        onClose={onClose}
-      />
       {layout === null ? (
         <div className={classes.mapNote}>
           <Text fz={13} c="dimmed">
@@ -471,10 +482,12 @@ export function BlockMap({
       ) : state === 'error' ? (
         <GraphError onRetry={retry} />
       ) : laidOut && shown ? (
-        <>
-          <MapCanvas layout={shown} laidOut={laidOut} actions={actions} />
-          <MapKey />
-        </>
+        <MapCanvas
+          layout={shown}
+          laidOut={laidOut}
+          actions={actions}
+          fill={fill}
+        />
       ) : (
         <GraphLoading
           height={320}
@@ -482,6 +495,6 @@ export function BlockMap({
           label="Laying out the map"
         />
       )}
-    </section>
+    </GraphPage>
   );
 }

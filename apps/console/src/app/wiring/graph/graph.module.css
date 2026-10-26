@@ -3,6 +3,20 @@
   padding: 14px 10px;
 }
 
+:where([data-mantine-color-scheme='light']) .list {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .list {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+@media (hover: hover) {
+  :is(.item, .step, .unwired):not([data-active]):hover {
+    background-color: var(--row-hover);
+  }
+}
+
 .group {
   padding: 12px 8px 4px;
 }
@@ -17,9 +31,12 @@
   border-radius: var(--mantine-radius-md);
 }
 
+/* Indented by margin, so its hover and active fill start at the step. */
 .step {
+  width: auto;
   height: 26px;
-  padding: 0 8px 0 30px;
+  margin-inline-start: 22px;
+  padding: 0 8px;
   border-radius: var(--mantine-radius-md);
 }
 
@@ -64,7 +81,7 @@
 }
 
 .canvasErrorAlert {
-  max-width: 480px;
+  max-width: 640px;
   box-shadow: var(--mantine-shadow-md);
 }
 
@@ -108,6 +125,40 @@
   --badge-fz: 11px;
   --badge-lh: normal;
   letter-spacing: 0;
+}
+
+/* A title's chip in the block view: a body label on a ruled pill. */
+.chip {
+  --badge-height: 22px;
+  --badge-padding-x: 9px;
+  --badge-fz: 12px;
+  --badge-lh: normal;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.chip .pillIcon {
+  color: var(--tk-text-2);
+}
+
+/* A block's kind chip takes its kind's hue, as the block view's badges do. */
+.chip[data-hue='question'] {
+  --badge-bg: color-mix(in srgb, var(--tk-fill-ok) var(--ui-wash), transparent);
+  --badge-bd: 1px solid transparent;
+}
+
+.chip[data-hue='question'] .pillIcon {
+  color: var(--tk-text-ok);
+}
+
+.chip[data-hue='gate'] {
+  --badge-bg: color-mix(in srgb, var(--tk-fill-bad) var(--ui-wash), transparent);
+  --badge-bd: 1px solid transparent;
+}
+
+.chip[data-hue='gate'] .pillIcon {
+  color: var(--tk-text-bad);
 }
 
 .statusPill {

@@ -15,6 +15,7 @@ import {
 import classes from './blocks.module.css';
 import { FoldSteps, MapActionsContext } from './graphCards';
 import type { Box } from './model/elkGraph';
+import { exitLabel } from './model/labels';
 
 type Point = [number, number];
 
@@ -172,6 +173,7 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
         <EdgeLabelRenderer>
           <div
             className={classes.mapChip}
+            title={exitLabel(data.label) === data.label ? undefined : data.label}
             data-testid="map-chip"
             {...state}
             style={
@@ -182,7 +184,7 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
               } as CSSProperties
             }
           >
-            {data.label}
+            {exitLabel(data.label)}
           </div>
         </EdgeLabelRenderer>
       )}

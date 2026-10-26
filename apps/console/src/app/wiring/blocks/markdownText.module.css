@@ -1,0 +1,26 @@
+/* GitHub's stylesheet picks its colours from the OS scheme; these take them
+   from the kit's tokens instead, so the text follows the console's own
+   light or dark. */
+.body:global(.markdown-body) {
+  --fgColor-default: var(--tk-text-1);
+  --fgColor-muted: var(--tk-text-2);
+  --fgColor-accent: var(--tk-text-accent);
+  --bgColor-default: transparent;
+  --bgColor-muted: var(--tk-panel);
+  --bgColor-neutral-muted: var(--tk-inset);
+  --borderColor-default: var(--tk-border);
+  --borderColor-muted: var(--tk-border-soft);
+  --borderColor-neutral-muted: var(--tk-border-soft);
+  --fontStack-monospace: var(--mantine-font-family-monospace);
+
+  background-color: transparent;
+  font-family: var(--mantine-font-family);
+  font-size: 14px;
+}
+
+/* A front-matter value keeps its own lines and wraps a long one. */
+.frontValue {
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

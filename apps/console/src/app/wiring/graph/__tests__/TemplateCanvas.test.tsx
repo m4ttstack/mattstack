@@ -308,7 +308,10 @@ describe('TemplateCanvas: a pipeline that links its steps', () => {
     expect(screen.queryByTestId('output-node')).not.toBeInTheDocument();
     expect(screen.getByTestId('column-headers')).toHaveTextContent('Links to');
     expect(screen.getByTestId('column-headers')).toHaveTextContent(
-      'work as written · click a line range to read it'
+      'work as written'
+    );
+    expect(screen.getByTestId('column-headers')).not.toHaveTextContent(
+      'click a'
     );
   });
 
@@ -466,20 +469,21 @@ function drawAt(view: TemplateView, search: string) {
   return { onSelect };
 }
 
-describe('TemplateCanvas: rows sharing a line number in two line spaces', () => {
-  it('selects the row clicked, not the first row at its line number', () => {
-    const { onSelect } = drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan');
+describe('TemplateCanvas: a tree of blocks', () => {
+  it('draws its rows without line numbers', () => {
+    drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan');
 
-    click(rowAt('rendered L16-164'));
-    expect(onSelect).toHaveBeenLastCalledWith('row:16.2');
-    click(rowAt('L16'));
-    expect(onSelect).toHaveBeenLastCalledWith('row:16');
+    expect(screen.queryByTestId('row-gutter')).not.toBeInTheDocument();
   });
 
-  it('marks only the selected one of the two', () => {
-    drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan&select=row:16.2');
+  it('opens a block row in the block view instead of selecting it', () => {
+    const { onSelect } = drawAt(rtShapedPlan(), 'tab=graph&focus=stage-plan');
 
-    expect(rowAt('rendered L16-164')).toHaveAttribute('data-selected', 'true');
-    expect(rowAt('L16')).not.toHaveAttribute('data-selected');
+    click(screen.getAllByTestId('row-open')[0]!);
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(new URLSearchParams(window.location.search).get('block')).toBe(
+      'stage-plan'
+    );
   });
 });

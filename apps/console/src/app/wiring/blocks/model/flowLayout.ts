@@ -3,10 +3,10 @@ import type {
   PayloadBlock,
 } from '../../../../server/blocksPayload';
 import type { AroundGraphData } from './around';
-import { dotsOf, type Dot } from './blockFacts';
+import { dotsOf, glyphOf, type Dot } from './blockFacts';
 import { flowOrder, type MapKind } from './blockMap';
 import type { Box, LaidOut, LayoutInput } from './elkGraph';
-import { cutLabel, shortLabel } from './labels';
+import { cutLabel, exitLabel, shortLabel } from './labels';
 import { CARD, cardWidth, CHIP, type Measure } from './mapLayout';
 
 type Graph = BlocksPayload['graphs'][number];
@@ -65,7 +65,7 @@ export function blockFactsOf(
   );
   return blockId => {
     const block = byId.get(blockId);
-    const kind = block?.kind;
+    const kind = block && payload ? glyphOf(payload, block) : null;
     return {
       kind: kind === 'question' || kind === 'gate' ? kind : 'step',
       dots: block ? dotsOf(block) : [],
@@ -170,8 +170,10 @@ export function flowLayout(
         ...(edge.label
           ? {
               label: {
-                text: edge.label,
-                width: Math.ceil(measure(edge.label, 11, 400) + 2 * CHIP.padX),
+                text: exitLabel(edge.label),
+                width: Math.ceil(
+                  measure(exitLabel(edge.label), 11, 400) + 2 * CHIP.padX
+                ),
                 height: CHIP.height,
               },
             }

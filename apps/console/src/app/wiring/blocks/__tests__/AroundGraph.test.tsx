@@ -118,7 +118,7 @@ describe('AroundGraph', () => {
     const { onViewWholeGraph } = await renderAround();
 
     expect(screen.getByText('Opens a block')).toBeInTheDocument();
-    expect(screen.getByText('Graph step only')).toBeInTheDocument();
+    expect(screen.getByText('A step with no block')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'View whole graph' }));
 
     expect(onViewWholeGraph).toHaveBeenCalledOnce();

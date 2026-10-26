@@ -497,7 +497,7 @@ describe('Graph tab: the focus list', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers a retry when the composition fails to load', async () => {
+  it('says in the main view when the composition fails to load, and retries from there', async () => {
     mockDesignPack();
     compositionGet.mockResolvedValueOnce({
       ok: false,
@@ -506,13 +506,48 @@ describe('Graph tab: the focus list', () => {
     });
     const user = userEvent.setup();
     renderAt('?tab=graph');
-    const list = await focusList();
 
-    expect(await within(list).findByText('rt exploded')).toBeInTheDocument();
-    await user.click(within(list).getByRole('button', { name: 'Retry' }));
+    const error = await screen.findByTestId('pack-error');
+    expect(error).toHaveTextContent("This pack's skills failed to load");
+    expect(error).toHaveTextContent('rt exploded');
+    expect(screen.queryByTestId('focus-list')).toBeNull();
+
+    await user.click(within(error).getByRole('button', { name: 'Retry' }));
+    const list = await focusList();
     expect(
       await within(list).findByTestId('focus-pipeline:feature')
     ).toBeInTheDocument();
+    expect(screen.queryByTestId('pack-error')).toBeNull();
+  });
+
+  it("keeps rt's lines in the pack error, with its command set apart", async () => {
+    mockDesignPack();
+    compositionGet.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        error: [
+          'acme could not be compiled',
+          '  why: Its skills are single SKILL.md files.',
+          '  next: claude plugin update mattstack@mattstack',
+          '  "provision": provision has no index.block.md',
+        ].join('\n'),
+      }),
+    });
+    renderAt('?tab=graph');
+
+    expect(await screen.findByTestId('pack-error-next')).toHaveTextContent(
+      'claude plugin update mattstack@mattstack'
+    );
+    expect(
+      [...screen.getByTestId('pack-error-message').children].map(
+        line => line.textContent
+      )
+    ).toEqual([
+      'acme could not be compiled',
+      'Its skills are single SKILL.md files.',
+      '"provision": provision has no index.block.md',
+    ]);
   });
 });
 
@@ -816,6 +851,26 @@ describe('Graph tab: the block view', () => {
     expect(
       within(error).getByRole('button', { name: 'Retry' })
     ).toBeInTheDocument();
+  });
+
+  it('sets the command rt suggests apart when the blocks fail to load', async () => {
+    mockDesignPack();
+    blocksGet.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        error: 'rt exploded\n  next: rt skills blocks shepherdr',
+      }),
+    });
+    renderAt('?tab=graph&focus=shepherdr');
+
+    const error = await screen.findByTestId('block-view-error');
+    expect(
+      within(error).getByTestId('block-view-error-message')
+    ).toHaveTextContent(/^rt exploded$/);
+    expect(
+      within(error).getByTestId('block-view-error-next')
+    ).toHaveTextContent('rt skills blocks shepherdr');
   });
 
   it("gives rt's refusal to build a skill its own words, no retry, and a way to Health", async () => {
