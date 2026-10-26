@@ -5,6 +5,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import { useHeldLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import {
@@ -359,11 +360,13 @@ export function BlockMap({
         };
     const nodeAt = (id: string) =>
       sectionRef.current?.querySelector<HTMLElement>(`[data-node="${id}"]`);
+    // In a framed map the target is most often in view already; centring it
+    // would scroll the page around the frame instead.
     const scrollTo = (element: HTMLElement | null | undefined) => {
       element?.scrollIntoView({
         behavior: reduceMotion ? 'instant' : 'smooth',
-        block: 'center',
-        inline: 'center',
+        block: fill ? 'nearest' : 'center',
+        inline: fill ? 'nearest' : 'center',
       });
     };
     const inBand = (id: string) =>
@@ -454,7 +457,11 @@ export function BlockMap({
     highlight,
     onSelect,
     reduceMotion,
+    fill,
   ]);
+
+  const loading = !(laidOut && shown);
+  const held = useHeldLoading(loading);
 
   return (
     <GraphPage
@@ -483,7 +490,7 @@ export function BlockMap({
         </div>
       ) : state === 'error' ? (
         <GraphError onRetry={retry} />
-      ) : laidOut && shown ? (
+      ) : laidOut && shown && !held ? (
         <MapCanvas
           layout={shown}
           laidOut={laidOut}
@@ -494,7 +501,7 @@ export function BlockMap({
         <GraphLoading
           height={320}
           testId="map-loading"
-          label="Laying out the map"
+          steps={['laying out the map']}
         />
       )}
     </GraphPage>

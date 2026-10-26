@@ -1365,6 +1365,38 @@ a.propBandSource {
   overflow-y: hidden;
 }
 
+/* A new layout (a fold opened or closed, a zoom) moves the cards there
+   rather than cutting to it: cards slide, the view eases, a card new to the
+   map fades in, and the lines, drawn anew for the new routes, fade in once
+   the cards have arrived. Only a moved card transitions; a hover moves
+   nothing. */
+@media (prefers-reduced-motion: no-preference) {
+  .graphCanvas :global(.react-flow__node),
+  .graphCanvas :global(.react-flow__viewport) {
+    transition: transform 450ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  .graphCanvas :global(.react-flow__node) {
+    animation: graphIn 300ms ease-out backwards;
+  }
+
+  .mapEdge,
+  .mapArrow,
+  .mapChip {
+    animation: graphIn 300ms ease-out 380ms backwards;
+  }
+}
+
+@keyframes graphIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 /* React Flow's viewport is the plane's width before its zoom, so centred
    at full size it would run past the plane and scroll the canvas. */
 .mapPlane {

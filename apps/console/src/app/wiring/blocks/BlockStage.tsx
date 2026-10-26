@@ -5,12 +5,12 @@ import {
   Box,
   Button,
   Code,
-  Skeleton,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { StepLoader, useHeldLoading } from '../../StepLoader';
 import { FailureText } from '../FailureText';
 import { FocusHeader, statusOf } from '../graph/FocusHeader';
 import { workTypeOf, type FocusItem } from '../graph/model/focusModel';
@@ -42,6 +42,7 @@ export function BlockStage({
   const changes = usePendingChanges(pack).data;
   const anatomy = anatomyQuery.data;
   const skill = useSkillBlocks(pack, focused, composition);
+  const held = useHeldLoading(skill.state === 'loading');
 
   const view = useMemo(() => {
     if (!anatomy || !composition) return null;
@@ -84,7 +85,7 @@ export function BlockStage({
       bg="var(--tk-card)"
       data-testid="block-stage"
     >
-      {skill.state === 'ready' ? (
+      {skill.state === 'ready' && !held ? (
         <BlockView
           key={focused.key}
           pack={pack}
@@ -122,18 +123,22 @@ export function BlockStage({
             checkError={header.checkError}
             loading={header.loading}
           />
-          {skill.state === 'loading' && (
-            <Stack gap={8} data-testid="block-view-loading">
-              <Skeleton height={18} width="60%" />
-              <Skeleton height={120} />
-            </Stack>
+          {held && (
+            <StepLoader
+              testId="block-view-loading"
+              steps={[
+                board
+                  ? 'reading its SKILL.md'
+                  : `rt skills blocks --skill ${focused.skill}`,
+              ]}
+            />
           )}
-          {skill.state === 'note' && (
+          {!held && skill.state === 'note' && (
             <Text fz={13} c="dimmed" data-testid="block-view-note">
               {skill.message}
             </Text>
           )}
-          {skill.state === 'refused' && (
+          {!held && skill.state === 'refused' && (
             <Alert
               variant="light"
               color="warn"
@@ -157,7 +162,7 @@ export function BlockStage({
               </Stack>
             </Alert>
           )}
-          {skill.state === 'stale' && (
+          {!held && skill.state === 'stale' && (
             <Alert
               variant="light"
               color="warn"
@@ -172,7 +177,7 @@ export function BlockStage({
               </Text>
             </Alert>
           )}
-          {skill.state === 'error' && (
+          {!held && skill.state === 'error' && (
             <Alert
               variant="light"
               color="bad"

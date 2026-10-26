@@ -3,7 +3,6 @@ import type { CSSProperties } from 'react';
 import {
   Button,
   NavLink,
-  Skeleton,
   Stack,
   Text,
   UnstyledButton,
@@ -151,13 +150,6 @@ export function BlockSidebar({ pack }: { pack: string }) {
         <Text span className={classes.groupLabel}>
           Blocks
         </Text>
-      )}
-      {skill.state === 'loading' && (
-        <Stack gap={2} data-testid="block-tree-loading">
-          {[0, 1, 2, 3].map(i => (
-            <Skeleton key={i} height={28} />
-          ))}
-        </Stack>
       )}
       {(skill.state === 'error' || skill.state === 'note') && (
         <Text fz={12} c="dimmed" px={6}>

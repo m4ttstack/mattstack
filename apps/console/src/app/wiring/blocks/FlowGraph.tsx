@@ -11,14 +11,15 @@ import { useReducedMotion } from '@mattstack/app-kit/hooks';
 import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import { useHeldLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import {
   edgesOf,
   GraphCanvas,
   GraphError,
-  GraphPage,
   GraphLoading,
+  GraphPage,
   handlesAt,
   useCanvasLayout,
   useCanvasPlane,
@@ -235,6 +236,7 @@ export function FlowGraph({
     () => (laidOut ? placeLabels(laidOut) : null),
     [laidOut]
   );
+  const held = useHeldLoading(!placed || !shown);
 
   if (layout === null) {
     return (
@@ -244,12 +246,12 @@ export function FlowGraph({
     );
   }
   if (state === 'error') return <GraphError onRetry={retry} />;
-  if (!placed || !shown) {
+  if (!placed || !shown || held) {
     return (
       <GraphLoading
         height={loadingHeight}
         testId="flow-loading"
-        label="Laying out the graph"
+        steps={['laying out the flow']}
       />
     );
   }
@@ -276,8 +278,8 @@ export function FlowKey() {
         Opens a block
       </li>
       <li>
-        <span className={classes.flowSample} data-kind="step" />
-        A step with no block
+        <span className={classes.flowSample} data-kind="step" />A step with no
+        block
       </li>
     </ul>
   );

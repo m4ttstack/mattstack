@@ -4,7 +4,6 @@ import {
   Anchor,
   Breadcrumbs,
   Button,
-  Skeleton,
   Text,
   Title,
 } from '@mattstack/app-kit/core';
@@ -14,6 +13,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../server/blocksPayload';
+import { StepLoader, useHeldLoading } from '../../StepLoader';
 import { FocusHeader, type HeaderStatus } from '../graph/FocusHeader';
 import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
 import type { BlockGraphSelect, WiringUrl } from '../graph/useWiringUrl';
@@ -162,10 +162,20 @@ function PackLine({
     [stats.blocks, stats.blocks === 1 ? 'block' : 'blocks'],
     [stats.withProps, 'with props'],
     ...(stats.values > 0
-      ? [[stats.values, stats.values === 1 ? 'prop value' : 'prop values'] as [number, string]]
+      ? [
+          [stats.values, stats.values === 1 ? 'prop value' : 'prop values'] as [
+            number,
+            string,
+          ],
+        ]
       : []),
     ...(stats.graphs > 0
-      ? [[stats.graphs, stats.graphs === 1 ? 'graph' : 'graphs'] as [number, string]]
+      ? [
+          [stats.graphs, stats.graphs === 1 ? 'graph' : 'graphs'] as [
+            number,
+            string,
+          ],
+        ]
       : []),
     ...(stats.shared > 0 ? [[stats.shared, 'shared'] as [number, string]] : []),
   ];
@@ -213,6 +223,7 @@ function RenderedText({
   range: [number, number] | null;
 }) {
   const source = useSkillSource(pack, path);
+  const held = useHeldLoading(path !== null && source.isPending);
   if (!path) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
@@ -227,7 +238,9 @@ function RenderedText({
       </Text>
     );
   }
-  if (!source.data) return <Skeleton height={160} />;
+  if (!source.data || held) {
+    return <StepLoader steps={[`reading ${path.split('/').at(-1)}`]} />;
+  }
   const lines = source.data.content.split('\n');
   const shown = range ? lines.slice(range[0] - 1, range[1]) : lines;
   return (
@@ -450,7 +463,8 @@ export function BlockView({
     </DocumentCard>
   );
 
-  const aroundAt = zoom.level === 'block' ? graphOfBlock(payload, zoom.block) : null;
+  const aroundAt =
+    zoom.level === 'block' ? graphOfBlock(payload, zoom.block) : null;
   const inside =
     zoom.level === 'parent' ? sectionsAt(payload, zoom)[0] : undefined;
 

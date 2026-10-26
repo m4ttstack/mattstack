@@ -16,7 +16,6 @@ import {
   Box,
   Button,
   SegmentedControl,
-  Skeleton,
   Text,
   Title,
   UnstyledButton,
@@ -34,6 +33,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 
+import { StepLoader } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
@@ -355,20 +355,16 @@ export function GraphCanvas({
 export function GraphLoading({
   height,
   testId,
-  label,
+  steps,
 }: {
   height: number;
   testId: string;
-  label: string;
+  steps: readonly string[];
 }) {
   return (
-    <Skeleton
-      h={height}
-      radius={12}
-      role="status"
-      data-testid={testId}
-      aria-label={label}
-    />
+    <div style={{ height }}>
+      <StepLoader placement="centre" testId={testId} steps={steps} />
+    </div>
   );
 }
 

@@ -149,7 +149,10 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
   };
   return (
     <>
+      {/* Keyed by its route, so a line the layout moves is drawn anew and
+          fades in once the cards have moved, rather than jumping. */}
       <path
+        key={d}
         d={d}
         className={classes.mapEdge}
         data-testid="map-edge"
@@ -160,7 +163,9 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
           ? { strokeDasharray: '0 5', strokeLinecap: 'round' as const }
           : {})}
       />
-      {head && <path d={head} className={classes.mapArrow} {...state} />}
+      {head && (
+        <path key={head} d={head} className={classes.mapArrow} {...state} />
+      )}
       {view.link && (
         <LinkHit
           d={roundedPath(data.points)}
@@ -172,6 +177,7 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
       {data.label && box && (
         <EdgeLabelRenderer>
           <div
+            key={`${box.x},${box.y}`}
             className={classes.mapChip}
             title={exitLabel(data.label) === data.label ? undefined : data.label}
             data-testid="map-chip"
