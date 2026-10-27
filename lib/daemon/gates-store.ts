@@ -61,7 +61,7 @@ export interface GatesStore {
       so gate-push can skip notifying the surface that wrote it. */
   answer(id: string, answers: GateAnswer["answers"], by: string, opts?: { overridden?: boolean; session?: string }): AnswerResult;
   park(id: string): { ok: true } | { ok: false; reason: "not-found" | "not-open"; row: GateRow | null };
-  close(id: string, reason: "abandoned" | "superseded" | "pruned" | "resolved" | "revised"): { ok: true } | { ok: false; reason: "not-found" | "already-answered" | "already-closed" };
+  close(id: string, reason: "abandoned" | "superseded" | "pruned" | "resolved"): { ok: true } | { ok: false; reason: "not-found" | "already-answered" | "already-closed" };
   /** The one exception to close()'s open/parked-only CAS: an attention-gate
       "dismiss" answer needs its row to end status "closed" too, even though
       answering already moved it to "answered" (see gates-store.test.ts's
@@ -123,7 +123,7 @@ interface GateColumns {
   openedAt: number;
   parkedAt: number | null;
   closedAt: number | null;
-  closedReason: "abandoned" | "superseded" | "pruned" | "resolved" | "revised" | null;
+  closedReason: "abandoned" | "superseded" | "pruned" | "resolved" | null;
   supersededBy: string | null;
   agent: string | null;
   pane: string | null;

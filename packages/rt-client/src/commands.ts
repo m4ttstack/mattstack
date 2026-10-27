@@ -225,9 +225,8 @@ export interface GateRow {
   openedAt: number; parkedAt: number | null; closedAt: number | null;
   /** "resolved" is stamped only by the reconciler's auto-recovery close
       (a blocked/gone pane came back); every other closer uses one of the
-      other four ("revised" is the board closing a review gate for a
-      finding that came back changed). */
-  closedReason: "abandoned" | "superseded" | "pruned" | "resolved" | "revised" | null;
+      other three. */
+  closedReason: "abandoned" | "superseded" | "pruned" | "resolved" | null;
   /** Set only when `closedReason` is "superseded": the id of the gate that superseded this one. */
   supersededBy: string | null;
   agent: string | null; pane: string | null;
@@ -1164,7 +1163,7 @@ export interface Commands {
    *  forcing a full-table read; `cursor` is the paging rowid to resume from. */
   "gate:list": { payload: { open?: boolean; subject?: string; subjectPrefix?: string; status?: GateStatus[]; kind?: string; run?: string; linked?: boolean; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
   "gate:park": { payload: { id: string }; data: { ok: true } };
-  "gate:close": { payload: { id: string; reason: "abandoned" | "superseded" | "pruned" | "revised" }; data: { ok: true } };
+  "gate:close": { payload: { id: string; reason: "abandoned" | "superseded" | "pruned" }; data: { ok: true } };
   "gate:subscribe": { payload: { subjectPrefix: string; session: string; scope?: "owner"; ownerRef?: string }; data: { id: string } };
   "gate:unsubscribe": { payload: { id: string }; data: { removed: boolean } };
   /** The shepherd's gap-recovery liveness check and the observability window

@@ -608,9 +608,9 @@ const ROWS: readonly SettingDef[] = [
     key: "board.workspaces",
     type: "object",
     scopes: ["user"],
-    default: { reviews: "reviews", responds: "responses", doctors: "doctors", questions: "questions" },
+    default: { reviews: "reviews", responds: "responses", doctors: "doctors" },
     merge: "deep",
-    description: "Herdr workspace names the board's review/respond/doctor/question panes launch into, per developer.",
+    description: "Herdr workspace names the board's review/respond/doctor panes launch into, per developer.",
   },
   {
     key: "board.defaultMember",

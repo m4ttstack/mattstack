@@ -549,20 +549,6 @@ describe("gate:list / gate:park / gate:close", () => {
     expect(missing.ok).toBe(false);
   });
 
-  test("gate:close accepts reason revised and records it", async () => {
-    const { handlers, store } = harness();
-    const id = (await open(handlers)).id;
-    const res = await handlers["gate:close"]({ id, reason: "revised" });
-    expect(res.ok).toBe(true);
-    expect(store.get(id)!.closedReason).toBe("revised");
-  });
-
-  test("gate:close still rejects an unknown reason", async () => {
-    const { handlers } = harness();
-    const id = (await open(handlers)).id;
-    expect(await handlers["gate:close"]({ id, reason: "bogus" as any })).toEqual({ ok: false, error: "invalid reason" });
-  });
-
   test("close rejects an invalid reason and reports not-found", async () => {
     const { handlers } = harness();
     const id = (await open(handlers)).id;

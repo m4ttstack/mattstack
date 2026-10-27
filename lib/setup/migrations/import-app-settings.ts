@@ -54,7 +54,7 @@ export function boardCopies(c: Record<string, unknown>): Copy[] {
   for (const [field, key] of [["defaultMember", "board.defaultMember"], ["staleAfterDays", "board.staleAfterDays"], ["gateGraceMinutes", "board.gateGraceMinutes"]] as const) {
     if (c[field] !== undefined && c[field] !== null) copies.push({ key, scope: "user", value: c[field] });
   }
-  const workspaces = picked(c, { reviews: "reviewsWorkspace", responds: "respondsWorkspace", doctors: "doctorsWorkspace", questions: "questionsWorkspace" });
+  const workspaces = picked(c, { reviews: "reviewsWorkspace", responds: "respondsWorkspace", doctors: "doctorsWorkspace" });
   if (workspaces) copies.push({ key: "board.workspaces", scope: "user", value: workspaces });
   const hidden = Array.isArray(c.members)
     ? c.members.filter((m): m is { username: string } => isObject(m) && m.hidden === true && typeof m.username === "string").map((m) => m.username)

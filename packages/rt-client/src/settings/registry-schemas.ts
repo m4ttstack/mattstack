@@ -285,7 +285,7 @@ export const SCHEMAS = {
     }).optional().meta({ title: "Other teams' emoji", description: "Emoji other channels use for the same marks, e.g. mr-approved for approved." }),
   }),
   "board.tabs": z.array(tab).min(1).meta({ uniqueBy: "id" }),
-  "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional(), questions: z.string().optional() }),
+  "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional() }),
   "board.hiddenMembers": z.array(z.string()),
   "board.turn": z.looseObject({
     author: z.array(z.enum(AUTHOR_SIGNALS)).optional().meta({

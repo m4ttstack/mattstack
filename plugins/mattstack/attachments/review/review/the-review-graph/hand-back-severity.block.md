@@ -11,5 +11,4 @@ paths of `<dir>/review-post.open.json` (its source beside it as
 `${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh`; any `droppedContexts`; and on
 GitLab the MR head sha this review read (`mr_view`'s `mr.sha`). Then wait
 for its `{findings, outcome}` (plus `replies` and `restored` on a
-re-review), its hold, or a revision (`Revise one finding from the
-board`).
+re-review) or its hold.

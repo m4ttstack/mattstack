@@ -571,12 +571,6 @@ describe("retryDeadPanes", () => {
     expect(delivered.at(-1)).toBe(wrapCrossSession("gate-facility", GATE_CLOSED_PHRASE(row.id, "superseded")));
   });
 
-  test("a revised close has its own doorbell wording", () => {
-    expect(GATE_CLOSED_PHRASE("g1", "revised")).toBe(
-      "[gate] g1 closed for a revised finding from the board; re-read the registry and proceed.",
-    );
-  });
-
   test("dead-pane retry on a form gate delivers the doorbell WITHOUT Escape injection (RT-207)", async () => {
     // A dead-pane row whose session resolves again is a resumed pane, not a
     // live pane blocked on a form: the board's parked-gate resume already
