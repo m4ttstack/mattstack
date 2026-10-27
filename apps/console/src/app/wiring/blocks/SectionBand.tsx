@@ -1,11 +1,21 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { UnstyledButton } from '@mattstack/app-kit/core';
+import {
+  ActionIcon,
+  Anchor,
+  Button,
+  Collapse,
+  UnstyledButton,
+} from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { BlockGlyph, BlockRow } from './BlockRow';
 import classes from './blocks.module.css';
 import type { SectionBand as Band, BandIcon } from './model/sections';
+
+/** A list folds only when more than this many rows would hide past its
+    limit: hiding one or two saves less than the Show all line costs. */
+const FOLD_SLACK = 2;
 
 const blocks = (n: number) => `${n} ${n === 1 ? 'block' : 'blocks'}`;
 
@@ -23,9 +33,9 @@ function BandMark({ icon }: { icon: BandIcon }) {
   return <BlockGlyph glyph={icon} size={15} />;
 }
 
-/** A section's band (mark, title, block count, how many have props), its
-    block's first sentence, and its blocks in one bordered list. A band named
-    for a block opens it. */
+/** A section as one card: a head strip (fold, mark, title, block count,
+    then its diagram and Open together), its block's first sentence, and its
+    blocks, which the fold hides. A band named for a block opens it. */
 export function SectionBand({
   band,
   onOpen,
@@ -35,9 +45,12 @@ export function SectionBand({
   introText = null,
   bodyOf,
   usedByCount,
+  limit,
 }: {
   band: Band;
-  /** The band's block's graph, as a one-line card under the header. */
+  /** Rows shown before Show all; every row when unset. */
+  limit?: number;
+  /** The band's block's graph, as a button in the head beside Open. */
   graph?: ReactNode;
   /** The band's block's whole text, which Show more opens. */
   introText?: ReactNode;
@@ -52,68 +65,110 @@ export function SectionBand({
   usedByCount?: (name: string) => number | null;
 }) {
   const [more, setMore] = useState(false);
+  const [all, setAll] = useState(false);
+  const [open, setOpen] = useState(true);
+  const folds = limit !== undefined && band.rows.length - limit > FOLD_SLACK;
+  const cut = folds && !all;
+  const rows = cut ? band.rows.slice(0, limit) : band.rows;
   const title = (
     <>
-      <BandMark icon={band.icon} />
+      {band.id !== 'notes' && <BandMark icon={band.icon} />}
       <span className={classes.bandTitle}>{band.title}</span>
     </>
   );
   const meta =
     band.id === 'shared'
-      ? `${blocks(band.blockCount)} · same for everyone`
+      ? `${band.blockCount} ${band.blockCount === 1 ? 'attachment' : 'attachments'}`
       : `${blocks(band.blockCount)} · ${band.propsCount} with props`;
   return (
     <section
-      className={classes.band}
+      className={bare ? classes.band : classes.bandCard}
+      data-folded={(!bare && !open) || undefined}
       aria-label={band.title}
       data-testid="section-band"
     >
       {!bare && (
         <div className={classes.bandHead}>
-          {opensBlock ? (
-            <UnstyledButton
-              className={classes.bandOpen}
-              onClick={() => onOpen(band.id)}
-            >
-              {title}
-            </UnstyledButton>
-          ) : (
-            <span className={classes.bandOpen}>{title}</span>
-          )}
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            aria-label={open ? `Fold ${band.title}` : `Unfold ${band.title}`}
+            aria-expanded={open}
+            onClick={() => setOpen(value => !value)}
+            data-testid="band-fold"
+          >
+            <Icon
+              name="chevronRight"
+              size={14}
+              className={classes.docChevron}
+              data-open={open || undefined}
+            />
+          </ActionIcon>
+          <span className={classes.bandOpen}>{title}</span>
           <span className={classes.bandMeta}>{meta}</span>
-        </div>
-      )}
-      {!bare && band.intro && (
-        <div className={classes.bandIntro} data-testid="band-intro">
-          {more && introText ? (
-            introText
-          ) : (
-            <span className={classes.bandIntroText}>{band.intro}</span>
-          )}
-          {introText && (
-            <UnstyledButton
-              className={classes.bandMore}
-              onClick={() => setMore(open => !open)}
-            >
-              {more ? 'Show less' : 'Show more'}
-            </UnstyledButton>
+          {(graph || opensBlock) && (
+            <span className={classes.bandActions}>
+              {graph}
+              {opensBlock && (
+                <Button
+                  variant="light"
+                  size="compact-sm"
+                  rightSection={<Icon name="chevronRight" size={13} />}
+                  onClick={() => onOpen(band.id)}
+                >
+                  {`Open ${band.title}`}
+                </Button>
+              )}
+            </span>
           )}
         </div>
       )}
-      {graph}
-      <ul className={classes.rows}>
-        {band.rows.map(row => (
-          <BlockRow
-            key={row.id}
-            row={row}
-            onOpen={onOpen}
-            body={bodyOf?.(row.id)}
-            usedBy={
-              row.shared?.name ? (usedByCount?.(row.shared.name) ?? null) : null
-            }
-          />
-        ))}
-      </ul>
+      <Collapse expanded={bare || open}>
+        {!bare && band.intro && (
+          <div className={classes.bandIntro} data-testid="band-intro">
+            {more && introText ? (
+              introText
+            ) : (
+              <span className={classes.bandIntroText}>{band.intro}</span>
+            )}
+            {introText && (
+              <UnstyledButton
+                className={classes.bandMore}
+                onClick={() => setMore(open => !open)}
+              >
+                {more ? 'Show less' : 'Show more'}
+              </UnstyledButton>
+            )}
+          </div>
+        )}
+        <ul className={classes.rows}>
+          {rows.map(row => (
+            <BlockRow
+              key={row.id}
+              row={row}
+              onOpen={onOpen}
+              body={bodyOf?.(row.id)}
+              usedBy={
+                row.shared?.name
+                  ? (usedByCount?.(row.shared.name) ?? null)
+                  : null
+              }
+            />
+          ))}
+        </ul>
+        {folds && (
+          <Anchor
+            component="button"
+            type="button"
+            fz={13}
+            className={classes.showAll}
+            onClick={() => setAll(open => !open)}
+          >
+            {all ? 'Show fewer' : `Show all ${band.rows.length}`}
+          </Anchor>
+        )}
+      </Collapse>
     </section>
   );
 }

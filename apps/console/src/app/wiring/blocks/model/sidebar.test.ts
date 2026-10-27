@@ -134,7 +134,7 @@ describe('sidebarRows', () => {
     expect(rows[1]).toEqual({
       id: 'shared',
       depth: 0,
-      label: 'Shared',
+      label: 'Includes',
       glyph: 'shared',
       dots: [],
       count: 2,

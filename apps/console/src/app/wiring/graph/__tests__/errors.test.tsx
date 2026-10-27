@@ -5,9 +5,10 @@ import {
   stubVirtualLayout,
 } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { miniPayload } from '../../blocks/__tests__/blocksFixture';
 import type { SkillsCheck } from '../../outline';
 import type { SkillsAnatomy } from '../../useWiring';
 import { designFixture } from './designFixtures';
@@ -16,6 +17,7 @@ const compositionGet = vi.fn();
 const checkGet = vi.fn();
 const anatomyGet = vi.fn();
 const changesGet = vi.fn();
+const blocksGet = vi.fn();
 
 vi.mock('../../../api', () => ({
   client: {
@@ -39,14 +41,7 @@ vi.mock('../../../api', () => ({
         check: { $get: (...args: unknown[]) => checkGet(...args) },
         anatomy: { $get: (...args: unknown[]) => anatomyGet(...args) },
         changes: { $get: (...args: unknown[]) => changesGet(...args) },
-        blocks: {
-          $get: () =>
-            Promise.resolve({
-              ok: false,
-              status: 404,
-              json: async () => ({ error: 'not a block tree' }),
-            }),
-        },
+        blocks: { $get: (...args: unknown[]) => blocksGet(...args) },
         source: { $get: vi.fn() },
         surface: {
           $get: () =>
@@ -78,8 +73,11 @@ function failed(error: string) {
 
 function serve({
   check = designFixture('check'),
+  blockTrees = ['shepherdr'],
 }: {
   check?: SkillsCheck | Error;
+  /** The skills rt answers as block trees. */
+  blockTrees?: string[];
 } = {}) {
   const anatomies: Record<string, SkillsAnatomy> = {
     work: designFixture('anatomy.work'),
@@ -90,6 +88,17 @@ function serve({
     check instanceof Error ? failed(check.message) : ok(check)
   );
   changesGet.mockResolvedValue(ok(designFixture('changes.clean')));
+  blocksGet.mockImplementation(({ query }: { query: { skill: string } }) =>
+    Promise.resolve(
+      blockTrees.includes(query.skill)
+        ? ok(miniPayload)
+        : {
+            ok: false,
+            status: 404,
+            json: async () => ({ error: 'not a block tree' }),
+          }
+    )
+  );
   anatomyGet.mockImplementation(({ query }: { query: { skill: string } }) =>
     Promise.resolve(
       anatomies[query.skill]
@@ -112,7 +121,7 @@ function renderAt(search: string) {
   return queryClient;
 }
 
-const MAP = '?tab=graph&focus=pipeline:feature';
+const LANDING = '?tab=graph';
 
 let restoreLayout: () => void;
 
@@ -130,48 +139,21 @@ afterEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-describe('pipeline map errors', () => {
-  it('a pipeline that fails to load gets a centred error with Retry', async () => {
+describe('pack and skill errors', () => {
+  it("says a skill's history is unavailable when its anatomy fails, and keeps its blocks", async () => {
     serve();
-    anatomyGet.mockResolvedValueOnce(
-      failed('rt skills anatomy: the template for work could not be read')
-    );
-    renderAt(MAP);
+    renderAt('?tab=graph&focus=shepherdr');
 
-    const error = await screen.findByTestId('canvas-error');
-    expect(error).toHaveTextContent(
-      'rt skills anatomy: the template for work could not be read'
-    );
-    expect(error.getAttribute('style')).toContain('bad');
-    expect(screen.queryByTestId('template-node')).toBeNull();
-
-    fireEvent.click(within(error).getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByTestId('template-node')).toBeInTheDocument();
-    expect(screen.queryByTestId('canvas-error')).toBeNull();
-  });
-
-  it('puts the command rt suggests on its own line, as code', async () => {
-    serve();
-    anatomyGet.mockResolvedValueOnce(
-      failed(
-        'The acme pack has no skill called work\n  next: rt skills surface list --pack acme'
-      )
-    );
-    renderAt(MAP);
-
-    const error = await screen.findByTestId('canvas-error');
-    expect(within(error).getByTestId('canvas-error-message')).toHaveTextContent(
-      /^The acme pack has no skill called work$/
-    );
-    expect(within(error).getByTestId('canvas-error-next')).toHaveTextContent(
-      'rt skills surface list --pack acme'
+    expect(await screen.findByTestId('block-view')).toBeInTheDocument();
+    expect(await screen.findByTestId('history-unavailable')).toHaveTextContent(
+      'History unavailable: no anatomy for shepherdr'
     );
   });
 
-  it('a pipeline that fails to reload keeps the canvas it already drew', async () => {
-    serve();
-    const queryClient = renderAt(MAP);
-    await screen.findByTestId('template-node');
+  it('keeps the history it already drew when the anatomy fails to reload', async () => {
+    serve({ blockTrees: ['stage-plan'] });
+    const queryClient = renderAt('?tab=graph&focus=stage-plan');
+    expect(await screen.findByTestId('block-history')).toBeInTheDocument();
 
     anatomyGet.mockResolvedValue(failed('rt skills anatomy: timed out'));
     await queryClient
@@ -179,20 +161,21 @@ describe('pipeline map errors', () => {
       .catch(() => undefined);
     await waitFor(() =>
       expect(
-        queryClient.getQueryState(['skills', 'anatomy', 'acme', 'work'])?.status
+        queryClient.getQueryState(['skills', 'anatomy', 'acme', 'stage-plan'])
+          ?.status
       ).toBe('error')
     );
-    expect(screen.getByTestId('template-node')).toBeInTheDocument();
-    expect(screen.queryByTestId('canvas-error')).toBeNull();
+    expect(screen.getByTestId('block-history')).toBeInTheDocument();
+    expect(screen.queryByTestId('history-unavailable')).toBeNull();
   });
 
-  it('a check that fails keeps the canvas and says the status is unavailable in the header', async () => {
+  it('a check that fails keeps the landing and says the status is unavailable in the header', async () => {
     serve({
       check: new Error(
         'rt skills check: pack/skills.jsonc is not valid JSONC (line 14: unexpected "}")'
       ),
     });
-    renderAt(MAP);
+    renderAt(LANDING);
 
     const header = await screen.findByTestId('focus-header');
     const alert = await within(header).findByTestId('status-unavailable');
@@ -201,7 +184,7 @@ describe('pipeline map errors', () => {
     );
     expect(alert.getAttribute('style')).toContain('warn');
     expect(within(header).queryByTestId('focus-status')).toBeNull();
-    expect(await screen.findByTestId('template-node')).toBeInTheDocument();
+    expect(screen.getByTestId('block-stage')).toBeInTheDocument();
     expect(
       within(screen.getByTestId('focus-list')).getByTestId('check-error')
     ).toHaveTextContent(
@@ -214,9 +197,9 @@ describe('pipeline map errors', () => {
     changesGet.mockResolvedValue(
       failed('rt skills changes: /fixture/packs/acme is not a git checkout')
     );
-    const queryClient = renderAt(MAP);
+    const queryClient = renderAt(LANDING);
 
-    await screen.findByTestId('template-node');
+    await screen.findByTestId('focus-header');
     await waitFor(() =>
       expect(
         queryClient.getQueryState(['skills', 'changes', 'acme'])?.status
@@ -224,6 +207,8 @@ describe('pipeline map errors', () => {
     );
     expect(screen.queryByText(/unsynced change/)).toBeNull();
     expect(screen.queryByText(/not a git checkout/)).toBeNull();
+    expect(screen.queryByTestId('history-tab-unsynced')).toBeNull();
+    expect(screen.queryByTestId('unsynced-toast')).toBeNull();
   });
 });
 

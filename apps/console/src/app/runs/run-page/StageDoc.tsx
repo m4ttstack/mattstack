@@ -1,16 +1,10 @@
 import { useCallback } from 'react';
-import {
-  Anchor,
-  Drawer,
-  List,
-  Skeleton,
-  Stack,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Anchor, Drawer, List, Stack, Text } from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
 import type { Components } from 'react-markdown';
 
 import { client } from '../../api';
+import { StepLoader, useStepLoading } from '../../StepLoader';
 import { docPreview, packState, stageDocBody } from '../derive/inputs';
 import { useEffectiveInputs } from '../EffectiveInputs';
 import { GateContext } from '../GateContext';
@@ -125,7 +119,12 @@ function StageDocBody({
   stage: string;
 }) {
   const query = useStageDoc(repo, runId, stage);
-  if (query.isPending) return <Skeleton height={200} />;
+  const { show: held, bind: heldBind } = useStepLoading(query.isPending);
+  if (query.isPending || held) {
+    return (
+      <StepLoader {...heldBind} steps={[`reading ${stage}'s stage doc`]} />
+    );
+  }
   if (query.isError)
     return (
       <Text fz="lg" lh="normal" c="dimmed">

@@ -1,6 +1,7 @@
-import { Code, Skeleton, Spoiler, Text } from '@mattstack/app-kit/core';
+import { Code, Spoiler, Text } from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
 
+import { StepLoader, useStepLoading } from '../../StepLoader';
 import { GateContext } from '../GateContext';
 import { transcriptUrl } from './evidenceImages';
 
@@ -43,7 +44,10 @@ export function TranscriptBlock({ repo, runId }: TranscriptBlockProps) {
     retry: false,
   });
 
-  if (isPending) return <Skeleton height={64} radius="md" />;
+  const { show: held, bind: heldBind } = useStepLoading(isPending);
+  if (isPending || held) {
+    return <StepLoader {...heldBind} steps={['reading the transcript']} />;
+  }
   if (isError) {
     return (
       <Text size="sm" c="dimmed">

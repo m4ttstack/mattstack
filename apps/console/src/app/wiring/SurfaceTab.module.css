@@ -1,0 +1,147 @@
+/* The switch's meaning, one quiet line between the filter row and the
+   groups it explains. */
+.switchKey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  font-size: 12px;
+  color: var(--tk-text-2);
+}
+
+.switchKeyItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.switchKeyTerm {
+  font-weight: 600;
+  color: var(--tk-text-1);
+}
+
+/* A kind badge: its translucent tint sits
+   over the card's surface and takes a hairline in its own hue, so its edge
+   holds on white and on the key's grey. */
+.kindBadge.kindBadge {
+  border: 1px solid color-mix(in srgb, var(--badge-color) 40%, transparent);
+  background: linear-gradient(var(--badge-bg), var(--badge-bg)), var(--tk-card);
+}
+
+.group + .group {
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  background: var(--tk-panel);
+}
+
+/* Only an open group rules off its head from its rows; a folded one ends at
+   the next group's rule or the footer's, never on a second line. */
+.group[data-open] .groupHead {
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+@media (hover: hover) {
+  .groupHead:hover {
+    background: var(--tk-raised);
+  }
+}
+
+.groupChevron {
+  color: var(--tk-text-2);
+  transition: transform 120ms ease;
+}
+
+.groupChevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.groupTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tk-text-1);
+}
+
+.groupCount {
+  padding: 0 7px;
+  border: 1px solid var(--tk-border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--tk-text-3);
+}
+
+.groupNote {
+  font-size: 12px;
+  color: var(--tk-text-3);
+}
+
+/* Two columns of rows, as the list was before it was grouped. */
+.groupRows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 22px;
+  padding: 10px 16px 12px;
+}
+
+/* A row's edit link and its wash wait for the pointer or keyboard focus;
+   the wash is the panel's near-white, so an off switch keeps its contrast. */
+.row {
+  border-radius: 6px;
+}
+
+.rowEdit {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background-color: var(--tk-panel);
+    box-shadow: inset 0 0 0 1px var(--tk-border-soft);
+  }
+
+  .row:hover .rowEdit {
+    opacity: 1;
+  }
+}
+
+.row:focus-within {
+  background-color: var(--tk-panel);
+}
+
+.row:focus-within .rowEdit {
+  opacity: 1;
+}
+
+/* A row's build problem, beside its badge: the strip's dot and words. */
+.rowHealth {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.rowHealth::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.rowHealth[data-health='stale'] {
+  color: var(--tk-text-warn);
+}
+
+.rowHealth[data-health='never-compiled'] {
+  color: var(--tk-text-purple);
+}

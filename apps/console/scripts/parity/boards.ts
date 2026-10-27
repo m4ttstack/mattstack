@@ -49,7 +49,7 @@ const RECORD_HEADERS =
   'Run · State · Record headers (abandoned work run, review run)';
 
 const CANVAS = ['Focus list', 'Stage', 'Focus header'];
-const GRAPH = '/wiring?tab=graph';
+const GRAPH = '/packs?tab=graph';
 
 const board = (
   slug: string,

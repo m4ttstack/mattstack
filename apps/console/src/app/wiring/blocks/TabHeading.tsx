@@ -13,12 +13,12 @@ export function TabHeading({
 }) {
   return (
     <Text
-      fz={10}
+      fz={11}
       fw={500}
       lh="normal"
       lts="0.8px"
       tt="uppercase"
-      c="var(--tk-text-3)"
+      c="var(--tk-text-2)"
       data-parity={parity}
       data-testid={testId}
     >

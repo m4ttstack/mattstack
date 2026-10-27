@@ -1910,6 +1910,7 @@ describe('write routes', () => {
     ],
     ['/api/skills/sync', { pack: 'demo' }],
     ['/api/skills/discard', { pack: 'demo', expect: 'a'.repeat(64) }],
+    ['/api/skills/compile', { pack: 'demo' }],
   ];
 
   it.each(writes)(
@@ -3131,5 +3132,319 @@ describe('skills changes and discard routes', () => {
 
     expect(rt.calls[0]).not.toContain('--commit-pending');
     expect(rt.calls[1]).not.toContain('--commit-pending');
+  });
+});
+
+const COMPILE_REPORT = {
+  pack: 'demo',
+  written: true,
+  verbs: [
+    { name: 'work', status: 'written' },
+    { name: 'ship', status: 'errored', errors: ['ship: no prop named tier'] },
+  ],
+};
+
+const postCompile = (app: Hono, pack?: string) =>
+  postJson(app, '/api/skills/compile', pack === undefined ? {} : { pack });
+
+describe('skills compile write route', () => {
+  it('spawns rt skills compile --pack <x> --json and returns its report', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify(COMPILE_REPORT),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postCompile(app, 'demo');
+
+    expect(res.status).toBe(200);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'compile',
+      '--pack',
+      'demo',
+      '--json',
+    ]);
+    await expect(res.json()).resolves.toEqual(COMPILE_REPORT);
+  });
+
+  it('a verb that failed to compile (exit 1 WITH a report) is 200 -- the report names it', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: JSON.stringify(COMPILE_REPORT),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postCompile(app, 'demo');
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual(COMPILE_REPORT);
+  });
+
+  it('requires pack in the body and spawns nothing without it', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postCompile(app);
+
+    expect(res.status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('a usage error (exit 1, empty stdout) is 502 with rt stderr', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt skills compile: no pack named "nope"',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postCompile(app, 'nope');
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('nope'),
+    });
+  });
+
+  it('a spawn that throws is 502 with its message', async () => {
+    const run = vi.fn(async () => {
+      throw new Error('rt timed out after 120s');
+    });
+    const app = mountSkills(new Hono(), run);
+
+    const res = await postCompile(app, 'demo');
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: 'rt timed out after 120s',
+    });
+  });
+
+  it('returns 503 when rt cannot be found', async () => {
+    const run = vi.fn(async () => {
+      throw new RtNotFoundError(['/home/nobody/.local/bin/rt']);
+    });
+    const app = mountSkills(new Hono(), run);
+
+    const res = await postCompile(app, 'demo');
+
+    expect(res.status).toBe(503);
+  });
+
+  it.each([
+    ['succeeds', false],
+    ['throws', true],
+  ])(
+    "drops this pack's cached reads when the compile %s: a check after it re-spawns rt",
+    async (_outcome, throws) => {
+      const calls: string[][] = [];
+      const run = vi.fn(async (argv: string[]) => {
+        calls.push(argv);
+        if (argv[1] === 'compile' && argv.includes('--json')) {
+          if (throws) throw new Error('killed');
+          return {
+            code: 0,
+            stdout: JSON.stringify(COMPILE_REPORT),
+            stderr: '',
+          };
+        }
+        return {
+          code: 0,
+          stdout: JSON.stringify({ pack: 'demo', packDir: '/p', verbs: [] }),
+          stderr: '',
+        };
+      });
+      const app = mountSkills(new Hono(), run);
+
+      await app.request('/api/skills/check?pack=demo');
+      await postCompile(app, 'demo');
+      await app.request('/api/skills/check?pack=demo');
+
+      expect(calls.filter(argv => argv[1] === 'check')).toHaveLength(2);
+    }
+  );
+
+  it('never serves the compile itself from the cache: two posts spawn twice', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify(COMPILE_REPORT),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await postCompile(app, 'demo');
+    await postCompile(app, 'demo');
+
+    expect(rt.calls.filter(argv => argv[1] === 'compile')).toHaveLength(2);
+  });
+});
+
+const NEW_FILE_DIFF = (path: string) => `diff --git a/${path} b/${path}
+new file mode 100644
+--- /dev/null
++++ b/${path}
+@@ -0,0 +1 @@
++fresh
+`;
+
+/** A pack with tracked edits and the given untracked files; `noIndex`
+    answers each `diff --no-index` for its path. */
+function workingGit(
+  untracked: string[],
+  over: {
+    lsFiles?: GitResult;
+    noIndex?: (path: string) => GitResult;
+  } = {}
+) {
+  return fakeGit(argv => {
+    if (argv.includes('rev-parse'))
+      return { code: 0, stdout: `${REPO_ROOT}\n`, stderr: '' };
+    if (argv.includes('ls-files'))
+      return (
+        over.lsFiles ?? {
+          code: 0,
+          stdout: untracked.map(path => `${path}\0`).join(''),
+          stderr: '',
+        }
+      );
+    if (argv.includes('--no-index')) {
+      const path = argv.at(-1)!;
+      return (
+        over.noIndex?.(path) ?? {
+          code: 1,
+          stdout: NEW_FILE_DIFF(path),
+          stderr: '',
+        }
+      );
+    }
+    return { code: 0, stdout: DIFF_STDOUT, stderr: '' };
+  });
+}
+
+const WORKING_URL = '/api/skills/diff?pack=demo&from=HEAD&to=working';
+
+describe('skills diff route: the working tree', () => {
+  it('diffs HEAD against the working tree, inside the pack dir', async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const git = workingGit([]);
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(WORKING_URL);
+
+    expect(res.status).toBe(200);
+    const diff = git.calls.find(
+      argv => argv.includes('diff') && argv.includes('--relative')
+    );
+    expect(diff?.slice(0, 3)).toEqual(['-C', PACK_DIR, 'diff']);
+    expect(diff).toContain('HEAD');
+    expect(diff?.some(arg => arg.includes('..'))).toBe(false);
+    expect(diff?.slice(-2)).toEqual(['--', '.']);
+    await expect(res.json()).resolves.toMatchObject({
+      from: 'HEAD',
+      to: 'working',
+      diff: DIFF_STDOUT,
+    });
+  });
+
+  it("lists the pack's new files, which git diff skips, as diffs against nothing", async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const added = ['attachments/new-fill/SKILL.md', 'skills/new/SKILL.md'];
+    const git = workingGit(added);
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(WORKING_URL);
+
+    expect(git.calls.find(argv => argv.includes('ls-files'))).toEqual([
+      '-C',
+      PACK_DIR,
+      'ls-files',
+      '--others',
+      '--exclude-standard',
+      '-z',
+      '--',
+      '.',
+    ]);
+    expect(
+      git.calls
+        .filter(argv => argv.includes('--no-index'))
+        .map(argv => argv.slice(-3))
+    ).toEqual(added.map(path => ['--', '/dev/null', path]));
+    const body = (await res.json()) as { diff: string };
+    expect(body.diff).toBe(DIFF_STDOUT + added.map(NEW_FILE_DIFF).join(''));
+  });
+
+  it(`lists at most 200 new files`, async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const added = Array.from({ length: 250 }, (_, i) => `notes/n${i}.md`);
+    const git = workingGit(added);
+    const app = mountGit(rt.run, git.run);
+
+    await app.request(WORKING_URL);
+
+    expect(git.calls.filter(argv => argv.includes('--no-index'))).toHaveLength(
+      200
+    );
+  });
+
+  it('drops a new file whose diff git could not take, keeping the rest', async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const git = workingGit(['ok.md', 'gone.md'], {
+      noIndex: path =>
+        path === 'gone.md'
+          ? { code: 128, stdout: '', stderr: 'fatal: could not open gone.md' }
+          : { code: 1, stdout: NEW_FILE_DIFF(path), stderr: '' },
+    });
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(WORKING_URL);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { diff: string };
+    expect(body.diff).toBe(DIFF_STDOUT + NEW_FILE_DIFF('ok.md'));
+  });
+
+  it('answers with the tracked diff alone when the new files cannot be listed', async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const git = workingGit([], {
+      lsFiles: { code: 128, stdout: '', stderr: 'fatal: not a git repository' },
+    });
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(WORKING_URL);
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ diff: DIFF_STDOUT });
+    expect(git.calls.some(argv => argv.includes('--no-index'))).toBe(false);
+  });
+
+  it('lists no new files for a range between two commits', async () => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const git = workingGit(['new.md']);
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(
+      '/api/skills/diff?pack=demo&from=17f8273&to=ed24bc4'
+    );
+
+    expect(res.status).toBe(200);
+    expect(git.calls.some(argv => argv.includes('ls-files'))).toBe(false);
+  });
+
+  it.each([
+    ['from=HEAD&to=ed24bc4', 'HEAD against a commit'],
+    ['from=17f8273&to=working', 'a commit against the working tree'],
+    ['from=working&to=HEAD', 'the pair reversed'],
+  ])('refuses %s (%s) and spawns no git', async query => {
+    const rt = fakeRt({ code: 0, stdout: PACKS_STDOUT, stderr: '' });
+    const git = workingGit([]);
+    const app = mountGit(rt.run, git.run);
+
+    const res = await app.request(`/api/skills/diff?pack=demo&${query}`);
+
+    expect(res.status).toBe(400);
+    expect(git.run).not.toHaveBeenCalled();
   });
 });

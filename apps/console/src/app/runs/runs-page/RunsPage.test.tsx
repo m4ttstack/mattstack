@@ -579,17 +579,17 @@ describe('RunsPage', () => {
       gatesGet.mockReturnValue(new Promise(() => {}));
       renderPage(queryClient);
 
-      expect(screen.queryByTestId('runs-skeleton')).toBeNull();
+      expect(screen.queryByTestId('runs-loading')).toBeNull();
       expect(screen.getByTestId('lane-live')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('draws a skeleton while the runs load, never zeros', async () => {
+  it('shows the loader while the runs load, never zeros', async () => {
     runsGet.mockReturnValue(new Promise(() => {}));
     renderPage();
-    expect(await screen.findByTestId('runs-skeleton')).toBeInTheDocument();
+    expect(await screen.findByTestId('runs-loading')).toBeInTheDocument();
     const stats = screen.getByTestId('stat-line');
     expect(stats).not.toHaveTextContent(/\d/);
     expect(stats).not.toHaveTextContent('nothing');
@@ -618,7 +618,7 @@ describe('RunsPage', () => {
       const stats = screen.getByTestId('stat-line');
       expect(stats).not.toHaveTextContent(/\d/);
       expect(within(stats).getAllByText('—')).toHaveLength(4);
-      expect(screen.getByTestId('runs-skeleton')).toBeInTheDocument();
+      expect(screen.getByTestId('runs-loading')).toBeInTheDocument();
       expect(screen.queryByText('Nothing running.')).toBeNull();
 
       runsGet.mockResolvedValue(ok({ runs: RUNS, asOf: NOW }));
@@ -629,7 +629,10 @@ describe('RunsPage', () => {
       await waitFor(() =>
         expect(screen.queryByTestId('runs-outage')).toBeNull()
       );
-      expect(screen.getByTestId('lane-live')).toBeInTheDocument();
+      // The lanes wait for the loader to finish its line.
+      expect(
+        await screen.findByTestId('lane-live', {}, { timeout: 3000 })
+      ).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

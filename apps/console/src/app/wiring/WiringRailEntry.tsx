@@ -2,7 +2,7 @@ import { useShellRail } from '@mattstack/app-kit/app';
 import { Indicator } from '@mattstack/app-kit/core';
 import { Link, RailLink } from '@mattstack/app-kit/router';
 
-import { WIRING_ATTENTION_HREF, WIRING_HREF } from './attentionFilter';
+import { PACKS_ATTENTION_HREF, PACKS_HREF } from './attentionFilter';
 import { useAttentionCount } from './useWiring';
 
 export interface WiringRailEntryProps {
@@ -11,7 +11,7 @@ export interface WiringRailEntryProps {
 
 /**
  * The Wiring rail entry plus the count of rows needing attention. `RailLink`
- * carries the entry to /wiring and closes the rail on click; the count rides
+ * carries the entry to /packs and closes the rail on click; the count rides
  * an `Indicator` whose label is its own link to the attention-filtered view,
  * closing the rail through the shell context so a mobile tap doesn't leave
  * the overlay open behind the filtered page.
@@ -21,7 +21,7 @@ export function WiringRailEntry({ active }: WiringRailEntryProps) {
   const { close } = useShellRail();
 
   const entry = (
-    <RailLink icon="zap" label="Wiring" href={WIRING_HREF} active={active} />
+    <RailLink icon="boxes" label="Packs" href={PACKS_HREF} active={active} />
   );
 
   if (count === 0) return entry;
@@ -34,7 +34,7 @@ export function WiringRailEntry({ active }: WiringRailEntryProps) {
       position="top-end"
       label={
         <Link
-          href={WIRING_ATTENTION_HREF}
+          href={PACKS_ATTENTION_HREF}
           onClick={close}
           aria-label={`${count} need attention — show only those`}
           data-testid="drift-badge"

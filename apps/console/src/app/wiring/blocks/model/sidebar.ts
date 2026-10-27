@@ -5,6 +5,7 @@ import type {
 import {
   childrenOf,
   dotsOf,
+  glyphOf,
   includedTree,
   isSharedTop,
   labelOf,
@@ -65,7 +66,7 @@ export function sidebarRows(
       id: block.id,
       depth,
       label: labelOf(heading),
-      glyph: heading.kind,
+      glyph: glyphOf(payload, heading),
       dots: dotsOf(block),
       count: children.length > 0 ? children.length : null,
       open,
@@ -87,7 +88,7 @@ export function sidebarRows(
     rows.push({
       id: 'shared',
       depth: 0,
-      label: 'Shared',
+      label: 'Includes',
       glyph: 'shared',
       dots: [],
       count: shared.length,

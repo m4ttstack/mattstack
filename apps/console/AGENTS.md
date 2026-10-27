@@ -18,7 +18,7 @@ forms), the icon registry, `MattstackShell`, and the server package's `serveMatt
 is documented in `apps/AGENTS.md`. Read that before touching anything that imports
 from `@mattstack/app-kit/*` or `@mattstack/app-server`.
 
-This file covers only what's specific to console: its routes, its runs domain, the wiring map, and
+This file covers only what's specific to console: its routes, its runs domain, the Packs page, and
 how it wires up the shell and server packages.
 
 ## What this app is
@@ -32,7 +32,7 @@ shelling out to `rt` and nothing proxied through to another service. The dev ser
 ## Routes and chrome (`src/app/App.tsx`, `src/app/routes.ts`)
 
 Routing is `wouter`, via `useAppRoute()` (`src/app/routes.ts`), which maps the current location to
-a structured `AppRoute` union: `board`, `run`, `search`, `wiring`, `settings`, `settings-embed`,
+a structured `AppRoute` union: `board`, `run`, `search`, `packs` (and `old-wiring`, its redirect), `settings`, `settings-embed`,
 `config`, `not-found`.
 `/settings` is the grouped, filterable page over every registered key (`src/app/settings/`);
 one row at a time opens in place on its Value | Where it's set panel (Value first, and a
@@ -75,58 +75,79 @@ into a named function or a route is registered unchained.
 server-side event needs to reach the client live, it goes through this relay list, not a bespoke
 WebSocket wire-up.
 
-## Wiring map (`src/app/wiring/`)
+## Packs page (`src/app/wiring/`)
 
-The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
-`@mattstack/rt-client` in three tabs: Graph, Surface and Health. Its state lives in the URL
-(`graph/useWiringUrl.ts`), so every view, selection and open block is a link.
+The Packs page (`WiringMap.tsx`, route `/packs`; old `/wiring` links redirect there with their query) shows a mattstack skill pack read from
+`@mattstack/rt-client` in three tabs: Overview, Config and Changes. Its state lives in the URL
+(`graph/useWiringUrl.ts`; tab ids `graph`, `config` and `history`, with old `surface` and
+`health` links opening Config), so every view, selection and open block is a link. Each tab
+reports when its content is ready through `contentReady.ts`, and the unsynced toast waits for it.
 
-- **Graph tab** (`graph/`). With no skill in focus, the focus list (`FocusList.tsx`: Pipeline,
-  On-demand, Board and an Unwired row) is `PageShell.Sidebar` content, and a focused pipeline
-  draws its map on a React Flow template canvas (`TemplateCanvas.tsx`) in `PageShell.Content`,
-  which sets its own `bg` and a dotted `Background`: the orchestrator's rows, the files that fill
-  its placeholders, and a link card per stage. Selecting a row or card selects it in the URL.
-  The console reads bindings and never writes them. A binding or surface change that is not
-  synced yet shows the unsynced banner (`UnsyncedBanner.tsx`), docked in PageShell's
-  `topNotch`, with Sync and Discard.
+- **Overview** (`graph/`). The sidebar's focus list (`FocusList.tsx`) groups the pack as
+  Pipelines (each a row that folds its stages), Commands, Board and Standard. A row is named as
+  Claude Code names it, `/<pack>:<command>`, only when rt marks the skill public; a stage or an
+  internal verb keeps its plain name. The first pipeline stands in when the URL names no focus,
+  so the stage always shows a block view (`GraphTab.tsx`); with no pipeline it shows only the
+  pack's load error or a focus the pack does not have.
 - **Block view** (`blocks/`). A focused skill or stage opens one skill as a tree of blocks
-  (`rt skills blocks`, `useBlocks`): `BlockSidebar.tsx` (All skills, the skill switcher and the
-  block tree) replaces the focus list, and `BlockStage.tsx` renders `BlockView.tsx` at the zoom
-  level the URL's `block` sets: the skill (section bands of folded rows), a parent block (its
-  text, its graph card and its children) or a single block (its text with each prop in a box,
-  Around this block, Copy for Claude). The Layers panel sits on the right; a shared block shows
-  Used by, and every block its History (`HistoryTab.tsx`: its engine text and the files its props
-  paste in). A skill not built from blocks, such as a board skill (its installed `SKILL.md`,
-  composition's `binders[].skillFile`), is read from its file's headings (`model/headingTree.ts`)
-  into the same view, read-only. Pure models live in `blocks/model/*`.
-- **Block graphs** (`blocks/`). A parent block's View graph opens `BlockMap.tsx`, the block map:
-  blocks only, other steps folded into dotted links, shared forks as small dots. `FlowGraph.tsx`
-  draws Every step and Around this block, and `graphCanvas.tsx` holds the canvas, header and
-  loading, error and empty states they share. The pure models in `blocks/model/` decide what they
-  draw: `blockMap`, `splits`, `mapLayout`, `bandLayout`, `foldBand`, `mapFocus`, `flowLayout`,
-  `labels` and `elkGraph`. Layout runs elkjs through `blocks/layoutEngine.ts`, lazy-loaded and
-  run in a web worker. The open graph lives in the URL as `select=graph` (the block map) or
-  `select=graph-steps` (Every step).
+  (`rt skills blocks`, `useBlocks`): `BlockSidebar.tsx` (the skill switcher and the block tree)
+  replaces the focus list, and `BlockStage.tsx` renders `BlockView.tsx` under a `Trail`
+  (`src/app/nav/`) that starts at the pipeline, at the zoom level the URL's `block` sets: the
+  skill (its document card, then a foldable band per section, "Other blocks" for the loose ones
+  and "Includes" for included trees), a parent block (its document and "Inside this block") or a
+  single block (its document with the Layers strip and each prop in a box, Around this block,
+  Copy for Claude). The document card (`DocumentCard.tsx`) folds, names its file and opens it in
+  the editor; a row folds open in place and Open goes into its block. An included block shows
+  Used by, and the skill or block its Built from history (`BuiltFrom.tsx`: its engine text and
+  the files its props include). A standard skill, one not built from blocks (its installed
+  `SKILL.md`, composition's `binders[].skillFile`), is read from its file's headings
+  (`model/headingTree.ts`) into the same view, read-only. Pure models live in `blocks/model/*`.
+- **Block graphs** (`blocks/`). A block's Diagram opens `BlockMap.tsx`, the block map: blocks
+  only, other steps folded into dotted links, shared forks as small dots, and one jump as a pill
+  naming its target or several as a jumps chip. `FlowGraph.tsx` draws Every step and Around this
+  block, with each exit label by the step it leads into, and `graphCanvas.tsx` holds the page
+  (trail, title, view switch, Mermaid source), the canvas, and the loading, error and empty states
+  they share. The pure models in `blocks/model/` decide what they draw: `blockMap`, `splits`,
+  `mapLayout`, `bandLayout`, `foldBand`, `mapFocus`, `flowLayout`, `labels` and `elkGraph`.
+  Layout runs elkjs through `blocks/layoutEngine.ts`, lazy-loaded and run in a web worker. The
+  open graph lives in the URL as `select=graph` (the block map) or `select=graph-steps` (Every
+  step). `MermaidSource.tsx`'s `SourceLines` colours Mermaid and Graphviz source alike.
+- **Config** (`ConfigTab.tsx`). One status bar (`PackStatusBar`): how many skills are up to date,
+  need a compile or were never compiled, then what Claude has and the one step that moves it on
+  (Compile Skill Pack, then N changes to publish with See changes and Publish, or Install latest).
+  Under it, the org base and pipeline cards (`health.tsx`'s helpers) and the skills list
+  (`SurfaceTab.tsx`): the pack's skills in foldable groups (`model/surfaceGroups.ts`: commands,
+  pipeline stages, fills, other standard skills, then the parent pack's, folded), each with its
+  public switch, its kind badge and a health note when it needs attention.
+- **Changes** (`PackHistory.tsx`). The pack's commit log with the unsynced working tree as its
+  first row; a row or a two-commit compare (From and To, Clear compare) shows its diff
+  (`CommitDiff.tsx`, `DiffFileTree.tsx`, `PatchView.tsx`, the working range through the diff
+  route's `to=working`). The commit list and the file tree resize (`src/app/PaneResizer.tsx`).
+  Unsynced changes carry Discard and Publish (`UnsyncedActions`, `graph/UnsyncedBanner.tsx`),
+  and the tab's badge counts them; off this tab, `graph/UnsyncedToast.tsx` says so once per
+  change set.
 - **Template model** (`graph/model/*`). Pure functions from rt's payloads (composition, check,
-  anatomy, changes) to what the tab draws: `focusModel` (the focus list), `templateModel` (rows,
-  input cards, link cards, output card), `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
-  places the nodes. A change to what the tab shows starts in the model and its tests.
-- **Writes** (surface, sync, discard) confirm through `modals.confirm` and report through
-  `notifications`, and one write per pack runs at a time. The banner's Sync and Discard send the
-  `signature` of the `changes` read their confirm listed; the server refuses a commit-pending sync
-  or a discard without one, and rt refuses either once the pack no longer matches it.
+  anatomy, changes) to what the pages show: `focusModel` (the focus list), `templateModel`
+  (the stage status and file labels the block view reads), `pendingChanges` (what an unsynced
+  change set lists) and `statusTone`. A change to what a page shows starts in the model and its
+  tests.
+- **Writes** (surface, compile, publish, discard) confirm through `modals.confirm` and report
+  through `notifications`, and one write per pack runs at a time. Compile only writes the pack's
+  compiled files, which then wait as unsynced changes. Publish and Discard send the `signature`
+  of the `changes` read their confirm listed; the server refuses a commit-pending publish or a
+  discard without one, and rt refuses either once the pack no longer matches it.
 - **Org base packs.** rt tags a fill, prop value, binder prop or anatomy source from an org base pack with `origin: "base"`, `base` and `baseVersion` (a team-pack copy carrying `compiled.json` included), names the pack's base in composition's `extends`, and marks surface rows with `base`. Every view reads the owner through `ownerOf` (`owner.ts`), never by comparing plugin names or reading rt's `org` version token. History, diff and dirty files name a base path as `base:<name>/<path in the base>`. The design fixture's `org-base` and `org-base-drift` scenarios draw all of it.
-- **Surface and Health tabs** (`SurfaceTab.tsx`, `HealthTab.tsx`). `VersionTimeline` and
-  `SeamCompare` serve the block view's History (`blocks/HistoryTab.tsx`).
 
-`WiringRailEntry` is the one component that reaches into the shell's rail context (`useShellRail`
+`WiringRailEntry` (the rail's Packs entry) is the one component that reaches into the shell's rail context (`useShellRail`
 from `@mattstack/app-kit/app`) to badge the rail entry with attention state.
 
 ### Design parity
 
-The Graph tab is built against the boards in `docs/apps/design/console/`. Its README lists them
-and the board-fix list of expected differences. Every UI change to the tab ends with a parity run
-for its boards in light and dark, following `apps/console/scripts/parity/run.md`.
+The pipeline viewer boards in `docs/apps/design/console/` (its README lists them) drew the old
+Graph tab's template canvas and drawer, which the Packs page no longer has, so they are history
+rather than a parity target for it. The runs and settings boards still are: a UI change to those
+pages ends with a parity run for their boards in light and dark, following
+`apps/console/scripts/parity/run.md`.
 
 The parity data source is the design fixture: started with `CONSOLE_FIXTURE=design`, the server
 answers the skills routes from the invented `acme` pack in `src/server/fixtures/design/`, with no

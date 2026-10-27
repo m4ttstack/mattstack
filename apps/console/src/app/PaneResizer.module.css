@@ -1,0 +1,45 @@
+/* A 7px grip centred on the pane's edge; its 1px line turns into a 2px
+   accent bar on hover, focus and drag. */
+.resizer {
+  position: absolute;
+  inset-block: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.resizer::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+@media (hover: hover) {
+  .resizer:hover::after {
+    width: 2px;
+    left: 2.5px;
+    background: var(--tk-fill-accent);
+  }
+}
+
+.resizer:focus-visible {
+  outline: none;
+}
+
+.resizer:focus-visible::after,
+.resizer:active::after {
+  width: 2px;
+  left: 2.5px;
+  background: var(--tk-fill-accent);
+}
+
+/* The kit's sidebar animates every width change for its collapse; a drag
+   follows the pointer instead, so that animation stops while one runs. */
+:global(body[data-pane-resizing] #page-shell-sidebar),
+:global(body[data-pane-resizing] #page-shell-sidebar *) {
+  transition: none !important;
+}

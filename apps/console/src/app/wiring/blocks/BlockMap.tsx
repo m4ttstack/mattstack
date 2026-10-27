@@ -5,6 +5,8 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import type { TrailItem } from '../../nav/Trail';
+import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import {
@@ -17,8 +19,8 @@ import {
   edgesOf,
   GraphCanvas,
   GraphError,
-  GraphHead,
   GraphLoading,
+  GraphPage,
   handlesAt,
   useCanvasLayout,
   useCanvasPlane,
@@ -35,7 +37,7 @@ import {
 } from './graphCards';
 import type { MapFlowEdge } from './graphEdges';
 import { openBand, type BandedLayout } from './model/bandLayout';
-import { dotsOf, labelOf } from './model/blockFacts';
+import { dotsOf, glyphOf, labelOf } from './model/blockFacts';
 import { blockMap, type MapKind } from './model/blockMap';
 import type { LaidOut, LayoutEngine } from './model/elkGraph';
 import { foldBand } from './model/foldBand';
@@ -168,12 +170,14 @@ function MapCanvas({
   layout,
   laidOut,
   actions,
+  fill,
 }: {
   layout: BandedLayout;
   laidOut: LaidOut;
   actions: MapActions;
+  fill: boolean;
 }) {
-  const canvas = useCanvasPlane(laidOut.width);
+  const canvas = useCanvasPlane(laidOut.width, laidOut.height, fill);
   const { element, width } = canvas;
   const { nodes, edges } = useMemo(
     () => flowOf(layout, laidOut),
@@ -190,22 +194,25 @@ function MapCanvas({
       : null;
     if (shown.current || width <= 0 || !target) return;
     shown.current = true;
+    // A framed map already fits: it scrolls only when the block lies
+    // outside the frame, never to centre it.
     target.scrollIntoView({
       behavior: reduceMotion ? 'instant' : 'smooth',
-      block: 'center',
-      inline: 'center',
+      block: fill ? 'nearest' : 'center',
+      inline: fill ? 'nearest' : 'center',
     });
-  }, [element, highlight, width, nodes, reduceMotion]);
+  }, [element, highlight, width, nodes, reduceMotion, fill]);
   return (
     <MapActionsContext.Provider value={actions}>
       <GraphCanvas
         canvas={canvas}
-        laidOut={laidOut}
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
         testId="map-canvas"
+        legend={fill ? <MapKey /> : undefined}
       />
+      {!fill && <MapKey />}
     </MapActionsContext.Provider>
   );
 }
@@ -217,7 +224,13 @@ export interface BlockMapProps {
   highlight: string | null;
   onSelect: (blockId: string) => void;
   onView: (view: BlockGraphSelect) => void;
-  onClose: () => void;
+  trail: TrailItem[];
+  /** The block the graph draws, which the page is named for. */
+  title: string;
+  /** The graph's Mermaid source. */
+  source?: string | null;
+  /** Framed to the page's height. */
+  fill?: boolean;
   engine?: () => Promise<LayoutEngine>;
 }
 
@@ -229,7 +242,10 @@ export function BlockMap({
   highlight,
   onSelect,
   onView,
-  onClose,
+  trail,
+  title,
+  source = null,
+  fill = false,
   engine,
 }: BlockMapProps) {
   const fontsLoaded = useFontsLoaded();
@@ -237,7 +253,7 @@ export function BlockMap({
     const byId = new Map(payload.blocks.map(block => [block.id, block]));
     return blockMap(graph, blockId => {
       const block = byId.get(blockId);
-      const kind = block?.kind;
+      const kind = block ? glyphOf(payload, block) : null;
       return {
         label: block ? labelOf(block) : blockId,
         kind: kind === 'question' || kind === 'gate' ? kind : ('step' as const),
@@ -345,11 +361,13 @@ export function BlockMap({
         };
     const nodeAt = (id: string) =>
       sectionRef.current?.querySelector<HTMLElement>(`[data-node="${id}"]`);
+    // In a framed map the target is most often in view already; centring it
+    // would scroll the page around the frame instead.
     const scrollTo = (element: HTMLElement | null | undefined) => {
       element?.scrollIntoView({
         behavior: reduceMotion ? 'instant' : 'smooth',
-        block: 'center',
-        inline: 'center',
+        block: fill ? 'nearest' : 'center',
+        inline: fill ? 'nearest' : 'center',
       });
     };
     const inBand = (id: string) =>
@@ -415,7 +433,6 @@ export function BlockMap({
           dim: focus.litNodes !== null && !hot,
           link,
           button,
-          tip: button && hover?.kind === 'link' && hover.id === link,
         };
       },
       linkInfo: id => {
@@ -440,22 +457,25 @@ export function BlockMap({
     highlight,
     onSelect,
     reduceMotion,
+    fill,
   ]);
 
+  const loading = !(laidOut && shown);
+  const { show: held, bind: heldBind } = useStepLoading(loading);
+
   return (
-    <section
+    <GraphPage
       ref={sectionRef}
-      className={classes.map}
-      aria-label="Block map"
-      data-testid="block-map"
+      label="Block map"
+      testId="block-map"
+      count={`${countOf(blocks, 'block')} · ${countOf(map.foldedSteps, 'step')} folded`}
+      view="graph"
+      onView={onView}
+      trail={trail}
+      title={title}
+      source={source}
+      fill={fill}
     >
-      <GraphHead
-        title="Block map"
-        count={`${countOf(blocks, 'block')} · ${countOf(map.foldedSteps, 'step')} folded`}
-        view="graph"
-        onView={onView}
-        onClose={onClose}
-      />
       {layout === null ? (
         <div className={classes.mapNote}>
           <Text fz={13} c="dimmed">
@@ -470,18 +490,21 @@ export function BlockMap({
         </div>
       ) : state === 'error' ? (
         <GraphError onRetry={retry} />
-      ) : laidOut && shown ? (
-        <>
-          <MapCanvas layout={shown} laidOut={laidOut} actions={actions} />
-          <MapKey />
-        </>
+      ) : laidOut && shown && !held ? (
+        <MapCanvas
+          layout={shown}
+          laidOut={laidOut}
+          actions={actions}
+          fill={fill}
+        />
       ) : (
         <GraphLoading
+          bind={heldBind}
           height={320}
           testId="map-loading"
-          label="Laying out the map"
+          steps={['laying out the map']}
         />
       )}
-    </section>
+    </GraphPage>
   );
 }

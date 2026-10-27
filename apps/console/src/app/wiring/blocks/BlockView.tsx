@@ -1,25 +1,13 @@
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import {
-  ActionIcon,
-  Anchor,
-  Breadcrumbs,
-  Code,
-  Group,
-  Menu,
-  SegmentedControl,
-  Skeleton,
-  Text,
-  Title,
-  UnstyledButton,
-} from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
+import { Text, Title } from '@mattstack/app-kit/core';
 
 import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../server/blocksPayload';
-import { useEditorHref } from '../../editorHref';
+import { Trail, type TrailItem } from '../../nav/Trail';
+import { StepLoader, useStepLoading } from '../../StepLoader';
 import { FocusHeader, type HeaderStatus } from '../graph/FocusHeader';
 import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
 import type { BlockGraphSelect, WiringUrl } from '../graph/useWiringUrl';
@@ -28,12 +16,13 @@ import { useSkillSource, type SkillsAnatomy } from '../useWiring';
 import { AroundGraph } from './AroundGraph';
 import { BlockMap } from './BlockMap';
 import classes from './blocks.module.css';
-import { BlockText, GraphCard } from './BlockText';
+import { BlockText, DiagramButton, FlowRow, mermaidOf } from './BlockText';
+import { BuiltFrom } from './BuiltFrom';
 import { CopyForClaude } from './CopyForClaude';
+import { DocumentCard } from './DocumentCard';
 import { EveryStep } from './FlowGraph';
-import { HistoryTab } from './HistoryTab';
-import { LayersPanel } from './LayersPanel';
-import { labelOf, rootOf, shownLabel } from './model/blockFacts';
+import { MarkdownText } from './MarkdownText';
+import { glyphOf, labelOf, rootOf, shownLabel } from './model/blockFacts';
 import {
   bodyOf,
   graphOfBlock,
@@ -44,14 +33,13 @@ import {
   renderedRangeOf,
   scopeStats,
   sharedRootOf,
-  withoutLead,
   type MapGraph,
 } from './model/blockView';
 import { sectionsAt } from './model/sections';
 import { usedBySites } from './model/usedBy';
-import { crumbsOf, zoomOf, type Zoom } from './model/zoom';
+import { crumbsOf, zoomOf } from './model/zoom';
 import { SectionBand } from './SectionBand';
-import { UsedBy } from './UsedBy';
+import { UsedBy, useUsedBySites } from './UsedBy';
 
 /** The skill's own facts for the header at the skill level. */
 export type SkillHeader = {
@@ -60,9 +48,14 @@ export type SkillHeader = {
   description: string | null;
   status: HeaderStatus | null;
   checkError: string | null;
-  loading: boolean;
   /** The installed engine's version, when rt's anatomy names it. */
   version?: string | null;
+  /** The places above the skill, a stage's pipeline first. */
+  up?: TrailItem[];
+  /** The title as a command in full, when the pack surfaces it. */
+  command?: string | null;
+  /** The skill's name in a trail: its command short, or its stage label. */
+  crumb?: string;
 };
 
 /** What Used by and History read beyond the payload. */
@@ -91,10 +84,8 @@ export interface BlockViewProps {
 
 type Patch = BlockViewProps['patch'];
 
-const VIEWS = [
-  { label: 'Blocks', value: 'template' },
-  { label: 'Rendered', value: 'rendered' },
-];
+/** Rows a parent lists before Show all. */
+const INSIDE_SHOWN = 7;
 
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n} ${n === 1 ? one : many}`;
@@ -103,129 +94,50 @@ function Crumbs({
   payload,
   block,
   patch,
+  skill,
 }: {
   payload: BlocksPayload;
-  block: PayloadBlock;
+  block: PayloadBlock | null;
   patch: Patch;
+  skill: SkillHeader | undefined;
 }) {
-  const crumbs = crumbsOf(payload, block);
   return (
-    <Breadcrumbs
-      separator={<Icon name="chevronRight" size={12} />}
-      className={classes.crumbs}
-      data-testid="block-crumbs"
-    >
-      {crumbs.map((crumb, index) =>
-        index === crumbs.length - 1 ? (
-          <Text key={crumb.id ?? 'skill'} span fz={13} c="dimmed">
-            {crumb.label}
-          </Text>
-        ) : (
-          <Anchor
-            key={crumb.id ?? 'skill'}
-            component="button"
-            type="button"
-            fz={13}
-            onClick={() => patch({ block: crumb.id, select: null })}
-          >
-            {crumb.label}
-          </Anchor>
-        )
-      )}
-    </Breadcrumbs>
-  );
-}
-
-function FileMenu({ block }: { block: PayloadBlock }) {
-  const editorHref = useEditorHref();
-  return (
-    <Menu position="bottom-start" withinPortal>
-      <Menu.Target>
-        <ActionIcon variant="default" size={24} aria-label="File">
-          <Icon name="moreHorizontal" size={14} />
-        </ActionIcon>
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Label>
-          <Text span ff="monospace" fz={12}>
-            {block.relPath}
-          </Text>
-        </Menu.Label>
-        <Menu.Item
-          component="a"
-          href={editorHref(block.path)}
-          leftSection={<Icon name="fileText" size={14} />}
-        >
-          Open file
-        </Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
-  );
-}
-
-/** The block's file named from the skill's own folder, as the board does. */
-function pathInSkill(payload: BlocksPayload, block: PayloadBlock): string {
-  const dir = `${payload.dir}/`;
-  return block.path.startsWith(dir)
-    ? block.path.slice(dir.length)
-    : block.relPath;
-}
-
-function Chip({ tone, children }: { tone: string; children: ReactNode }) {
-  return (
-    <span className={classes.packChip} data-tone={tone}>
-      {children}
-    </span>
-  );
-}
-
-/** The pack the skill is read in, the bases it extends and the counts of
-    what is in view. */
-function PackLine({
-  payload,
-  scope,
-  version,
-}: {
-  payload: BlocksPayload;
-  scope: PayloadBlock | null;
-  version: string | null;
-}) {
-  const org = payload.layers.find(layer => layer.color === 'org');
-  const engine = payload.engineRef.split(':').pop() ?? payload.skill;
-  const stats = scopeStats(payload, scope);
-  const [first, ...rest] = [
-    plural(stats.blocks, 'block'),
-    `${stats.withProps} with props`,
-    ...(stats.values > 0 ? [plural(stats.values, 'prop value')] : []),
-    ...(stats.graphs > 0 ? [plural(stats.graphs, 'graph')] : []),
-    ...(stats.shared > 0 ? [`${stats.shared} shared`] : []),
-  ];
-  return (
-    <div className={classes.packLine} data-testid="pack-line">
-      <Chip tone="team">{payload.pack}</Chip>{' '}
-      <span className={classes.packWord}>extends</span>{' '}
-      {org && (
-        <>
-          <Chip tone="org">{org.name}</Chip>{' '}
-          <span className={classes.packWord}>extends</span>{' '}
-        </>
-      )}
-      {/* The dot travels with the chip before it and the count after it,
-          so a wrap never leaves it at either end of a line. */}
-      <span className={classes.packHeld} data-testid="pack-line-held">
-        <Chip tone="mattstack">
-          {['mattstack', engine, ...(version ? [version] : [])].join(' ')}
-        </Chip>{' '}
-        <span className={classes.packCounts}>
-          {`· ${first}${rest.length > 0 ? ',' : ''}`}
-        </span>
-      </span>{' '}
-      {rest.length > 0 && (
-        <span className={classes.packCounts}>{rest.join(', ')}</span>
-      )}
+    <div className={classes.crumbs}>
+      <Trail
+        items={trailOf(payload, block, patch, skill)}
+        testId="block-crumbs"
+      />
     </div>
   );
 }
+
+/** A block's place from the top, through its skill; `through` keeps the
+    block itself a link, for a page below it. */
+function trailOf(
+  payload: BlocksPayload,
+  block: PayloadBlock | null,
+  patch: Patch,
+  skill: SkillHeader | undefined,
+  through = false
+): TrailItem[] {
+  const crumbs = crumbsOf(payload, block);
+  return [
+    ...(skill?.up ?? []),
+    ...crumbs.map((crumb, index) => ({
+      key: crumb.id ?? 'skill',
+      label:
+        crumb.id === null
+          ? (skill?.crumb ?? skill?.title ?? crumb.label)
+          : crumb.label,
+      mono: crumb.id === null && Boolean(skill?.command),
+      ...(through || index < crumbs.length - 1
+        ? { onClick: () => patch({ block: crumb.id, select: null }) }
+        : {}),
+    })),
+  ];
+}
+
+const HEADING_OR_GRAPH = /^#{1,6}\s.*$|```mermaid\n[\s\S]*?\n```/gm;
 
 /** The compiled file, cut to the lines a block renders to. */
 function RenderedText({
@@ -238,6 +150,9 @@ function RenderedText({
   range: [number, number] | null;
 }) {
   const source = useSkillSource(pack, path);
+  const { show: held, bind: heldBind } = useStepLoading(
+    path !== null && source.isPending
+  );
   if (!path) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
@@ -252,165 +167,97 @@ function RenderedText({
       </Text>
     );
   }
-  if (!source.data) return <Skeleton height={160} />;
+  if (!source.data || held) {
+    return (
+      <StepLoader {...heldBind} steps={[`reading ${path.split('/').at(-1)}`]} />
+    );
+  }
   const lines = source.data.content.split('\n');
   const shown = range ? lines.slice(range[0] - 1, range[1]) : lines;
   return (
-    <Code block className={classes.rendered} data-testid="block-rendered">
-      {shown.join('\n')}
-    </Code>
+    <div data-testid="block-rendered">
+      <MarkdownText text={shown.join('\n')} />
+    </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** A list's heading: its name and, muted beside it, a count or a note. */
+function ListHead({ title, meta }: { title: string; meta?: string }) {
   return (
-    <section className={classes.extra} aria-label={title}>
-      <Title order={4} fz={15} lh="normal">
+    <div className={classes.listHead}>
+      <Title order={4} fz={15} lh="normal" c="var(--tk-text-1)">
         {title}
       </Title>
+      {meta && <span className={classes.listMeta}>{meta}</span>}
+    </div>
+  );
+}
+
+function Section({
+  title,
+  meta,
+  children,
+}: {
+  title: string;
+  meta?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className={classes.extra} aria-label={title}>
+      <ListHead title={title} meta={meta} />
       {children}
     </section>
   );
 }
 
-function ParentBody({ children }: { children: ReactNode }) {
-  return <div className={classes.parentBody}>{children}</div>;
-}
-
-/** The graph the URL opens: the block map or Every step. */
-function GraphView({
+/** The graph the URL opens, on a page of its own: the block map or Every
+    step, framed to the page's height, with a way back to the block. */
+function FlowPage({
   payload,
   map,
+  block,
+  title,
   patch,
-  onSelect,
+  skill,
 }: {
   payload: BlocksPayload;
   map: MapGraph;
+  block: PayloadBlock | null;
+  title: string;
   patch: Patch;
-  onSelect: (blockId: string) => void;
+  skill: SkillHeader | undefined;
 }) {
   const shared = {
     payload,
     graph: map.graph,
     highlight: map.highlight,
-    onSelect,
+    onSelect: (id: string) => patch({ block: id, select: null }),
     onView: (view: BlockGraphSelect) => patch({ select: view }),
-    onClose: () => patch({ select: null }),
+    trail: [
+      ...trailOf(payload, block, patch, skill, true),
+      { key: 'diagram', label: 'Diagram' },
+    ],
+    title,
+    source: mermaidOf(
+      payload.blocks.find(block => block.id === map.graph.blockId)?.text ?? ''
+    ),
+    fill: true,
   };
-  return map.view === 'graph-steps' ? (
-    <EveryStep {...shared} />
-  ) : (
-    <BlockMap {...shared} />
-  );
-}
-
-/** The block's text, then its graph (whole, small or as a card) and the
-    folded blocks under it, by zoom level. */
-function ZoomBody({
-  payload,
-  zoom,
-  patch,
-  map,
-  lead,
-  expanded,
-  usedByCount,
-}: {
-  payload: BlocksPayload;
-  zoom: Zoom;
-  patch: Patch;
-  /** The graph the URL opens here, and in which view; null for none. */
-  map: MapGraph | null;
-  /** Every folded row shows its text. */
-  expanded: boolean;
-  /** The line the header shows under the title. */
-  lead: string | null;
-  /** How many skills paste a shared tree in; null when that is unknown. */
-  usedByCount: (name: string) => number | null;
-}) {
-  const open = (id: string) => patch({ block: id, select: null });
-  const viewGraph = () => patch({ select: 'graph' });
-  const graphView = map && (
-    <GraphView payload={payload} map={map} patch={patch} onSelect={open} />
-  );
-  if (zoom.level === 'block') {
-    const { block } = zoom;
-    const at = graphOfBlock(payload, block);
-    const graph = at ? labelledGraph(payload, at.graph) : null;
-    return (
-      <>
-        <BlockText
-          block={bodyOf(block)}
-          payload={payload}
-          level="block"
-          size="lg"
-        />
-        {graphView ??
-          (graph && at && (
-            <AroundGraph
-              graph={graph}
-              payload={payload}
-              skill={payload.skill}
-              focus={at.node}
-              onSelect={open}
-              onViewWholeGraph={viewGraph}
-            />
-          ))}
-      </>
-    );
-  }
-
-  const textOf = (id: string) => {
-    const found = payload.blocks.find(candidate => candidate.id === id);
-    const body = found ? bodyOf(found) : null;
-    return body && body.segments.length > 0 ? (
-      <BlockText block={body} payload={payload} level="block" />
-    ) : null;
-  };
-  const owner = zoom.level === 'parent' ? zoom.block : rootOf(payload);
-  const ownText = owner ? withoutLead(bodyOf(owner), lead) : null;
-  // A parent's graph card sits close over its children's list, as the
-  // board sets it; the skill's bands keep the column's wider gap.
-  const Wrap = zoom.level === 'parent' ? ParentBody : Fragment;
   return (
-    <Wrap>
-      {ownText && ownText.segments.length > 0 && (
-        <BlockText
-          block={ownText}
-          payload={payload}
-          level="parent"
-          onViewGraph={viewGraph}
-        />
+    <div className={classes.flowPage} data-testid="block-view">
+      {map.view === 'graph-steps' ? (
+        <EveryStep {...shared} />
+      ) : (
+        <BlockMap {...shared} />
       )}
-      {graphView}
-      {sectionsAt(payload, zoom).map(band => (
-        <SectionBand
-          key={band.id}
-          band={band}
-          bare={zoom.level === 'parent' && band.id === zoom.block.id}
-          onOpen={open}
-          opensBlock={payload.blocks.some(b => b.id === band.id)}
-          graph={
-            zoom.level === 'skill' ? (
-              <GraphCard
-                payload={payload}
-                blockId={band.id}
-                onViewGraph={id => patch({ block: id, select: 'graph' })}
-              />
-            ) : null
-          }
-          introText={zoom.level === 'skill' ? textOf(band.id) : null}
-          bodyOf={expanded ? textOf : undefined}
-          usedByCount={usedByCount}
-        />
-      ))}
-    </Wrap>
+    </div>
   );
 }
 
 /**
  * One skill as a tree of blocks, at the zoom level the URL's `block` sets:
- * the skill, a parent block or a single block. The header spans the page;
- * the text sits under it beside the Layers panel.
+ * the skill, a parent block or a single block. The block's own text reads as
+ * a document; what sits inside it, what pastes it in and its history follow.
  */
 export function BlockView({
   pack,
@@ -433,7 +280,6 @@ export function BlockView({
     () => (rendered ? null : mapGraphOf(payload, zoom, url.select)),
     [url.select, rendered, payload, zoom]
   );
-  const showRail = !readOnly && map === null;
 
   const shared = block ? sharedRootOf(payload, block) : null;
   const sharedName = shared ? includeNameOf(payload, shared) : null;
@@ -441,50 +287,20 @@ export function BlockView({
   const title = block
     ? shownLabel(payload, block)
     : (skill?.title ?? payload.skill);
-  const titled =
-    block?.title && block.title !== labelOf(block) ? block.title : null;
+  // A block or a parent reads its whole text in the document, lead and all;
+  // the skill leads with its first paragraph under the title.
+  // The skill's own description; its file's first paragraph stays in the
+  // document, which reads as the file is written.
   const description =
-    zoom.level === 'block'
-      ? titled
-      : zoom.level === 'parent'
-        ? (titled ?? leadOf(bodyOf(zoom.block)))
-        : ((root ? leadOf(bodyOf(root)) : null) ??
-          skill?.description ??
-          root?.summary ??
-          null);
+    zoom.level !== 'skill'
+      ? null
+      : (skill?.description ??
+        (root ? leadOf(bodyOf(root)) : null) ??
+        root?.summary ??
+        null);
 
-  const zoomKey = url.block ?? '';
-  const [expandedAt, setExpandedAt] = useState<string | null>(null);
-  const expanded = expandedAt === zoomKey;
-  const canExpand = zoom.level !== 'block' && !rendered;
-
-  const views = (
-    <SegmentedControl
-      size="sm"
-      data={VIEWS}
-      value={rendered ? 'rendered' : 'template'}
-      onChange={value =>
-        patch({ view: value === 'rendered' ? 'rendered' : null })
-      }
-    />
-  );
-  const actions = (
-    <Group gap={10}>
-      {canExpand && (
-        <UnstyledButton
-          className={classes.graphLink}
-          onClick={() => setExpandedAt(expanded ? null : zoomKey)}
-        >
-          {expanded ? 'Collapse all' : 'Expand all'}
-        </UnstyledButton>
-      )}
-      {zoom.level === 'block' && !readOnly ? (
-        <CopyForClaude payload={payload} block={zoom.block} trailing={views} />
-      ) : (
-        views
-      )}
-    </Group>
-  );
+  const bands =
+    zoom.level === 'skill' && !rendered ? sectionsAt(payload, zoom) : [];
 
   // rt names only a verb's direct includes, so the skill in view, which
   // pastes the tree, counts even where its own entry does not list it.
@@ -500,49 +316,124 @@ export function BlockView({
           ).map(site => site.skill),
         ]).size
       : null;
+
+  if (map) {
+    return (
+      <FlowPage
+        payload={payload}
+        map={map}
+        block={block}
+        title={block ? labelOf(block) : title}
+        patch={patch}
+        skill={skill}
+      />
+    );
+  }
+
+  const open = (id: string) => patch({ block: id, select: null });
+  const openFlow = (id: string) => patch({ block: id, select: 'graph' });
+  const owner = block ?? root;
+  // The document reads as the file is written, its own heading included:
+  // the page title is the block's short label, which can say less.
+  const docBlock = owner ?? null;
+  const docText = docBlock;
   const status =
     block || skill?.status?.tone === 'ok' ? null : (skill?.status ?? null);
 
-  return (
-    <div
-      className={classes.layout}
-      data-rail={map ? 'map' : readOnly ? 'none' : undefined}
-      data-testid="block-view"
+  const actions =
+    block && !readOnly ? (
+      <CopyForClaude payload={payload} block={block} />
+    ) : null;
+
+  const textOf = (id: string) => {
+    const found = payload.blocks.find(candidate => candidate.id === id);
+    const body = found ? bodyOf(found) : null;
+    return body && body.segments.length > 0 ? (
+      <BlockText block={body} payload={payload} />
+    ) : null;
+  };
+
+  // A file holding only its heading (and its graph, which the flow row
+  // opens) has nothing to read, so its card is the file's bar alone.
+  // A block rt sent no text for is not one with a heading alone: the bar
+  // says which, and points below only when there are blocks there.
+  const noText = !docText || docText.segments.length === 0;
+  const headingOnly =
+    !rendered &&
+    (docText?.props.length ?? 0) === 0 &&
+    (docText?.segments ?? []).every(
+      segment => segment.text.replace(HEADING_OR_GRAPH, '').trim() === ''
+    );
+  const hasChildren =
+    owner !== undefined &&
+    payload.blocks.some(candidate => candidate.parentId === owner.id);
+  const docNote = !headingOnly
+    ? null
+    : noText
+      ? 'rt sent no text for this block'
+      : hasChildren
+        ? 'a heading only: its blocks are below'
+        : 'a heading only';
+  const document = (
+    <DocumentCard
+      payload={payload}
+      block={docBlock}
+      rendered={rendered}
+      onRendered={next => patch({ view: next ? 'rendered' : null })}
+      strip={zoom.level === 'block' && !headingOnly}
+      note={docNote}
     >
+      {headingOnly ? null : rendered ? (
+        <RenderedText
+          pack={pack}
+          path={renderedPath}
+          range={block ? renderedRangeOf(payload, block) : null}
+        />
+      ) : (
+        docText && (
+          <BlockText
+            block={docText}
+            payload={payload}
+            size={zoom.level === 'block' ? 'lg' : 'md'}
+          />
+        )
+      )}
+    </DocumentCard>
+  );
+
+  const aroundAt =
+    zoom.level === 'block' ? graphOfBlock(payload, zoom.block) : null;
+  const inside =
+    zoom.level === 'parent' ? sectionsAt(payload, zoom)[0] : undefined;
+
+  return (
+    <div className={classes.layout} data-testid="block-view">
       <div className={classes.head}>
-        {block && <Crumbs payload={payload} block={block} patch={patch} />}
+        {(block || (skill?.up?.length ?? 0) > 0) && (
+          <Crumbs payload={payload} block={block} patch={patch} skill={skill} />
+        )}
         <FocusHeader
           inline
           title={title}
+          command={block ? null : (skill?.command ?? null)}
           kind={block ? null : (skill?.kind ?? null)}
           description={description}
-          loading={!block && (skill?.loading ?? false)}
           status={status}
           checkError={block ? null : (skill?.checkError ?? null)}
           block={
             block
-              ? { kind: block.kind, hasProps: block.props.length > 0 }
+              ? {
+                  kind: glyphOf(payload, block),
+                  hasProps: block.props.length > 0,
+                  blocks:
+                    zoom.level === 'parent'
+                      ? scopeStats(payload, block).blocks
+                      : undefined,
+                }
               : null
           }
           actions={actions}
-          meta={
-            zoom.level !== 'block' && !readOnly ? (
-              <PackLine
-                payload={payload}
-                scope={block}
-                version={skill?.version ?? null}
-              />
-            ) : null
-          }
         />
-        {zoom.level === 'block' && block?.path && (
-          <Group gap={8} className={classes.pathRow}>
-            <Text span className={classes.blockPath} data-testid="block-path">
-              {pathInSkill(payload, block)}
-            </Text>
-            <FileMenu block={block} />
-          </Group>
-        )}
         {missing !== null && (
           <Text fz={13} c="dimmed" data-testid="block-missing">
             {`${payload.skill} has no block ${missing}, so this is the whole skill.`}
@@ -550,46 +441,77 @@ export function BlockView({
         )}
         {readOnly && (
           <Text fz={13} c="dimmed" data-testid="read-only-note">
-            Hand-written: read from its headings, not built from blocks.
+            Standard skill: read from its headings, not built from blocks.
           </Text>
         )}
       </div>
 
       <div className={classes.main}>
-        {rendered ? (
-          <RenderedText
-            pack={pack}
-            path={renderedPath}
-            range={block ? renderedRangeOf(payload, block) : null}
-          />
-        ) : (
-          <ZoomBody
+        {document}
+
+        {!rendered && owner && zoom.level !== 'block' && (
+          <FlowRow payload={payload} blockId={owner.id} onOpen={openFlow} />
+        )}
+
+        {!rendered && aroundAt && (
+          <AroundGraph
+            graph={labelledGraph(payload, aroundAt.graph)}
             payload={payload}
-            zoom={zoom}
-            patch={patch}
-            map={map}
-            lead={description}
-            expanded={expanded && canExpand}
-            usedByCount={usedByCount}
+            skill={payload.skill}
+            focus={aroundAt.node}
+            onSelect={open}
+            onViewWholeGraph={() => patch({ select: 'graph' })}
           />
         )}
 
-        {context && sharedName && (
-          <Section title="Used by">
-            <UsedBy
-              skill={payload.skill}
-              name={sharedName}
-              composition={context.composition}
-              groups={context.groups}
-              pipeline={context.pipeline}
-              onFocus={context.onFocus}
+        {!rendered && inside && inside.rows.length > 0 && (
+          <section className={classes.extra} aria-label="Inside this block">
+            <ListHead
+              title="Inside this block"
+              meta={String(inside.rows.length)}
             />
-          </Section>
+            <SectionBand
+              band={inside}
+              bare
+              onOpen={open}
+              opensBlock
+              limit={INSIDE_SHOWN}
+              bodyOf={textOf}
+              usedByCount={usedByCount}
+            />
+          </section>
+        )}
+
+        {bands.map(band => (
+          <SectionBand
+            key={band.id}
+            band={band}
+            onOpen={open}
+            opensBlock={payload.blocks.some(b => b.id === band.id)}
+            graph={
+              <DiagramButton
+                payload={payload}
+                blockId={band.id}
+                onOpen={openFlow}
+              />
+            }
+            introText={textOf(band.id)}
+            bodyOf={textOf}
+            usedByCount={usedByCount}
+          />
+        ))}
+
+        {context && sharedName && (
+          <UsedBySection
+            skill={payload.skill}
+            name={sharedName}
+            context={context}
+          />
         )}
         {context && (context.anatomy || context.anatomyError) && (
-          <Section title="History">
+          <Section title="Built from">
             {context.anatomy ? (
-              <HistoryTab
+              <BuiltFrom
                 pack={pack}
                 anatomy={context.anatomy}
                 composition={context.composition}
@@ -606,15 +528,36 @@ export function BlockView({
           </Section>
         )}
       </div>
-
-      {showRail && (
-        <aside className={classes.rail}>
-          <Text fz={15} fw={700} lh="normal" c="var(--tk-text-1)">
-            Layers
-          </Text>
-          <LayersPanel payload={payload} zoom={zoom} />
-        </aside>
-      )}
     </div>
+  );
+}
+
+function UsedBySection({
+  skill,
+  name,
+  context,
+}: {
+  skill: string;
+  name: string;
+  context: BlockContext;
+}) {
+  const sites = useUsedBySites(
+    context.composition,
+    context.groups,
+    name,
+    context.pipeline
+  );
+  return (
+    <Section
+      title="Used by"
+      meta={`${plural(sites.length, 'skill')} ${sites.length === 1 ? 'includes' : 'include'} this block`}
+    >
+      <UsedBy
+        skill={skill}
+        sites={sites}
+        name={name}
+        onFocus={context.onFocus}
+      />
+    </Section>
   );
 }

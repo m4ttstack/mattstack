@@ -113,34 +113,34 @@ function laid(
 }
 
 describe('placeLabels', () => {
-  it("keeps ELK's spot when it is near the start and clear, even 2px from its own line", () => {
+  it("keeps ELK's spot when it is near the end and clear, even 2px from its own line", () => {
     const label = box(102, 120);
     const out = placeLabels(
       laid(
         {
           a: {
             points: [
-              [100, 100],
               [100, 200],
+              [100, 100],
             ],
             label,
           },
         },
-        { source: box(60, 60, 80, 40) }
+        { target: box(60, 60, 80, 40) }
       )
     );
     expect(out.edges.a!.label).toEqual(label);
   });
 
-  it('moves a label that sits further than the reach from its start and first bend', () => {
+  it('moves a label that sits further than the reach from its end and last bend', () => {
     const out = placeLabels(
       laid({
         a: {
           points: [
-            [100, 100],
-            [100, 116],
-            [300, 116],
             [300, 300],
+            [300, 116],
+            [100, 116],
+            [100, 100],
           ],
           label: box(302, 250),
         },

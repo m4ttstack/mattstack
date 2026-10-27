@@ -1252,10 +1252,12 @@ describe('RunDetail: failure and loading', () => {
     );
   });
 
-  it('draws the page’s shape while the run loads, not a spinner', async () => {
+  it('says what it is reading while the run loads, not a spinner', async () => {
     detailGet.mockReturnValue(new Promise(() => {}));
     renderFailing();
-    expect(await screen.findByTestId('run-page-skeleton')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('status', { name: 'reading the run' })
+    ).toBeInTheDocument();
     expect(screen.queryByTestId('lazy-loader-fallback')).toBeNull();
   });
 });

@@ -14,11 +14,13 @@ export function useShellRail(): ShellRailState {
   return useContext(ShellRailContext);
 }
 
-/** The top bar's two page-owned spots, filled through `MattstackShell.AppBar`:
- *  `start` follows the page context, `end` sits before the header actions. */
+/** The top bar's page-owned spots, filled through `MattstackShell.AppBar`:
+ *  `start` follows the page context, `end` sits before the header actions,
+ *  and `viewer` comes last of the three. */
 export interface ShellAppBarTargets {
   start: HTMLElement | null;
   end: HTMLElement | null;
+  viewer: HTMLElement | null;
 }
 
 /** Null outside a MattstackShell, so AppBar can tell "no shell" from "the

@@ -6,7 +6,6 @@ import {
   Paper,
   SegmentedControl,
   Select,
-  Skeleton,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
@@ -16,6 +15,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { PAGE_ROW_HEIGHT } from '../../chrome';
+import { StepLoader, useStepLoading, type StepLoading } from '../../StepLoader';
 import { agingWarning } from '../aging';
 import { CommandProvenance } from '../CommandProvenance';
 import { nowOf } from '../derive/clock';
@@ -82,22 +82,17 @@ function EmptyCard({ title, sub }: { title: string; sub: string }) {
 
 /** The runs' rows before rt has answered, so a slow or failed read never
     draws as an empty day. */
-function ListSkeleton() {
+function ListLoading({ bind }: { bind: StepLoading['bind'] }) {
   return (
     <Paper
       variant="ground"
       withBorder
       radius={12}
       className={classes.empty}
-      aria-busy="true"
-      data-testid="runs-skeleton"
+      data-testid="runs-loading"
       data-parity="list"
     >
-      <Stack gap={10}>
-        <Skeleton h={8} w="82%" radius="xl" data-parity="skel" />
-        <Skeleton h={8} w="68%" radius="xl" data-parity="skel" />
-        <Skeleton h={8} w="74%" radius="xl" data-parity="skel" />
-      </Stack>
+      <StepLoader {...bind} steps={['rt runs']} />
     </Paper>
   );
 }
@@ -217,7 +212,9 @@ export function RunsPage() {
     runsQuery.isError ||
     (runsQuery.isFetching &&
       runsQuery.errorUpdatedAt > runsQuery.dataUpdatedAt);
-  const settled = !runsQuery.isPending && !outage;
+  const read = !runsQuery.isPending && !outage;
+  const { show: listHeld, bind: listBind } = useStepLoading(!read);
+  const settled = read && !listHeld;
   const retry = () => {
     void queryClient.refetchQueries({ queryKey: ['runs'] });
     void queryClient.refetchQueries({ queryKey: ['gates'] });
@@ -256,7 +253,7 @@ export function RunsPage() {
                   runs={runs}
                   gates={gates}
                   gatesByRun={linked.byRun}
-                  loading={!settled || !linked.loaded}
+                  loading={!read || !linked.loaded}
                   repoName={url.repo ? labelOf(url.repo) : null}
                   pipeline={url.pipeline}
                   pipelines={pipelines}
@@ -348,7 +345,7 @@ export function RunsPage() {
                   }
                 />
 
-                {!settled ? <ListSkeleton /> : null}
+                {!settled ? <ListLoading bind={listBind} /> : null}
 
                 {settled && banner ? (
                   <WaitingBanner

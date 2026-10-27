@@ -4,7 +4,6 @@ import {
   Anchor,
   Badge,
   Paper,
-  Skeleton,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
@@ -18,6 +17,7 @@ import type {
   PackVersionRow,
 } from '../../server/effectiveInputs';
 import { client } from '../api';
+import { StepLoader, useStepLoading } from '../StepLoader';
 import accordion from './accordion.module.css';
 import { decisionSentence, packState, settingValue } from './derive/inputs';
 import classes from './EffectiveInputs.module.css';
@@ -209,7 +209,7 @@ function StageDocRow({
               </Anchor>
             </>
           ) : (
-            <Skeleton height={60} />
+            <StepLoader steps={[`reading ${stage}'s stage doc`]} />
           )}
         </Stack>
       </Accordion.Panel>
@@ -375,6 +375,7 @@ export function EffectiveInputs({
   wide = false,
 }: EffectiveInputsProps) {
   const query = useEffectiveInputs(repo, runId);
+  const { show: held, bind: heldBind } = useStepLoading(query.isPending);
   const [openDocs, setOpenDocs] = useState<string[]>([]);
 
   return (
@@ -384,15 +385,19 @@ export function EffectiveInputs({
           {INPUTS_SUB}
         </Text>
       ) : null}
-      {query.isPending && (
-        <Skeleton height={160} data-testid="effective-inputs-loading" />
+      {held && (
+        <StepLoader
+          {...heldBind}
+          testId="effective-inputs-loading"
+          steps={['reading the effective inputs']}
+        />
       )}
       {query.isError && (
         <Text fz="lg" lh="normal" c="bad" data-testid="effective-inputs-error">
           Could not load effective inputs: {(query.error as Error).message}
         </Text>
       )}
-      {query.data && (
+      {query.data && !held && (
         <div className={wide ? classes.split : classes.single}>
           <div className={classes.half}>
             <PacksSection payload={query.data} />
@@ -454,7 +459,7 @@ export function EffectiveInputs({
           </div>
         </div>
       )}
-      {query.data && (
+      {query.data && !held && (
         <Text fz="md" lh="normal" c="dimmed" data-parity="foot">
           Runs don&apos;t record the config they read, so these are today&apos;s
           values.

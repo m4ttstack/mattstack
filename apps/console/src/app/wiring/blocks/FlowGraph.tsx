@@ -11,14 +11,16 @@ import { useReducedMotion } from '@mattstack/app-kit/hooks';
 import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import type { TrailItem } from '../../nav/Trail';
+import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import {
   edgesOf,
   GraphCanvas,
   GraphError,
-  GraphHead,
   GraphLoading,
+  GraphPage,
   handlesAt,
   useCanvasLayout,
   useCanvasPlane,
@@ -64,7 +66,8 @@ function BlockNode({ data: { card, focus } }: NodeProps<FlowNode>) {
         width={card.width}
         pills={[]}
         hot={focus}
-        onClick={blockId ? () => onSelect(blockId) : undefined}
+        // The block in focus is the page already open, so it opens nothing.
+        onClick={blockId && !focus ? () => onSelect(blockId) : undefined}
       />
       <Handles />
     </>
@@ -118,13 +121,15 @@ function FlowCanvas({
   laidOut,
   focus,
   startInView,
+  fill,
 }: {
   layout: FlowLayout;
   laidOut: LaidOut;
   focus: string | null;
   startInView: boolean;
+  fill: boolean;
 }) {
-  const canvas = useCanvasPlane(laidOut.width);
+  const canvas = useCanvasPlane(laidOut.width, laidOut.height, fill);
   const { element, width, zoom, plane, offset: x } = canvas;
   const { nodes, edges } = useMemo(
     () => flowOf(layout, laidOut, focus),
@@ -170,12 +175,12 @@ function FlowCanvas({
   return (
     <GraphCanvas
       canvas={canvas}
-      laidOut={laidOut}
       nodes={nodes}
       edges={edges}
       nodeTypes={FLOW_NODE_TYPES}
       testId="flow-canvas"
       className={classes.flowCanvas}
+      legend={fill ? <FlowKey /> : undefined}
     />
   );
 }
@@ -197,6 +202,8 @@ export interface FlowGraphProps {
   engine?: () => Promise<LayoutEngine>;
   /** The placeholder's height while the first layout runs. */
   loadingHeight?: number;
+  /** Framed to the page's height, with its key inside the frame. */
+  fill?: boolean;
 }
 
 /** Every node and edge of a graph laid out by ELK: blocks as cards, steps
@@ -211,6 +218,7 @@ export function FlowGraph({
   onSelect,
   engine,
   loadingHeight = 320,
+  fill = false,
 }: FlowGraphProps) {
   const fontsLoaded = useFontsLoaded();
   const layout = useMemo(() => {
@@ -229,6 +237,7 @@ export function FlowGraph({
     () => (laidOut ? placeLabels(laidOut) : null),
     [laidOut]
   );
+  const { show: held, bind: heldBind } = useStepLoading(!placed || !shown);
 
   if (layout === null) {
     return (
@@ -238,12 +247,13 @@ export function FlowGraph({
     );
   }
   if (state === 'error') return <GraphError onRetry={retry} />;
-  if (!placed || !shown) {
+  if (!placed || !shown || held) {
     return (
       <GraphLoading
+        bind={heldBind}
         height={loadingHeight}
         testId="flow-loading"
-        label="Laying out the graph"
+        steps={['laying out the flow']}
       />
     );
   }
@@ -254,8 +264,9 @@ export function FlowGraph({
         laidOut={placed}
         focus={focus}
         startInView={startInView}
+        fill={fill}
       />
-      <FlowKey />
+      {!fill && <FlowKey />}
     </OnSelect.Provider>
   );
 }
@@ -269,8 +280,8 @@ export function FlowKey() {
         Opens a block
       </li>
       <li>
-        <span className={classes.flowSample} data-kind="step" />
-        Graph step only
+        <span className={classes.flowSample} data-kind="step" />A step with no
+        block
       </li>
     </ul>
   );
@@ -283,7 +294,13 @@ export interface EveryStepProps {
   highlight: string | null;
   onSelect: (blockId: string) => void;
   onView: (view: BlockGraphSelect) => void;
-  onClose: () => void;
+  trail: TrailItem[];
+  /** The block the graph draws, which the page is named for. */
+  title: string;
+  /** The graph's Mermaid source. */
+  source?: string | null;
+  /** Framed to the page's height. */
+  fill?: boolean;
   engine?: () => Promise<LayoutEngine>;
 }
 
@@ -294,23 +311,25 @@ export function EveryStep({
   highlight,
   onSelect,
   onView,
-  onClose,
+  trail,
+  title,
+  source = null,
+  fill = false,
   engine,
 }: EveryStepProps) {
   const blocks = graph.nodes.filter(node => node.blockId !== null).length;
   return (
-    <section
-      className={classes.map}
-      aria-label="Every step"
-      data-testid="every-step"
+    <GraphPage
+      label="Every step"
+      testId="every-step"
+      count={`${countOf(graph.nodes.length, 'step')} · ${countOf(blocks, 'block')}`}
+      view="graph-steps"
+      onView={onView}
+      trail={trail}
+      title={title}
+      source={source}
+      fill={fill}
     >
-      <GraphHead
-        title="Every step"
-        count={`${countOf(graph.nodes.length, 'step')} · ${countOf(blocks, 'block')}`}
-        view="graph-steps"
-        onView={onView}
-        onClose={onClose}
-      />
       <FlowGraph
         graph={graph}
         payload={payload}
@@ -319,7 +338,8 @@ export function EveryStep({
         startInView
         onSelect={onSelect}
         engine={engine}
+        fill={fill}
       />
-    </section>
+    </GraphPage>
   );
 }

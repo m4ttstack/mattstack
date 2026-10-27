@@ -2,7 +2,7 @@ import '../../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -119,6 +119,9 @@ async function focusList() {
       within(list).queryByTestId('focus-list-loading')
     ).not.toBeInTheDocument()
   );
+  // The list shows only with no skill in focus; a focused URL swaps it for
+  // the block tree once the composition answers.
+  expect(list).toBeInTheDocument();
   return list;
 }
 
@@ -128,49 +131,53 @@ afterEach(() => {
 });
 
 describe('Graph tab: the page', () => {
-  it('replaces Pipeline and On-demand with Graph, ahead of Surface and Health', async () => {
+  it('heads the page Packs, with Overview, Config and Changes tabs', async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     await focusList();
 
+    expect(screen.getByRole('heading', { name: 'Packs' })).toBeInTheDocument();
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
-      'Graph',
-      'Surface',
-      expect.stringMatching(/^Health/),
+      'Overview',
+      expect.stringMatching(/^Config/),
+      expect.stringMatching(/^Changes/),
     ]);
-    expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute(
+    expect(screen.getAllByRole('tab')[0]).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(
-      screen.queryByRole('tab', { name: 'Pipeline' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('tab', { name: 'On-demand' })
-    ).not.toBeInTheDocument();
   });
 
-  it('opens on the Graph tab when the URL names no tab', async () => {
+  it('opens on the Overview tab when the URL names no tab', async () => {
     mockDesignPack();
     renderAt('');
     await focusList();
 
-    expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute(
+    expect(screen.getAllByRole('tab')[0]).toHaveAttribute(
       'aria-selected',
       'true'
     );
+  });
+
+  it('badges the Config tab with the count that needs attention', async () => {
+    mockDesignPack();
+    renderAt('');
+    await focusList();
+
+    const count = await screen.findByTestId('config-tab-count');
+    expect(Number(count.textContent)).toBeGreaterThan(0);
   });
 
   it('switches tabs through the URL', async () => {
     mockDesignPack();
     const user = userEvent.setup();
-    renderAt('?focus=pipeline:feature');
+    renderAt('');
     await focusList();
 
-    await user.click(screen.getByRole('tab', { name: 'Surface' }));
+    await user.click(screen.getAllByRole('tab')[1]!);
 
-    expect(params().get('tab')).toBe('surface');
-    expect(await screen.findByTestId('surface-tab')).toBeInTheDocument();
+    expect(params().get('tab')).toBe('config');
+    expect(await screen.findByTestId('config-tab')).toBeInTheDocument();
     expect(screen.queryByTestId('focus-list')).not.toBeInTheDocument();
   });
 
@@ -183,13 +190,16 @@ describe('Graph tab: the page', () => {
     expect(params().get('focus')).toBe('stage-plan');
   });
 
-  it('still docks the unsynced banner over the block view', async () => {
+  it('counts unsynced changes on the Changes tab over the block view', async () => {
     mockDesignPack({ changes: designFixture('changes.unsynced') });
     compositionGet.mockResolvedValue(ok(designFixture('composition.unsynced')));
     renderAt('?tab=graph&focus=shepherdr');
 
     expect(await screen.findByTestId('block-view')).toBeInTheDocument();
-    expect(await screen.findByTestId('unsynced-banner')).toBeInTheDocument();
+    expect(
+      await screen.findByTestId('history-tab-unsynced')
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('unsynced-banner')).not.toBeInTheDocument();
   });
 
   it('draws no rebind control anywhere', async () => {
@@ -202,18 +212,18 @@ describe('Graph tab: the page', () => {
 });
 
 describe('Graph tab: the focus list', () => {
-  it("draws the board's groups: the pipeline, standalone verbs, board skills and Unwired", async () => {
+  it('draws the groups: Pipelines, Commands and Board, with no Unwired row', async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     const list = await focusList();
 
-    expect(within(list).getByText('Pipeline')).toBeInTheDocument();
-    expect(within(list).getByText('Standalone')).toBeInTheDocument();
+    expect(within(list).getByText('Pipelines')).toBeInTheDocument();
+    expect(within(list).getByText('Commands')).toBeInTheDocument();
     expect(within(list).getByText('Board')).toBeInTheDocument();
 
     const pipeline = within(list).getByTestId('focus-pipeline:feature');
-    expect(pipeline).toHaveTextContent('work · feature');
-    expect(pipeline).toHaveTextContent('8');
+    expect(pipeline).toHaveTextContent('/acme:work');
+    expect(pipeline).toHaveTextContent('feature');
     expect(pipeline).toHaveAttribute('data-active');
 
     for (const verb of [
@@ -229,14 +239,30 @@ describe('Graph tab: the focus list', () => {
     for (const board of ['board:review', 'board:respond', 'board:doctor']) {
       expect(within(list).getByTestId(`focus-${board}`)).toBeInTheDocument();
     }
-    expect(within(list).getByTestId('focus-unwired')).toHaveTextContent(
-      'Unwired2'
+    expect(within(list).queryByTestId('focus-unwired')).toBeNull();
+  });
+
+  it('names a public command as typed in Claude Code, and an internal verb by its name', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph');
+    const list = await focusList();
+
+    expect(within(list).getByTestId('focus-shepherdr')).toHaveTextContent(
+      /^\/acme:shepherdr$/
+    );
+    const internal = within(list).getByTestId('focus-self-review');
+    expect(internal).toHaveTextContent('self-review');
+    expect(internal).toHaveTextContent('internal');
+    expect(internal).not.toHaveTextContent('/acme:');
+    // A stage the pipeline alone runs is never named as a command.
+    expect(within(list).getByTestId('focus-stage-plan')).toHaveTextContent(
+      /^2plan$/
     );
   });
 
   it('marks the items that need attention with a dot', async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     const list = await focusList();
 
     await waitFor(() =>
@@ -251,31 +277,36 @@ describe('Graph tab: the focus list', () => {
         'attention-dot'
       )
     ).not.toBeInTheDocument();
-    expect(
-      within(within(list).getByTestId('focus-unwired')).getByTestId(
-        'attention-dot'
-      )
-    ).toBeInTheDocument();
   });
 
-  it('keeps a focused pipeline folded', async () => {
+  it("folds a pipeline's stages from its chevron, and unfolds them again", async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    const user = userEvent.setup();
+    renderAt('?tab=graph');
     const list = await focusList();
+    const fold = within(list).getByTestId('fold-pipeline:feature');
 
-    expect(
-      within(list).queryByTestId('focus-stage-plan')
-    ).not.toBeInTheDocument();
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    expect(within(list).getByTestId('focus-stage-plan')).toBeVisible();
+
+    await user.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() =>
+      expect(within(list).queryByTestId('focus-stage-plan')).not.toBeVisible()
+    );
+    expect(params().get('focus')).toBeNull();
+
+    await user.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('focuses plan from the unfolded pipeline', async () => {
     mockDesignPack();
     const user = userEvent.setup();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     const list = await focusList();
 
-    await user.click(within(list).getByTestId('focus-pipeline:feature'));
-    await user.click(await within(list).findByTestId('focus-stage-plan'));
+    await user.click(within(list).getByTestId('focus-stage-plan'));
 
     expect(params().get('focus')).toBe('stage-plan');
     expect(
@@ -283,31 +314,24 @@ describe('Graph tab: the focus list', () => {
     ).toBeInTheDocument();
   });
 
-  it('focuses and unfolds a pipeline on the first click, and folds it on the next', async () => {
+  it("opens a pipeline's page from its name", async () => {
     mockDesignPack();
     const user = userEvent.setup();
-    renderAt('?tab=graph&focus=pipeline:accessibility');
+    renderAt('?tab=graph');
     const list = await focusList();
-    const pipeline = within(list).getByTestId('focus-pipeline:feature');
 
-    await user.click(pipeline);
-    expect(params().get('focus')).toBe('pipeline:feature');
-    expect(
-      await within(list).findByTestId('focus-stage-plan')
-    ).toBeInTheDocument();
+    await user.click(within(list).getByTestId('focus-pipeline:accessibility'));
 
-    await user.click(pipeline);
-    await waitFor(() =>
-      expect(
-        within(list).queryByTestId('focus-stage-plan')
-      ).not.toBeInTheDocument()
+    expect(params().get('focus')).toBe('pipeline:accessibility');
+    expect(await screen.findByTestId('block-sidebar')).toBeInTheDocument();
+    expect(screen.getByTestId('focus-header')).toHaveTextContent(
+      'accessibility pipeline · 8 stages'
     );
-    expect(params().get('focus')).toBe('pipeline:feature');
   });
 
-  it('draws rows in the NavLink highlight and the switch in the contrast tone', async () => {
+  it('draws rows in the NavLink highlight, with no Needs attention switch', async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     const list = await focusList();
 
     // The settings sidebar's highlight: NavLink's default (light) variant.
@@ -315,16 +339,14 @@ describe('Graph tab: the focus list', () => {
       within(list).getByTestId('focus-pipeline:feature')
     ).not.toHaveAttribute('data-variant', 'wash');
     expect(
-      within(list)
-        .getByRole('switch', { name: 'Needs attention' })
-        .closest('[data-variant]')
-    ).toHaveAttribute('data-variant', 'contrast');
+      within(list).queryByRole('switch', { name: 'Needs attention' })
+    ).toBeNull();
   });
 
   it('focusing a standalone verb swaps the list for its block tree', async () => {
     mockDesignPack();
     const user = userEvent.setup();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     const list = await focusList();
 
     await user.click(within(list).getByTestId('focus-shepherdr'));
@@ -337,92 +359,25 @@ describe('Graph tab: the focus list', () => {
     expect(screen.queryByTestId('focus-list')).not.toBeInTheDocument();
   });
 
-  it('lists a verb with no props as standalone, not unwired', async () => {
+  it('lists a verb with no props as a command', async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     const list = await focusList();
 
-    expect(within(list).getByTestId('focus-checkout')).toBeInTheDocument();
+    expect(within(list).getByTestId('focus-checkout')).toHaveTextContent(
+      '/acme:checkout'
+    );
   });
 
-  it('lists a verb whose prop nothing binds under Unwired', async () => {
+  it('lists a verb whose prop nothing binds with the commands', async () => {
     mockDesignPack();
     const user = userEvent.setup();
-    renderAt('?tab=graph&focus=pipeline:feature');
+    renderAt('?tab=graph');
     const list = await focusList();
 
-    await user.click(within(list).getByTestId('focus-unwired'));
-    await user.click(await within(list).findByTestId('focus-release-notes'));
+    await user.click(within(list).getByTestId('focus-release-notes'));
 
     expect(params().get('focus')).toBe('release-notes');
-  });
-
-  it('checks the Needs attention switch from ?attention=1 and hides in-sync items', async () => {
-    mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature&attention=1');
-    const list = await focusList();
-
-    expect(
-      within(list).getByRole('switch', { name: 'Needs attention' })
-    ).toBeChecked();
-    await waitFor(() =>
-      expect(
-        within(list).queryByTestId('focus-shepherdr')
-      ).not.toBeInTheDocument()
-    );
-    expect(within(list).getByTestId('focus-review')).toBeInTheDocument();
-    expect(
-      within(list).getByTestId('focus-pipeline:feature')
-    ).toBeInTheDocument();
-    expect(
-      within(list).queryByTestId('focus-board:review')
-    ).not.toBeInTheDocument();
-  });
-
-  it('turns the attention filter on and off through the URL', async () => {
-    mockDesignPack();
-    const user = userEvent.setup();
-    renderAt('?tab=graph&focus=pipeline:feature');
-    const list = await focusList();
-    const toggle = within(list).getByRole('switch', {
-      name: 'Needs attention',
-    });
-    expect(toggle).not.toBeChecked();
-
-    await user.click(toggle);
-    expect(params().get('attention')).toBe('1');
-    expect(params().get('focus')).toBe('pipeline:feature');
-
-    await user.click(toggle);
-    expect(params().get('attention')).toBeNull();
-  });
-
-  it('counts only the flagged unwired verbs under the filter', async () => {
-    mockDesignPack();
-    renderAt('?tab=graph&attention=1');
-    const list = await focusList();
-
-    await waitFor(() =>
-      expect(within(list).getByTestId('focus-unwired')).toHaveTextContent(
-        'Unwired1'
-      )
-    );
-  });
-
-  it('keeps the filtered list loading until check answers', async () => {
-    mockDesignPack();
-    checkGet.mockReturnValue(new Promise(() => {}));
-    renderAt('?tab=graph&attention=1');
-
-    const list = await screen.findByTestId('focus-list');
-    await waitFor(() => expect(compositionGet).toHaveBeenCalled());
-    expect(within(list).getByTestId('focus-list-loading')).toBeInTheDocument();
-    expect(
-      within(list).queryByTestId('focus-pipeline:feature')
-    ).not.toBeInTheDocument();
-    expect(
-      within(list).getByRole('switch', { name: 'Needs attention' })
-    ).toBeChecked();
   });
 
   it('warns that no row can state its drift when check fails', async () => {
@@ -442,48 +397,6 @@ describe('Graph tab: the focus list', () => {
     ).toBeInTheDocument();
   });
 
-  it('says "not measured" rather than "nothing wrong" when the filter empties the list and check never answered', async () => {
-    mockDesignPack();
-    const composition = designFixture('composition');
-    composition.verbs = composition.verbs.filter(
-      verb => verb.name !== 'release-notes' && verb.name !== 'standup'
-    );
-    compositionGet.mockResolvedValue(ok(composition));
-    checkGet.mockResolvedValue({
-      ok: false,
-      status: 502,
-      json: async () => ({ error: 'rt skills check: pack not found' }),
-    });
-    renderAt('?tab=graph&attention=1');
-    const list = await focusList();
-
-    const empty = await within(list).findByTestId('attention-empty');
-    expect(empty).toHaveTextContent('Not measured');
-    expect(empty).not.toHaveTextContent('Nothing needs attention');
-  });
-
-  it('states a clean filtered list as measured', async () => {
-    mockDesignPack();
-    const composition = designFixture('composition');
-    composition.verbs = composition.verbs.filter(
-      verb => verb.name !== 'release-notes' && verb.name !== 'standup'
-    );
-    compositionGet.mockResolvedValue(ok(composition));
-    const check = designFixture('check');
-    for (const verb of check.verbs) {
-      verb.status = 'in-sync';
-      verb.staleBecause = [];
-    }
-    checkGet.mockResolvedValue(ok(check));
-    renderAt('?tab=graph&attention=1');
-    const list = await focusList();
-
-    const empty = await within(list).findByTestId('attention-empty');
-    expect(empty).toHaveTextContent(
-      `Nothing needs attention: rt skills check compared ${check.verbs.length} roster verbs and none differed.`
-    );
-  });
-
   it('says so when the pack declares no pipeline', async () => {
     mockDesignPack();
     const composition = designFixture('composition');
@@ -497,7 +410,7 @@ describe('Graph tab: the focus list', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers a retry when the composition fails to load', async () => {
+  it('says in the main view when the composition fails to load, and retries from there', async () => {
     mockDesignPack();
     compositionGet.mockResolvedValueOnce({
       ok: false,
@@ -506,23 +419,59 @@ describe('Graph tab: the focus list', () => {
     });
     const user = userEvent.setup();
     renderAt('?tab=graph');
-    const list = await focusList();
 
-    expect(await within(list).findByText('rt exploded')).toBeInTheDocument();
-    await user.click(within(list).getByRole('button', { name: 'Retry' }));
+    const error = await screen.findByTestId('pack-error');
+    expect(error).toHaveTextContent("This pack's skills failed to load");
+    expect(error).toHaveTextContent('rt exploded');
+    expect(screen.queryByTestId('focus-list')).toBeNull();
+
+    await user.click(within(error).getByRole('button', { name: 'Retry' }));
+    const list = await focusList();
     expect(
       await within(list).findByTestId('focus-pipeline:feature')
     ).toBeInTheDocument();
+    expect(screen.queryByTestId('pack-error')).toBeNull();
+  });
+
+  it("keeps rt's lines in the pack error, with its command set apart", async () => {
+    mockDesignPack();
+    compositionGet.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        error: [
+          'acme could not be compiled',
+          '  why: Its skills are single SKILL.md files.',
+          '  next: claude plugin update mattstack@mattstack',
+          '  "provision": provision has no index.block.md',
+        ].join('\n'),
+      }),
+    });
+    renderAt('?tab=graph');
+
+    expect(await screen.findByTestId('pack-error-next')).toHaveTextContent(
+      'claude plugin update mattstack@mattstack'
+    );
+    expect(
+      [...screen.getByTestId('pack-error-message').children].map(
+        line => line.textContent
+      )
+    ).toEqual([
+      'acme could not be compiled',
+      'Its skills are single SKILL.md files.',
+      '"provision": provision has no index.block.md',
+    ]);
   });
 });
 
 describe('Graph tab: the focus header', () => {
-  it('names a pipeline by its orchestrator, with its stage count and description', async () => {
+  it('names a pipeline by the command that runs it, with its stage count and description', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=pipeline:feature');
     const header = await screen.findByTestId('focus-header');
 
-    expect(within(header).getByText('work')).toBeInTheDocument();
+    expect(within(header).getByText('/acme:work')).toBeInTheDocument();
+    expect(within(header).getByTestId('copy-command')).toBeInTheDocument();
     expect(
       within(header).getByText('feature pipeline · 8 stages')
     ).toBeInTheDocument();
@@ -542,8 +491,10 @@ describe('Graph tab: the focus header', () => {
     const header = await screen.findByTestId('focus-header');
 
     expect(within(header).getByText('plan')).toBeInTheDocument();
+    // A stage the pipeline alone runs is no command to copy.
+    expect(within(header).queryByTestId('copy-command')).toBeNull();
     expect(
-      within(header).getByText('stage 2 of 8 · work · feature')
+      within(header).getByText('stage 2 of 8 · run by /work')
     ).toBeInTheDocument();
     expect(
       await within(header).findByText(
@@ -598,7 +549,7 @@ describe('Graph tab: the focus header', () => {
     const header = await screen.findByTestId('focus-header');
 
     expect(await within(header).findByTestId('focus-status')).toHaveTextContent(
-      'stale: a pasted file changed'
+      'stale: an included file changed'
     );
   });
 
@@ -608,7 +559,7 @@ describe('Graph tab: the focus header', () => {
     await screen.findByTestId('block-view');
     const header = screen.getByTestId('focus-header');
 
-    expect(within(header).getByText('shepherdr')).toBeInTheDocument();
+    expect(within(header).getByText('/acme:shepherdr')).toBeInTheDocument();
     expect(within(header).getByText('on-demand')).toBeInTheDocument();
   });
 
@@ -632,57 +583,37 @@ describe('Graph tab: the focus header', () => {
   });
 });
 
-describe('Graph tab: the pipeline map', () => {
-  it('keeps the template canvas, with one link card per stage', async () => {
+describe('Graph tab: a pipeline and its stages', () => {
+  it('opens a pipeline in the block view, with no template canvas', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=pipeline:feature');
 
-    const canvas = await screen.findByTestId('template-canvas');
-    expect(within(canvas).getAllByTestId('link-card')).toHaveLength(8);
-    expect(screen.queryByTestId('block-view')).not.toBeInTheDocument();
-  });
-
-  it('writes a clicked row into the URL', async () => {
-    mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
-
-    const canvas = await screen.findByTestId('template-canvas');
-    // A click, not a pointer sequence: React Flow's pan handler reads the
-    // `MouseEvent.view` that jsdom's synthetic pointer events leave null.
-    fireEvent.click(within(canvas).getAllByTestId('template-row')[0]);
-
-    await waitFor(() => expect(params().get('select')).toMatch(/^row:/));
-    expect(params().get('focus')).toBe('pipeline:feature');
-  });
-
-  it("opens a linked step's block view from the pipeline canvas", async () => {
-    mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:feature');
-
-    const canvas = await screen.findByTestId('template-canvas');
-    const plan = within(canvas)
-      .getAllByTestId('link-card')
-      .find(card => card.textContent?.includes('stage-plan/SKILL.md'));
-    fireEvent.click(plan!);
-
-    await waitFor(() => expect(params().get('focus')).toBe('stage-plan'));
     expect(await screen.findByTestId('block-stage')).toBeInTheDocument();
     expect(screen.queryByTestId('template-canvas')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(blocksGet).toHaveBeenCalledWith({
+        query: { pack: 'acme', skill: 'work' },
+      })
+    );
   });
 
-  it("opens a linked step under a specialized pipeline's canvas", async () => {
+  it("trails a stage's block view back up to the pipeline that runs it", async () => {
     mockDesignPack();
-    renderAt('?tab=graph&focus=pipeline:accessibility');
-
-    const canvas = await screen.findByTestId('template-canvas');
-    const plan = within(canvas)
-      .getAllByTestId('link-card')
-      .find(card => card.textContent?.includes('stage-plan/SKILL.md'));
-    fireEvent.click(plan!);
-
-    await waitFor(() =>
-      expect(params().get('focus')).toBe('stage-plan@accessibility')
+    blocksGet.mockImplementation(({ query }: { query: { skill: string } }) =>
+      Promise.resolve(
+        query.skill === 'stage-plan'
+          ? ok(miniPayload)
+          : notFound('The plain skill is not built from blocks')
+      )
     );
+    const user = userEvent.setup();
+    renderAt('?tab=graph&focus=stage-plan');
+
+    const trail = await screen.findByTestId('block-crumbs');
+    expect(trail).toHaveTextContent('/acme:work');
+    await user.click(within(trail).getByText('/acme:work'));
+
+    expect(params().get('focus')).toBe('pipeline:feature');
   });
 });
 
@@ -724,8 +655,9 @@ describe('Graph tab: the block view', () => {
     expect(gate.querySelector('[data-glyph="gate"]')).not.toBeNull();
   });
 
-  it("unfolds a section from its chevron without leaving the page it's on", async () => {
+  it('opens a section from its row, and folds it on the next click', async () => {
     mockDesignPack();
+    const user = userEvent.setup();
     renderAt('?tab=graph&focus=shepherdr');
 
     const sidebar = await screen.findByTestId('block-sidebar');
@@ -733,22 +665,22 @@ describe('Graph tab: the block view', () => {
     expect(
       within(sidebar).queryByTestId('block-tree-mini/run/guard')
     ).not.toBeInTheDocument();
-    await userEvent.click(
-      within(sidebar).getByRole('button', { name: 'Unfold Run' })
-    );
+
+    await user.click(within(sidebar).getByTestId('block-tree-mini/run'));
+    expect(params().get('block')).toBe('mini/run');
     expect(
-      within(sidebar).getByTestId('block-tree-mini/run/guard')
+      await within(sidebar).findByTestId('block-tree-mini/run/guard')
     ).toBeInTheDocument();
-    expect(
-      within(sidebar).getByTestId('block-tree-mini/run')
-    ).toHaveTextContent(/^Run$/);
-    expect(params().get('block')).toBeNull();
-    await userEvent.click(
-      within(sidebar).getByRole('button', { name: 'Fold Run' })
+    expect(within(sidebar).getByTestId('block-tree-mini/run')).toHaveAttribute(
+      'aria-expanded',
+      'true'
     );
+
+    await user.click(within(sidebar).getByTestId('block-tree-mini/run'));
     expect(
       within(sidebar).queryByTestId('block-tree-mini/run/guard')
     ).not.toBeInTheDocument();
+    expect(params().get('block')).toBe('mini/run');
   });
 
   it('reads a board skill from its headings, read-only', async () => {
@@ -818,7 +750,27 @@ describe('Graph tab: the block view', () => {
     ).toBeInTheDocument();
   });
 
-  it("gives rt's refusal to build a skill its own words, no retry, and a way to Health", async () => {
+  it('sets the command rt suggests apart when the blocks fail to load', async () => {
+    mockDesignPack();
+    blocksGet.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        error: 'rt exploded\n  next: rt skills blocks shepherdr',
+      }),
+    });
+    renderAt('?tab=graph&focus=shepherdr');
+
+    const error = await screen.findByTestId('block-view-error');
+    expect(
+      within(error).getByTestId('block-view-error-message')
+    ).toHaveTextContent(/^rt exploded$/);
+    expect(
+      within(error).getByTestId('block-view-error-next')
+    ).toHaveTextContent('rt skills blocks shepherdr');
+  });
+
+  it("gives rt's refusal to build a skill its own words, no retry, and a way to Config", async () => {
     mockDesignPack();
     blocksGet.mockResolvedValue({
       ok: false,
@@ -840,10 +792,8 @@ describe('Graph tab: the block view', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId('block-view-error')).not.toBeInTheDocument();
 
-    await user.click(
-      within(refused).getByRole('button', { name: 'Open Health' })
-    );
-    expect(params().get('tab')).toBe('health');
+    await user.click(within(refused).getByRole('button'));
+    expect(params().get('tab')).toBe('config');
   });
 
   it('says to update the plugin, in place of the heading tree, when the installed plugin is older than the app', async () => {
@@ -930,20 +880,26 @@ describe('Graph tab: the block view', () => {
     expect(params().get('focus')).toBeNull();
     expect(params().get('block')).toBeNull();
     expect(await focusList()).toBeInTheDocument();
-    expect(await screen.findByTestId('template-canvas')).toBeInTheDocument();
+    expect(screen.queryByTestId('template-canvas')).not.toBeInTheDocument();
   });
 
-  it('switches to another skill from the switcher', async () => {
+  it('goes back to the whole skill from its switcher', async () => {
     mockDesignPack();
     const user = userEvent.setup();
     renderAt('?tab=graph&focus=shepherdr&block=mini/gate');
 
     const sidebar = await screen.findByTestId('block-sidebar');
+    expect(within(sidebar).getByTestId('skill-switcher')).not.toHaveAttribute(
+      'aria-current'
+    );
     await user.click(within(sidebar).getByTestId('skill-switcher'));
-    await user.click(await screen.findByRole('menuitem', { name: 'review' }));
 
-    expect(params().get('focus')).toBe('review');
+    expect(params().get('focus')).toBe('shepherdr');
     expect(params().get('block')).toBeNull();
+    expect(within(sidebar).getByTestId('skill-switcher')).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
   });
 });
 
@@ -959,22 +915,15 @@ describe('Graph tab: an unknown focus', () => {
   });
 });
 
-describe('Graph tab: from Health', () => {
-  it('lands an opened Health row on the Graph tab with that skill in focus', async () => {
+describe('Graph tab: an old Health link', () => {
+  it('opens on the Config tab', async () => {
     mockDesignPack();
-    const user = userEvent.setup();
     renderAt('?tab=health');
-    await screen.findByTestId('health-tab');
 
-    await user.click(screen.getByRole('button', { name: 'open review' }));
-
-    expect(params().get('tab')).toBeNull();
-    expect(params().get('focus')).toBe('review');
-    expect(
-      within(await screen.findByTestId('skill-switcher')).getByText('review')
-    ).toBeInTheDocument();
-    expect(
-      within(await screen.findByTestId('focus-header')).getByText('review')
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId('config-tab')).toBeInTheDocument();
+    expect(screen.getAllByRole('tab')[1]).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
   });
 });

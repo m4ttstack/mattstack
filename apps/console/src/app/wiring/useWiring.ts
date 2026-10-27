@@ -193,7 +193,7 @@ export function useSkillsHistory(
       });
       return readOrThrow<SkillsHistory>(res, 'skills history');
     },
-    enabled: Boolean(pack && verb),
+    enabled: Boolean(pack),
     staleTime: 0,
   });
 }
@@ -482,6 +482,25 @@ export function useSkillsSync(pack: string) {
   });
 }
 
+/** Compiles the pack: rt rewrites its compiled skills in the pack folder,
+    which then wait as unsynced changes for a publish. */
+export function useSkillsCompile(pack: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: skillsWriteKey(pack),
+    mutationFn: async () => {
+      const res = await client.api.skills.compile.$post({ json: { pack } });
+      return readOrThrow<SkillsCompileReport>(res, 'skills compile');
+    },
+    onSettled: () => invalidateSkillsQueries(queryClient, pack),
+  });
+}
+
+export type SkillsCompileReport = InferResponseType<
+  (typeof client.api.skills.compile)['$post'],
+  200
+>;
+
 /** Unlike sync, a non-2xx answer here is an error, not a report. Swept on
     settle for the same reason as sync: rt restores tracked paths and cleans
     untracked ones as separate steps, so a refusal may still have changed
@@ -535,7 +554,7 @@ const RAIL_QUERY_OPTIONS: SharedQueryOptions = {
  * outside the Wiring route. Runs `buildSpine` rather than counting anything
  * itself: two derivations of the same number would eventually disagree.
  *
- * Shares its query keys with the page, so opening /wiring reuses these
+ * Shares its query keys with the page, so opening /packs reuses these
  * fetches instead of issuing its own. Answers 0 while the queries are in
  * flight and when they fail -- an absent badge, never a wrong one.
  */

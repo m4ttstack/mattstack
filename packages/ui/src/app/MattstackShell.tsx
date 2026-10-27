@@ -50,8 +50,10 @@ const HeaderSlot: (props: MattstackShellHeaderProps) => null = () => null;
 
 export interface MattstackShellAppBarProps {
   /** `start` follows the page context (a scope picker); `end` sits before
-   *  the header actions (who you are). @default 'start' */
-  side?: 'start' | 'end';
+   *  the header actions (a page's own switches); `viewer` (who you are)
+   *  comes after `end`, so it holds its place whichever page is open,
+   *  however late it mounts. @default 'start' */
+  side?: 'start' | 'end' | 'viewer';
   children: ReactNode;
 }
 
@@ -135,6 +137,7 @@ function Shell({
   const headerProps = useHeaderProps();
   const [appBarStart, setAppBarStart] = useState<HTMLElement | null>(null);
   const [appBarEnd, setAppBarEnd] = useState<HTMLElement | null>(null);
+  const [appBarViewer, setAppBarViewer] = useState<HTMLElement | null>(null);
   const { rail: railSlot, railBottom, header, page } = partition(children);
   const expanded = withRail && rail.effectiveExpanded;
   const railMark = withRail && markInRail;
@@ -149,7 +152,7 @@ function Shell({
   return (
     <ShellRailContext.Provider value={{ expanded, close: rail.close }}>
       <ShellAppBarContext.Provider
-        value={{ start: appBarStart, end: appBarEnd }}
+        value={{ start: appBarStart, end: appBarEnd, viewer: appBarViewer }}
       >
         <RailShell
           headerHeight={headerHeight}
@@ -173,6 +176,7 @@ function Shell({
               </Group>
               <Group gap="md" wrap="nowrap">
                 <div ref={setAppBarEnd} style={{ display: 'contents' }} />
+                <div ref={setAppBarViewer} style={{ display: 'contents' }} />
                 {header?.actions}
                 {!withRail && (
                   <ColorSchemeControl

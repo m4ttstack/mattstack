@@ -4,9 +4,10 @@ import {
   ScopeSlash,
   TeamMenu,
 } from '@mattstack/app-kit/app';
-import { Button, Group, Text } from '@mattstack/app-kit/core';
-import { Icon, Icons } from '@mattstack/app-kit/icons';
+import { Group, Text } from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 
+import { BackPill } from '../nav/BackPill';
 import type { Viewer } from './useConsoleSettings';
 
 /** Where you are (org and team), in the top bar beside the breadcrumb.
@@ -58,17 +59,11 @@ export function SettingsContextBar({
           </>
         )}
         {other && ownTeam && (
-          <Button
-            size="compact-sm"
-            radius="xl"
-            variant="default"
-            leftSection={<Icons.arrowLeft size={13} />}
-            aria-label={`Back to ${ownTeam}, your team`}
+          <BackPill
+            label={`Back to ${ownTeam}`}
+            ariaLabel={`Back to ${ownTeam}, your team`}
             onClick={() => onPickTeam(null)}
-            style={{ flex: 'none' }}
-          >
-            {`Back to ${ownTeam}`}
-          </Button>
+          />
         )}
       </Group>
     </MattstackShell.AppBar>

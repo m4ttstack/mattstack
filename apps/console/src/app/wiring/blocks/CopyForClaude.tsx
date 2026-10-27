@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import type { ReactNode } from 'react';
 import { Button, Group, Popover, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
@@ -13,16 +12,9 @@ import { buildBlockContext } from './model/brief';
 export interface CopyForClaudeProps {
   payload: BlocksPayload;
   block: PayloadBlock;
-  /** The header actions after the button; the popover lines up with their
-      end. */
-  trailing?: ReactNode;
 }
 
-export function CopyForClaude({
-  payload,
-  block,
-  trailing,
-}: CopyForClaudeProps) {
+export function CopyForClaude({ payload, block }: CopyForClaudeProps) {
   // Keyed by the block, so moving to another one (back or forward) closes
   // the popover instead of showing a brief the clipboard does not hold.
   const [copied, setCopied] = useState<{
@@ -50,18 +42,19 @@ export function CopyForClaude({
       opened={state !== 'closed'}
       onChange={opened => !opened && setState('closed')}
       position="bottom-end"
-      offset={30}
+      offset={8}
       shadow="md"
       width={460}
       withinPortal
     >
       <Popover.Target>
-        <Group gap={10} wrap="nowrap">
-          <Button onClick={copy} leftSection={<Icon name="copy" size={14} />}>
-            Copy for Claude
-          </Button>
-          {trailing}
-        </Group>
+        <Button
+          size="xs"
+          onClick={copy}
+          leftSection={<Icon name="copy" size={13} />}
+        >
+          Copy for Claude
+        </Button>
       </Popover.Target>
       <Popover.Dropdown className={classes.briefPopover}>
         <Stack gap={10}>

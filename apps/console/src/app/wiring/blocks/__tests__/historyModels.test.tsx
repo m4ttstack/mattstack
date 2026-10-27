@@ -373,6 +373,7 @@ describe('BuiltFromTable', () => {
             builtWith: null,
             installed: '0.30.4',
             status: 'not built',
+            layer: 'mattstack',
             owner: { kind: 'plugin', name: 'mattstack' },
           },
         ]}

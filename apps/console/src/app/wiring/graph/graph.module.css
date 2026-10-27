@@ -3,8 +3,73 @@
   padding: 14px 10px;
 }
 
+:where([data-mantine-color-scheme='light']) .list {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .list {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+@media (hover: hover) {
+  :is(.item, .step):not([data-active]):hover {
+    background-color: var(--row-hover);
+  }
+}
+
 .group {
   padding: 12px 8px 4px;
+}
+
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 6px 8px 6px 6px;
+  border-radius: 6px;
+}
+
+.groupToggle:first-child {
+  margin-top: 4px;
+}
+
+@media (hover: hover) {
+  .groupToggle:hover {
+    background: var(--tk-raised);
+  }
+}
+
+.groupToggle:focus-visible {
+  background: var(--tk-raised);
+}
+
+.groupChevron {
+  flex: none;
+  color: var(--tk-text-2);
+  transition: transform 120ms ease;
+}
+
+.groupChevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.groupLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tk-text-1);
+}
+
+.groupCount {
+  margin-left: auto;
+  padding: 0 7px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 999px;
+  background: var(--tk-card);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--tk-text-2);
 }
 
 .notice {
@@ -17,16 +82,45 @@
   border-radius: var(--mantine-radius-md);
 }
 
+/* Indented by margin, so its hover and active fill start at the step. */
 .step {
+  width: auto;
   height: 26px;
-  padding: 0 8px 0 30px;
+  margin-inline-start: 22px;
+  padding: 0 8px;
   border-radius: var(--mantine-radius-md);
 }
 
+/* The chevron sits outside the row, so the name's hover and active fill
+   stop at the name. */
+.pipelineHead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline-start: 4px;
+}
+
+.pipelineHead > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The stages hang off a guide from the pipeline's chevron, so the pipeline
+   reads as a row with stages under it, not a second heading. */
 .children {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-block: 2px;
+}
+
+.children::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 15px;
+  border-inline-start: 1px solid var(--tk-border-soft);
 }
 
 .section[data-position='left'] {
@@ -37,26 +131,11 @@
   margin-inline-start: 8px;
 }
 
-.spacer {
-  flex: 1;
-}
-
-.toggle {
-  padding: 8px;
-}
-
-.unwired {
-  height: 30.5px;
-  padding: 0 8px;
-  border-radius: var(--mantine-radius-md);
-}
-
 .stage {
   position: relative;
   overflow: hidden;
 }
 
-/* The stage's own middle, wherever the canvas would have been. */
 .canvasError {
   position: absolute;
   inset: 0;
@@ -64,7 +143,7 @@
 }
 
 .canvasErrorAlert {
-  max-width: 480px;
+  max-width: 640px;
   box-shadow: var(--mantine-shadow-md);
 }
 
@@ -110,6 +189,44 @@
   letter-spacing: 0;
 }
 
+/* A title's chip in the block view: a body label on a ruled pill. */
+.chip {
+  --badge-height: 22px;
+  --badge-padding-x: 9px;
+  --badge-fz: 12px;
+  --badge-lh: normal;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.chip .pillIcon {
+  color: var(--tk-text-2);
+}
+
+/* A block's kind chip takes its kind's hue, as the block view's badges do. */
+.chip[data-hue='question'] {
+  --badge-bg: color-mix(in srgb, var(--tk-fill-ok) var(--ui-wash), transparent);
+  --badge-bd: 1px solid transparent;
+}
+
+.chip[data-hue='question'] .pillIcon {
+  color: var(--tk-text-ok);
+}
+
+.chip[data-hue='gate'] {
+  --badge-bg: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--ui-wash),
+    transparent
+  );
+  --badge-bd: 1px solid transparent;
+}
+
+.chip[data-hue='gate'] .pillIcon {
+  color: var(--tk-text-bad);
+}
+
 .statusPill {
   --badge-height: 19px;
   --badge-padding-x: 8px;
@@ -138,34 +255,105 @@
 
 /* The board's bottom rule sits inside the banner's 10px padding, as the
    board buttons' does. */
-.banner {
-  width: 100%;
-  padding: 10px 16px 9px;
-  border-width: 0 0 1px;
-}
-
-.bannerWrapper {
+.unsyncedActions {
+  display: inline-flex;
   align-items: center;
+  gap: 8px;
 }
 
-.bannerIcon {
-  width: 16px;
-  height: 16px;
-  margin-top: 0;
-  margin-inline-end: 12px;
+.bannerStatus {
+  flex: none;
+  text-transform: none;
 }
 
-.bannerText {
-  flex: 1;
-  min-width: 0;
+/* A notification over the page, under the tab bar's right end: dark in both
+   schemes, so it reads as the app speaking rather than as page content. */
+.toast {
+  position: absolute;
+  top: 12px;
+  right: 24px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 4px;
+  border: 1px solid
+    color-mix(in srgb, var(--mantine-color-white) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mantine-color-dark-8) 94%, transparent);
+  box-shadow: 0 10px 30px
+    color-mix(in srgb, var(--mantine-color-black) 22%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+:where([data-mantine-color-scheme='dark']) .toast {
+  border-color: color-mix(in srgb, var(--mantine-color-white) 16%, transparent);
+  background: color-mix(in srgb, var(--mantine-color-dark-5) 96%, transparent);
+}
+
+.toastMain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  color: var(--mantine-color-white);
+}
+
+.toastDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tk-dot-warn);
+}
+
+.toastTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toastMeta {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--mantine-color-white) 55%, transparent);
+}
+
+.toastReview {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--mantine-color-white) 12%, transparent);
+  transition: background 120ms ease;
+}
+
+@media (hover: hover) {
+  .toastMain:hover .toastReview {
+    background: color-mix(in srgb, var(--mantine-color-white) 22%, transparent);
+  }
+
+  .toastClose:hover {
+    color: var(--mantine-color-white);
+    background: color-mix(in srgb, var(--mantine-color-white) 12%, transparent);
+  }
+}
+
+.toastClose {
+  color: color-mix(in srgb, var(--mantine-color-white) 55%, transparent);
+}
+
+.tabDot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tk-dot-warn);
 }
 
 .changeLine {
   min-width: 0;
-}
-
-.bannerMore {
-  align-self: flex-start;
 }
 
 .changeList {
@@ -184,4 +372,31 @@
 .confirmClose {
   margin-block: -6px;
   margin-inline-end: -1px;
+}
+
+/* The phrases that call a skill, quoted after a small label. */
+.asks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 13px;
+}
+
+.asksLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tk-text-3);
+}
+
+.ask {
+  color: var(--tk-text-1);
+}
+
+.ask + .ask::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--tk-text-3);
 }

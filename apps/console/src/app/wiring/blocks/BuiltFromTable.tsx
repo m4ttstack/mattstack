@@ -9,10 +9,11 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import layerClasses from './blocks.module.css';
 import classes from './history.module.css';
 import type { BuiltFromRow, FileStatus } from './model/history';
 
-const MUTED = 'var(--tk-text-3)';
+const SECONDARY = 'var(--tk-text-2)';
 const BODY = 'var(--tk-text-1)';
 const OK_GLYPH = 'var(--tk-text-ok-vivid)';
 
@@ -26,7 +27,7 @@ function Status({ status }: { status: FileStatus }) {
       </Badge>
     );
   const label = (
-    <Text span fz={11} lh="normal" c={MUTED} data-parity="l">
+    <Text span fz={12} lh="normal" c={SECONDARY} data-parity="l">
       {status}
     </Text>
   );
@@ -60,17 +61,17 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
         <Table.Thead className={classes.head} data-parity="thead">
           <Table.Tr>
             <Table.Th>
-              <Text fz={10} fw={500} lh="normal" c={MUTED} data-parity="th">
+              <Text fz={12} fw={500} lh="normal" c={SECONDARY} data-parity="th">
                 file
               </Text>
             </Table.Th>
             <Table.Th className={classes.builtColumn}>
-              <Text fz={10} fw={500} lh="normal" c={MUTED} data-parity="th">
+              <Text fz={12} fw={500} lh="normal" c={SECONDARY} data-parity="th">
                 built with
               </Text>
             </Table.Th>
             <Table.Th className={classes.installedColumn}>
-              <Text fz={10} fw={500} lh="normal" c={MUTED} data-parity="th">
+              <Text fz={12} fw={500} lh="normal" c={SECONDARY} data-parity="th">
                 installed
               </Text>
             </Table.Th>
@@ -91,7 +92,7 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
                 <Stack gap={1}>
                   <Text
                     ff="monospace"
-                    fz={11}
+                    fz={13}
                     lh="normal"
                     c={BODY}
                     truncate
@@ -99,30 +100,37 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
                   >
                     {row.file}
                   </Text>
-                  <Text fz={10} lh="normal" c={MUTED} data-parity="k">
+                  <Text fz={12} lh="normal" c={SECONDARY} data-parity="k">
                     {row.kind}
                   </Text>
                 </Stack>
               </Table.Td>
               <Table.Td>
                 {row.builtWith && (
-                  <Text
-                    ff="monospace"
-                    fz={10}
-                    lh="normal"
-                    c={MUTED}
-                    data-parity="bw"
-                  >
-                    {row.builtWith}
-                  </Text>
+                  <Group gap={8} wrap="nowrap">
+                    <span
+                      className={layerClasses.swatch}
+                      data-fill={row.layer}
+                      aria-hidden
+                    />
+                    <Text
+                      ff="monospace"
+                      fz={12}
+                      lh="normal"
+                      c={SECONDARY}
+                      data-parity="bw"
+                    >
+                      {row.builtWith}
+                    </Text>
+                  </Group>
                 )}
               </Table.Td>
               <Table.Td>
                 <Text
                   ff="monospace"
-                  fz={10}
+                  fz={12}
                   lh="normal"
-                  c={MUTED}
+                  c={SECONDARY}
                   data-parity="in"
                 >
                   {row.installed}

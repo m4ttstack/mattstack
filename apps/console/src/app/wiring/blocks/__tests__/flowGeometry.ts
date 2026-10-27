@@ -72,14 +72,14 @@ const distance = (box: Box, [x, y]: Point) =>
     Math.max(box.y - y, 0, y - (box.y + box.height))
   );
 
-/** Each label further than `limit` px from both its edge's start and its
-    first bend, with that distance. */
+/** Each label further than `limit` px from both its edge's end and its
+    last bend, with that distance. */
 export function strayLabels(laidOut: LaidOut, limit: number): string[] {
   return Object.entries(laidOut.edges).flatMap(([id, { points, label }]) => {
     if (!label || points.length < 2) return [];
     const near = Math.min(
-      distance(label, points[0]!),
-      points.length > 2 ? distance(label, points[1]!) : Infinity
+      distance(label, points.at(-1)!),
+      points.length > 2 ? distance(label, points.at(-2)!) : Infinity
     );
     return near > limit ? [`${id}: ${Math.round(near)}px`] : [];
   });

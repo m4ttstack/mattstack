@@ -4,7 +4,6 @@ import {
   Divider,
   Group,
   Modal,
-  Skeleton,
   Stack,
   Text,
   Tooltip,
@@ -12,6 +11,7 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 
+import { StepLoader, useStepLoading } from '../StepLoader';
 import classes from './ExplainModal.module.css';
 import {
   KeyPanel,
@@ -131,12 +131,15 @@ function Resolved({
 }) {
   const { text } = useSchemeColors();
   const def = store.defs.find(d => d.key === settingKey);
+  const { show: held, bind: heldBind } = useStepLoading(
+    !def && !store.error && store.loading
+  );
   return (
     <>
       <Header settingKey={settingKey} def={def} />
       <Divider />
       <Modal.Body className={classes.body}>
-        {def ? (
+        {def && !held ? (
           <Suggested settingKey={def.key}>
             {suggestions => (
               <Detail
@@ -154,12 +157,8 @@ function Resolved({
           <Alert color="bad" variant="light">
             <Text fz={12}>{store.error}</Text>
           </Alert>
-        ) : store.loading ? (
-          <Stack gap={10}>
-            <Skeleton h={36} />
-            <Skeleton h={36} />
-            <Skeleton h={36} />
-          </Stack>
+        ) : held ? (
+          <StepLoader {...heldBind} steps={[`reading ${settingKey}`]} />
         ) : (
           <Text fz={14} c={text.muted}>
             {`No setting named ${settingKey} is registered.`}

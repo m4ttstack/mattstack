@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 
-import { useCompositionSnapshot, useSkillsCheck } from '../useWiring';
+import {
+  useCompositionSnapshot,
+  useSkillsCheck,
+  useSurface,
+} from '../useWiring';
 import {
   buildFocusGroups,
   findFocus,
@@ -18,12 +22,15 @@ export function useGraphFocus(pack: string) {
   const [url, patch] = useWiringUrl();
   const compositionQuery = useCompositionSnapshot(pack);
   const checkQuery = useSkillsCheck(pack);
+  const surfaceQuery = useSurface(pack);
   const composition = compositionQuery.data;
   const check = checkQuery.data;
+  const packSkills = surfaceQuery.data?.rows;
 
   const groups = useMemo(
-    () => (composition ? buildFocusGroups(composition, check) : null),
-    [composition, check]
+    () =>
+      composition ? buildFocusGroups(composition, check, packSkills) : null,
+    [composition, check, packSkills]
   );
   const focused = useMemo(() => {
     if (!groups) return null;

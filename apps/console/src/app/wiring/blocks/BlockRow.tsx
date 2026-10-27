@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { UnstyledButton } from '@mattstack/app-kit/core';
+import { Anchor, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 
 import classes from './blocks.module.css';
@@ -31,8 +32,31 @@ export function BlockGlyph({
       className={classes.glyph}
       aria-label={glyph}
       data-glyph={glyph}
+      data-hue={glyph}
       data-selected={selected || undefined}
     />
+  );
+}
+
+/** A block's glyph on a wash of its kind's hue, for a row or a card;
+    compact for a sidebar row. */
+export function KindBadge({
+  glyph,
+  size = 13,
+  compact = false,
+}: {
+  glyph: Glyph;
+  size?: number;
+  compact?: boolean;
+}) {
+  return (
+    <span
+      className={classes.kindBadge}
+      data-hue={glyph}
+      data-compact={compact || undefined}
+    >
+      <BlockGlyph glyph={glyph} size={size} />
+    </span>
   );
 }
 
@@ -57,7 +81,8 @@ export function LayerDots({ dots }: { dots: Dot[] }) {
 }
 
 /** One folded block: glyph, short label, first sentence, layer dots and a
-    plug when the block has props. A click opens the block. */
+    plug when the block has props. A click on the row shows its text in
+    place; Open goes into the block. */
 export function BlockRow({
   row,
   onOpen,
@@ -66,11 +91,12 @@ export function BlockRow({
 }: {
   row: FoldedRow;
   onOpen: (blockId: string) => void;
-  /** The block's text, shown under the row when it is expanded. */
+  /** The block's text, shown under the row when it is open. */
   body?: ReactNode;
-  /** On a Shared row, how many skills paste the tree in. */
+  /** On an include's row, how many skills include the tree. */
   usedBy?: number | null;
 }) {
+  const [open, setOpen] = useState(false);
   const expanded = body !== undefined && body !== null;
   if (row.shared) {
     const facts = [
@@ -88,48 +114,39 @@ export function BlockRow({
           data-testid="block-row"
           onClick={() => onOpen(row.id)}
         >
-          <Icon
-            name="chevronRight"
-            size={12}
-            className={classes.chevron}
-            data-open={expanded || undefined}
-          />
           <span className={classes.rowLabel}>{row.label}</span>
           <span className={classes.sharedFacts}>{facts}</span>
+          <Icon name="chevronRight" size={12} className={classes.rowGo} />
         </UnstyledButton>
-        {expanded && (
-          <div className={classes.rowBody} data-testid="block-row-body">
-            {body}
-          </div>
-        )}
       </li>
     );
   }
+  const shown = open && expanded;
+  const toggle = () => (expanded ? setOpen(!open) : onOpen(row.id));
   return (
     <li className={classes.rowItem}>
-      <UnstyledButton
-        className={classes.row}
-        data-selected={row.selected || undefined}
-        data-testid="block-row"
-        onClick={() => onOpen(row.id)}
-      >
-        <Icon
-          name="chevronRight"
-          size={12}
-          className={classes.chevron}
-          data-open={expanded || undefined}
-        />
-        {row.glyph === 'shared' ? (
-          <span aria-hidden />
-        ) : (
-          <BlockGlyph glyph={row.glyph} />
-        )}
-        <span className={classes.rowText}>
-          <span className={classes.rowLabel}>{row.label}</span>
-          {row.summary && !expanded && (
-            <span className={classes.rowSummary}>{row.summary}</span>
+      <div className={classes.row} data-selected={row.selected || undefined}>
+        <UnstyledButton
+          className={classes.rowToggle}
+          aria-expanded={expanded ? shown : undefined}
+          data-testid="block-row"
+          onClick={toggle}
+        >
+          <Icon
+            name={shown ? 'chevronDown' : 'chevronRight'}
+            size={12}
+            className={classes.rowCaret}
+            data-hidden={!expanded || undefined}
+          />
+          {row.glyph === 'shared' ? (
+            <span aria-hidden />
+          ) : (
+            <KindBadge glyph={row.glyph} />
           )}
-        </span>
+          <span className={classes.rowText}>
+            <span className={classes.rowLabel}>{row.label}</span>
+          </span>
+        </UnstyledButton>
         <span className={classes.rowMarks}>
           <LayerDots dots={row.dots} />
           {row.hasProps && (
@@ -141,9 +158,21 @@ export function BlockRow({
               data-testid="row-has-props"
             />
           )}
+          <Anchor
+            component="button"
+            type="button"
+            fz={13}
+            fw={500}
+            className={classes.rowOpen}
+            onClick={() => onOpen(row.id)}
+            data-testid="block-row-open"
+          >
+            Open
+            <Icon name="chevronRight" size={12} />
+          </Anchor>
         </span>
-      </UnstyledButton>
-      {expanded && (
+      </div>
+      {shown && (
         <div className={classes.rowBody} data-testid="block-row-body">
           {body}
         </div>

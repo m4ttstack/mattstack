@@ -7,7 +7,6 @@ import {
   Anchor,
   Group,
   HoverCard,
-  Loader,
   Paper,
   Progress,
   ScrollArea,
@@ -18,6 +17,7 @@ import {
 import { useGrow, useWindowEvent, type Grow } from '@mattstack/app-kit/hooks';
 import { Link } from 'wouter';
 
+import { StepLoader } from '../../StepLoader';
 import {
   barDetail,
   barLabel,
@@ -325,12 +325,7 @@ export function DayTimeline({
       <Axis axis={axis} />
       {rows.length === 0 && loading ? (
         <div className={classes.empty} data-testid="timeline-loading">
-          <Group gap={8} wrap="nowrap">
-            <Loader size="sm" />
-            <Text fz="lg" lh="normal" c="dimmed">
-              Loading the day's runs…
-            </Text>
-          </Group>
+          <StepLoader steps={[]} />
         </div>
       ) : rows.length > 0 ? (
         // The lanes scroll under the axis once a busy day outgrows the card.

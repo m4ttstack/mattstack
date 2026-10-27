@@ -1,0 +1,14 @@
+/* A long path in rt's text wraps inside a narrow alert. */
+.wrap {
+  overflow-wrap: anywhere;
+}
+
+.findings {
+  padding-left: 12px;
+}
+
+/* Line numbers line up in one column. */
+.lineNo {
+  flex: none;
+  min-width: 56px;
+}

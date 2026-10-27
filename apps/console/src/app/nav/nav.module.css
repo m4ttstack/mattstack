@@ -1,0 +1,12 @@
+.trail {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.separator {
+  color: var(--tk-text-3);
+}
+
+.here {
+  color: var(--tk-text-2);
+}

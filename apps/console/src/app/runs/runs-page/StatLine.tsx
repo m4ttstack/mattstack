@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import { Divider, Group, Paper, Skeleton, Text } from '@mattstack/app-kit/core';
+import { Divider, Group, Paper, Text } from '@mattstack/app-kit/core';
 
 import type { StatCard } from '../derive/lanes';
 import { Dot } from '../run-page/Dot';
@@ -41,7 +41,9 @@ export function StatLine({
             data-testid={`stat-${card.key}`}
             value={
               state === 'loading' ? (
-                <Skeleton h={28} w={40} radius="sm" />
+                <Text inherit span>
+                  {'\u00a0'}
+                </Text>
               ) : state === 'unknown' ? (
                 <Text inherit c="dimmed" span>
                   —
