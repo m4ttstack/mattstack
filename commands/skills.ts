@@ -121,6 +121,7 @@ import {
   type PluginRoots,
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
+import { approvedBranches, currentBranchSync } from "../lib/team/approved-branch.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
 import type { AttachmentSource, CompiledFile, CompileResult, PlannedAttachments, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
 
@@ -2167,12 +2168,12 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
   const skillFrontmatter = payload.skillFrontmatter ?? [];
   if (skillFrontmatter.length > 0) {
-    blocks.push(out.verbatim(skillFrontmatter.map(formatDiagnostic), "hand-authored skills, frontmatter"));
+    blocks.push(out.verbatim(skillFrontmatter.map(formatDiagnostic), "standard skills, frontmatter"));
     blocks.push(out.line("failed", `skill frontmatter: ${countOf(skillFrontmatter.length, "file does", "files do")} not parse as YAML`, "fix the YAML at that line"));
   }
   const skillPaths = payload.skillPaths ?? [];
   if (skillPaths.length > 0) {
-    blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "hand-authored skills, paths"));
+    blocks.push(out.verbatim(skillPaths.map(formatDiagnostic), "standard skills, paths"));
     blocks.push(out.line("failed", `skill paths: ${countOf(skillPaths.length, "path points", "paths point")} at nothing`, "fix the path in the skill"));
   }
   const pointerErrors = payload.pointerErrors ?? [];
@@ -2953,6 +2954,15 @@ function shownPath(f: PendingFile): string {
   return f.from === undefined ? f.path : `${f.from} -> ${f.path}`;
 }
 
+/** The trial branch the pack's org copy is on; the data branch, a member's pack or a paused clone has none. */
+function trialBranchOf(packDir: string): string | undefined {
+  const at = orgOfPackDir(packDir);
+  if (at === null) return undefined;
+  const [data, trial] = approvedBranches(createRealProbes(), at.org, at.root);
+  const branch = currentBranchSync(at.root);
+  return trial !== undefined && branch === trial && branch !== data ? trial : undefined;
+}
+
 export async function skillsChanges(args: string[]): Promise<void> {
   await withCleanErrors(args, async () => {
     const flags = parseFlags(args);
@@ -2971,6 +2981,8 @@ export async function skillsChanges(args: string[]): Promise<void> {
       surface: signed.surface,
       signature: signed.signature,
     };
+    const trial = trialBranchOf(packDir);
+    if (trial !== undefined) payload.trialBranch = trial;
 
     if (flags.json) {
       out.json(payload);
@@ -2982,7 +2994,7 @@ export async function skillsChanges(args: string[]): Promise<void> {
     }
     const fileRows = (group: string, rows: PendingFile[]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, shownPath(f)])] : []);
     const blocks = [
-      out.line("pending", `Pack ${team} has changes that are not synced yet`),
+      out.line("pending", `Pack ${team} has changes that are not synced yet`, trial === undefined ? undefined : `On the trial branch ${trial}: a sync pushes them there, not to the data branch`),
       out.table([...fileRows("Pack files", payload.files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
     ];
     if (payload.bindings.length > 0) {
@@ -3184,8 +3196,10 @@ type SurfaceFlags = {
 
 export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal"; base?: string; path?: string };
 
+/** A skill rt installs exactly as it sits in the pack reads as standard; --json keeps `hand-authored`. */
 function kindLabel(kind: SurfaceRow["kind"]): string {
-  return kind === "missing" ? "(no files on disk)" : kind;
+  if (kind === "missing") return "(no files on disk)";
+  return kind === "hand-authored" ? "standard" : kind;
 }
 
 function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[] } {

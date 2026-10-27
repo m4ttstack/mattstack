@@ -4173,6 +4173,31 @@ describe("skillsChanges --json", () => {
     });
   });
 
+  test("names the trial branch when the org copy is on the one this Mac chose, and only then", async () => {
+    const savedHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-changes-trial-")));
+    try {
+      process.env.HOME = home;
+      const { repoRoot, packDir } = makeCommittedPack("mattstack/teams/acme/plugin");
+      writeFile(join(repoRoot, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+      commitAll(repoRoot);
+      git(repoRoot, "branch", "-M", "main");
+      const record = join(home, ".mattstack", "rt", "teams", "acme.json");
+      writeFile(record, JSON.stringify({ dataBranch: "main", trialBranch: "try-blocks" }));
+
+      expect((await changesJson(["--pack", "acme", "--pack-dir", packDir])).trialBranch).toBeUndefined();
+
+      git(repoRoot, "switch", "-q", "-c", "try-blocks");
+      expect((await changesJson(["--pack", "acme", "--pack-dir", packDir])).trialBranch).toBe("try-blocks");
+
+      writeFile(record, JSON.stringify({ dataBranch: "main" }));
+      expect((await changesJson(["--pack", "acme", "--pack-dir", packDir])).trialBranch).toBeUndefined();
+    } finally {
+      process.env.HOME = savedHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("a deleted pack file has no content id", async () => {
     const { packDir } = makeCommittedPack();
     rmSync(join(packDir, "attachments", "stage-plan", "SKILL.md"));
