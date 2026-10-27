@@ -384,6 +384,8 @@ interface SkillsChangesResponse {
   bindings: SkillsBindingChange[];
   surface: SkillsSurfaceChange[];
   signature: string;
+  /** Set when the org copy is on a trial branch: a sync installs on this Mac only. */
+  trialBranch?: string;
 }
 interface SkillsDiscardResponse {
   pack: string;
@@ -510,6 +512,49 @@ const isPackPath = (path: string) =>
     `..` all mean something. Only an object name gets through, so the only
     revisions this route can name are ones the history route listed. */
 const COMMIT_SHA = /^[0-9a-f]{7,40}$/;
+/** The diff route's `to` for the working tree, against `from=HEAD`. */
+const WORKING_TREE = 'working';
+/** New files a working-tree diff lists, at most. */
+const MAX_UNTRACKED = 200;
+
+/** The pack's new files as diffs against nothing: `git diff` skips a file
+    git does not track yet, and a sync adds it all the same. */
+async function untrackedDiff(runGit: RunGit, packDir: string): Promise<string> {
+  const listed = await runGit([
+    '-C',
+    packDir,
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '-z',
+    '--',
+    '.',
+  ]);
+  if (listed.code !== 0) return '';
+  const paths = listed.stdout
+    .split('\0')
+    .filter(Boolean)
+    .slice(0, MAX_UNTRACKED);
+  const diffs = await Promise.all(
+    paths.map(path =>
+      runGit([
+        '-C',
+        packDir,
+        'diff',
+        '--no-color',
+        '--no-index',
+        '--',
+        '/dev/null',
+        path,
+      ])
+    )
+  );
+  // `--no-index` exits 1 when the two sides differ, which a new file always does.
+  return diffs
+    .filter(result => result.code <= 1)
+    .map(result => result.stdout)
+    .join('');
+}
 
 /** The title rt's CLI gives a failure it did not expect. */
 const RT_UNEXPECTED = 'rt hit an unexpected error';
@@ -702,6 +747,18 @@ const syncBody = validator(
     };
   }
 );
+
+const compileBody = validator('json', (value): { pack?: string } => {
+  const v = value as { pack?: unknown };
+  return { pack: typeof v?.pack === 'string' ? v.pack : undefined };
+});
+
+/** `rt skills compile --json`: what it wrote, and each verb that failed. */
+interface SkillsCompileReport {
+  pack: string;
+  written: boolean;
+  verbs: { name: string; status: string; errors?: string[] }[];
+}
 
 const discardBody = validator(
   'json',
@@ -1367,12 +1424,18 @@ export function mountSkills(
         return c.json({ error: 'from and to are required' }, 400);
       }
       // Both are checked BEFORE a pack dir is even resolved, so a revision
-      // that is not an object name never reaches git in any form.
-      for (const sha of [from, to]) {
-        if (!COMMIT_SHA.test(sha)) {
-          return c.json({ error: `invalid commit: ${sha}` }, 400);
+      // that is not an object name never reaches git in any form. The one
+      // other pair is HEAD against the working tree: the pack's unsynced
+      // changes.
+      const working = from === 'HEAD' && to === WORKING_TREE;
+      if (!working) {
+        for (const sha of [from, to]) {
+          if (!COMMIT_SHA.test(sha)) {
+            return c.json({ error: `invalid commit: ${sha}` }, 400);
+          }
         }
       }
+      const revs = working ? ['HEAD'] : [`${from}..${to}`];
 
       try {
         // Same rule as the history route: the directory comes from rt, never
@@ -1413,7 +1476,7 @@ export function mountSkills(
           'diff',
           '--no-color',
           '--relative',
-          `${from}..${to}`,
+          ...revs,
           '--',
           '.',
         ]);
@@ -1425,7 +1488,10 @@ export function mountSkills(
         }
 
         const repoRoot = root.stdout.trim();
-        const bounded = boundDiff(diff.stdout);
+        const untracked = working ? await untrackedDiff(runGit, packDir) : '';
+        const bounded = boundDiff(
+          untracked === '' ? diff.stdout : diff.stdout + untracked
+        );
         const response: SkillsDiffResponse = {
           pack,
           packDir,
@@ -1447,7 +1513,7 @@ export function mountSkills(
             packDir,
             'diff',
             '--no-color',
-            `${from}..${to}`,
+            ...revs,
             '--',
             ...basePathspecs,
           ]);
@@ -1663,6 +1729,32 @@ export function mountSkills(
           );
         }
         return c.json(payload as SkillsChangesResponse, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .post('/api/skills/compile', compileBody, async c => {
+      const { pack } = c.req.valid('json');
+      if (!pack) return c.json({ error: 'pack is required' }, 400);
+      const rt = heldOpen(c.env, c.req.raw);
+      try {
+        // Compiling writes the pack's compiled files and nothing else: the
+        // result is unsynced changes until a publish shares them.
+        const { stdout, stderr } = await rt(
+          ['skills', 'compile', '--pack', pack, '--json'],
+          WRITE
+        ).finally(() => dropCachedReads(pack));
+        const payload = parseJsonPayload(stdout);
+        if (payload === undefined) {
+          return c.json(
+            { error: stderr.trim() || 'rt produced no output' },
+            502
+          );
+        }
+        return c.json(payload as SkillsCompileReport, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);
