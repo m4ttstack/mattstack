@@ -8,7 +8,6 @@ import {
   findFocus,
   firstFocus,
   focusUnder,
-  onlyAttention,
   pipelineOf,
   workTypeOf,
   type FocusItem,
@@ -175,45 +174,6 @@ describe('buildFocusGroups on other packs', () => {
     expect(groups.pipelines[0]!.attention).toBe(false);
     expect(flagged(groups.standalone)).toEqual(['standup']);
     expect(groups.unwired.attention).toBe(true);
-  });
-});
-
-describe('onlyAttention', () => {
-  const filtered = onlyAttention(buildFocusGroups(composition, check));
-
-  it('keeps work with only its stale steps', () => {
-    expect(labels(filtered.pipelines)).toEqual([
-      'work · feature',
-      'work-a11y · accessibility',
-    ]);
-    expect(labels(filtered.pipelines[1]!.children)).toEqual([
-      'ship',
-      'watch-ci',
-    ]);
-    expect(labels(filtered.pipelines[0]!.children)).toEqual([
-      'evidence',
-      'ship',
-      'watch-ci',
-    ]);
-  });
-
-  it('keeps review, standup and unwired, and drops the board group', () => {
-    expect(labels(filtered.standalone)).toEqual(['review', 'standup']);
-    expect(filtered.board).toEqual([]);
-    expect(labels(filtered.unwired.items)).toEqual(['release-notes']);
-  });
-
-  it('counts only the unwired verbs it kept', () => {
-    expect(filtered.unwired.count).toBe(1);
-  });
-
-  it('hides unwired when nothing in it needs attention', () => {
-    const groups = buildFocusGroups(composition, check);
-    const quiet = onlyAttention({
-      ...groups,
-      unwired: { ...groups.unwired, attention: false },
-    });
-    expect(quiet.unwired.count).toBe(0);
   });
 });
 

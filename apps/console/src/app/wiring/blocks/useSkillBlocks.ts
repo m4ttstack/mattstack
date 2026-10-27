@@ -75,7 +75,13 @@ export function useSkillBlocks(
   const board = item?.icon === 'layoutDashboard';
   const blocksQuery = useBlocks(pack, item && !board ? item.skill : null);
   const notBlocks = board || blocksQuery.data === null;
-  const sourcePath = item && board ? boardSkillFile(composition, item) : null;
+  const sourcePath = !item
+    ? null
+    : board
+      ? boardSkillFile(composition, item)
+      : notBlocks
+        ? (item.file ?? null)
+        : null;
   const sourceQuery = useSkillSource(pack, sourcePath);
   const content = sourceQuery.data?.content;
   const tree = useMemo(

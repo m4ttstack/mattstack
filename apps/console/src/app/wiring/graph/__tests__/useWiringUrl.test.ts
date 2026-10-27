@@ -19,7 +19,7 @@ const DEFAULTS: WiringUrl = {
 };
 
 const FULL: WiringUrl = {
-  tab: 'surface',
+  tab: 'config',
   pack: 'acme',
   focus: 'stage-plan',
   select: 'input:include:gate-protocol',
@@ -61,9 +61,14 @@ describe('parseWiringUrl', () => {
 
   it('reads every field, with or without the leading question mark', () => {
     const search =
-      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run';
+      'tab=config&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run';
     expect(parseWiringUrl(search)).toEqual(FULL);
     expect(parseWiringUrl(`?${search}`)).toEqual(FULL);
+  });
+
+  it('opens an old Surface or Health link on Config', () => {
+    expect(parseWiringUrl('tab=surface').tab).toBe('config');
+    expect(parseWiringUrl('tab=health').tab).toBe('config');
   });
 
   it('maps the rail badge link ?attention=1 to attention', () => {
@@ -110,7 +115,7 @@ describe('formatWiringUrl', () => {
 
   it('emits keys in a stable order', () => {
     expect(formatWiringUrl(FULL)).toBe(
-      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run'
+      'tab=config&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run'
     );
   });
 
@@ -144,7 +149,7 @@ describe('formatWiringUrl', () => {
   });
 
   it('is idempotent on its own output', () => {
-    const once = formatWiringUrl(parseWiringUrl('block=a&focus=a&tab=health'));
+    const once = formatWiringUrl(parseWiringUrl('block=a&focus=a&tab=config'));
     expect(formatWiringUrl(parseWiringUrl(once))).toBe(once);
   });
 });
@@ -156,7 +161,7 @@ describe('useWiringUrl', () => {
   const at = (url: string) => window.history.replaceState(null, '', url);
 
   beforeEach(() => {
-    at('/wiring');
+    at('/packs');
     pushState = vi.spyOn(window.history, 'pushState');
     replaceState = vi.spyOn(window.history, 'replaceState');
   });
@@ -168,7 +173,7 @@ describe('useWiringUrl', () => {
   });
 
   it('reads the current search', () => {
-    at('/wiring?focus=stage-plan&select=row:3');
+    at('/packs?focus=stage-plan&select=row:3');
     const { result } = renderHook(() => useWiringUrl());
     expect(result.current[0]).toEqual({
       ...DEFAULTS,
@@ -178,13 +183,13 @@ describe('useWiringUrl', () => {
   });
 
   it('reads ?attention=1', () => {
-    at('/wiring?attention=1');
+    at('/packs?attention=1');
     const { result } = renderHook(() => useWiringUrl());
     expect(result.current[0].attention).toBe(true);
   });
 
   it('pushes a focus change and clears select and view', () => {
-    at('/wiring?focus=pipeline:feature&select=row:1&view=rendered');
+    at('/packs?focus=pipeline:feature&select=row:1&view=rendered');
     replaceState.mockClear();
     const { result } = renderHook(() => useWiringUrl());
 
@@ -192,13 +197,13 @@ describe('useWiringUrl', () => {
 
     expect(pushState).toHaveBeenCalledTimes(1);
     expect(replaceState).not.toHaveBeenCalled();
-    expect(window.location.pathname).toBe('/wiring');
+    expect(window.location.pathname).toBe('/packs');
     expect(window.location.search).toBe('?focus=stage-plan');
     expect(result.current[0]).toEqual({ ...DEFAULTS, focus: 'stage-plan' });
   });
 
   it('keeps an explicit select that rides along with a focus change', () => {
-    at('/wiring?focus=pipeline:feature&select=row:1');
+    at('/packs?focus=pipeline:feature&select=row:1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'stage-plan', select: 'row:140' }));
@@ -211,7 +216,7 @@ describe('useWiringUrl', () => {
   });
 
   it('leaves select alone when the focus patch names the current focus', () => {
-    at('/wiring?focus=stage-plan&select=row:1');
+    at('/packs?focus=stage-plan&select=row:1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'stage-plan' }));
@@ -220,7 +225,7 @@ describe('useWiringUrl', () => {
   });
 
   it("drops an old link's retired drawer and rebind keys on the next patch", () => {
-    at('/wiring?focus=a&select=output&drawerTab=history&rebind=1');
+    at('/packs?focus=a&select=output&drawerTab=history&rebind=1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'b' }));
@@ -231,10 +236,10 @@ describe('useWiringUrl', () => {
   it('pushes a tab change', () => {
     const { result } = renderHook(() => useWiringUrl());
 
-    act(() => result.current[1]({ tab: 'health' }));
+    act(() => result.current[1]({ tab: 'config' }));
 
     expect(pushState).toHaveBeenCalledTimes(1);
-    expect(window.location.search).toBe('?tab=health');
+    expect(window.location.search).toBe('?tab=config');
   });
 
   it('pushes a pack change', () => {
@@ -247,22 +252,32 @@ describe('useWiringUrl', () => {
   });
 
   it.each<[string, Partial<WiringUrl>, string]>([
-    ['select', { select: 'row:2' }, '?select=row:2'],
-    ['view', { view: 'rendered' }, '?view=rendered'],
+    ['select', { select: 'graph' }, '?select=graph'],
     ['block', { block: 'mini/run' }, '?block=mini/run'],
-  ])('replaces on a %s change', (_name, patch, search) => {
+  ])('pushes a %s change, so Back retraces it', (_name, patch, search) => {
     const { result } = renderHook(() => useWiringUrl());
     replaceState.mockClear();
 
     act(() => result.current[1](patch));
 
-    expect(replaceState).toHaveBeenCalledTimes(1);
-    expect(pushState).not.toHaveBeenCalled();
+    expect(pushState).toHaveBeenCalledTimes(1);
+    expect(replaceState).not.toHaveBeenCalled();
     expect(window.location.search).toBe(search);
   });
 
+  it('replaces on a view change', () => {
+    const { result } = renderHook(() => useWiringUrl());
+    replaceState.mockClear();
+
+    act(() => result.current[1]({ view: 'rendered' }));
+
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?view=rendered');
+  });
+
   it('drops a key back to its default out of the URL', () => {
-    at('/wiring?focus=stage-plan&select=row:1&view=rendered');
+    at('/packs?focus=stage-plan&select=row:1&view=rendered');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ select: null, view: null }));
@@ -271,16 +286,16 @@ describe('useWiringUrl', () => {
   });
 
   it('navigates to the bare path when every key is a default', () => {
-    at('/wiring?tab=health');
+    at('/packs?tab=config');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ tab: 'graph' }));
 
-    expect(window.location.pathname + window.location.search).toBe('/wiring');
+    expect(window.location.pathname + window.location.search).toBe('/packs');
   });
 
   it('does not navigate for a patch that changes nothing', () => {
-    at('/wiring?focus=stage-plan');
+    at('/packs?focus=stage-plan');
     const { result } = renderHook(() => useWiringUrl());
     pushState.mockClear();
     replaceState.mockClear();
@@ -292,7 +307,7 @@ describe('useWiringUrl', () => {
   });
 
   it('keeps query keys it does not own', () => {
-    at('/wiring?scenario=unsynced&focus=a');
+    at('/packs?scenario=unsynced&focus=a');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'b' }));
@@ -301,7 +316,7 @@ describe('useWiringUrl', () => {
   });
 
   it('ignores a key patched to undefined', () => {
-    at('/wiring?focus=stage-plan&select=row:1');
+    at('/packs?focus=stage-plan&select=row:1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ select: undefined, view: undefined }));
@@ -326,7 +341,7 @@ describe('useWiringUrl', () => {
 
   describe('cascade', () => {
     const DEEP =
-      '/wiring?pack=acme&focus=stage-plan&select=row:136&view=rendered';
+      '/packs?pack=acme&focus=stage-plan&select=row:136&view=rendered';
 
     const patchFrom = (url: string, change: Partial<WiringUrl>) => {
       at(url);
@@ -341,8 +356,8 @@ describe('useWiringUrl', () => {
       expect(patchFrom(DEEP, { select: 'row:2' })).toBe(
         '?pack=acme&focus=stage-plan&select=row:2'
       );
-      expect(replaceState).toHaveBeenCalledTimes(1);
-      expect(pushState).not.toHaveBeenCalled();
+      expect(pushState).toHaveBeenCalledTimes(1);
+      expect(replaceState).not.toHaveBeenCalled();
     });
 
     it('closing the drawer (select to null) clears view', () => {
@@ -367,19 +382,19 @@ describe('useWiringUrl', () => {
 
     it('a block patch on its own leaves the selection alone', () => {
       expect(
-        patchFrom('/wiring?focus=a&select=row:136', { block: 'mini/run' })
+        patchFrom('/packs?focus=a&select=row:136', { block: 'mini/run' })
       ).toBe('?focus=a&select=row:136&block=mini/run');
     });
 
     it('a changed focus clears the block', () => {
-      expect(patchFrom('/wiring?focus=a&block=mini/run', { focus: 'b' })).toBe(
+      expect(patchFrom('/packs?focus=a&block=mini/run', { focus: 'b' })).toBe(
         '?focus=b'
       );
     });
 
     it('a changed pack clears the block', () => {
       expect(
-        patchFrom('/wiring?pack=acme&focus=a&block=mini/run', {
+        patchFrom('/packs?pack=acme&focus=a&block=mini/run', {
           pack: 'gadgets',
         })
       ).toBe('?pack=gadgets');
@@ -387,7 +402,7 @@ describe('useWiringUrl', () => {
 
     it('a block set with a changed focus wins', () => {
       expect(
-        patchFrom('/wiring?focus=a', { focus: 'mini', block: 'mini/run' })
+        patchFrom('/packs?focus=a', { focus: 'mini', block: 'mini/run' })
       ).toBe('?focus=mini&block=mini/run');
     });
 
@@ -422,7 +437,7 @@ describe('useWiringUrl', () => {
 
     it('a changed pack from the default pack clears focus too', () => {
       expect(
-        patchFrom('/wiring?focus=stage-plan&select=row:1', { pack: 'globex' })
+        patchFrom('/packs?focus=stage-plan&select=row:1', { pack: 'globex' })
       ).toBe('?pack=globex');
     });
 
@@ -448,7 +463,7 @@ describe('useWiringUrl', () => {
 
     it('a whole deep link patches in one call', () => {
       expect(
-        patchFrom('/wiring?pack=acme&focus=old&select=row:1', {
+        patchFrom('/packs?pack=acme&focus=old&select=row:1', {
           pack: 'globex',
           focus: 'stage-plan',
           select: 'row:136',
@@ -462,7 +477,7 @@ describe('useWiringUrl', () => {
     });
 
     it('an empty-string focus is not a refocus', () => {
-      expect(patchFrom('/wiring?select=row:1', { focus: '' })).toBe(
+      expect(patchFrom('/packs?select=row:1', { focus: '' })).toBe(
         '?select=row:1'
       );
       expect(pushState).not.toHaveBeenCalled();
@@ -471,13 +486,13 @@ describe('useWiringUrl', () => {
 
     it('an empty-string value is never written to the URL', () => {
       expect(
-        patchFrom('/wiring?focus=a', { select: '', pack: '', view: null })
+        patchFrom('/packs?focus=a', { select: '', pack: '', view: null })
       ).toBe('?focus=a');
       expect(replaceState).not.toHaveBeenCalled();
     });
 
     it('an empty string clears a value that was set', () => {
-      expect(patchFrom('/wiring?focus=a&select=row:1', { select: '' })).toBe(
+      expect(patchFrom('/packs?focus=a&select=row:1', { select: '' })).toBe(
         '?focus=a'
       );
     });

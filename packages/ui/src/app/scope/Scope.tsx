@@ -279,7 +279,7 @@ export function TeamMenu({
 export function ViewerChip({ info }: { info: ViewerInfo | null | undefined }) {
   if (!info?.viewer) return null;
   return (
-    <MattstackShell.AppBar side="end">
+    <MattstackShell.AppBar side="viewer">
       <Who viewer={info.viewer} />
     </MattstackShell.AppBar>
   );

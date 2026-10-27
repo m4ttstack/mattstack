@@ -209,12 +209,15 @@ describe('KeyPanel', () => {
     expect(screen.getByTestId('layer-value-user')).toHaveTextContent(/^30$/);
   });
 
-  it('drops the loading skeleton once the layers arrive, even when there are none', async () => {
-    const skeleton = () => document.querySelector('.mantine-Skeleton-root');
+  it('drops the loader once the layers arrive, even when there are none', async () => {
+    const loader = () =>
+      screen.queryByRole('status', {
+        name: 'reading where board.agent.model is set',
+      });
     renderPanel(def('board.agent.model'), []);
-    expect(skeleton()).not.toBeNull();
+    expect(loader()).not.toBeNull();
     await waitFor(() => expect(explainGet).toHaveBeenCalled());
-    await waitFor(() => expect(skeleton()).toBeNull());
+    await waitFor(() => expect(loader()).toBeNull(), { timeout: 3000 });
   });
 
   it('marks the winner in effect and mutes what it overrides', async () => {

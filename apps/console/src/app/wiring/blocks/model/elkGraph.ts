@@ -13,7 +13,13 @@ export type LayoutEdge = {
   id: string;
   source: string;
   target: string;
-  label?: { text: string; width: number; height: number };
+  label?: {
+    text: string;
+    width: number;
+    height: number;
+    /** ELK options for this label alone, as where it sits on its edge. */
+    layoutOptions?: Record<string, string>;
+  };
   /** ELK's straightness priority: higher keeps the edge straighter. */
   priority?: number;
 };

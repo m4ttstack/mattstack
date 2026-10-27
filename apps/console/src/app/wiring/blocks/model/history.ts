@@ -23,6 +23,8 @@ export type BuiltFromRow = {
   installed: string;
   status: FileStatus;
   owner: Owner;
+  /** The Layers strip's colour for whoever owns the file. */
+  layer: 'mattstack' | 'org' | 'team';
 };
 
 export type StaleStep = {
@@ -53,6 +55,12 @@ function rowOf(
     installed: owner.kind === 'base' ? 'org base' : source.version,
     status,
     owner,
+    layer:
+      owner.kind === 'base'
+        ? 'org'
+        : (owner.kind === 'pack' ? pack : owner.name) === 'mattstack'
+          ? 'mattstack'
+          : 'team',
   };
 }
 

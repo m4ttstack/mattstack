@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import {
   MattstackShell,
   OrgPill,
@@ -7,12 +8,10 @@ import {
 } from '@mattstack/app-kit/app';
 import {
   Badge,
-  Box,
   Button,
   GenericError,
   Group,
   PageShell,
-  Stack,
   Text,
 } from '@mattstack/app-kit/core';
 import type { PageShellTab } from '@mattstack/app-kit/core';
@@ -21,14 +20,24 @@ import { Icons } from '@mattstack/app-kit/icons';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { useEditorHref } from '../editorHref';
-import { CommandProvenance } from '../runs/CommandProvenance';
+import { PaneResizer, usePaneWidth } from '../PaneResizer';
+import { StepLoader } from '../StepLoader';
+import { ConfigTab } from './ConfigTab';
+import { ContentReadyContext } from './contentReady';
 import { DevPackSwitch } from './DevPackSwitch';
+import toastClasses from './graph/graph.module.css';
 import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
 import { MissingPackNotice } from './graph/MissingPackNotice';
-import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
+import { useUnsyncedBanner, useUnsyncedSummary } from './graph/UnsyncedBanner';
+import { UnsyncedToast } from './graph/UnsyncedToast';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
-import { HealthTab, HealthTabSkeleton } from './HealthTab';
-import { SurfaceGridSkeleton, SurfaceTab } from './SurfaceTab';
+import {
+  COMMITS_PANE,
+  HistoryMain,
+  HistorySidebar,
+  WORKING,
+  writeHistoryUrl,
+} from './PackHistory';
 import {
   useAttentionCount,
   useCompositionSnapshot,
@@ -61,18 +70,28 @@ export function WiringMap() {
   const org = who?.org ?? null;
   const viewer = who?.viewer ?? null;
   const unsynced = useUnsyncedBanner(pack);
+  const unsyncedCount = useUnsyncedSummary(pack)?.count ?? 0;
+  // The notification waits for the tab's content and the changes read, so it
+  // never arrives ahead of the page.
+  const [readyPack, setReadyPack] = useState<string | null>(null);
+  const markReady = useCallback(() => setReadyPack(pack), [pack]);
+  const contentReady = readyPack !== null && readyPack === pack;
+  const reviewChanges = () => {
+    patch({ tab: 'history' });
+    writeHistoryUrl({ commits: [WORKING] });
+  };
   const showTab = (tab: WiringTab) => patch({ tab });
+  const [commitsWidth, setCommitsWidth] = usePaneWidth(
+    'console-history-commits-width',
+    COMMITS_PANE
+  );
   const notch = pack
     ? {
-        content: (
-          <Stack gap={0} w="100%">
-            {missing !== null && (
-              <MissingPackNotice asked={missing} shown={pack} />
-            )}
-            <UnsyncedBanner key={pack} pack={pack} />
-          </Stack>
-        ),
-        opened: unsynced || missing !== null,
+        content:
+          missing !== null ? (
+            <MissingPackNotice asked={missing} shown={pack} />
+          ) : null,
+        opened: missing !== null,
       }
     : undefined;
 
@@ -82,49 +101,68 @@ export function WiringMap() {
     ? [
         {
           id: 'graph',
-          label: 'Graph',
-          icon: 'workflow',
+          label: 'Overview',
+          icon: 'boxes',
           active: url.tab === 'graph',
           onClick: () => showTab('graph'),
         },
         {
-          id: 'surface',
-          label: 'Surface',
-          icon: 'layers',
-          active: url.tab === 'surface',
-          onClick: () => showTab('surface'),
-        },
-        {
-          id: 'health',
-          label: 'Health',
+          id: 'config',
+          label: 'Config',
           labelComponent: (
-            <Group gap={4} wrap="nowrap">
-              <span>Health</span>
+            <Group gap={6} wrap="nowrap">
+              <span>Config</span>
               {attentionCount > 0 && (
                 <Badge
                   size="xs"
-                  variant="light"
-                  // Main.dc.html `.tab.active .cnt.warn`: the amber tint is
-                  // scoped to the active tab -- an inactive tab's count
-                  // stays neutral so warn-orange doesn't bleed onto chrome
-                  // that isn't Health.
-                  color={url.tab === 'health' ? 'warn' : 'gray'}
+                  variant="tint"
+                  color="warn"
                   radius="xl"
-                  data-testid="health-tab-count"
+                  leftSection={<span className={toastClasses.tabDot} />}
+                  title={`${attentionCount} need attention`}
+                  data-testid="config-tab-count"
                 >
                   {attentionCount}
                 </Badge>
               )}
             </Group>
           ),
-          icon: 'checkCircle',
-          active: url.tab === 'health',
-          onClick: () => showTab('health'),
+          icon: 'sliders',
+          active: url.tab === 'config',
+          onClick: () => showTab('config'),
+        },
+        {
+          id: 'history',
+          label: 'Changes',
+          labelComponent: (
+            <Group gap={6} wrap="nowrap">
+              <span>Changes</span>
+              {unsynced.show && unsyncedCount > 0 && (
+                <Badge
+                  size="xs"
+                  variant="tint"
+                  color="warn"
+                  radius="xl"
+                  leftSection={<span className={toastClasses.tabDot} />}
+                  title={`${unsyncedCount} unsynced`}
+                  data-testid="history-tab-unsynced"
+                >
+                  {unsyncedCount}
+                </Badge>
+              )}
+            </Group>
+          ),
+          icon: 'clock',
+          active: url.tab === 'history',
+          onClick: () => showTab('history'),
         },
       ]
     : [];
 
   const graphPack = url.tab === 'graph' ? pack : null;
+  const historyPack = url.tab === 'history' ? pack : null;
+  // A pack whose skills failed to load has nothing to list; the stage says why.
+  const packFailed = snapshot.isError && !snapshot.data;
 
   // The pack this page reads, in the app's top bar beside the page's
   // other context.
@@ -184,85 +222,99 @@ export function WiringMap() {
     </MattstackShell.AppBar>
   );
 
-  const actions = (
-    <>
-      <Box visibleFrom="lg">
-        <CommandProvenance
-          command="rt skills composition"
-          asOf={snapshot.dataUpdatedAt || undefined}
-        />
-      </Box>
-      {packDir && (
-        <Button
-          size="xs"
-          variant="default"
-          component="a"
-          href={editorHref(packDir)}
-          leftSection={<Icons.package size={14} />}
-          data-testid="open-pack"
-        >
-          Open pack
-        </Button>
-      )}
-    </>
+  const actions = packDir && (
+    <Button
+      size="compact-sm"
+      variant="default"
+      component="a"
+      href={editorHref(packDir)}
+      leftSection={<Icons.package size={13} />}
+      data-testid="open-pack"
+    >
+      Open pack
+    </Button>
   );
 
   return (
     <>
       {packScope}
       {devSwitch}
-      <PageShell
-        tabBarHeight={PAGE_ROW_HEIGHT}
-        sidebarWidth={256}
-        drawerStateKey="console-wiring-focus"
-        tabs={tabs}
-        tabBar={{ title: 'Wiring', actions }}
-        topNotch={notch}
-      >
-        {graphPack && (
-          <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
-            <GraphTabSidebar pack={graphPack} />
-          </PageShell.Sidebar>
-        )}
-        <PageShell.Main>
-          {graphPack ? (
-            <PageShell.Content bg="var(--tk-bg)" contentContainer={false}>
-              {height => <GraphTab pack={graphPack} height={height} />}
-            </PageShell.Content>
-          ) : (
-            <PageShell.Content>
-              {packsQuery.isError ? (
-                <GenericError
-                  title="Couldn't load skills packs"
-                  message={(packsQuery.error as Error).message}
-                  onRetry={() => void packsQuery.refetch()}
-                />
-              ) : !pack ? (
-                packsQuery.isPending ? (
-                  <div data-testid="packs-loading">
-                    {url.tab === 'surface' ? (
-                      <SurfaceGridSkeleton />
-                    ) : (
-                      <HealthTabSkeleton />
-                    )}
-                  </div>
-                ) : (
-                  <Text size="sm" c={text.dimmed} data-testid="no-packs">
-                    No skills packs found.
-                  </Text>
-                )
-              ) : url.tab === 'surface' ? (
-                <SurfaceTab pack={pack} />
-              ) : (
-                <HealthTab
-                  pack={pack}
-                  onOpenSkill={verb => patch({ tab: 'graph', focus: verb })}
-                />
-              )}
-            </PageShell.Content>
+      <ContentReadyContext.Provider value={markReady}>
+        <PageShell
+          tabBarHeight={PAGE_ROW_HEIGHT}
+          sidebarWidth={historyPack && !packFailed ? commitsWidth : 296}
+          drawerStateKey="console-wiring-focus"
+          tabs={tabs}
+          tabBar={{ title: 'Packs', actions }}
+        >
+          {graphPack && !packFailed && (
+            <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
+              <GraphTabSidebar pack={graphPack} />
+            </PageShell.Sidebar>
           )}
-        </PageShell.Main>
-      </PageShell>
+          {historyPack && !packFailed && (
+            <PageShell.Sidebar hideCollapseButton bg="var(--tk-card)">
+              <div style={{ position: 'relative', minHeight: '100%' }}>
+                <HistorySidebar pack={historyPack} />
+                <PaneResizer
+                  width={commitsWidth}
+                  onWidth={setCommitsWidth}
+                  bounds={COMMITS_PANE}
+                  label="Resize the commit list"
+                  style={{ right: 0 }}
+                  testId="commits-resizer"
+                />
+              </div>
+            </PageShell.Sidebar>
+          )}
+          <PageShell.Main>
+            {pack && url.tab !== 'history' && (
+              <UnsyncedToast
+                key={pack}
+                pack={pack}
+                ready={contentReady && unsynced.known}
+                onReview={reviewChanges}
+              />
+            )}
+            {graphPack ? (
+              <PageShell.Content
+                bg="var(--tk-card)"
+                contentContainer={false}
+                topNotch={notch}
+              >
+                {height => <GraphTab pack={graphPack} height={height} />}
+              </PageShell.Content>
+            ) : historyPack && !packFailed ? (
+              <PageShell.Content bg="var(--tk-card)" contentContainer={false}>
+                {height => <HistoryMain pack={historyPack} height={height} />}
+              </PageShell.Content>
+            ) : (
+              <PageShell.Content topNotch={notch}>
+                {packsQuery.isError ? (
+                  <GenericError
+                    title="Couldn't load skills packs"
+                    message={(packsQuery.error as Error).message}
+                    onRetry={() => void packsQuery.refetch()}
+                  />
+                ) : !pack ? (
+                  packsQuery.isPending ? (
+                    <StepLoader
+                      testId="packs-loading"
+                      steps={['rt skills packs']}
+                    />
+                  ) : (
+                    <Text size="sm" c={text.dimmed} data-testid="no-packs">
+                      No skills packs found.
+                    </Text>
+                  )
+                ) : (
+                  <ConfigTab pack={pack} onReview={reviewChanges} />
+                )}
+              </PageShell.Content>
+            )}
+          </PageShell.Main>
+        </PageShell>
+      </ContentReadyContext.Provider>
     </>
   );
 }

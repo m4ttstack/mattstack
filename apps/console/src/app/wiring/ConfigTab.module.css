@@ -1,0 +1,120 @@
+/* The pack's state on one line: counts on the left, then what Claude has
+   and the step that moves it on. Wraps under the counts when narrow. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 4px;
+  padding: 8px 10px 8px 8px;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+/* A zero problem fades its words, never its dot: two faded dots read as
+   one colour. */
+.stat[data-faint] .statCount,
+.stat[data-faint] .statLabel {
+  opacity: 0.55;
+}
+
+.stat[data-live][data-tone='warn'] {
+  background: color-mix(in srgb, var(--tk-fill-warn) 12%, transparent);
+}
+
+.stat[data-live][data-tone='bad'] {
+  background: color-mix(in srgb, var(--tk-fill-purple) 12%, transparent);
+}
+
+@media (hover: hover) {
+  .stat[data-live]:hover {
+    text-decoration: underline;
+  }
+}
+
+.statDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tk-text-3);
+}
+
+.statDot[data-tone='ok'] {
+  background: var(--tk-text-ok);
+}
+
+.statDot[data-tone='warn'] {
+  background: var(--tk-dot-warn);
+}
+
+/* Never compiled is an empty ring in the compiled badges' purple: nothing
+   compiled yet, and nowhere near the orange of "need a compile". */
+.statDot[data-tone='bad'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--tk-fill-purple);
+}
+
+.statCount {
+  font-weight: 600;
+  color: var(--tk-text-1);
+}
+
+.statLabel {
+  color: var(--tk-text-2);
+}
+
+.rule {
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: var(--tk-border-soft);
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-inline: 4px;
+}
+
+.stateLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tk-text-1);
+}
+
+.version {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tk-text-3);
+}
+
+.pill {
+  text-transform: none;
+}
+
+.pillDot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tk-dot-warn);
+}

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Alert, Box, Skeleton, Stack, Text } from '@mattstack/app-kit/core';
+import { Alert, Box, Text } from '@mattstack/app-kit/core';
 import { useReducedMotion, useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import { useSearchParams } from 'wouter';
 
+import { StepLoader, useStepLoading } from '../StepLoader';
 import { embedMessage, postToHost } from './embedBridge';
 import { useOpenRow } from './explainParam';
 import { ROW_MOTION_MS } from './SettingRow';
@@ -87,8 +88,9 @@ export function SettingsEmbed({ group }: { group: string }) {
   // it, re-checking as it grows: its panel loads after the open motion ends.
   const reduceMotion = useReducedMotion();
   const openKey = openRow.open?.key ?? null;
-  // Skeletons only before the first list: a repo switch keeps the rows.
+  // The loader only before the first list: a repo switch keeps the rows.
   const loadedOnce = !store.loading || store.defs.length > 0;
+  const { show: listHeld, bind: listBind } = useStepLoading(!loadedOnce);
   const shown = loadedOnce && section !== null;
   useEffect(() => {
     if (!openKey || !shown) return;
@@ -146,15 +148,13 @@ export function SettingsEmbed({ group }: { group: string }) {
                   <Text fz={12}>{store.error}</Text>
                 </Alert>
               )}
-              {!loadedOnce ? (
-                <Stack gap="md" pt={28}>
-                  {[220, 280, 180].map(w => (
-                    <Stack key={w} gap={8}>
-                      <Skeleton h={12} w={w} />
-                      <Skeleton h={10} w={w + 160} />
-                    </Stack>
-                  ))}
-                </Stack>
+              {listHeld ? (
+                <Box pt={28}>
+                  <StepLoader
+                    {...listBind}
+                    steps={['reading the settings stores']}
+                  />
+                </Box>
               ) : section === null ? (
                 <Text fz={14} c={text.muted} pt={28}>
                   {`No settings in the ${group} group.`}

@@ -22,12 +22,30 @@ export type FocusItem = {
   step: number | null;
   attention: boolean;
   children: FocusItem[];
+  /** What you type in Claude Code, without the pack's prefix: set only for
+      a verb the pack surfaces as public, never for a stage the pipeline
+      alone runs. */
+  command?: string;
+  /** A hand-written skill's SKILL.md, read for its headings when it is
+      not built from blocks. */
+  file?: string;
+};
+
+/** A skill folder as the Surface tab lists it. */
+export type PackSkill = {
+  name: string;
+  kind: 'compiled' | 'hand-authored' | 'missing';
+  status: 'public' | 'internal';
+  path?: string;
 };
 
 export type FocusGroups = {
   pipelines: FocusItem[];
   standalone: FocusItem[];
   board: FocusItem[];
+  /** The pack's hand-written skills: no template, so no wiring to draw,
+      but each opens in the block view. */
+  skills: FocusItem[];
   /** `count` is the verbs whose props nothing binds plus the fills nothing
       binds; `items` holds only the verbs, since a fill has no template to
       focus. */
@@ -77,7 +95,8 @@ export function copyLinkLabelOf(
 
 export function buildFocusGroups(
   composition: SkillsComposition,
-  check: SkillsCheck | undefined
+  check: SkillsCheck | undefined,
+  packSkills: readonly PackSkill[] = []
 ): FocusGroups {
   const outlineCheck = check ?? NO_CHECK;
   const statusByName = new Map(
@@ -103,6 +122,9 @@ export function buildFocusGroups(
       step: null,
       attention: attentionOf(entry, skill),
       children: [],
+      ...(entry.invocable && entry.verb !== null
+        ? { command: entry.verb }
+        : {}),
     };
   };
 
@@ -142,6 +164,7 @@ export function buildFocusGroups(
         (lead !== null && attentionOf(lead, skill)) ||
         children.some(child => child.attention),
       children,
+      ...(lead?.invocable && lead.verb !== null ? { command: lead.verb } : {}),
     } satisfies FocusItem;
   });
 
@@ -176,10 +199,33 @@ export function buildFocusGroups(
 
   const unwiredItems = first.outside.filter(looseEnd).map(itemFor);
 
+  const listed = new Set(
+    [
+      ...pipelines.flatMap(pipeline => [pipeline, ...pipeline.children]),
+      ...standalone,
+      ...board,
+      ...unwiredItems,
+    ].map(item => item.skill)
+  );
+  const skills = packSkills
+    .filter(row => row.kind === 'hand-authored' && !listed.has(row.name))
+    .map((row): FocusItem => ({
+      key: row.name,
+      label: row.name,
+      skill: row.name,
+      icon: row.status === 'public' ? 'squareTerminal' : 'lock',
+      step: null,
+      attention: false,
+      children: [],
+      ...(row.status === 'public' ? { command: row.name } : {}),
+      ...(row.path ? { file: row.path } : {}),
+    }));
+
   return {
     pipelines,
     standalone,
     board,
+    skills,
     unwired: {
       count: unwiredItems.length + first.orphans.length,
       attention: unwiredItems.some(item => item.attention),
@@ -189,35 +235,14 @@ export function buildFocusGroups(
   };
 }
 
-const flagged = (items: FocusItem[]) => items.filter(item => item.attention);
-
-/** A fill nothing binds is never flagged, so the filtered count is the
-    flagged verbs alone. */
-function unwiredShown(unwired: FocusGroups['unwired']): FocusGroups['unwired'] {
-  const items = unwired.attention ? flagged(unwired.items) : [];
-  return { count: items.length, attention: items.length > 0, items };
-}
-
-export function onlyAttention(groups: FocusGroups): FocusGroups {
-  return {
-    ...groups,
-    pipelines: flagged(groups.pipelines).map(pipeline => ({
-      ...pipeline,
-      children: flagged(pipeline.children),
-    })),
-    standalone: flagged(groups.standalone),
-    board: flagged(groups.board),
-    unwired: unwiredShown(groups.unwired),
-  };
-}
-
-/** By key first; failing that, by skill, so a bare `work` (Health's open-skill
+/** By key first; failing that, by skill, so a bare `work` (an old open-skill
     link) lands on the pipeline its orchestrator leads. */
 export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
   const all = [
     ...groups.pipelines.flatMap(pipeline => [pipeline, ...pipeline.children]),
     ...groups.standalone,
     ...groups.board,
+    ...groups.skills,
     ...groups.unwired.items,
   ];
   return (
@@ -234,6 +259,7 @@ export function firstFocus(groups: FocusGroups): FocusItem | null {
     groups.pipelines[0] ??
     groups.standalone[0] ??
     groups.board[0] ??
+    groups.skills[0] ??
     groups.unwired.items[0] ??
     null
   );

@@ -19,6 +19,11 @@
   overflow-x: hidden;
 }
 
+/* Only the active tab is underlined; the row's own border is the rule. */
+.tabBarList {
+  --tab-border-color: transparent;
+}
+
 /* Tab bar entries: rendered by Mantine's native `Tabs.Tab` (the `default`
  * variant supplies the hover/border-indicator styling natively, honoring
  * the `color`/`radius` passed to `Tabs`). This layers the kit's own

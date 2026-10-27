@@ -4,7 +4,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from 'react';
-import { Tooltip } from '@mattstack/app-kit/core';
+import { HoverCard } from '@mattstack/app-kit/core';
 import {
   EdgeLabelRenderer,
   type Edge,
@@ -13,8 +13,9 @@ import {
 } from '@xyflow/react';
 
 import classes from './blocks.module.css';
-import { FoldSteps, MapActionsContext } from './graphCards';
+import { HOVER_OPEN_MS, MapActionsContext, StepsCard } from './graphCards';
 import type { Box } from './model/elkGraph';
+import { exitLabel } from './model/labels';
 
 type Point = [number, number];
 
@@ -80,12 +81,10 @@ function LinkHit({
   d,
   link,
   button,
-  tip,
 }: {
   d: string;
   link: string;
   button: boolean;
-  tip: boolean;
 }) {
   const { hover, open, linkInfo } = useContext(MapActionsContext);
   const info = linkInfo(link);
@@ -117,19 +116,23 @@ function LinkHit({
         : { 'aria-hidden': true })}
     />
   );
-  if (!button) return hit;
+  // Every stretch of the link opens its card, the same hover card a jump
+  // pill opens.
   return (
-    <Tooltip
-      label={<FoldSteps steps={info.steps} hint="Click to unfold" />}
-      opened={tip}
-      multiline
-      w={280}
+    <HoverCard
+      width={300}
       position="right"
       offset={16}
+      shadow="md"
+      openDelay={HOVER_OPEN_MS}
+      closeDelay={60}
       withinPortal
     >
-      {hit}
-    </Tooltip>
+      <HoverCard.Target>{hit}</HoverCard.Target>
+      <HoverCard.Dropdown p={0} className={classes.stepsCardDropdown}>
+        <StepsCard steps={info.steps} hint="Click the line to unfold" />
+      </HoverCard.Dropdown>
+    </HoverCard>
   );
 }
 
@@ -148,7 +151,10 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
   };
   return (
     <>
+      {/* Keyed by its route, so a line the layout moves is drawn anew and
+          fades in once the cards have moved, rather than jumping. */}
       <path
+        key={d}
         d={d}
         className={classes.mapEdge}
         data-testid="map-edge"
@@ -159,19 +165,24 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
           ? { strokeDasharray: '0 5', strokeLinecap: 'round' as const }
           : {})}
       />
-      {head && <path d={head} className={classes.mapArrow} {...state} />}
+      {head && (
+        <path key={head} d={head} className={classes.mapArrow} {...state} />
+      )}
       {view.link && (
         <LinkHit
           d={roundedPath(data.points)}
           link={view.link}
           button={view.button}
-          tip={view.tip}
         />
       )}
       {data.label && box && (
         <EdgeLabelRenderer>
           <div
+            key={`${box.x},${box.y}`}
             className={classes.mapChip}
+            title={
+              exitLabel(data.label) === data.label ? undefined : data.label
+            }
             data-testid="map-chip"
             {...state}
             style={
@@ -182,7 +193,7 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
               } as CSSProperties
             }
           >
-            {data.label}
+            {exitLabel(data.label)}
           </div>
         </EdgeLabelRenderer>
       )}
