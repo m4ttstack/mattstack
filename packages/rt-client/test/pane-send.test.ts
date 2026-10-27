@@ -25,6 +25,15 @@ describe("paneSend", () => {
     expect(seen[0]!.payload).toEqual({ paneId: "w1:p2", text: "hi", callerPane: "w1:p1" });
   });
 
+  test("rides selfSession on the payload when given", async () => {
+    const { sock, seen, stop } = fakeDaemon({
+      "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "accepted" } },
+    });
+    stops.push(stop);
+    await paneSend({ paneId: "w1:p1", text: "hi", selfSession: "sess-1" }, { sockPath: sock });
+    expect(seen[0]!.payload).toEqual({ paneId: "w1:p1", text: "hi", selfSession: "sess-1" });
+  });
+
   test("defaults to a 30s timeout, overridable via opts", async () => {
     const { sock, stop } = fakeDaemon({
       "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "queued" } },

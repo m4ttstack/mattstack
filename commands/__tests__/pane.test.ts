@@ -10,12 +10,15 @@ import { paneListBlocks } from "../pane.ts";
 
 let home: string;
 let origHome: string | undefined;
+let origSessionId: string | undefined;
 let server: ReturnType<typeof Bun.serve> | undefined;
 let seen: Array<{ cmd: string; payload: unknown }> = [];
 let replies: Record<string, unknown> = {};
 
 beforeEach(() => {
   origHome = process.env.HOME;
+  origSessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  delete process.env.CLAUDE_CODE_SESSION_ID;
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-pane-cli-")));
   process.env.HOME = home;
   const sockDir = join(home, ".mattstack", "rt");
@@ -35,6 +38,7 @@ beforeEach(() => {
 afterEach(() => {
   server?.stop(true);
   process.env.HOME = origHome;
+  if (origSessionId === undefined) delete process.env.CLAUDE_CODE_SESSION_ID; else process.env.CLAUDE_CODE_SESSION_ID = origSessionId;
 });
 
 class Exit extends Error {
@@ -217,6 +221,35 @@ test("pane send self targets HERDR_PANE_ID and omits callerPane", async () => {
   } finally {
     if (orig === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = orig;
     if (origSession === undefined) delete process.env.HERDR_SESSION; else process.env.HERDR_SESSION = origSession;
+  }
+});
+
+test("pane send self names this session so the daemon can find a renumbered pane", async () => {
+  replies = { "pane:send": { ok: true, data: { paneId: "w154:p2", delivered: "accepted" } } };
+  const orig = { pane: process.env.HERDR_PANE_ID, herdr: process.env.HERDR_SESSION };
+  process.env.HERDR_PANE_ID = "w14H:pE";
+  delete process.env.HERDR_SESSION;
+  process.env.CLAUDE_CODE_SESSION_ID = "sess-1";
+  try {
+    const r = await runVerb(paneSend, ["self", "--text", "/compact"]);
+    expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w14H:pE", text: "/compact", selfSession: "sess-1" } });
+    expect(r.stdout).toBe("w154:p2 accepted");
+  } finally {
+    if (orig.pane === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = orig.pane;
+    if (orig.herdr === undefined) delete process.env.HERDR_SESSION; else process.env.HERDR_SESSION = orig.herdr;
+  }
+});
+
+test("pane send to another pane never names this session", async () => {
+  replies = { "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "accepted" } } };
+  const orig = process.env.HERDR_PANE_ID;
+  delete process.env.HERDR_PANE_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = "sess-1";
+  try {
+    await runVerb(paneSend, ["w1:p2", "--text", "hi"]);
+    expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p2", text: "hi" } });
+  } finally {
+    if (orig === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = orig;
   }
 });
 
