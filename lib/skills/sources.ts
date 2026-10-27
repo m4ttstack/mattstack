@@ -81,7 +81,7 @@ export function stripFrontmatter(
   return { body, frontmatter, bodyStartLine, bodyIndent: firstLineIndent(rest.slice(0, lead)) };
 }
 
-export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
+export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string; projectPath?: string | null };
 
 export type PluginRoots = {
   byName: Record<string, { dir: string; version: string; baseVersion?: string | null }>;
@@ -110,6 +110,23 @@ export function installedVersionFor(list: PluginListEntry[], id: string): string
 }
 
 /**
+ * A project or local install applies only inside its own project, and one
+ * whose projectPath is the home folder is a stale leftover, not a project.
+ * `enabled` only breaks ties: a team pack's user install is routinely
+ * disabled outside its own repo, and rt still has to read it there.
+ */
+function installRank(entry: PluginListEntry, cwd: string, home: string): number {
+  const pp = entry.projectPath;
+  const appliesHere =
+    (entry.scope === "project" || entry.scope === "local") &&
+    !!pp &&
+    pp !== home &&
+    (cwd === pp || cwd.startsWith(pp.endsWith(sep) ? pp : pp + sep));
+  const scopeRank = appliesHere ? 2 : entry.scope === "user" ? 1 : 0;
+  return scopeRank * 2 + (entry.enabled === false ? 0 : 1);
+}
+
+/**
  * Entry-processing half of resolvePluginRoots, split out so it's testable
  * without shelling out to `claude`. `claude plugin list --json` can list an
  * entry whose installPath was since removed or moved (an uninstalled or
@@ -117,8 +134,11 @@ export function installedVersionFor(list: PluginListEntry[], id: string): string
  * not take down resolution for every other plugin, so a missing installPath
  * is skipped with a warning instead of throwing.
  */
-export function buildPluginRoots(list: PluginListEntry[]): PluginRoots {
+export function buildPluginRoots(list: PluginListEntry[], opts: { cwd?: string; home?: string } = {}): PluginRoots {
+  const cwd = opts.cwd ?? process.cwd();
+  const home = opts.home ?? homedir();
   const byName: PluginRoots["byName"] = {};
+  const rankByName: Record<string, number> = {};
   const dirs = new Set<string>();
 
   for (const entry of list) {
@@ -138,8 +158,11 @@ export function buildPluginRoots(list: PluginListEntry[]): PluginRoots {
     } catch {
       // best-effort: a plugin without a readable manifest still resolves a root
     }
-    byName[name] = { dir, version };
     dirs.add(dir);
+    const rank = installRank(entry, cwd, home);
+    if ((rankByName[name] ?? -1) > rank) continue;
+    rankByName[name] = rank;
+    byName[name] = { dir, version };
   }
 
   return { byName, list, dirs: [...dirs] };
