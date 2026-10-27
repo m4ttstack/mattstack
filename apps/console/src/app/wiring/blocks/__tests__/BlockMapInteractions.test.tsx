@@ -11,6 +11,8 @@ import { bundledEngine } from '../layoutEngine';
 import { blockMap, type MapKind } from '../model/blockMap';
 import { shipPayload } from './blocksFixture';
 
+const TRAIL = [{ key: 'skill', label: 'ship' }];
+
 const graph = shipPayload.graphs.find(each => each.blockId === 'ship/flow')!;
 const shared = bundledEngine();
 const engine = () => Promise.resolve(shared);
@@ -28,7 +30,8 @@ async function renderMap() {
       graph={graph}
       highlight={null}
       onSelect={onSelect}
-      onClose={() => {}}
+      trail={TRAIL}
+      title="Ship"
       onView={() => {}}
       engine={engine}
     />
@@ -59,6 +62,19 @@ const stepNamed = (id: string) =>
     .getAllByTestId('band-step')
     .find(step => step.getAttribute('data-node') === id)!;
 
+/** The jump from a card to `target`: its own pill, or, when the card jumps
+    more than once, that jump's row in the card's jumps chip. */
+async function jumpOf(label: string, target: string): Promise<HTMLElement> {
+  const card = within(boxOf(label) as HTMLElement);
+  const pill = card
+    .queryAllByTestId('jump-pill')
+    .find(each => each.getAttribute('aria-label')?.endsWith(`to ${target}`));
+  if (pill) return pill;
+  fireEvent.mouseEnter(card.getByTestId('jumps-chip'));
+  const rows = await screen.findAllByTestId('jump-item', {}, LAID_OUT);
+  return rows.find(row => row.textContent?.startsWith(target))!;
+}
+
 async function openFold(id: string) {
   fireEvent.click(linkButton(id));
   return screen.findByTestId('fold-band', {}, LAID_OUT);
@@ -78,7 +94,7 @@ describe('BlockMap interactions', () => {
   });
 
   it(
-    'hovering a dotted link lights it and lists its folded steps, ending "Click to unfold"',
+    'hovering a dotted link lights it and lists its folded steps by tool, ending "Click the line to unfold"',
     async () => {
       await renderMap();
 
@@ -91,11 +107,15 @@ describe('BlockMap interactions', () => {
         .getAllByRole('listitem')
         .map(row => row.textContent);
       expect(rows).toEqual([
-        'git_rebase {tree: <root>, onto: origin/<resolved target>}',
+        'git_rebase',
         'Rebase status?',
         'Conflict rounds left? · 4',
       ]);
-      expect(tip.lastElementChild).toHaveTextContent('Click to unfold');
+      expect(within(tip).getByText('git_rebase')).toHaveAttribute(
+        'title',
+        'git_rebase {tree: <root>, onto: origin/<resolved target>}'
+      );
+      expect(tip.lastElementChild).toHaveTextContent('Click the line to unfold');
     },
     SLOW
   );
@@ -204,12 +224,8 @@ describe('BlockMap interactions', () => {
     'clicking a jump scrolls to the target, rings it for RING_MS and shows "from <source>" with Back',
     async () => {
       await renderMap();
+      const pill = await jumpOf('Resolve conflicts', 'Fast checks');
       vi.useFakeTimers();
-
-      const pill = within(boxOf('Resolve conflicts') as HTMLElement).getByRole(
-        'button',
-        { name: 'back to Fast checks' }
-      );
       fireEvent.click(pill);
 
       expect(scrolled).toHaveBeenCalledWith(
@@ -236,11 +252,7 @@ describe('BlockMap interactions', () => {
     'Back scrolls to the source',
     async () => {
       await renderMap();
-      fireEvent.click(
-        within(boxOf('Resolve conflicts') as HTMLElement).getByRole('button', {
-          name: 'back to Fast checks',
-        })
-      );
+      fireEvent.click(await jumpOf('Resolve conflicts', 'Fast checks'));
 
       fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
@@ -261,11 +273,7 @@ describe('BlockMap interactions', () => {
       );
       await renderMap();
 
-      fireEvent.click(
-        within(boxOf('Resolve conflicts') as HTMLElement).getByRole('button', {
-          name: 'back to Fast checks',
-        })
-      );
+      fireEvent.click(await jumpOf('Resolve conflicts', 'Fast checks'));
 
       expect(scrolled).toHaveBeenCalledWith(
         expect.objectContaining({ behavior: 'instant' })
@@ -305,11 +313,12 @@ describe('BlockMap interactions', () => {
         within(tip)
           .getAllByRole('listitem')
           .map(row => row.textContent)
-      ).toEqual([
-        'run_field_set {key: shipTarget, value: -, stage} (iterate)',
-        'Ship gate rounds left? · 2',
-      ]);
-      expect(tip).not.toHaveTextContent('Click to unfold');
+      ).toEqual(['run_field_set', 'Ship gate rounds left? · 2']);
+      expect(within(tip).getByText('run_field_set')).toHaveAttribute(
+        'title',
+        'run_field_set {key: shipTarget, value: -, stage} (iterate)'
+      );
+      expect(tip).not.toHaveTextContent('to unfold');
     },
     SLOW
   );
@@ -426,11 +435,7 @@ describe('BlockMap interactions', () => {
     'Back after a second jump returns to the second source',
     async () => {
       await renderMap();
-      fireEvent.click(
-        within(boxOf('Resolve conflicts') as HTMLElement).getByRole('button', {
-          name: 'back to Fast checks',
-        })
-      );
+      fireEvent.click(await jumpOf('Resolve conflicts', 'Fast checks'));
       fireEvent.click(
         screen.getByRole('button', { name: 'iterate: back to Domain steps' })
       );
@@ -541,30 +546,11 @@ describe('BlockMap interactions', () => {
   );
 
   it(
-    'a pill whose target is its own card rings that card and shows no "from" chip',
-    async () => {
-      await renderMap();
-
-      fireEvent.click(
-        screen.getByRole('button', { name: 'iterate: back to Push refused' })
-      );
-
-      expect(cardNamed('Push refused')).toHaveAttribute('data-ring');
-      expect(screen.queryByTestId('jump-from')).toBeNull();
-    },
-    SLOW
-  );
-
-  it(
     'the "from" chip sits under its card, kept inside the canvas',
     async () => {
       await renderMap();
 
-      fireEvent.click(
-        within(boxOf('Resolve conflicts') as HTMLElement).getByRole('button', {
-          name: 'back to Fast checks',
-        })
-      );
+      fireEvent.click(await jumpOf('Resolve conflicts', 'Fast checks'));
 
       const from = screen.getByTestId('jump-from');
       expect(from).toHaveAttribute('data-place', 'below');

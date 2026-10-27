@@ -22,6 +22,8 @@ import { canvasPlane } from '../model/mapLayout';
 import { shipPayload } from './blocksFixture';
 import { labelClashes, strayLabels } from './flowGeometry';
 
+const TRAIL = [{ key: 'skill', label: 'ship' }];
+
 const canvas = vi.hoisted(() => ({ width: 0 }));
 
 vi.mock('@mattstack/app-kit/hooks', async importOriginal => ({
@@ -146,13 +148,15 @@ describe('FlowGraph', () => {
         highlight={null}
         onSelect={() => {}}
         onView={() => {}}
-        onClose={() => {}}
+        trail={TRAIL}
+        title="Ship"
         engine={engine}
       />
     );
 
     await screen.findByTestId('flow-canvas', {}, LAID_OUT);
-    const blocks = screen.getAllByTestId('map-card');
+    // Under load the canvas can mount a beat before its nodes draw.
+    const blocks = await screen.findAllByTestId('map-card', {}, LAID_OUT);
     const steps = screen.getAllByTestId('flow-step');
     expect(blocks.length + steps.length).toBe(ship.nodes.length);
     expect(blocks).toHaveLength(
@@ -160,11 +164,13 @@ describe('FlowGraph', () => {
     );
     expect(screen.getAllByTestId('map-edge')).toHaveLength(ship.edges.length);
     expect(
-      screen.getByText(`${ship.nodes.length} steps · ${blocks.length} blocks`)
+      screen.getByText(
+        `Diagram · ${ship.nodes.length} steps · ${blocks.length} blocks`
+      )
     ).toBeInTheDocument();
   }, 60_000);
 
-  it('opens a block from its card, and lights the focus', async () => {
+  it('opens a block from its card, and lights the focus, which opens nothing', async () => {
     const onSelect = vi.fn();
     renderWithProviders(
       <FlowGraph
@@ -177,14 +183,18 @@ describe('FlowGraph', () => {
       />
     );
 
-    const focus = await screen.findByRole(
+    const other = await screen.findByRole(
       'button',
-      { name: /^Fast checks/ },
+      { name: /^Commit named/ },
       LAID_OUT
     );
+    const focus = screen
+      .getAllByTestId('map-card')
+      .find(card => card.textContent?.startsWith('Fast checks'))!;
     expect(focus).toHaveAttribute('data-hot', 'true');
-    fireEvent.click(focus);
-    expect(onSelect).toHaveBeenCalledWith('ship/flow/domain-fast-checks');
+    expect(focus.tagName).not.toBe('BUTTON');
+    fireEvent.click(other);
+    expect(onSelect).toHaveBeenCalledWith('ship/flow/commit-named-files');
   }, 20_000);
 
   it('puts the trigger in the top layer', async () => {
@@ -213,7 +223,8 @@ describe('FlowGraph', () => {
   }, 20_000);
 
   it('Every step opens scrolled to its first step', async () => {
-    canvas.width = 560;
+    // Narrow enough that the first step starts off screen.
+    canvas.width = 320;
     renderWithProviders(
       <EveryStep
         payload={shipPayload}
@@ -221,19 +232,20 @@ describe('FlowGraph', () => {
         highlight={null}
         onSelect={() => {}}
         onView={() => {}}
-        onClose={() => {}}
+        trail={TRAIL}
+        title="Ship"
         engine={engine}
       />
     );
 
     const flow = await screen.findByTestId('flow-canvas', {}, LAID_OUT);
     const laidOut = await laidOutFor(CASES[0]!);
-    const { zoom, plane, offset } = canvasPlane(560, laidOut.width);
+    const { zoom, plane, offset } = canvasPlane(320, laidOut.width);
     const first = laidOut.nodes[shipOrder[0]!]!;
     expect(first.y).toBe(
       Math.min(...Object.values(laidOut.nodes).map(box => box.y))
     );
-    const left = scrollToShow(first, { zoom, offset, visible: 560, plane });
+    const left = scrollToShow(first, { zoom, offset, visible: 320, plane });
     expect(left).toBeGreaterThan(0);
     // The canvas scrolls once it has drawn, which can trail the layout.
     await waitFor(() => expect(flow.scrollLeft).toBe(left));
@@ -251,7 +263,8 @@ describe('FlowGraph', () => {
           highlight={FAST_CHECKS}
           onSelect={() => {}}
           onView={() => {}}
-          onClose={() => {}}
+          trail={TRAIL}
+          title="Ship"
           engine={engine}
         />
       );
@@ -291,7 +304,8 @@ describe('FlowGraph', () => {
         highlight={null}
         onSelect={() => {}}
         onView={() => {}}
-        onClose={() => {}}
+        trail={TRAIL}
+        title="Ship"
         engine={() =>
           fail ? Promise.reject(new Error('worker failed')) : engine()
         }
@@ -308,7 +322,7 @@ describe('FlowGraph', () => {
   }, 60_000);
 
   it('a canvas of fractional width fits a graph that fits above the zoom floor', async () => {
-    canvas.width = 730.6;
+    canvas.width = 820.6;
     renderWithProviders(
       <FlowGraph
         graph={around}
@@ -323,7 +337,7 @@ describe('FlowGraph', () => {
 
     const flow = await screen.findByTestId('flow-canvas', {}, LAID_OUT);
     const plane = flow.firstElementChild as HTMLElement;
-    expect(Number(plane.getAttribute('data-plane'))).toBeLessThanOrEqual(730.6);
+    expect(Number(plane.getAttribute('data-plane'))).toBeLessThanOrEqual(820.6);
     expect(Number(flow.getAttribute('data-zoom'))).toBeGreaterThan(0.85);
   }, 20_000);
 
@@ -338,7 +352,7 @@ describe('FlowGraph', () => {
     );
 
     it.each(WIDTHS)(
-      `every edge label sits within ${LABEL_REACH}px of its own edge's start or first bend, at %ipx`,
+      `every edge label sits within ${LABEL_REACH}px of its own edge's end or last bend, at %ipx`,
       async width => {
         const laidOut = await drawnAt(width, at);
         expect(strayLabels(laidOut, 40)).toEqual([]);

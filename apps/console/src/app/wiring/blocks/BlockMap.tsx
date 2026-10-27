@@ -225,7 +225,7 @@ export interface BlockMapProps {
   onSelect: (blockId: string) => void;
   onView: (view: BlockGraphSelect) => void;
   trail: TrailItem[];
-  /** The block Close goes back to. */
+  /** The block the graph draws, which the page is named for. */
   title: string;
   /** The graph's Mermaid source. */
   source?: string | null;

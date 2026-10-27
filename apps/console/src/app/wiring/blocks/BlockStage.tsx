@@ -186,7 +186,7 @@ export function BlockStage({
                   size="sm"
                   onClick={() => patch({ tab: 'config' })}
                 >
-                  Open Health
+                  Open Config
                 </Anchor>
               </Stack>
             </Alert>

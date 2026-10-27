@@ -2,7 +2,7 @@ import '../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -137,118 +137,93 @@ afterEach(() => {
 });
 
 describe('WiringMap: top-level tabs', () => {
-  it('renders Graph / Surface / Health, in that order, with Graph active by default', async () => {
+  it('renders Overview / Config / Changes, in that order, with Overview active by default', async () => {
     mockHappyPath();
     renderWiring();
 
     await screen.findByTestId('focus-list');
 
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
-      'Graph',
-      'Surface',
-      expect.stringMatching(/^Health/),
+      'Overview',
+      expect.stringMatching(/^Config/),
+      'Changes',
     ]);
-    expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(screen.getByRole('tab', { name: /^Surface/ })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /^Config/ })).toHaveAttribute(
       'aria-selected',
       'false'
     );
-    expect(screen.getByRole('tab', { name: /^Health/ })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: 'Changes' })).toHaveAttribute(
       'aria-selected',
       'false'
     );
   });
 
-  it('shows the attention count as a badge on the Health tab', async () => {
+  it('shows the attention count as a badge on the Config tab', async () => {
     mockHappyPath();
     renderWiring();
 
     await screen.findByTestId('focus-list');
 
-    expect(await screen.findByTestId('health-tab-count')).toHaveTextContent(
+    expect(await screen.findByTestId('config-tab-count')).toHaveTextContent(
       '1'
     );
   });
 
-  it('clicking Health hides the focus list and shows the Health panel', async () => {
+  it('clicking Config hides the focus list and shows the status bar over the roster', async () => {
     mockHappyPath();
     const user = userEvent.setup();
     renderWiring();
 
     await screen.findByTestId('focus-list');
-
-    await user.click(screen.getByRole('tab', { name: /^Health/ }));
-
-    expect(screen.queryByTestId('focus-list')).not.toBeInTheDocument();
-    const health = await screen.findByTestId('health-tab');
-    // CHECK's one verb ('work') is stale, so it sits in "Recompile needed".
-    expect(health).toHaveTextContent('1');
-    expect(
-      screen.getByTestId('health-group-recompile-needed')
-    ).toBeInTheDocument();
-  });
-
-  it('clicking Surface hides the focus list and shows the roster inline', async () => {
-    mockHappyPath();
-    const user = userEvent.setup();
-    renderWiring();
-
-    await screen.findByTestId('focus-list');
-    expect(surfaceGet).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('tab', { name: /^Surface/ }));
+    await user.click(screen.getByRole('tab', { name: /^Config/ }));
 
     expect(screen.queryByTestId('focus-list')).not.toBeInTheDocument();
+    await screen.findByTestId('config-tab');
+    // CHECK's one verb ('work') is stale, so it needs a compile.
+    expect(screen.getByTestId('config-stat-warn')).toHaveTextContent(
+      '1need a compile'
+    );
     const roster = await screen.findByTestId('surface-tab');
-    await waitFor(() =>
-      expect(surfaceGet).toHaveBeenCalledWith(
-        expect.objectContaining({ query: { pack: 'demo' } })
-      )
+    expect(within(roster).getByTestId('surface-health-work')).toHaveTextContent(
+      'source newer'
     );
-    expect(roster).toHaveTextContent('On: agents see it in their skill list.');
+    expect(new URLSearchParams(window.location.search).get('tab')).toBe(
+      'config'
+    );
   });
 
-  it('opening a Health row switches to Graph with that skill in focus', async () => {
+  it.each(['surface', 'health'])(
+    'opens an old ?tab=%s link on Config',
+    async tab => {
+      mockHappyPath();
+      window.history.pushState(null, '', `/wiring?tab=${tab}`);
+      renderWiring();
+
+      expect(await screen.findByTestId('config-tab')).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /^Config/ })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+    }
+  );
+
+  it('returns to the focus list when Overview is clicked again', async () => {
     mockHappyPath();
     const user = userEvent.setup();
     renderWiring();
 
     await screen.findByTestId('focus-list');
-    await user.click(screen.getByRole('tab', { name: /^Health/ }));
-    await screen.findByTestId('health-tab');
+    await user.click(screen.getByRole('tab', { name: /^Config/ }));
+    await screen.findByTestId('config-tab');
 
-    await user.click(screen.getByTestId('health-row-mattstack:work'));
-
-    expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
-    expect(new URLSearchParams(window.location.search).get('focus')).toBe(
-      'work'
-    );
-    expect(
-      within(await screen.findByTestId('focus-list')).getByTestId(
-        'focus-pipeline:feature'
-      )
-    ).toHaveAttribute('data-active');
-  });
-
-  it('returns to the focus list when Graph is clicked again', async () => {
-    mockHappyPath();
-    const user = userEvent.setup();
-    renderWiring();
-
-    await screen.findByTestId('focus-list');
-    await user.click(screen.getByRole('tab', { name: /^Health/ }));
-    await screen.findByTestId('health-tab');
-
-    await user.click(screen.getByRole('tab', { name: 'Graph' }));
+    await user.click(screen.getByRole('tab', { name: 'Overview' }));
 
     expect(await screen.findByTestId('focus-list')).toBeInTheDocument();
-    expect(screen.queryByTestId('health-tab')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('config-tab')).not.toBeInTheDocument();
   });
 });
 

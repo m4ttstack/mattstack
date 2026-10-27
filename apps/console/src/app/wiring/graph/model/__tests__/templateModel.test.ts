@@ -153,7 +153,7 @@ describe('the work template', () => {
 
   it('names the drift cause behind a stale step', () => {
     const causes = [
-      ['include', 'a pasted file changed'],
+      ['include', 'an included file changed'],
       ['fill', 'its pack text changed'],
       ['frontmatter', 'its header changed'],
       ['structure', 'its files changed'],

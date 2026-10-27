@@ -19,7 +19,7 @@ const DEFAULTS: WiringUrl = {
 };
 
 const FULL: WiringUrl = {
-  tab: 'surface',
+  tab: 'config',
   pack: 'acme',
   focus: 'stage-plan',
   select: 'input:include:gate-protocol',
@@ -61,9 +61,14 @@ describe('parseWiringUrl', () => {
 
   it('reads every field, with or without the leading question mark', () => {
     const search =
-      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run';
+      'tab=config&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run';
     expect(parseWiringUrl(search)).toEqual(FULL);
     expect(parseWiringUrl(`?${search}`)).toEqual(FULL);
+  });
+
+  it('opens an old Surface or Health link on Config', () => {
+    expect(parseWiringUrl('tab=surface').tab).toBe('config');
+    expect(parseWiringUrl('tab=health').tab).toBe('config');
   });
 
   it('maps the rail badge link ?attention=1 to attention', () => {
@@ -110,7 +115,7 @@ describe('formatWiringUrl', () => {
 
   it('emits keys in a stable order', () => {
     expect(formatWiringUrl(FULL)).toBe(
-      'tab=surface&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run'
+      'tab=config&pack=acme&focus=stage-plan&select=input:include:gate-protocol&view=rendered&attention=1&block=mini/run'
     );
   });
 
@@ -144,7 +149,7 @@ describe('formatWiringUrl', () => {
   });
 
   it('is idempotent on its own output', () => {
-    const once = formatWiringUrl(parseWiringUrl('block=a&focus=a&tab=health'));
+    const once = formatWiringUrl(parseWiringUrl('block=a&focus=a&tab=config'));
     expect(formatWiringUrl(parseWiringUrl(once))).toBe(once);
   });
 });
@@ -231,10 +236,10 @@ describe('useWiringUrl', () => {
   it('pushes a tab change', () => {
     const { result } = renderHook(() => useWiringUrl());
 
-    act(() => result.current[1]({ tab: 'health' }));
+    act(() => result.current[1]({ tab: 'config' }));
 
     expect(pushState).toHaveBeenCalledTimes(1);
-    expect(window.location.search).toBe('?tab=health');
+    expect(window.location.search).toBe('?tab=config');
   });
 
   it('pushes a pack change', () => {
@@ -281,7 +286,7 @@ describe('useWiringUrl', () => {
   });
 
   it('navigates to the bare path when every key is a default', () => {
-    at('/wiring?tab=health');
+    at('/wiring?tab=config');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ tab: 'graph' }));

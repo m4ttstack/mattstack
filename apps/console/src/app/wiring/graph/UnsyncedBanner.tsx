@@ -44,7 +44,7 @@ const CHANGED =
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 const outsideNote = (paths: string[]) =>
-  `Sync is off until you commit or stash these files outside the pack: ${paths.join(', ')}`;
+  `Commit or stash these files outside the pack first: ${paths.join(', ')}`;
 
 /** The changes poll, read the way the banner shows it: only in-pack edits
     count, and a failed poll is unknown, so it shows nothing. */

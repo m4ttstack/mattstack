@@ -1,3 +1,5 @@
+import '../../icons';
+
 import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -48,9 +50,28 @@ const ROWS = [
   { name: 'model-tiering', kind: 'hand-authored', status: 'internal' },
 ];
 
+/** A composition verb with every field the focus groups read. */
+function verb(over: { name: string; sourcePath?: string }) {
+  return {
+    engine: over.name,
+    engineRef: `acme:${over.name}`,
+    plugin: 'acme',
+    description: over.name,
+    public: true,
+    artifactPath: `/p/skills/${over.name}`,
+    props: {},
+    includes: [],
+    ...over,
+  };
+}
+
 function renderSurfaceTab(
   rows: unknown[] = ROWS,
-  composition: { verbs?: unknown[]; fills?: unknown[] } = {}
+  composition: {
+    verbs?: { name: string; sourcePath?: string }[];
+    fills?: unknown[];
+  } = {},
+  health?: ReadonlyMap<string, 'stale' | 'never-compiled'>
 ) {
   surfaceGet.mockResolvedValue(ok({ pack: 'demo', packDir: '/p', rows }));
   // The open-in-editor link joins composition by name; default to none so the
@@ -59,8 +80,10 @@ function renderSurfaceTab(
     ok({
       pack: 'demo',
       packDir: '/p',
-      verbs: composition.verbs ?? [],
+      verbs: (composition.verbs ?? []).map(verb),
       fills: composition.fills ?? [],
+      binders: [],
+      groups: [],
     })
   );
   const queryClient = new QueryClient({
@@ -68,10 +91,31 @@ function renderSurfaceTab(
   });
   const view = renderWithProviders(
     <QueryClientProvider client={queryClient}>
-      <SurfaceTab pack="demo" />
+      <SurfaceTab pack="demo" health={health} />
     </QueryClientProvider>
   );
   return Object.assign(view, { queryClient });
+}
+
+/** Unfolds one group of the list by its head. */
+async function openGroup(id: string) {
+  const group = await screen.findByTestId(`surface-group-${id}`);
+  const head = within(group).getAllByRole('button')[0]!;
+  if (head.getAttribute('aria-expanded') !== 'true')
+    await userEvent.click(head);
+  // The rows stay hidden until the unfold's transition ends.
+  await waitFor(() =>
+    expect(within(group).getAllByRole('switch').length).toBeGreaterThan(0)
+  );
+}
+
+/** A badge's meaning shows in its hover card once the pointer rests. */
+async function hoverMeaning(target: HTMLElement, meaning: string) {
+  await userEvent.hover(target);
+  expect(
+    await screen.findByText(meaning, {}, { timeout: 2000 })
+  ).toBeInTheDocument();
+  await userEvent.unhover(target);
 }
 
 /** Same read-the-rendered-switches approach the old `SurfaceRoster` suite
@@ -96,6 +140,7 @@ function stagedDelta(rows: { name: string; status: string }[]) {
 afterEach(() => {
   act(() => notifications.clean());
   vi.clearAllMocks();
+  window.localStorage.clear();
 });
 
 describe('SurfaceTab: public rows render as on', () => {
@@ -125,8 +170,32 @@ describe('SurfaceTab: a row an org base pack owns', () => {
     { name: 'ship', kind: 'compiled', status: 'public' },
   ];
 
+  it('lists it under the parent pack, folded until opened', async () => {
+    renderSurfaceTab(BASE_ROWS);
+    const group = await screen.findByTestId('surface-group-base');
+
+    expect(group).toHaveTextContent('From the parent pack');
+    expect(within(group).getAllByRole('button')[0]).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(screen.getByTestId('surface-group-commands')).toHaveAttribute(
+      'data-open'
+    );
+
+    await openGroup('base');
+    expect(within(group).getAllByRole('button')[0]).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(window.localStorage.getItem('console-surface-group-base')).toBe(
+      'true'
+    );
+  });
+
   it('shows a from-base badge and locks the toggle, while a plain compiled row keeps both', async () => {
     renderSurfaceTab(BASE_ROWS);
+    await openGroup('base');
     const row = await screen.findByTestId('surface-row-dev-servers');
 
     expect(within(row).getByText('from acme-base')).toBeInTheDocument();
@@ -142,6 +211,7 @@ describe('SurfaceTab: a row an org base pack owns', () => {
 
   it('says why on hover', async () => {
     renderSurfaceTab(BASE_ROWS);
+    await openGroup('base');
     const row = await screen.findByTestId('surface-row-dev-servers');
 
     await userEvent.hover(within(row).getByTestId('surface-lock-dev-servers'));
@@ -369,11 +439,11 @@ describe('SurfaceTab: filters', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('the Fill chip narrows to hand-authored rows', async () => {
+  it('the Standard chip narrows to standard rows', async () => {
     renderSurfaceTab();
     await screen.findByTestId('surface-row-watch-ci');
 
-    await userEvent.click(screen.getByTestId('surface-filter-fill'));
+    await userEvent.click(screen.getByTestId('surface-filter-standard'));
 
     expect(screen.getByTestId('surface-row-model-tiering')).toBeInTheDocument();
     expect(screen.queryByTestId('surface-row-review')).not.toBeInTheDocument();
@@ -427,6 +497,7 @@ describe('SurfaceTab: open in editor', () => {
       fills: [
         {
           binding: 'demo:model-tiering',
+          name: 'model-tiering',
           sourcePath: '/p/fills/model-tiering/SKILL.md',
         },
       ],
@@ -468,6 +539,8 @@ describe('SurfaceTab: open in editor', () => {
     expect(
       await screen.findByTestId('surface-open-review')
     ).toBeInTheDocument();
+    await openGroup('base');
+    await screen.findByTestId('surface-row-dev-servers');
     expect(
       screen.queryByTestId('surface-open-dev-servers')
     ).not.toBeInTheDocument();
@@ -490,26 +563,33 @@ describe('SurfaceTab: open in editor', () => {
   });
 });
 
-describe('SurfaceTab: legend', () => {
-  it('says what the switch and each badge mean', async () => {
+describe('SurfaceTab: what the switch and badges mean', () => {
+  it('says what the switch does in one line above the list', async () => {
     renderSurfaceTab();
-    const legend = await screen.findByTestId('surface-legend');
+    const key = await screen.findByTestId('surface-switch-key');
 
-    expect(legend).toHaveTextContent('On: agents see it in their skill list.');
-    expect(legend).toHaveTextContent(
-      'Off: agents only reach it when another skill points to it.'
-    );
-    expect(legend).toHaveTextContent('fillwritten by hand in this pack.');
-    expect(legend).toHaveTextContent(
-      "compiledbuilt by rt from a mattstack template plus this pack's fills."
-    );
-    expect(legend).not.toHaveTextContent('parent pack');
-    expect(
-      screen.queryByText(/exist only to compile into a verb/)
-    ).not.toBeInTheDocument();
+    expect(key).toHaveTextContent("OnIn agents' skill list");
+    expect(key).toHaveTextContent('OffReached only through another skill');
   });
 
-  it('explains the base badge only when a row comes from a base', async () => {
+  it('names each kind on its badge, standard for one not compiled, and says what it means on hover', async () => {
+    renderSurfaceTab();
+    const standard = await screen.findByTestId('surface-row-model-tiering');
+    const compiled = screen.getByTestId('surface-row-review');
+
+    expect(within(standard).getByText('standard')).toBeInTheDocument();
+    expect(within(standard).queryByText(/fill|hand/)).not.toBeInTheDocument();
+    await hoverMeaning(
+      within(standard).getByText('standard'),
+      'Installed as written'
+    );
+    await hoverMeaning(
+      within(compiled).getByText('compiled'),
+      'Built from blocks and fills'
+    );
+  });
+
+  it('says a base row is edited in the parent pack', async () => {
     renderSurfaceTab([
       {
         name: 'dev-servers',
@@ -518,10 +598,96 @@ describe('SurfaceTab: legend', () => {
         base: 'acme-base',
       },
     ]);
+    await openGroup('base');
+    const row = await screen.findByTestId('surface-row-dev-servers');
 
-    await screen.findByTestId('surface-row-dev-servers');
-    expect(screen.getByTestId('surface-legend')).toHaveTextContent(
-      'from acme-basecomes from the parent pack. Edit it there.'
+    await hoverMeaning(
+      within(row).getByText('from acme-base'),
+      'From the parent pack. Edit it there'
     );
+  });
+});
+
+describe('SurfaceTab: groups', () => {
+  it('lists the groups in order, what agents see first within each', async () => {
+    renderSurfaceTab([
+      { name: 'zeta', kind: 'hand-authored', status: 'internal' },
+      {
+        name: 'dev-servers',
+        kind: 'compiled',
+        status: 'internal',
+        base: 'acme-base',
+      },
+      ...ROWS,
+    ]);
+    await screen.findByTestId('surface-row-review');
+
+    expect(
+      screen
+        .getAllByTestId(/^surface-group-/)
+        .map(group => group.getAttribute('data-testid'))
+    ).toEqual([
+      'surface-group-commands',
+      'surface-group-unwired',
+      'surface-group-base',
+    ]);
+    const commands = screen.getByTestId('surface-group-commands');
+    expect(
+      within(commands)
+        .getAllByTestId(/^surface-row-/)
+        .map(row => row.getAttribute('data-testid'))
+    ).toEqual([
+      'surface-row-review',
+      'surface-row-ship',
+      'surface-row-watch-ci',
+    ]);
+    expect(commands).toHaveTextContent('Commands3');
+    expect(commands).toHaveTextContent('2 public');
+  });
+});
+
+describe('SurfaceTab: skills that need attention', () => {
+  const HEALTH = new Map([
+    ['ship', 'stale'],
+    ['watch-ci', 'never-compiled'],
+  ] as const);
+
+  it('notes a stale or never-compiled row on the row itself', async () => {
+    renderSurfaceTab(ROWS, {}, HEALTH);
+
+    expect(await screen.findByTestId('surface-health-ship')).toHaveTextContent(
+      'source newer'
+    );
+    expect(screen.getByTestId('surface-health-watch-ci')).toHaveTextContent(
+      'never compiled'
+    );
+    expect(
+      screen.queryByTestId('surface-health-review')
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers a Needs attention chip that narrows to them', async () => {
+    renderSurfaceTab(ROWS, {}, HEALTH);
+    await screen.findByTestId('surface-row-review');
+
+    const chip = screen.getByTestId('surface-filter-needs attention');
+    expect(chip).toHaveTextContent('Needs attention2');
+    await userEvent.click(chip);
+
+    expect(screen.getByTestId('surface-row-ship')).toBeInTheDocument();
+    expect(screen.getByTestId('surface-row-watch-ci')).toBeInTheDocument();
+    expect(screen.queryByTestId('surface-row-review')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('surface-row-model-tiering')
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers no such chip when nothing needs attention', async () => {
+    renderSurfaceTab();
+    await screen.findByTestId('surface-row-review');
+
+    expect(
+      screen.queryByTestId('surface-filter-needs attention')
+    ).not.toBeInTheDocument();
   });
 });

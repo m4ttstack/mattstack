@@ -94,7 +94,8 @@ test('notifications render the type icon at the dense size', async () => {
 
   const alert = await screen.findByRole('alert');
   const svg = alert.querySelector('.mantine-Notification-icon svg');
-  expect(svg?.getAttribute('width')).toBe('11');
+  expect(svg?.getAttribute('width')).toBe('13');
+  expect(svg?.getAttribute('stroke-width')).toBe('2.75');
 });
 
 test('notifications.warning accepts a props object (title + message)', async () => {

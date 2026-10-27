@@ -259,8 +259,8 @@ afterEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-describe('WiringMap: wiring the deferred surfaces', () => {
-  it('fetches the live roster only once the Surface tab is opened', async () => {
+describe('WiringMap: the live roster', () => {
+  it('reads it for the Overview, and lists it on the Config tab', async () => {
     mockHappyPath();
     surfaceGet.mockResolvedValue(
       ok({
@@ -272,17 +272,18 @@ describe('WiringMap: wiring the deferred surfaces', () => {
     const user = userEvent.setup();
     renderWiring();
 
-    // The roster is not fetched before its tab is selected -- no rt
-    // subprocess is spent on a panel nobody asked to see.
+    // The Overview's focus list names a public command by the roster, so it
+    // reads the roster itself.
     await screen.findByTestId('focus-pipeline:feature');
-    expect(surfaceGet).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(surfaceGet).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { pack: 'demo' } })
+      )
+    );
 
-    await user.click(screen.getByRole('tab', { name: 'Surface' }));
+    await user.click(screen.getByRole('tab', { name: /^Config/ }));
 
     const panel = await screen.findByTestId('surface-tab');
-    expect(surfaceGet).toHaveBeenCalledWith(
-      expect.objectContaining({ query: { pack: 'demo' } })
-    );
     await waitFor(() =>
       expect(
         within(panel).getByTestId('surface-row-watch-ci')
@@ -352,7 +353,7 @@ describe('WiringMap: the header row', () => {
     renderWiring();
 
     const tabList = await screen.findByRole('tablist', { name: 'Page tabs' });
-    const heading = screen.getByRole('heading', { level: 2, name: 'Wiring' });
+    const heading = screen.getByRole('heading', { level: 2, name: 'Packs' });
     const open = await screen.findByTestId('open-pack');
 
     expect(tabList).not.toContainElement(heading);
@@ -398,7 +399,7 @@ describe('WiringMap: the header row', () => {
 
     await screen.findByTestId('no-packs');
     expect(
-      screen.getByRole('heading', { level: 2, name: 'Wiring' })
+      screen.getByRole('heading', { level: 2, name: 'Packs' })
     ).toBeInTheDocument();
   });
 });
