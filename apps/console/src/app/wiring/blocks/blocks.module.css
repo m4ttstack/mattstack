@@ -1393,14 +1393,14 @@ a.propBandSource {
   color: var(--tk-text-purple);
 }
 
-.sourceBody :is([data-tone='arrow'], [data-tone='mark'], [data-tone='comment']) {
+.sourceBody
+  :is([data-tone='arrow'], [data-tone='mark'], [data-tone='comment']) {
   color: var(--tk-text-3);
 }
 
 .sourceBody [data-tone='comment'] {
   font-style: italic;
 }
-
 
 .mapNote {
   display: flex;

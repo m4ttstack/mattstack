@@ -119,14 +119,23 @@ function renderConfig({
   statuses = IN_SYNC as Record<string, Status>,
   installed,
   changes = CLEAN,
+  checkExtra = {},
 }: {
   statuses?: Record<string, Status>;
   installed?: { status: string; version: string | null } | null;
   changes?: unknown;
+  /** Fields of `rt skills check` beyond the verbs: base attachments, base
+      errors, stage copies, dropped overrides. */
+  checkExtra?: Record<string, unknown>;
 } = {}) {
   compositionGet.mockResolvedValue(ok(COMPOSITION));
   checkGet.mockResolvedValue(
-    ok(installed === undefined ? check(statuses) : check(statuses, installed))
+    ok({
+      ...(installed === undefined
+        ? check(statuses)
+        : check(statuses, installed)),
+      ...checkExtra,
+    })
   );
   surfaceGet.mockResolvedValue(
     ok({
@@ -304,5 +313,189 @@ describe('ConfigTab: the status bar', () => {
     );
 
     await waitFor(() => expect(syncPost).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('ConfigTab: org base drift', () => {
+  const STALE_COPY = {
+    name: 'dev-servers',
+    base: 'acme-base',
+    status: 'stale' as const,
+    staleFiles: ['SKILL.md'],
+    orphanFiles: [],
+  };
+  const IN_SYNC_COPY = {
+    name: 'feature-flags',
+    base: 'acme-base',
+    status: 'in-sync' as const,
+    staleFiles: [],
+    orphanFiles: [],
+  };
+
+  it('counts a stale base attachment as needing a compile and lists it under Org base', async () => {
+    renderConfig({ checkExtra: { attachments: [STALE_COPY], baseErrors: [] } });
+    const bar = await statusBar();
+
+    expect(within(bar).getByTestId('config-stat-warn')).toHaveTextContent(
+      '1need a compile'
+    );
+    expect(within(bar).getByTestId('config-stat-bad')).toHaveTextContent(
+      '0never compiled'
+    );
+    const group = screen.getByTestId('health-group-org-base');
+    expect(group).toHaveTextContent('dev-servers');
+    expect(group).toHaveTextContent('from acme-base · stale');
+    expect(within(bar).queryByTestId('pack-current')).not.toBeInTheDocument();
+  });
+
+  it('counts a never-compiled base attachment as never compiled', async () => {
+    renderConfig({
+      checkExtra: {
+        attachments: [
+          { ...STALE_COPY, status: 'never-compiled', staleFiles: [] },
+        ],
+        baseErrors: [],
+      },
+    });
+    const bar = await statusBar();
+
+    expect(within(bar).getByTestId('config-stat-bad')).toHaveTextContent(
+      '1never compiled'
+    );
+    expect(within(bar).getByTestId('config-stat-warn')).toHaveTextContent(
+      '0need a compile'
+    );
+    expect(screen.getByTestId('health-group-org-base')).toHaveTextContent(
+      'from acme-base · never-compiled'
+    );
+  });
+
+  it('lists an orphaned attachment and a base error under Org base, counted in neither stat', async () => {
+    renderConfig({
+      checkExtra: {
+        attachments: [
+          {
+            name: 'gone',
+            base: null,
+            status: 'orphaned',
+            staleFiles: [],
+            orphanFiles: ['SKILL.md'],
+          },
+        ],
+        baseErrors: ['acme-base has no attachments/feature-flags'],
+      },
+    });
+    const bar = await statusBar();
+
+    const group = screen.getByTestId('health-group-org-base');
+    expect(group).toHaveTextContent('gone');
+    expect(group).toHaveTextContent('orphaned · compile removes it');
+    expect(group).toHaveTextContent(
+      'acme-base has no attachments/feature-flags'
+    );
+    expect(screen.getByTestId('health-group-count-org-base')).toHaveTextContent(
+      '2'
+    );
+    expect(within(bar).getByTestId('config-stat-warn')).toHaveTextContent(
+      '0need a compile'
+    );
+    expect(within(bar).getByTestId('config-stat-bad')).toHaveTextContent(
+      '0never compiled'
+    );
+    expect(screen.getByTestId('config-tab').textContent).not.toMatch(/null/);
+  });
+
+  it('lists a base error alone under Org base with its full text', async () => {
+    const message =
+      'acme-base has no attachments/feature-flags (looked in /orgs/acme/bases/acme-base/attachments)';
+    renderConfig({
+      checkExtra: { attachments: [IN_SYNC_COPY], baseErrors: [message] },
+    });
+    await statusBar();
+
+    expect(screen.getByTestId('health-group-org-base')).toHaveTextContent(
+      message
+    );
+    expect(screen.getByTestId('health-group-count-org-base')).toHaveTextContent(
+      '1'
+    );
+  });
+
+  it('shows no Org base card when every attachment is in sync and the base has no errors', async () => {
+    renderConfig({
+      checkExtra: { attachments: [IN_SYNC_COPY], baseErrors: [] },
+    });
+    const bar = await statusBar();
+
+    expect(
+      screen.queryByTestId('health-group-org-base')
+    ).not.toBeInTheDocument();
+    expect(within(bar).getByTestId('pack-current')).toBeInTheDocument();
+  });
+
+  it('reads as today when rt sends no attachments field', async () => {
+    renderConfig();
+    const bar = await statusBar();
+
+    expect(
+      screen.queryByTestId('health-group-org-base')
+    ).not.toBeInTheDocument();
+    expect(within(bar).getByTestId('config-stat-ok')).toHaveTextContent(
+      '2up to date'
+    );
+  });
+});
+
+describe('ConfigTab: pipeline copies and overrides', () => {
+  const DROPPED = {
+    key: 'feature/mattstack:stage-gates domain',
+    layer: 'base:acme-base',
+  };
+
+  it('lists a stale stage copy in rt words, and counts it as needing a compile', async () => {
+    renderConfig({
+      checkExtra: { staleCopies: ['stage-evidence--accessibility'] },
+    });
+    const bar = await statusBar();
+
+    expect(screen.getByTestId('health-group-pipelines')).toHaveTextContent(
+      'stale stage copy stage-evidence--accessibility: run rt skills compile'
+    );
+    expect(
+      screen.getByTestId('health-group-count-pipelines')
+    ).toHaveTextContent('1');
+    expect(within(bar).getByTestId('config-stat-warn')).toHaveTextContent(
+      '1need a compile'
+    );
+    expect(
+      within(bar).getByRole('button', { name: 'Compile Skill Pack' })
+    ).toBeInTheDocument();
+  });
+
+  it('lists a dropped override by its key and layer, as a warning only', async () => {
+    renderConfig({ checkExtra: { droppedOverrides: [DROPPED] } });
+    const bar = await statusBar();
+
+    expect(screen.getByTestId('health-group-pipelines')).toHaveTextContent(
+      "Override feature/mattstack:stage-gates domain from base:acme-base is ignored: a later layer's stage list no longer has that stage"
+    );
+    expect(within(bar).getByTestId('config-stat-warn')).toHaveTextContent(
+      '0need a compile'
+    );
+    expect(within(bar).getByTestId('pack-current')).toBeInTheDocument();
+  });
+
+  it('counts both in one card', async () => {
+    renderConfig({
+      checkExtra: {
+        staleCopies: ['stage-evidence--accessibility'],
+        droppedOverrides: [DROPPED],
+      },
+    });
+    await statusBar();
+
+    expect(
+      screen.getByTestId('health-group-count-pipelines')
+    ).toHaveTextContent('2');
   });
 });

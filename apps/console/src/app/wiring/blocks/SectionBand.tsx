@@ -44,7 +44,6 @@ export function SectionBand({
   graph = null,
   introText = null,
   bodyOf,
-  allOpen = false,
   usedByCount,
   limit,
 }: {
@@ -57,8 +56,6 @@ export function SectionBand({
   introText?: ReactNode;
   /** A row's text, when the rows are expanded. */
   bodyOf?: (blockId: string) => ReactNode;
-  /** Expand all is on: every row shows its text. */
-  allOpen?: boolean;
   /** The band of the block in view: its rows alone, the header names it. */
   bare?: boolean;
   onOpen: (blockId: string) => void;
@@ -152,7 +149,6 @@ export function SectionBand({
               row={row}
               onOpen={onOpen}
               body={bodyOf?.(row.id)}
-              allOpen={allOpen}
               usedBy={
                 row.shared?.name
                   ? (usedByCount?.(row.shared.name) ?? null)

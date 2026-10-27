@@ -19,7 +19,7 @@ import {
   computeHealthGroups,
   HealthGroupCard,
   HealthIssueRow,
-} from './HealthTab';
+} from './health';
 import { buildSpine } from './outline';
 import {
   SurfaceTab,

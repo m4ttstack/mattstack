@@ -13,7 +13,12 @@ function Block({ block }: { block: FailureBlock }) {
   }
   return (
     <Stack gap={4}>
-      <Text size="xs" ff="monospace" fw={500} classNames={{ root: classes.wrap }}>
+      <Text
+        size="xs"
+        ff="monospace"
+        fw={500}
+        classNames={{ root: classes.wrap }}
+      >
         {block.path}
       </Text>
       <Stack gap={4} classNames={{ root: classes.findings }}>

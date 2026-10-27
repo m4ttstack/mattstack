@@ -32,8 +32,7 @@
    holds on white and on the key's grey. */
 .kindBadge.kindBadge {
   border: 1px solid color-mix(in srgb, var(--badge-color) 40%, transparent);
-  background: linear-gradient(var(--badge-bg), var(--badge-bg)),
-    var(--tk-card);
+  background: linear-gradient(var(--badge-bg), var(--badge-bg)), var(--tk-card);
 }
 
 .group + .group {

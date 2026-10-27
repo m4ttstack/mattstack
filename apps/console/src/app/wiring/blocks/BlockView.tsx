@@ -6,6 +6,7 @@ import type {
   BlocksPayload,
   PayloadBlock,
 } from '../../../server/blocksPayload';
+import { Trail, type TrailItem } from '../../nav/Trail';
 import { StepLoader, useStepLoading } from '../../StepLoader';
 import { FocusHeader, type HeaderStatus } from '../graph/FocusHeader';
 import type { FocusGroups, FocusItem } from '../graph/model/focusModel';
@@ -14,13 +15,12 @@ import type { SkillsCheck, SkillsComposition } from '../outline';
 import { useSkillSource, type SkillsAnatomy } from '../useWiring';
 import { AroundGraph } from './AroundGraph';
 import { BlockMap } from './BlockMap';
-import { Trail, type TrailItem } from '../../nav/Trail';
 import classes from './blocks.module.css';
 import { BlockText, DiagramButton, FlowRow, mermaidOf } from './BlockText';
+import { BuiltFrom } from './BuiltFrom';
 import { CopyForClaude } from './CopyForClaude';
 import { DocumentCard } from './DocumentCard';
 import { EveryStep } from './FlowGraph';
-import { HistoryTab } from './HistoryTab';
 import { MarkdownText } from './MarkdownText';
 import { glyphOf, labelOf, rootOf, shownLabel } from './model/blockFacts';
 import {
@@ -483,23 +483,23 @@ export function BlockView({
         )}
 
         {bands.map(band => (
-            <SectionBand
-              key={band.id}
-              band={band}
-              onOpen={open}
-              opensBlock={payload.blocks.some(b => b.id === band.id)}
-              graph={
-                <DiagramButton
-                  payload={payload}
-                  blockId={band.id}
-                  onOpen={openFlow}
-                />
-              }
-              introText={textOf(band.id)}
-              bodyOf={textOf}
-              usedByCount={usedByCount}
-            />
-          ))}
+          <SectionBand
+            key={band.id}
+            band={band}
+            onOpen={open}
+            opensBlock={payload.blocks.some(b => b.id === band.id)}
+            graph={
+              <DiagramButton
+                payload={payload}
+                blockId={band.id}
+                onOpen={openFlow}
+              />
+            }
+            introText={textOf(band.id)}
+            bodyOf={textOf}
+            usedByCount={usedByCount}
+          />
+        ))}
 
         {context && sharedName && (
           <UsedBySection
@@ -511,7 +511,7 @@ export function BlockView({
         {context && (context.anatomy || context.anatomyError) && (
           <Section title="Built from">
             {context.anatomy ? (
-              <HistoryTab
+              <BuiltFrom
                 pack={pack}
                 anatomy={context.anatomy}
                 composition={context.composition}

@@ -87,21 +87,16 @@ export function BlockRow({
   row,
   onOpen,
   body,
-  allOpen = false,
   usedBy = null,
 }: {
   row: FoldedRow;
   onOpen: (blockId: string) => void;
   /** The block's text, shown under the row when it is open. */
   body?: ReactNode;
-  /** Expand all is on. */
-  allOpen?: boolean;
   /** On an include's row, how many skills include the tree. */
   usedBy?: number | null;
 }) {
-  const [own, setOwn] = useState<{ all: boolean; open: boolean } | null>(
-    null
-  );
+  const [open, setOpen] = useState(false);
   const expanded = body !== undefined && body !== null;
   if (row.shared) {
     const facts = [
@@ -123,20 +118,11 @@ export function BlockRow({
           <span className={classes.sharedFacts}>{facts}</span>
           <Icon name="chevronRight" size={12} className={classes.rowGo} />
         </UnstyledButton>
-        {expanded && allOpen && (
-          <div className={classes.rowBody} data-testid="block-row-body">
-            {body}
-          </div>
-        )}
       </li>
     );
   }
-  // Expand all sets every row; a click on one row overrides it until Expand
-  // all changes again.
-  const open = own !== null && own.all === allOpen ? own.open : allOpen;
   const shown = open && expanded;
-  const toggle = () =>
-    expanded ? setOwn({ all: allOpen, open: !open }) : onOpen(row.id);
+  const toggle = () => (expanded ? setOpen(!open) : onOpen(row.id));
   return (
     <li className={classes.rowItem}>
       <div className={classes.row} data-selected={row.selected || undefined}>

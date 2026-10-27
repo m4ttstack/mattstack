@@ -195,8 +195,7 @@ export function jumpsLabel(pills: Pick<Pill, 'direction'>[]): string {
     them when opened. */
 export function pillsWidth(pills: Pill[], measure: Measure): number {
   if (pills.length === 0) return 0;
-  const text =
-    pills.length === 1 ? pills[0]!.target : jumpsLabel(pills);
+  const text = pills.length === 1 ? pills[0]!.target : jumpsLabel(pills);
   const caret = pills.length === 1 ? 0 : PILL.gap + PILL.icon;
   return Math.ceil(
     2 * PILL.padX + PILL.icon + PILL.gap + measure(text, 12, 500) + caret
@@ -259,8 +258,7 @@ export function mapLayout(
     const jumpsWidth =
       pills.length === 0
         ? 0
-        : (split ? SPLIT.pillsGap : CARD.pillsGap) +
-          pillsWidth(pills, measure);
+        : (split ? SPLIT.pillsGap : CARD.pillsGap) + pillsWidth(pills, measure);
     boxes.set(node.id, { node, dots, width, pills, main: onMain.has(node.id) });
     nodes.push({
       id: node.id,

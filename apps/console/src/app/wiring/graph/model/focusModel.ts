@@ -209,19 +209,17 @@ export function buildFocusGroups(
   );
   const skills = packSkills
     .filter(row => row.kind === 'hand-authored' && !listed.has(row.name))
-    .map(
-      (row): FocusItem => ({
-        key: row.name,
-        label: row.name,
-        skill: row.name,
-        icon: row.status === 'public' ? 'squareTerminal' : 'lock',
-        step: null,
-        attention: false,
-        children: [],
-        ...(row.status === 'public' ? { command: row.name } : {}),
-        ...(row.path ? { file: row.path } : {}),
-      })
-    );
+    .map((row): FocusItem => ({
+      key: row.name,
+      label: row.name,
+      skill: row.name,
+      icon: row.status === 'public' ? 'squareTerminal' : 'lock',
+      step: null,
+      attention: false,
+      children: [],
+      ...(row.status === 'public' ? { command: row.name } : {}),
+      ...(row.path ? { file: row.path } : {}),
+    }));
 
   return {
     pipelines,

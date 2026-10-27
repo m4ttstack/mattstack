@@ -170,7 +170,11 @@
 
 @media (hover: hover) {
   .row.working:hover {
-    background-color: color-mix(in srgb, var(--tk-fill-warn) 5%, var(--tk-card));
+    background-color: color-mix(
+      in srgb,
+      var(--tk-fill-warn) 5%,
+      var(--tk-card)
+    );
   }
 }
 
@@ -204,7 +208,11 @@
   height: 28px;
   border-radius: 7px;
   color: var(--tk-text-warn);
-  background: color-mix(in srgb, var(--tk-fill-warn) var(--ui-tint), transparent);
+  background: color-mix(
+    in srgb,
+    var(--tk-fill-warn) var(--ui-tint),
+    transparent
+  );
 }
 
 .workingText {

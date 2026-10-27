@@ -36,9 +36,7 @@ export function documentLayers(
   const layers = ROLE_ORDER.flatMap(role => {
     const segments = block.segments.filter(segment => segment.color === role);
     if (segments.length === 0) return [];
-    const props = [
-      ...new Set(segments.flatMap(segment => segment.prop ?? [])),
-    ];
+    const props = [...new Set(segments.flatMap(segment => segment.prop ?? []))];
     const replaces = props.some(prop => merges.get(prop) === 'replace');
     const what =
       role === 'mattstack'

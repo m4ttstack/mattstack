@@ -11,6 +11,7 @@ import {
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { StepLoader, useStepLoading } from '../../StepLoader';
+import { useReportReady } from '../contentReady';
 import { FailureText } from '../FailureText';
 import { FocusHeader, statusOf } from '../graph/FocusHeader';
 import { workTypeOf, type FocusItem } from '../graph/model/focusModel';
@@ -20,7 +21,6 @@ import { useAnatomy, usePendingChanges } from '../useWiring';
 import classes from './blocks.module.css';
 import { BlockView, type SkillHeader } from './BlockView';
 import { skillKindOf } from './skillKind';
-import { useReportReady } from '../contentReady';
 import { useSkillBlocks } from './useSkillBlocks';
 
 /** The Graph tab's stage for a focused skill or stage: its block view, or

@@ -180,7 +180,9 @@ function MapEdgeComponent({ id, data }: EdgeProps<MapFlowEdge>) {
           <div
             key={`${box.x},${box.y}`}
             className={classes.mapChip}
-            title={exitLabel(data.label) === data.label ? undefined : data.label}
+            title={
+              exitLabel(data.label) === data.label ? undefined : data.label
+            }
             data-testid="map-chip"
             {...state}
             style={

@@ -5,9 +5,9 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import type { TrailItem } from '../../nav/Trail';
 import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
-import type { TrailItem } from '../../nav/Trail';
 import classes from './blocks.module.css';
 import {
   BAND_NODE_TYPES,

@@ -1,16 +1,11 @@
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
-import {
-  NavLink,
-  Stack,
-  Text,
-  UnstyledButton,
-} from '@mattstack/app-kit/core';
+import { NavLink, Stack, Text, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { BackPill } from '../../nav/BackPill';
 import { useGraphFocus } from '../graph/useGraphFocus';
 import { KindBadge, LayerDots } from './BlockRow';
-import { BackPill } from '../../nav/BackPill';
 import classes from './blocks.module.css';
 import { blockCount } from './model/blockView';
 import { sidebarRows, type SidebarRow } from './model/sidebar';

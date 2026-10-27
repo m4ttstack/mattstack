@@ -7,11 +7,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import {
-  HoverCard,
-  Tooltip,
-  UnstyledButton,
-} from '@mattstack/app-kit/core';
+import { HoverCard, Tooltip, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import {
   Handle,
@@ -107,7 +103,9 @@ const STEP_ICON: Record<BandNode['kind'], IconName> = {
     trailing `(<exit>)` tag repeats the card's own via. */
 function commandOf(text: string) {
   const bare = text.replace(/\s*\([^()]*\)\s*$/, '');
-  return /^[a-z_]+\s*\{/.test(bare) ? bare.slice(0, bare.indexOf('{')).trim() : bare;
+  return /^[a-z_]+\s*\{/.test(bare)
+    ? bare.slice(0, bare.indexOf('{')).trim()
+    : bare;
 }
 
 /** Where a jump or folded link goes, and each step it passes, in the map's
@@ -302,7 +300,9 @@ function Pills({ pills }: { pills: JumpPillProps[] }) {
                   >
                     <Icon
                       name={
-                        pill.direction === 'back' ? 'cornerUpLeft' : 'arrowRight'
+                        pill.direction === 'back'
+                          ? 'cornerUpLeft'
+                          : 'arrowRight'
                       }
                       size={13}
                       strokeWidth={ICON_STROKE}

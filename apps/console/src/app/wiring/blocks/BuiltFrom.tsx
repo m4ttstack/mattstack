@@ -217,10 +217,10 @@ function SkillHistory({
 }
 
 /**
- * A block's History: on a block, that block's copy in the open skill; on the
+ * What a block or skill was built from: on a block, that block's copy in the open skill; on the
  * skill itself, the whole compiled skill.
  */
-export function HistoryTab({
+export function BuiltFrom({
   block,
   ...props
 }: HistoryProps & {

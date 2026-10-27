@@ -115,7 +115,9 @@ describe('BlockMap interactions', () => {
         'title',
         'git_rebase {tree: <root>, onto: origin/<resolved target>}'
       );
-      expect(tip.lastElementChild).toHaveTextContent('Click the line to unfold');
+      expect(tip.lastElementChild).toHaveTextContent(
+        'Click the line to unfold'
+      );
     },
     SLOW
   );

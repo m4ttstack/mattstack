@@ -11,9 +11,9 @@ import { useReducedMotion } from '@mattstack/app-kit/hooks';
 import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 
 import type { BlocksPayload } from '../../../server/blocksPayload';
+import type { TrailItem } from '../../nav/Trail';
 import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
-import type { TrailItem } from '../../nav/Trail';
 import classes from './blocks.module.css';
 import {
   edgesOf,

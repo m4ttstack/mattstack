@@ -33,11 +33,11 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 
+import { Trail, type TrailItem } from '../../nav/Trail';
 import { StepLoader, type StepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
 import classes from './blocks.module.css';
 import { MAP_EDGE_TYPES, type MapFlowEdge } from './graphEdges';
-import { Trail, type TrailItem } from '../../nav/Trail';
 import { MermaidSource } from './MermaidSource';
 import type { LaidOut, LayoutEngine, LayoutInput } from './model/elkGraph';
 import { canvasPlane, MIN_MAP_ZOOM } from './model/mapLayout';
@@ -158,9 +158,7 @@ export function useCanvasPlane(
   const ref = useMergedRef(sized, element);
   const [scale, setScale] = useState(1);
   /** The map point a zoom holds still, and where it sat in the frame. */
-  const anchor = useRef<{ x: number; y: number; px: number; py: number }>(
-    null
-  );
+  const anchor = useRef<{ x: number; y: number; px: number; py: number }>(null);
   const room = { w: Math.floor(width), h: Math.floor(height) };
   const fit =
     room.w > 0 && room.h > 0 && mapWidth > 0 && mapHeight > 0

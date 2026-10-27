@@ -57,7 +57,8 @@ export function PropBox({
   };
   const titleOf = (segment: PayloadSegment) => {
     const who = layerName(segment);
-    if (segment.color === 'mattstack') return `${capital(prop.name)}: ${who}'s default`;
+    if (segment.color === 'mattstack')
+      return `${capital(prop.name)}: ${who}'s default`;
     return prop.merge === 'replace'
       ? `Set by ${who}`
       : `${capital(prop.name)} added by ${who}`;
@@ -75,7 +76,9 @@ export function PropBox({
             <Icon name="plug" size={13} className={classes.propBandIcon} />
             <span className={classes.propBandTitle}>{capital(prop.name)}</span>
             <span className={classes.propBandMeta}>
-              {prop.default ? `nothing passed · default ${prop.default}` : 'nothing passed'}
+              {prop.default
+                ? `nothing passed · default ${prop.default}`
+                : 'nothing passed'}
             </span>
           </header>
         </section>

@@ -33,16 +33,26 @@
 .notificationRoot.notificationRoot {
   gap: 10px;
   padding: 10px 10px 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--mantine-color-white) 10%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--mantine-color-white) 10%, transparent);
   border-radius: 16px;
-  background-color: color-mix(in srgb, var(--mantine-color-dark-8) 94%, transparent);
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--mantine-color-black) 22%, transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--mantine-color-dark-8) 94%,
+    transparent
+  );
+  box-shadow: 0 10px 30px
+    color-mix(in srgb, var(--mantine-color-black) 22%, transparent);
   backdrop-filter: blur(12px);
 }
 
 :where([data-mantine-color-scheme='dark']) .notificationRoot.notificationRoot {
   border-color: color-mix(in srgb, var(--mantine-color-white) 16%, transparent);
-  background-color: color-mix(in srgb, var(--mantine-color-dark-5) 96%, transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--mantine-color-dark-5) 96%,
+    transparent
+  );
 }
 
 .notificationRoot.notificationRoot::before {
@@ -92,7 +102,11 @@
 @media (hover: hover) {
   .notificationClose.notificationClose:hover {
     color: var(--mantine-color-white);
-    background-color: color-mix(in srgb, var(--mantine-color-white) 12%, transparent);
+    background-color: color-mix(
+      in srgb,
+      var(--mantine-color-white) 12%,
+      transparent
+    );
   }
 }
 

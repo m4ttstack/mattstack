@@ -66,11 +66,7 @@ function LayerStrip({
           className={classes.docStripLayer}
           data-testid="layer-strip-entry"
         >
-          <span
-            className={classes.dot}
-            data-layer={entry.layer}
-            aria-hidden
-          />
+          <span className={classes.dot} data-layer={entry.layer} aria-hidden />
           <span className={classes.docStripName}>{entry.name}</span>
           <span>
             {entry.what
@@ -175,9 +171,7 @@ export function DocumentCard({
       </header>
       <Collapse expanded={open}>
         {strip && block && <LayerStrip payload={payload} block={block} />}
-        {children !== null && (
-          <div className={classes.docBody}>{children}</div>
-        )}
+        {children !== null && <div className={classes.docBody}>{children}</div>}
       </Collapse>
     </section>
   );
