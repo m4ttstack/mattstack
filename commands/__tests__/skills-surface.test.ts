@@ -177,8 +177,8 @@ describe("skillsSurface list", () => {
 
     const out = io.lines().join("\n");
     expect(out).toContain("no surface file yet");
-    expect(out).toMatch(/hand-authored-public +public +hand-authored/);
-    expect(out).toMatch(/hand-authored-internal +internal +hand-authored/);
+    expect(out).toMatch(/hand-authored-public +public +standard/);
+    expect(out).toMatch(/hand-authored-internal +internal +standard/);
     expect(out).toMatch(/my-verb +public +compiled/);
   });
 
@@ -936,8 +936,8 @@ describe("grouped packs and pack selection", () => {
 
     const joined = io.lines().join("\n");
     expect(joined).toContain("Pack mattstack (surface.jsonc)");
-    expect(joined).toMatch(/subagent-review-loop +public +hand-authored/);
-    expect(joined).toMatch(/checkout +internal +hand-authored/);
+    expect(joined).toMatch(/subagent-review-loop +public +standard/);
+    expect(joined).toMatch(/checkout +internal +standard/);
   });
 
   test("set --public on a grouped internal skill moves it keeping its group, and writes the root surface.jsonc", async () => {
@@ -994,7 +994,7 @@ describe("registered roots and name uniqueness", () => {
     await skillsSurface(["list", "--pack", "mattstack", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/editing-skills +public +hand-authored/);
+    expect(joined).toMatch(/editing-skills +public +standard/);
     expect(joined).not.toContain("(no files on disk)editing-skills");
   });
 
@@ -1027,7 +1027,7 @@ describe("registered roots stay inside the pack", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/inside +public +hand-authored/);
+    expect(joined).toMatch(/inside +public +standard/);
     expect(joined).not.toContain("stray");
   });
 });
@@ -1046,7 +1046,7 @@ describe("registered roots are canonicalized", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/inside +public +hand-authored/);
+    expect(joined).toMatch(/inside +public +standard/);
     expect(joined).not.toContain("stray");
   });
 });
@@ -1065,7 +1065,7 @@ describe("registered roots may start with dots without escaping", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/inside +public +hand-authored/);
+    expect(joined).toMatch(/inside +public +standard/);
     expect(joined).toContain("dotty");
   });
 });
@@ -1084,7 +1084,7 @@ describe("registered roots must be directories", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/inside +public +hand-authored/);
+    expect(joined).toMatch(/inside +public +standard/);
   });
 });
 

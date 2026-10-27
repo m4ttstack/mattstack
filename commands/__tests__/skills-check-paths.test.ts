@@ -40,7 +40,7 @@ test("a hand-authored skill's cross-skill path to a missing file fails the check
   ]);
   expect(renderPlain(checkBlocks(payload, false))).toContain(
     [
-      "hand-authored skills, paths:",
+      "standard skills, paths:",
       "  plugin/skills/gadgets/SKILL.md:4:7: ${CLAUDE_SKILL_DIR}/../../../attachments/widgets/gone.md does not resolve to a file from the skill's folder",
       "[failed] skill paths: 1 path points at nothing  fix the path in the skill",
     ].join("\n"),
@@ -75,7 +75,7 @@ test("a hand-authored skill whose frontmatter is not valid YAML fails the check 
   expect((payload.skillPaths ?? []).map((d) => `${d.file}:${d.line}:${d.code}`)).toEqual(["plugin/skills/gadgets/SKILL.md:5:broken-skill-path"]);
   expect(renderPlain(checkBlocks(payload, false))).toContain(
     [
-      "hand-authored skills, frontmatter:",
+      "standard skills, frontmatter:",
       "  plugin/skills/gadgets/SKILL.md:3:14: frontmatter is not valid YAML: Nested mappings are not allowed in compact mappings",
       "[failed] skill frontmatter: 1 file does not parse as YAML  fix the YAML at that line",
     ].join("\n"),

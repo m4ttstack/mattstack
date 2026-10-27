@@ -41,9 +41,14 @@ describe("approvedBranches", () => {
     const dir = cloneDir();
     expect(approvedBranches(pWith(dir, null), "acme", dir)).toEqual(["main"]);
   });
-  test("a trial branch equal to the data branch is listed once", () => {
+  test("a trial branch equal to the recorded data branch is listed once", () => {
     const dir = cloneDir();
-    expect(approvedBranches(pWith(dir, { dataBranch: "mattstack" }, { trialBranch: "mattstack" }), "acme", dir)).toEqual(["mattstack"]);
+    expect(approvedBranches(pWith(dir, { dataBranch: "mattstack" }, { trialBranch: "mattstack", dataBranch: "mattstack" }), "acme", dir)).toEqual(["mattstack"]);
+  });
+  test("a script-made trial whose marker names itself is not read as the data branch", () => {
+    const dir = cloneDir();
+    expect(approvedBranches(pWith(dir, { dataBranch: "mattstack-trial" }, { trialBranch: "mattstack-trial" }), "acme", dir)).toEqual(["main", "mattstack-trial"]);
+    expect(approvedBranches(pWith(dir, { dataBranch: "mattstack-trial" }, { trialBranch: "mattstack-trial", dataBranch: "mattstack" }), "acme", dir)).toEqual(["mattstack", "mattstack-trial"]);
   });
   test("a trial branch on a pre-layout-4 clone sits beside main", () => {
     const dir = cloneDir();

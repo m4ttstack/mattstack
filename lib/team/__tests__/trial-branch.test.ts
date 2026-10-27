@@ -33,6 +33,15 @@ describe("useBranch", () => {
     expect(readTeamLocal(w.p, "acme").trialBranch).toBe("mattstack-layout-5");
   }, 30_000);
 
+  test("a record with no data branch gets the published one, so a trial naming itself stays a trial", async () => {
+    const w = dataBranchWorld();
+    w.pushUnrelated("mattstack-layout-5", { dataBranch: "mattstack-layout-5" });
+    expect(readTeamLocal(w.p, "acme").dataBranch).toBeUndefined();
+    await useBranch(w.p, "acme", "mattstack-layout-5", noToken);
+    expect(readTeamLocal(w.p, "acme").dataBranch).toBe("mattstack");
+    expect(approvedBranches(w.p, "acme", w.root)).toEqual(["mattstack", "mattstack-layout-5"]);
+  }, 30_000);
+
   test("a branch already on the remote with unrelated history is fetched and switched to", async () => {
     const w = dataBranchWorld();
     w.pushUnrelated("mattstack-layout-5");
@@ -156,7 +165,7 @@ describe("useBranch on a layout 3 clone", () => {
     expect(w.git("symbolic-ref", "--short", "HEAD").trim()).toBe("mattstack-trial");
     expect(w.git("log", "-1", "--format=%s").trim()).toBe("trial root");
     expect(readTeamLocal(w.p, "acme").trialBranch).toBe("mattstack-trial");
-    expect(approvedBranches(w.p, "acme", w.root)).toContain("mattstack-trial");
+    expect(approvedBranches(w.p, "acme", w.root)).toEqual(["main", "mattstack-trial"]);
     expect(w.atOrigin("rev-parse", "refs/heads/main").trim()).toBe(mainTip);
     expect(w.pushes).toEqual([]);
   }, 30_000);
