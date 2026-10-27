@@ -730,7 +730,6 @@ function ReviewGateSheet({
               </div>
               <div
                 className="tui-review-find-list"
-                data-at-end={atEnd || undefined}
                 data-drafts={drafts ? '' : undefined}
               >
                 {tierGroups.map(([tier, items]) => {

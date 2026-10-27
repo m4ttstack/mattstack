@@ -3889,21 +3889,6 @@ a.tui-id-card-ref:focus-visible {
   flex-direction: column;
   gap: 16px;
 }
-/* Bottom fade cues more findings below the fold -- sticky so it tracks the
-   scrolling main region's visible edge rather than the list's own end. */
-.tui-review-find-list::after {
-  content: '';
-  position: sticky;
-  bottom: 0;
-  display: block;
-  height: 46px;
-  margin-top: -46px;
-  pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--card));
-}
-.tui-review-find-list[data-at-end]::after {
-  display: none;
-}
 .tui-review-tier-group {
   display: flex;
   flex-direction: column;
@@ -3984,15 +3969,6 @@ a.tui-id-card-ref:focus-visible {
   border-radius: 6px;
   cursor: pointer;
   transition: background-color 120ms;
-}
-/* Above the list's sticky bottom fade: that gradient paints --card over
-   whatever it covers, so without this the last row's hover wash showed
-   through it as a half-veiled rectangle. */
-.tui-review-finding-row:hover,
-.tui-review-finding-row:active,
-.tui-review-finding-row:focus-within {
-  position: relative;
-  z-index: 1;
 }
 .tui-review-finding-row:hover {
   background: color-mix(in srgb, var(--fill-accent-hover) 6%, transparent);
