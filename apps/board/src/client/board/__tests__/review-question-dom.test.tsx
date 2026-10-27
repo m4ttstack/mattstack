@@ -22,7 +22,7 @@ import type { BoardMRWithReview } from '../../types.ts';
 import type { FindingEntry } from '../gate-ctx.ts';
 import { useGateForm } from '../GateForm.tsx';
 import { ASK_PLACEHOLDER, revisionSummary } from '../ReviewDraftCard.tsx';
-import { ReviewGateSheet } from '../ReviewGateSheet.tsx';
+import { ASK_PANE_GONE, ReviewGateSheet } from '../ReviewGateSheet.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 
@@ -142,12 +142,21 @@ interface Ask {
   resolve: (ok: boolean) => void;
 }
 
-function Host({ g, mr }: { g: GateRow; mr: BoardMRWithReview }) {
+function Host({
+  g,
+  mr,
+  paneGone,
+}: {
+  g: GateRow;
+  mr: BoardMRWithReview;
+  paneGone?: boolean;
+}) {
   const form = useGateForm(g);
   return (
     <ReviewGateSheet
       gate={g}
       mr={mr}
+      paneGone={paneGone}
       onAskQuestion={(m, gateId, findingId, question) =>
         new Promise<boolean>(resolve =>
           asks.push({ iid: m.iid, gateId, findingId, question, resolve })
@@ -163,7 +172,7 @@ function Host({ g, mr }: { g: GateRow; mr: BoardMRWithReview }) {
         onPrev: () => {},
         onNext: () => {},
       }}
-      onClose={() => {}}
+      onClose={() => closes++}
       onContinue={() => {}}
       onFocusPane={(m, domain) => focuses.push(`${m.iid}:${domain}`)}
     />
@@ -174,11 +183,13 @@ let root: Root;
 let container: HTMLElement;
 let asks: Ask[];
 let focuses: string[];
+let closes: number;
 
 beforeEach(() => {
   localStorage.clear();
   asks = [];
   focuses = [];
+  closes = 0;
   (globalThis as { fetch: unknown }).fetch = async (
     input: RequestInfo | URL
   ) => {
@@ -203,9 +214,9 @@ const settle = (ms = 0) =>
     await new Promise(resolve => setTimeout(resolve, ms));
   });
 
-async function show(g: GateRow, mr: BoardMRWithReview) {
+async function show(g: GateRow, mr: BoardMRWithReview, paneGone?: boolean) {
   await React.act(async () => {
-    root.render(<Host g={g} mr={mr} />);
+    root.render(<Host g={g} mr={mr} paneGone={paneGone} />);
   });
   await settle();
 }
@@ -380,6 +391,50 @@ describe('asking a question from the review sheet', () => {
     expect(
       container.querySelectorAll('[aria-label$=": ask a question"]').length
     ).toBe(2);
+  });
+
+  test('an unticked finding offers the link in its head, without toggling the tick', async () => {
+    await show(gate(), mrWith());
+    const tick = () =>
+      card('First finding').querySelector<HTMLInputElement>(
+        'input[type="checkbox"]'
+      )!;
+    await React.act(async () => tick().click());
+    expect(tick().checked).toBe(false);
+    const link = askLink('First finding')!;
+    expect(link.closest('.tui-review-card-head-bar')).not.toBeNull();
+    expect(link.closest('label')).toBeNull();
+    await React.act(async () => link.click());
+    expect(tick().checked).toBe(false);
+    await type(field('First finding')!, 'Why skip this?');
+    await React.act(async () =>
+      button('First finding', 'send to the review pane')!.click()
+    );
+    expect(asks.map(a => a.findingId)).toEqual(['f1']);
+  });
+
+  test('Escape in the question cancels it and leaves the sheet open', async () => {
+    await show(gate(), mrWith());
+    await openAndType('First finding', 'Is this real?');
+    const area = field('First finding')!;
+    area.focus();
+    await React.act(async () => {
+      area.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
+    });
+    expect(field('First finding')).toBeNull();
+    expect(closes).toBe(0);
+  });
+
+  test('a gone review pane disables the ask links and says why', async () => {
+    await show(gate(), mrWith(), true);
+    const link = askLink('First finding')!;
+    expect(link.disabled).toBe(true);
+    expect(link.title).toBe(ASK_PANE_GONE);
+    expect(ASK_PANE_GONE).toBe(
+      "the review pane isn't running; resume the review from its row first"
+    );
   });
 
   test('a parked gate offers no ask link: no pane holds at it', async () => {

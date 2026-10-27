@@ -219,6 +219,7 @@ function DecisionQueueModal({
         gate={gate}
         mr={mr}
         onAskQuestion={onAskQuestion}
+        paneGone={paneGone}
         form={form}
         queue={queue}
         onClose={onClose}

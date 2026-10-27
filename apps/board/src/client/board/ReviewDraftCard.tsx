@@ -682,10 +682,13 @@ function RevisedStrip({
 /** One finding's question to the review pane: `idle` offers "ask a
     question", `open` is the area being written, `sending` is the request in
     flight, `asked` is a question the pane took. `blocked` is set while
-    another finding's question is sending: one question at a time. */
+    another finding's question is sending: one question at a time.
+    `unavailable` is why no question can be asked at all (the review pane is
+    gone): the link stays, disabled, with the reason as its tooltip. */
 export interface FindingAsk {
   state: 'idle' | 'open' | 'sending' | 'asked';
   blocked: boolean;
+  unavailable?: string;
   onOpen: () => void;
   onCancel: () => void;
   onSend: (question: string) => void;
@@ -695,15 +698,19 @@ export interface FindingAsk {
 
 export const ASK_PLACEHOLDER = 'What do you want to know about this finding?';
 
-/** The Agent Finding head's "ask a question" link. */
-function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
+/** A finding's "ask a question" link: in the Agent Finding head on a
+    ticked card, at the end of the card head on an unticked one. */
+export function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
   return (
     <button
       type="button"
       className="tui-review-section-link"
       aria-label={`${title}: ask a question`}
       aria-expanded={ask.state !== 'idle'}
-      disabled={ask.blocked || ask.state === 'sending'}
+      disabled={
+        ask.unavailable !== undefined || ask.blocked || ask.state === 'sending'
+      }
+      title={ask.unavailable}
       onClick={ask.onOpen}
     >
       ask a question
@@ -754,10 +761,11 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
           autoFocus
           onChange={e => setText(e.currentTarget.value)}
           onKeyDown={e => {
-            // Escape cancels the question rather than closing the sheet.
-            if (e.key !== 'Escape' || sending) return;
+            // Escape here is the question's, never the sheet's: it cancels
+            // the question and must not reach the sheet's Escape-to-close.
+            if (e.key !== 'Escape') return;
             e.stopPropagation();
-            ask.onCancel();
+            if (!sending) ask.onCancel();
           }}
         />
       </div>
@@ -787,7 +795,8 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
 
 /** One finding in a review whose comments the board posts: the header
     with its tick, then The Code, the agent's finding and the comment that
-    posts. Unticked, only the header shows. A finding the review pane
+    posts. Unticked, only the header shows, carrying the ask link (the
+    caller puts it in `head`) with the ask area under it. A finding the review pane
     revised carries the revised strip under its header, ticked or not, so
     the change is in view while deciding whether to post it. */
 export function FindingCard({
@@ -822,6 +831,15 @@ export function FindingCard({
     >
       {head}
       {revision && <RevisedStrip original={revision.original} revised={f} />}
+      {!checked && ask && ask.state !== 'idle' && (
+        <section
+          className="tui-review-section"
+          data-section="ask"
+          aria-label="Question"
+        >
+          <AskArea title={f.title} ask={ask} />
+        </section>
+      )}
       {checked && (
         <>
           {f.file && (

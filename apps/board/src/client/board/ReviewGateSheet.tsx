@@ -42,6 +42,7 @@ import {
   SEVERITY_ORDER,
 } from './review-gate.ts';
 import {
+  AskLink,
   FindingCard,
   SummaryCard,
   type FilePin,
@@ -121,6 +122,11 @@ function safeDepth(report: ReviewReportJson | null): string | undefined {
     : undefined;
 }
 
+/** The ask link's tooltip while the review pane is gone (the server's
+    NO_REVIEW_PANE refusal, said before the click). */
+export const ASK_PANE_GONE =
+  "the review pane isn't running; resume the review from its row first";
+
 /** Types a question about one finding into the review pane (`POST
     /review/finding-question` through the board's launch flow, which toasts
     the outcome); resolves whether the pane took it. */
@@ -137,7 +143,8 @@ export type AskQuestion = (
 function useFindingAsks(
   gateId: string,
   send: ((findingId: string, question: string) => Promise<boolean>) | null,
-  onFocusPane: (() => void) | null
+  onFocusPane: (() => void) | null,
+  unavailable?: string
 ): (findingId: string) => FindingAsk | undefined {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
@@ -165,6 +172,7 @@ function useFindingAsks(
             ? 'open'
             : 'idle',
     blocked: sending !== null && sending !== findingId,
+    ...(unavailable !== undefined ? { unavailable } : {}),
     onOpen: () => {
       setAsked(a => without(a, findingId));
       setOpen(o => new Set(o).add(findingId));
@@ -325,6 +333,7 @@ function ReviewGateSheet({
   gate,
   mr,
   onAskQuestion,
+  paneGone = false,
   form,
   queue,
   onClose,
@@ -335,6 +344,9 @@ function ReviewGateSheet({
   mr?: BoardMRWithReview;
   /** Types a question about a finding into the review pane. */
   onAskQuestion?: AskQuestion;
+  /** The reconciler reports the gate's pane gone: no question can reach it,
+      so the ask links stay but are disabled, saying why. */
+  paneGone?: boolean;
   form: GateFormState;
   queue: GateSheetQueue;
   onClose: () => void;
@@ -529,7 +541,8 @@ function ReviewGateSheet({
       ? (findingId, question) =>
           onAskQuestion(mr, gate.gateId, findingId, question)
       : null,
-    mr ? () => onFocusPane(mr, 'review') : null
+    mr ? () => onFocusPane(mr, 'review') : null,
+    paneGone ? ASK_PANE_GONE : undefined
   );
 
   const mainRef = useRef<HTMLElement | null>(null);
@@ -622,6 +635,7 @@ function ReviewGateSheet({
       // inside it, a click on the comment would toggle
       // the finding.
       const original = revision?.revised[f.id]?.original;
+      const ask = askFor(f.id);
       if (drafts)
         return (
           <FindingCard
@@ -633,14 +647,20 @@ function ReviewGateSheet({
             mrRef={mr && mrRef(mr)}
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
-            ask={askFor(f.id)}
+            ask={ask}
             revision={original ? { original } : undefined}
             head={
-              <label className="tui-review-finding-row tui-review-card-head">
-                {tick}
-                {title}
-                {pills}
-              </label>
+              // An unticked card shows only its head, so the ask link moves
+              // up into it: beside the tick's label, never inside it, where
+              // a click on the link would toggle the finding.
+              <div className="tui-review-card-head-bar">
+                <label className="tui-review-finding-row tui-review-card-head">
+                  {tick}
+                  {title}
+                  {pills}
+                </label>
+                {!checked && ask && <AskLink title={f.title} ask={ask} />}
+              </div>
             }
           />
         );

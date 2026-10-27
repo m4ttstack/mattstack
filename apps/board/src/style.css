@@ -4098,6 +4098,21 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-card:not([data-off]) .tui-review-card-head {
   border-radius: 7px 7px 0 0;
 }
+/* The head row: the tick's label fills it, and an unticked card's "ask a
+   question" link sits after it, outside the label so its click never
+   toggles the finding. */
+.tui-review-card-head-bar {
+  display: flex;
+  align-items: center;
+}
+.tui-review-card-head-bar > .tui-review-card-head {
+  flex: 1;
+  min-width: 0;
+}
+.tui-review-card-head-bar > .tui-review-section-link {
+  flex: none;
+  padding: 0 16px 0 4px;
+}
 .tui-review-card-head .tui-gate-choice-input {
   margin-top: 0;
 }
