@@ -535,6 +535,34 @@ describe("reconciler status: since (onset) tracking", () => {
     expect(executor!.state).toBe("gone");
     expect(executor!.since).toBeGreaterThan(goneSince);
   });
+
+  test("a resume landing mid-snapshot is not a new onset until a snapshot can see its pane", async () => {
+    let duringSnapshot: (() => void) | null = null;
+    const racing = createReconciler({
+      store, listAgents: () => agentsList,
+      snapshot: async () => {
+        duringSnapshot?.();
+        return [];
+      },
+      peek: async () => peekText, emit: () => {}, injectEscape: async () => ({ ok: false, error: "n/a" }),
+      resumeAgent: async () => ({ ok: true }), markAgentGone: () => {}, log,
+    });
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
+    await racing.sweep();
+    const goneSince = racing.status().executors[0]!.since;
+
+    await new Promise((r) => setTimeout(r, 2));
+    duringSnapshot = () => {
+      agentsList = [buildAgent(agentId, { paneId: "w1:p9" })];
+    };
+    await racing.sweep();
+    expect(racing.status().executors[0]!.since).toBe(goneSince);
+
+    await new Promise((r) => setTimeout(r, 2));
+    duringSnapshot = null;
+    await racing.sweep();
+    expect(racing.status().executors[0]!.since).toBeGreaterThan(goneSince);
+  });
 });
 
 describe("reconciler emits gate lifecycle events for attention gates", () => {

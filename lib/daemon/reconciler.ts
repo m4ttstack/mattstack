@@ -394,12 +394,14 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
   }
 
   async function sweep(): Promise<void> {
+    // Records before panes: a resume writes its pane id only after herdr made
+    // the pane, so every pane id read here is one the snapshot can contain.
+    const agents = deps.listAgents().filter((a) => a.finishedAt == null);
     const panes = await deps.snapshot();
     lastPanes = panes;
     const herdrReachable = panes !== null;
     const now = Date.now();
 
-    const agents = deps.listAgents().filter((a) => a.finishedAt == null);
     const clearedMap = listKvValues<{ clearedAt: number }>(CLEARED_NS);
     const clearedAgentIds = new Set(Object.keys(clearedMap));
     const goneSinceMap = listKvValues<{ goneAt: number }>(GONE_SINCE_NS);
