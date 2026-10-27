@@ -155,8 +155,10 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
   const dismissedWhile = new Map<string, ExecutorState>();
   // Onset tracking for ExecutorView.since (spec "since"): keyed independent
   // of previousStates so it stays correct through herdr-unreachable sweeps
-  // too, where previousStates is deliberately left untouched.
-  const sinceByAgent = new Map<string, { state: ExecutorState; since: number }>();
+  // too, where previousStates is deliberately left untouched. The pane id
+  // is part of the key: a resume can open and lose a new pane between two
+  // sweeps, and that is a new onset even though the state reads the same.
+  const sinceByAgent = new Map<string, { state: ExecutorState; paneId: string | undefined; since: number }>();
   const expectations: PendingExpectation[] = [];
   let lastPanes: LivePane[] | null = null;
   let lastStatus: ReconcilerStatus = { sweptAt: 0, herdrReachable: false, executors: [] };
@@ -392,12 +394,24 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
   }
 
   async function sweep(): Promise<void> {
-    const panes = await deps.snapshot();
+    // Records before panes: a resume writes its pane id only after herdr made
+    // the pane, so every pane id read here is one the snapshot can contain.
+    // A resume that lands during the snapshot leaves the old pane id paired
+    // with a list that may no longer hold it, so one re-read and re-snapshot
+    // follows; a second move inside that window waits for the next sweep.
+    const liveAgents = () => deps.listAgents().filter((a) => a.finishedAt == null);
+    let agents = liveAgents();
+    let panes = await deps.snapshot();
+    const reread = liveAgents();
+    const paneIdBefore = new Map(agents.map((a) => [a.id, a.paneId]));
+    if (reread.some((a) => paneIdBefore.has(a.id) && paneIdBefore.get(a.id) !== a.paneId)) {
+      agents = reread;
+      panes = await deps.snapshot();
+    }
     lastPanes = panes;
     const herdrReachable = panes !== null;
     const now = Date.now();
 
-    const agents = deps.listAgents().filter((a) => a.finishedAt == null);
     const clearedMap = listKvValues<{ clearedAt: number }>(CLEARED_NS);
     const clearedAgentIds = new Set(Object.keys(clearedMap));
     const goneSinceMap = listKvValues<{ goneAt: number }>(GONE_SINCE_NS);
@@ -525,12 +539,14 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
     // "when did we last sweep". Runs unconditionally (not gated on
     // herdrReachable) so "unknown" during an outage gets its own honest
     // onset too, rather than ticking forward on every unreachable sweep.
+    const paneIdOf = new Map(agents.map((a) => [a.id, a.paneId]));
     for (const v of view) {
       const prior = sinceByAgent.get(v.agentId);
-      if (prior && prior.state === v.state) {
+      const paneId = paneIdOf.get(v.agentId);
+      if (prior && prior.state === v.state && prior.paneId === paneId) {
         v.since = prior.since;
       } else {
-        sinceByAgent.set(v.agentId, { state: v.state, since: now });
+        sinceByAgent.set(v.agentId, { state: v.state, paneId, since: now });
         v.since = now;
       }
     }
@@ -590,7 +606,8 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
     if (cached && cached.state !== "cleared") {
       cached.state = "cleared";
       cached.since = Date.now();
-      sinceByAgent.set(agentId, { state: "cleared", since: cached.since });
+      const paneId = agents.find((a) => a.id === agentId)?.paneId;
+      sinceByAgent.set(agentId, { state: "cleared", paneId, since: cached.since });
     }
   }
 

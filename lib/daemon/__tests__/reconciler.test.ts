@@ -521,6 +521,78 @@ describe("reconciler status: since (onset) tracking", () => {
     await reconciler.sweep();
     expect(reconciler.status().executors[0]!.since).toBe(secondSince);
   });
+
+  test("a resume into a new pane restarts the onset even when no sweep saw it live", async () => {
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
+    panesValue = [];
+    await reconciler.sweep();
+    const goneSince = reconciler.status().executors[0]!.since;
+
+    await new Promise((r) => setTimeout(r, 2));
+    agentsList = [buildAgent(agentId, { paneId: "w1:p9" })];
+    await reconciler.sweep();
+    const [executor] = reconciler.status().executors;
+    expect(executor!.state).toBe("gone");
+    expect(executor!.since).toBeGreaterThan(goneSince);
+  });
+
+  test("a resume landing mid-snapshot never reads as freshly gone", async () => {
+    let duringSnapshot: (() => void) | null = null;
+    let listed: LivePane[] = [];
+    const racing = createReconciler({
+      store, listAgents: () => agentsList,
+      snapshot: async () => {
+        const seen = listed;
+        duringSnapshot?.();
+        return seen;
+      },
+      peek: async () => peekText, emit: () => {}, injectEscape: async () => ({ ok: false, error: "n/a" }),
+      resumeAgent: async () => ({ ok: true }), markAgentGone: () => {}, log,
+    });
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
+    await racing.sweep();
+    const goneSince = racing.status().executors[0]!.since;
+
+    await new Promise((r) => setTimeout(r, 2));
+    duringSnapshot = () => {
+      agentsList = [buildAgent(agentId, { paneId: "w1:p9" })];
+      listed = [buildPane({ paneRef: "w1:p9" })];
+      duringSnapshot = null;
+    };
+    await racing.sweep();
+    const [executor] = racing.status().executors;
+    expect(executor!.state).toBe("live");
+    expect(executor!.since).toBeGreaterThan(goneSince);
+  });
+
+  test("a resume landing mid-snapshot is resolved against a fresh snapshot, not read as gone", async () => {
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
+    panesValue = [buildPane({ paneRef: "w1:p1" })];
+    await reconciler.sweep();
+    expect(reconciler.status().executors[0]!.state).toBe("live");
+
+    let resumed = false;
+    const racing = createReconciler({
+      store, listAgents: () => agentsList,
+      snapshot: async () => {
+        if (!resumed) {
+          resumed = true;
+          agentsList = [buildAgent(agentId, { paneId: "w1:p9" })];
+        }
+        return [
+          buildPane({ paneRef: "w1:p9", sessionId: undefined }),
+          buildPane({ paneRef: "w1:p5", sessionId: undefined }),
+        ];
+      },
+      peek: async () => peekText, emit: () => {}, injectEscape: async () => ({ ok: false, error: "n/a" }),
+      resumeAgent: async () => ({ ok: true }), markAgentGone: () => {}, log,
+    });
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
+    await racing.sweep();
+    const [executor] = racing.status().executors;
+    expect(executor!.state).toBe("live");
+    expect(executor!.paneRef).toBe("w1:p9");
+  });
 });
 
 describe("reconciler emits gate lifecycle events for attention gates", () => {
