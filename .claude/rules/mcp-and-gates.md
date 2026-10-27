@@ -64,8 +64,9 @@ on every poll, and the `ci_lease_*` tools), the stack store read
 (`git-tools.ts`), worktrees (`worktree-tools.ts`: provision, dispose,
 stop-holders, and no general kill), the other herd tools
 (`herd-tools.ts`), the other chat tools (`chat-tools.ts`) and `whoami`
-(`whoami-tool.ts`, which reads only the server's env and this session's own
-chat session file); every chat tool acts only as this session's own handle.
+(`whoami-tool.ts`, which reads only the server's env, this session's own
+chat session file and, through `pane:self`, the pane this session runs in
+now); every chat tool acts only as this session's own handle.
 `skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
 in process: it checks the id against `ID_RE` first, reads only under
 `~/.claude/plugins/cache` and `~/.claude/skills`, and writes nothing. It

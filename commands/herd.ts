@@ -30,7 +30,7 @@ import type { Block, Segment } from "../lib/ui/protocol.ts";
 import type { Commands, GateRow, HerdListRow, HerdStatusData, RtResponse } from "../packages/rt-client/src/index.ts";
 import { resolveRepoArg, currentRepoIdentity } from "../lib/repo-arg.ts";
 import { assembleBrief, type BriefInputs } from "../lib/herd-brief.ts";
-import { selfPaneRef } from "../lib/self-pane.ts";
+import { liveSelfPaneRef, withLivePane } from "../lib/self-pane.ts";
 import { callerCswapAccount } from "../lib/cswap.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
 
@@ -236,7 +236,7 @@ export async function start(args: string[]): Promise<void> {
   if (!name) fail("usage: rt herd start --name <n> [--repo <path>] [--hidden]");
   const session = flagValue(args, "--session") ?? process.env.CLAUDE_CODE_SESSION_ID;
   if (!session) fail("run inside a Claude Code session (or pass --session <id>)");
-  const data = unwrap(await herdStart({ name, repo: await repoFor(args), session, hidden: has(args, "--hidden"), callerPane: selfPaneRef() }), "start");
+  const data = unwrap(await herdStart({ name, repo: await repoFor(args), session, hidden: has(args, "--hidden"), callerPane: await liveSelfPaneRef() }), "start");
   emit(json, data, `herd ${data.herd}\nroom ${data.room}\nworkspace ${data.workspace}\nsubscription ${data.subscription}${data.hidden ? "\nhidden: yes" : ""}`);
 }
 
@@ -257,7 +257,7 @@ export async function ask(args: string[]): Promise<void> {
   const json = has(args, "--json");
   let payload: Commands["herd:ask"]["payload"];
   try {
-    payload = buildAskPayload(args, process.env);
+    payload = buildAskPayload(args, await withLivePane(process.env));
   } catch (e) {
     fail((e as Error).message);
   }
@@ -271,7 +271,7 @@ export async function milestone(args: string[]): Promise<void> {
   if (!artifact) fail("usage: rt herd milestone --artifact <path> [--summary <text>]");
   let w: ReturnType<typeof workerEnv>;
   try {
-    w = workerEnv(process.env);
+    w = workerEnv(await withLivePane(process.env));
   } catch (e) {
     fail((e as Error).message);
   }
@@ -411,7 +411,7 @@ export async function resume(args: string[]): Promise<void> {
   const herd = positional(args) ?? await soleHerd("usage: rt herd resume <id>");
   const session = flagValue(args, "--session") ?? process.env.CLAUDE_CODE_SESSION_ID;
   if (!session) fail("run inside a Claude Code session (or pass --session <id>)");
-  const data = unwrap(await herdResume({ herd, session, callerPane: selfPaneRef() }), "resume");
+  const data = unwrap(await herdResume({ herd, session, callerPane: await liveSelfPaneRef() }), "resume");
   if (json) {
     emit(true, data, "");
     return;

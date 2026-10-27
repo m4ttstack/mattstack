@@ -17,7 +17,7 @@ import type { Commands, GateQuestion } from "../../packages/rt-client/src/index.
 import { ensureLease } from "../ci/lease-guard.ts";
 import { isAbsolute } from "path";
 import { explainError } from "../explain-error.ts";
-import { selfPaneRef } from "../self-pane.ts";
+import { liveSelfPaneRef, withLivePane } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
 import { abortableSleep, ciToolDefs } from "./ci-tools.ts";
 import { whoamiToolDefs } from "./whoami-tool.ts";
@@ -244,7 +244,7 @@ export function mcpTools(): McpToolDef[] {
         const payload: Commands["chat:post"]["payload"] = { room: input.room as string, handle: identity.handle, body: input.body as string };
         if (input.mentions !== undefined) payload.mentions = input.mentions as string[];
         if (input.quiet !== undefined) payload.quiet = input.quiet as boolean;
-        const pane = selfPaneRef(env);
+        const pane = await liveSelfPaneRef(env);
         if (pane) payload.pane = pane;
         return fromResponse(await chatPost(payload));
       },
@@ -264,7 +264,7 @@ export function mcpTools(): McpToolDef[] {
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "to", type: "string" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
-        return fromResponse(await chatDm({ from: identity.handle, to: input.to as string, body: input.body as string, sessionId: identity.sessionId, pane: selfPaneRef(env) }));
+        return fromResponse(await chatDm({ from: identity.handle, to: input.to as string, body: input.body as string, sessionId: identity.sessionId, pane: await liveSelfPaneRef(env) }));
       },
     },
     {
@@ -829,7 +829,7 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt herd ask"],
       async handler(input, env) {
-        const w = requireWorkerEnv(env);
+        const w = requireWorkerEnv(await withLivePane(env));
         if ("error" in w) return err(w.error);
         const bad = checkRequired(input, [{ name: "questions", type: "array" }]);
         if (bad) return err(bad);

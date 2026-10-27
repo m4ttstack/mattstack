@@ -44,7 +44,7 @@ import { basename } from "path";
 import { loadRepoIndex } from "../lib/repo-index.ts";
 import { repoLabel } from "../lib/repo-arg.ts";
 import { verbHelpRequested } from "../lib/cli-verb-help.ts";
-import { selfPaneRef } from "../lib/self-pane.ts";
+import { liveSelfPaneRef } from "../lib/self-pane.ts";
 import { findGitRoot, repoAliasForPath, resolveMainWorktreePath } from "../lib/repo-for-cwd.ts";
 import { slugifyChatName as slugify } from "../lib/chat-room-name.ts";
 import { roomForIdentity } from "../lib/chat-room.ts";
@@ -426,7 +426,7 @@ const PANE_LOOKUP_TIMEOUT_MS = 2000;
  * does not answer, so the lookup adds no hard dependency.
  */
 async function paneIdentity(args: string[]): Promise<ChatIdentity | null> {
-  const pane = selfPaneRef();
+  const pane = await liveSelfPaneRef();
   if (!pane) return null;
   const res = await chatBuddies({ ...sockOpts(args), timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
   if (!res.ok || !res.data) return null;
@@ -765,7 +765,7 @@ async function runJoin(args: string[]): Promise<void> {
     wakeOn = wakeOnRaw;
   }
 
-  const res = await chatJoin({ room, handle, wakeOn, cwd: safeCwd(), pane: selfPaneRef() });
+  const res = await chatJoin({ room, handle, wakeOn, cwd: safeCwd(), pane: await liveSelfPaneRef() });
   const data = unwrap(res, "join");
 
   if (args.includes("--json")) {
@@ -895,7 +895,7 @@ async function runPost(args: string[]): Promise<void> {
   requireValidName("handle", handle);
 
   const quiet = args.includes("--quiet");
-  const res = await chatPost({ room, handle, body, quiet, pane: selfPaneRef() }, sockOpts(args));
+  const res = await chatPost({ room, handle, body, quiet, pane: await liveSelfPaneRef() }, sockOpts(args));
   const data = unwrap(res, "post");
   // Output stays to a line or two: who was actually woken (a post that
   // delivered to nobody used to be silent, indistinguishable from success
@@ -1160,7 +1160,7 @@ async function runDm(args: string[]): Promise<void> {
   const { handle: from, sessionId } = await resolveIdentity(args);
   requireValidName("handle", from);
 
-  const res = await chatDm({ from, to, body, sessionId, pane: selfPaneRef() }, sockOpts(args));
+  const res = await chatDm({ from, to, body, sessionId, pane: await liveSelfPaneRef() }, sockOpts(args));
   const data = unwrap(res, "dm");
 
   if (args.includes("--json")) {
@@ -1186,7 +1186,7 @@ async function runInvite(args: string[]): Promise<void> {
   const note = flagValue(args, "--note");
   const signedIn = readChatSession(currentSessionId(args))?.handle ?? (await paneIdentity(args))?.handle;
   const from = signedIn ?? getSetting<string>("chat.humanHandle").value;
-  const callerPane = selfPaneRef();
+  const callerPane = await liveSelfPaneRef();
   const res = await chatInvite({ paneId, room, note, from, callerPane }, sockOpts(args));
   const data = unwrap(res, "invite");
   if (args.includes("--json")) {
@@ -1232,7 +1232,7 @@ async function runSignIn(args: string[]): Promise<void> {
   const parsedIdentity = identity ? parseIdentity(identity.identity) : null;
   const repo = identity ? repoLabel(identity.identity) : undefined;
   const branch = root ? getCurrentBranch() ?? undefined : undefined;
-  const pane = selfPaneRef();
+  const pane = await liveSelfPaneRef();
   const statusText = flagValue(args, "--status");
 
   const noRoomFlag = args.includes("--no-room");

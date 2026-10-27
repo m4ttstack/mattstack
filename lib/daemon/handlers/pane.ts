@@ -187,6 +187,7 @@ export function createPaneHandlers(opts: {
   & { "pane:accounts": (payload: unknown) => Promise<CommandResult<"pane:accounts">> }
   & { "pane:directories": (payload: unknown) => Promise<CommandResult<"pane:directories">> }
   & { "pane:send": (payload: unknown) => Promise<CommandResult<"pane:send">> }
+  & { "pane:self": (payload: unknown) => Promise<CommandResult<"pane:self">> }
   & { "pane:focus": (payload: unknown) => Promise<CommandResult<"pane:focus">> }
   & { "pane:announce-relocation": (payload: unknown) => Promise<CommandResult<"pane:announce-relocation">> }
   & { "pane:spawn": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pane:spawn">> } {
@@ -228,6 +229,15 @@ export function createPaneHandlers(opts: {
     if (!bg || !(await bg.up())) return undefined;
     const hidden = await sessionPaneOn(sessionId, bg.socketPath());
     return hidden && formatPaneRef(hidden, "bg");
+  }
+
+  /** The claimed ref when its own process runs the session (one herdr call), else a scan, else the claim. */
+  async function livePane(sessionId: string, claimed: string | undefined): Promise<string | undefined> {
+    if (claimed) {
+      const { paneId, sockPath } = resolvePaneRef(claimed);
+      if ((await sessionFromPaneProcess(herdr, paneId, sockPath, claudeRegistryRoots)) === sessionId) return claimed;
+    }
+    return (await sessionPane(sessionId)) ?? claimed;
   }
 
   return {
@@ -404,9 +414,14 @@ export function createPaneHandlers(opts: {
       return { ok: true, data: { pane, ready } };
     },
 
+    "pane:self": async (rawPayload: unknown): Promise<CommandResult<"pane:self">> => {
+      const payload = rawPayload as Commands["pane:self"]["payload"];
+      return { ok: true, data: { paneId: (await livePane(payload.sessionId, payload.paneId)) ?? null } };
+    },
+
     "pane:send": async (rawPayload: unknown): Promise<CommandResult<"pane:send">> => {
       const payload = rawPayload as Commands["pane:send"]["payload"];
-      const target = (payload.selfSession && (await sessionPane(payload.selfSession))) || payload.paneId;
+      const target = (payload.selfSession && (await livePane(payload.selfSession, payload.paneId))) || payload.paneId;
       const { paneId, sockPath } = resolvePaneRef(target);
       const res = await injectIntoPane({ paneId, text: payload.text, callerPane: payload.callerPane, herdr, sockPath });
       if (!res.ok) return res;

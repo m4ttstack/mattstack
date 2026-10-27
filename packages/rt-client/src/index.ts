@@ -51,6 +51,7 @@ export {
   paneDirectories,
   chatInvite,
   paneSend,
+  paneSelf,
   paneFocus,
   reconcilerStatus,
   reconcilerClear,

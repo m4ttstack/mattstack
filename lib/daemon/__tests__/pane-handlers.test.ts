@@ -626,6 +626,31 @@ test("pane:send with selfSession keeps the given pane when no pane runs that ses
   expect(seen.find((s) => s.method === "agent.prompt")?.params.target).toBe("w1:p3");
 });
 
+test("pane:self keeps the given pane when its process runs the session, with no snapshot", async () => {
+  const { pane, seen } = selfSendHarness({ "w1:p1": "sess-1" });
+  const res = await pane["pane:self"]({ sessionId: "sess-1", paneId: "w1:p1" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p1" } });
+  expect(seen.some((s) => s.method === "session.snapshot")).toBe(false);
+});
+
+test("pane:self finds the pane running the session when the given pane is stale", async () => {
+  const { pane } = selfSendHarness({ "w1:p2": "sess-moved" });
+  const res = await pane["pane:self"]({ sessionId: "sess-moved", paneId: "w14H:pE" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p2" } });
+});
+
+test("pane:self finds the session's pane with no pane given", async () => {
+  const { pane } = selfSendHarness({ "w1:p2": "sess-moved" });
+  const res = await pane["pane:self"]({ sessionId: "sess-moved" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p2" } });
+});
+
+test("pane:self falls back to the given pane, or null, when no pane runs the session", async () => {
+  const { pane } = selfSendHarness({});
+  expect(await pane["pane:self"]({ sessionId: "sess-nowhere", paneId: "w1:p3" })).toEqual({ ok: true, data: { paneId: "w1:p3" } });
+  expect(await pane["pane:self"]({ sessionId: "sess-nowhere" })).toEqual({ ok: true, data: { paneId: null } });
+});
+
 // pane:focus routes to the tray (which owns the herdr focus + native window
 // raise), never to herdr directly, so these fake the tray, not herdr.
 function fakeTray(reply: TrayReply, seen?: Array<{ path: string; method: string; body: unknown }>): TrayClient {

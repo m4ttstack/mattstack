@@ -34,6 +34,7 @@ import type { Commands, GateRow, RtResponse } from "../packages/rt-client/src/in
 import { parseDuration, nextWaitMs } from "./events.ts";
 import { GATE_FORK_HOOK_TIMEOUT_SECONDS } from "../lib/agent-hooks.ts";
 import * as out from "../lib/ui/out.ts";
+import { withLivePane } from "../lib/self-pane.ts";
 
 function fail(msg: string): never {
   out.diagnostic(`rt gate: ${msg}\n`);
@@ -212,7 +213,7 @@ export function gateAskOutput(data: Commands["gate:ask"]["data"]): Record<string
 }
 
 export async function gateAsk(args: string[]): Promise<void> {
-  const payload = buildGateAskPayload(args, process.env);
+  const payload = buildGateAskPayload(args, await withLivePane(process.env));
   const res = await clientAsk(payload);
   if (!res.ok || res.data === undefined) askFail(res.error ?? "ask failed");
   const data = res.data;
@@ -289,7 +290,7 @@ export function forkCheckHookOutput(res: RtResponse<Commands["gate:fork-check"][
 
 export async function gateForkCheck(_args: string[]): Promise<void> {
   const stdin = process.stdin.isTTY ? "" : await Bun.stdin.text();
-  const payload = buildForkCheckPayload(stdin, process.env, process.cwd());
+  const payload = buildForkCheckPayload(stdin, await withLivePane(process.env), process.cwd());
   const res = payload ? await clientForkCheck(payload, { timeoutMs: FORK_CHECK_TIMEOUT_MS }) : null;
   out.json(forkCheckHookOutput(res));
 }
