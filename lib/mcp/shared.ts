@@ -8,7 +8,7 @@ import { chatBuddies, herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
-import { selfPaneRef } from "../self-pane.ts";
+import { liveSelfPaneRef } from "../self-pane.ts";
 
 /** A string is a literal command prefix; an object carries a pattern a prefix
     cannot express, and an example line the pattern must hit. */
@@ -164,7 +164,7 @@ export async function requireChatHandle(
 ): Promise<{ handle: string; name: string; sessionId: string } | { error: string }> {
   const session = read(env.CLAUDE_CODE_SESSION_ID);
   if (session) return { handle: session.handle, name: sessionName(session), sessionId: session.sessionId };
-  const pane = selfPaneRef(env);
+  const pane = await liveSelfPaneRef(env);
   if (!pane) return { error: SIGN_IN_HINT };
   const res = await buddies({ timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
   const row = res.ok ? res.data?.buddies.find((b) => b.pane === pane && b.status !== "offline") : undefined;

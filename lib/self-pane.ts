@@ -7,7 +7,7 @@
  * ref space so a same-pane compare on the other end (lib/daemon/inject.ts) can
  * ever match.
  */
-import { formatPaneRef, paneSelf } from "../packages/rt-client/src/index.ts";
+import { formatPaneRef, paneSelf, parsePaneRef } from "../packages/rt-client/src/index.ts";
 import { BG_SESSION } from "./herdr/bg-session.ts";
 
 const LOOKUP_TIMEOUT_MS = 2000;
@@ -33,6 +33,18 @@ export async function liveSelfPaneRef(
   const own = selfPaneRef(env);
   const sessionId = env.CLAUDE_CODE_SESSION_ID;
   if (!own || !sessionId) return own;
-  const res = await lookup({ sessionId, paneId: own });
-  return (res.ok && res.data?.paneId) || own;
+  const res = await lookup({ sessionId, paneId: own }).catch(() => null);
+  return (res?.ok && res.data?.paneId) || own;
+}
+
+/** `env` with HERDR_PANE_ID set to the live bare id, for builders that read the env var directly. */
+export async function withLivePane(env: NodeJS.ProcessEnv = process.env, lookup?: PaneSelfLookup): Promise<NodeJS.ProcessEnv> {
+  const live = await liveSelfPaneRef(env, lookup);
+  if (!live || live === selfPaneRef(env)) return env;
+  return { ...env, HERDR_PANE_ID: parsePaneRef(live).paneId };
+}
+
+/** The live bare pane id, in the HERDR_PANE_ID form. */
+export async function liveSelfPaneId(env: NodeJS.ProcessEnv = process.env, lookup?: PaneSelfLookup): Promise<string | undefined> {
+  return (await withLivePane(env, lookup)).HERDR_PANE_ID;
 }
