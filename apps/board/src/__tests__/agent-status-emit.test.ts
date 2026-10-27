@@ -40,7 +40,6 @@ describe('boardRootFromStatePath', () => {
     expect(boardRootFromStatePath(`${ROOT}/state/reviews/x.json`)).toBe(ROOT);
     expect(boardRootFromStatePath(`${ROOT}/state/responds/x.json`)).toBe(ROOT);
     expect(boardRootFromStatePath(`${ROOT}/state/doctors/x.json`)).toBe(ROOT);
-    expect(boardRootFromStatePath(`${ROOT}/state/questions/x.json`)).toBe(ROOT);
   });
 
   test('a relative path resolves against the cwd', () => {

@@ -5,16 +5,6 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import { parseConfig } from '../config.ts';
-import { clearMrQuestions } from '../question-lifecycle.ts';
-import {
-  insertPendingRevision,
-  latestRevisions,
-  markRevisionsApplied,
-  readQuestionStates,
-  readSheetDraft,
-  writeQuestionState,
-  writeSheetDraft,
-} from '../question-state.ts';
 import {
   readRespondStates,
   respondFilePath,
@@ -29,6 +19,11 @@ import {
   type RespondAskCtx,
   type RespondAskIo,
 } from '../review-launch.ts';
+import {
+  deleteSheetDraft,
+  readSheetDraft,
+  writeSheetDraft,
+} from '../review-sheet-draft.ts';
 import {
   readReviewStates,
   reviewFilePath,
@@ -72,7 +67,6 @@ let db: Database;
 let resumeCalls: Array<Record<string, unknown>>;
 let legacyResumeCalls: Array<Record<string, unknown>>;
 let reviewCalls: Array<Record<string, unknown>>;
-let closedTabs: string[];
 
 /** io wired to the real state store (in a temp dir) with fake launchers, so
     the tests assert on the state files the launcher actually writes. */
@@ -108,14 +102,7 @@ function makeIo(over: Partial<ReReviewIo> = {}): ReReviewIo {
     writeReviewState: (path, patch, now) =>
       writeReviewState(path, patch, now, db),
     readReviewStates: () => readReviewStates(db),
-    clearMrQuestions: mrUrl =>
-      clearMrQuestions(mrUrl, {
-        db,
-        closeTab: async tabId => {
-          closedTabs.push(tabId);
-        },
-        logError: () => {},
-      }),
+    deleteSheetDraft: mrUrl => deleteSheetDraft(mrUrl, db),
     ...over,
   };
 }
@@ -126,7 +113,6 @@ beforeEach(() => {
   resumeCalls = [];
   legacyResumeCalls = [];
   reviewCalls = [];
-  closedTabs = [];
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -887,76 +873,25 @@ describe('launchReReview: the lane keeps the pack of the board tab it launched f
 });
 
 describe('launchReReview: the review sheet draft', () => {
-  const DRAFT = {
-    ticked: ['f1'],
-    known: ['f1'],
-    texts: {},
-    notes: {},
-  };
-
   test.each([
     ['agentId on file (resume)', { agentId: 'agent-old' }],
     ['sessionId only (legacy resume)', { sessionId: 'sess-old' }],
     ['nothing on file (fresh launch)', {}],
-  ])('a re-review launch clears the MR draft: %s', async (_name, prior) => {
+  ])('a re-review launch drops the MR draft: %s', async (_name, prior) => {
     writeReviewState(
       reviewFilePath(URL_A),
       { mrUrl: URL_A, iid: IID, status: 'done', ...prior },
       Date.now(),
       db
     );
-    writeSheetDraft(URL_A, DRAFT, 1, db);
+    writeSheetDraft(
+      URL_A,
+      { ticked: ['f1'], known: ['f1'], texts: {}, notes: {} },
+      db
+    );
 
     await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
 
     expect(readSheetDraft(URL_A, db)).toBeUndefined();
   });
-
-  test.each([
-    ['agentId on file (resume)', { agentId: 'agent-old' }],
-    ['sessionId only (legacy resume)', { sessionId: 'sess-old' }],
-    ['nothing on file (fresh launch)', {}],
-  ])(
-    "a re-review launch ends the last run's questions and revisions: %s",
-    async (_name, prior) => {
-      writeReviewState(
-        reviewFilePath(URL_A),
-        { mrUrl: URL_A, iid: IID, status: 'done', ...prior },
-        Date.now(),
-        db
-      );
-      writeQuestionState(
-        URL_A,
-        'f1',
-        { status: 'live', iid: IID, gateId: 'g0', tabId: 'q-tab' },
-        1,
-        db
-      );
-      const f1 = {
-        id: 'f1',
-        tier: 'Minor' as const,
-        title: 't',
-        body: 'b',
-        comment: 'c',
-      };
-      insertPendingRevision(
-        {
-          mrUrl: URL_A,
-          findingId: 'f1',
-          original: f1,
-          revised: f1,
-          closedGate: 'g0',
-          createdAt: 1,
-        },
-        db
-      );
-      markRevisionsApplied(URL_A, 'g1', db);
-
-      await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
-
-      expect(readQuestionStates(db).has(URL_A)).toBe(false);
-      expect(latestRevisions(URL_A, db).size).toBe(0);
-      expect(closedTabs).toEqual(['q-tab']);
-    }
-  );
 });

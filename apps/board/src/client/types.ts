@@ -5,7 +5,7 @@ import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
-import type { ReportFinding } from '../review-finding.ts';
+import type { ReviewRevision } from '../review-revision.ts';
 import type { SlackTemplates } from '../template.ts';
 import type { Handoff, HandoffKind } from '../triage/memory.ts';
 import type { TurnConfig } from '../turn.ts';
@@ -214,31 +214,10 @@ export type BoardMRWithReview = BoardMR & {
       distinct from `BoardData.orphans`, which only holds the leftover
       entries no MR row claimed. */
   orphan?: ExecutorView;
-  /** The review gate's finding questions, for the review sheet; absent
-      when the MR has none. */
-  questions?: QuestionInfo;
+  /** The findings the open review gate revised from the gate it
+      superseded, each with its original; absent when nothing changed. */
+  reviewRevision?: ReviewRevision;
 };
-
-/** One MR's finding questions as the review sheet reads them. */
-export interface QuestionInfo {
-  /** Questions still starting (`queued`) or running, by finding id. */
-  live: Record<
-    string,
-    { paneId?: string; tabId?: string; status: 'queued' | 'live' }
-  >;
-  /** Questions whose launch failed, by finding id, with why. A new ask
-      clears one: its queued write drops the message. */
-  failed: Record<string, { message: string }>;
-  /** The newest applied revision per finding. `newGate` is the rebuilt gate
-      it landed in, so the sheet can tell a revision of the gate on screen
-      from one an earlier gate carried. */
-  revised: Record<
-    string,
-    { original: ReportFinding; revised: ReportFinding | null; newGate: string }
-  >;
-  /** A revision is waiting for the review agent to rebuild the gate. */
-  rebuilding: boolean;
-}
 
 export type AskKind = 'review' | 're-review' | 'respond';
 

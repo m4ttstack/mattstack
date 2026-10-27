@@ -50,7 +50,6 @@ const config: BoardConfig = {
   respondsWorkspace: 'responds',
   doctorCwd: '',
   doctorsWorkspace: 'doctors',
-  questionsWorkspace: 'questions',
   claudeCommand: '',
   doctorSkill: '',
   teamPack: '',

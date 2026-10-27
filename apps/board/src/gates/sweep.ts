@@ -5,7 +5,6 @@ import {
 } from '@mattstack/gate-kit';
 import type { GateRow } from '@mattstack/rt-client';
 import type { DoctorState } from '../doctor-state.ts';
-import type { MrQuestionActivity } from '../question-state.ts';
 import type { RespondState } from '../respond-state.ts';
 import type { ReviewState } from '../review-state.ts';
 
@@ -26,12 +25,6 @@ export interface GateSweepStates {
   reviews: Map<string, ReviewState>;
   responds: Map<string, RespondState>;
   doctors: Map<string, DoctorState>;
-  /** Each MR with a question row, and its questions' liveness and last
-      activity (`questionActivity()`). While one is live the operator is
-      mid-conversation about the review gate's findings, so that gate must
-      not park out from under them; once the last one ends, the grace
-      restarts from that activity. */
-  questionMrs: ReadonlyMap<string, MrQuestionActivity>;
 }
 
 const MR_SUBJECT_PREFIX = 'mr:';
@@ -78,10 +71,7 @@ function tabIdFor(
  *
  * - `park`: an `open` row whose grace window has elapsed. `answered`,
  *   `parked` and `closed` rows are exempt so a row never re-parks once it
- *   has moved past `open`, and so is a review-domain row whose MR has a
- *   live question (`questionMrs`). A review-domain row's grace runs from
- *   the later of its `openedAt` and the MR's last question activity, so
- *   it parks a full grace after the last question ends. The row carries no tabId (that's launch
+ *   has moved past `open`. The row carries no tabId (that's launch
  *   plumbing the facility doesn't track) -- it's joined from the matching
  *   state of the row's OWN domain (a doctor row joins the doctor state map,
  *   never the review one), the same join the resume path uses.
@@ -142,11 +132,7 @@ export function planSweep(
       continue;
     if (row.status !== 'open') continue;
     openByDomain[domain].add(mrUrl);
-    const questions =
-      domain === 'review' ? states.questionMrs.get(mrUrl) : undefined;
-    if (questions?.live) continue;
-    const since = Math.max(row.openedAt, questions?.lastActivityAt ?? 0);
-    if (now - since >= graceMs) {
+    if (now - row.openedAt >= graceMs) {
       actions.push({
         kind: 'park',
         domain,
@@ -197,7 +183,7 @@ export function planSweep(
 export interface PruneOffBoardGatesIo {
   gateClose(payload: {
     id: string;
-    reason: 'abandoned' | 'superseded' | 'pruned' | 'revised';
+    reason: 'abandoned' | 'superseded' | 'pruned';
   }): Promise<unknown>;
   logError(message: string): void;
 }

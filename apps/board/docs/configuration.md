@@ -29,7 +29,7 @@ or `machine`. A key nobody set reads its registry default, which
 | `board.ticketPrefixes` | when non-empty, show only MRs whose ticket key starts with one of these prefixes, e.g. `["ACME"]`. Case-insensitive. With nothing set, your team's Linear key |
 | `board.botUsernames` | extra bot accounts whose general MR comments to hide, on top of the built-in heuristic |
 | `board.cwds` | `{ review, respond, doctor }`: absolute paths the agent panes start in. An empty review path disables the review launch; respond and doctor fall back to it |
-| `board.workspaces` | `{ reviews, responds, doctors, questions }`: herdr workspace labels (defaults `reviews`, `responses`, `doctors`, `questions`). `questions` holds the panes that answer a question about one review finding |
+| `board.workspaces` | `{ reviews, responds, doctors }`: herdr workspace labels (defaults `reviews`, `responses`, `doctors`) |
 | `board.doctorSkill` | domain skill the doctor wrapper delegates to, e.g. `acme:doctor`. Empty means the wrapper repairs generically. The launch pack's `board:doctor` binding for the MR's repo overrides it when present. See [skill bindings](agent-actions.md#skill-bindings-per-pack-skillsjsonc) |
 | `board.agent.account`, `board.agent.model`, `board.agent.effort` | how the panes start Claude. See below |
 | `board.slack` | post templates, sweep interval, signal emoji and the channel kind to post to. See [Slack integration](slack.md) |

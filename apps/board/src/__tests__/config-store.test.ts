@@ -112,7 +112,6 @@ describe('loadConfig: the store and the registry defaults', () => {
       reviewsWorkspace: 'reviews',
       respondsWorkspace: 'responses',
       doctorsWorkspace: 'doctors',
-      questionsWorkspace: 'questions',
       reviewCwd: '',
       respondCwd: '',
       doctorCwd: '',
@@ -213,14 +212,6 @@ describe('loadConfig: store values', () => {
     expect(cfg.reviewsWorkspace).toBe('store-reviews');
     expect(cfg.respondsWorkspace).toBe('responses');
     expect(cfg.doctorsWorkspace).toBe('doctors');
-    expect(cfg.questionsWorkspace).toBe('questions');
-  });
-
-  test('board.workspaces.questions overrides the questions workspace', () => {
-    const cfg = loadConfig(
-      fakeResolve({ ...TEAM, 'board.workspaces': { questions: 'q' } })
-    );
-    expect(cfg.questionsWorkspace).toBe('q');
   });
 
   test('board.cwds: a partial value keeps the default for the rest', () => {

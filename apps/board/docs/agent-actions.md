@@ -7,11 +7,11 @@ locally-viewed board can hand the MR to a Claude Code agent running in a
 
 Three launches share one shape:
 
-| action                                       | what it does                                         | herdr workspace     |
-| -------------------------------------------- | ---------------------------------------------------- | ------------------- |
+| action                                | what it does                                         | herdr workspace     |
+| ------------------------------------- | ---------------------------------------------------- | ------------------- |
 | **launch review** (and **follow-up review**) | reviews someone else's MR                            | `reviewsWorkspace`  |
-| **respond to review**                        | processes review feedback on your own MR             | `respondsWorkspace` |
-| **call the doctor**                          | repairs mechanical breakage: merge conflicts, red CI | `doctorsWorkspace`  |
+| **respond to review**                 | processes review feedback on your own MR             | `respondsWorkspace` |
+| **call the doctor**                   | repairs mechanical breakage: merge conflicts, red CI | `doctorsWorkspace`  |
 
 Each spawns a fresh herdr tab labelled `!<iid>`, starts `claude` in the
 matching cwd (`reviewCwd`, `respondCwd`, `doctorCwd`, each falling back to
@@ -43,31 +43,6 @@ State files live in the gitignored `state/` directory (`state/reviews/`,
 `state/responds/`, `state/doctors/`, `state/drafts/`). They are pruned when
 their MR leaves the board, not on a timer: a session's state persists for as
 long as its MR is shown.
-
-## Asking about a review finding
-
-A review gate's sheet offers **ask a question** on each drafted finding the
-review's report json lists. It launches a read-only questions agent in a
-herdr tab labelled `Q <finding id>`, in the `questionsWorkspace`
-(`board.workspaces.questions`, default `questions`), started in `reviewCwd`:
-
-```
-/board:question <url> --state <path> --status-bin <path> --report <path> --finding <id> --gate <gate id> --report-json <path>
-```
-
-While the pane comes up the control reads "opening a question…"; once it is
-running, "question open" brings its tab forward. A launch that fails says why
-beside the control, and asking again clears it. A launch that never reports
-back is marked failed after five minutes.
-
-The conversation can send a revised (or dropped) finding back into the
-review: the board closes the review gate with the reason `revised`, and the
-review wrapper rebuilds the gate with that one finding changed, keeping the
-sheet's ticks and edits on the others. A parked review cannot take a
-revision. While a question is open the review gate does not park, and its
-parking grace restarts when the last question ends. The MR's questions,
-their tabs and any revisions end when the review is submitted with a verdict,
-when a new review run starts, or when the MR leaves the board.
 
 ## Held drafts
 

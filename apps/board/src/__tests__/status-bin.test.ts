@@ -4,7 +4,6 @@ import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
 import { draftBinPath, statusBinPath } from '../herdr.ts';
-import { questionHandle, readQuestionByHandle } from '../question-state.ts';
 import {
   dbPathForRoot,
   insertAgentState,
@@ -13,7 +12,6 @@ import {
   readByHandle,
   type Lane,
 } from '../state/index.ts';
-import { SUBCOMMANDS } from '../subcommands.ts';
 
 /** The board hands this path to an agent launched in the *target repo's* cwd,
     which then executes it. Both halves have to hold: the path has to exist, and
@@ -281,51 +279,6 @@ describe('the status writer the board hands out', () => {
     const stderr = await new Response(proc.stderr).text();
     expect(stderr).toContain('stale pre-upgrade handle');
     expect(existsSync(dbPathForRoot(root))).toBe(false);
-  });
-
-  test('registers the question verb the questions agent calls', () => {
-    expect(SUBCOMMANDS).toContain('question');
-  });
-
-  test('question status writes the row a handle names and refuses an unknown one', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'board-statusbin-q-'));
-    const mrUrl = 'https://x/mr/21';
-    const db = openStateDb(dbPathForRoot(root), 'cli');
-    // Seeded by hand: writeQuestionState stamps the handle from the ambient
-    // board root, and this one must sit under the temp root the CLI derives.
-    const handle = questionHandle(mrUrl, 'f1', root);
-    db.run(
-      'INSERT INTO question_states (mr_url, finding_id, handle, state, updated_at) VALUES (?, ?, ?, ?, ?)',
-      [
-        mrUrl,
-        'f1',
-        handle,
-        JSON.stringify({ mrUrl, findingId: 'f1', iid: 21, status: 'queued' }),
-        1,
-      ]
-    );
-    db.close();
-
-    const run = (...args: string[]) =>
-      Bun.spawn([statusBinPath(), 'question', ...args], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-        env: NO_LIVE_BOARD,
-      });
-
-    const ok = run('status', handle, 'live', 'reading', 'the', 'report');
-    expect(await ok.exited).toBe(0);
-    const check = openStateDb(dbPathForRoot(root), 'cli');
-    expect(readQuestionByHandle(handle, check)).toMatchObject({
-      status: 'live',
-      message: 'reading the report',
-    });
-    check.close();
-
-    const badStatus = run('status', handle, 'bogus');
-    expect(await badStatus.exited).toBe(2);
-    const unknown = run('status', questionHandle(mrUrl, 'nope', root), 'done');
-    expect(await unknown.exited).toBe(2);
   });
 
   test('rejects an unknown subcommand rather than silently doing nothing', async () => {

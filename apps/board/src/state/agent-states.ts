@@ -12,7 +12,7 @@ const LANE_DIR: Record<Lane, string> = {
   doctor: 'doctors',
 };
 
-export function slug(mrUrl: string): string {
+function slug(mrUrl: string): string {
   return mrUrl
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -38,7 +38,7 @@ export function reportPathForHandle(handle: string): string {
   return handle.replace(/\.json$/, '') + '.md';
 }
 
-export function definedFields(patch: object): object {
+function definedFields(patch: object): object {
   return Object.fromEntries(
     Object.entries(patch).filter(([, v]) => v !== undefined)
   );

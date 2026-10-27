@@ -1,6 +1,7 @@
-/** The review sheet draft's wire shape check, shared by the PUT route and the
-    client's read of the GET. It lives apart from question-state.ts because
-    that module opens the sqlite state db and the client bundle cannot. */
+/** The review sheet draft's wire shape check, shared by the PUT route, the
+    kv store and the client's read of the GET. It lives apart from
+    review-sheet-draft.ts because that module opens the sqlite state db and
+    the client bundle cannot. */
 
 /** The review sheet's unsent state: which findings are ticked, their
     editable texts, the chosen outcome and per-finding notes. */

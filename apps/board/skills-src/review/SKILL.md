@@ -126,9 +126,6 @@ digraph review_flow {
     "review-post open exit?" [shape=diamond];
     "review-post: take the review gate step" [shape=box];
     "review-post step outcome?" [shape=diamond];
-    "Review gate closed for a revision" [shape=box];
-    "Revision rebuilt (review)?" [shape=diamond];
-    "rm -f <report stem>.revision.json" [shape=plaintext];
     "Ask the review questions as one combined native form (degraded)" [shape=box];
     "Record the verdict answer in --report" [shape=box];
     "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>" [shape=plaintext];
@@ -205,7 +202,7 @@ digraph review_flow {
 
     "<status-bin> gate wait <state> (resumed review gate)" -> "Resumed wait result (review)?";
     "Resumed wait result (review)?" -> "Resumed kind (review)?" [label="answered"];
-    "Resumed wait result (review)?" -> "Review gate gone: ended cleanly, no status write" [label="closed for any reason (a parked gate is never revised), not found, or no gate open"];
+    "Resumed wait result (review)?" -> "Review gate gone: ended cleanly, no status write" [label="closed, not found, or no gate open"];
     "Resumed wait result (review)?" -> "Resumed wait failures = 3 (review)?" [label="any other failure"];
     "Resumed wait failures = 3 (review)?" -> "<status-bin> gate wait <state> (resumed review gate)" [label="no: wait again"];
     "Resumed wait failures = 3 (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes"];
@@ -312,11 +309,6 @@ digraph review_flow {
     "review-post: take the review gate step" -> "review-post step outcome?";
     "review-post step outcome?" -> "Record the verdict answer in --report" [label="answered"];
     "review-post step outcome?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
-    "review-post step outcome?" -> "Review gate closed for a revision" [label="closed for a revision"];
-    "Review gate closed for a revision" -> "Revision rebuilt (review)?";
-    "Revision rebuilt (review)?" -> "rm -f <report stem>.revision.json" [label="yes: a new fitted open file handed back"];
-    "rm -f <report stem>.revision.json" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>";
-    "Revision rebuilt (review)?" -> "Review gate gone: ended cleanly, no status write" [label="no: revision file missing or unreadable, no domain skill, or the rebuild failed or held"];
     "review-post step outcome?" -> "Ask the review questions as one combined native form (degraded)" [label="the wait keeps failing"];
     "Ask the review questions as one combined native form (degraded)" -> "Record the verdict answer in --report";
     "Record the verdict answer in --report" -> "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>";
@@ -972,10 +964,9 @@ What they are built from depends on the path:
 
 Take "Gate step" with the open's `gateId` and `presentation`. Its outcome
 comes back here: answered (the answers and `by`, from the pane form's
-`gate answer`, its CAS-loss line, or the wait), closed for a revision
-(`Review gate closed for a revision`), gate gone (end cleanly with no
-status write), or the wait keeps failing (the degraded combined form).
-Nothing posts before the answer.
+`gate answer`, its CAS-loss line, or the wait), gate gone (end cleanly
+with no status write), or the wait keeps failing (the degraded combined
+form). Nothing posts before the answer.
 
 **`--context`.** The built gate's `--context` is its only shared context
 carrier:
@@ -993,76 +984,6 @@ carrier:
 
 A fitted open file carries its own `.context` (the review's structured
 summary); `open-gate.sh` opens it as it stands.
-
-### Review gate closed for a revision
-
-The gate step came back with `gate <id> closed (revised)`: the human asked
-a questions agent about one finding, and it sent that finding back to the
-board revised, or dropped. The board wrote the revision beside the report
-json and closed this gate to wake this pane. It is waiting for a new gate,
-not for an ending.
-
-**No terminal status until the new gate is open.** From the revised close
-until `review-post open exit?` reads 0, write no status at all: no
-`done`, no `error`, no `review-status` of any kind. The board reads `done`
-as the end of the run: it closes the MR's question tabs and clears the
-human's saved ticks and edits on the other findings. So every way this
-box fails ends the way Gone does, saying why in the pane and writing
-nothing.
-
-1. **Read the revision.** It is `--report`'s json sibling (the stem swap
-   in "Building the review-post questions") with the trailing `.json`
-   swapped for `.revision.json`: `<report stem>.revision.json`. It holds
-   `{findingId, revised, original}`. `original` is the finding as the
-   gate showed it; `revised` is the finding to put in its place, in the
-   report json's finding shape and with the same `id`, or `null` to drop
-   it.
-2. **Hand it to the domain skill as a revision**, with `--report`: the
-   domain skill's "Revise one finding from the board". It applies the
-   human's revision to that one finding, rebuilds the fitted open file
-   the way the first open was built, and hands back the new open file's
-   path, its `gate-ctx.sh`, the recounted severity line, and whether it
-   moved a new anchor into the summary (say so in the pane when it did).
-   It never re-reviews or re-verifies anything.
-3. **Delete the revision file** once the domain skill has applied it
-   (`Revision rebuilt (review)?` yes): `rm -f <report stem>.revision.json`,
-   BEFORE opening the new gate. The moment that gate is open the human can
-   send the next revision, and the board writes it to this same path; a
-   delete after the open could remove that next revision before this pane
-   ever reads it.
-4. **Open the new open file** with `open-gate.sh`, exactly like the first
-   open, then take the gate step on the new gate. The `review-round:` line
-   in `--report` stays as it is: a revision is the same round on the same
-   sha, so never append a second one. The board marks the revision applied
-   when the new gate opens and carries the human's ticks and edits on the
-   other findings across to it. A later revision closes the new gate the
-   same way and comes back here.
-
-`Revision rebuilt (review)?` is no, ending as Gone with no status write
-and the revision file left for the board, when:
-
-- **The revision file is missing or unreadable**, or not that shape:
-  name which in the pane.
-- **There is no domain skill** (the generic path): only a domain skill's
-  fitted gate carries the drafts the board's question button needs, so
-  a generic gate is never revised; say so if it happens anyway.
-- **The domain skill reports the rebuild failed, or held** (the finding
-  is no longer in the report json, or a refusal it could not get past):
-  quote its reason.
-
-The board expires a pending revision that no new gate followed, as
-failed, on its own sweep.
-
-When the new open exits nonzero (the daemon is down),
-`review-post open exit?` takes its usual degraded edge: the combined
-native form, built from the new open file. The revision file is already
-gone by then, and the revision is in the report. This is the one path past a revised close that can write `done` without a
-new gate, and only after the human answers that form: the revision is
-already in the report by then.
-
-A resumed pane never comes here: the board refuses a send-back on a
-parked gate, so a `--resumed-gate` wait that returns `closed (revised)`
-is Gone like every other closed result there.
 
 ### Ask the review questions as one combined native form (degraded)
 
@@ -1576,13 +1497,9 @@ reads `presentation`, and `End the turn: holding at gate <gateId>
 entered reads the outcome:
 
 - **Answered:** the answers and `by` go back to the box.
-- **Closed for a revision** (`gate <id> closed (revised)` on a
-  `review-post` gate): the board closed it to send one finding back.
-  Not gone: `review-post`'s box rebuilds the gate (`Review gate closed for
-  a revision`). The board only ever closes a `review-post` gate this way.
-- **Gone** (closed for any other reason, not found, or `no gate open`):
-  end cleanly, say so in the pane, write neither `done` nor `error`:
-  whatever superseded the gate already owns this MR's board state.
+- **Gone** (closed, not found, or `no gate open`): end cleanly, say so in
+  the pane, write neither `done` nor `error`: whatever superseded the gate
+  already owns this MR's board state.
 - **Wait keeps failing:** `review-post`'s box asks the degraded combined
   form; an escalation's box takes `gate unavailable`.
 
@@ -1598,7 +1515,6 @@ digraph review_gate_step {
     "gate answer printed a JSON line (review form)?" [shape=diamond];
     "Trigger: a doorbell arrives while the review form is open" [shape=ellipse];
     "<status-bin> gate wait <state> --max-ms 1000 (review doorbell)" [shape=plaintext];
-    "Doorbell read (review)?" [shape=diamond];
     "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)" [shape=plaintext];
     "End the turn: holding at gate <gateId> (review)" [shape=box];
     "Trigger: the review wait loop finished" [shape=ellipse];
@@ -1608,7 +1524,6 @@ digraph review_gate_step {
     "<status-bin> gate answer <state> --answers <json> --by pane (review escape hatch)" [shape=plaintext];
     "gate answer printed a JSON line (review escape hatch)?" [shape=diamond];
     "Review gate gone: back to its gate box" [shape=doublecircle];
-    "Review gate closed for a revision: back to its gate box" [shape=doublecircle];
     "Review wait keeps failing: back to its gate box" [shape=doublecircle];
     "Held at the review gate: report readable, no done" [shape=doublecircle];
     "Review gate answered: back to its gate box" [shape=doublecircle style=filled fillcolor=lightgreen];
@@ -1623,17 +1538,13 @@ digraph review_gate_step {
     "gate answer printed a JSON line (review form)?" -> "Review gate answered: back to its gate box" [label="no: this answer stands"];
     "gate answer printed a JSON line (review form)?" -> "Review gate answered: back to its gate box" [label="yes: another surface won, proceed on its answer"];
     "Trigger: a doorbell arrives while the review form is open" -> "<status-bin> gate wait <state> --max-ms 1000 (review doorbell)";
-    "<status-bin> gate wait <state> --max-ms 1000 (review doorbell)" -> "Doorbell read (review)?";
-    "Doorbell read (review)?" -> "Review gate answered: back to its gate box" [label="answered"];
-    "Doorbell read (review)?" -> "Review gate closed for a revision: back to its gate box" [label="closed (revised), on a review-post gate"];
-    "Doorbell read (review)?" -> "Review gate gone: back to its gate box" [label="closed for any other reason, not found, or no gate open"];
+    "<status-bin> gate wait <state> --max-ms 1000 (review doorbell)" -> "Review gate answered: back to its gate box";
     "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)" -> "End the turn: holding at gate <gateId> (review)";
     "End the turn: holding at gate <gateId> (review)" -> "Trigger: the review wait loop finished" [style=dashed label="the wait loop finished"];
     "End the turn: holding at gate <gateId> (review)" -> "Held at the review gate: report readable, no done" [style=dashed label="the pane ends or the board parks it before an answer"];
     "Trigger: the review wait loop finished" -> "Review wait result?";
     "Review wait result?" -> "Review gate answered: back to its gate box" [label="answered"];
-    "Review wait result?" -> "Review gate closed for a revision: back to its gate box" [label="closed (revised), on a review-post gate"];
-    "Review wait result?" -> "Review gate gone: back to its gate box" [label="closed for any other reason, not found, or no gate open"];
+    "Review wait result?" -> "Review gate gone: back to its gate box" [label="closed, not found, or no gate open"];
     "Review wait result?" -> "Review wait failures = 3?" [label="any other failure"];
     "Review wait failures = 3?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (review)" [label="no: wait again"];
     "Review wait failures = 3?" -> "Review wait keeps failing: back to its gate box" [label="yes"];
@@ -1699,9 +1610,7 @@ nuance in the `{value, note}` form. Five things stay specific to
   doorbell while the form still sits open, means another surface answered
   first: proceed on the winning answer, never the one you meant to submit.
   The doorbell is verify-only: read the recorded answer with `<status-bin>
-  gate wait <state> --max-ms 1000`. When that read says `gate <id> closed
-  (revised)` instead, the board closed the gate for a revision while the
-  form sat open: drop the form and take the revision exit.
+  gate wait <state> --max-ms 1000`.
 - **The hook.** A PreToolUse hook may deny native AskUserQuestion when no
   gate is open; that denial is the gate protocol speaking: the gate opens
   first, through its gate node. When the daemon is down the hook allows the
@@ -1739,11 +1648,7 @@ Per "Closed or missing gate" and "A failing wait is not degradation": a
 result is terminal, so end cleanly without re-running it; any other
 failing wait re-runs, and only the third failure falls through, saying
 why: to the degraded combined form for `review-post`, to `gate
-unavailable` for an escalation. One reason is not terminal here, whatever
-that file says: `gate <id> closed (revised)` on a `review-post` gate goes
-back to its box as a revision (`Review gate closed for a revision`),
-never re-running the wait. On an escalation gate, `revised` is Gone like
-every other reason.
+unavailable` for an escalation.
 
 ## Off-script step
 
@@ -1763,9 +1668,8 @@ entered reads the outcome:
   after its grace window and resumes it on the answer, and `Route the
   resumed escalation by its origin (review)` picks up where this pane
   stopped.
-- **Gone** (closed for any reason, `revised` included: the board revises
-  only `review-post` gates; not found; or `no gate open`): end cleanly,
-  say so in the pane, and write no status.
+- **Gone** (closed, not found, or `no gate open`): end cleanly, say so in
+  the pane, and write no status.
 - **Unavailable** (the open exits nonzero, or the wait fails three times):
   the box's `gate unavailable` edge, which writes `error` as hand back
   does.

@@ -10,7 +10,7 @@ import {
   type AgentLaunchResult,
 } from './agent-launch.ts';
 import { respondReportPath } from './respond-state.ts';
-import { reviewFilePath, reviewReportPath } from './review-state.ts';
+import { reviewReportPath } from './review-state.ts';
 import { shellSingleQuote } from './shell-quote.ts';
 import { resolveSkillPath } from './skill-path.ts';
 
@@ -206,14 +206,6 @@ export interface SkillPromptOpts {
   /** Respond only: the username this response answers, as `--person <username>`
       right after `--round`. */
   person?: string;
-  /** Question only: the review finding the pane answers questions about, as
-      `--finding <id>`. */
-  findingId?: string;
-  /** Question only: the review-post gate the finding sits on, as `--gate <id>`. */
-  gateId?: string;
-  /** Question only: the structured review report (the json beside `reportPath`'s
-      markdown) the pane reads the finding from, as `--report-json <path>`. */
-  reportJsonPath?: string;
 }
 
 /** The trailing paragraph a launch note becomes. The framing tells the wrapper
@@ -264,9 +256,6 @@ function dispatchArgs(o: SkillPromptOpts, skillPath?: string | null): string {
   flag('--state', o.statePath);
   flag('--status-bin', o.statusBin);
   flag('--report', o.reportPath);
-  flag('--finding', o.findingId);
-  flag('--gate', o.gateId);
-  flag('--report-json', o.reportJsonPath);
   flag('--skill', o.skill);
   flag('--resumed-gate', o.resumedGate);
   flag('--resumed-gate-kind', o.resumedGateKind);
@@ -621,46 +610,6 @@ export async function launchDoctor(
   );
 }
 
-/** Start the finding-question skill in a fresh rt-agent pane under the
-    questions workspace. `statePath` is the question row's handle, and the
-    report is the MR's review report, not anything under that handle: the pane
-    reads the finding the review wrote. No domain skill: the question agent is
-    read-only and generic, so there is nothing for `--skill` to delegate to. */
-export async function launchQuestion(
-  opts: LaunchPaneOpts & {
-    findingId: string;
-    gateId: string;
-    reportJsonPath: string;
-  },
-  io?: AgentIo
-): Promise<AgentLaunchResult> {
-  const prompt = await dispatchPrompt('board:question', {
-    mrUrl: opts.mrUrl,
-    statePath: opts.statePath,
-    statusBin: statusBinPath(),
-    reportPath: reviewReportPath(reviewFilePath(opts.mrUrl)),
-    findingId: opts.findingId,
-    gateId: opts.gateId,
-    reportJsonPath: opts.reportJsonPath,
-    note: opts.note,
-  });
-  return startAgentPane(
-    {
-      repo: opts.repo,
-      cwd: opts.cwd,
-      prompt,
-      workspaceLabel: opts.workspaceLabel,
-      tabLabel: mrTabLabel(opts.iid, opts.author, `Q ${opts.findingId}`),
-      subject: `mr:${opts.mrUrl}`,
-      account: opts.account,
-      model: opts.model,
-      effort: opts.effort,
-      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
-    },
-    io
-  );
-}
-
 /** Resume a session that predates rt agent adoption (a bare claude sessionId,
     no agentId) in a new pane under the given workspace, over the HerdrRunner.
     Ages out as panes relaunch through startAgentPane/launchReview et al.
@@ -730,4 +679,14 @@ export async function sendPaneText(
   runner: HerdrRunner = defaultRunner
 ): Promise<void> {
   await runner(['pane', 'run', paneId, text]);
+}
+
+/** Press Escape in a running pane: dismisses the gate form a review pane is
+    showing, so a line typed next lands at its prompt (see
+    finding-question.ts). */
+export async function sendPaneEscape(
+  paneId: string,
+  runner: HerdrRunner = defaultRunner
+): Promise<void> {
+  await runner(['pane', 'send-keys', paneId, 'escape']);
 }

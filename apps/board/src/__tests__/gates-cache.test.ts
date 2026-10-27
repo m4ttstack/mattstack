@@ -495,25 +495,6 @@ describe('GateCache.applyEvent', () => {
     expect(cached.closedReason).toBe('abandoned');
   });
 
-  test('closed frame with reason revised sets closedReason revised', () => {
-    const cache = new GateCache();
-    cache.applyRow(row());
-
-    cache.applyEvent({
-      topic: 'gate/closed/gate-1',
-      payload: {
-        id: 'gate-1',
-        subject: SUBJECT_A,
-        kind: 'review-post',
-        reason: 'revised',
-      },
-    });
-
-    const cached = cache.get(SUBJECT_A, 'review-post')!;
-    expect(cached.status).toBe('closed');
-    expect(cached.closedReason).toBe('revised');
-  });
-
   test.each(['answered', 'parked', 'closed', 'released', 'escalated'] as const)(
     '%s frame for an unknown id is dropped silently, no throw, no phantom entry',
     kind => {
@@ -1244,5 +1225,78 @@ describe('attachGates owner', () => {
     );
     const [mr] = attachGates([{ webUrl: url }], cache);
     expect(mr!.gates[0]!.owner).toBe('human');
+  });
+});
+
+describe('GateCache.supersededBy', () => {
+  const opened = (id: string) => ({
+    topic: `gate/opened/${id}`,
+    payload: {
+      id,
+      subject: SUBJECT_A,
+      kind: 'review-post',
+      questions: [{ id: 'q1', label: 'Ship it?', options: ['yes', 'no'] }],
+    },
+  });
+
+  test("the supersede rule's frames keep the old gate as the new one's predecessor", () => {
+    const cache = new GateCache();
+    cache.applyEvent(opened('g-old'));
+    cache.applyEvent(opened('g-new'));
+    cache.applyEvent({
+      topic: 'gate/closed/g-old',
+      payload: {
+        id: 'g-old',
+        subject: SUBJECT_A,
+        kind: 'review-post',
+        reason: 'superseded',
+        supersededBy: 'g-new',
+      },
+    });
+    expect(cache.get(SUBJECT_A, 'review-post')?.id).toBe('g-new');
+    expect(cache.rows().map(r => r.id)).toEqual(['g-new']);
+    const prior = cache.supersededBy('g-new');
+    expect(prior?.id).toBe('g-old');
+    expect(prior?.status).toBe('closed');
+    expect(prior?.closedReason).toBe('superseded');
+  });
+
+  test('a replaced gate that was never closed as superseded is no predecessor', () => {
+    const cache = new GateCache();
+    cache.applyEvent(opened('g-old'));
+    cache.applyEvent(opened('g-new'));
+    expect(cache.supersededBy('g-new')).toBeUndefined();
+  });
+
+  test('a reconcile listing both rounds, newest first, keeps the predecessor', () => {
+    const cache = new GateCache();
+    cache.reconcile([
+      row({ id: 'g-new', openedAt: 2000 }),
+      row({
+        id: 'g-old',
+        openedAt: 1000,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'g-new',
+      }),
+    ]);
+    expect(cache.get(SUBJECT_A, 'review-post')?.id).toBe('g-new');
+    expect(cache.supersededBy('g-new')?.id).toBe('g-old');
+  });
+
+  test('an older round that names another gate is dropped', () => {
+    const cache = new GateCache();
+    cache.reconcile([
+      row({ id: 'g-new', openedAt: 2000 }),
+      row({
+        id: 'g-older',
+        openedAt: 500,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'g-old',
+      }),
+    ]);
+    expect(cache.supersededBy('g-new')).toBeUndefined();
+    expect(cache.supersededBy('g-old')).toBeUndefined();
   });
 });

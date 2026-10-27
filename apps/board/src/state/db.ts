@@ -8,7 +8,7 @@ import { getKvValue } from './kv-blob.ts';
 import { importLegacyState } from './legacy-import.ts';
 
 export type DbFlavor = 'server' | 'cli';
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 5;
 
 const BUSY_TIMEOUT_MS: Record<DbFlavor, number> = { server: 250, cli: 5000 };
 const MIGRATION_BUSY_TIMEOUT_MS = 5000;
@@ -124,34 +124,6 @@ CREATE TABLE IF NOT EXISTS respond_rounds (
 );
 `;
 
-const V6_SCHEMA = `
-CREATE TABLE IF NOT EXISTS question_states (
-  mr_url     TEXT NOT NULL,
-  finding_id TEXT NOT NULL,
-  handle     TEXT NOT NULL,
-  state      TEXT NOT NULL,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (mr_url, finding_id)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_question_states_handle ON question_states(handle);
-CREATE TABLE IF NOT EXISTS finding_revisions (
-  mr_url        TEXT NOT NULL,
-  finding_id    TEXT NOT NULL,
-  original      TEXT NOT NULL,
-  revised       TEXT,
-  status        TEXT NOT NULL,
-  closed_gate   TEXT NOT NULL,
-  new_gate      TEXT,
-  created_at    INTEGER NOT NULL,
-  PRIMARY KEY (mr_url, finding_id, created_at)
-);
-CREATE TABLE IF NOT EXISTS review_sheet_drafts (
-  mr_url     TEXT PRIMARY KEY,
-  draft      TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-`;
-
 type Migration = (db: Database) => void;
 const MIGRATIONS: Migration[] = [
   db => db.run(V1_SCHEMA),
@@ -182,10 +154,6 @@ const MIGRATIONS: Migration[] = [
   // v5: one row per response round to one person, so each person's round
   // count survives the MR's single respond lane being rewritten per launch.
   db => db.run(V5_SCHEMA),
-  // v6: per-finding question agents, the revisions they produce (revised is
-  // NULL for a drop), and the review sheet's in-progress draft, so none of
-  // them is lost to a reload or to the review gate being rebuilt.
-  db => db.run(V6_SCHEMA),
 ];
 
 // SCHEMA_VERSION is the public constant other modules reason about;

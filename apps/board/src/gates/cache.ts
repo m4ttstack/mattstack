@@ -98,6 +98,11 @@ function sameRow(a: FacilityGateRow, b: FacilityGateRow): boolean {
  */
 export class GateCache {
   private readonly byKey = new Map<string, FacilityGateRow>();
+  /** Per subject+kind, the row the current one replaced, kept out of
+      `rows()` so nothing but `supersededBy` reads it. A review agent that
+      re-raises its gate supersedes the old one, and the sheet compares the
+      two gates' findings to mark what changed. */
+  private readonly replaced = new Map<string, FacilityGateRow>();
 
   /** Increases on every write that changes a row, so a caller can tell a
       no-op resync from one that found something. */
@@ -110,8 +115,16 @@ export class GateCache {
   applyRow(row: FacilityGateRow): void {
     const key = cacheKey(row.subject, row.kind);
     const existing = this.byKey.get(key);
-    if (existing && existing.id !== row.id && existing.openedAt > row.openedAt)
+    if (
+      existing &&
+      existing.id !== row.id &&
+      existing.openedAt > row.openedAt
+    ) {
+      // An older round: kept only when it names the current row as the
+      // gate that superseded it (a reconcile listing both).
+      if (row.supersededBy === existing.id) this.keepReplaced(key, row);
       return;
+    }
     if (
       existing &&
       existing.id === row.id &&
@@ -119,8 +132,31 @@ export class GateCache {
     )
       return;
     if (existing && sameRow(existing, row)) return;
+    if (existing && existing.id !== row.id) this.replaced.set(key, existing);
     this.byKey.set(key, row);
     this.revision++;
+  }
+
+  private keepReplaced(key: string, row: FacilityGateRow): void {
+    const prior = this.replaced.get(key);
+    if (
+      prior &&
+      prior.id === row.id &&
+      (STATUS_RANK[prior.status] > STATUS_RANK[row.status] ||
+        sameRow(prior, row))
+    )
+      return;
+    this.replaced.set(key, row);
+    this.revision++;
+  }
+
+  /** The closed row that `gateId` superseded, while the cache still holds
+      it: only the latest replaced row per subject+kind is kept, and nothing
+      survives a board restart unless a reconcile lists it. */
+  supersededBy(gateId: string): FacilityGateRow | undefined {
+    for (const row of this.replaced.values())
+      if (row.status === 'closed' && row.supersededBy === gateId) return row;
+    return undefined;
   }
 
   /** `gateList`'s result is authoritative for every subject+kind it names; a
@@ -219,7 +255,22 @@ export class GateCache {
     for (const row of this.byKey.values()) {
       if (row.id === id) return row;
     }
+    for (const row of this.replaced.values()) {
+      if (row.id === id) return row;
+    }
     return undefined;
+  }
+
+  /** Writes a patched row back where it lives: a current row through
+      applyRow, a replaced one in place (the supersede rule's closed frame
+      arrives after the new gate's opened frame). */
+  private writePatch(row: FacilityGateRow): void {
+    const key = cacheKey(row.subject, row.kind);
+    if (this.byKey.get(key)?.id === row.id) {
+      this.applyRow(row);
+      return;
+    }
+    if (this.replaced.get(key)?.id === row.id) this.keepReplaced(key, row);
   }
 
   private patchExisting(
@@ -234,7 +285,7 @@ export class GateCache {
     if (kind === 'answered') {
       const { answers, by } = payload;
       if (!isRecord(answers)) return;
-      this.applyRow({
+      this.writePatch({
         ...existing,
         status: 'answered',
         answer: {
@@ -247,33 +298,35 @@ export class GateCache {
           typeof payload.paneId === 'string' ? payload.paneId : existing.pane,
       });
     } else if (kind === 'parked') {
-      this.applyRow({ ...existing, status: 'parked', parkedAt: Date.now() });
+      this.writePatch({ ...existing, status: 'parked', parkedAt: Date.now() });
     } else if (kind === 'closed') {
-      this.applyRow({
+      this.writePatch({
         ...existing,
         status: 'closed',
         closedAt: Date.now(),
         closedReason: isClosedReason(payload.reason)
           ? payload.reason
           : existing.closedReason,
+        supersededBy:
+          typeof payload.supersededBy === 'string'
+            ? payload.supersededBy
+            : existing.supersededBy,
       });
     } else if (kind === 'escalated') {
-      this.applyRow({
+      this.writePatch({
         ...existing,
         escalatedAt: existing.escalatedAt ?? Date.now(),
         owner:
           typeof payload.owner === 'string' ? payload.owner : existing.owner,
       });
     } else {
-      this.applyRow({ ...existing, released: true });
+      this.writePatch({ ...existing, released: true });
     }
   }
 }
 
 function isClosedReason(v: unknown): v is FacilityGateRow['closedReason'] {
-  return (
-    v === 'abandoned' || v === 'superseded' || v === 'pruned' || v === 'revised'
-  );
+  return v === 'abandoned' || v === 'superseded' || v === 'pruned';
 }
 
 function isTerminal(status: string | undefined): boolean {
