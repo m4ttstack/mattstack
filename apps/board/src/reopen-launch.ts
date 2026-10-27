@@ -15,6 +15,8 @@ export interface ReopenableState {
   status: string;
   agentId?: string;
   sessionId?: string;
+  paneId?: string;
+  tabId?: string;
 }
 
 /** The patch a reopen writes back: the untouched status, the fresh pane ids,
@@ -116,6 +118,13 @@ export async function launchReopen(
       io.logError(`${ctx.workspaceKind} resume focus failed: ${message}`);
     }
   };
+
+  // macOS only lets the tray raise the terminal while the operator's click
+  // is fresh, and a resume takes seconds: raise the lane's pane now, and the
+  // focus after the resume only has to move herdr to the resumed tab.
+  // Awaited, so it cannot land after (and undo) that later focus.
+  if ((existing.agentId || existing.sessionId) && existing.tabId)
+    await focus({ paneId: existing.paneId, tabId: existing.tabId });
 
   if (existing.agentId) {
     try {

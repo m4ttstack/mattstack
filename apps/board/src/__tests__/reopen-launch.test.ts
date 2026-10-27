@@ -285,6 +285,37 @@ describe('launchReopen', () => {
     expect(focused).toEqual([]);
   });
 
+  test('a lane pane on file is focused before the resume dispatches, then the resumed pane', async () => {
+    const order: string[] = [];
+    const { io, focused } = makeIo({
+      focus: async pane => {
+        order.push(`focus ${pane.paneId ?? pane.tabId}`);
+        focused.push(pane);
+      },
+      resumeAgentPane: async () => {
+        order.push('resume');
+        return paneResult();
+      },
+    });
+    await launchReopen(
+      { status: 'done', agentId: 'agent-1', paneId: 'pane-1', tabId: 'tab-1' },
+      baseCtx(),
+      io
+    );
+    expect(order).toEqual(['focus pane-1', 'resume', 'focus pane-3']);
+    expect(focused[0]).toEqual({ paneId: 'pane-1', tabId: 'tab-1' });
+  });
+
+  test('a lane with no session on file focuses nothing', async () => {
+    const { io, focused } = makeIo();
+    await launchReopen(
+      { status: 'done', paneId: 'pane-1', tabId: 'tab-1' },
+      baseCtx(),
+      io
+    );
+    expect(focused).toEqual([]);
+  });
+
   test('a focus that fails only logs; the resume still counts', async () => {
     const { io, errors } = makeIo({
       focus: async () => {
