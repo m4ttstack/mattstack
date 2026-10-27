@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { userEvent, within } from 'storybook/test';
 
@@ -76,32 +76,6 @@ function pips(position: number, total: number): TriageGateState[] {
   );
 }
 
-// Captured once at module scope, before any story stubs it.
-const REAL_FETCH = globalThis.fetch;
-
-/** Answers `/review/report.json` with the entry's report while the story is
-    mounted; every other url goes to the real fetch. Installed during render,
-    not in an effect, since the sheet's own mount effect fetches the report
-    before a parent's effect would run. */
-function useReportStub(reportJson: unknown) {
-  if (reportJson !== undefined)
-    globalThis.fetch = (async (
-      input: RequestInfo | URL,
-      init?: RequestInit
-    ) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.startsWith('/review/report.json'))
-        return new Response(JSON.stringify(reportJson));
-      return REAL_FETCH(input as RequestInfo, init);
-    }) as typeof fetch;
-  useEffect(
-    () => () => {
-      globalThis.fetch = REAL_FETCH;
-    },
-    []
-  );
-}
-
 function Face({
   entry,
   position = 2,
@@ -111,7 +85,6 @@ function Face({
   position?: number;
   total?: number;
 }) {
-  useReportStub(entry.reportJson);
   const people = boardPeople({
     allMembers: [...G.PEOPLE].map(([username, name]) => ({ username, name })),
     mrs: entry.mr ? [entry.mr] : [],
@@ -135,11 +108,16 @@ function Face({
           onFocusPane={noop}
           onAnswered={noop}
           onContinue={noop}
+          onAskQuestion={askInGallery}
         />
       </DiffSourceContext.Provider>
     </PeopleProvider>
   );
 }
+
+/** The gallery's review pane takes every question after a short beat. */
+const askInGallery = () =>
+  new Promise<boolean>(resolve => setTimeout(() => resolve(true), 400));
 
 const face = (name: string, entry: G.GalleryGate): Story => ({
   name,
@@ -246,10 +224,25 @@ export const ReviewPostDraftedGitHub = face(
   'Review: post, drafted, GitHub with three verdicts',
   G.reviewPostDraftedGitHub
 );
-export const ReviewPostQuestions = face(
-  'Review: post, drafted, one question open and one finding revised',
-  G.reviewPostQuestions
+export const ReviewPostRevised = face(
+  'Review: post, drafted, one finding revised in the review pane',
+  G.reviewPostRevised
 );
+export const ReviewPostAsking: Story = {
+  ...face('Review: post, drafted, asking about a finding', G.reviewPostRevised),
+  play: async ({ canvasElement }) => {
+    const [ask] = await within(canvasElement).findAllByRole('button', {
+      name: /ask a question/,
+    });
+    await userEvent.click(ask!);
+    await userEvent.type(
+      await within(canvasElement).findByRole('textbox', {
+        name: /your question/,
+      }),
+      'Does the existing teardown test already cover this?'
+    );
+  },
+};
 export const ReviewPostVerdictOnly = face(
   'Review: post, prose, verdict only',
   G.reviewPostVerdictOnly

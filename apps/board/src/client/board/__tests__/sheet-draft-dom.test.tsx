@@ -95,8 +95,11 @@ function gateFor(gateId: string, drafts: Record<string, string>): GateRow {
   };
 }
 
+/** The MR row, with `revisedIds` as the findings the server reports `gateId`
+    revised from the gate it superseded. */
 const mrWith = (
-  revised: Record<string, { newGate: string }> = {}
+  gateId?: string,
+  revisedIds: string[] = []
 ): BoardMRWithReview =>
   ({
     iid: 31,
@@ -107,17 +110,26 @@ const mrWith = (
     targetBranch: 'main',
     createdAt: '2026-09-17T00:00:00.000Z',
     diff: { additions: 4, deletions: 1, filesChanged: 1 },
-    questions: {
-      live: {},
-      failed: {},
-      rebuilding: false,
-      revised: Object.fromEntries(
-        Object.entries(revised).map(([id, r]) => [
-          id,
-          { original: {}, revised: null, newGate: r.newGate },
-        ])
-      ),
-    },
+    ...(gateId
+      ? {
+          reviewRevision: {
+            gateId,
+            revised: Object.fromEntries(
+              revisedIds.map(id => [
+                id,
+                {
+                  original: {
+                    id,
+                    severity: 'minor',
+                    title: 'before',
+                    body: 'before',
+                  },
+                },
+              ])
+            ),
+          },
+        }
+      : {}),
   }) as unknown as BoardMRWithReview;
 
 function Host({ gate, mr }: { gate: GateRow; mr: BoardMRWithReview }) {
@@ -253,7 +265,7 @@ describe('a rebuilt review gate', () => {
 
   test('a finding revised in this gate keeps its tick and takes the new draft', async () => {
     await userEditsGateA();
-    await show(gateFor('g-b', DRAFTS_B), mrWith({ f3: { newGate: 'g-b' } }));
+    await show(gateFor('g-b', DRAFTS_B), mrWith('g-b', ['f3']));
     expect(checkbox('Second finding').checked).toBe(false);
     expect(checkbox('Third finding').checked).toBe(true);
     expect(commentBox('Third finding')!.value).toBe('REVISED three');
@@ -261,10 +273,7 @@ describe('a rebuilt review gate', () => {
 
   test('a revision an earlier gate carried does not discard later edits', async () => {
     await userEditsGateA();
-    await show(
-      gateFor('g-b', DRAFTS_B),
-      mrWith({ f3: { newGate: 'g-earlier' } })
-    );
+    await show(gateFor('g-b', DRAFTS_B), mrWith('g-earlier', ['f3']));
     expect(commentBox('Third finding')!.value).toBe('my own wording');
   });
 
@@ -290,13 +299,13 @@ describe('a rebuilt review gate', () => {
   test('a dropped revised comment is saved, so a later gate does not bring the old edit back', async () => {
     await userEditsGateA();
     // Gate B revises f3: the edit is dropped for the new draft.
-    await show(gateFor('g-b', DRAFTS_B), mrWith({ f3: { newGate: 'g-b' } }));
+    await show(gateFor('g-b', DRAFTS_B), mrWith('g-b', ['f3']));
     expect(commentBox('Third finding')!.value).toBe('REVISED three');
     await settle(700);
     // Gate C revises f1; f3's revised text from B must stand, not A's edit.
     await show(
       gateFor('g-c', { ...DRAFTS_B, f1: 'REVISED one' }),
-      mrWith({ f1: { newGate: 'g-c' }, f3: { newGate: 'g-b' } })
+      mrWith('g-c', ['f1'])
     );
     expect(commentBox('Third finding')!.value).toBe('REVISED three');
     expect(commentBox('First finding')!.value).toBe('REVISED one');

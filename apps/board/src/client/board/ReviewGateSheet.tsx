@@ -15,8 +15,7 @@ import {
 } from '@mattstack/gate-kit';
 import { Button, Chip, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
-import { parseReportFinding } from '../../review-finding.ts';
-import type { BoardMRWithReview, QuestionInfo } from '../types.ts';
+import type { BoardMRWithReview } from '../types.ts';
 import { anchorLine, anchorPath } from './diff-source.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
@@ -44,7 +43,6 @@ import {
 } from './review-gate.ts';
 import {
   FindingCard,
-  findingEntryFromReport,
   SummaryCard,
   type FilePin,
   type FindingAsk,
@@ -75,8 +73,6 @@ interface ReviewReportJson {
   strengths?: Array<{ lead: string; detail?: string }>;
   checks?: Array<{ tag: string; text: string }>;
   notes?: string[];
-  /** The findings a question can be asked about; read only for their ids. */
-  findings?: unknown;
 }
 
 /** report.json arrives from disk unvalidated; the record arrays each have
@@ -125,37 +121,71 @@ function safeDepth(report: ReviewReportJson | null): string | undefined {
     : undefined;
 }
 
-/** The ids of the report json's findings: the ones `/question` accepts. */
-function reportFindingIds(report: ReviewReportJson | null): Set<string> {
-  const ids = new Set<string>();
-  if (!report || !Array.isArray(report.findings)) return ids;
-  for (const f of report.findings) {
-    const parsed = parseReportFinding(f);
-    if (parsed) ids.add(parsed.id);
-  }
-  return ids;
-}
-
-/** A finding's question control from the MR's questions: a queued launch
-    with no tab yet is `opening` (nothing to focus), any other running
-    question is `live` and a click focuses it, and a failed launch carries
-    its message. */
-export function findingAsk(
-  questions: QuestionInfo | undefined,
+/** Types a question about one finding into the review pane (`POST
+    /review/finding-question` through the board's launch flow, which toasts
+    the outcome); resolves whether the pane took it. */
+export type AskQuestion = (
+  mr: BoardMRWithReview,
+  gateId: string,
   findingId: string,
-  ask: (focus: boolean) => void
-): FindingAsk {
-  const running = questions?.live[findingId];
-  const failed = questions?.failed[findingId]?.message;
-  return {
-    state: !running
-      ? 'idle'
-      : running.status === 'queued' && !running.tabId
-        ? 'opening'
-        : 'live',
-    ...(failed ? { failed } : {}),
-    onAsk: () => ask(Boolean(running)),
+  question: string
+) => Promise<boolean>;
+
+/** The sheet's questions to the review pane, one at a time: which findings
+    have their ask area open, which one is sending, and which the pane took.
+    All of it starts over on a new gate. */
+function useFindingAsks(
+  gateId: string,
+  send: ((findingId: string, question: string) => Promise<boolean>) | null,
+  onFocusPane: (() => void) | null
+): (findingId: string) => FindingAsk | undefined {
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+  const [sending, setSending] = useState<string | null>(null);
+  useEffect(() => {
+    setOpen(new Set());
+    setAsked(new Set());
+    setSending(null);
+  }, [gateId]);
+  const live = useRef(gateId);
+  live.current = gateId;
+  if (!send) return () => undefined;
+  const without = (set: ReadonlySet<string>, id: string) => {
+    const next = new Set(set);
+    next.delete(id);
+    return next;
   };
+  return findingId => ({
+    state:
+      sending === findingId
+        ? 'sending'
+        : asked.has(findingId)
+          ? 'asked'
+          : open.has(findingId)
+            ? 'open'
+            : 'idle',
+    blocked: sending !== null && sending !== findingId,
+    onOpen: () => {
+      setAsked(a => without(a, findingId));
+      setOpen(o => new Set(o).add(findingId));
+    },
+    onCancel: () => setOpen(o => without(o, findingId)),
+    onSend: question => {
+      if (sending !== null || question.trim() === '') return;
+      const forGate = gateId;
+      setSending(findingId);
+      void send(findingId, question)
+        .catch(() => false)
+        .then(ok => {
+          if (live.current !== forGate) return;
+          setSending(null);
+          if (!ok) return;
+          setOpen(o => without(o, findingId));
+          setAsked(a => new Set(a).add(findingId));
+        });
+    },
+    ...(onFocusPane ? { onFocusPane } : {}),
+  });
 }
 
 /** Checks are rail material only (the CHECKS card), never part of the main
@@ -303,15 +333,8 @@ function ReviewGateSheet({
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
-  /** Launches a question about a finding, or with `focus` brings its
-      running pane forward. The board's launch flow toasts the outcome and
-      reloads, so the pill shows as soon as the question is live. */
-  onAskQuestion?: (
-    mr: BoardMRWithReview,
-    gateId: string,
-    findingId: string,
-    focus: boolean
-  ) => void;
+  /** Types a question about a finding into the review pane. */
+  onAskQuestion?: AskQuestion;
   form: GateFormState;
   queue: GateSheetQueue;
   onClose: () => void;
@@ -403,12 +426,11 @@ function ReviewGateSheet({
   // After the seed above, so the restore's unticks land on top of it. Only a
   // revision this gate carries drops its comment edit: one an earlier gate
   // carried must not keep discarding what the reviewer typed since.
+  const revision =
+    mr?.reviewRevision?.gateId === gate.gateId ? mr.reviewRevision : undefined;
   const revisedIds = useMemo(
-    () =>
-      Object.entries(mr?.questions?.revised ?? {})
-        .filter(([, r]) => r.newGate === gate.gateId)
-        .map(([id]) => id),
-    [mr?.questions, gate.gateId]
+    () => Object.keys(revision?.revised ?? {}),
+    [revision]
   );
   useSheetDraft(
     mr?.webUrl ?? undefined,
@@ -500,11 +522,15 @@ function ReviewGateSheet({
   const checks = useMemo(() => safeChecks(report), [report]);
   const notes = useMemo(() => safeNotes(report), [report]);
   const depth = safeDepth(report);
-  const askable = useMemo(() => reportFindingIds(report), [report]);
-  const mrQuestions = mr?.questions;
-  const askQuestion = (findingId: string, focus: boolean) => {
-    if (mr) onAskQuestion?.(mr, gate.gateId, findingId, focus);
-  };
+  // Only an open gate has a review pane holding at it to ask.
+  const askFor = useFindingAsks(
+    gate.gateId,
+    mr && onAskQuestion && gate.status === 'open'
+      ? (findingId, question) =>
+          onAskQuestion(mr, gate.gateId, findingId, question)
+      : null,
+    mr ? () => onFocusPane(mr, 'review') : null
+  );
 
   const mainRef = useRef<HTMLElement | null>(null);
   const [atEnd, setAtEnd] = useState(true);
@@ -595,7 +621,7 @@ function ReviewGateSheet({
       // The card's sections sit outside the label:
       // inside it, a click on the comment would toggle
       // the finding.
-      const revised = mrQuestions?.revised[f.id];
+      const original = revision?.revised[f.id]?.original;
       if (drafts)
         return (
           <FindingCard
@@ -607,22 +633,8 @@ function ReviewGateSheet({
             mrRef={mr && mrRef(mr)}
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
-            ask={
-              askable.has(f.id)
-                ? findingAsk(mrQuestions, f.id, focus =>
-                    askQuestion(f.id, focus)
-                  )
-                : undefined
-            }
-            revision={
-              revised?.revised
-                ? {
-                    original: findingEntryFromReport(revised.original),
-                    revised: findingEntryFromReport(revised.revised),
-                    tabLabel: `Q ${f.id}`,
-                  }
-                : undefined
-            }
+            ask={askFor(f.id)}
+            revision={original ? { original } : undefined}
             head={
               <label className="tui-review-finding-row tui-review-card-head">
                 {tick}

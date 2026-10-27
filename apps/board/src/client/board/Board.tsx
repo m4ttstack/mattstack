@@ -120,7 +120,7 @@ import {
   useOptimisticLifecycle,
 } from './hooks.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
-import { QUESTION_LAUNCH, questionLaunchFields } from './launch-flow.ts';
+import { FINDING_QUESTION, findingQuestionFields } from './launch-flow.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
 import { mrRef, onGitHub } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
@@ -650,19 +650,28 @@ export function Board() {
 
   const questionAction = useLaunchAction({
     axis: null,
-    ...QUESTION_LAUNCH,
+    ...FINDING_QUESTION,
     optimistic: optimisticLifecycle,
     addToast,
     startToast,
     reload: load,
   });
+  // Resolves whether the review pane took the question, so the sheet can
+  // say so under the finding.
   const askQuestion = useCallback(
-    (mr: BoardMR, gateId: string, findingId: string, focus: boolean) =>
-      void questionAction(
+    async (
+      mr: BoardMRWithReview,
+      gateId: string,
+      findingId: string,
+      question: string
+    ) => {
+      const result = await questionAction(
         mr,
-        questionLaunchFields(gateId, findingId, state.tab, focus)
-      ),
-    [questionAction, state.tab]
+        findingQuestionFields(gateId, findingId, question, mr.review?.tabId)
+      );
+      return Boolean(result?.ok);
+    },
+    [questionAction]
   );
 
   // Each flow's payload lives here once: the row menu, the bulk menu, the

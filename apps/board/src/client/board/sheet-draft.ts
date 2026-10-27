@@ -5,8 +5,8 @@ import type { GateFormState } from './GateForm.tsx';
 import { commentKey, summaryKey } from './review-drafts.ts';
 
 /** Keeps the review sheet's ticks and edits on the board server, per MR, so a
-    gate rebuilt after a finding revision (the old gate closes `revised`, a
-    fresh one opens) comes back the way the reviewer left it. The form state
+    gate the review agent re-raises after revising a finding (the new gate
+    supersedes the old one) comes back the way the reviewer left it. The form state
     lives only in React and the per-gate localStorage draft, neither of which
     follows the reviewer to the new gate. A fresh review run starts clean:
     its launch deletes the draft (server side), so one never crosses runs. */

@@ -1,5 +1,4 @@
 import type { GateAnswers, GateQuestion, GateRow } from '../../gates/store.ts';
-import type { ReportFinding } from '../../review-finding.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import type { DiffSource, FileDiff } from './diff-source.ts';
 
@@ -17,10 +16,6 @@ export interface GalleryGate {
   mr?: BoardMRWithReview;
   /** Where a drafted review's code sections get their diffs. */
   diffs?: DiffSource;
-  /** What `/review/report.json` answers for the story, when it needs one
-      (the review sheet only offers "ask a question" on a finding the
-      report lists). */
-  reportJson?: unknown;
 }
 
 export const PEOPLE: ReadonlyMap<string, string> = new Map([
@@ -1176,54 +1171,34 @@ export const reviewPostDrafted: GalleryGate = {
   },
 };
 
-/** A gallery finding as the review's report json lists it: the tier
-    capitalized, the `file:line` anchor split. */
-function asReport(f: (typeof RADAR_FINDINGS)[number]): ReportFinding {
-  const m = f.file ? /^(.*):(\d+)$/.exec(f.file) : null;
-  return {
-    id: f.id,
-    tier: (f.severity[0]!.toUpperCase() +
-      f.severity.slice(1)) as ReportFinding['tier'],
-    title: f.title,
-    body: f.body,
-    comment: RADAR_COMMENTS[f.id]!,
-    ...(m ? { file: m[1]!, line: Number(m[2]) } : {}),
-    ...(f.fix !== undefined ? { fix: f.fix } : {}),
-    ...(f.kind !== undefined ? { kind: f.kind } : {}),
-  };
-}
+const RADAR_F2 = RADAR_FINDINGS[1]!;
 
-const RADAR_F2 = asReport(RADAR_FINDINGS[1]!);
-
-/** The drafted review after two questions: one still open on f1, and f2
-    rewritten by the review agent from an earlier one (Important to Minor,
-    moved down to the test it asks for, reworded). */
-export const reviewPostQuestions: GalleryGate = {
+/** The drafted review after the review pane revised f2 from a question and
+    re-raised its gate: the gate it superseded had f2 as Important, anchored
+    four lines higher and worded differently. */
+export const reviewPostRevised: GalleryGate = {
   ...reviewPostDrafted,
   mr: {
     ...MRS.radarLayers,
-    questions: {
-      live: { f1: { paneId: 'w40:p1', tabId: 'w40:t1', status: 'live' } },
-      failed: {},
+    reviewRevision: {
+      gateId: 'gallery-review-post-revised',
       revised: {
         f2: {
           original: {
             ...RADAR_F2,
-            tier: 'Important',
-            line: 997,
+            severity: 'important',
+            file: 'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx:997',
+            title: 'Nothing covers a late model the map should still add',
             body: 'The new tests only cover a model that lands after teardown. Nothing covers the late model the map should still add, so a guard on the wrong flag would pass.',
+            comment: RADAR_COMMENTS.f2,
           },
-          revised: RADAR_F2,
-          newGate: 'gallery-review-post-questions',
         },
       },
-      rebuilding: false,
     },
   },
-  reportJson: { findings: RADAR_FINDINGS.map(asReport) },
   gate: {
     ...reviewPostDrafted.gate,
-    gateId: 'gallery-review-post-questions',
+    gateId: 'gallery-review-post-revised',
   },
 };
 

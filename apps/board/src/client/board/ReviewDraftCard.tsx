@@ -11,8 +11,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
-import type { ReportFinding } from '../../review-finding.ts';
+import { Button, Chip, Markdown, Modal } from '@mattstack/tui-kit';
 import {
   CommentField,
   commentState,
@@ -603,29 +602,6 @@ function CommentSection({
   );
 }
 
-/** A report json finding (what the questions agent revises) as the sheet's
-    finding entry: the tier lowercased to a severity, and `file` plus `line`
-    joined as the gate's `file:line` anchor. */
-export function findingEntryFromReport(f: ReportFinding): FindingEntry {
-  const file =
-    f.file === undefined
-      ? undefined
-      : f.line === undefined || f.line === ''
-        ? f.file
-        : `${f.file}:${f.line}`;
-  return {
-    id: f.id,
-    severity: f.tier.toLowerCase() as FindingEntry['severity'],
-    title: f.title,
-    body: f.body,
-    comment: f.comment,
-    ...(file !== undefined ? { file } : {}),
-    ...(f.fix !== undefined ? { fix: f.fix } : {}),
-    ...(f.evidence !== undefined ? { evidence: f.evidence } : {}),
-    ...(f.kind !== undefined ? { kind: f.kind } : {}),
-  };
-}
-
 /** A `file:line` anchor split into its path and the line part after the
     last colon (a single line or a range such as `117–119`). */
 function splitAnchor(file: string | undefined): {
@@ -663,20 +639,19 @@ export function revisionSummary(
   return parts;
 }
 
-/** A finding the review agent rewrote from a question: what changed and in
-    which question tab, with the original finding's text behind a toggle. */
+/** A finding the review agent revised in its own pane and re-raised the
+    gate with: what changed, with the original's title and body behind a
+    toggle. */
 function RevisedStrip({
   original,
   revised,
-  tabLabel,
 }: {
   original: FindingEntry;
   revised: FindingEntry;
-  tabLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const text = [
-    `Revised from your question in ${tabLabel}`,
+    'Revised in the review pane',
     ...revisionSummary(original, revised),
   ].join(' · ');
   return (
@@ -694,6 +669,7 @@ function RevisedStrip({
       </div>
       {open && (
         <div className="tui-review-revised-original">
+          <p className="tui-review-revised-title">{original.title}</p>
           <Markdown unstyled linkTargetBlank>
             {original.body}
           </Markdown>
@@ -703,77 +679,116 @@ function RevisedStrip({
   );
 }
 
-/** What the Agent Finding head's question control shows: `idle` offers
-    to ask, `opening` is a launch still coming up (no tab to focus yet),
-    `live` is the open question. `failed` is why the last launch did not
-    open, shown beside the control until a new ask clears it. */
+/** One finding's question to the review pane: `idle` offers "ask a
+    question", `open` is the area being written, `sending` is the request in
+    flight, `asked` is a question the pane took. `blocked` is set while
+    another finding's question is sending: one question at a time. */
 export interface FindingAsk {
-  state: 'idle' | 'opening' | 'live';
-  failed?: string;
-  onAsk: () => void;
+  state: 'idle' | 'open' | 'sending' | 'asked';
+  blocked: boolean;
+  onOpen: () => void;
+  onCancel: () => void;
+  onSend: (question: string) => void;
+  /** Brings the review pane forward; absent when the sheet cannot. */
+  onFocusPane?: () => void;
 }
 
-/** The Agent Finding head's question control: "ask a question" opens a
-    questions pane for the finding; while the launch comes up it reads as
-    "opening a question…" and takes no click; once one is running it reads
-    as the open question and brings that pane forward. A failed launch puts
-    a quiet error line beside it. */
-function AskControl({
-  title,
-  id,
-  ask,
-}: {
-  title: string;
-  id: string;
-  ask: FindingAsk;
-}) {
-  const control =
-    ask.state === 'live' ? (
-      <button
-        type="button"
-        className="tui-review-section-link"
-        data-live=""
-        aria-label={`${title}: question open, Q ${id}`}
-        onClick={ask.onAsk}
-      >
-        question open · Q {id}
-        <ArrowOutGlyph />
-      </button>
-    ) : ask.state === 'opening' ? (
-      <button
-        type="button"
-        className="tui-review-section-link"
-        aria-label={`${title}: opening a question`}
-        disabled
-      >
-        opening a question…
-      </button>
-    ) : (
-      <button
-        type="button"
-        className="tui-review-section-link"
-        aria-label={`${title}: ask a question`}
-        onClick={ask.onAsk}
-      >
-        ask a question
-        <QuestionGlyph />
-      </button>
-    );
-  if (!ask.failed) return control;
+export const ASK_PLACEHOLDER = 'What do you want to know about this finding?';
+
+/** The Agent Finding head's "ask a question" link. */
+function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
   return (
-    <span className="tui-review-section-meta">
-      <span className="tui-review-ask-failed" role="status">
-        couldn&apos;t open the question: {ask.failed}
-      </span>
-      {control}
-    </span>
+    <button
+      type="button"
+      className="tui-review-section-link"
+      aria-label={`${title}: ask a question`}
+      aria-expanded={ask.state !== 'idle'}
+      disabled={ask.blocked || ask.state === 'sending'}
+      onClick={ask.onOpen}
+    >
+      ask a question
+      <QuestionGlyph />
+    </button>
+  );
+}
+
+/** The area under the Agent Finding where the question is written and
+    sent to the review pane, then where the sheet says the pane took it. */
+function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
+  const [text, setText] = useState('');
+  // A question the pane took is done with; asking again starts empty.
+  useEffect(() => {
+    if (ask.state === 'asked') setText('');
+  }, [ask.state]);
+  if (ask.state === 'asked')
+    return (
+      <div className="tui-review-ask" data-asked="">
+        <span className="tui-review-ask-done" role="status">
+          asked in the review pane
+        </span>
+        {ask.onFocusPane && (
+          <button
+            type="button"
+            className="tui-review-section-link"
+            onClick={ask.onFocusPane}
+          >
+            go to the review pane
+            <ArrowOutGlyph />
+          </button>
+        )}
+      </div>
+    );
+  const sending = ask.state === 'sending';
+  const empty = text.trim() === '';
+  return (
+    <div className="tui-review-ask">
+      <div className="tui-review-ask-field">
+        <textarea
+          className="tui-composer-input"
+          rows={3}
+          maxLength={2000}
+          value={text}
+          placeholder={ASK_PLACEHOLDER}
+          aria-label={`${title}: your question`}
+          disabled={sending}
+          autoFocus
+          onChange={e => setText(e.currentTarget.value)}
+          onKeyDown={e => {
+            // Escape cancels the question rather than closing the sheet.
+            if (e.key !== 'Escape' || sending) return;
+            e.stopPropagation();
+            ask.onCancel();
+          }}
+        />
+      </div>
+      <div className="tui-review-ask-actions">
+        <Button
+          type="button"
+          variant="light"
+          intent="accent"
+          size="sm"
+          disabled={sending || empty}
+          onClick={() => ask.onSend(text)}
+        >
+          send to the review pane
+        </Button>
+        <button
+          type="button"
+          className="tui-review-section-link"
+          disabled={sending}
+          onClick={ask.onCancel}
+        >
+          cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
 /** One finding in a review whose comments the board posts: the header
     with its tick, then The Code, the agent's finding and the comment that
-    posts. Unticked, only the header shows. A finding revised from a
-    question carries the revised strip under its header, ticked or not, so
+    posts. Unticked, only the header shows. A finding the review pane
+    revised carries the revised strip under its header, ticked or not, so
     the change is in view while deciding whether to post it. */
 export function FindingCard({
   finding: f,
@@ -796,26 +811,17 @@ export function FindingCard({
   mrRevision?: string;
   pins: FilePin[];
   ask?: FindingAsk;
-  revision?: {
-    original: FindingEntry;
-    revised: FindingEntry | null;
-    tabLabel: string;
-  };
+  /** The finding as the gate this one superseded carried it. */
+  revision?: { original: FindingEntry };
 }) {
   return (
     <article
       className="tui-review-finding tui-review-card"
       data-off={checked ? undefined : ''}
-      data-revised={revision?.revised ? '' : undefined}
+      data-revised={revision ? '' : undefined}
     >
       {head}
-      {revision?.revised && (
-        <RevisedStrip
-          original={revision.original}
-          revised={revision.revised}
-          tabLabel={revision.tabLabel}
-        />
-      )}
+      {revision && <RevisedStrip original={revision.original} revised={f} />}
       {checked && (
         <>
           {f.file && (
@@ -837,13 +843,16 @@ export function FindingCard({
               name="Agent Finding"
               hue="accent"
             >
-              {ask && <AskControl title={f.title} id={f.id} ask={ask} />}
+              {ask && <AskLink title={f.title} ask={ask} />}
             </SectionHead>
             <div className="tui-review-section-body">
               <Markdown unstyled linkTargetBlank>
                 {f.body}
               </Markdown>
             </div>
+            {ask && ask.state !== 'idle' && (
+              <AskArea title={f.title} ask={ask} />
+            )}
           </section>
           <CommentSection finding={f} form={form} />
         </>
