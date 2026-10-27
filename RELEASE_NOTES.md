@@ -1,5 +1,7 @@
 A skills release. Every mattstack engine and include is now a tree of blocks, so a pack binds its rules to the exact step they belong to. A pack that bound an old slot must be converted by hand before it compiles on this release.
 
+Also in this release: the console's skill pages become the Packs page, notification sounds you can choose, respond leaves the board's re-review thread alone, and worktrees stop waiting on git's fsmonitor daemon.
+
 ### Skill packs
 
 - engines and includes are `*.block.md` trees: one file per section, and a block that takes a pack's text declares a prop
@@ -29,14 +31,19 @@ A skills release. Every mattstack engine and include is now a tree of blocks, so
 - CI compiles every graph-bearing engine, runs check-dot on the compiled graphs, and checks the props signature against the last release tag
 - Compiled skills point at their own files by `@key`; one `skills_resolve` call per started skill finds them wherever the skill was opened from. A plugin version bump now needs a recompile, and a `${CLAUDE_SKILL_DIR}` link in a copied hand-written skill that no longer reaches a file now fails `rt skills check` instead of only warning.
 - `rt skills resolve <id>` shows where an installed skill's `@key` pointers lead
+- `rt skills changes --json` names the trial branch when your org copy is on one, and rt's printed output calls a skill it does not build **standard** (#942)
 
 ### Console
 
-- the wiring tab opens a skill as a tree of blocks, at three zoom levels: the whole skill, a block with blocks inside it, or a single block
+- the Wiring page is now **Packs**, at `/packs` (old links still land), with **Overview**, **Config** and **Changes** tabs (#945)
+- **Overview** opens a skill as a tree of blocks, at three zoom levels: the whole skill, a block with blocks inside it, or a single block, under a trail back up to its pipeline
 - a single block shows its text with each prop's value per layer; **Around this block** draws the graph next to it, and **Copy for Claude** copies a short brief about it
-- **View graph** opens the **Block map**, which shows only blocks and folds the other steps into dotted links you can unfold
-- every block shows its **History**, and a block shared between skills lists them under **Used by**
+- **Diagram** opens the **Block map**, which shows only blocks and folds the other steps into dotted links you can unfold
+- the skill and each block show what they were **Built from**, and a block other skills include lists them under **Used by**
+- **Config** counts the skills that are up to date, need a compile or were never compiled, and offers the next step: **Compile Skill Pack**, then **Publish**, or **Install latest** (#945)
+- **Changes** lists the pack's commits with the changes not published yet on top, compares two commits, and holds **Discard** and **Publish** (#945)
 - the Rebind panel is gone: the console never changes what a prop takes, a pack's own files do
+- tooltips across the apps fade in, and notifications use a dark card (#945)
 
 ### Editor
 
@@ -79,3 +86,33 @@ An org whose packs are all in block form moves to org layout 5. An org admin doe
 - without `--write` the script prints the plan and writes nothing; on an org already on layout 5 it checks the packs and says so
 - it refuses, writing nothing, while any pack still has an old slot key (it names the pack and the key), while the clone has uncommitted changes or unpublished commits, or while team sync is on; each refusal says why it stopped, and most name a command to run next
 - an org still on layout 3 moves to layout 4 first, with `scripts/move-to-data-branch.ts`
+
+### Board
+
+- respond never triages the re-review thread a reviewer's board adds to your MR (#935)
+- when that thread is still open, the posting question on the board offers **Ask dev2 for a re-review once posting finishes**; the board resolves the thread when the response finishes (#935)
+- a resumed re-review no longer tells the author its pane closed (#943)
+- **resume** brings the lane's pane forward as soon as you click it, before the slow part of the resume
+
+### Worktrees
+
+- rt's own git calls never consult a repo's fsmonitor daemon, which could stall a provision until its timeout (#933)
+- pool trees carry `core.fsmonitor=false` in their own config, so your git calls inside a tree skip the daemon too; trees made before this get it on the daemon's next pass (#936)
+- provision names a git step that timed out, such as "git fetch timed out after 300s", and gives checkout 5 minutes (#932)
+
+### Menu bar app
+
+- Settings has a **Notifications** tab: pick the sound for neutral, positive and warning notifications from the Original tones, Sober Ringtones, the macOS sounds or a file of your own (#937)
+
+### Skills and MCP
+
+- `herd-progress` is now `work-progress`, and shows plans and epics as well as herds, from the plan ledgers `rt progress record` keeps (#934, #938)
+- compiled skills no longer keep runs of blank lines where an optional section was left out (#929, #930)
+- MCP tools that take `mrUrl` only to name the repo say so, and the review and watch-ci engines pass `mrUrl` to `gitlab_get` once an MR is in hand (#929, #930, #931)
+- `rt pane send self` and the MCP tools address this session's own pane, even when `HERDR_PANE_ID` is stale (#944, #946)
+
+### Also
+
+- held for a later release: gh 2.103.3, glab 1.125.0, cloudflared 2026.10.5, portless 0.15.12 and Sparkle 2.10.1; this release keeps gh 2.103.0, glab 1.124.0, cloudflared 2026.10.3, portless 0.15.9 and Sparkle 2.10.0
+
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.26.0...v2.27.0
