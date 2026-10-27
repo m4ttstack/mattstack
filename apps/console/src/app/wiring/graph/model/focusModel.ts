@@ -235,30 +235,7 @@ export function buildFocusGroups(
   };
 }
 
-const flagged = (items: FocusItem[]) => items.filter(item => item.attention);
-
-/** A fill nothing binds is never flagged, so the filtered count is the
-    flagged verbs alone. */
-function unwiredShown(unwired: FocusGroups['unwired']): FocusGroups['unwired'] {
-  const items = unwired.attention ? flagged(unwired.items) : [];
-  return { count: items.length, attention: items.length > 0, items };
-}
-
-export function onlyAttention(groups: FocusGroups): FocusGroups {
-  return {
-    ...groups,
-    pipelines: flagged(groups.pipelines).map(pipeline => ({
-      ...pipeline,
-      children: flagged(pipeline.children),
-    })),
-    standalone: flagged(groups.standalone),
-    board: flagged(groups.board),
-    skills: flagged(groups.skills),
-    unwired: unwiredShown(groups.unwired),
-  };
-}
-
-/** By key first; failing that, by skill, so a bare `work` (Health's open-skill
+/** By key first; failing that, by skill, so a bare `work` (an old open-skill
     link) lands on the pipeline its orchestrator leads. */
 export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
   const all = [

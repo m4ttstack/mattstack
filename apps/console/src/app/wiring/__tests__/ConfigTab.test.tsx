@@ -167,6 +167,8 @@ async function statusBar() {
 afterEach(() => {
   act(() => notifications.clean());
   vi.clearAllMocks();
+  // The attention filter rides the URL.
+  window.history.replaceState(null, '', '/');
 });
 
 describe('ConfigTab: the status bar', () => {
@@ -256,6 +258,25 @@ describe('ConfigTab: the status bar', () => {
     expect(
       within(roster).queryByTestId('surface-row-review')
     ).not.toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('attention')).toBe(
+      '1'
+    );
+  });
+
+  it("opens filtered to Needs attention from the rail badge's link", async () => {
+    window.history.replaceState(null, '', '/packs?tab=config&attention=1');
+    renderConfig({ statuses: { work: 'stale', review: 'in-sync' } });
+
+    const roster = await screen.findByTestId('surface-tab');
+    expect(
+      await within(roster).findByTestId('surface-filter-needs attention')
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      within(roster).queryByTestId('surface-row-review')
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(within(roster).getByTestId('surface-filter-all'));
+    expect(window.location.search).not.toContain('attention');
   });
 
   it('counts the changes to publish, with See changes and Publish, once everything is compiled', async () => {

@@ -8,7 +8,6 @@ import {
   Collapse,
   GenericError,
   Group,
-  HoverCard,
   Paper,
   Stack,
   Switch,
@@ -188,14 +187,9 @@ function KeyedBadge({
   children: React.ReactNode;
 }) {
   return (
-    <HoverCard openDelay={500} position="top" withArrow shadow="md">
-      <HoverCard.Target>
-        <span style={{ display: 'inline-flex', flex: 'none' }}>{children}</span>
-      </HoverCard.Target>
-      <HoverCard.Dropdown className={legendClasses.badgeCard}>
-        {meaning}
-      </HoverCard.Dropdown>
-    </HoverCard>
+    <Tooltip label={meaning}>
+      <span style={{ display: 'inline-flex', flex: 'none' }}>{children}</span>
+    </Tooltip>
   );
 }
 

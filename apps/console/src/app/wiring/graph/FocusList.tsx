@@ -1,15 +1,12 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 import {
   ActionIcon,
   Alert,
-  Box,
   Collapse,
-  Divider,
   Group,
   NavLink,
   Stack,
-  Switch,
   Text,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
@@ -17,10 +14,8 @@ import { useLocalStorage } from '@mattstack/app-kit/hooks';
 import { Icon, Icons } from '@mattstack/app-kit/icons';
 
 import { StepLoader, useStepLoading } from '../../StepLoader';
-import type { SkillsCheck } from '../outline';
 import classes from './graph.module.css';
 import {
-  onlyAttention,
   workTypeOf,
   type FocusGroups,
   type FocusItem,
@@ -41,7 +36,6 @@ const PIPELINE_NOTICE: Record<NonNullable<FocusGroups['empty']>, string> = {
 
 const ROW = { root: classes.item, section: classes.section };
 const STEP_ROW = { root: classes.step, section: classes.section };
-const UNWIRED_ROW = { root: classes.unwired, section: classes.section };
 
 function AttentionDot() {
   return (
@@ -313,64 +307,6 @@ function PipelineRow({
   );
 }
 
-function UnwiredRow({
-  unwired,
-  activeKey,
-  onFocus,
-}: {
-  unwired: FocusGroups['unwired'];
-  activeKey: string | null;
-  onFocus: (key: string) => void;
-}) {
-  const holdsFocus = unwired.items.some(item => item.key === activeKey);
-  const [unfolded, setUnfolded] = useState(false);
-  return (
-    <Box data-parity="focus · not on the graph">
-      <Divider />
-      <NavLink
-        component="button"
-        type="button"
-        label={
-          <RowLabel text="Unwired" size={12} active={false} rest={SECONDARY} />
-        }
-        leftSection={
-          <Icon name="eyeOff" size={15} color={MUTED} data-parity="i" />
-        }
-        rightSection={
-          <Group gap={8}>
-            <Text
-              span
-              fz={11}
-              lh="normal"
-              c={unwired.attention ? 'warn' : MUTED}
-              data-parity="n"
-            >
-              {unwired.count}
-            </Text>
-            {unwired.attention && <AttentionDot />}
-          </Group>
-        }
-        opened={holdsFocus || unfolded}
-        onChange={setUnfolded}
-        keepMounted={false}
-        childrenOffset={0}
-        disableRightSectionRotation
-        classNames={UNWIRED_ROW}
-        data-testid="focus-unwired"
-      >
-        {unwired.items.map(item => (
-          <ItemRow
-            key={item.key}
-            item={item}
-            activeKey={activeKey}
-            onFocus={onFocus}
-          />
-        ))}
-      </NavLink>
-    </Box>
-  );
-}
-
 function FocusGroupsList({
   groups,
   activeKey,
@@ -399,7 +335,8 @@ function FocusGroupsList({
       </FocusGroup>
       {(
         [
-          ['Commands', groups.standalone],
+          // A verb nothing binds still runs on its own, so it lists here.
+          ['Commands', [...groups.standalone, ...groups.unwired.items]],
           ['Board', groups.board],
           ['Standard', groups.skills],
         ] as const
@@ -427,43 +364,11 @@ function FocusGroupsList({
   );
 }
 
-const isEmpty = (groups: FocusGroups) =>
-  groups.pipelines.length === 0 &&
-  groups.standalone.length === 0 &&
-  groups.board.length === 0 &&
-  groups.skills.length === 0 &&
-  groups.unwired.count === 0;
-
-/** An empty filtered list is a claim about a measurement, so it says which
-    one it rests on: none, nothing to compare, or a clean compare. */
-function AttentionEmpty({ check }: { check: SkillsCheck | undefined }) {
-  const compared = check?.verbs.length ?? null;
-  const line =
-    compared === null
-      ? 'Not measured: rt skills check did not answer, so this list is empty, not clean.'
-      : compared === 0
-        ? 'Nothing to check: rt skills check found no roster verbs to compare.'
-        : `Nothing needs attention: rt skills check compared ${compared} roster ${compared === 1 ? 'verb' : 'verbs'} and none differed.`;
-  return (
-    <Text
-      fz={12}
-      c={MUTED}
-      className={classes.notice}
-      data-testid="attention-empty"
-    >
-      {line}
-    </Text>
-  );
-}
-
-/** The Graph tab's focus list, rendered as `PageShell.Sidebar` content. */
+/** The Overview tab's focus list, rendered as `PageShell.Sidebar` content. */
 export function GraphSidebar({ pack }: { pack: string }) {
-  const { url, patch, checkQuery, groups, focused } = useGraphFocus(pack);
+  const { patch, checkQuery, groups, focused } = useGraphFocus(pack);
   const onFocus = (key: string) => patch({ focus: key });
-  const shown = groups && url.attention ? onlyAttention(groups) : groups;
-  // The filter reads drift from check, so its rows wait for check to answer.
-  const ready =
-    shown && !(url.attention && checkQuery.isPending) ? shown : null;
+  const ready = groups ?? null;
   const { show: held, bind: heldBind } = useStepLoading(!ready);
 
   return (
@@ -491,32 +396,11 @@ export function GraphSidebar({ pack }: { pack: string }) {
           <StepLoader
             {...heldBind}
             testId="focus-list-loading"
-            steps={[
-              url.attention && groups
-                ? `rt skills check --pack ${pack}`
-                : `rt skills composition --pack ${pack}`,
-            ]}
+            steps={[`rt skills composition --pack ${pack}`]}
           />
-        ) : url.attention && isEmpty(ready) ? (
-          <AttentionEmpty check={checkQuery.data} />
         ) : (
           <FocusGroupsList
             groups={ready}
-            activeKey={focused?.key ?? null}
-            onFocus={onFocus}
-          />
-        )}
-        <Box className={classes.spacer} />
-        <Switch
-          variant="contrast"
-          label="Needs attention"
-          checked={url.attention}
-          onChange={event => patch({ attention: event.currentTarget.checked })}
-          classNames={{ root: classes.toggle }}
-        />
-        {ready && ready.unwired.count > 0 && (
-          <UnwiredRow
-            unwired={ready.unwired}
             activeKey={focused?.key ?? null}
             onFocus={onFocus}
           />

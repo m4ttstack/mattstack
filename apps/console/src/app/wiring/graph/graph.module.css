@@ -12,7 +12,7 @@
 }
 
 @media (hover: hover) {
-  :is(.item, .step, .unwired):not([data-active]):hover {
+  :is(.item, .step):not([data-active]):hover {
     background-color: var(--row-hover);
   }
 }
@@ -129,20 +129,6 @@
 
 .section[data-position='right'] {
   margin-inline-start: 8px;
-}
-
-.spacer {
-  flex: 1;
-}
-
-.toggle {
-  padding: 8px;
-}
-
-.unwired {
-  height: 30.5px;
-  padding: 0 8px;
-  border-radius: var(--mantine-radius-md);
 }
 
 .stage {

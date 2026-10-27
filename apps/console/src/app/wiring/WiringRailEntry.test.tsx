@@ -124,7 +124,7 @@ describe('WiringRailEntry: the drift badge', () => {
     await user.click(badge);
 
     expect(window.location.pathname + window.location.search).toBe(
-      '/packs?attention=1'
+      '/packs?tab=config&attention=1'
     );
   });
 });

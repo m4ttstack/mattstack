@@ -212,7 +212,7 @@ describe('Graph tab: the page', () => {
 });
 
 describe('Graph tab: the focus list', () => {
-  it('draws the groups: Pipelines, Commands, Board and Unwired', async () => {
+  it('draws the groups: Pipelines, Commands and Board, with no Unwired row', async () => {
     mockDesignPack();
     renderAt('?tab=graph');
     const list = await focusList();
@@ -239,9 +239,7 @@ describe('Graph tab: the focus list', () => {
     for (const board of ['board:review', 'board:respond', 'board:doctor']) {
       expect(within(list).getByTestId(`focus-${board}`)).toBeInTheDocument();
     }
-    expect(within(list).getByTestId('focus-unwired')).toHaveTextContent(
-      'Unwired2'
-    );
+    expect(within(list).queryByTestId('focus-unwired')).toBeNull();
   });
 
   it('names a public command as typed in Claude Code, and an internal verb by its name', async () => {
@@ -279,11 +277,6 @@ describe('Graph tab: the focus list', () => {
         'attention-dot'
       )
     ).not.toBeInTheDocument();
-    expect(
-      within(within(list).getByTestId('focus-unwired')).getByTestId(
-        'attention-dot'
-      )
-    ).toBeInTheDocument();
   });
 
   it("folds a pipeline's stages from its chevron, and unfolds them again", async () => {
@@ -336,7 +329,7 @@ describe('Graph tab: the focus list', () => {
     );
   });
 
-  it('draws rows in the NavLink highlight and the switch in the contrast tone', async () => {
+  it('draws rows in the NavLink highlight, with no Needs attention switch', async () => {
     mockDesignPack();
     renderAt('?tab=graph');
     const list = await focusList();
@@ -346,10 +339,8 @@ describe('Graph tab: the focus list', () => {
       within(list).getByTestId('focus-pipeline:feature')
     ).not.toHaveAttribute('data-variant', 'wash');
     expect(
-      within(list)
-        .getByRole('switch', { name: 'Needs attention' })
-        .closest('[data-variant]')
-    ).toHaveAttribute('data-variant', 'contrast');
+      within(list).queryByRole('switch', { name: 'Needs attention' })
+    ).toBeNull();
   });
 
   it('focusing a standalone verb swaps the list for its block tree', async () => {
@@ -368,7 +359,7 @@ describe('Graph tab: the focus list', () => {
     expect(screen.queryByTestId('focus-list')).not.toBeInTheDocument();
   });
 
-  it('lists a verb with no props as a command, not unwired', async () => {
+  it('lists a verb with no props as a command', async () => {
     mockDesignPack();
     renderAt('?tab=graph');
     const list = await focusList();
@@ -376,91 +367,17 @@ describe('Graph tab: the focus list', () => {
     expect(within(list).getByTestId('focus-checkout')).toHaveTextContent(
       '/acme:checkout'
     );
-    expect(
-      within(within(list).getByTestId('focus-unwired')).queryByTestId(
-        'focus-checkout'
-      )
-    ).toBeNull();
   });
 
-  it('lists a verb whose prop nothing binds under Unwired', async () => {
+  it('lists a verb whose prop nothing binds with the commands', async () => {
     mockDesignPack();
     const user = userEvent.setup();
     renderAt('?tab=graph');
     const list = await focusList();
 
-    await user.click(within(list).getByTestId('focus-unwired'));
-    await user.click(await within(list).findByTestId('focus-release-notes'));
+    await user.click(within(list).getByTestId('focus-release-notes'));
 
     expect(params().get('focus')).toBe('release-notes');
-  });
-
-  it('checks the Needs attention switch from ?attention=1 and hides in-sync items', async () => {
-    mockDesignPack();
-    renderAt('?tab=graph&attention=1');
-    const list = await focusList();
-
-    expect(
-      within(list).getByRole('switch', { name: 'Needs attention' })
-    ).toBeChecked();
-    await waitFor(() =>
-      expect(
-        within(list).queryByTestId('focus-shepherdr')
-      ).not.toBeInTheDocument()
-    );
-    expect(within(list).getByTestId('focus-review')).toBeInTheDocument();
-    expect(
-      within(list).getByTestId('focus-pipeline:feature')
-    ).toBeInTheDocument();
-    expect(
-      within(list).queryByTestId('focus-board:review')
-    ).not.toBeInTheDocument();
-  });
-
-  it('turns the attention filter on and off through the URL', async () => {
-    mockDesignPack();
-    const user = userEvent.setup();
-    renderAt('?tab=graph');
-    const list = await focusList();
-    const toggle = within(list).getByRole('switch', {
-      name: 'Needs attention',
-    });
-    expect(toggle).not.toBeChecked();
-
-    await user.click(toggle);
-    expect(params().get('attention')).toBe('1');
-    expect(params().get('focus')).toBeNull();
-
-    await user.click(toggle);
-    expect(params().get('attention')).toBeNull();
-  });
-
-  it('counts only the flagged unwired verbs under the filter', async () => {
-    mockDesignPack();
-    renderAt('?tab=graph&attention=1');
-    const list = await focusList();
-
-    await waitFor(() =>
-      expect(within(list).getByTestId('focus-unwired')).toHaveTextContent(
-        'Unwired1'
-      )
-    );
-  });
-
-  it('keeps the filtered list loading until check answers', async () => {
-    mockDesignPack();
-    checkGet.mockReturnValue(new Promise(() => {}));
-    renderAt('?tab=graph&attention=1');
-
-    const list = await screen.findByTestId('focus-list');
-    await waitFor(() => expect(compositionGet).toHaveBeenCalled());
-    expect(within(list).getByTestId('focus-list-loading')).toBeInTheDocument();
-    expect(
-      within(list).queryByTestId('focus-pipeline:feature')
-    ).not.toBeInTheDocument();
-    expect(
-      within(list).getByRole('switch', { name: 'Needs attention' })
-    ).toBeChecked();
   });
 
   it('warns that no row can state its drift when check fails', async () => {
@@ -478,48 +395,6 @@ describe('Graph tab: the focus list', () => {
         'rt skills check failed, so no row below can state its drift: rt skills check: pack not found'
       )
     ).toBeInTheDocument();
-  });
-
-  it('says "not measured" rather than "nothing wrong" when the filter empties the list and check never answered', async () => {
-    mockDesignPack();
-    const composition = designFixture('composition');
-    composition.verbs = composition.verbs.filter(
-      verb => verb.name !== 'release-notes' && verb.name !== 'standup'
-    );
-    compositionGet.mockResolvedValue(ok(composition));
-    checkGet.mockResolvedValue({
-      ok: false,
-      status: 502,
-      json: async () => ({ error: 'rt skills check: pack not found' }),
-    });
-    renderAt('?tab=graph&attention=1');
-    const list = await focusList();
-
-    const empty = await within(list).findByTestId('attention-empty');
-    expect(empty).toHaveTextContent('Not measured');
-    expect(empty).not.toHaveTextContent('Nothing needs attention');
-  });
-
-  it('states a clean filtered list as measured', async () => {
-    mockDesignPack();
-    const composition = designFixture('composition');
-    composition.verbs = composition.verbs.filter(
-      verb => verb.name !== 'release-notes' && verb.name !== 'standup'
-    );
-    compositionGet.mockResolvedValue(ok(composition));
-    const check = designFixture('check');
-    for (const verb of check.verbs) {
-      verb.status = 'in-sync';
-      verb.staleBecause = [];
-    }
-    checkGet.mockResolvedValue(ok(check));
-    renderAt('?tab=graph&attention=1');
-    const list = await focusList();
-
-    const empty = await within(list).findByTestId('attention-empty');
-    expect(empty).toHaveTextContent(
-      `Nothing needs attention: rt skills check compared ${check.verbs.length} roster verbs and none differed.`
-    );
   });
 
   it('says so when the pack declares no pipeline', async () => {

@@ -14,6 +14,7 @@ import { loadSteps, StepLoader, useStepLoading } from '../StepLoader';
 import classes from './ConfigTab.module.css';
 import { useReportReady } from './contentReady';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';
+import { useWiringUrl } from './graph/useWiringUrl';
 import {
   baseCopyWhy,
   computeHealthGroups,
@@ -250,7 +251,16 @@ export function ConfigTab({
   const surfaceQuery = useSurface(pack);
   const composition = compositionQuery.data;
   const check = checkQuery.data;
-  const [filterKind, setFilterKind] = useState<SurfaceFilterKind>('all');
+  // Needs attention rides the URL, so the rail badge can open Config with
+  // it on; the other filters are this visit's alone.
+  const [url, patch] = useWiringUrl();
+  const [ownFilter, setOwnFilter] = useState<SurfaceFilterKind>('all');
+  const filterKind: SurfaceFilterKind = url.attention ? 'attention' : ownFilter;
+  const setFilterKind = (kind: SurfaceFilterKind) => {
+    if (kind !== 'attention') setOwnFilter(kind);
+    if ((kind === 'attention') !== url.attention)
+      patch({ attention: kind === 'attention' });
+  };
 
   // A missing `check` must not read as healthy, so nothing is counted until
   // it answers.

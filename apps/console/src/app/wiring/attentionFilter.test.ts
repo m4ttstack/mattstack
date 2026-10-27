@@ -4,9 +4,9 @@ import { PACKS_ATTENTION_HREF } from './attentionFilter';
 import { parseWiringUrl } from './graph/useWiringUrl';
 
 describe('PACKS_ATTENTION_HREF', () => {
-  it('opens the Graph tab with the attention filter on', () => {
+  it('opens the Config tab with the attention filter on', () => {
     expect(
       parseWiringUrl(new URL(PACKS_ATTENTION_HREF, 'http://x').search)
-    ).toMatchObject({ tab: 'graph', attention: true });
+    ).toMatchObject({ tab: 'config', attention: true });
   });
 });

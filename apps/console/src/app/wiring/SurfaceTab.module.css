@@ -21,12 +21,6 @@
   color: var(--tk-text-1);
 }
 
-.badgeCard {
-  padding: 6px 10px;
-  font-size: 12px;
-  color: var(--tk-text-2);
-}
-
 /* A kind badge: its translucent tint sits
    over the card's surface and takes a hairline in its own hue, so its edge
    holds on white and on the key's grey. */
