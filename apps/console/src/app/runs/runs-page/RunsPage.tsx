@@ -253,7 +253,7 @@ export function RunsPage() {
                   runs={runs}
                   gates={gates}
                   gatesByRun={linked.byRun}
-                  loading={!settled || !linked.loaded}
+                  loading={!read || !linked.loaded}
                   repoName={url.repo ? labelOf(url.repo) : null}
                   pipeline={url.pipeline}
                   pipelines={pipelines}

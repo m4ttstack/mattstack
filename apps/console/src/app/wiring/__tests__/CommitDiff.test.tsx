@@ -32,6 +32,31 @@ const DIFF = [
 ].join('\n');
 
 describe('filesOf', () => {
+  it('names a rename with no hunks by its new path, and counts no lines', () => {
+    const [file] = filesOf(
+      [
+        'diff --git a/notes/old.md b/notes/new.md',
+        'similarity index 100%',
+        'rename from notes/old.md',
+        'rename to notes/new.md',
+        '',
+      ].join('\n')
+    );
+    expect(file).toMatchObject({ path: 'notes/new.md', added: 0, removed: 0 });
+  });
+
+  it('names a binary file by its header path', () => {
+    const [file] = filesOf(
+      [
+        'diff --git a/img/logo.png b/img/logo.png',
+        'index 1111111..2222222 100644',
+        'Binary files a/img/logo.png and b/img/logo.png differ',
+        '',
+      ].join('\n')
+    );
+    expect(file).toMatchObject({ path: 'img/logo.png', added: 0, removed: 0 });
+  });
+
   it('cuts a diff into one patch per file, in its own order', () => {
     expect(filesOf(DIFF).map(file => file.path)).toEqual([
       'skills/ship/SKILL.md',

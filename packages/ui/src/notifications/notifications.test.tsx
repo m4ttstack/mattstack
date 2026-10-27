@@ -98,6 +98,29 @@ test('notifications render the type icon at the dense size', async () => {
   expect(svg?.getAttribute('stroke-width')).toBe('2.75');
 });
 
+test.each([
+  [undefined, 'var(--mantine-color-green-4)'],
+  ['grape', 'var(--mantine-color-grape-4)'],
+  ['blue.7', 'var(--mantine-color-blue-7)'],
+  ['#ff0000', '#ff0000'],
+])('colours the type icon for a %s override as %s', async (color, stroke) => {
+  renderWithProviders(
+    <button
+      onClick={() =>
+        notifications.success({ message: 'Saved', ...(color ? { color } : {}) })
+      }
+    >
+      go
+    </button>
+  );
+
+  await userEvent.click(screen.getByText('go'));
+
+  const alert = await screen.findByRole('alert');
+  const svg = alert.querySelector('.mantine-Notification-icon svg');
+  expect(svg?.getAttribute('stroke')).toBe(stroke);
+});
+
 test('notifications.warning accepts a props object (title + message)', async () => {
   renderWithProviders(
     <button

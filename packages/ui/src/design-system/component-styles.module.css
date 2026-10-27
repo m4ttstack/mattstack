@@ -27,7 +27,8 @@
 /* Notifications read as floating layers, like menus and popovers. */
 /* Notifications speak for the app, not the page: a dark, translucent card in
    both schemes, the same voice as the console's unsynced-changes pill. The
-   type's hue rides on the icon alone; Mantine's own colour bar never shows.
+   type's hue rides on the icon; Mantine shows its colour bar only when
+   there is none.
    Each class is doubled to outrank Mantine's own sheet, which loads later
    at the same specificity. */
 .notificationRoot.notificationRoot {
@@ -53,10 +54,6 @@
     var(--mantine-color-dark-5) 96%,
     transparent
   );
-}
-
-.notificationRoot.notificationRoot::before {
-  display: none;
 }
 
 /* The type's mark on a soft disc of its hue; the facade draws the mark in

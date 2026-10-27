@@ -55,10 +55,13 @@
   height: 14px;
   vertical-align: -2px;
   background: var(--tk-text-1);
-  animation: stepLoaderBlink 1.05s steps(1) infinite;
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .cursor {
+    animation: stepLoaderBlink 1.05s steps(1) infinite;
+  }
+
   .line {
     overflow: hidden;
     animation: stepLoaderLineIn 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;

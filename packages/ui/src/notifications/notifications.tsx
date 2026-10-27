@@ -48,6 +48,16 @@ const TYPE_COLOR: Record<NotificationType, string> = {
 // Mantine's provider default unless overridden (or unless `countdown` is
 // set, which forces the ring to own the timing). `color`/`icon` can still
 // be overridden per call.
+/** The icon's colour on the dark card: a palette name takes its bright
+    step, `name.N` that shade, and any other CSS colour stands as given. */
+function brightOf(color: string): string {
+  if (/^[a-z][a-z0-9-]*$/i.test(color))
+    return `var(--mantine-color-${color}-4)`;
+  const shade = /^([a-z][a-z0-9-]*)\.(\d)$/i.exec(color);
+  if (shade) return `var(--mantine-color-${shade[1]}-${shade[2]})`;
+  return color;
+}
+
 function show(props: ShowNotificationProps) {
   const {
     type = 'info',
@@ -70,7 +80,7 @@ function show(props: ShowNotificationProps) {
       strokeWidth={ICON_STROKE}
       // The card is dark in both schemes, so the mark takes the hue's bright
       // step rather than its filled one.
-      color={`var(--mantine-color-${resolvedColor}-4)`}
+      color={brightOf(resolvedColor)}
       // A triangle's weight sits low in its box; lift it to the optical
       // centre of the disc.
       style={type === 'warning' ? { marginTop: -1.5 } : undefined}

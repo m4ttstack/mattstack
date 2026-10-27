@@ -44,8 +44,10 @@ const summary = vi.hoisted(() => ({
   current: null as { count: number; trial: string | null } | null,
 }));
 const diffCalls = vi.hoisted(() => [] as (string | null)[][]);
+const changesRead = vi.hoisted(() => ({ pending: false }));
 
 vi.mock('../useWiring', () => ({
+  usePendingChanges: () => ({ isPending: changesRead.pending }),
   useSkillsHistory: () => ({
     data: { commits: COMMITS, truncated: false },
     isPending: false,
@@ -89,7 +91,7 @@ vi.mock('../PatchView', () => ({
 const { HistoryMain, HistorySidebar, WORKING } = await import('../PackHistory');
 
 const at = (search: string) =>
-  window.history.replaceState(null, '', `/wiring${search}`);
+  window.history.replaceState(null, '', `/packs${search}`);
 const commitsInUrl = () =>
   new URLSearchParams(window.location.search).get('commits');
 const row = (commit: (typeof COMMITS)[number]) =>
@@ -97,6 +99,7 @@ const row = (commit: (typeof COMMITS)[number]) =>
 
 beforeEach(() => {
   summary.current = null;
+  changesRead.pending = false;
   diffCalls.length = 0;
   at('?tab=history&pack=acme');
 });
@@ -107,6 +110,15 @@ afterEach(() => {
 });
 
 describe('the Changes sidebar: unsynced changes', () => {
+  it('keeps a link to the unsynced changes while the changes are still being read', async () => {
+    at(`?tab=history&commits=${WORKING}`);
+    changesRead.pending = true;
+    renderWithProviders(<HistorySidebar pack="acme" />);
+
+    await screen.findByTestId('commit-list');
+    expect(commitsInUrl()).toBe(WORKING);
+  });
+
   it('opens on the unsynced changes, a card above the committed log', async () => {
     summary.current = { count: 2, trial: null };
     renderWithProviders(<HistorySidebar pack="acme" />);

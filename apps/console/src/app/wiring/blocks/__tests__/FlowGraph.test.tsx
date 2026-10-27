@@ -129,12 +129,9 @@ async function drawnAt(width: number, at: Case): Promise<LaidOut> {
     edge.label ? [key(edge.label)] : []
   );
   expect(labels.length).toBeGreaterThan(0);
-  expect(
-    screen
-      .getAllByTestId('map-chip')
-      .map(chip => key(chipBox(chip)))
-      .sort()
-  ).toEqual(labels.sort());
+  // Under load the canvas can mount a beat before its chips draw.
+  const chips = await screen.findAllByTestId('map-chip', {}, LAID_OUT);
+  expect(chips.map(chip => key(chipBox(chip))).sort()).toEqual(labels.sort());
   view.unmount();
   return laidOut;
 }
@@ -318,7 +315,9 @@ describe('FlowGraph', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     await screen.findByTestId('flow-canvas', {}, LAID_OUT);
-    expect(screen.getByTestId('flow-key')).toBeInTheDocument();
+    expect(
+      await screen.findByTestId('flow-key', {}, LAID_OUT)
+    ).toBeInTheDocument();
   }, 60_000);
 
   it('a canvas of fractional width fits a graph that fits above the zoom floor', async () => {

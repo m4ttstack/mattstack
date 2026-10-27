@@ -27,11 +27,17 @@ export function filesOf(diff: string): DiffFile[] {
     const header = lines.find(line => line.startsWith('+++ '));
     const old = lines.find(line => line.startsWith('--- '));
     const named = header && !header.endsWith('/dev/null') ? header : old;
-    const path = (named ?? lines[0].slice(FILE_START.length))
-      .replace(/^(\+\+\+|---) /, '')
-      .replace(/^[ab]\//, '')
-      .split('\t')[0];
-    const body = lines.slice(lines.findIndex(line => line.startsWith('@@')));
+    // A rename, a mode change or a binary file has no ---/+++ lines: its
+    // path is the header's b/ side.
+    const fromHeader = / b\/(.+)$/.exec(lines[0])?.[1];
+    const path = named
+      ? named
+          .replace(/^(\+\+\+|---) /, '')
+          .replace(/^[ab]\//, '')
+          .split('\t')[0]
+      : (fromHeader ?? lines[0].slice(FILE_START.length));
+    const hunk = lines.findIndex(line => line.startsWith('@@'));
+    const body = hunk < 0 ? [] : lines.slice(hunk);
     files.push({
       path,
       patch: `${lines.join('\n')}\n`,

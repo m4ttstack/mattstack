@@ -73,8 +73,9 @@ export function WiringMap() {
   const unsyncedCount = useUnsyncedSummary(pack)?.count ?? 0;
   // The notification waits for the tab's content and the changes read, so it
   // never arrives ahead of the page.
-  const [contentReady, setContentReady] = useState(false);
-  const markReady = useCallback(() => setContentReady(true), []);
+  const [readyPack, setReadyPack] = useState<string | null>(null);
+  const markReady = useCallback(() => setReadyPack(pack), [pack]);
+  const contentReady = readyPack !== null && readyPack === pack;
   const reviewChanges = () => {
     patch({ tab: 'history' });
     writeHistoryUrl({ commits: [WORKING] });

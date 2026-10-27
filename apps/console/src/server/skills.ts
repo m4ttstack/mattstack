@@ -535,25 +535,24 @@ async function untrackedDiff(runGit: RunGit, packDir: string): Promise<string> {
     .split('\0')
     .filter(Boolean)
     .slice(0, MAX_UNTRACKED);
-  const diffs = await Promise.all(
-    paths.map(path =>
-      runGit([
-        '-C',
-        packDir,
-        'diff',
-        '--no-color',
-        '--no-index',
-        '--',
-        '/dev/null',
-        path,
-      ])
-    )
-  );
-  // `--no-index` exits 1 when the two sides differ, which a new file always does.
-  return diffs
-    .filter(result => result.code <= 1)
-    .map(result => result.stdout)
-    .join('');
+  // One at a time, and no further once the diff is past what the page shows.
+  let out = '';
+  for (const path of paths) {
+    const result = await runGit([
+      '-C',
+      packDir,
+      'diff',
+      '--no-color',
+      '--no-index',
+      '--',
+      '/dev/null',
+      path,
+    ]);
+    // `--no-index` exits 1 when the two sides differ, which a new file always does.
+    if (result.code <= 1) out += result.stdout;
+    if (out.length > MAX_DIFF_BYTES) break;
+  }
+  return out;
 }
 
 /** The title rt's CLI gives a failure it did not expect. */

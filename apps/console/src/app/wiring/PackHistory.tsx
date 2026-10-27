@@ -9,7 +9,11 @@ import { StepLoader, useStepLoading } from '../StepLoader';
 import { CommitDiff, filesOf } from './CommitDiff';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';
 import classes from './PackHistory.module.css';
-import { useSkillsDiff, useSkillsHistory } from './useWiring';
+import {
+  usePendingChanges,
+  useSkillsDiff,
+  useSkillsHistory,
+} from './useWiring';
 
 /** The tree library is heavy and only a picked commit needs it. */
 const DiffFileTree = lazy(() => import('./DiffFileTree'));
@@ -130,6 +134,7 @@ export function HistorySidebar({ pack }: { pack: string }) {
   const commits = useMemo(() => history.data?.commits ?? [], [history.data]);
   const { picks, write } = useHistoryUrl();
   const summary = useUnsyncedSummary(pack);
+  const changesPending = usePendingChanges(pack).isPending;
   const unsynced = summary?.count ?? 0;
   const onWorking = picks[0] === WORKING;
   const comparing = picks.length === 2;
@@ -143,11 +148,13 @@ export function HistorySidebar({ pack }: { pack: string }) {
   // newest commit's change, rather than on nothing; a sync that empties the
   // working tree moves it on to that commit.
   useEffect(() => {
+    // A summary still reading counts as no changes; wait for it.
+    if (changesPending) return;
     if (picks.length === 0 || (onWorking && unsynced === 0)) {
       if (unsynced > 0) write({ commits: [WORKING] });
       else if (commits[0]) write({ commits: [commits[0].sha] });
     }
-  }, [picks.length, onWorking, unsynced, commits, write]);
+  }, [changesPending, picks.length, onWorking, unsynced, commits, write]);
 
   const pick = (sha: string, add: boolean) => {
     // The unsynced changes stand alone: no compare runs to or from them.
@@ -300,7 +307,11 @@ export function HistoryMain({
   );
   const openFile =
     files.find(file => file.path === openPath) ?? files[0] ?? null;
-  const rangeKey = range ? `${range.from}..${range.to}` : null;
+  // The tree builds its model once, so a working diff that reloads with
+  // other files or other lines must remount it.
+  const rangeKey = range
+    ? `${range.from}..${range.to}:${files.map(file => `${file.path}\n${file.patch}`).join('\0')}`
+    : null;
   const [treeWidth, setTreeWidth] = usePaneWidth(
     'console-history-tree-width',
     TREE_PANE
