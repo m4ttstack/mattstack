@@ -13,7 +13,7 @@ import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
-import { withProcessSession } from "../pane-process-session.ts";
+import { sessionFromPaneProcess, withProcessSession } from "../pane-process-session.ts";
 import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import type { RelocationWatcher } from "../relocation-announce.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
@@ -209,6 +209,27 @@ export function createPaneHandlers(opts: {
     return herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
   }
 
+  // herdr's recorded agent_session comes from a SessionStart hook that reports
+  // to the shell's HERDR_PANE_ID, which a renumber leaves stale, so the pane's
+  // own foreground process is the authority and the record only a fallback.
+  async function sessionPaneOn(sessionId: string, sockPath: string | undefined): Promise<string | undefined> {
+    const snap = await snapshot(sockPath);
+    if (!snap.ok) return undefined;
+    const claude = snap.result.snapshot.panes.filter((p) => p.agent === "claude");
+    const running = await Promise.all(claude.map((p) => sessionFromPaneProcess(herdr, p.pane_id, sockPath, claudeRegistryRoots)));
+    const byProcess = claude.find((_, i) => running[i] === sessionId);
+    if (byProcess) return byProcess.pane_id;
+    return claude.find((p, i) => running[i] === null && p.agent_session?.kind === "id" && p.agent_session.value === sessionId)?.pane_id;
+  }
+
+  async function sessionPane(sessionId: string): Promise<string | undefined> {
+    const visible = await sessionPaneOn(sessionId, undefined);
+    if (visible) return visible;
+    if (!bg || !(await bg.up())) return undefined;
+    const hidden = await sessionPaneOn(sessionId, bg.socketPath());
+    return hidden && formatPaneRef(hidden, "bg");
+  }
+
   return {
     "pane:list": async (_payload: unknown): Promise<CommandResult<"pane:list">> => {
       const snap = await snapshot();
@@ -385,14 +406,14 @@ export function createPaneHandlers(opts: {
 
     "pane:send": async (rawPayload: unknown): Promise<CommandResult<"pane:send">> => {
       const payload = rawPayload as Commands["pane:send"]["payload"];
-      const { paneId, sockPath } = resolvePaneRef(payload.paneId);
+      const target = (payload.selfSession && (await sessionPane(payload.selfSession))) || payload.paneId;
+      const { paneId, sockPath } = resolvePaneRef(target);
       const res = await injectIntoPane({ paneId, text: payload.text, callerPane: payload.callerPane, herdr, sockPath });
       if (!res.ok) return res;
-      // Echo the ref the caller passed in, not the bare id injectIntoPane
-      // resolved against: the round-trip rule -- whatever a caller sends
-      // addressably, every verb (including this one's own reply) prints
-      // addressably back.
-      const data = { ...res.data, paneId: payload.paneId };
+      // Echo the ref, not the bare id injectIntoPane resolved against: the
+      // round-trip rule -- whatever a caller sends addressably, every verb
+      // (including this one's own reply) prints addressably back.
+      const data = { ...res.data, paneId: target };
       if (!payload.continuation || res.data.delivered === "refused") return { ok: true, data };
       schedule(injectAfterTurn({ paneId, text: payload.continuation, herdr, sockPath, log }));
       return { ok: true, data: { ...data, continuation: { delivered: "deferred" } } };

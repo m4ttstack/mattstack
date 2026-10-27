@@ -158,10 +158,11 @@ export async function paneSend(args: string[]): Promise<void> {
   // callerPane. A literal copy of the own id keeps the guard.
   const paneId = target === SELF_TARGET ? (own ?? fail(NOT_IN_PANE)) : target;
   const callerPane = target === SELF_TARGET ? undefined : own;
+  const selfSession = target === SELF_TARGET ? process.env.CLAUDE_CODE_SESSION_ID : undefined;
   const continuation = flagValue(args, "--then");
   if (args.includes("--then") && !continuation) fail("--then needs a body");
   const data = unwrap(
-    await paneSendRt({ paneId, text, ...(callerPane ? { callerPane } : {}), ...(continuation !== undefined ? { continuation } : {}) }, opts(args)),
+    await paneSendRt({ paneId, text, ...(callerPane ? { callerPane } : {}), ...(continuation !== undefined ? { continuation } : {}), ...(selfSession ? { selfSession } : {}) }, opts(args)),
     "pane send",
   );
   const { continuation: then, ...first } = data;
