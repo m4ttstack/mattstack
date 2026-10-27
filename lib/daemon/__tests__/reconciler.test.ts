@@ -536,13 +536,15 @@ describe("reconciler status: since (onset) tracking", () => {
     expect(executor!.since).toBeGreaterThan(goneSince);
   });
 
-  test("a resume landing mid-snapshot is not a new onset until a snapshot can see its pane", async () => {
+  test("a resume landing mid-snapshot never reads as freshly gone", async () => {
     let duringSnapshot: (() => void) | null = null;
+    let listed: LivePane[] = [];
     const racing = createReconciler({
       store, listAgents: () => agentsList,
       snapshot: async () => {
+        const seen = listed;
         duringSnapshot?.();
-        return [];
+        return seen;
       },
       peek: async () => peekText, emit: () => {}, injectEscape: async () => ({ ok: false, error: "n/a" }),
       resumeAgent: async () => ({ ok: true }), markAgentGone: () => {}, log,
@@ -554,14 +556,42 @@ describe("reconciler status: since (onset) tracking", () => {
     await new Promise((r) => setTimeout(r, 2));
     duringSnapshot = () => {
       agentsList = [buildAgent(agentId, { paneId: "w1:p9" })];
+      listed = [buildPane({ paneRef: "w1:p9" })];
+      duringSnapshot = null;
     };
     await racing.sweep();
-    expect(racing.status().executors[0]!.since).toBe(goneSince);
+    const [executor] = racing.status().executors;
+    expect(executor!.state).toBe("live");
+    expect(executor!.since).toBeGreaterThan(goneSince);
+  });
 
-    await new Promise((r) => setTimeout(r, 2));
-    duringSnapshot = null;
+  test("a resume landing mid-snapshot is resolved against a fresh snapshot, not read as gone", async () => {
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
+    panesValue = [buildPane({ paneRef: "w1:p1" })];
+    await reconciler.sweep();
+    expect(reconciler.status().executors[0]!.state).toBe("live");
+
+    let resumed = false;
+    const racing = createReconciler({
+      store, listAgents: () => agentsList,
+      snapshot: async () => {
+        if (!resumed) {
+          resumed = true;
+          agentsList = [buildAgent(agentId, { paneId: "w1:p9" })];
+        }
+        return [
+          buildPane({ paneRef: "w1:p9", sessionId: undefined }),
+          buildPane({ paneRef: "w1:p5", sessionId: undefined }),
+        ];
+      },
+      peek: async () => peekText, emit: () => {}, injectEscape: async () => ({ ok: false, error: "n/a" }),
+      resumeAgent: async () => ({ ok: true }), markAgentGone: () => {}, log,
+    });
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
     await racing.sweep();
-    expect(racing.status().executors[0]!.since).toBeGreaterThan(goneSince);
+    const [executor] = racing.status().executors;
+    expect(executor!.state).toBe("live");
+    expect(executor!.paneRef).toBe("w1:p9");
   });
 });
 

@@ -396,8 +396,18 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
   async function sweep(): Promise<void> {
     // Records before panes: a resume writes its pane id only after herdr made
     // the pane, so every pane id read here is one the snapshot can contain.
-    const agents = deps.listAgents().filter((a) => a.finishedAt == null);
-    const panes = await deps.snapshot();
+    // A resume that lands during the snapshot leaves the old pane id paired
+    // with a list that may no longer hold it, so one re-read and re-snapshot
+    // follows; a second move inside that window waits for the next sweep.
+    const liveAgents = () => deps.listAgents().filter((a) => a.finishedAt == null);
+    let agents = liveAgents();
+    let panes = await deps.snapshot();
+    const reread = liveAgents();
+    const paneIdBefore = new Map(agents.map((a) => [a.id, a.paneId]));
+    if (reread.some((a) => paneIdBefore.has(a.id) && paneIdBefore.get(a.id) !== a.paneId)) {
+      agents = reread;
+      panes = await deps.snapshot();
+    }
     lastPanes = panes;
     const herdrReachable = panes !== null;
     const now = Date.now();
