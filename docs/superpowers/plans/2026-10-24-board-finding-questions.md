@@ -1,3 +1,5 @@
+> Superseded by [the review finding question design](../specs/2026-10-27-review-finding-question-design.md): the question now runs in the reviewer's own pane, with no separate question agent.
+
 # Ask a Question About a Review Finding: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

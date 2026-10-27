@@ -1,3 +1,5 @@
+> Superseded by [the review finding question design](2026-10-27-review-finding-question-design.md): the question now runs in the reviewer's own pane, with no separate question agent.
+
 # Ask a question about a review finding
 
 ## Intent
