@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { Button, UnstyledButton } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
@@ -47,12 +47,8 @@ export function FlowRow({
   blockId: string;
   onOpen?: (blockId: string) => void;
 }) {
-  const [showSource, setShowSource] = useState(false);
   const graph = payload.graphs.find(entry => entry.blockId === blockId);
   if (!graph) return null;
-  const source = mermaidOf(
-    payload.blocks.find(block => block.id === blockId)?.text ?? ''
-  );
   const blocks = graph.nodes.filter(node => node.blockId).length;
   return (
     <div className={classes.flowRowWrap}>
@@ -62,35 +58,42 @@ export function FlowRow({
           onClick={() => onOpen?.(blockId)}
         >
           <Icon name="workflow" size={14} className={classes.flowRowIcon} />
-          <span className={classes.flowRowName}>Flow</span>
+          <span className={classes.flowRowName}>Diagram</span>
           <span className={classes.flowRowFacts}>
             {`${count(graph.nodes.length, 'step')} · ${count(blocks, 'block')} · how this block runs, step by step`}
           </span>
         </UnstyledButton>
-        {source !== null && (
-          <Button
-            variant="subtle"
-            color="gray"
-            size="compact-sm"
-            className={classes.flowRowSource}
-            leftSection={<Icon name="code" size={13} />}
-            aria-expanded={showSource}
-            onClick={() => setShowSource(shown => !shown)}
-          >
-            Source
-          </Button>
-        )}
         <span className={classes.flowRowGo} aria-hidden>
-          Open the flow
+          Open the diagram
           <Icon name="chevronRight" size={13} />
         </span>
       </div>
-      {showSource && source !== null && (
-        <pre className={classes.graphSource} data-testid="graph-source">
-          {source}
-        </pre>
-      )}
     </div>
+  );
+}
+
+/** A block's graph as a section head's button: its step count, opening it. */
+export function DiagramButton({
+  payload,
+  blockId,
+  onOpen,
+}: {
+  payload: BlocksPayload;
+  blockId: string;
+  onOpen: (blockId: string) => void;
+}) {
+  const graph = payload.graphs.find(entry => entry.blockId === blockId);
+  if (!graph) return null;
+  return (
+    <Button
+      variant="default"
+      size="compact-sm"
+      leftSection={<Icon name="workflow" size={13} />}
+      onClick={() => onOpen(blockId)}
+      data-testid="diagram-button"
+    >
+      {`Diagram · ${count(graph.nodes.length, 'step')}`}
+    </Button>
   );
 }
 

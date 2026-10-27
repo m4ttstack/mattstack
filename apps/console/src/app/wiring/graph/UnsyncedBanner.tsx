@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import {
-  Alert,
-  Anchor,
+  Badge,
   Button,
   Group,
   Paper,
   Stack,
   Text,
+  Tooltip,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
@@ -38,8 +38,6 @@ const BUTTON = {
   root: classes.boardButton,
   section: classes.boardButtonSection,
 };
-/** The banner names this many changes until asked for the rest. */
-const BANNER_LIMIT = 3;
 const CHANGED =
   'The pack changed since this list was shown. Review the new list and try again.';
 
@@ -90,19 +88,41 @@ function ChangeList({ pending }: { pending: PendingChange[] }) {
   );
 }
 
+/** The pack's unsynced changes counted as the confirms list them, with the
+    trial branch they would sync to; null while the pack is clean. */
+export function useUnsyncedSummary(pack: string | null) {
+  const changes = useUnsynced(pack);
+  const composition = useCompositionSnapshot(pack).data;
+  if (!changes) return null;
+  return {
+    count: pendingChangesOf(changes, composition).length,
+    trial: changes.trialBranch ?? null,
+    signature: changes.signature,
+  };
+}
+
 /**
- * Across the Wiring page while the pack has edits nobody has synced: what
- * they are, and the two ways out, each behind a confirm that lists every
- * change it acts on.
+ * The two ways out of the pack's unsynced changes, for the head of their
+ * History view: Discard and Sync, each behind a confirm that lists every
+ * change it acts on, beside the trial branch a sync would push to.
  */
-export function UnsyncedBanner({ pack }: { pack: string }) {
+export function UnsyncedActions({
+  pack,
+  publishOnly = false,
+  blockedBy = null,
+}: {
+  pack: string;
+  /** Just the Publish button, for a bar that shows the rest itself. */
+  publishOnly?: boolean;
+  /** Why Publish waits, such as skills still to compile. */
+  blockedBy?: string | null;
+}) {
   const current = useUnsynced(pack);
   const queryClient = useQueryClient();
   const sync = useSkillsSync(pack);
   const discard = useDiscardChanges(pack);
   const writing = useSkillsWriting(pack);
   const composition = useCompositionSnapshot(pack).data;
-  const [expanded, setExpanded] = useState(false);
   // The host slides the banner out once the pack is clean; it keeps the
   // last list on screen while it goes rather than emptying first.
   const [held, setHeld] = useState(current);
@@ -113,8 +133,6 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
 
   const pending = pendingChangesOf(changes, composition);
   const count = pending.length;
-  const shown = expanded ? pending : pending.slice(0, BANNER_LIMIT);
-  const hidden = count - shown.length;
   const outside = changes.outsideScope.map(file => file.path);
 
   /**
@@ -163,7 +181,7 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
         if (refusal) notifications.error(refusal);
         else
           notifications.success(
-            `Synced ${pack}. Run /reload-plugins in open Claude sessions.`
+            `Published ${pack}. Run /reload-plugins in open Claude sessions.`
           );
       })
       .catch((error: Error) => notifications.error(error.message));
@@ -188,15 +206,18 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
           c={BODY}
           data-parity="t"
         >
-          Sync {count} {plural(count, 'change', 'changes')}?
+          Publish {count} {plural(count, 'change', 'changes')}?
         </Text>
       ),
       message: (
         <Stack gap={14}>
           <Text fz={13} lh="normal" c={MUTED} data-parity="body">
             This saves {plural(count, 'the change', `the ${count} changes`)} to
-            the {pack} pack and shares {plural(count, 'it', 'them')} with your
-            team. Then it rebuilds the pack and updates your installed copy.
+            the {pack} pack and{' '}
+            {changes.trialBranch
+              ? `pushes ${plural(count, 'it', 'them')} to the trial branch ${changes.trialBranch}, not the data branch.`
+              : `shares ${plural(count, 'it', 'them')} with your team.`}{' '}
+            Then it installs the pack in Claude Code.
           </Text>
           <ChangeList pending={pending} />
           <Text fz={12} lh="normal" c={MUTED} data-parity="after">
@@ -206,7 +227,7 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
         </Stack>
       ),
       labels: {
-        confirm: <ButtonLabel>Sync changes</ButtonLabel>,
+        confirm: <ButtonLabel>Publish</ButtonLabel>,
         cancel: <ButtonLabel>Cancel</ButtonLabel>,
       },
       confirmProps: {
@@ -214,8 +235,8 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
         size: 'xs',
         radius: 6,
         classNames: BUTTON,
-        leftSection: <Icon name="refresh" size={13} data-parity="i" />,
-        'data-parity': 'button · Sync changes',
+        leftSection: <Icon name="upload" size={13} data-parity="i" />,
+        'data-parity': 'button · Publish',
       },
       cancelProps: {
         variant: 'card-outline',
@@ -264,78 +285,67 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
       onConfirm: confirmed(changes, () => runDiscard(changes.signature)),
     });
 
-  return (
-    <Alert
-      variant="tint-outline"
-      color="warn"
-      radius={0}
-      icon={<Icon name="circleDot" size={16} data-parity="i" />}
-      classNames={{
-        root: classes.banner,
-        wrapper: classes.bannerWrapper,
-        icon: classes.bannerIcon,
-      }}
-      data-parity="Banner · unsynced"
-      data-testid="unsynced-banner"
+  const trial = changes.trialBranch ?? null;
+  const sync_ = (
+    <Button
+      color="accent"
+      size="xs"
+      radius={6}
+      classNames={BUTTON}
+      leftSection={<Icon name="upload" size={13} data-parity="i" />}
+      disabled={writing || outside.length > 0 || blockedBy !== null}
+      loading={sync.isPending}
+      onClick={confirmSync}
+      data-parity="button · Publish"
     >
-      <Group gap={12} wrap="nowrap">
-        <Stack gap={3} className={classes.bannerText}>
-          <Text fz={13} fw={500} lh="normal" c={BODY} data-parity="t">
-            {count} unsynced {plural(count, 'change', 'changes')} in {pack}.
-            Your Claude sessions still use the old version.
-          </Text>
-          {shown.map(change => (
-            <ChangeLine key={change.key} change={change} gap={6} />
-          ))}
-          {(hidden > 0 || expanded) && count > BANNER_LIMIT && (
-            <Anchor
-              component="button"
-              type="button"
-              fz={12}
-              lh="normal"
-              className={classes.bannerMore}
-              onClick={() => setExpanded(value => !value)}
-            >
-              {expanded ? 'Show fewer' : `Show ${hidden} more`}
-            </Anchor>
-          )}
-          {outside.length > 0 && (
-            <Text fz={12} lh="normal" c={MUTED}>
-              {outsideNote(outside)}
-            </Text>
-          )}
-        </Stack>
-        <Button
-          variant="card-outline"
-          size="xs"
-          radius={6}
-          classNames={BUTTON}
-          disabled={writing}
-          loading={discard.isPending}
-          onClick={confirmDiscard}
-          data-parity="button · Discard"
+      <ButtonLabel>{trial ? `Publish to ${trial}` : 'Publish'}</ButtonLabel>
+    </Button>
+  );
+  const why = blockedBy ?? (outside.length > 0 ? outsideNote(outside) : null);
+  const publish = why ? (
+    <Tooltip label={why} multiline maw={320} withArrow>
+      <span>{sync_}</span>
+    </Tooltip>
+  ) : (
+    sync_
+  );
+  if (publishOnly) return publish;
+  return (
+    <div className={classes.unsyncedActions} data-testid="unsynced-actions">
+      {trial && (
+        <Badge
+          variant="tint"
+          color="purple"
+          leftSection={<Icon name="gitBranch" size={12} />}
+          classNames={{ root: classes.bannerStatus }}
+          data-testid="unsynced-trial"
         >
-          <ButtonLabel>Discard</ButtonLabel>
-        </Button>
-        <Button
-          color="accent"
-          size="xs"
-          radius={6}
-          classNames={BUTTON}
-          leftSection={<Icon name="refresh" size={13} data-parity="i" />}
-          disabled={writing || outside.length > 0}
-          loading={sync.isPending}
-          onClick={confirmSync}
-          data-parity="button · Sync changes"
-        >
-          <ButtonLabel>Sync changes</ButtonLabel>
-        </Button>
-      </Group>
-    </Alert>
+          trial · {trial}
+        </Badge>
+      )}
+      <Button
+        variant="card-outline"
+        size="xs"
+        radius={6}
+        classNames={BUTTON}
+        disabled={writing}
+        loading={discard.isPending}
+        onClick={confirmDiscard}
+        data-parity="button · Discard"
+      >
+        <ButtonLabel>Discard</ButtonLabel>
+      </Button>
+      {publish}
+    </div>
   );
 }
 
-/** Whether the banner has anything to show, for a host that slides it in. */
-export function useUnsyncedBanner(pack: string | null): boolean {
-  return useUnsynced(pack) !== null;
+/** Whether the banner has anything to show, and whether the changes have
+    been read yet, for a host that slides it in. */
+export function useUnsyncedBanner(pack: string | null): {
+  show: boolean;
+  known: boolean;
+} {
+  const query = usePendingChanges(pack);
+  return { show: useUnsynced(pack) !== null, known: !query.isPending };
 }

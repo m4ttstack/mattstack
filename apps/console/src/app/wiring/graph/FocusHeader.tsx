@@ -2,6 +2,7 @@ import type { ReactNode, Ref } from 'react';
 import {
   Alert,
   Badge,
+  CopyActionIcon,
   Group,
   Paper,
   Stack,
@@ -39,7 +40,9 @@ export function kindOf(item: FocusItem, pipeline: FocusItem | null): string {
   if (pipeline && workType && item.key === pipeline.key)
     return `${workType} pipeline · ${countOf(pipeline.children.length, 'stage', 'stages')}`;
   if (pipeline && workType && item.step !== null)
-    return `stage ${item.step} of ${pipeline.children.length} · ${pipeline.skill} · ${workType}`;
+    return pipeline.command
+      ? `stage ${item.step} of ${pipeline.children.length} · run by /${pipeline.command}`
+      : `stage ${item.step} of ${pipeline.children.length} · ${pipeline.skill} · ${workType}`;
   if (item.icon === 'layoutDashboard') return 'board skill';
   return item.icon === 'lock' ? 'internal verb' : 'public verb';
 }
@@ -178,7 +181,10 @@ export function FocusHeader({
   actions = null,
   inline = false,
   meta = null,
+  command = null,
 }: {
+  /** The title is this command in full, as typed in Claude Code. */
+  command?: string | null;
   /** A line under the description: the block view's pack and counts. */
   meta?: ReactNode;
   ref?: Ref<HTMLDivElement>;
@@ -238,11 +244,29 @@ export function FocusHeader({
             gap={10}
             className={inline ? classes.inlineTitleRow : undefined}
           >
-            <Title order={3} fz={inline ? 24 : 20} lh="normal">
-              <Text span inherit c="var(--tk-text-1)" data-parity="title">
-                {title}
-              </Text>
-            </Title>
+            <Group gap={6} wrap="nowrap" align="center">
+              <Title
+                order={3}
+                fz={inline ? (command ? 22 : 24) : 20}
+                fw={command ? 500 : undefined}
+                lh="normal"
+                ff={command ? 'monospace' : undefined}
+                lts={command ? -0.3 : undefined}
+              >
+                <Text span inherit c="var(--tk-text-1)" data-parity="title">
+                  {title}
+                </Text>
+              </Title>
+              {command && (
+                <CopyActionIcon
+                  value={command}
+                  size="sm"
+                  iconSize={14}
+                  c="var(--tk-text-3)"
+                  data-testid="copy-command"
+                />
+              )}
+            </Group>
             {kind !== null && (
               <Badge
                 variant={inline ? 'panel-outline' : 'quiet'}

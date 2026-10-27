@@ -21,7 +21,7 @@ export function WiringRailEntry({ active }: WiringRailEntryProps) {
   const { close } = useShellRail();
 
   const entry = (
-    <RailLink icon="zap" label="Wiring" href={WIRING_HREF} active={active} />
+    <RailLink icon="boxes" label="Packs" href={WIRING_HREF} active={active} />
   );
 
   if (count === 0) return entry;

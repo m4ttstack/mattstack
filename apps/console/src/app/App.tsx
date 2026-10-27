@@ -27,7 +27,7 @@ type ConsoleSection = 'runs' | 'search' | 'wiring' | 'settings';
 const SECTION_LABEL: Record<ConsoleSection, string> = {
   runs: 'Runs',
   search: 'Search',
-  wiring: 'Wiring',
+  wiring: 'Packs',
   settings: 'Settings',
 };
 

@@ -1,5 +1,10 @@
-import type { ReactNode } from 'react';
-import { ActionIcon, SegmentedControl, Tooltip } from '@mattstack/app-kit/core';
+import { useState, type ReactNode } from 'react';
+import {
+  ActionIcon,
+  Collapse,
+  SegmentedControl,
+  Tooltip,
+} from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import type {
@@ -85,7 +90,8 @@ function LayerStrip({
 
 /**
  * A block's text as a document: its file and the Blocks | Rendered switch in
- * a bar on top, at a single block the layers' share of it, then the text.
+ * a bar on top, at a single block the layers' share of it, then the text,
+ * which the bar's chevron folds away.
  */
 export function DocumentCard({
   payload,
@@ -110,9 +116,33 @@ export function DocumentCard({
 }) {
   const editorHref = useEditorHref();
   const name = block ? fileNameOf(payload, block) : null;
+  const [open, setOpen] = useState(true);
+  const foldable = children !== null || (strip && block !== null);
   return (
-    <section className={classes.doc} data-testid="block-document">
+    <section
+      className={classes.doc}
+      data-folded={!open || undefined}
+      data-testid="block-document"
+    >
       <header className={classes.docBar}>
+        {foldable && (
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            aria-label={open ? 'Fold the document' : 'Unfold the document'}
+            aria-expanded={open}
+            onClick={() => setOpen(value => !value)}
+            data-testid="block-document-fold"
+          >
+            <Icon
+              name="chevronRight"
+              size={14}
+              className={classes.docChevron}
+              data-open={open || undefined}
+            />
+          </ActionIcon>
+        )}
         {name !== null && block && (
           <span className={classes.docFile}>
             <Icon name="fileText" size={13} className={classes.glyph} />
@@ -143,8 +173,12 @@ export function DocumentCard({
           onChange={value => onRendered(value === 'rendered')}
         />
       </header>
-      {strip && block && <LayerStrip payload={payload} block={block} />}
-      {children !== null && <div className={classes.docBody}>{children}</div>}
+      <Collapse expanded={open}>
+        {strip && block && <LayerStrip payload={payload} block={block} />}
+        {children !== null && (
+          <div className={classes.docBody}>{children}</div>
+        )}
+      </Collapse>
     </section>
   );
 }

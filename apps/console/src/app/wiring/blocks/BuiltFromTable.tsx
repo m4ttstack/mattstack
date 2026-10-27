@@ -9,6 +9,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import layerClasses from './blocks.module.css';
 import classes from './history.module.css';
 import type { BuiltFromRow, FileStatus } from './model/history';
 
@@ -106,15 +107,22 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
               </Table.Td>
               <Table.Td>
                 {row.builtWith && (
-                  <Text
-                    ff="monospace"
-                    fz={12}
-                    lh="normal"
-                    c={SECONDARY}
-                    data-parity="bw"
-                  >
-                    {row.builtWith}
-                  </Text>
+                  <Group gap={8} wrap="nowrap">
+                    <span
+                      className={layerClasses.swatch}
+                      data-fill={row.layer}
+                      aria-hidden
+                    />
+                    <Text
+                      ff="monospace"
+                      fz={12}
+                      lh="normal"
+                      c={SECONDARY}
+                      data-parity="bw"
+                    >
+                      {row.builtWith}
+                    </Text>
+                  </Group>
                 )}
               </Table.Td>
               <Table.Td>

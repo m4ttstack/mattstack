@@ -7,6 +7,7 @@ import type { NodeTypes } from '@xyflow/react';
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
+import type { TrailItem } from '../../nav/Trail';
 import classes from './blocks.module.css';
 import {
   BAND_NODE_TYPES,
@@ -223,9 +224,9 @@ export interface BlockMapProps {
   highlight: string | null;
   onSelect: (blockId: string) => void;
   onView: (view: BlockGraphSelect) => void;
-  onClose: () => void;
+  trail: TrailItem[];
   /** The block Close goes back to. */
-  backLabel: string;
+  title: string;
   /** The graph's Mermaid source. */
   source?: string | null;
   /** Framed to the page's height. */
@@ -241,8 +242,8 @@ export function BlockMap({
   highlight,
   onSelect,
   onView,
-  onClose,
-  backLabel,
+  trail,
+  title,
   source = null,
   fill = false,
   engine,
@@ -432,7 +433,6 @@ export function BlockMap({
           dim: focus.litNodes !== null && !hot,
           link,
           button,
-          tip: button && hover?.kind === 'link' && hover.id === link,
         };
       },
       linkInfo: id => {
@@ -471,8 +471,8 @@ export function BlockMap({
       count={`${countOf(blocks, 'block')} · ${countOf(map.foldedSteps, 'step')} folded`}
       view="graph"
       onView={onView}
-      onClose={onClose}
-      backLabel={backLabel}
+      trail={trail}
+      title={title}
       source={source}
       fill={fill}
     >

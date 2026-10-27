@@ -1,0 +1,239 @@
+/* Every pane opens on a head of the same height, so one line runs across. */
+.head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 41px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  background: var(--tk-panel);
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tk-text-1);
+}
+
+.count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--tk-raised);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--tk-text-2);
+}
+
+.hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tk-text-3);
+}
+
+.pad {
+  padding: 12px 14px;
+}
+
+/* Sidebar: the log. PageShell.Sidebar scrolls it. */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar .head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  --row-hover: var(--tk-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.row:focus-visible {
+  background-color: var(--row-hover);
+}
+
+.row[data-selected] {
+  box-shadow: inset 2px 0 0 var(--tk-fill-accent);
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+}
+
+.subject {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--tk-text-1);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  font-size: 11px;
+  color: var(--tk-text-3);
+}
+
+.sha {
+  font-family: var(--mantine-font-family-monospace);
+}
+
+.end {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--tk-text-accent-small);
+}
+
+.note {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--tk-text-3);
+}
+
+/* Main: the change's files beside the open file's diff, full height. */
+/* The tree's column width is set inline, from the resizer. */
+.main {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  background: var(--tk-card);
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--tk-border-soft);
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+}
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--tk-text-3);
+  text-align: center;
+}
+
+/* The working tree's row is no commit: a card inset from the log holding a
+   warm mark and a heavier title; a label then starts the log. It keeps its
+   own colour when picked: neutral at rest, its status warmth when picked,
+   rather than the blue the commits take. */
+.row.working {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  margin: 10px 10px 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background-color: var(--tk-card);
+}
+
+@media (hover: hover) {
+  .row.working:hover {
+    background-color: color-mix(in srgb, var(--tk-fill-warn) 5%, var(--tk-card));
+  }
+}
+
+.row.working[data-selected] {
+  border-color: color-mix(in srgb, var(--tk-fill-warn) 55%, transparent);
+  box-shadow: none;
+  background-color: color-mix(in srgb, var(--tk-fill-warn) 10%, var(--tk-card));
+}
+
+/* Picked, it carries the commits' blue mark on the list's own left edge, out
+   past the card's margin and border, level with the card's straight edge:
+   it starts and ends where the card's 8px corners do. */
+.row.working {
+  position: relative;
+}
+
+.row.working[data-selected]::before {
+  content: '';
+  position: absolute;
+  inset-block: 7px;
+  left: -11px;
+  width: 2px;
+  background: var(--tk-fill-accent);
+}
+
+.workingMark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--tk-text-warn);
+  background: color-mix(in srgb, var(--tk-fill-warn) var(--ui-tint), transparent);
+}
+
+.workingText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workingTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tk-text-1);
+}
+
+.workingCount {
+  color: var(--tk-text-warn);
+  font-weight: 500;
+}
+
+.section {
+  padding: 10px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tk-text-3);
+}
+
+.clear {
+  margin-left: auto;
+}

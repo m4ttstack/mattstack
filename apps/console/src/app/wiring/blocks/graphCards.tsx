@@ -5,8 +5,13 @@ import {
   useEffect,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from 'react';
-import { Menu, Tooltip, UnstyledButton } from '@mattstack/app-kit/core';
+import {
+  HoverCard,
+  Tooltip,
+  UnstyledButton,
+} from '@mattstack/app-kit/core';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import {
   Handle,
@@ -24,6 +29,9 @@ import { countOf } from './model/labels';
 import { jumpsLabel, type MapBox } from './model/mapLayout';
 
 const ICON_STROKE = 2;
+
+/** Every hover card on a graph opens after the same pause. */
+export const HOVER_OPEN_MS = 500;
 
 const BADGE_ICON: Record<MapKind, IconName> = {
   step: 'circle',
@@ -95,28 +103,73 @@ const STEP_ICON: Record<BandNode['kind'], IconName> = {
   step: 'circle',
 };
 
-/** A folded link's steps as its hover card lists them. */
-export function FoldSteps({
+/** A tool call names the tool; a shell line keeps its words. The graph's
+    trailing `(<exit>)` tag repeats the card's own via. */
+function commandOf(text: string) {
+  const bare = text.replace(/\s*\([^()]*\)\s*$/, '');
+  return /^[a-z_]+\s*\{/.test(bare) ? bare.slice(0, bare.indexOf('{')).trim() : bare;
+}
+
+/** Where a jump or folded link goes, and each step it passes, in the map's
+    own badge colours. */
+export function StepsCard({
+  title,
+  via,
   steps,
   hint,
 }: {
+  title?: ReactNode;
+  via?: string | null;
   steps: BandNode[];
   hint?: string;
 }) {
   return (
-    <div className={classes.foldTip} data-testid="fold-steps">
-      <div className={classes.foldTipTitle}>
-        {`${countOf(steps.length, 'step')} folded`}
-      </div>
-      <ul className={classes.foldTipList}>
-        {steps.map(step => (
-          <li key={step.id}>
-            <Icon name={STEP_ICON[step.kind]} size={12} strokeWidth={2} />
-            {step.kind === 'command' ? step.text : step.label}
-          </li>
-        ))}
-      </ul>
-      {hint && <div className={classes.foldTipHint}>{hint}</div>}
+    <div className={classes.stepsCard} data-testid="fold-steps">
+      {(title || via) && (
+        <div className={classes.stepsCardHead}>
+          {title && <div className={classes.stepsCardTitle}>{title}</div>}
+          {via && (
+            <div className={classes.stepsCardVia}>
+              via <span className={classes.stepsCardExit}>{via}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {steps.length > 0 && (
+        <div className={classes.stepsCardBody}>
+          <div className={classes.stepsCardLabel}>
+            {`${countOf(steps.length, 'step')} folded`}
+          </div>
+          <ul className={classes.stepsCardList}>
+            {steps.map(step => (
+              <li key={step.id} className={classes.stepsCardStep}>
+                <span
+                  className={classes.mapBadge}
+                  data-badge={
+                    step.kind === 'command' || step.kind === 'step'
+                      ? 'step'
+                      : 'question'
+                  }
+                >
+                  <Icon
+                    name={STEP_ICON[step.kind]}
+                    size={11}
+                    strokeWidth={ICON_STROKE}
+                  />
+                </span>
+                {step.kind === 'command' ? (
+                  <code className={classes.stepsCardCommand} title={step.text}>
+                    {commandOf(step.text)}
+                  </code>
+                ) : (
+                  <span className={classes.stepsCardText}>{step.label}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {hint && <div className={classes.stepsCardHint}>{hint}</div>}
     </div>
   );
 }
@@ -140,7 +193,6 @@ export function JumpPill({
   steps = [],
   onClick,
 }: JumpPillProps) {
-  const [hovered, setHovered] = useState(false);
   const way = direction === 'back' ? 'back to' : 'on to';
   const pill = (
     <UnstyledButton
@@ -149,10 +201,6 @@ export function JumpPill({
       aria-label={`${label ? `${label}: ` : ''}${way} ${target}`}
       aria-pressed={pressed}
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onBlur={() => setHovered(false)}
     >
       <Icon
         name={direction === 'back' ? 'cornerUpLeft' : 'arrowRight'}
@@ -167,20 +215,32 @@ export function JumpPill({
   // passes, show on hover.
   if (!label && steps.length === 0) return pill;
   return (
-    <Tooltip
-      label={
-        <>
-          {label && <span className={classes.mapPillExit}>{label}</span>}
-          {steps.length > 0 && <FoldSteps steps={steps} />}
-        </>
-      }
-      opened={hovered}
-      multiline
-      w={280}
+    <HoverCard
+      width={300}
+      position="bottom-start"
+      shadow="md"
+      openDelay={HOVER_OPEN_MS}
+      closeDelay={60}
       withinPortal
     >
-      {pill}
-    </Tooltip>
+      <HoverCard.Target>{pill}</HoverCard.Target>
+      <HoverCard.Dropdown p={0} className={classes.stepsCardDropdown}>
+        <StepsCard
+          title={
+            <>
+              <Icon
+                name={direction === 'back' ? 'cornerUpLeft' : 'arrowRight'}
+                size={13}
+                strokeWidth={ICON_STROKE}
+              />
+              {`${direction === 'back' ? 'Back to' : 'On to'} ${target}`}
+            </>
+          }
+          via={label}
+          steps={steps}
+        />
+      </HoverCard.Dropdown>
+    </HoverCard>
   );
 }
 
@@ -202,8 +262,15 @@ function Pills({ pills }: { pills: JumpPillProps[] }) {
       : null;
   return (
     <span className={classes.mapPills}>
-      <Menu position="bottom-start" withinPortal shadow="md" width={300}>
-        <Menu.Target>
+      <HoverCard
+        width={300}
+        position="bottom-start"
+        shadow="md"
+        openDelay={HOVER_OPEN_MS}
+        closeDelay={60}
+        withinPortal
+      >
+        <HoverCard.Target>
           <UnstyledButton className={classes.mapPill} data-testid="jumps-chip">
             <Icon
               name={direction === 'forward' ? 'arrowRight' : 'cornerUpLeft'}
@@ -219,28 +286,54 @@ function Pills({ pills }: { pills: JumpPillProps[] }) {
               className={classes.mapPillIcon}
             />
           </UnstyledButton>
-        </Menu.Target>
-        <Menu.Dropdown>
-          {pills.map(pill => (
-            <Menu.Item
-              key={pill.id}
-              onClick={pill.onClick}
-              leftSection={
-                <Icon
-                  name={pill.direction === 'back' ? 'cornerUpLeft' : 'arrowRight'}
-                  size={12}
-                />
-              }
-              data-testid="jump-item"
-            >
-              <span className={classes.jumpTarget}>{pill.target}</span>
-              {pill.label && (
-                <span className={classes.jumpExit}>{pill.label}</span>
-              )}
-            </Menu.Item>
-          ))}
-        </Menu.Dropdown>
-      </Menu>
+        </HoverCard.Target>
+        <HoverCard.Dropdown p={0} className={classes.stepsCardDropdown}>
+          <div className={classes.stepsCard}>
+            <div className={classes.stepsCardHead}>
+              <div className={classes.stepsCardTitle}>{jumpsLabel(pills)}</div>
+            </div>
+            <ul className={classes.jumpList}>
+              {pills.map(pill => (
+                <li key={pill.id}>
+                  <UnstyledButton
+                    className={classes.jumpRow}
+                    onClick={pill.onClick}
+                    data-testid="jump-item"
+                  >
+                    <Icon
+                      name={
+                        pill.direction === 'back' ? 'cornerUpLeft' : 'arrowRight'
+                      }
+                      size={13}
+                      strokeWidth={ICON_STROKE}
+                      className={classes.mapPillIcon}
+                    />
+                    <span className={classes.jumpRowText}>
+                      <span className={classes.jumpTarget}>{pill.target}</span>
+                      {(pill.label || (pill.steps?.length ?? 0) > 0) && (
+                        <span className={classes.jumpExit}>
+                          {[
+                            pill.label && `via ${pill.label}`,
+                            (pill.steps?.length ?? 0) > 0 &&
+                              `${countOf(pill.steps!.length, 'step')} folded`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      )}
+                    </span>
+                    <Icon
+                      name="chevronRight"
+                      size={13}
+                      className={classes.jumpRowGo}
+                    />
+                  </UnstyledButton>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </HoverCard.Dropdown>
+      </HoverCard>
     </span>
   );
 }
@@ -450,8 +543,6 @@ export type EdgeView = {
   link: string | null;
   /** The one edge per link that carries its button; the rest only hover. */
   button: boolean;
-  /** The link itself is hovered, so its button shows its steps. */
-  tip: boolean;
 };
 
 export type LinkInfo = { name: string; steps: BandNode[] };
@@ -468,7 +559,6 @@ const QUIET_EDGE: EdgeView = {
   dim: false,
   link: null,
   button: false,
-  tip: false,
 };
 
 /** What a map node or edge needs from the view around it. */

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
-  Button,
   NavLink,
   Stack,
   Text,
@@ -10,7 +9,8 @@ import {
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { useGraphFocus } from '../graph/useGraphFocus';
-import { BlockGlyph, LayerDots } from './BlockRow';
+import { KindBadge, LayerDots } from './BlockRow';
+import { BackPill } from '../../nav/BackPill';
 import classes from './blocks.module.css';
 import { blockCount } from './model/blockView';
 import { sidebarRows, type SidebarRow } from './model/sidebar';
@@ -56,11 +56,7 @@ function TreeRow({
             data-selected={row.selected || undefined}
           />
         ) : row.glyph !== 'shared' ? (
-          <BlockGlyph
-            glyph={row.glyph}
-            size={row.depth > 0 ? 11 : 13}
-            selected={row.selected}
-          />
+          <KindBadge glyph={row.glyph} size={11} compact />
         ) : undefined
       }
       rightSection={
@@ -112,17 +108,11 @@ export function BlockSidebar({ pack }: { pack: string }) {
 
   return (
     <Stack gap={2} className={classes.sidebar} data-testid="block-sidebar">
-      <Button
-        variant="subtle"
-        color="gray"
-        size="compact-sm"
-        justify="flex-start"
-        leftSection={<Icon name="chevronLeft" size={14} />}
-        classNames={{ root: classes.back }}
+      <BackPill
+        label="All skills"
         onClick={() => patch({ focus: null, block: null })}
-      >
-        All skills
-      </Button>
+        testId="all-skills"
+      />
       {focused && (
         <UnstyledButton
           className={classes.switcher}
@@ -162,13 +152,13 @@ export function BlockSidebar({ pack }: { pack: string }) {
       {payload && (
         <ul className={classes.glyphKey} aria-label="Glyphs">
           <li>
-            <BlockGlyph glyph="step" size={11} /> step
+            <KindBadge glyph="step" size={10} compact /> step
           </li>
           <li>
-            <BlockGlyph glyph="question" size={11} /> question
+            <KindBadge glyph="question" size={10} compact /> question
           </li>
           <li>
-            <BlockGlyph glyph="gate" size={11} /> gate
+            <KindBadge glyph="gate" size={10} compact /> gate
           </li>
         </ul>
       )}

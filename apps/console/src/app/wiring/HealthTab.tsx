@@ -14,6 +14,7 @@ import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 
 import { loadSteps, StepLoader, useStepLoading } from '../StepLoader';
+import { useReportReady } from './contentReady';
 import { InstalledCachesBar } from './InstalledCachesBar';
 import {
   buildSpine,
@@ -48,7 +49,7 @@ export interface HealthTabProps {
  * stat cards and groups below never dedupe across that overlap on purpose;
  * `Health.dc.html`'s sample data just never has one.
  */
-function computeHealthGroups(spine: WiringSpine) {
+export function computeHealthGroups(spine: WiringSpine) {
   const all = spineRows(spine);
   const staleEntries = all.filter(entry => entry.health === 'source-newer');
   const neverCompiledEntries = all.filter(
@@ -92,7 +93,7 @@ function orphanWhy(orphan: OrphanFillEntry): string {
     : 'unregistered fill · nothing binds it';
 }
 
-function baseCopyWhy(copy: SkillsCheckAttachment): string {
+export function baseCopyWhy(copy: SkillsCheckAttachment): string {
   return copy.base === null
     ? 'orphaned · compile removes it'
     : `from ${copy.base} · ${copy.status}`;
@@ -164,7 +165,7 @@ interface HealthIssueRowProps {
   onPreviewCompile?: () => void;
 }
 
-function HealthIssueRow({
+export function HealthIssueRow({
   testId,
   name,
   reference,
@@ -271,7 +272,7 @@ interface HealthGroupCardProps<T> {
   renderRow: (entry: T) => ReactNode;
 }
 
-function HealthGroupCard<T>({
+export function HealthGroupCard<T>({
   title,
   intent,
   caption,
@@ -373,6 +374,7 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
     [spine]
   );
   const { show: held, bind: heldBind } = useStepLoading(!groups);
+  useReportReady(Boolean(groups) && !held);
 
   if (compositionQuery.isError) {
     return (

@@ -2,18 +2,16 @@ import { Component } from 'react';
 import type { ReactNode } from 'react';
 import { MattstackShell, ScopeSlash } from '@mattstack/app-kit/app';
 import {
-  Button,
   Divider,
   Group,
   LazyLoader,
   PageShell,
   Text,
 } from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
 import type { RunSummary } from '@mattstack/rt-client';
 import { QueryErrorResetBoundary, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'wouter';
 
+import { BackPill } from '../nav/BackPill';
 import { StepLoader } from '../StepLoader';
 import { formatClock } from './derive/clock';
 import { repoLabel } from './repoLabel';
@@ -110,16 +108,7 @@ function RunCrumbs({ repo, runId }: { repo: string; runId: string }) {
   return (
     <MattstackShell.AppBar>
       <Group gap={10} wrap="nowrap" miw={0}>
-        <Button
-          component={Link}
-          href={runsHomeHref()}
-          size="compact-sm"
-          radius="xl"
-          variant="default"
-          leftSection={<Icon name="arrowLeft" size={14} />}
-        >
-          Runs
-        </Button>
+        <BackPill label="Runs" href={runsHomeHref()} />
         <ScopeSlash />
         <Text span fz="sm" fw={500} c="dimmed" data-testid="run-repo">
           {repoLabel(repo)}

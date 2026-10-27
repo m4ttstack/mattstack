@@ -13,6 +13,7 @@ import type { Node, NodeProps, NodeTypes } from '@xyflow/react';
 import type { BlocksPayload } from '../../../server/blocksPayload';
 import { useStepLoading } from '../../StepLoader';
 import type { BlockGraphSelect } from '../graph/useWiringUrl';
+import type { TrailItem } from '../../nav/Trail';
 import classes from './blocks.module.css';
 import {
   edgesOf,
@@ -293,9 +294,9 @@ export interface EveryStepProps {
   highlight: string | null;
   onSelect: (blockId: string) => void;
   onView: (view: BlockGraphSelect) => void;
-  onClose: () => void;
+  trail: TrailItem[];
   /** The block Close goes back to. */
-  backLabel: string;
+  title: string;
   /** The graph's Mermaid source. */
   source?: string | null;
   /** Framed to the page's height. */
@@ -310,8 +311,8 @@ export function EveryStep({
   highlight,
   onSelect,
   onView,
-  onClose,
-  backLabel,
+  trail,
+  title,
   source = null,
   fill = false,
   engine,
@@ -324,8 +325,8 @@ export function EveryStep({
       count={`${countOf(graph.nodes.length, 'step')} · ${countOf(blocks, 'block')}`}
       view="graph-steps"
       onView={onView}
-      onClose={onClose}
-      backLabel={backLabel}
+      trail={trail}
+      title={title}
       source={source}
       fill={fill}
     >

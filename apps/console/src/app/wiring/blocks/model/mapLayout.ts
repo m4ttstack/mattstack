@@ -219,6 +219,8 @@ export function mapLayout(
   const pillsOf = new Map<string, Pill[]>();
   for (const link of map.links) {
     if (link.kind === 'line') continue;
+    // A jump back onto its own card goes nowhere a reader can follow.
+    if (link.to.length === 1 && link.to[0] === link.from) continue;
     pillsOf.set(link.from, [
       ...(pillsOf.get(link.from) ?? []),
       {

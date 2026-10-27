@@ -276,8 +276,21 @@ a.propBandSource {
   align-items: center;
   gap: 12px;
   min-height: 40px;
-  padding: 4px 8px 4px 14px;
+  padding: 4px 8px 4px 8px;
   border-bottom: 1px solid var(--tk-border-soft);
+}
+
+/* Folded, the bar is the whole card: no rule under it. */
+.doc[data-folded] .docBar {
+  border-bottom-color: transparent;
+}
+
+.docChevron {
+  transition: transform 120ms ease;
+}
+
+.docChevron[data-open] {
+  transform: rotate(90deg);
 }
 
 .docFile {
@@ -453,12 +466,6 @@ a.propBandSource {
   white-space: nowrap;
 }
 
-.flowRowSource {
-  position: relative;
-  z-index: 1;
-  flex: none;
-}
-
 .flowRowGo {
   display: inline-flex;
   flex: none;
@@ -540,7 +547,6 @@ a.propBandSource {
   line-height: normal;
 }
 
-.graphSource,
 .brief {
   margin: 0;
   padding: 10px 12px;
@@ -552,10 +558,6 @@ a.propBandSource {
   font-size: 12px;
   line-height: 1.5;
   white-space: pre;
-}
-
-.graphSource {
-  max-height: 320px;
 }
 
 .brief {
@@ -708,6 +710,8 @@ a.propBandSource {
   align-items: flex-start;
   gap: 10px;
   min-width: 0;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--tk-border-soft);
 }
 
 .head > [data-testid='focus-header'] {
@@ -716,6 +720,7 @@ a.propBandSource {
 
 .crumbs {
   flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 
 .extra {
@@ -736,6 +741,46 @@ a.propBandSource {
   gap: 10px;
 }
 
+/* A skill's section: one bordered card whose head strip carries its actions. */
+.bandCard {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background: var(--tk-card);
+}
+
+.bandCard .bandHead {
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 8px 6px 8px;
+  background: var(--tk-panel);
+}
+
+/* Folded, the head is the whole card: no rule under it. */
+.bandCard[data-folded] .bandHead {
+  border-bottom-color: transparent;
+}
+
+.bandActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.bandCard .bandIntro {
+  padding: 10px 14px;
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+.bandCard .rows {
+  border: 0;
+  border-top: 1px solid var(--tk-border-soft);
+  border-radius: 0;
+}
+
 .bandOpen {
   display: inline-flex;
   align-items: center;
@@ -745,26 +790,6 @@ a.propBandSource {
 
 .bandOpen .glyph {
   margin-top: 0;
-}
-
-/* Opening a section's block is a link at the head's end, as the flow row's
-   Open the flow is. */
-.bandLink {
-  display: inline-flex;
-  align-self: center;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
-/* Expand all, where the skill's blocks start. */
-.bandAction {
-  align-self: center;
-  margin-left: auto;
-}
-
-.bandLink + .bandAction {
-  margin-left: 12px;
 }
 
 .bandTitle {
@@ -1131,6 +1156,18 @@ a.propBandSource {
   margin-top: 0;
 }
 
+.kindBadge[data-compact] {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.glyphKey .kindBadge[data-compact] {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
 .treeChevron {
   color: var(--tk-text-3);
 }
@@ -1170,8 +1207,8 @@ a.propBandSource {
 
 .mapHead {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
 }
 
 .mapTools {
@@ -1179,13 +1216,6 @@ a.propBandSource {
   align-items: center;
   gap: 12px;
   margin-left: auto;
-}
-
-.mapBack {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 4px;
 }
 
 /* The flow fills the page under its head and never scrolls the page: the
@@ -1245,27 +1275,132 @@ a.propBandSource {
   pointer-events: auto;
 }
 
-.frameTools > ul {
-  padding: 7px 12px;
+/* A two-column key: each mark centred in a fixed column, so the words line
+   up beside it. Outranks .mapKey li, which lays the key out in one line. */
+.frameLegend > ul > li {
+  display: grid;
+  grid-template-columns: 24px auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.frameLegend > ul > li > :first-child {
+  justify-self: center;
+}
+
+.frameLegend {
+  position: absolute;
+  z-index: 5;
+  right: 14px;
+  bottom: 14px;
+}
+
+.frameLegend > ul {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 168px;
+  padding: 12px 16px 12px 12px;
   border: 1px solid var(--tk-border);
   border-radius: 8px;
   background: var(--tk-card);
 }
 
-.frameSource {
+.sourceView {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: 12px;
+  background: var(--tk-card);
+}
+
+.sourceHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  background: var(--tk-panel);
+}
+
+.sourceTitle {
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sourceMeta {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.sourceCopy {
+  margin-left: auto;
+}
+
+.sourceBody {
   flex: 1;
   min-height: 0;
   margin: 0;
-  padding: 16px 18px;
+  padding: 12px 0;
   overflow: auto;
-  border: 1px solid var(--tk-border-soft);
-  border-radius: 12px;
-  background: var(--tk-panel);
-  color: var(--tk-text-1);
+  color: var(--tk-text-2);
   font-family: var(--mantine-font-family-monospace);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.65;
 }
+
+.sourceLine {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  white-space: pre;
+}
+
+@media (hover: hover) {
+  .sourceLine:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.sourceNumber {
+  padding-right: 16px;
+  color: var(--tk-text-3);
+  text-align: right;
+  user-select: none;
+}
+
+.sourceBody [data-tone='keyword'] {
+  color: var(--tk-text-purple);
+  font-weight: 600;
+}
+
+.sourceBody [data-tone='id'] {
+  color: var(--tk-text-accent);
+}
+
+.sourceBody [data-tone='text'] {
+  color: var(--tk-text-1);
+}
+
+.sourceBody [data-tone='edge'] {
+  color: var(--tk-text-ok);
+}
+
+.sourceBody [data-tone='class'] {
+  color: var(--tk-text-purple);
+}
+
+.sourceBody :is([data-tone='arrow'], [data-tone='mark'], [data-tone='comment']) {
+  color: var(--tk-text-3);
+}
+
+.sourceBody [data-tone='comment'] {
+  font-style: italic;
+}
+
 
 .mapNote {
   display: flex;
@@ -1294,14 +1429,13 @@ a.propBandSource {
   overflow-y: hidden;
 }
 
-/* A new layout (a fold opened or closed, a zoom) moves the cards there
-   rather than cutting to it: cards slide, the view eases, a card new to the
-   map fades in, and the lines, drawn anew for the new routes, fade in once
+/* A new layout (a fold opened or closed) moves the cards there rather than
+   cutting to it: cards slide, a card new to the map fades in, and the lines, drawn anew for the new routes, fade in once
    the cards have arrived. Only a moved card transitions; a hover moves
-   nothing. */
+   nothing. The view itself never eases: a zoom moves the scroll at once,
+   and an eased scale against it shakes. */
 @media (prefers-reduced-motion: no-preference) {
-  .graphCanvas :global(.react-flow__node),
-  .graphCanvas :global(.react-flow__viewport) {
+  .graphCanvas :global(.react-flow__node) {
     transition: transform 450ms cubic-bezier(0.25, 0.8, 0.25, 1);
   }
 
@@ -1533,11 +1667,6 @@ a.propBandSource {
   font-weight: 500;
 }
 
-.mapPillExit {
-  display: block;
-  margin-bottom: 4px;
-}
-
 .jumpTarget {
   display: block;
   color: var(--tk-text-1);
@@ -1547,8 +1676,45 @@ a.propBandSource {
 
 .jumpExit {
   display: block;
-  color: var(--tk-text-2);
+  color: var(--tk-text-3);
   font-size: 12px;
+}
+
+.jumpList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.jumpRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+@media (hover: hover) {
+  .jumpRow:hover {
+    background-color: var(--tk-raised);
+  }
+}
+
+.jumpRow:focus-visible {
+  background-color: var(--tk-raised);
+}
+
+.jumpRowText {
+  flex: 1;
+  min-width: 0;
+}
+
+.jumpRowGo {
+  flex: none;
+  color: var(--tk-text-3);
 }
 
 .mapDots {
@@ -1769,35 +1935,96 @@ a.propBandSource {
   outline-offset: 1px;
 }
 
-.foldTip {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
-  line-height: normal;
+.stepsCardDropdown {
+  overflow: hidden;
+  border-color: var(--tk-border);
+  background: var(--tk-card);
 }
 
-.foldTipTitle {
+.stepsCard {
+  display: flex;
+  flex-direction: column;
+  color: var(--tk-text-1);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.stepsCardHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  background: var(--tk-panel);
+}
+
+.stepsCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
 }
 
-.foldTipList {
+.stepsCardVia {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.stepsCardExit {
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+}
+
+.stepsCardBody {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.stepsCardLabel {
+  color: var(--tk-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stepsCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.foldTipList li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.stepsCardStep {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
 }
 
-.foldTipHint {
-  opacity: 0.7;
+.stepsCardText,
+.stepsCardCommand {
+  padding-top: 1px;
+}
+
+.stepsCardCommand {
+  overflow: hidden;
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stepsCardHint {
+  padding: 8px 12px;
+  border-top: 1px solid var(--tk-border-soft);
+  color: var(--tk-text-3);
+  font-size: 12px;
 }
 
 .foldBand[data-dim],

@@ -18,12 +18,30 @@
   font-size: 14px;
 }
 
+/* GitHub's stylesheet also sets color-scheme from the OS, which paints a
+   code block's scrollbar dark on a light console. */
+:where([data-mantine-color-scheme='light']) .body:global(.markdown-body) {
+  color-scheme: light;
+}
+
+:where([data-mantine-color-scheme='dark']) .body:global(.markdown-body) {
+  color-scheme: dark;
+}
+
 /* A graph's source, folded under one line that says what it is. */
 .graphFold {
-  margin-bottom: 16px;
   border: 1px solid var(--tk-border);
   border-radius: 8px;
   background-color: var(--tk-panel);
+}
+
+/* The fold's margins sit on a plain div: WebKit lays out a closed
+   <details> without its own margin until it is first opened. github-markdown
+   zeroes a first or last child's margins with !important, so these need the
+   same weight and a stronger selector than `.markdown-body > *:first-child`. */
+.body:global(.markdown-body) > .graphFoldSpace {
+  margin-top: 16px !important;
+  margin-bottom: 16px !important;
 }
 
 .graphFold > summary {

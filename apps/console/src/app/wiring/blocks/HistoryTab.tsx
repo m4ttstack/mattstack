@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import {
   Box,
   Code,
@@ -13,14 +12,8 @@ import { Icon } from '@mattstack/app-kit/icons';
 
 import type { FocusItem } from '../graph/model/focusModel';
 import { StatusDot } from '../graph/StatusDot';
-import {
-  buildSpine,
-  spineRows,
-  type SkillsCheck,
-  type SkillsComposition,
-} from '../outline';
+import type { SkillsCheck, SkillsComposition } from '../outline';
 import type { SkillsAnatomy } from '../useWiring';
-import { VersionTimeline } from '../VersionTimeline';
 import { BuiltFromTable } from './BuiltFromTable';
 import classes from './history.module.css';
 import {
@@ -153,41 +146,17 @@ type HistoryProps = {
   onOpen: (focus: string) => void;
 };
 
-/** The open skill's roster entry, whose pack history a timeline reads;
-    null for a skill that is not a roster verb. */
-function useRosterEntry(
-  composition: SkillsComposition,
-  check: SkillsCheck | undefined,
-  skill: string
-) {
-  return useMemo(
-    () =>
-      spineRows(buildSpine(composition, check ?? { verbs: [] })).find(
-        candidate => candidate.verb === skill
-      ) ?? null,
-    [composition, check, skill]
-  );
-}
-
-/** One block's copy in the open skill: its engine text and the files its
-    props paste in, with the versions built and installed, and the pack's
-    commits that touched those files. */
+/** One block's copy in the open skill: its text and the files its props
+    paste in, with the versions built and installed. */
 function BlockHistory({
-  pack,
   anatomy,
-  composition,
   check,
   block,
-}: Pick<HistoryProps, 'pack' | 'anatomy' | 'composition' | 'check'> & {
+}: Pick<HistoryProps, 'anatomy' | 'check'> & {
   block: HistoryBlock;
 }) {
   const row = check?.verbs.find(verb => verb.name === anatomy.skill);
   const rows = blockBuiltFrom(anatomy, row, block);
-  const entry = useRosterEntry(composition, check, anatomy.skill);
-  const inPack = `${composition.packDir}/`;
-  const paths = rows
-    .filter(source => source.path.startsWith(inPack))
-    .map(source => source.path.slice(inPack.length));
   return (
     <>
       <TabHeading parity="h1" testId="history-heading">
@@ -195,32 +164,15 @@ function BlockHistory({
       </TabHeading>
       <BuiltFromTable rows={rows} />
       <HistoryNote>{blockNote(rows, anatomy.skill)}</HistoryNote>
-      {entry?.verb && paths.length > 0 && (
-        <Box className={classes.timeline}>
-          <VersionTimeline
-            pack={pack}
-            verb={entry.verb}
-            refName={entry.ref}
-            health={entry.health}
-            staleFiles={entry.staleFiles}
-            sourcePath={entry.sourcePath}
-            artifactPath={entry.artifactPath}
-            props={entry.props}
-            paths={paths}
-          />
-        </Box>
-      )}
     </>
   );
 }
 
 /** What a compiled skill was built from and whether any of it changed since,
-    the other steps of its pipeline that need a rebuild, and, for a roster
-    verb, its commit history. */
+    and the other steps of its pipeline that need a rebuild. */
 function SkillHistory({
   pack,
   anatomy,
-  composition,
   check,
   pipeline,
   onOpen,
@@ -233,13 +185,8 @@ function SkillHistory({
     stale.length > 0 ||
     row?.status === 'stale' ||
     row?.status === 'never-compiled';
-  const entry = useRosterEntry(composition, check, anatomy.skill);
-
   return (
     <>
-      <TabHeading parity="h1" testId="history-heading">
-        Built from
-      </TabHeading>
       <BuiltFromTable rows={rows} />
       {note && <HistoryNote>{note}</HistoryNote>}
       {stale.length > 0 && (
@@ -265,20 +212,6 @@ function SkillHistory({
           </Text>
         </>
       )}
-      {entry?.verb && (
-        <Box className={classes.timeline}>
-          <VersionTimeline
-            pack={pack}
-            verb={entry.verb}
-            refName={entry.ref}
-            health={entry.health}
-            staleFiles={entry.staleFiles}
-            sourcePath={entry.sourcePath}
-            artifactPath={entry.artifactPath}
-            props={entry.props}
-          />
-        </Box>
-      )}
     </>
   );
 }
@@ -299,9 +232,7 @@ export function HistoryTab({
       <Stack gap={12}>
         {block ? (
           <BlockHistory
-            pack={props.pack}
             anatomy={props.anatomy}
-            composition={props.composition}
             check={props.check}
             block={block}
           />

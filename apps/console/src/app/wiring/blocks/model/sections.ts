@@ -154,7 +154,10 @@ function skillBands(
     )
   );
   if (leaves.length > 0) {
-    bands.push(bandOf(payload, 'notes', 'Inside this skill', 'note', leaves, selectedId));
+    // "Other" only reads right after sections of their own; a flat skill's
+    // blocks are all it has.
+    const title = folders.length > 0 ? 'Other blocks' : 'Blocks';
+    bands.push(bandOf(payload, 'notes', title, 'note', leaves, selectedId));
   }
   if (shared.length > 0) {
     const rows = shared.map(block => sharedRowOf(payload, block, selectedId));

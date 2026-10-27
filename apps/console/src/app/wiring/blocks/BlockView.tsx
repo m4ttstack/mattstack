@@ -1,13 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import {
-  Anchor,
-  Breadcrumbs,
-  Button,
-  Text,
-  Title,
-} from '@mattstack/app-kit/core';
-import { Icon } from '@mattstack/app-kit/icons';
+import { Text, Title } from '@mattstack/app-kit/core';
 
 import type {
   BlocksPayload,
@@ -21,8 +14,9 @@ import type { SkillsCheck, SkillsComposition } from '../outline';
 import { useSkillSource, type SkillsAnatomy } from '../useWiring';
 import { AroundGraph } from './AroundGraph';
 import { BlockMap } from './BlockMap';
+import { Trail, type TrailItem } from '../../nav/Trail';
 import classes from './blocks.module.css';
-import { BlockText, FlowRow, mermaidOf } from './BlockText';
+import { BlockText, DiagramButton, FlowRow, mermaidOf } from './BlockText';
 import { CopyForClaude } from './CopyForClaude';
 import { DocumentCard } from './DocumentCard';
 import { EveryStep } from './FlowGraph';
@@ -56,6 +50,12 @@ export type SkillHeader = {
   checkError: string | null;
   /** The installed engine's version, when rt's anatomy names it. */
   version?: string | null;
+  /** The places above the skill, a stage's pipeline first. */
+  up?: TrailItem[];
+  /** The title as a command in full, when the pack surfaces it. */
+  command?: string | null;
+  /** The skill's name in a trail: its command short, or its stage label. */
+  crumb?: string;
 };
 
 /** What Used by and History read beyond the payload. */
@@ -94,37 +94,47 @@ function Crumbs({
   payload,
   block,
   patch,
+  skill,
 }: {
   payload: BlocksPayload;
-  block: PayloadBlock;
+  block: PayloadBlock | null;
   patch: Patch;
+  skill: SkillHeader | undefined;
 }) {
-  const crumbs = crumbsOf(payload, block);
   return (
-    <Breadcrumbs
-      separator={<Icon name="chevronRight" size={12} />}
-      className={classes.crumbs}
-      data-testid="block-crumbs"
-    >
-      {crumbs.map((crumb, index) =>
-        index === crumbs.length - 1 ? (
-          <Text key={crumb.id ?? 'skill'} span fz={13} c="dimmed">
-            {crumb.label}
-          </Text>
-        ) : (
-          <Anchor
-            key={crumb.id ?? 'skill'}
-            component="button"
-            type="button"
-            fz={13}
-            onClick={() => patch({ block: crumb.id, select: null })}
-          >
-            {crumb.label}
-          </Anchor>
-        )
-      )}
-    </Breadcrumbs>
+    <div className={classes.crumbs}>
+      <Trail
+        items={trailOf(payload, block, patch, skill)}
+        testId="block-crumbs"
+      />
+    </div>
   );
+}
+
+/** A block's place from the top, through its skill; `through` keeps the
+    block itself a link, for a page below it. */
+function trailOf(
+  payload: BlocksPayload,
+  block: PayloadBlock | null,
+  patch: Patch,
+  skill: SkillHeader | undefined,
+  through = false
+): TrailItem[] {
+  const crumbs = crumbsOf(payload, block);
+  return [
+    ...(skill?.up ?? []),
+    ...crumbs.map((crumb, index) => ({
+      key: crumb.id ?? 'skill',
+      label:
+        crumb.id === null
+          ? (skill?.crumb ?? skill?.title ?? crumb.label)
+          : crumb.label,
+      mono: crumb.id === null && Boolean(skill?.command),
+      ...(through || index < crumbs.length - 1
+        ? { onClick: () => patch({ block: crumb.id, select: null }) }
+        : {}),
+    })),
+  ];
 }
 
 const HEADING_OR_GRAPH = /^#{1,6}\s.*$|```mermaid\n[\s\S]*?\n```/gm;
@@ -205,13 +215,17 @@ function Section({
 function FlowPage({
   payload,
   map,
-  backLabel,
+  block,
+  title,
   patch,
+  skill,
 }: {
   payload: BlocksPayload;
   map: MapGraph;
-  backLabel: string;
+  block: PayloadBlock | null;
+  title: string;
   patch: Patch;
+  skill: SkillHeader | undefined;
 }) {
   const shared = {
     payload,
@@ -219,8 +233,11 @@ function FlowPage({
     highlight: map.highlight,
     onSelect: (id: string) => patch({ block: id, select: null }),
     onView: (view: BlockGraphSelect) => patch({ select: view }),
-    onClose: () => patch({ select: null }),
-    backLabel,
+    trail: [
+      ...trailOf(payload, block, patch, skill, true),
+      { key: 'diagram', label: 'Diagram' },
+    ],
+    title,
     source: mermaidOf(
       payload.blocks.find(block => block.id === map.graph.blockId)?.text ?? ''
     ),
@@ -282,10 +299,8 @@ export function BlockView({
         root?.summary ??
         null);
 
-  const zoomKey = url.block ?? '';
-  const [expandedAt, setExpandedAt] = useState<string | null>(null);
-  const expanded = expandedAt === zoomKey;
-  const canExpand = zoom.level === 'skill' && !rendered;
+  const bands =
+    zoom.level === 'skill' && !rendered ? sectionsAt(payload, zoom) : [];
 
   // rt names only a verb's direct includes, so the skill in view, which
   // pastes the tree, counts even where its own entry does not list it.
@@ -307,8 +322,10 @@ export function BlockView({
       <FlowPage
         payload={payload}
         map={map}
-        backLabel={block ? labelOf(block) : title}
+        block={block}
+        title={block ? labelOf(block) : title}
         patch={patch}
+        skill={skill}
       />
     );
   }
@@ -392,10 +409,13 @@ export function BlockView({
   return (
     <div className={classes.layout} data-testid="block-view">
       <div className={classes.head}>
-        {block && <Crumbs payload={payload} block={block} patch={patch} />}
+        {(block || (skill?.up?.length ?? 0) > 0) && (
+          <Crumbs payload={payload} block={block} patch={patch} skill={skill} />
+        )}
         <FocusHeader
           inline
           title={title}
+          command={block ? null : (skill?.command ?? null)}
           kind={block ? null : (skill?.kind ?? null)}
           description={description}
           status={status}
@@ -421,7 +441,7 @@ export function BlockView({
         )}
         {readOnly && (
           <Text fz={13} c="dimmed" data-testid="read-only-note">
-            Hand-written: read from its headings, not built from blocks.
+            Standard skill: read from its headings, not built from blocks.
           </Text>
         )}
       </div>
@@ -462,34 +482,14 @@ export function BlockView({
           </section>
         )}
 
-        {!rendered &&
-          zoom.level === 'skill' &&
-          sectionsAt(payload, zoom).map((band, index) => (
+        {bands.map(band => (
             <SectionBand
               key={band.id}
               band={band}
-              action={
-                index === 0 && canExpand ? (
-                  <Button
-                    size="xs"
-                    variant="default"
-                    leftSection={
-                      <Icon
-                        name={expanded ? 'chevronUp' : 'chevronsUpDown'}
-                        size={13}
-                      />
-                    }
-                    onClick={() => setExpandedAt(expanded ? null : zoomKey)}
-                    data-testid="expand-all"
-                  >
-                    {expanded ? 'Collapse all' : 'Expand all'}
-                  </Button>
-                ) : null
-              }
               onOpen={open}
               opensBlock={payload.blocks.some(b => b.id === band.id)}
               graph={
-                <FlowRow
+                <DiagramButton
                   payload={payload}
                   blockId={band.id}
                   onOpen={openFlow}
@@ -497,7 +497,6 @@ export function BlockView({
               }
               introText={textOf(band.id)}
               bodyOf={textOf}
-              allOpen={expanded}
               usedByCount={usedByCount}
             />
           ))}
@@ -510,7 +509,7 @@ export function BlockView({
           />
         )}
         {context && (context.anatomy || context.anatomyError) && (
-          <Section title="History">
+          <Section title="Built from">
             {context.anatomy ? (
               <HistoryTab
                 pack={pack}

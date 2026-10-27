@@ -5,6 +5,7 @@ import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import classes from './markdownText.module.css';
+import { SourceLines } from './MermaidSource';
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -35,16 +36,27 @@ const SAFE: Components = {
         : '';
     const lines = text.replace(/\n$/, '').split('\n').length;
     return (
-      <details className={classes.graphFold} data-testid="graph-fold">
-        <summary>
-          <Icon name="workflow" size={14} className={classes.foldIcon} />
-          <span className={classes.foldName}>Graph source</span>
-          <span className={classes.foldMeta}>{`${graph} · ${lines} lines`}</span>
-          <span className={classes.foldAction} aria-hidden />
-          <Icon name="chevronDown" size={14} className={classes.foldChevron} />
-        </summary>
-        <pre>{children}</pre>
-      </details>
+      <div className={classes.graphFoldSpace}>
+        <details className={classes.graphFold} data-testid="graph-fold">
+          <summary>
+            <Icon name="workflow" size={14} className={classes.foldIcon} />
+            <span className={classes.foldName}>Graph source</span>
+            <span
+              className={classes.foldMeta}
+            >{`${graph} · ${lines} lines`}</span>
+            <span className={classes.foldAction} aria-hidden />
+            <Icon
+              name="chevronDown"
+              size={14}
+              className={classes.foldChevron}
+            />
+          </summary>
+          <SourceLines
+            source={text}
+            language={graph === 'mermaid' ? 'mermaid' : 'dot'}
+          />
+        </details>
+      </div>
     );
   },
 };
@@ -79,7 +91,10 @@ export function MarkdownText({ text }: { text: string }) {
     ''
   );
   return (
-    <div className={`markdown-body ${classes.body}`} data-testid="markdown-text">
+    <div
+      className={`markdown-body ${classes.body}`}
+      data-testid="markdown-text"
+    >
       {front && (
         <table data-testid="front-matter">
           <tbody>

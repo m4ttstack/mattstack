@@ -20,6 +20,7 @@ import { useAnatomy, usePendingChanges } from '../useWiring';
 import classes from './blocks.module.css';
 import { BlockView, type SkillHeader } from './BlockView';
 import { skillKindOf } from './skillKind';
+import { useReportReady } from '../contentReady';
 import { useSkillBlocks } from './useSkillBlocks';
 
 /** The Graph tab's stage for a focused skill or stage: its block view, or
@@ -38,13 +39,16 @@ export function BlockStage({
   const composition = compositionQuery.data;
   const check = checkQuery.data;
   const board = focused.icon === 'layoutDashboard';
-  const anatomyQuery = useAnatomy(pack, board ? null : focused.skill);
+  // A board skill or a hand-written one has no compile to take apart.
+  const fromFile = board || focused.file !== undefined;
+  const anatomyQuery = useAnatomy(pack, fromFile ? null : focused.skill);
   const changes = usePendingChanges(pack).data;
   const anatomy = anatomyQuery.data;
   const skill = useSkillBlocks(pack, focused, composition);
   const { show: held, bind: heldBind } = useStepLoading(
     skill.state === 'loading'
   );
+  useReportReady(skill.state !== 'loading' && !held);
 
   const view = useMemo(() => {
     if (!anatomy || !composition) return null;
@@ -62,7 +66,17 @@ export function BlockStage({
   }, [anatomy, composition, check, changes, focused.step, pipeline]);
 
   const header: SkillHeader = {
-    title: focused.step !== null ? focused.label : focused.skill,
+    title: focused.command
+      ? `/${pack}:${focused.command}`
+      : focused.step !== null
+        ? focused.label
+        : focused.skill,
+    command: focused.command ? `/${pack}:${focused.command}` : null,
+    crumb: focused.command
+      ? `/${pack}:${focused.command}`
+      : focused.step !== null
+        ? focused.label
+        : focused.skill,
     kind: skillKindOf(focused, pipeline),
     description:
       anatomy?.description ??
@@ -77,6 +91,19 @@ export function BlockStage({
     checkError:
       checkQuery.isError && !check ? (checkQuery.error as Error).message : null,
     version: anatomy?.template.version ?? null,
+    up:
+      pipeline && pipeline.key !== focused.key
+        ? [
+            {
+              key: pipeline.key,
+              label: pipeline.command
+                ? `/${pack}:${pipeline.command}`
+                : pipeline.label,
+              mono: pipeline.command !== undefined,
+              onClick: () => patch({ focus: pipeline.key }),
+            },
+          ]
+        : [],
   };
 
   return (
@@ -105,7 +132,7 @@ export function BlockStage({
                   pipeline,
                   anatomy,
                   anatomyError:
-                    !board && anatomyQuery.isError
+                    !fromFile && anatomyQuery.isError
                       ? (anatomyQuery.error as Error).message
                       : null,
                   onFocus: focus => patch({ focus }),
@@ -118,6 +145,7 @@ export function BlockStage({
           <FocusHeader
             inline
             title={header.title}
+            command={header.command}
             kind={header.kind}
             description={header.description}
             status={header.status}
@@ -156,7 +184,7 @@ export function BlockStage({
                   component="button"
                   type="button"
                   size="sm"
-                  onClick={() => patch({ tab: 'health' })}
+                  onClick={() => patch({ tab: 'config' })}
                 >
                   Open Health
                 </Anchor>

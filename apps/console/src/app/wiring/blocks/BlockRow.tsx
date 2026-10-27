@@ -38,10 +38,23 @@ export function BlockGlyph({
   );
 }
 
-/** A block's glyph on a wash of its kind's hue, for a row or a card. */
-export function KindBadge({ glyph, size = 13 }: { glyph: Glyph; size?: number }) {
+/** A block's glyph on a wash of its kind's hue, for a row or a card;
+    compact for a sidebar row. */
+export function KindBadge({
+  glyph,
+  size = 13,
+  compact = false,
+}: {
+  glyph: Glyph;
+  size?: number;
+  compact?: boolean;
+}) {
   return (
-    <span className={classes.kindBadge} data-hue={glyph}>
+    <span
+      className={classes.kindBadge}
+      data-hue={glyph}
+      data-compact={compact || undefined}
+    >
       <BlockGlyph glyph={glyph} size={size} />
     </span>
   );

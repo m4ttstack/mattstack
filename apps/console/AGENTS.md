@@ -117,7 +117,7 @@ The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
   or a discard without one, and rt refuses either once the pack no longer matches it.
 - **Org base packs.** rt tags a fill, prop value, binder prop or anatomy source from an org base pack with `origin: "base"`, `base` and `baseVersion` (a team-pack copy carrying `compiled.json` included), names the pack's base in composition's `extends`, and marks surface rows with `base`. Every view reads the owner through `ownerOf` (`owner.ts`), never by comparing plugin names or reading rt's `org` version token. History, diff and dirty files name a base path as `base:<name>/<path in the base>`. The design fixture's `org-base` and `org-base-drift` scenarios draw all of it.
 - **Surface and Health tabs** (`SurfaceTab.tsx`, `HealthTab.tsx`). `VersionTimeline` and
-  `SeamCompare` serve the block view's History (`blocks/HistoryTab.tsx`).
+  `CommitDiff` serve the block view's History (`blocks/HistoryTab.tsx`).
 
 `WiringRailEntry` is the one component that reaches into the shell's rail context (`useShellRail`
 from `@mattstack/app-kit/app`) to badge the rail entry with attention state.

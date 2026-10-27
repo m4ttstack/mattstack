@@ -18,8 +18,9 @@ import { FocusHeader, kindOf, statusOf } from './FocusHeader';
 import { GraphSidebar } from './FocusList';
 import classes from './graph.module.css';
 import { layoutTemplate } from './layout/templateLayout';
-import { focusUnder, workTypeOf, type FocusItem } from './model/focusModel';
+import { focusUnder, workTypeOf } from './model/focusModel';
 import { buildTemplateView } from './model/templateModel';
+import { useReportReady } from '../contentReady';
 import { useGraphFocus } from './useGraphFocus';
 
 const TemplateCanvas = lazy(() => import('./TemplateCanvas'));
@@ -37,17 +38,6 @@ function useBottomInStage() {
     return () => observer.disconnect();
   }, []);
   return { ref, bottom };
-}
-
-/** A focused pipeline opens the map between skills, and its orchestrator's
-    block view once the URL names a block; any other focus opens that
-    skill's block view. */
-export function opensBlockView(
-  focused: FocusItem | null,
-  pipeline: FocusItem | null,
-  block: string | null = null
-): focused is FocusItem {
-  return focused !== null && (focused.key !== pipeline?.key || block !== null);
 }
 
 /** The pipeline's template canvas, linking out to each stage, under its
@@ -113,6 +103,7 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
   const { show: held, bind: heldBind } = useStepLoading(
     focused !== null && !failed && !(view && layout)
   );
+  useReportReady(!held && (failed || Boolean(view && layout)));
 
   return (
     <Box
@@ -245,18 +236,18 @@ function PipelineMap({ pack, height }: { pack: string; height: string }) {
     the URL. With no focus named, the list stays, so "All skills" always
     lands back on it. */
 export function GraphTabSidebar({ pack }: { pack: string }) {
-  const { url, focused, pipeline } = useGraphFocus(pack);
-  if (url.focus !== null && opensBlockView(focused, pipeline, url.block)) {
+  const { url, focused } = useGraphFocus(pack);
+  if (url.focus !== null && focused) {
     return <BlockSidebar key={focused.key} pack={pack} />;
   }
   return <GraphSidebar pack={pack} />;
 }
 
-/** The Graph tab's stage: a focused pipeline's map, or a focused skill's
-    block view. */
+/** The Graph tab's stage: a focused skill's block view, a pipeline's own
+    included, or the map when nothing is focused. */
 export function GraphTab({ pack, height }: { pack: string; height: string }) {
-  const { url, focused, pipeline } = useGraphFocus(pack);
-  if (opensBlockView(focused, pipeline, url.block)) {
+  const { focused } = useGraphFocus(pack);
+  if (focused) {
     return <BlockStage pack={pack} height={height} focused={focused} />;
   }
   return <PipelineMap pack={pack} height={height} />;
