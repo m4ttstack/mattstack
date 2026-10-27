@@ -18,10 +18,11 @@ const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 const URL_B = 'https://gitlab.com/acme/webapp/-/merge_requests/9';
 const NOW = 10_000;
 
-const gone = (agentId: string, sessionId = '') => ({
+const gone = (agentId: string, sessionId = '', since = 1_000) => ({
   agentId,
   sessionId,
   state: 'gone',
+  since,
 });
 
 function input(over: Partial<Parameters<typeof closedPaneReports>[0]> = {}) {
@@ -119,9 +120,22 @@ describe('closedPaneReports', () => {
     for (const state of ['live', 'hidden'])
       expect(
         closedPaneReports(
-          input({ executors: [{ agentId: 'ag-1', sessionId: '', state }] })
+          input({
+            executors: [
+              { agentId: 'ag-1', sessionId: '', state, since: 1_000 },
+            ],
+          })
         )
       ).toEqual([]);
+  });
+
+  test('a pane gone before the run began is a resume still coming up', () => {
+    expect(
+      closedPaneReports(input({ executors: [gone('ag-1', '', 499)] }))
+    ).toEqual([]);
+    expect(
+      closedPaneReports(input({ executors: [gone('ag-1', '', 500)] })).length
+    ).toBe(1);
   });
 
   test('a finished lane is not reported', () => {
