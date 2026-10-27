@@ -14,7 +14,7 @@ import { isAbsolute } from "path";
 import { deleteChatSession, readChatSession, type ChatSession } from "../chat-session.ts";
 import { inboxAlive, resolveInbox } from "../claude-registry.ts";
 import { parseDuration } from "../duration.ts";
-import { selfPaneRef } from "../self-pane.ts";
+import { liveSelfPaneRef } from "../self-pane.ts";
 import { spawnRtJson, type RtVerbResult } from "./rt-verb.ts";
 import { checkChatName, checkOptional, checkRequired, err, fromResponse, ok, requireChatHandle, type McpToolDef } from "./shared.ts";
 
@@ -213,7 +213,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (input.wakeOn !== undefined) payload.wakeOn = input.wakeOn as "mention" | "all" | "none";
         const cwd = (input.cwd as string | undefined) ?? deps.serverCwd();
         if (cwd) payload.cwd = cwd;
-        const pane = selfPaneRef(env);
+        const pane = await liveSelfPaneRef(env);
         if (pane) payload.pane = pane;
         const res = await deps.join(payload);
         return res.ok ? ok({ room, ...res.data }) : fromResponse(res);
@@ -384,7 +384,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         }
         const payload: Commands["chat:invite"]["payload"] = { paneId: input.pane as string, room: input.room as string, from: id.handle };
         if (typeof input.note === "string") payload.note = input.note;
-        const callerPane = selfPaneRef(env);
+        const callerPane = await liveSelfPaneRef(env);
         if (callerPane) payload.callerPane = callerPane;
         return fromResponse(await deps.invite(payload));
       },

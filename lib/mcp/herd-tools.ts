@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "fs";
 import { resolveRepoTarget } from "./mr-target.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, requireWorkerEnv, resolveSoleHerd, type McpToolDef } from "./shared.ts";
+import { liveSelfPaneId, withLivePane } from "../self-pane.ts";
 import { checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots } from "./temp-root-guard.ts";
 
 export interface HerdToolDeps {
@@ -166,7 +167,8 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         if (!target.ok) return err(target.error);
         const payload: Commands["herd:start"]["payload"] = { name: input.name as string, repo: target.identity, session: env.CLAUDE_CODE_SESSION_ID };
         if (typeof input.hidden === "boolean") payload.hidden = input.hidden;
-        if (env.HERDR_PANE_ID) payload.callerPane = env.HERDR_PANE_ID;
+        const callerPane = await liveSelfPaneId(env);
+        if (callerPane) payload.callerPane = callerPane;
         return fromResponse(await deps.start(payload));
       },
     },
@@ -439,7 +441,8 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         if (bad) return err(bad);
         if (!env.CLAUDE_CODE_SESSION_ID) return err(NO_SESSION);
         const payload: Commands["herd:resume"]["payload"] = { herd: input.herd as string, session: env.CLAUDE_CODE_SESSION_ID };
-        if (env.HERDR_PANE_ID) payload.callerPane = env.HERDR_PANE_ID;
+        const callerPane = await liveSelfPaneId(env);
+        if (callerPane) payload.callerPane = callerPane;
         return fromResponse(await deps.resume(payload));
       },
     },
@@ -449,7 +452,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { artifact: { type: "string" }, summary: { type: "string" } }, required: ["artifact"], additionalProperties: false },
       shellForms: ["rt herd milestone"],
       async handler(input, env) {
-        const w = requireWorkerEnv(env);
+        const w = requireWorkerEnv(await withLivePane(env));
         if ("error" in w) return err(w.error);
         const bad = checkRequired(input, [{ name: "artifact", type: "string" }]) ?? checkOptional(input, [{ name: "summary", type: "string" }]);
         if (bad) return err(bad);

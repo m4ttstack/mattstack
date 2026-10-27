@@ -21,6 +21,7 @@ import {
 } from "../gates/record.ts";
 import { realRunToolDeps, runToolDefs, type RunToolDeps } from "./run-tools.ts";
 import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
+import { liveSelfPaneId } from "../self-pane.ts";
 import {
   checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots,
 } from "./temp-root-guard.ts";
@@ -217,7 +218,8 @@ export async function askGate(
   // session -> run -> the agent record's own subject.
   if (input.subject !== undefined) payload.subject = input.subject as string;
   if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
-  if (env.HERDR_PANE_ID) payload.paneId = env.HERDR_PANE_ID;
+  const paneId = await liveSelfPaneId(env);
+  if (paneId) payload.paneId = paneId;
   const res = await deps.ask(payload);
   if (!res.ok || !res.data) return fromResponse(res);
   const data = res.data;
