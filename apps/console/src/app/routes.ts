@@ -6,7 +6,8 @@ export type AppRoute =
   | { name: 'run'; repo: string; runId: string }
   | { name: 'gate'; id: string }
   | { name: 'search' }
-  | { name: 'wiring' }
+  | { name: 'packs' }
+  | { name: 'old-wiring' }
   | { name: 'settings' }
   | { name: 'settings-embed'; group: string }
   | { name: 'config'; key: string }
@@ -43,12 +44,14 @@ function canonicalRepo(raw: string): string | undefined {
  * route out. `/runs/<repo>/<runId>` carries a serialized repo identity in the
  * repo segment, so that route re-canonicalizes it (see `canonicalRepo`).
  * `/gates/<id>` has no content of its own -- it's the redirect stub a
- * notification links to (see `GateRedirect`).
+ * notification links to (see `GateRedirect`). `/wiring` is the Packs page's
+ * old path, kept so old links still land.
  */
 export function useAppRoute(): AppRoute {
   const [isBoard] = useRoute('/');
   const [isSearch] = useRoute('/search');
-  const [isWiring] = useRoute('/wiring');
+  const [isPacks] = useRoute('/packs');
+  const [isOldWiring] = useRoute('/wiring');
   const [isSettings] = useRoute('/settings');
   const [isEmbed, embedParams] = useRoute('/embed/settings/:group');
   const [isRun, runParams] = useRoute('/runs/:repo/:runId');
@@ -57,7 +60,8 @@ export function useAppRoute(): AppRoute {
 
   if (isBoard) return { name: 'board' };
   if (isSearch) return { name: 'search' };
-  if (isWiring) return { name: 'wiring' };
+  if (isPacks) return { name: 'packs' };
+  if (isOldWiring) return { name: 'old-wiring' };
   if (isSettings) return { name: 'settings' };
   if (isEmbed) {
     const group = decodeParam(embedParams.group ?? '');

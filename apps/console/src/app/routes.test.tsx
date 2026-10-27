@@ -27,6 +27,16 @@ function routeAt(path: string): AppRoute {
   return route;
 }
 
+describe('useAppRoute: /packs', () => {
+  it('matches the Packs page', () => {
+    expect(routeAt('/packs')).toEqual({ name: 'packs' });
+  });
+
+  it('reads the old /wiring path as its own route, for the redirect', () => {
+    expect(routeAt('/wiring')).toEqual({ name: 'old-wiring' });
+  });
+});
+
 describe('useAppRoute: /config/:key', () => {
   it('matches a config key route', () => {
     expect(routeAt('/config/rt.runsPruneDays')).toEqual({

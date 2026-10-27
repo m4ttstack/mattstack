@@ -200,7 +200,7 @@ describe('WiringMap: top-level tabs', () => {
     'opens an old ?tab=%s link on Config',
     async tab => {
       mockHappyPath();
-      window.history.pushState(null, '', `/wiring?tab=${tab}`);
+      window.history.pushState(null, '', `/packs?tab=${tab}`);
       renderWiring();
 
       expect(await screen.findByTestId('config-tab')).toBeInTheDocument();
@@ -230,7 +230,7 @@ describe('WiringMap: top-level tabs', () => {
 describe('WiringMap: a pack the URL names', () => {
   it('says so when no pack has that name, and which pack it shows instead', async () => {
     mockHappyPath();
-    window.history.pushState(null, '', '/wiring?pack=globex');
+    window.history.pushState(null, '', '/packs?pack=globex');
     renderWiring();
 
     expect(
@@ -241,13 +241,13 @@ describe('WiringMap: a pack the URL names', () => {
 
   it('says nothing for a pack that exists, or when the URL names none', async () => {
     mockHappyPath();
-    window.history.pushState(null, '', '/wiring?pack=demo');
+    window.history.pushState(null, '', '/packs?pack=demo');
     const { unmount } = renderWiring();
     await screen.findByTestId('pack-name');
     expect(screen.queryByTestId('missing-pack')).toBeNull();
     unmount();
 
-    window.history.pushState(null, '', '/wiring');
+    window.history.pushState(null, '', '/packs');
     renderWiring();
     await screen.findByTestId('pack-name');
     expect(screen.queryByTestId('missing-pack')).toBeNull();

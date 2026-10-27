@@ -554,7 +554,7 @@ const RAIL_QUERY_OPTIONS: SharedQueryOptions = {
  * outside the Wiring route. Runs `buildSpine` rather than counting anything
  * itself: two derivations of the same number would eventually disagree.
  *
- * Shares its query keys with the page, so opening /wiring reuses these
+ * Shares its query keys with the page, so opening /packs reuses these
  * fetches instead of issuing its own. Answers 0 while the queries are in
  * flight and when they fail -- an absent badge, never a wrong one.
  */

@@ -32,7 +32,7 @@ shelling out to `rt` and nothing proxied through to another service. The dev ser
 ## Routes and chrome (`src/app/App.tsx`, `src/app/routes.ts`)
 
 Routing is `wouter`, via `useAppRoute()` (`src/app/routes.ts`), which maps the current location to
-a structured `AppRoute` union: `board`, `run`, `search`, `wiring`, `settings`, `settings-embed`,
+a structured `AppRoute` union: `board`, `run`, `search`, `packs` (and `old-wiring`, its redirect), `settings`, `settings-embed`,
 `config`, `not-found`.
 `/settings` is the grouped, filterable page over every registered key (`src/app/settings/`);
 one row at a time opens in place on its Value | Where it's set panel (Value first, and a
@@ -77,7 +77,7 @@ WebSocket wire-up.
 
 ## Packs page (`src/app/wiring/`)
 
-The Packs page (`WiringMap.tsx`, route `/wiring`) shows a mattstack skill pack read from
+The Packs page (`WiringMap.tsx`, route `/packs`; old `/wiring` links redirect there with their query) shows a mattstack skill pack read from
 `@mattstack/rt-client` in three tabs: Overview, Config and Changes. Its state lives in the URL
 (`graph/useWiringUrl.ts`; tab ids `graph`, `config` and `history`, with old `surface` and
 `health` links opening Config), so every view, selection and open block is a link. Each tab

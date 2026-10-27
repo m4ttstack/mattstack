@@ -161,7 +161,7 @@ describe('useWiringUrl', () => {
   const at = (url: string) => window.history.replaceState(null, '', url);
 
   beforeEach(() => {
-    at('/wiring');
+    at('/packs');
     pushState = vi.spyOn(window.history, 'pushState');
     replaceState = vi.spyOn(window.history, 'replaceState');
   });
@@ -173,7 +173,7 @@ describe('useWiringUrl', () => {
   });
 
   it('reads the current search', () => {
-    at('/wiring?focus=stage-plan&select=row:3');
+    at('/packs?focus=stage-plan&select=row:3');
     const { result } = renderHook(() => useWiringUrl());
     expect(result.current[0]).toEqual({
       ...DEFAULTS,
@@ -183,13 +183,13 @@ describe('useWiringUrl', () => {
   });
 
   it('reads ?attention=1', () => {
-    at('/wiring?attention=1');
+    at('/packs?attention=1');
     const { result } = renderHook(() => useWiringUrl());
     expect(result.current[0].attention).toBe(true);
   });
 
   it('pushes a focus change and clears select and view', () => {
-    at('/wiring?focus=pipeline:feature&select=row:1&view=rendered');
+    at('/packs?focus=pipeline:feature&select=row:1&view=rendered');
     replaceState.mockClear();
     const { result } = renderHook(() => useWiringUrl());
 
@@ -197,13 +197,13 @@ describe('useWiringUrl', () => {
 
     expect(pushState).toHaveBeenCalledTimes(1);
     expect(replaceState).not.toHaveBeenCalled();
-    expect(window.location.pathname).toBe('/wiring');
+    expect(window.location.pathname).toBe('/packs');
     expect(window.location.search).toBe('?focus=stage-plan');
     expect(result.current[0]).toEqual({ ...DEFAULTS, focus: 'stage-plan' });
   });
 
   it('keeps an explicit select that rides along with a focus change', () => {
-    at('/wiring?focus=pipeline:feature&select=row:1');
+    at('/packs?focus=pipeline:feature&select=row:1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'stage-plan', select: 'row:140' }));
@@ -216,7 +216,7 @@ describe('useWiringUrl', () => {
   });
 
   it('leaves select alone when the focus patch names the current focus', () => {
-    at('/wiring?focus=stage-plan&select=row:1');
+    at('/packs?focus=stage-plan&select=row:1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'stage-plan' }));
@@ -225,7 +225,7 @@ describe('useWiringUrl', () => {
   });
 
   it("drops an old link's retired drawer and rebind keys on the next patch", () => {
-    at('/wiring?focus=a&select=output&drawerTab=history&rebind=1');
+    at('/packs?focus=a&select=output&drawerTab=history&rebind=1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'b' }));
@@ -277,7 +277,7 @@ describe('useWiringUrl', () => {
   });
 
   it('drops a key back to its default out of the URL', () => {
-    at('/wiring?focus=stage-plan&select=row:1&view=rendered');
+    at('/packs?focus=stage-plan&select=row:1&view=rendered');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ select: null, view: null }));
@@ -286,16 +286,16 @@ describe('useWiringUrl', () => {
   });
 
   it('navigates to the bare path when every key is a default', () => {
-    at('/wiring?tab=config');
+    at('/packs?tab=config');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ tab: 'graph' }));
 
-    expect(window.location.pathname + window.location.search).toBe('/wiring');
+    expect(window.location.pathname + window.location.search).toBe('/packs');
   });
 
   it('does not navigate for a patch that changes nothing', () => {
-    at('/wiring?focus=stage-plan');
+    at('/packs?focus=stage-plan');
     const { result } = renderHook(() => useWiringUrl());
     pushState.mockClear();
     replaceState.mockClear();
@@ -307,7 +307,7 @@ describe('useWiringUrl', () => {
   });
 
   it('keeps query keys it does not own', () => {
-    at('/wiring?scenario=unsynced&focus=a');
+    at('/packs?scenario=unsynced&focus=a');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ focus: 'b' }));
@@ -316,7 +316,7 @@ describe('useWiringUrl', () => {
   });
 
   it('ignores a key patched to undefined', () => {
-    at('/wiring?focus=stage-plan&select=row:1');
+    at('/packs?focus=stage-plan&select=row:1');
     const { result } = renderHook(() => useWiringUrl());
 
     act(() => result.current[1]({ select: undefined, view: undefined }));
@@ -341,7 +341,7 @@ describe('useWiringUrl', () => {
 
   describe('cascade', () => {
     const DEEP =
-      '/wiring?pack=acme&focus=stage-plan&select=row:136&view=rendered';
+      '/packs?pack=acme&focus=stage-plan&select=row:136&view=rendered';
 
     const patchFrom = (url: string, change: Partial<WiringUrl>) => {
       at(url);
@@ -382,19 +382,19 @@ describe('useWiringUrl', () => {
 
     it('a block patch on its own leaves the selection alone', () => {
       expect(
-        patchFrom('/wiring?focus=a&select=row:136', { block: 'mini/run' })
+        patchFrom('/packs?focus=a&select=row:136', { block: 'mini/run' })
       ).toBe('?focus=a&select=row:136&block=mini/run');
     });
 
     it('a changed focus clears the block', () => {
-      expect(patchFrom('/wiring?focus=a&block=mini/run', { focus: 'b' })).toBe(
+      expect(patchFrom('/packs?focus=a&block=mini/run', { focus: 'b' })).toBe(
         '?focus=b'
       );
     });
 
     it('a changed pack clears the block', () => {
       expect(
-        patchFrom('/wiring?pack=acme&focus=a&block=mini/run', {
+        patchFrom('/packs?pack=acme&focus=a&block=mini/run', {
           pack: 'gadgets',
         })
       ).toBe('?pack=gadgets');
@@ -402,7 +402,7 @@ describe('useWiringUrl', () => {
 
     it('a block set with a changed focus wins', () => {
       expect(
-        patchFrom('/wiring?focus=a', { focus: 'mini', block: 'mini/run' })
+        patchFrom('/packs?focus=a', { focus: 'mini', block: 'mini/run' })
       ).toBe('?focus=mini&block=mini/run');
     });
 
@@ -437,7 +437,7 @@ describe('useWiringUrl', () => {
 
     it('a changed pack from the default pack clears focus too', () => {
       expect(
-        patchFrom('/wiring?focus=stage-plan&select=row:1', { pack: 'globex' })
+        patchFrom('/packs?focus=stage-plan&select=row:1', { pack: 'globex' })
       ).toBe('?pack=globex');
     });
 
@@ -463,7 +463,7 @@ describe('useWiringUrl', () => {
 
     it('a whole deep link patches in one call', () => {
       expect(
-        patchFrom('/wiring?pack=acme&focus=old&select=row:1', {
+        patchFrom('/packs?pack=acme&focus=old&select=row:1', {
           pack: 'globex',
           focus: 'stage-plan',
           select: 'row:136',
@@ -477,7 +477,7 @@ describe('useWiringUrl', () => {
     });
 
     it('an empty-string focus is not a refocus', () => {
-      expect(patchFrom('/wiring?select=row:1', { focus: '' })).toBe(
+      expect(patchFrom('/packs?select=row:1', { focus: '' })).toBe(
         '?select=row:1'
       );
       expect(pushState).not.toHaveBeenCalled();
@@ -486,13 +486,13 @@ describe('useWiringUrl', () => {
 
     it('an empty-string value is never written to the URL', () => {
       expect(
-        patchFrom('/wiring?focus=a', { select: '', pack: '', view: null })
+        patchFrom('/packs?focus=a', { select: '', pack: '', view: null })
       ).toBe('?focus=a');
       expect(replaceState).not.toHaveBeenCalled();
     });
 
     it('an empty string clears a value that was set', () => {
-      expect(patchFrom('/wiring?focus=a&select=row:1', { select: '' })).toBe(
+      expect(patchFrom('/packs?focus=a&select=row:1', { select: '' })).toBe(
         '?focus=a'
       );
     });

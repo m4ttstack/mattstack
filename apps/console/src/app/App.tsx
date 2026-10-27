@@ -17,23 +17,24 @@ import { RunsRailEntry } from './runs/RunsRailEntry';
 import { explainHref } from './settings/explainParam';
 import { SettingsEmbed } from './settings/SettingsEmbed';
 import { SettingsPage } from './settings/SettingsPage';
+import { PACKS_HREF } from './wiring/attentionFilter';
 import { WiringMap } from './wiring/WiringMap';
 import { WiringRailEntry } from './wiring/WiringRailEntry';
 
 const queryClient = createQueryClient();
 
-type ConsoleSection = 'runs' | 'search' | 'wiring' | 'settings';
+type ConsoleSection = 'runs' | 'search' | 'packs' | 'settings';
 
 const SECTION_LABEL: Record<ConsoleSection, string> = {
   runs: 'Runs',
   search: 'Search',
-  wiring: 'Packs',
+  packs: 'Packs',
   settings: 'Settings',
 };
 
 function chromeSection(route: AppRoute): ConsoleSection | null {
   if (route.name === 'search') return 'search';
-  if (route.name === 'wiring') return 'wiring';
+  if (route.name === 'packs' || route.name === 'old-wiring') return 'packs';
   if (route.name === 'settings' || route.name === 'config') return 'settings';
   if (route.name === 'not-found') return null;
   return 'runs';
@@ -78,8 +79,10 @@ function RouteContent({ route }: { route: AppRoute }) {
       return <GateRedirect id={route.id} />;
     case 'search':
       return <RunSearch />;
-    case 'wiring':
+    case 'packs':
       return <WiringMap />;
+    case 'old-wiring':
+      return <Redirect to={`${PACKS_HREF}${window.location.search}`} replace />;
     case 'settings':
       return <SettingsPage />;
     case 'settings-embed':
@@ -136,7 +139,7 @@ export function App() {
             href="/search"
             active={section === 'search'}
           />
-          <WiringRailEntry active={section === 'wiring'} />
+          <WiringRailEntry active={section === 'packs'} />
           <RailLink
             icon="settings"
             label="Settings"

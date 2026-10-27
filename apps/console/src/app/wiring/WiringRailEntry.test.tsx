@@ -119,12 +119,12 @@ describe('WiringRailEntry: the drift badge', () => {
     renderRail(CHECK_TWO_DRIFTED);
 
     const badge = await screen.findByTestId('drift-badge');
-    expect(screen.getByLabelText('Packs')).toHaveAttribute('href', '/wiring');
+    expect(screen.getByLabelText('Packs')).toHaveAttribute('href', '/packs');
 
     await user.click(badge);
 
     expect(window.location.pathname + window.location.search).toBe(
-      '/wiring?attention=1'
+      '/packs?attention=1'
     );
   });
 });

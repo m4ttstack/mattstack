@@ -419,7 +419,7 @@ describe('WiringMap: the pack picker', () => {
 
   it('reads the pack from the URL', async () => {
     twoPacks();
-    window.history.pushState(null, '', '/wiring?pack=acme');
+    window.history.pushState(null, '', '/packs?pack=acme');
     renderWiring();
 
     await waitFor(() =>
@@ -435,7 +435,7 @@ describe('WiringMap: the pack picker', () => {
 
   it('opens the pack menu on the shown pack', async () => {
     twoPacks();
-    window.history.pushState(null, '', '/wiring?pack=acme');
+    window.history.pushState(null, '', '/packs?pack=acme');
     renderWiring();
 
     // Settings' team menu over the packs; picking from it is the settings
