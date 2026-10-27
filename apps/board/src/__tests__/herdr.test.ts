@@ -21,6 +21,7 @@ import {
   parseLaunchNote,
   parseTabCreate,
   parseWorkspaceCreate,
+  readPaneScreen,
   reopenPrompt,
   respondPrompt,
   reviewPrompt,
@@ -1382,5 +1383,17 @@ describe('sendPaneText', () => {
     expect(calls).toEqual([
       ['pane', 'run', 'pane-123', 'stand down, operator muted this stack'],
     ]);
+  });
+});
+
+describe('readPaneScreen', () => {
+  test('reads the visible screen with `pane read <paneId> --source visible`', async () => {
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      return 'screen text';
+    };
+    expect(await readPaneScreen('w1:p1', runner)).toBe('screen text');
+    expect(calls).toEqual([['pane', 'read', 'w1:p1', '--source', 'visible']]);
   });
 });

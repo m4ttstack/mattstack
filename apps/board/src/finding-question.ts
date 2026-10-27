@@ -4,6 +4,7 @@ import type {
   PaneSendResult,
 } from '@mattstack/rt-client';
 import { isFindingsQuestion } from './client/board/review-gate.ts';
+import { hasQuestionForm } from './question-form.ts';
 
 // `POST /review/finding-question`: the human's question about one finding
 // of a review gate goes into the review agent's own pane as
@@ -17,16 +18,29 @@ export const MAX_QUESTION_CHARS = 2000;
 export const ESCAPE_SETTLE_MS = 600;
 export const NO_REVIEW_PANE =
   "the review pane isn't running; resume the review from its row first";
+/** The pane is blocked on something other than Claude Code's question form
+    (a permission prompt, a trust dialog): an Escape there would answer it. */
+export const PANE_AT_OTHER_PROMPT =
+  'the review pane is waiting on a prompt; answer it there first';
 
 export interface FindingQuestionIo {
   /** The MR's review-post gate in the board's gate cache, any status. */
   reviewGate(mrUrl: string): FacilityGateRow | undefined;
-  /** The review lane's pane and herdr tab on file (`readReviewStates()`). */
-  reviewPane(mrUrl: string): { paneId?: string; tabId?: string } | undefined;
+  /** The review lane's pane, herdr tab and Claude session on file
+      (`readReviewStates()`). */
+  reviewPane(
+    mrUrl: string
+  ): { paneId?: string; tabId?: string; sessionId?: string } | undefined;
+  /** rt-client `paneSend`. `selfSession` has the daemon send to the pane
+      running that Claude session, `paneId` being the fallback; the reply's
+      `paneId` names the pane it went to. */
   paneSend(payload: {
     paneId: string;
     text: string;
+    selfSession?: string;
   }): Promise<{ ok: boolean; data?: PaneSendResult; error?: string }>;
+  /** `herdr pane read <paneId> --source visible`; throws when unreadable. */
+  readScreen(paneId: string): Promise<string>;
   /** `herdr pane send-keys <paneId> escape`. */
   sendEscape(paneId: string): Promise<void>;
   sleep(ms: number): Promise<void>;
@@ -73,9 +87,11 @@ function readBody(x: unknown): Body | null {
 }
 
 /** The question as one quoted argument: every run of whitespace (newlines
-    included) becomes one space, and `"` is escaped. */
+    included) becomes one space, then `\` and `"` are escaped, backslash
+    first so a question ending in `\` cannot escape the closing quote. */
 export function quoteQuestion(question: string): string {
-  return `"${question.replace(/\s+/g, ' ').trim().replace(/"/g, '\\"')}"`;
+  const flat = question.replace(/\s+/g, ' ').trim();
+  return `"${flat.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 /** The line typed into the review pane. */
@@ -100,10 +116,14 @@ export function gateFindingIds(row: FacilityGateRow): Set<string> {
 function delivered(res: {
   ok: boolean;
   data?: PaneSendResult;
-}): 'ok' | 'at-prompt' | 'other' {
+}): 'ok' | 'at-prompt' | 'gone' | 'other' {
   const d = res.ok ? res.data?.delivered : undefined;
   if (d === 'accepted' || d === 'queued') return 'ok';
   if (d === 'refused' && res.data?.reason === 'at a prompt') return 'at-prompt';
+  // The daemon's answer for a pane herdr no longer has (agent_not_found) or
+  // that no longer runs Claude.
+  if (d === 'refused' && res.data?.reason === 'not a claude pane')
+    return 'gone';
   return 'other';
 }
 
@@ -153,12 +173,37 @@ export async function handleFindingQuestion(
   if (!paneId) return { status: 409, body: NO_REVIEW_PANE };
 
   const text = findingQuestionText(body.gateId, body.findingId, question);
-  let res = await io.paneSend({ paneId, text });
+  // The pane on file can be stale (herdr renumbers panes across restarts),
+  // so the send names the review's Claude session and the daemon resolves
+  // the pane running it. Every later step uses the pane the send went to.
+  const send = (target: string) =>
+    io.paneSend({
+      paneId: target,
+      text,
+      ...(lane.sessionId ? { selfSession: lane.sessionId } : {}),
+    });
+  let res = await send(paneId);
+  let livePane = (res.ok && res.data?.paneId) || paneId;
+  if (delivered(res) === 'gone') return { status: 409, body: NO_REVIEW_PANE };
   if (delivered(res) === 'at-prompt') {
-    // The pane is showing the gate's own form: dismiss it and type again.
-    await io.sendEscape(paneId);
+    // Only Claude Code's question form (the gate's own) is dismissed. Any
+    // other prompt, or a screen herdr cannot read, is left for the human:
+    // an Escape there would answer it.
+    let screen: string | null = null;
+    try {
+      screen = await io.readScreen(livePane);
+    } catch (err) {
+      io.logError?.(
+        `finding question screen read failed: ${err instanceof Error ? err.message : err}`
+      );
+    }
+    if (screen === null || !hasQuestionForm(screen))
+      return { status: 409, body: PANE_AT_OTHER_PROMPT };
+    await io.sendEscape(livePane);
     await io.sleep(ESCAPE_SETTLE_MS);
-    res = await io.paneSend({ paneId, text });
+    res = await send(livePane);
+    livePane = (res.ok && res.data?.paneId) || livePane;
+    if (delivered(res) === 'gone') return { status: 409, body: NO_REVIEW_PANE };
   }
   if (delivered(res) !== 'ok') return { status: 409, body: failureReason(res) };
 
@@ -166,7 +211,7 @@ export async function handleFindingQuestion(
   const tabId = body.tabId ?? lane.tabId;
   // The question is in; a focus that fails must not report it lost.
   try {
-    await io.focusPane({ paneId, ...(tabId ? { tabId } : {}) });
+    await io.focusPane({ paneId: livePane, ...(tabId ? { tabId } : {}) });
   } catch (err) {
     io.logError?.(
       `finding question focus failed: ${err instanceof Error ? err.message : err}`

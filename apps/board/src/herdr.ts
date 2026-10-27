@@ -690,3 +690,14 @@ export async function sendPaneEscape(
 ): Promise<void> {
   await runner(['pane', 'send-keys', paneId, 'escape']);
 }
+
+/** The pane's visible screen as plain text (`herdr pane read <paneId>
+    --source visible`). Throws when herdr cannot read it. Used to check a
+    blocked review pane is showing Claude Code's question form before an
+    Escape is sent to it (see finding-question.ts). */
+export async function readPaneScreen(
+  paneId: string,
+  runner: HerdrRunner = defaultRunner
+): Promise<string> {
+  return runner(['pane', 'read', paneId, '--source', 'visible']);
+}
