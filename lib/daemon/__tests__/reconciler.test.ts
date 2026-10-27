@@ -521,6 +521,20 @@ describe("reconciler status: since (onset) tracking", () => {
     await reconciler.sweep();
     expect(reconciler.status().executors[0]!.since).toBe(secondSince);
   });
+
+  test("a resume into a new pane restarts the onset even when no sweep saw it live", async () => {
+    agentsList = [buildAgent(agentId, { paneId: "w1:p1" })];
+    panesValue = [];
+    await reconciler.sweep();
+    const goneSince = reconciler.status().executors[0]!.since;
+
+    await new Promise((r) => setTimeout(r, 2));
+    agentsList = [buildAgent(agentId, { paneId: "w1:p9" })];
+    await reconciler.sweep();
+    const [executor] = reconciler.status().executors;
+    expect(executor!.state).toBe("gone");
+    expect(executor!.since).toBeGreaterThan(goneSince);
+  });
 });
 
 describe("reconciler emits gate lifecycle events for attention gates", () => {
