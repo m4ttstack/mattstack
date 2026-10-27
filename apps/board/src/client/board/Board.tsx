@@ -1443,7 +1443,12 @@ export function Board() {
       if (gate.status === 'answered') ids.add(gate.gateId);
     return ids;
   }, [data]);
-  const queue = useDecisionQueue(queueEntries, answeredGateIds);
+  const gateReplacements = data?.gateReplacements;
+  const queue = useDecisionQueue(
+    queueEntries,
+    answeredGateIds,
+    gateReplacements
+  );
   const activeGateId = queue.active?.gate.gateId ?? null;
   const retireActiveGate = () => {
     if (activeGateId === null) return;

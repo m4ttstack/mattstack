@@ -2180,6 +2180,9 @@ const httpServer = Bun.serve({
             })),
             mrs: mrsWithOrphans,
             queueExtras: buildQueueExtras(gateCache.rows()),
+            // Old gate id to the gate that superseded it, so an open sheet
+            // follows a re-raised gate onto its successor.
+            gateReplacements: gateCache.replacements(),
             orphans,
             // Enrolled peer usernames from the relay, when peering knows them.
             // Absent means unknown, and the pickers fall back to the roster.

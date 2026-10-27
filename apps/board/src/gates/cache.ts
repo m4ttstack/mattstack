@@ -159,6 +159,17 @@ export class GateCache {
     return undefined;
   }
 
+  /** Every superseded gate the cache still holds, old id to new id: what a
+      client with a gate open needs to follow a re-raised gate onto its
+      successor, since the old gate is closed and never answered. */
+  replacements(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const row of this.replaced.values())
+      if (row.status === 'closed' && row.supersededBy)
+        out[row.id] = row.supersededBy;
+    return out;
+  }
+
   /** `gateList`'s result is authoritative for every subject+kind it names; a
       pair absent from `rows` is left as-is (not deleted) -- it just means
       this reconcile's scope didn't cover it. */

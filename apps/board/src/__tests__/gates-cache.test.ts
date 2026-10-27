@@ -1300,3 +1300,55 @@ describe('GateCache.supersededBy', () => {
     expect(cache.supersededBy('g-old')).toBeUndefined();
   });
 });
+
+describe('GateCache.replacements', () => {
+  const opened = (id: string) => ({
+    topic: `gate/opened/${id}`,
+    payload: {
+      id,
+      subject: SUBJECT_A,
+      kind: 'review-post',
+      questions: [{ id: 'q1', label: 'Ship it?', options: ['yes', 'no'] }],
+    },
+  });
+
+  test('maps each superseded gate to the gate that replaced it', () => {
+    const cache = new GateCache();
+    cache.reconcile([
+      row({ id: 'g-new', openedAt: 2000 }),
+      row({
+        id: 'g-old',
+        openedAt: 1000,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'g-new',
+      }),
+      row({ id: 'p-new', kind: 'respond-plan', openedAt: 2000 }),
+      row({
+        id: 'p-old',
+        kind: 'respond-plan',
+        openedAt: 1000,
+        status: 'closed',
+        closedReason: 'superseded',
+        supersededBy: 'p-new',
+      }),
+    ]);
+    expect(cache.replacements()).toEqual({
+      'g-old': 'g-new',
+      'p-old': 'p-new',
+    });
+  });
+
+  test('a replaced gate that is not closed with a successor is left out', () => {
+    const cache = new GateCache();
+    cache.applyEvent(opened('g-old'));
+    cache.applyEvent(opened('g-new'));
+    expect(cache.replacements()).toEqual({});
+  });
+
+  test('is empty for a cache that replaced nothing', () => {
+    const cache = new GateCache();
+    cache.applyRow(row());
+    expect(cache.replacements()).toEqual({});
+  });
+});

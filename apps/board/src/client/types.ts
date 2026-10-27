@@ -339,6 +339,10 @@ export interface BoardData {
       herd-owned gates, admitted by non-"mr:" subject prefix -- an
       unescalated herd-owned gate never reaches this list. */
   queueExtras: GateRow[];
+  /** Superseded gate id to the gate that replaced it, for the gates the
+      server's cache still remembers replacing. Absent from an older
+      server. */
+  gateReplacements?: Record<string, string>;
   /** Reconciler executors in state "gone" that matched no MR row's subject;
       one that did match rides that row's own `orphan` field instead. */
   orphans: ExecutorView[];
