@@ -54,7 +54,7 @@ Each follow-up question that needs new digging gets its own explorer with
 the same brief and the new question. A question you can answer from what
 you already hold, answer directly.
 
-## 2. Report in this shape
+## 2. Report in this shape, then ask for the outcome as a form
 
 ```
 Verdict: holds | narrower than written | broader than written | does not hold
@@ -62,16 +62,31 @@ Evidence:
 - <what was checked> → <what it showed>   (one line each, queries verbatim)
 Not checked: <what the explorer could not reach, or "nothing">
 Proposed change: <new tier / anchor / comment, or "drop f2", or "none">
-Options: revise and re-raise the gate · leave it as is · keep asking
 ```
 
-Then end your turn. The conversation goes on as long as the human wants.
+**REQUIRED SUB-SKILL:** Use mattstack:wrap-up to ask for the outcome. The
+form has one Decisions question, "What should happen to <finding-id>?",
+with exactly these options, the one matching your verdict first and
+labelled `(Recommended)`:
+
+- **Revise and re-raise the gate**: apply the proposed change.
+- **Leave it as is**: the finding stands.
+- **Keep asking**: the human has more to ask.
+
+Recommend "Revise" when the proposed change is not "none", otherwise
+"Leave it as is". Act on the answer: §3, §4, or wait for the next
+question. A typed reply instead of a pick is a follow-up question: answer
+it, report again in the same shape, and ask again.
 
 ## 3. Revise (only on the human's go-ahead)
 
 1. Show the revised finding next to the original: tier, anchor, body,
    comment. Keep its `id` and every field you were not asked to change.
-   For "drop", say so. Proceed when the human confirms.
+   For "drop", say so. Then ask with mattstack:wrap-up: one Decisions
+   question, "Apply this revision to <finding-id>?", options **Apply it
+   (Recommended)**, **Change the wording**, **Cancel**. Apply only on
+   "Apply it"; "Change the wording" takes their edit and asks again;
+   "Cancel" goes to §4.
 2. Edit the finding in the report json and the report markdown, keeping
    them in step (tier counts and summary lines that name it included).
 3. If a background wait loop is running on this gate, stop it with
@@ -106,3 +121,4 @@ the turn holding at the gate.
 | "Prod read-only would settle it" | Offer it; run it only when the human names prod. |
 | "They want it gone, I'll answer the gate as comment" | Revise, re-raise, send them to the board. |
 | "The old gate closed, the run is over" | That close is your rebuild. Hold at the new gate. |
+| "I'll list the options in text, it's quicker" | The outcome is a mattstack:wrap-up form; the pick is the record. |
