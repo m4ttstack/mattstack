@@ -157,6 +157,10 @@ function Host({ gate, mr }: { gate: GateRow; mr: BoardMRWithReview }) {
 
 let root: Root;
 let container: HTMLElement;
+/** The gate each test gate superseded, as the board's gate cache reports it
+    (`previousReviewGateId`). A gate missing here starts a different run. */
+const PREVIOUS: Record<string, string> = { 'g-b': 'g-a', 'g-c': 'g-b' };
+
 /** The route's stand-in: the saved draft and every request it saw. */
 let saved: unknown;
 let requests: Array<{ method: string; url: string }>;
@@ -180,7 +184,13 @@ beforeEach(() => {
         return new Response('{"ok":true}');
       }
       if (readFails) return new Response('boom', { status: 500 });
-      return new Response(JSON.stringify(saved));
+      const gate = new URL(url, 'http://localhost').searchParams.get('gate');
+      return new Response(
+        JSON.stringify({
+          draft: saved,
+          previousGateId: (gate && PREVIOUS[gate]) ?? null,
+        })
+      );
     }
     if (url === '/gate/answer') {
       // A real answer takes a round trip, long enough for `busy` to render.
@@ -320,12 +330,38 @@ describe('a rebuilt review gate', () => {
 
   test('the new gate does not overwrite the saved draft before restoring it', async () => {
     await userEditsGateA();
-    const before = JSON.stringify(saved);
+    const before = saved as { gateId?: string };
+    expect(before.gateId).toBe('g-a');
     await show(gateFor('g-b', DRAFTS_A), mrWith());
     await settle(700);
-    // Restored state equals the draft, so nothing differs to send.
+    // The restored state equals the draft: only the gate it is filed under
+    // moves to the gate on screen, so the gate that supersedes this one
+    // still finds it.
+    expect(saved).toEqual({ ...before, gateId: 'g-b' });
+    expect(requests.filter(r => r.method === 'PUT').length).toBe(2);
+  });
+
+  test('a draft saved on another review run restores nothing and is left alone', async () => {
+    await userEditsGateA();
+    const before = JSON.stringify(saved);
+    await show(gateFor('g-other-run', DRAFTS_A), mrWith());
+    expect(checkbox('Second finding').checked).toBe(true);
+    expect(commentBox('Third finding')!.value).toBe('draft three');
+    await settle(700);
     expect(JSON.stringify(saved)).toBe(before);
-    expect(requests.filter(r => r.method === 'PUT').length).toBe(1);
+    expect(requests.at(-1)?.url).toContain('gate=g-other-run');
+  });
+
+  test('a draft with no gate id restores nothing', async () => {
+    saved = {
+      ticked: ['f1'],
+      known: ['f1', 'f2', 'f3'],
+      texts: { 'comment:f3': 'old edit' },
+      notes: {},
+    };
+    await show(gateFor('g-b', DRAFTS_A), mrWith());
+    expect(checkbox('Second finding').checked).toBe(true);
+    expect(commentBox('Third finding')!.value).toBe('draft three');
   });
 
   test('submitting stops saving, so a late write cannot revive the deleted draft', async () => {

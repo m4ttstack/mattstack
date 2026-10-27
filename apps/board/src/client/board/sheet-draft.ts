@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { parseSheetDraft, type SheetDraft } from '../../sheet-draft-shape.ts';
+import {
+  draftRestorableOn,
+  parseSheetDraftReply,
+  type SheetDraft,
+} from '../../sheet-draft-shape.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { commentKey, summaryKey } from './review-drafts.ts';
 
@@ -9,7 +13,9 @@ import { commentKey, summaryKey } from './review-drafts.ts';
     supersedes the old one) comes back the way the reviewer left it. The form state
     lives only in React and the per-gate localStorage draft, neither of which
     follows the reviewer to the new gate. A fresh review run starts clean:
-    its launch deletes the draft (server side), so one never crosses runs. */
+    its launch deletes the draft (server side), and a draft carries the gate
+    it was saved on, which restores only onto that gate or the one that
+    superseded it, so one never crosses runs. */
 
 const SAVE_DEBOUNCE_MS = 500;
 const ENDPOINT = '/review/sheet-draft';
@@ -25,12 +31,14 @@ export interface SheetNames {
   outcome?: string;
 }
 
-/** The form as a draft. `findingIds` are every finding the sheet shows, so a
-    later restore can tell an unticked finding from one it never saw. */
+/** The form as a draft on `gateId`. `findingIds` are every finding the
+    sheet shows, so a later restore can tell an unticked finding from one it
+    never saw. */
 export function snapshotSheet(
   form: FormSlice,
   names: SheetNames,
-  findingIds: string[]
+  findingIds: string[],
+  gateId: string
 ): SheetDraft {
   const ticked = new Set<string>();
   const base = names.findings;
@@ -53,6 +61,7 @@ export function snapshotSheet(
     texts,
     ...(typeof outcome === 'string' ? { outcome } : {}),
     notes: { ...form.notes },
+    gateId,
   };
 }
 
@@ -111,6 +120,7 @@ export function canonicalDraft(d: SheetDraft): string {
     texts: Object.fromEntries(Object.entries(d.texts).sort(byKey)),
     ...(d.outcome !== undefined ? { outcome: d.outcome } : {}),
     notes: Object.fromEntries(Object.entries(d.notes).sort(byKey)),
+    ...(d.gateId !== undefined ? { gateId: d.gateId } : {}),
   });
 }
 
@@ -122,7 +132,12 @@ export function canonicalDraft(d: SheetDraft): string {
     finding new to the gate added) differs from it and is saved, so the next
     gate does not bring the dropped edit back. A gate with nothing saved
     takes its first post-restore render as the baseline, so it writes
-    nothing until the reviewer changes something. Saving waits for the
+    nothing until the reviewer changes something; so does a gate whose saved
+    draft belongs to another gate (`draftRestorableOn`), which keeps a draft
+    the board cannot place (its predecessor gone from the gate cache) from
+    being overwritten by a sheet that never touched it. A restored draft
+    saves again under the gate on screen, so the next gate it supersedes
+    still finds it. Saving waits for the
     restore, which keeps a fresh gate's seeded defaults from overwriting the
     draft before it is read; a failed read leaves saving off for that gate
     rather than risk replacing a draft it could not see. Saving stops at a
@@ -166,13 +181,20 @@ export function useSheetDraft(
   useEffect(() => {
     if (!mrUrl) return;
     let live = true;
-    fetch(`${ENDPOINT}?mr=${encodeURIComponent(mrUrl)}`)
+    fetch(
+      `${ENDPOINT}?mr=${encodeURIComponent(mrUrl)}&gate=${encodeURIComponent(gateId)}`
+    )
       .then(r =>
         r.ok ? r.json() : Promise.reject(new Error(String(r.status)))
       )
       .then(body => {
         if (!live) return;
-        const draft = parseSheetDraft(body);
+        const reply = parseSheetDraftReply(body);
+        const draft =
+          reply.draft &&
+          draftRestorableOn(reply.draft, gateId, reply.previousGateId)
+            ? reply.draft
+            : null;
         if (draft) {
           const cur = latest.current;
           const outcomeName = cur.names.outcome;
@@ -199,7 +221,7 @@ export function useSheetDraft(
     };
   }, [mrUrl, gateId]);
 
-  const snapshot = snapshotSheet(form, names, findingIds);
+  const snapshot = snapshotSheet(form, names, findingIds, gateId);
   const json = canonicalDraft(snapshot);
   useEffect(() => {
     const base = baseline.current;

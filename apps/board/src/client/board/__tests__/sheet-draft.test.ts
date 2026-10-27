@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { parseSheetDraft } from '../../../sheet-draft-shape.ts';
+import {
+  draftRestorableOn,
+  parseSheetDraft,
+  parseSheetDraftReply,
+} from '../../../sheet-draft-shape.ts';
 import { canonicalDraft, restoreOps, snapshotSheet } from '../sheet-draft.ts';
 
 const draft = {
@@ -118,8 +122,10 @@ describe('snapshotSheet', () => {
         notes: {},
       },
       { findings: 'findings', outcome: 'outcome' },
-      ['f1', 'f2', 'f5', 'f9']
+      ['f1', 'f2', 'f5', 'f9'],
+      'g-a'
     );
+    expect(snap.gateId).toBe('g-a');
     expect(snap.known).toEqual(['f1', 'f2', 'f5', 'f9']);
     expect(snap.ticked.sort()).toEqual(['f1', 'f2', 'f5', 'f9']);
     expect(snap.outcome).toBe('comment');
@@ -137,7 +143,8 @@ describe('snapshotSheet', () => {
         notes: { outcome: 'n' },
       },
       { findings: 'findings', outcome: 'outcome' },
-      ['f1']
+      ['f1'],
+      'g-a'
     );
     expect(snap.texts).toEqual({ 'comment:f1': 'a', 'summary:approve': 'b' });
     expect(snap.notes).toEqual({ outcome: 'n' });
@@ -150,11 +157,12 @@ describe('snapshotSheet', () => {
       notes: {},
     };
     const ops = restoreOps(
-      snapshotSheet(form, { findings: 'findings', outcome: 'outcome' }, [
-        'f1',
-        'f2',
-        'f3',
-      ]),
+      snapshotSheet(
+        form,
+        { findings: 'findings', outcome: 'outcome' },
+        ['f1', 'f2', 'f3'],
+        'g-a'
+      ),
       ['f1', 'f2', 'f3'],
       []
     );
@@ -214,7 +222,73 @@ describe('parseSheetDraft', () => {
     [{ ticked: [], texts: { a: 1 }, notes: {} }],
     [{ ticked: [], texts: {}, notes: [] }],
     [{ ticked: [], texts: {}, notes: {}, outcome: 3 }],
+    [{ ticked: [], texts: {}, notes: {}, gateId: 3 }],
   ])('rejects %j', body => {
     expect(parseSheetDraft(body)).toBeNull();
   });
+
+  test('keeps the gate the draft was saved on', () => {
+    expect(
+      parseSheetDraft({
+        ticked: [],
+        known: [],
+        texts: {},
+        notes: {},
+        gateId: 'g-a',
+      })?.gateId
+    ).toBe('g-a');
+  });
+});
+
+describe('draftRestorableOn', () => {
+  const saved = { ticked: [], known: ['f1'], texts: {}, notes: {} };
+
+  test('a draft saved on the gate on screen restores', () => {
+    expect(draftRestorableOn({ ...saved, gateId: 'g-b' }, 'g-b', null)).toBe(
+      true
+    );
+  });
+
+  test("a draft saved on the gate's predecessor restores", () => {
+    expect(draftRestorableOn({ ...saved, gateId: 'g-a' }, 'g-b', 'g-a')).toBe(
+      true
+    );
+  });
+
+  test('a draft from another review run restores nothing', () => {
+    expect(draftRestorableOn({ ...saved, gateId: 'g-old' }, 'g-b', 'g-a')).toBe(
+      false
+    );
+    expect(draftRestorableOn({ ...saved, gateId: 'g-a' }, 'g-b', null)).toBe(
+      false
+    );
+  });
+
+  test('a draft with no gate id restores nothing', () => {
+    expect(draftRestorableOn(saved, 'g-b', 'g-a')).toBe(false);
+  });
+});
+
+describe('parseSheetDraftReply', () => {
+  test('reads the draft and the predecessor', () => {
+    expect(
+      parseSheetDraftReply({
+        draft: { ticked: [], known: [], texts: {}, notes: {}, gateId: 'g-a' },
+        previousGateId: 'g-a',
+      })
+    ).toEqual({
+      draft: { ticked: [], known: [], texts: {}, notes: {}, gateId: 'g-a' },
+      previousGateId: 'g-a',
+    });
+  });
+
+  test.each([[null], ['x'], [{ draft: 3, previousGateId: 4 }]])(
+    'reads %j as no draft',
+    body => {
+      expect(parseSheetDraftReply(body)).toEqual({
+        draft: null,
+        previousGateId: null,
+      });
+    }
+  );
 });

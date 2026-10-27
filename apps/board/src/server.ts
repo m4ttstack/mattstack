@@ -305,7 +305,11 @@ import {
 } from './respond-state.ts';
 import { respondTargets } from './respond-targets.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
-import { reviewRevisionFor, type ReviewRevision } from './review-revision.ts';
+import {
+  previousReviewGateId,
+  reviewRevisionFor,
+  type ReviewRevision,
+} from './review-revision.ts';
 import { dropRounds, latestRounds } from './review-rounds.ts';
 import {
   deleteSheetDraft,
@@ -341,7 +345,7 @@ import {
   ownerSteps,
   ringText,
 } from './run-owner.ts';
-import { parseSheetDraft } from './sheet-draft-shape.ts';
+import { parseSheetDraft, type SheetDraftReply } from './sheet-draft-shape.ts';
 import { canonicalReactions } from './slack-emoji.ts';
 import {
   attachOwnerPosts,
@@ -3080,15 +3084,24 @@ const httpServer = Bun.serve({
       case '/review/sheet-draft': {
         // The review sheet's unsent ticks and edits, kept per MR so a gate
         // the review agent re-raises after revising a finding restores them
-        // (see client/board/sheet-draft.ts). GET returns the draft or null.
+        // (see client/board/sheet-draft.ts). GET `?mr=&gate=` returns the
+        // draft (or null) and the gate `gate` superseded, so the sheet can
+        // tell a draft from this run from one left by another.
         if (req.method !== 'GET' && req.method !== 'PUT')
           return new Response('method not allowed', { status: 405 });
         if (!isLocalRequest(req, server))
           return new Response('forbidden', { status: 403 });
         if (req.method === 'GET') {
-          const mrUrl = new URL(req.url).searchParams.get('mr');
-          if (!mrUrl) return new Response('expected mr', { status: 400 });
-          return new Response(JSON.stringify(readSheetDraft(mrUrl) ?? null), {
+          const params = new URL(req.url).searchParams;
+          const mrUrl = params.get('mr');
+          const gateId = params.get('gate');
+          if (!mrUrl || !gateId)
+            return new Response('expected mr and gate', { status: 400 });
+          const reply: SheetDraftReply = {
+            draft: readSheetDraft(mrUrl) ?? null,
+            previousGateId: previousReviewGateId(gateCache, mrUrl, gateId),
+          };
+          return new Response(JSON.stringify(reply), {
             headers: { 'content-type': 'application/json' },
           });
         }
@@ -3109,7 +3122,7 @@ const httpServer = Bun.serve({
         const parsed = parseSheetDraft(draft);
         if (typeof mrUrl !== 'string' || mrUrl === '' || !parsed)
           return new Response(
-            'expected { mrUrl: string, draft: { ticked, known?, texts, outcome?, notes } }',
+            'expected { mrUrl: string, draft: { ticked, known?, texts, outcome?, notes, gateId? } }',
             { status: 400 }
           );
         writeSheetDraft(mrUrl, parsed);

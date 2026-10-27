@@ -79,3 +79,21 @@ export function reviewRevisionFor(
   const revised = revisedFindings(before, now);
   return Object.keys(revised).length ? { gateId: open.id, revised } : undefined;
 }
+
+/** The id of the MR's review gate that `gateId` superseded, while the cache
+    still holds it, else null. The review sheet restores a draft saved on that
+    gate onto `gateId` (`draftRestorableOn` in sheet-draft-shape.ts). */
+export function previousReviewGateId(
+  cache: Pick<RevisionSource, 'supersededBy'>,
+  mrUrl: string,
+  gateId: string
+): string | null {
+  const previous = cache.supersededBy(gateId);
+  if (
+    !previous ||
+    previous.kind !== REVIEW_GATE_KIND ||
+    previous.subject !== `mr:${mrUrl}`
+  )
+    return null;
+  return previous.id;
+}
