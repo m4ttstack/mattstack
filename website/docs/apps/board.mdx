@@ -180,6 +180,8 @@ For each approved fix, it edits code in the board's respond folder, on whatever 
 
 Before posting, it asks again: for each thread, whether to post the reply and whether to resolve the thread. When a thread you picked has a code fix and the folder is on the MR's branch, it pushes, never with force. Otherwise it keeps the fixes and tells you. Threads you only replied to stay open. An Overview comment can only be replied to, never resolved.
 
+A reviewer board's re-review thread (see [Asking for a re-review through the MR](#asking-for-a-re-review-through-the-mr)) is never one of the threads a response handles. When one is still open, the posting question on the board also offers **Ask dev2 for a re-review once posting finishes**. Tick it, and the board resolves that thread once the response finishes, so dev2's board reviews again. A response that ends in an error drops the pick.
+
 #### Doctor
 
 **call doctor** works without stopping to ask, using auto-doctor's settings in `board.triage`. As shipped, the menu reads **call doctor (CI only)**, and the doctor:
