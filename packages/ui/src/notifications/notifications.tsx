@@ -20,7 +20,9 @@ export type ShowNotificationProps = Omit<NotificationData, 'message'> & {
   countdown?: number;
 };
 
-const ICON_SIZE = 11;
+const ICON_SIZE = 13;
+/** Heavier than the registry's default, so the mark holds on the dark card. */
+const ICON_STROKE = 2.75;
 
 // Per-type icon (registry name) and color:
 //  - success -> check / green
@@ -62,7 +64,17 @@ function show(props: ShowNotificationProps) {
   const notificationId = id ?? `notification-${notificationCounter++}`;
   const resolvedColor = color ?? TYPE_COLOR[type];
   const baseIcon = icon ?? (
-    <Icon name={TYPE_ICON_NAME[type]} size={ICON_SIZE} />
+    <Icon
+      name={TYPE_ICON_NAME[type]}
+      size={ICON_SIZE}
+      strokeWidth={ICON_STROKE}
+      // The card is dark in both schemes, so the mark takes the hue's bright
+      // step rather than its filled one.
+      color={`var(--mantine-color-${resolvedColor}-4)`}
+      // A triangle's weight sits low in its box; lift it to the optical
+      // centre of the disc.
+      style={type === 'warning' ? { marginTop: -1.5 } : undefined}
+    />
   );
 
   return mantineNotifications.show({

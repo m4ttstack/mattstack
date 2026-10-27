@@ -25,37 +25,75 @@
 }
 
 /* Notifications read as floating layers, like menus and popovers. */
-.notificationRoot {
-  box-shadow: var(--mantine-shadow-md);
-  padding: 11px 12px 11px 14px;
-  border-radius: 10px;
+/* Notifications speak for the app, not the page: a dark, translucent card in
+   both schemes, the same voice as the console's unsynced-changes pill. The
+   type's hue rides on the icon alone; Mantine's own colour bar never shows.
+   Each class is doubled to outrank Mantine's own sheet, which loads later
+   at the same specificity. */
+.notificationRoot.notificationRoot {
   gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--mantine-color-white) 10%, transparent);
+  border-radius: 16px;
+  background-color: color-mix(in srgb, var(--mantine-color-dark-8) 94%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--mantine-color-black) 22%, transparent);
+  backdrop-filter: blur(12px);
 }
 
-.notificationIcon {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
+:where([data-mantine-color-scheme='dark']) .notificationRoot.notificationRoot {
+  border-color: color-mix(in srgb, var(--mantine-color-white) 16%, transparent);
+  background-color: color-mix(in srgb, var(--mantine-color-dark-5) 96%, transparent);
+}
+
+.notificationRoot.notificationRoot::before {
+  display: none;
+}
+
+/* The type's mark on a soft disc of its hue; the facade draws the mark in
+   the hue's bright step, since the filled one goes muddy on the dark card. */
+.notificationIcon.notificationIcon {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
   margin-inline-end: 0;
+  border-radius: 50%;
+  color: var(--notification-color, var(--mantine-primary-color-filled));
+  background-color: color-mix(
+    in srgb,
+    var(--notification-color, var(--mantine-primary-color-filled)) 30%,
+    transparent
+  );
 }
 
-.notificationTitle,
-.notificationDescription:only-child {
+.notificationTitle.notificationTitle,
+.notificationDescription.notificationDescription:only-child {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.35;
+  color: var(--mantine-color-white);
 }
 
-.notificationDescription {
+.notificationDescription.notificationDescription {
   font-size: 12.5px;
   line-height: 1.4;
+  color: color-mix(in srgb, var(--mantine-color-white) 70%, transparent);
 }
 
-.notificationClose {
+.notificationClose.notificationClose {
   width: 20px;
   height: 20px;
   min-width: 20px;
   min-height: 20px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--mantine-color-white) 55%, transparent);
+  background-color: transparent;
+}
+
+@media (hover: hover) {
+  .notificationClose.notificationClose:hover {
+    color: var(--mantine-color-white);
+    background-color: color-mix(in srgb, var(--mantine-color-white) 12%, transparent);
+  }
 }
 
 /* Mantine's disabled rule paints one grey fill over every variant. A

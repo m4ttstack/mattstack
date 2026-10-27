@@ -186,7 +186,7 @@ export const baseTheme = /* @__PURE__ */ createTheme({
           maw: 400,
           p: 'sm',
           px: 'md',
-          transitionProps: { transition: 'pop-top-left', duration: 400 },
+          transitionProps: { transition: 'pop-top-left', duration: 150 },
         },
       },
       // A group of tooltips (a rail) waits as long as one tooltip does before
