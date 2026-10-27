@@ -21,7 +21,7 @@ import { markerState, parseMarker } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
 import { roleFor } from "./roles.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { updateTeamLocal } from "./team-local.ts";
+import { editTeamLocal } from "./team-local.ts";
 
 export interface BranchUse {
   branch: string;
@@ -148,6 +148,7 @@ export async function useBranch(p: Probes, slug: string, name: string, opts: Tri
     warn("trial-branch", `switched ${basename(dir)} to the ${name} branch but could not narrow it to the role's folders`, { context: { err: String(err) } });
   }
   const trial = name !== (published ?? "main");
-  updateTeamLocal(p, slug, { trialBranch: trial ? name : undefined });
+  // A trial the conversion script made names itself in its marker, so the data branch has to be on record before the copy sits there.
+  editTeamLocal(p, slug, (record) => ({ trialBranch: trial ? name : undefined, ...(trial && published !== null && record.dataBranch === undefined ? { dataBranch: published } : {}) }));
   return { branch: name, created, trial };
 }

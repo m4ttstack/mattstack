@@ -118,7 +118,6 @@ import {
   resolvePluginRootsFromDir,
   stageRoster,
   stripFrontmatter,
-  orgOfPackDir,
   type PluginRoots,
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
@@ -2995,7 +2994,7 @@ export async function skillsChanges(args: string[]): Promise<void> {
     }
     const fileRows = (group: string, rows: PendingFile[]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, shownPath(f)])] : []);
     const blocks = [
-      out.line("pending", `Pack ${team} has changes that are not synced yet`, trial === undefined ? undefined : `On the trial branch ${trial}: a sync installs them on this Mac only`),
+      out.line("pending", `Pack ${team} has changes that are not synced yet`, trial === undefined ? undefined : `On the trial branch ${trial}: a sync pushes them there, not to the data branch`),
       out.table([...fileRows("Pack files", payload.files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
     ];
     if (payload.bindings.length > 0) {
