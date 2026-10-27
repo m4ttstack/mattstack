@@ -7,7 +7,6 @@ import {
 } from '@mattstack/app-kit/app';
 import {
   Badge,
-  Box,
   Button,
   GenericError,
   Group,
@@ -21,7 +20,6 @@ import { Icons } from '@mattstack/app-kit/icons';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
 import { useEditorHref } from '../editorHref';
-import { CommandProvenance } from '../runs/CommandProvenance';
 import { StepLoader } from '../StepLoader';
 import { DevPackSwitch } from './DevPackSwitch';
 import { GraphTab, GraphTabSidebar } from './graph/GraphTab';
@@ -187,27 +185,17 @@ export function WiringMap() {
     </MattstackShell.AppBar>
   );
 
-  const actions = (
-    <>
-      <Box visibleFrom="lg">
-        <CommandProvenance
-          command="rt skills composition"
-          asOf={snapshot.dataUpdatedAt || undefined}
-        />
-      </Box>
-      {packDir && (
-        <Button
-          size="xs"
-          variant="default"
-          component="a"
-          href={editorHref(packDir)}
-          leftSection={<Icons.package size={14} />}
-          data-testid="open-pack"
-        >
-          Open pack
-        </Button>
-      )}
-    </>
+  const actions = packDir && (
+    <Button
+      size="compact-sm"
+      variant="default"
+      component="a"
+      href={editorHref(packDir)}
+      leftSection={<Icons.package size={13} />}
+      data-testid="open-pack"
+    >
+      Open pack
+    </Button>
   );
 
   return (
