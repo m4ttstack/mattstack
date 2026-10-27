@@ -2,7 +2,7 @@
 order: 2
 ---
 
-# Flow
+# Push and open the MR
 
 `<root>` is the worktree root, the absolute path
 `git rev-parse --show-toplevel` prints. `<default>` is the repo's default

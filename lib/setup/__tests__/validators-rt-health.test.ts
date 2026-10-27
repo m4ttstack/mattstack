@@ -1820,6 +1820,11 @@ describe("orgBranchRow", () => {
     const r = await orgBranchRow(probes("try", { dataBranch: "mattstack" }, { trialBranch: "try" }));
     expect(r).toMatchObject({ status: "ready" });
   });
+  test("ready on a trial whose marker names itself, and the way back names the recorded data branch", async () => {
+    expect(await orgBranchRow(probes("try", { dataBranch: "try" }, { forgeUsername: "dev1", trialBranch: "try", dataBranch: "mattstack" }))).toMatchObject({ status: "ready" });
+    const off = await orgBranchRow(probes("scratch", { dataBranch: "try" }, { forgeUsername: "dev1", trialBranch: "try", dataBranch: "mattstack" }));
+    expect(off?.action).toMatchObject({ type: "steps", steps: ["rt team branch use mattstack"] });
+  });
   test("needs-you on any other branch, naming it and the way back", async () => {
     const r = await orgBranchRow(probes("scratch", { dataBranch: "mattstack" }));
     expect(r).toMatchObject({ status: "needs-you", detail: "Auto-commit is paused: your copy of the org is on scratch." });

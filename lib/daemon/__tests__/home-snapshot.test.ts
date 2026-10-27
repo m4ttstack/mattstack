@@ -4313,6 +4313,12 @@ describe("snapshot authorization follows the checked-out branch", () => {
     expect(auth.pullOnly).toBe(false);
     expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
   });
+  test("a recorded trial whose marker names itself is still approved, with no data branch on record", async () => {
+    const SELF = JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "trial" });
+    const auth = await spec("ref: refs/heads/trial\n", SELF, { forgeUsername: "dev1", trialBranch: "trial" }).spec.readAuthorization!();
+    expect(auth.pullOnly).toBe(false);
+    expect(auth.scope("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+  });
   test("a pre-layout-4 clone on main is approved", async () => {
     const auth = await spec("ref: refs/heads/main\n", JSON.stringify({ role: "org", org: "acme", layout: 3 })).spec.readAuthorization!();
     expect(auth.pullOnly).toBe(false);

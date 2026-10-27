@@ -23,6 +23,8 @@ export type ChangesPayload = {
   bindings: BindingChange[];
   surface: SurfaceChange[];
   signature: string;
+  /** The trial branch the pack's org copy is on, when this Mac chose one with `rt team branch use`: a sync then installs these changes here only. */
+  trialBranch?: string;
 };
 
 const C_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", '"': '"', "\\": "\\" };

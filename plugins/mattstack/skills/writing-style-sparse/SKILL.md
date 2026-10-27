@@ -2,28 +2,28 @@
 name: "writing-style-sparse"
 description: "Use only when the mattstack writing-style lookup names mattstack:writing-style-sparse. The voice for review comments, replies, PR descriptions and commit messages posted under the operator's name: terse, lowercase technical prose, one tight paragraph per point."
 metadata:
-  compiled: "mattstack@0.32.28"
+  compiled: "mattstack@0.32.29"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `mattstack@0.32.28:writing-style-sparse`, use it; otherwise call `skills_resolve {id: "mattstack@0.32.28:writing-style-sparse"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `mattstack@0.32.29:writing-style-sparse`, use it; otherwise call `skills_resolve {id: "mattstack@0.32.29:writing-style-sparse"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: block:writing-style-sparse source=mattstack:writing-style-sparse version=0.32.28 path=attachments/writing-style/writing-style-sparse/index.block.md lines=7-13 -->
+<!-- part: block:writing-style-sparse source=mattstack:writing-style-sparse version=0.32.29 path=attachments/writing-style/writing-style-sparse/index.block.md lines=7-13 -->
 # Sparse
 
 Terse and conversational. The reader is a colleague who can follow a chain
 from one sentence. Load this before the first draft and write in it from the
 first word; it is not a pass applied to a finished draft.
 
-<!-- part: block:writing-style-floor source=mattstack:writing-style-floor version=0.32.28 path=attachments/writing-style-floor/index.block.md lines=6-10 -->
+<!-- part: block:writing-style-floor source=mattstack:writing-style-floor version=0.32.29 path=attachments/writing-style-floor/index.block.md lines=6-10 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
 review summary, replies on their own PR, PR descriptions, commit messages.
 The preset sets the voice; these set the floor.
 
-<!-- part: block:writing-style-floor/never source=mattstack:writing-style-floor version=0.32.28 path=attachments/writing-style-floor/never.block.md lines=5-20 -->
+<!-- part: block:writing-style-floor/never source=mattstack:writing-style-floor version=0.32.29 path=attachments/writing-style-floor/never.block.md lines=5-20 -->
 ### Never
 
 - **Em or en dashes.** Rephrase, or use parentheses, a colon, or an ellipsis
@@ -41,7 +41,7 @@ The preset sets the voice; these set the floor.
   noticed:", "Took a look", "I just wanted to". Start with the claim.
 - **Invented precision.** "most" beats "~96%" unless the number was measured.
 
-<!-- part: block:writing-style-floor/always source=mattstack:writing-style-floor version=0.32.28 path=attachments/writing-style-floor/always.block.md lines=5-35 -->
+<!-- part: block:writing-style-floor/always source=mattstack:writing-style-floor version=0.32.29 path=attachments/writing-style-floor/always.block.md lines=5-35 -->
 ### Always
 
 - **Compress before posting.** The first draft is a rough cut. Before posting
@@ -74,7 +74,7 @@ The preset sets the voice; these set the floor.
   notes. It never recaps a finding, lists strengths, or reports what you ran.
   A finding with no line to anchor to is its own top-level comment.
 
-<!-- part: block:writing-style-sparse/voice source=mattstack:writing-style-sparse version=0.32.28 path=attachments/writing-style/writing-style-sparse/voice.block.md lines=5-21 -->
+<!-- part: block:writing-style-sparse/voice source=mattstack:writing-style-sparse version=0.32.29 path=attachments/writing-style/writing-style-sparse/voice.block.md lines=5-21 -->
 ## Voice
 
 - **Lowercase for technical content**: findings, assertions, code talk.
@@ -93,7 +93,7 @@ Compression target: shorter and more conversational. Ask "would a busy
 teammate send this as written, or trim it first?" If there is any doubt,
 trim.
 
-<!-- part: block:writing-style-sparse/review-findings source=mattstack:writing-style-sparse version=0.32.28 path=attachments/writing-style/writing-style-sparse/review-findings.block.md lines=5-49 -->
+<!-- part: block:writing-style-sparse/review-findings source=mattstack:writing-style-sparse version=0.32.29 path=attachments/writing-style/writing-style-sparse/review-findings.block.md lines=5-49 -->
 ## Review findings
 
 Open with a bolded Conventional Comments label, never a code span:
@@ -140,14 +140,14 @@ A brief, specific credit is fine folded in after the worry, never as the
 opener: `**thought (non-blocking):** only worry here: nothing tests the
 fallback. the version's pinned now, nice catch.`. A bare compliment is not.
 
-<!-- part: block:writing-style-sparse/review-summary source=mattstack:writing-style-sparse version=0.32.28 path=attachments/writing-style/writing-style-sparse/review-summary.block.md lines=5-9 -->
+<!-- part: block:writing-style-sparse/review-summary source=mattstack:writing-style-sparse version=0.32.29 path=attachments/writing-style/writing-style-sparse/review-summary.block.md lines=5-9 -->
 ## Review summary
 
 One line, sentence case: `Looks solid to me, no blockers. Left a few inline
 notes.` or `Left a few comments!` Only a blocker may join it: `Left one
 blocker inline.`
 
-<!-- part: block:writing-style-sparse/replies-on-your-own-pr source=mattstack:writing-style-sparse version=0.32.28 path=attachments/writing-style/writing-style-sparse/replies-on-your-own-pr.block.md lines=6-18 -->
+<!-- part: block:writing-style-sparse/replies-on-your-own-pr source=mattstack:writing-style-sparse version=0.32.29 path=attachments/writing-style/writing-style-sparse/replies-on-your-own-pr.block.md lines=6-18 -->
 ## Replies on your own PR
 
 Very short. No sign-offs, no thanks unless they thanked first. Soften even
@@ -162,13 +162,13 @@ blank-line paragraphs.
 - `i don't think we need a lock here. the job runs on one worker, and a lock adds a round trip per write.`
 - `👍`
 
-<!-- part: block:writing-style-sparse/pr-descriptions source=mattstack:writing-style-sparse version=0.32.28 path=attachments/writing-style/writing-style-sparse/pr-descriptions.block.md lines=6-9 -->
+<!-- part: block:writing-style-sparse/pr-descriptions source=mattstack:writing-style-sparse version=0.32.29 path=attachments/writing-style/writing-style-sparse/pr-descriptions.block.md lines=6-9 -->
 ## PR descriptions
 
 Read `@writing-style-sparse/pr-description.md` before drafting. It carries the
 length target, the structure, and the anti-patterns.
 
-<!-- part: block:writing-style-sparse/commit-messages source=mattstack:writing-style-sparse version=0.32.28 path=attachments/writing-style/writing-style-sparse/commit-messages.block.md lines=5-9 -->
+<!-- part: block:writing-style-sparse/commit-messages source=mattstack:writing-style-sparse version=0.32.29 path=attachments/writing-style/writing-style-sparse/commit-messages.block.md lines=5-9 -->
 ## Commit messages
 
 - Subject: lowercase, imperative, under 72 characters, prefixed with the
