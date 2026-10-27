@@ -219,7 +219,7 @@ export function createPaneHandlers(opts: {
     const running = await Promise.all(claude.map((p) => sessionFromPaneProcess(herdr, p.pane_id, sockPath, claudeRegistryRoots)));
     const byProcess = claude.find((_, i) => running[i] === sessionId);
     if (byProcess) return byProcess.pane_id;
-    return claude.find((p) => p.agent_session?.kind === "id" && p.agent_session.value === sessionId)?.pane_id;
+    return claude.find((p, i) => running[i] === null && p.agent_session?.kind === "id" && p.agent_session.value === sessionId)?.pane_id;
   }
 
   async function sessionPane(sessionId: string): Promise<string | undefined> {

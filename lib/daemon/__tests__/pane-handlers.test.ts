@@ -612,6 +612,13 @@ test("pane:send with selfSession falls back to herdr's recorded session when no 
   expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
 });
 
+test("pane:send with selfSession ignores herdr's recorded session when the pane's process names another", async () => {
+  const { pane, seen } = selfSendHarness({ "w1:p1": "other" });
+  const res = await pane["pane:send"]({ paneId: "w1:p3", selfSession: "sess-signed", text: "x" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p3", delivered: "accepted" } });
+  expect(seen.find((s) => s.method === "agent.prompt")?.params.target).toBe("w1:p3");
+});
+
 test("pane:send with selfSession keeps the given pane when no pane runs that session", async () => {
   const { pane, seen } = selfSendHarness({});
   const res = await pane["pane:send"]({ paneId: "w1:p3", selfSession: "sess-nowhere", text: "x" });
