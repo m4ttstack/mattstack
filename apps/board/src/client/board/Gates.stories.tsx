@@ -164,3 +164,22 @@ export const RespondPost: Story = {
   name: 'Respond: post',
   render: () => <Face entry={G.respondPost} />,
 };
+
+/** The first round while its diffs are still on the way: each finding's
+    code holds its space with the loading placeholder. The fetch never
+    settles, so the placeholder stays put. */
+export const ReviewCodeLoading: Story = {
+  name: 'Review: code loading',
+  decorators: [ReviewReport],
+  render: () => (
+    <Face
+      entry={{
+        ...G.reviewFirstRound,
+        diffs: {
+          ...G.reviewFirstRound.diffs!,
+          fetchFileDiff: () => new Promise(() => {}),
+        },
+      }}
+    />
+  ),
+};
