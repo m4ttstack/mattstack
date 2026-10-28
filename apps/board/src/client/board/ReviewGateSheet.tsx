@@ -808,6 +808,9 @@ function ReviewGateSheet({
                   }
                 />
               )}
+              <p className="tui-sheet-end">
+                You've reached the end of the findings.
+              </p>
             </>
           )}
           {mainTab === 'report' && (record || checks.length > 0) && (
