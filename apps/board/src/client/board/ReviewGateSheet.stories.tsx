@@ -11,6 +11,7 @@ import '../../style.css';
 
 import type { GateQuestion, GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import { DiffSourceContext, type DiffSource } from './diff-source.ts';
 import { useGateForm } from './GateForm.tsx';
 import { ReviewGateSheet } from './ReviewGateSheet.tsx';
 
@@ -930,11 +931,64 @@ const draftedFirstRoundGate: GateRow = {
   ],
 };
 
+const FIRST_ROUND_PATCHES: Record<string, string> = {
+  'lib/db/query.ts': `@@ -35,12 +35,14 @@ export async function searchItems(
+ ) {
+   const db = await pool.connect();
+   const q = req.query.q ?? '';
+   const limit = Number(req.query.limit ?? 20);
+
+-  const rows = await db.query('SELECT * FROM items LIMIT $1', [limit]);
++  const rows = await db.query(
++    \`SELECT * FROM items
++     WHERE name LIKE '%\${q}%'
++     LIMIT \${limit}\`
++  );
+   return rows.map(toItem);
+ }
+
+ export async function itemById(id: string) {`,
+  'lib/retry.ts': `@@ -34,12 +34,14 @@ export async function withRetry<T>(
+   job: () => Promise<T>,
+   attempts = 5
+ ): Promise<T> {
+-  return job();
++  for (let attempt = 0; ; attempt++) {
++    try {
++      return await job();
++    } catch (err) {
++      if (attempt >= attempts) throw err;
++      log.warn('retrying', { attempt });
++    }
++  }
+ }
+
+ export function isRetryable(err: unknown) {`,
+};
+
+/** Invented patches for the two files the drafted findings sit on. */
+const firstRoundDiffs: DiffSource = {
+  fetchFileDiff: async ({ file }) =>
+    FIRST_ROUND_PATCHES[file]
+      ? {
+          path: file,
+          patch: FIRST_ROUND_PATCHES[file]!,
+          forge: 'gitlab',
+          webUrl: `${boardMr.webUrl}/diffs`,
+        }
+      : null,
+  loadView: () => import('./DiffView.tsx'),
+};
+
 /** A drafted first round with click-to-edit comments: two findings on a
     diff line, two that fold into the summary comment. Every comment reads
     rendered and opens raw on a click; a folded one edits in the summary or
     in its own card. */
 export const DraftedFirstRound: Story = {
   decorators: [no404],
-  render: () => <Host gate={draftedFirstRoundGate} mr={boardMr} />,
+  render: () => (
+    <DiffSourceContext.Provider value={firstRoundDiffs}>
+      <Host gate={draftedFirstRoundGate} mr={boardMr} />
+    </DiffSourceContext.Provider>
+  ),
 };
