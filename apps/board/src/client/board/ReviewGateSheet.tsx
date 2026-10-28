@@ -243,24 +243,6 @@ function readDrafts(
   return { findings: map, summaries };
 }
 
-/** The full-screen sheet a `review-post` gate opens (design doc §4). Header
-    carries queue chrome; the main column is the findings and the optional
-    record cluster; the rail is the MR card, decision context and checks,
-    over the pinned verdict dock. Selection state keys by the COLLAPSED question ids
-    (`collapseChunks`), so a fresh gate defaults to every finding checked and
-    the recommended verdict picked -- the reviewer opts OUT rather than in. */
-/** The usual review verdicts in a few words, beside their radio; the
-    gate's own sentence stays on hover. */
-function verdictGloss(
-  value: string,
-  mr: BoardMRWithReview | undefined
-): string | undefined {
-  if (value === 'comment') return 'no verdict';
-  if (value === 'approve') return mr ? `approves ${mrRef(mr)}` : 'approves';
-  if (value === 'request_changes') return 'asks for changes';
-  return undefined;
-}
-
 /** The report's checks as a tally, with only the failures listed until
     the chevron opens the rest: on a laptop's rail the passes are the part
     nobody needs to reread. */
@@ -318,6 +300,12 @@ function ChecksCard({
   );
 }
 
+/** The full-screen sheet a `review-post` gate opens (design doc §4). Header
+    carries queue chrome; the main column is the findings and the optional
+    record cluster; the rail is the MR card, decision context and checks,
+    over the pinned verdict dock. Selection state keys by the COLLAPSED question ids
+    (`collapseChunks`), so a fresh gate defaults to every finding checked and
+    the recommended verdict picked -- the reviewer opts OUT rather than in. */
 function ReviewGateSheet({
   gate,
   mr,
@@ -458,7 +446,6 @@ function ReviewGateSheet({
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
       : '';
   const outcomeNote = outcomeName ? (form.notes[outcomeName] ?? '') : '';
-  const [noteOpen, setNoteOpen] = useState(false);
 
   const [report, setReport] = useState<ReviewReportJson | null>(null);
   useEffect(() => {
@@ -951,18 +938,9 @@ function ReviewGateSheet({
                     <h3 className="tui-sheet-dock-heading">
                       {mr ? `Verdict on ${mrRef(mr)}` : 'Verdict'}
                     </h3>
-                    {!noteOpen && outcomeNote === '' && (
-                      <button
-                        type="button"
-                        className="tui-sheet-reset tui-review-add-note"
-                        onClick={() => setNoteOpen(true)}
-                      >
-                        add note
-                      </button>
-                    )}
                   </div>
                   <div
-                    className="tui-gate-choices tui-review-verdicts"
+                    className="tui-gate-choices"
                     role="radiogroup"
                     aria-label={outcomeQuestion.label}
                   >
@@ -1008,12 +986,8 @@ function ReviewGateSheet({
                               )}
                             </span>
                             {optionDescription(o) && (
-                              <span
-                                className="tui-gate-choice-subtitle"
-                                title={optionDescription(o)}
-                              >
-                                {verdictGloss(value, mr) ??
-                                  optionDescription(o)}
+                              <span className="tui-gate-choice-subtitle">
+                                {optionDescription(o)}
                               </span>
                             )}
                           </span>
@@ -1028,20 +1002,6 @@ function ReviewGateSheet({
                       draft={summaryDraft}
                       form={form}
                       postsOn={mr ? mrRef(mr) : undefined}
-                    />
-                  )}
-                  {(noteOpen || outcomeNote !== '') && (
-                    <input
-                      type="text"
-                      className="tui-gate-note"
-                      aria-label={`Note for ${outcomeQuestion.label}`}
-                      placeholder="Add a note"
-                      autoFocus={noteOpen && outcomeNote === ''}
-                      value={outcomeNote}
-                      onChange={e =>
-                        outcomeName &&
-                        form.setNote(outcomeName, e.currentTarget.value)
-                      }
                     />
                   )}
                   <Button

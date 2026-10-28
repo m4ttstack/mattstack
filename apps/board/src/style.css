@@ -6612,40 +6612,6 @@ a.tui-id-card-ref:focus-visible {
   margin-inline: auto;
 }
 
-/* The review verdict: plain rows, one line each, the option's own
-   description trailing in a light hand. */
-.tui-review-verdicts {
-  gap: 2px;
-}
-.tui-review-verdicts .tui-gate-choice {
-  min-height: 0;
-  padding: 6px 8px;
-  border-color: transparent;
-}
-.tui-review-verdicts .tui-gate-choice[data-checked] {
-  border-color: transparent;
-}
-.tui-review-verdicts .tui-gate-choice-label {
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  text-align: left;
-}
-.tui-review-verdicts .tui-gate-choice-label-row {
-  flex-wrap: nowrap;
-  flex-shrink: 0;
-}
-.tui-review-verdicts .tui-gate-choice-subtitle {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--text-4);
-}
-
 /* The summary comment in the dock: two lines at rest, whole when open. */
 .tui-review-dock-summary {
   display: flex;
@@ -6727,9 +6693,6 @@ a.tui-id-card-ref:focus-visible {
   margin-left: 2px;
   font-weight: 400;
   color: var(--text-3);
-}
-.tui-review-add-note {
-  color: var(--text-accent-small);
 }
 
 /* With the strip's own focus ring gone, the tickbox carries keyboard
