@@ -1,11 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Button, ICONS } from '@mattstack/tui-kit';
+import { Button, CHECK_ICON, Icon, ICONS } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { Disclosure } from './Disclosure.tsx';
-import { SearchCheckIcon } from './icons.tsx';
 import { CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 
 export interface ThreadMessage {
@@ -189,7 +188,11 @@ function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
   const [open, setOpen] = useState(false);
   const label = settled ? 'Agent verified' : 'Agent: still open';
   return (
-    <div className="tui-reply-check">
+    <div
+      className="tui-reply-check"
+      data-settled={settled || undefined}
+      data-open={open || undefined}
+    >
       <Button
         type="button"
         variant="outline"
@@ -198,7 +201,11 @@ function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       >
-        <SearchCheckIcon />
+        {settled ? (
+          <Icon d={CHECK_ICON} />
+        ) : (
+          <Icon d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M12 7v5l3 2" />
+        )}
         {label}
         <span className="tui-reply-check-chevron" data-open={open || undefined}>
           {ICONS['chevron-right']}

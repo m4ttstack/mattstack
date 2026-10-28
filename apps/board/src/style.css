@@ -4525,10 +4525,38 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-reply-check-note {
   margin: 0;
-  padding-top: 8px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-1);
+}
+/* Open, the button and its note join as a tab over a panel: one outline,
+   one wash, the button's bottom edge dropped where they meet. */
+.tui-reply-check {
+  --check-line: var(--fill-warn);
+}
+.tui-reply-check[data-settled] {
+  --check-line: var(--fill-ok);
+}
+.tui-reply-check > .tui-disclosure {
+  align-self: stretch;
+}
+.tui-reply-check .tui-disclosure.open .tui-disclosure-body {
+  padding-top: 0;
+}
+.tui-reply-check[data-open] > button {
+  position: relative;
+  z-index: 1;
+  margin-bottom: -1px;
+  border-bottom-color: transparent;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  background: color-mix(in srgb, var(--check-line) 7%, var(--card));
+}
+.tui-reply-check[data-open] .tui-reply-check-note {
+  padding: 10px 12px;
+  border: 1px solid var(--check-line);
+  border-radius: 0 6px 6px 6px;
+  background: color-mix(in srgb, var(--check-line) 7%, var(--card));
 }
 .tui-reply-resolve {
   display: inline-flex;
