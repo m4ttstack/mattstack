@@ -250,8 +250,17 @@ export function ClickToEditField({
             </AnimatePresence>
           </div>
         </m.div>
-        {editing && hint && (
-          <span className="tui-cte-hint">Markdown supported</span>
+        {hint && (editing || variant === 'plain') && (
+          // Plain keeps the row at rest so hover's "Click to edit" moves
+          // nothing below it.
+          <span className="tui-cte-hint">
+            {editing && (
+              <>
+                <span>Markdown supported</span>
+                <span>esc to finish</span>
+              </>
+            )}
+          </span>
         )}
       </MotionConfig>
     </LazyMotion>

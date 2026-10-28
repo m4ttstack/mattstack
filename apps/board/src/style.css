@@ -4400,7 +4400,11 @@ a.tui-id-card-ref:focus-visible {
   opacity: 1;
 }
 .tui-review-finding .tui-review-section[data-section='comment'] {
-  padding: 10px 14px 12px;
+  padding: 12px 14px 6px;
+  background: var(--panel);
+}
+.tui-review-finding .tui-review-section[data-section='comment']:last-child {
+  border-radius: 0 0 7px 7px;
 }
 .tui-review-finding
   .tui-review-section[data-section='comment']
@@ -4966,24 +4970,32 @@ a.tui-id-card-ref:focus-visible {
 .tui-cte[data-variant='filled'][data-editing] {
   border-color: var(--fill-ok);
 }
-/* Plain: a drafted finding's comment, the last section of its card. It
-   sits in a comment box that is invisible at rest, outlines on hover, and
-   reads as an ordinary field while it is written in, so the text never
-   moves between the three. */
+/* Plain: a drafted finding's comment, a white field on the card's grey
+   comment area so it reads as an input before the pointer arrives. Hover
+   glows and says it edits; writing draws the focus ring. The box keeps
+   one geometry in every state. */
 .tui-cte[data-variant='plain'] {
-  border: 1px solid transparent;
+  border: 1px solid var(--border-control);
   border-radius: 6px;
+  background: var(--card);
 }
 .tui-cte[data-variant='plain'] :is(.tui-cte-view, .tui-cte-input) {
   padding: 10px 12px;
 }
 .tui-cte[data-variant='plain'][data-editing] {
   border-color: var(--fill-accent);
-  background: var(--card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fill-accent) 25%, transparent);
 }
 @media (hover: hover) {
   .tui-cte[data-variant='plain']:not([data-editing]):hover {
-    border-color: var(--border-control);
+    box-shadow: 0 2px 14px
+      color-mix(in srgb, var(--fill-accent) 20%, transparent);
+  }
+  .tui-cte[data-variant='plain']:not([data-editing]):hover
+    + .tui-cte-hint::before {
+    content: 'Click to edit';
+    color: var(--text-accent-small);
+    font-weight: 500;
   }
 }
 @media (hover: hover) {
@@ -5000,9 +5012,11 @@ a.tui-id-card-ref:focus-visible {
   border-color: var(--fill-bad);
 }
 .tui-cte-hint {
-  display: block;
+  display: flex;
+  justify-content: space-between;
+  min-height: 18px;
   margin-top: 6px;
-  padding-left: 12px;
+  padding: 0 4px;
   font-size: 12px;
   color: var(--text-3);
 }

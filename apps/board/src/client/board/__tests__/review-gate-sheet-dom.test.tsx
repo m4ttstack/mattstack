@@ -1387,7 +1387,7 @@ describe('a gate whose poster honors edited drafts', () => {
     )!;
     expect(box.querySelector('.tui-cte-view')).not.toBeNull();
     expect(box.querySelector('textarea')).toBeNull();
-    expect(box.querySelector('.tui-cte-hint')).toBeNull();
+    expect(box.querySelector('.tui-cte-hint')!.textContent).toBe('');
     expect(valueOf(box)).toContain('Could we bind it as a parameter instead?');
     expect(valueOf(box)).toContain(
       'A test with a quote in the name would pin it.'
@@ -1396,7 +1396,7 @@ describe('a gate whose poster honors edited drafts', () => {
       box.querySelector<HTMLElement>('.tui-cte-view')!.click();
     });
     expect(box.querySelector('.tui-cte-hint')!.textContent).toBe(
-      'Markdown supported'
+      'Markdown supportedesc to finish'
     );
     expect(container.querySelector('.tui-review-finding-fix')).toBeNull();
   });
