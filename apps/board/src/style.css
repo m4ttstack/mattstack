@@ -6693,7 +6693,9 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-in-summary {
   flex-shrink: 0;
 }
-.tui-review-card-head + .tui-review-section {
+.tui-review-card-head
+  + .tui-review-card-body
+  > .tui-review-section:first-child {
   border-top: none;
 }
 

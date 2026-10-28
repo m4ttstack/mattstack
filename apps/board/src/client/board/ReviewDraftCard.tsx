@@ -678,22 +678,39 @@ export function FindingCard({
       data-off={checked ? undefined : ''}
     >
       {head}
-      {checked && (
-        <>
-          {hasDiffLine(f) ? (
-            <CodeSection
-              mrUrl={mrUrl}
-              mrRef={mrRef}
-              mrRevision={mrRevision}
-              finding={f}
-              pins={pins}
-            />
-          ) : (
-            <FindingSection finding={f} />
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence initial={false}>
+          {checked && (
+            <m.div
+              key="body"
+              className="tui-review-card-body"
+              // Clips only while easing: open, the body must let the
+              // finding's info card, which renders in place, spill out.
+              initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
+              animate={{
+                height: 'auto',
+                opacity: 1,
+                transitionEnd: { overflow: 'visible' },
+              }}
+              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
+              transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+            >
+              {hasDiffLine(f) ? (
+                <CodeSection
+                  mrUrl={mrUrl}
+                  mrRef={mrRef}
+                  mrRevision={mrRevision}
+                  finding={f}
+                  pins={pins}
+                />
+              ) : (
+                <FindingSection finding={f} />
+              )}
+              <CommentSection finding={f} form={form} />
+            </m.div>
           )}
-          <CommentSection finding={f} form={form} />
-        </>
-      )}
+        </AnimatePresence>
+      </LazyMotion>
     </article>
   );
 }
