@@ -839,9 +839,10 @@ function ReviewGateSheet({
             <div className="tui-review-report-context">
               {mr && <MrCard mr={mr} />}
               {contextCard}
+              {checks.length > 0 && <ChecksCard checks={checks} />}
             </div>
           )}
-          {mainTab === 'report' && (record || checks.length > 0) && (
+          {mainTab === 'report' && record && (
             <dl className="tui-review-record">
               {strengths.length > 0 && (
                 <div className="tui-review-record-row">
@@ -890,32 +891,6 @@ function ReviewGateSheet({
                           <PencilLineIcon />
                         </span>
                         <span>{n}</span>
-                      </div>
-                    ))}
-                  </dd>
-                </div>
-              )}
-              {checks.length > 0 && (
-                <div className="tui-review-record-row">
-                  <dt className="tui-review-record-label">checks</dt>
-                  <dd className="tui-review-record-content">
-                    {checks.map((ch, i) => (
-                      <div className="tui-review-record-item" key={i}>
-                        <Chip
-                          intent={
-                            ch.tag === 'FAIL'
-                              ? 'bad'
-                              : ch.tag === 'PASS'
-                                ? 'ok'
-                                : 'muted'
-                          }
-                          variant="outline"
-                          uppercase
-                          className="tui-sheet-card-chip"
-                        >
-                          {ch.tag}
-                        </Chip>
-                        <span>{ch.text}</span>
                       </div>
                     ))}
                   </dd>
