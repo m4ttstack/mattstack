@@ -22,6 +22,7 @@ import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
 import {
+  ChevronGlyph,
   CircleCheckFilledIcon,
   PencilLineIcon,
   SearchCheckIcon,
@@ -252,6 +253,63 @@ function readDrafts(
     over the pinned verdict dock. Selection state keys by the COLLAPSED question ids
     (`collapseChunks`), so a fresh gate defaults to every finding checked and
     the recommended verdict picked -- the reviewer opts OUT rather than in. */
+/** The report's checks as a tally, with only the failures listed until
+    the chevron opens the rest: on a laptop's rail the passes are the part
+    nobody needs to reread. */
+function ChecksCard({
+  checks,
+}: {
+  checks: Array<{ tag: string; text: string }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const count = (tag: string) => checks.filter(c => c.tag === tag).length;
+  const tally = [
+    [count('PASS'), 'pass'],
+    [count('FAIL'), 'fail'],
+    [checks.length - count('PASS') - count('FAIL'), 'n/a'],
+  ]
+    .filter(([n]) => (n as number) > 0)
+    .map(([n, label]) => `${n} ${label}`)
+    .join(' · ');
+  const shown = open ? checks : checks.filter(c => c.tag === 'FAIL');
+  return (
+    <div
+      className="tui-sheet-card tui-review-checks"
+      data-open={open || undefined}
+    >
+      <button
+        type="button"
+        className="tui-review-checks-head"
+        aria-expanded={open}
+        onClick={() => setOpen(v => !v)}
+      >
+        <span className="tui-sheet-card-title">checks</span>
+        <span className="tui-review-checks-tally">{tally}</span>
+        <ChevronGlyph />
+      </button>
+      {shown.length > 0 && (
+        <div className="tui-sheet-card-list">
+          {shown.map((c, i) => (
+            <div className="tui-sheet-card-row" key={i}>
+              <Chip
+                intent={
+                  c.tag === 'FAIL' ? 'bad' : c.tag === 'PASS' ? 'ok' : 'muted'
+                }
+                variant="outline"
+                uppercase
+                className="tui-sheet-card-chip"
+              >
+                {c.tag}
+              </Chip>
+              <span className="tui-sheet-card-text">{c.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReviewGateSheet({
   gate,
   mr,
@@ -859,32 +917,7 @@ function ReviewGateSheet({
                   )}
                 </div>
 
-                {checks.length > 0 && (
-                  <div className="tui-sheet-card">
-                    <span className="tui-sheet-card-title">checks</span>
-                    <div className="tui-sheet-card-list">
-                      {checks.map((c, i) => (
-                        <div className="tui-sheet-card-row" key={i}>
-                          <Chip
-                            intent={
-                              c.tag === 'FAIL'
-                                ? 'bad'
-                                : c.tag === 'PASS'
-                                  ? 'ok'
-                                  : 'muted'
-                            }
-                            variant="outline"
-                            uppercase
-                            className="tui-sheet-card-chip"
-                          >
-                            {c.tag}
-                          </Chip>
-                          <span className="tui-sheet-card-text">{c.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {checks.length > 0 && <ChecksCard checks={checks} />}
               </div>
 
               {outcomeQuestion && (

@@ -27,12 +27,12 @@ export function MrCard({ mr }: { mr: BoardMRWithReview }) {
             <span className="tui-mr-card-diff-del">-{mr.diff.deletions}</span>
           </span>
         )}
+        {mr.sourceBranch && (
+          <span className="tui-id-card-branch" title={mr.sourceBranch}>
+            · {mr.sourceBranch}
+          </span>
+        )}
       </p>
-      {mr.sourceBranch && (
-        <p className="tui-id-card-branch" title={mr.sourceBranch}>
-          {mr.sourceBranch}
-        </p>
-      )}
     </div>
   );
 }
