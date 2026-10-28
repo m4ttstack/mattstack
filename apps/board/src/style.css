@@ -5091,7 +5091,6 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-3);
 }
 
-
 /* review record cluster: STRENGTHS / DEPTH / NOTES sharing one right-aligned
    label column and one text edge. */
 /* The Report tab's record: a white card like the findings, so it reads
@@ -6643,39 +6642,6 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-dock-summary .tui-cte[data-variant='filled']:not([data-editing]) {
   border-color: var(--border-soft);
   background: var(--card);
-}
-
-/* The rail's checks: a tally, then only the failures until opened. */
-.tui-review-checks {
-  gap: 8px;
-}
-.tui-review-checks-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: var(--text-3);
-  cursor: pointer;
-  text-align: left;
-}
-.tui-review-checks-tally {
-  flex: 1;
-  font-size: 12px;
-}
-.tui-review-checks-head svg {
-  transform: rotate(-90deg);
-  transition: transform 120ms;
-}
-.tui-review-checks[data-open] .tui-review-checks-head svg {
-  transform: none;
-}
-.tui-review-checks-head:focus-visible {
-  outline: 2px solid var(--fill-accent);
-  outline-offset: 2px;
-  border-radius: 3px;
 }
 
 /* The MR card's age, diff and branch share one line; a long branch clips

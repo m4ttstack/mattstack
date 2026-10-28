@@ -22,7 +22,6 @@ import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
 import {
-  ChevronGlyph,
   CircleCheckFilledIcon,
   PencilLineIcon,
   SearchCheckIcon,
@@ -241,63 +240,6 @@ function readDrafts(
     map.set(f.id, f.comment);
   }
   return { findings: map, summaries };
-}
-
-/** The report's checks as a tally, with only the failures listed until
-    the chevron opens the rest: on a laptop's rail the passes are the part
-    nobody needs to reread. */
-function ChecksCard({
-  checks,
-}: {
-  checks: Array<{ tag: string; text: string }>;
-}) {
-  const [open, setOpen] = useState(false);
-  const count = (tag: string) => checks.filter(c => c.tag === tag).length;
-  const tally = [
-    [count('PASS'), 'pass'],
-    [count('FAIL'), 'fail'],
-    [checks.length - count('PASS') - count('FAIL'), 'n/a'],
-  ]
-    .filter(([n]) => (n as number) > 0)
-    .map(([n, label]) => `${n} ${label}`)
-    .join(' · ');
-  const shown = open ? checks : checks.filter(c => c.tag === 'FAIL');
-  return (
-    <div
-      className="tui-sheet-card tui-review-checks"
-      data-open={open || undefined}
-    >
-      <button
-        type="button"
-        className="tui-review-checks-head"
-        aria-expanded={open}
-        onClick={() => setOpen(v => !v)}
-      >
-        <span className="tui-sheet-card-title">checks</span>
-        <span className="tui-review-checks-tally">{tally}</span>
-        <ChevronGlyph />
-      </button>
-      {shown.length > 0 && (
-        <div className="tui-sheet-card-list">
-          {shown.map((c, i) => (
-            <div className="tui-sheet-card-row" key={i}>
-              <Chip
-                intent={
-                  c.tag === 'FAIL' ? 'bad' : c.tag === 'PASS' ? 'ok' : 'muted'
-                }
-                variant="outline"
-                uppercase
-                className="tui-sheet-card-chip"
-              >
-                {c.tag}
-              </Chip>
-              <span className="tui-sheet-card-text">{c.text}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /** The full-screen sheet a `review-post` gate opens (design doc §4). Header
@@ -862,67 +804,91 @@ function ReviewGateSheet({
               )}
             </>
           )}
-          {mainTab === 'report' &&
-            (record ? (
-              <>
-                <dl className="tui-review-record">
-                  {strengths.length > 0 && (
-                    <div className="tui-review-record-row">
-                      <dt className="tui-review-record-label">strengths</dt>
-                      <dd className="tui-review-record-content">
-                        {strengths.map((s, i) => (
-                          <div className="tui-review-record-item" key={i}>
-                            <span className="tui-review-record-icon tui-review-record-icon-ok">
-                              <CircleCheckFilledIcon />
-                            </span>
-                            <span className="tui-review-record-stack">
-                              <span className="tui-review-record-lead">
-                                {s.lead}
-                              </span>
-                              {typeof s.detail === 'string' && s.detail && (
-                                <span className="tui-review-record-detail">
-                                  {s.detail}
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                        ))}
-                      </dd>
-                    </div>
-                  )}
-                  {depth && (
-                    <div className="tui-review-record-row">
-                      <dt className="tui-review-record-label">depth</dt>
-                      <dd className="tui-review-record-content">
-                        <div className="tui-review-record-item">
-                          <span className="tui-review-record-icon">
-                            <SearchCheckIcon />
+          {mainTab === 'report' && (record || checks.length > 0) && (
+            <dl className="tui-review-record">
+              {strengths.length > 0 && (
+                <div className="tui-review-record-row">
+                  <dt className="tui-review-record-label">strengths</dt>
+                  <dd className="tui-review-record-content">
+                    {strengths.map((s, i) => (
+                      <div className="tui-review-record-item" key={i}>
+                        <span className="tui-review-record-icon tui-review-record-icon-ok">
+                          <CircleCheckFilledIcon />
+                        </span>
+                        <span className="tui-review-record-stack">
+                          <span className="tui-review-record-lead">
+                            {s.lead}
                           </span>
-                          <span>{depth}</span>
-                        </div>
-                      </dd>
-                    </div>
-                  )}
-                  {notes.length > 0 && (
-                    <div className="tui-review-record-row">
-                      <dt className="tui-review-record-label">notes</dt>
-                      <dd className="tui-review-record-content">
-                        {notes.map((n, i) => (
-                          <div className="tui-review-record-item" key={i}>
-                            <span className="tui-review-record-icon">
-                              <PencilLineIcon />
+                          {typeof s.detail === 'string' && s.detail && (
+                            <span className="tui-review-record-detail">
+                              {s.detail}
                             </span>
-                            <span>{n}</span>
-                          </div>
-                        ))}
-                      </dd>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+              )}
+              {depth && (
+                <div className="tui-review-record-row">
+                  <dt className="tui-review-record-label">depth</dt>
+                  <dd className="tui-review-record-content">
+                    <div className="tui-review-record-item">
+                      <span className="tui-review-record-icon">
+                        <SearchCheckIcon />
+                      </span>
+                      <span>{depth}</span>
                     </div>
-                  )}
-                </dl>
-              </>
-            ) : (
-              <FullReportDisclosure mrUrl={mr?.webUrl} />
-            ))}
+                  </dd>
+                </div>
+              )}
+              {notes.length > 0 && (
+                <div className="tui-review-record-row">
+                  <dt className="tui-review-record-label">notes</dt>
+                  <dd className="tui-review-record-content">
+                    {notes.map((n, i) => (
+                      <div className="tui-review-record-item" key={i}>
+                        <span className="tui-review-record-icon">
+                          <PencilLineIcon />
+                        </span>
+                        <span>{n}</span>
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+              )}
+              {checks.length > 0 && (
+                <div className="tui-review-record-row">
+                  <dt className="tui-review-record-label">checks</dt>
+                  <dd className="tui-review-record-content">
+                    {checks.map((ch, i) => (
+                      <div className="tui-review-record-item" key={i}>
+                        <Chip
+                          intent={
+                            ch.tag === 'FAIL'
+                              ? 'bad'
+                              : ch.tag === 'PASS'
+                                ? 'ok'
+                                : 'muted'
+                          }
+                          variant="outline"
+                          uppercase
+                          className="tui-sheet-card-chip"
+                        >
+                          {ch.tag}
+                        </Chip>
+                        <span>{ch.text}</span>
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
+          {mainTab === 'report' && !record && (
+            <FullReportDisclosure mrUrl={mr?.webUrl} />
+          )}
         </section>
         <aside className="tui-sheet-rail">
           {form.lost ? (
@@ -964,8 +930,6 @@ function ReviewGateSheet({
                     </div>
                   )}
                 </div>
-
-                {checks.length > 0 && <ChecksCard checks={checks} />}
               </div>
 
               {outcomeQuestion && (
