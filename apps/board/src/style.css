@@ -4758,10 +4758,15 @@ a.tui-id-card-ref:focus-visible {
    sits in a finding or reply card; bare stacks inside the summary card so
    its parts read as the one comment the forge shows. A stripe is a
    left edge with square corners, never a rounded one. */
-.tui-cte,
-.tui-cte-view,
-.tui-cte-input {
-  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+/* motion owns the box's height and the faces' fade; CSS eases the rest. */
+.tui-cte {
+  overflow: hidden;
+  transition-property: border-color, background-color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tui-cte-faces {
+  position: relative;
 }
 .tui-cte-view {
   box-sizing: border-box;
@@ -4786,8 +4791,12 @@ a.tui-id-card-ref:focus-visible {
   border-color: var(--fill-ok);
   box-shadow: 0 0 0 1px var(--fill-ok);
 }
-.tui-cte[data-variant='bare'] :is(.tui-cte-view, .tui-cte-input) {
+.tui-cte[data-variant='bare'] .tui-cte-view {
   padding: 2px 12px;
+}
+/* Write opens out from the text so the wash has room around it. */
+.tui-cte[data-variant='bare'] .tui-cte-input {
+  padding: 10px 12px;
 }
 .tui-cte[data-variant='bare'] {
   border-left: 2px solid transparent;

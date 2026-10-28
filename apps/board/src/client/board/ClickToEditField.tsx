@@ -5,6 +5,13 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
+import {
+  AnimatePresence,
+  domAnimation,
+  LazyMotion,
+  m,
+  MotionConfig,
+} from 'motion/react';
 
 import { sourceOffset } from './caret-map.ts';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
@@ -42,6 +49,18 @@ function renderedOffset(root: HTMLElement, x: number, y: number): number {
   }
   return all.length;
 }
+
+const SWAP = { duration: 0.15, ease: [0.4, 0, 0.2, 1] as const };
+const STILL = { duration: 0 };
+
+/** Each face fades over the other; the leaving one is popped out of flow
+    and stops taking clicks, so the box sizes to the face arriving. */
+const FADE = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0, pointerEvents: 'none' as const },
+  transition: SWAP,
+};
 
 function grow(el: HTMLTextAreaElement) {
   el.style.height = 'auto';
@@ -82,14 +101,30 @@ export function ClickToEditField({
   const caret = useRef<number | null>(null);
   const pressed = useRef(false);
   const refocus = useRef(false);
+  const faces = useRef<HTMLDivElement | null>(null);
+  const [height, setHeight] = useState<number | 'auto'>('auto');
+  // The box eases only across a swap; a line typed in Write grows it at
+  // once, so the caret's line is never clipped mid-ease.
+  const [swapping, setSwapping] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = faces.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    setHeight(el.offsetHeight);
+    const observer = new ResizeObserver(() => setHeight(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const open = (at: number) => {
     caret.current = at;
+    setSwapping(true);
     setEditing(true);
     onEditing?.(true);
   };
   const close = (keepFocus: boolean) => {
     refocus.current = keepFocus;
+    setSwapping(true);
     setEditing(false);
     onEditing?.(false);
   };
@@ -152,55 +187,69 @@ export function ClickToEditField({
   };
 
   return (
-    <>
-      <div
-        className="tui-cte"
-        data-variant={variant}
-        data-stripe={stripe}
-        data-editing={editing || undefined}
-        data-invalid={invalid || undefined}
-      >
-        {editing ? (
-          <textarea
-            ref={area}
-            className="tui-composer-input tui-cte-input"
-            rows={1}
-            value={text}
-            aria-label={label}
-            aria-invalid={invalid || undefined}
-            aria-describedby={describedBy}
-            onChange={e => onChange(e.currentTarget.value)}
-            onKeyDown={onAreaKeyDown}
-            onBlur={() => close(false)}
-          />
-        ) : (
-          <div
-            ref={view}
-            className="tui-cte-view"
-            role="textbox"
-            aria-multiline="true"
-            aria-readonly={readOnly || undefined}
-            aria-label={label}
-            aria-invalid={invalid || undefined}
-            aria-describedby={describedBy}
-            tabIndex={readOnly ? undefined : 0}
-            onMouseDown={() => {
-              pressed.current = true;
-            }}
-            onFocus={onViewFocus}
-            onClick={onViewClick}
-          >
-            {text.trim() === '' ? (
-              <p className="tui-field-preview-empty">Empty comment</p>
-            ) : (
-              <CommentMarkdown>{text}</CommentMarkdown>
-            )}
+    <LazyMotion features={domAnimation}>
+      <MotionConfig reducedMotion="user">
+        <m.div
+          className="tui-cte"
+          data-variant={variant}
+          data-stripe={stripe}
+          data-editing={editing || undefined}
+          data-invalid={invalid || undefined}
+          initial={false}
+          animate={{ height }}
+          transition={swapping ? SWAP : STILL}
+          onAnimationComplete={() => setSwapping(false)}
+        >
+          <div ref={faces} className="tui-cte-faces">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {editing ? (
+                <m.div key="write" {...FADE}>
+                  <textarea
+                    ref={area}
+                    className="tui-composer-input tui-cte-input"
+                    rows={1}
+                    value={text}
+                    aria-label={label}
+                    aria-invalid={invalid || undefined}
+                    aria-describedby={describedBy}
+                    onChange={e => onChange(e.currentTarget.value)}
+                    onKeyDown={onAreaKeyDown}
+                    onBlur={() => close(false)}
+                  />
+                </m.div>
+              ) : (
+                <m.div key="read" {...FADE}>
+                  <div
+                    ref={view}
+                    className="tui-cte-view"
+                    role="textbox"
+                    aria-multiline="true"
+                    aria-readonly={readOnly || undefined}
+                    aria-label={label}
+                    aria-invalid={invalid || undefined}
+                    aria-describedby={describedBy}
+                    tabIndex={readOnly ? undefined : 0}
+                    onMouseDown={() => {
+                      pressed.current = true;
+                    }}
+                    onFocus={onViewFocus}
+                    onClick={onViewClick}
+                  >
+                    {text.trim() === '' ? (
+                      <p className="tui-field-preview-empty">Empty comment</p>
+                    ) : (
+                      <CommentMarkdown>{text}</CommentMarkdown>
+                    )}
+                  </div>
+                </m.div>
+              )}
+            </AnimatePresence>
           </div>
+        </m.div>
+        {editing && hint && (
+          <span className="tui-cte-hint">Markdown supported</span>
         )}
-      </div>
-      {editing && hint && (
-        <span className="tui-cte-hint">Markdown supported</span>
-      )}
-    </>
+      </MotionConfig>
+    </LazyMotion>
   );
 }
