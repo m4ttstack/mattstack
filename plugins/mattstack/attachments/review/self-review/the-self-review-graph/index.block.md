@@ -110,12 +110,12 @@ flowchart TB
     make_recorded_move --> assemble_draft
     dispatch_reviewer --> check_verdicts
     check_verdicts --> verdict_problems
-    verdict_problems -->|none, or no selector| fails_to_findings
+    verdict_problems -->|none, or no selection| fails_to_findings
     verdict_problems -->|yes| run_budget_verdict_rounds
     run_budget_verdict_rounds --> verdict_rounds_spent
     verdict_rounds_spent -->|no| repair_verdicts
     repair_verdicts --> check_verdicts
-    verdict_rounds_spent -->|yes: list them in the notes| fails_to_findings
+    verdict_rounds_spent -->|yes: unanswered in the Assessment| fails_to_findings
     fails_to_findings --> assemble_draft
     assemble_draft --> gate_fix_and_next
     gate_fix_and_next --> next_answer

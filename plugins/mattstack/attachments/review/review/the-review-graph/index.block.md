@@ -224,12 +224,12 @@ flowchart TB
     select_rules --> dispatch_reviewer
     dispatch_reviewer --> check_verdicts
     check_verdicts --> verdict_problems
-    verdict_problems -->|none, or no selector| assemble_draft
+    verdict_problems -->|none, or no selection| assemble_draft
     verdict_problems -->|yes| run_budget_verdict_rounds
     run_budget_verdict_rounds --> verdict_rounds_spent
     verdict_rounds_spent -->|no| repair_verdicts
     repair_verdicts --> check_verdicts
-    verdict_rounds_spent -->|yes: list them in the notes| assemble_draft
+    verdict_rounds_spent -->|yes: unanswered in the Assessment| assemble_draft
     assemble_draft --> fails_to_findings
     fails_to_findings --> verify_blocking
     verify_blocking --> blocking_verified

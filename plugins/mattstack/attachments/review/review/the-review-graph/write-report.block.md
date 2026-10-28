@@ -29,8 +29,9 @@ here, before any gate opens.
    call to the author, or says approval is withheld pending the notes.
    The `request_changes` line says what must change before it merges.
 
-When a selector ran, write `review-verdicts.json` (The verdict file) next to
-the report json.
+Unless there was no selection, write `review-verdicts.json` (The verdict
+file) next to the report json. The draft's `Unanswered rules:` line, when
+it has one, goes into the json's `notes` word for word.
 
 These drafts are the text that posts. Once a gate is built from the json,
 nothing rewrites it; an iterate drafts again only for the new gate.
