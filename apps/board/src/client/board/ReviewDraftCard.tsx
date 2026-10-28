@@ -14,6 +14,7 @@ import {
 import { Modal } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
+import { CommentMarkdown } from './CommentMarkdown.tsx';
 import {
   anchorLine,
   anchorPath,
@@ -530,6 +531,28 @@ function CommentEditor({
   );
 }
 
+/** With no diff line to show, the slot the code takes holds the agent's
+    finding instead, under its file when it names one. */
+function FindingSection({ finding: f }: { finding: FindingEntry }) {
+  return (
+    <section
+      className="tui-review-section"
+      data-section="finding"
+      aria-label="Finding"
+    >
+      {f.file && (
+        <div className="tui-review-code-file">
+          <FileGlyph />
+          <span className="tui-review-code-path">{f.file}</span>
+        </div>
+      )}
+      <div className="tui-review-finding-text">
+        <CommentMarkdown>{f.body}</CommentMarkdown>
+      </div>
+    </section>
+  );
+}
+
 function CommentSection({
   finding,
   form,
@@ -613,7 +636,7 @@ export function FindingCard({
       {head}
       {checked && (
         <>
-          {hasDiffLine(f) && (
+          {hasDiffLine(f) ? (
             <CodeSection
               mrUrl={mrUrl}
               mrRef={mrRef}
@@ -621,6 +644,8 @@ export function FindingCard({
               finding={f}
               pins={pins}
             />
+          ) : (
+            <FindingSection finding={f} />
           )}
           <CommentSection finding={f} form={form} />
         </>

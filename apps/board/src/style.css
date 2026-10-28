@@ -6814,3 +6814,18 @@ a.tui-id-card-ref:focus-visible {
 .tui-sheet-dock .tui-gate-choice:not([data-checked]) {
   background: var(--card);
 }
+
+/* A finding with no diff line: its file bar, then the agent's finding in
+   the code's place, in a quieter hand than the comment under it. */
+.tui-review-finding .tui-review-section[data-section='finding'] {
+  gap: 0;
+  padding: 0;
+}
+.tui-review-card-head + .tui-review-section[data-section='finding'] {
+  border-top: 1px solid var(--border-soft);
+}
+.tui-review-finding-text {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
