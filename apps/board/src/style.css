@@ -5320,7 +5320,6 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint:active {
   background: color-mix(in srgb, var(--fill-accent) 28%, var(--card));
-  transform: scale(0.96);
 }
 /* The flash mounts already shown, so it eases in from the hidden pose. */
 .tui-cte[data-variant='plain']:not([data-editing])
