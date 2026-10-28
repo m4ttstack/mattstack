@@ -637,7 +637,7 @@ export function VerdictChip({
       uppercase
       data-verdict={outcome}
     >
-      for {verdictLabel}
+      review verdict: {verdictLabel}
     </Chip>
   );
 }
