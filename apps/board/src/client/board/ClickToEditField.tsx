@@ -19,7 +19,7 @@ import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { CheckGlyph, PencilLineIcon } from './icons.tsx';
 
 const FLASH_MS = 1600;
-const FADE_MS = 200;
+const FADE_MS = 150;
 
 type CaretDocument = Document & {
   caretPositionFromPoint?: (
