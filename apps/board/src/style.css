@@ -4792,12 +4792,11 @@ a.tui-id-card-ref:focus-visible {
   border-color: var(--fill-ok);
   box-shadow: 0 0 0 1px var(--fill-ok);
 }
-/* Optical, not equal: the line's half-leading already leaves ~7px above
-   the first line's letters, while inline code on the last line hangs to
-   the line box's foot. No top padding and 5.5px below puts ~5px of wash
-   on both sides of the ink. */
+/* Inter sits high in its line box: 6px of it above the capitals, 3.2px
+   under the descenders. The bottom takes the difference so the wash
+   reads even around the letters. */
 .tui-cte[data-variant='bare'] .tui-cte-view {
-  padding: 0 12px 5.5px;
+  padding: 2px 12px 4.8px;
 }
 /* Write opens out from the text so the wash has room around it. */
 .tui-cte[data-variant='bare'] .tui-cte-input {
