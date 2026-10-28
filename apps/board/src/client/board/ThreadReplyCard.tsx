@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
+import { Button, ICONS } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
+import { Disclosure } from './Disclosure.tsx';
 import { SearchCheckIcon } from './icons.tsx';
 import { CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 
@@ -127,22 +129,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                   {p.silence && (
                     <p className="tui-reply-silence">{p.silence}</p>
                   )}
-                  {p.check && (
-                    <p
-                      className="tui-reply-check"
-                      data-settled={p.check.settled ? '' : undefined}
-                    >
-                      <span className="tui-reply-check-icon" aria-hidden>
-                        <SearchCheckIcon />
-                      </span>
-                      <span>
-                        <strong className="tui-reply-check-k">
-                          Agent's check
-                        </strong>{' '}
-                        {p.check.note}
-                      </span>
-                    </p>
-                  )}
+                  {p.check && <AgentCheck {...p.check} />}
                 </section>
               )}
               <section
@@ -192,6 +179,34 @@ function Message({ who, text }: ThreadMessage): ReactNode {
       <div className="tui-reply-text">
         <CommentMarkdown>{text}</CommentMarkdown>
       </div>
+    </div>
+  );
+}
+
+/** What the agent found on the thread, behind a badge: verified when the
+    author's change or pushback holds, else still open. */
+function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const label = settled ? 'Agent verified' : 'Agent: still open';
+  return (
+    <div className="tui-reply-check">
+      <Button
+        type="button"
+        variant="light"
+        intent={settled ? 'ok' : 'warn'}
+        size="sm"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+      >
+        <SearchCheckIcon />
+        {label}
+        <span className="tui-reply-check-chevron" data-open={open || undefined}>
+          {ICONS['chevron-right']}
+        </span>
+      </Button>
+      <Disclosure open={open}>
+        <p className="tui-reply-check-note">{note}</p>
+      </Disclosure>
     </div>
   );
 }

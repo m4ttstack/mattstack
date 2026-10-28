@@ -4509,33 +4509,26 @@ a.tui-id-card-ref:focus-visible {
   font-size: 13px;
   color: var(--text-3);
 }
+/* The agent's check is a kit button; a click opens what it found. */
 .tui-reply-check {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+}
+.tui-reply-check-chevron {
+  display: inline-flex;
+  margin-left: 2px;
+  transition: transform 150ms;
+}
+.tui-reply-check-chevron[data-open] {
+  transform: rotate(90deg);
+}
+.tui-reply-check-note {
   margin: 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-1);
-}
-.tui-reply-check-k {
-  margin-right: 4px;
-  font-weight: 600;
-  color: var(--text-warn);
-}
-.tui-reply-check[data-settled] .tui-reply-check-k {
-  color: var(--text-ok);
-}
-.tui-reply-check-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--text-warn);
-}
-.tui-reply-check[data-settled] .tui-reply-check-icon {
-  color: var(--text-ok);
 }
 .tui-reply-resolve {
   display: inline-flex;
