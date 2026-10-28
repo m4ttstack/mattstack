@@ -41,12 +41,7 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
-import {
-  FindingCard,
-  FindingPeek,
-  SummaryCard,
-  type FilePin,
-} from './ReviewDraftCard.tsx';
+import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,
@@ -586,17 +581,14 @@ function ReviewGateSheet({
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
             head={
-              <div className="tui-review-card-head">
-                <label className="tui-review-finding-row">
-                  {tick}
-                  {title}
-                </label>
+              <label className="tui-review-finding-row tui-review-card-head">
+                {tick}
+                {title}
                 {pills}
-                <FindingPeek body={f.body} />
                 <span className="tui-review-sev" data-sev={f.severity}>
                   {SEVERITY_LABEL[f.severity]}
                 </span>
-              </div>
+              </label>
             }
           />
         );

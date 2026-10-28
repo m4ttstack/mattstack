@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { Modal, Tooltip } from '@mattstack/tui-kit';
+import { Modal } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
 import {
@@ -538,26 +538,6 @@ function CommentSection({
         <DraftMeta edited label={label} onReset={() => form.clearText(key)} />
       )}
     </section>
-  );
-}
-
-/** The agent's finding behind a mark beside the title: the comment says
-    the same thing to the author, so the card leaves it out and keeps it a
-    hover away. */
-export function FindingPeek({ body }: { body: string }) {
-  const tip = body.replace(/`/g, '');
-  return (
-    <Tooltip tip={tip} className="tui-review-peek">
-      <span
-        className="tui-review-peek-mark"
-        role="img"
-        tabIndex={0}
-        aria-label="Agent finding"
-        aria-description={tip}
-      >
-        <AgentGlyph />
-      </span>
-    </Tooltip>
   );
 }
 
