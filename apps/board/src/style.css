@@ -4518,7 +4518,15 @@ a.tui-id-card-ref:focus-visible {
   border-top: 1px solid var(--border-soft);
   font-size: 13px;
   line-height: 1.45;
-  color: var(--text-3);
+  color: var(--text-2);
+}
+.tui-reply-check-k {
+  margin-right: 4px;
+  font-weight: 600;
+  color: var(--text-warn);
+}
+.tui-reply-check[data-settled] .tui-reply-check-k {
+  color: var(--text-ok);
 }
 .tui-reply-check-icon {
   display: inline-flex;

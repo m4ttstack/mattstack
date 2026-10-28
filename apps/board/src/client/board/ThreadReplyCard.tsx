@@ -135,7 +135,12 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                       <span className="tui-reply-check-icon" aria-hidden>
                         <SearchCheckIcon />
                       </span>
-                      {p.check.note}
+                      <span>
+                        <strong className="tui-reply-check-k">
+                          Agent's check
+                        </strong>{' '}
+                        {p.check.note}
+                      </span>
                     </p>
                   )}
                 </section>
