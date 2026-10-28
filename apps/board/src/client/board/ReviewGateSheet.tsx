@@ -208,13 +208,15 @@ const DISPOSITION: Record<
 function severityGroups(
   findings: FindingEntry[]
 ): Array<[FindingSeverity, FindingEntry[]]> {
-  return SEVERITY_ORDER.map(
-    s =>
-      [s, findings.filter(f => f.severity === s)] as [
-        FindingSeverity,
-        FindingEntry[],
-      ]
-  ).filter(([, items]) => items.length > 0);
+  // Inside a severity, the findings on the code come first and the ones
+  // with no diff line after, each keeping the agent's order.
+  return SEVERITY_ORDER.map(s => {
+    const items = findings.filter(f => f.severity === s);
+    return [
+      s,
+      [...items.filter(hasDiffLine), ...items.filter(f => !hasDiffLine(f))],
+    ] as [FindingSeverity, FindingEntry[]];
+  }).filter(([, items]) => items.length > 0);
 }
 
 /** The drafts the poster falls back to, or null when the gate does not
