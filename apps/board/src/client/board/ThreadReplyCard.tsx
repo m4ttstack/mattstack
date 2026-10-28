@@ -138,11 +138,6 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                   )}
                 </section>
               )}
-              {p.check && (
-                <section className="tui-reply-verify" aria-label="Agent check">
-                  <AgentCheck {...p.check} />
-                </section>
-              )}
               <section
                 className="tui-review-section"
                 data-section="comment"
@@ -150,6 +145,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                 data-edited={edited || undefined}
                 aria-label="Reply"
               >
+                {p.check && <AgentCheck {...p.check} />}
                 <CommentEditor
                   label={label}
                   draft={p.draft}
