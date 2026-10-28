@@ -261,7 +261,9 @@ test('a fenced block shows its language over the code, and plain without a highl
   const block = panel.querySelector<HTMLElement>(
     '.tui-md-code[data-lang="ts"]'
   )!;
-  expect(block.querySelector('.tui-md-code-head')!.textContent).toBe('ts');
+  expect(block.querySelector('.tui-md-code-head')!.textContent).toBe(
+    'TypeScript'
+  );
   expect(block.querySelector('pre code')!.textContent).toBe(
     'const mod = jest.requireActual("./config");'
   );

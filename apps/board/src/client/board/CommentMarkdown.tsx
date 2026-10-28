@@ -55,6 +55,49 @@ class HighlightBoundary extends Component<
     source brings the highlighter and the language is one it knows, and a
     plain block otherwise. A `suggestion` fence is the forge's suggested
     change, labelled so. */
+/** A fence's info string as people name the language; an unknown one shows
+    as written. */
+const LANG_NAMES: Record<string, string> = {
+  ts: 'TypeScript',
+  typescript: 'TypeScript',
+  tsx: 'TSX',
+  js: 'JavaScript',
+  javascript: 'JavaScript',
+  jsx: 'JSX',
+  json: 'JSON',
+  sh: 'Shell',
+  bash: 'Shell',
+  shell: 'Shell',
+  zsh: 'Shell',
+  py: 'Python',
+  python: 'Python',
+  rb: 'Ruby',
+  ruby: 'Ruby',
+  go: 'Go',
+  rs: 'Rust',
+  rust: 'Rust',
+  sql: 'SQL',
+  yml: 'YAML',
+  yaml: 'YAML',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  css: 'CSS',
+  scss: 'SCSS',
+  html: 'HTML',
+  graphql: 'GraphQL',
+  gql: 'GraphQL',
+  diff: 'Diff',
+  swift: 'Swift',
+  kt: 'Kotlin',
+  kotlin: 'Kotlin',
+  java: 'Java',
+};
+
+function langName(lang: string | undefined): string {
+  if (!lang) return 'code';
+  return LANG_NAMES[lang.toLowerCase()] ?? lang;
+}
+
 function CodeFence({ lang, code }: { lang?: string; code: string }) {
   const Highlighted = useCodeBlock();
   const suggestion = lang !== undefined && /^suggestion\b/.test(lang);
@@ -66,7 +109,7 @@ function CodeFence({ lang, code }: { lang?: string; code: string }) {
       data-lang={suggestion ? undefined : lang}
     >
       <div className="tui-md-code-head">
-        {suggestion ? 'Suggested change' : (lang ?? 'code')}
+        {suggestion ? 'Suggested change' : langName(lang)}
       </div>
       {Highlighted && lang && !suggestion ? (
         <HighlightBoundary fallback={plain}>
