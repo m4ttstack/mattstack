@@ -166,11 +166,13 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                       </>
                     )
                   }
+                  footer={
+                    p.resolve && (
+                      <ResolveTick label={p.label} resolve={p.resolve} />
+                    )
+                  }
                   onChange={p.onChange}
                 />
-                {p.resolve && (
-                  <ResolveTick label={p.label} resolve={p.resolve} />
-                )}
               </section>
             </m.div>
           )}

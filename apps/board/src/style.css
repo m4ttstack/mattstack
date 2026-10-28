@@ -4524,6 +4524,60 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-silence {
   align-items: flex-start;
 }
+/* A field with a footer is one box: the text, a hairline, then the
+   footer's controls, inside the same border and corners. */
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte[data-variant='plain'] {
+  border-bottom-color: var(--border-soft);
+  border-radius: 6px 6px 0 0;
+}
+.tui-cte-wrap:has(> .tui-cte-footer):has(
+    > .tui-cte[data-variant='plain']:is(
+        [data-editing],
+        :has(.tui-cte-view:focus-visible)
+      )
+  ) {
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fill-accent) 15%, transparent);
+}
+.tui-cte-wrap:has(> .tui-cte-footer)
+  > .tui-cte[data-variant='plain']:is(
+    [data-editing],
+    :has(.tui-cte-view:focus-visible)
+  ) {
+  box-shadow: none;
+  border-bottom-color: var(--border-soft);
+}
+.tui-cte-wrap:has(
+    > .tui-cte[data-variant='plain']:is(
+        [data-editing],
+        :has(.tui-cte-view:focus-visible)
+      )
+  )
+  > .tui-cte-footer {
+  border-color: color-mix(in srgb, var(--fill-accent) 70%, var(--border));
+}
+/* While writing, the hint line hangs under the box rather than inside the
+   ringed wrap, and the wrap keeps room for it. */
+.tui-cte-wrap:has(> .tui-cte-footer):has(> .tui-cte[data-editing]) {
+  position: relative;
+  margin-bottom: 22px;
+}
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte[data-editing] ~ .tui-cte-hint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+}
+.tui-cte-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: var(--card);
+}
 /* The findings close on a quiet line with room under it, so the last card
    never sits against the end of the scroll. */
 .tui-sheet-end {
@@ -5209,7 +5263,7 @@ a.tui-id-card-ref:focus-visible {
 /* At rest the hint is a pill riding the field's top border, in the
    field's top padding, so it never covers the text; it eases in with the
    pointer. The section it sits in is its positioning box. */
-.tui-cte[data-variant='plain']:not([data-editing]) + .tui-cte-hint {
+.tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint {
   position: absolute;
   top: -10px;
   right: 12px;
@@ -5233,7 +5287,7 @@ a.tui-id-card-ref:focus-visible {
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* Write's hint tucks just under the field. */
-.tui-cte[data-variant='plain'][data-editing] + .tui-cte-hint {
+.tui-cte[data-variant='plain'][data-editing] ~ .tui-cte-hint {
   margin-top: 5px;
 }
 .tui-cte-hint svg {
@@ -5242,14 +5296,14 @@ a.tui-id-card-ref:focus-visible {
   flex-shrink: 0;
 }
 @media (hover: hover) {
-  .tui-cte[data-variant='plain']:not([data-editing]):hover + .tui-cte-hint {
+  .tui-cte[data-variant='plain']:not([data-editing]):hover ~ .tui-cte-hint {
     opacity: 1;
     transform: none;
   }
 }
 /* The flash mounts already shown, so it eases in from the hidden pose. */
 .tui-cte[data-variant='plain']:not([data-editing])
-  + .tui-cte-hint[data-flash='shown'] {
+  ~ .tui-cte-hint[data-flash='shown'] {
   opacity: 1;
   transform: none;
   @starting-style {
@@ -5259,7 +5313,7 @@ a.tui-id-card-ref:focus-visible {
 }
 /* "Comment updated" is a done state, so it takes the ok wash, not the
    accent the edit cue wears; it keeps it through the fade. */
-.tui-cte[data-variant='plain']:not([data-editing]) + .tui-cte-hint[data-flash] {
+.tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint[data-flash] {
   color: var(--text-ok);
   background: color-mix(in srgb, var(--fill-ok) 12%, var(--card));
   box-shadow:

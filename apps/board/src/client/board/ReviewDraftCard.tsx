@@ -509,6 +509,7 @@ export function CommentEditor({
   heading,
   actions,
   badge,
+  footer,
 }: {
   label: string;
   draft: string;
@@ -520,6 +521,7 @@ export function CommentEditor({
   heading?: string;
   actions?: ReactNode;
   badge?: ReactNode;
+  footer?: ReactNode;
 }) {
   const { text, empty } = commentState(draft, value, true);
   const hintId = useId();
@@ -538,6 +540,7 @@ export function CommentEditor({
         heading={heading}
         actions={actions}
         badge={badge}
+        footer={footer}
       />
       {empty && (
         <span className="tui-gate-error" id={hintId}>

@@ -92,6 +92,7 @@ export function ClickToEditField({
   heading,
   actions,
   badge,
+  footer,
 }: {
   label: string;
   text: string;
@@ -109,6 +110,9 @@ export function ClickToEditField({
   actions?: ReactNode;
   /** At rest, a pill on the field's top-left border, such as "Edited". */
   badge?: ReactNode;
+  /** Controls in a strip along the field's bottom, inside its border and
+      outside the text, so a click there never opens the field. */
+  footer?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -313,6 +317,7 @@ export function ClickToEditField({
                 </AnimatePresence>
               </div>
             </m.div>
+            {footer && <div className="tui-cte-footer">{footer}</div>}
             {hint && (editing || variant === 'plain') && (
               // At rest, plain's hint is the hover "Click to edit" pill; the
               // textbox already says it edits, so the pill stays out of the
