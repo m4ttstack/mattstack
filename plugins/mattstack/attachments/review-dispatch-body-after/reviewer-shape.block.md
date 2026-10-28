@@ -22,5 +22,5 @@ weak travels as a setup observation, not a rewritten checklist.
 Both branches return the same shape, stated in the dispatched prompt:
 **Strengths / Critical / Important / Minor / Assessment**. Callers assemble
 drafts out of those buckets, so a bound provider owes them too. When the
-payload carries a rule selection, the reply ends with the verdict set in the
-fenced block the selection names.
+payload asks for a verdict set, the reply ends with it in the block tagged
+with the `fence` value the payload names.
