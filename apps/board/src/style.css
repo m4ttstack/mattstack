@@ -6833,7 +6833,7 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* The info mark beside a code file's path, and the agent's finding it
-   opens on hover. */
+   opens on a click. */
 .tui-review-info {
   display: inline-flex;
   align-items: center;
@@ -6842,7 +6842,7 @@ a.tui-id-card-ref:focus-visible {
   border-radius: 4px;
   background: none;
   color: var(--text-3);
-  cursor: help;
+  cursor: pointer;
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .tui-review-info:hover,
