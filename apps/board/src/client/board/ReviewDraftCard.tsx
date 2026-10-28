@@ -546,7 +546,7 @@ function FindingSection({ finding: f }: { finding: FindingEntry }) {
           <span className="tui-review-code-path">{f.file}</span>
         </div>
       )}
-      <div className="tui-review-finding-text">
+      <div className="tui-review-finding-said">
         <CommentMarkdown>{f.body}</CommentMarkdown>
       </div>
     </section>

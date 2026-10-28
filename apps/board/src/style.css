@@ -6821,11 +6821,12 @@ a.tui-id-card-ref:focus-visible {
   gap: 0;
   padding: 0;
 }
-.tui-review-card-head + .tui-review-section[data-section='finding'] {
-  border-top: 1px solid var(--border-soft);
+.tui-review-section[data-section='finding'] .tui-review-code-file {
+  padding: 6px 14px;
 }
-.tui-review-finding-text {
-  padding: 12px 14px;
-  font-size: 13px;
-  color: var(--text-2);
+.tui-review-finding-said {
+  padding: 12px 14px 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-1);
 }
