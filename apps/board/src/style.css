@@ -7232,3 +7232,23 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-tabs .tui-tab > svg {
   margin-right: 6px;
 }
+
+/* A fix's reply direction: what the reply will say once the fix lands,
+   quoted under a small label rather than framed like a field. */
+.tui-thread-direction {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.tui-thread-direction-k {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.tui-thread-direction-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-2);
+}

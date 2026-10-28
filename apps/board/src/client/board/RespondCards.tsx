@@ -103,12 +103,14 @@ function ThreadCard({
         <ReplyBlock text={reply.text} edited={replyEdited} />
       )}
       {reply.kind === 'direction' && (
-        <CommentFrame
-          kind="direction"
-          kicker="reply direction"
-          held
-          text={reply.text}
-        />
+        <div className="tui-thread-direction">
+          <span className="tui-thread-direction-k">Reply after the fix</span>
+          <div className="tui-thread-direction-text">
+            <Markdown unstyled linkTargetBlank>
+              {reply.text}
+            </Markdown>
+          </div>
+        </div>
       )}
       {children}
     </div>

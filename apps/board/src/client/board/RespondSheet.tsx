@@ -967,7 +967,17 @@ function RespondSheetBody({
                         />
                       </ThreadCard>
                     ) : qctx?.shape === 'thread@1' ? (
-                      <ThreadCard ctx={qctx} />
+                      <ThreadCard ctx={qctx}>
+                        {qctx.reply.kind === 'direction' &&
+                          String(form.selections[q.name] ?? '').startsWith(
+                            'reply:'
+                          ) && (
+                            <p className="tui-thread-nothing">
+                              The agent drafts this reply next. You edit it when
+                              posting.
+                            </p>
+                          )}
+                      </ThreadCard>
                     ) : (
                       <ProseContext q={q} structured={qctx != null} />
                     )}
