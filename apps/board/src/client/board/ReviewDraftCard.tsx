@@ -642,27 +642,20 @@ export function VerdictChip({
   );
 }
 
-/** The review's summary comment as it will post (`joinSummary`): the
-    summary line drafted for the picked verdict, then each ticked finding
-    with no diff line, every part its own borderless field so the card
-    reads as the one comment the forge shows. A folded part edits here or
-    in its finding's card, both on the same text. */
+/** The review's summary line, drafted for the picked verdict, in the same
+    section and field a finding's comment uses. A finding with no diff line
+    edits in its own card; the poster joins it in after this line. */
 export function SummaryCard({
   outcome,
   draft,
-  folded,
   form,
 }: {
   outcome: string;
   draft: string;
-  folded: FindingEntry[];
   form: GateFormState;
 }) {
   const key = summaryKey(outcome);
   const { edited } = commentState(draft, form.texts[key], true);
-  const [editing, setEditing] = useState<string | null>(null);
-  const track = (part: string) => (on: boolean) =>
-    setEditing(prev => (on ? part : prev === part ? null : prev));
   return (
     <article className="tui-review-card tui-review-summary">
       <section
@@ -672,43 +665,22 @@ export function SummaryCard({
         data-edited={edited || undefined}
         aria-label="Summary comment"
       >
-        <div className="tui-review-summary-parts">
-          <CommentEditor
-            key={key}
+        <SectionHead icon={<CommentGlyph />} name="Summary" hue="ok">
+          <DraftMeta
+            edited={edited}
             label="Summary line"
-            draft={draft}
-            value={form.texts[key]}
-            variant="bare"
-            hint={false}
-            onChange={t => form.setText(key, t)}
-            onEditing={track('summary')}
+            unedited="drafted by the agent"
+            onReset={() => form.clearText(key)}
           />
-          {folded.map(f => (
-            <CommentEditor
-              key={f.id}
-              label={`Summary comment: ${f.title}`}
-              draft={f.comment!}
-              value={form.texts[commentKey(f.id)]}
-              variant="bare"
-              hint={false}
-              onChange={t => form.setText(commentKey(f.id), t)}
-              onEditing={track(f.id)}
-            />
-          ))}
-        </div>
-        {(editing !== null || edited) && (
-          <div className="tui-review-summary-foot">
-            <span className="tui-cte-hint">
-              {editing !== null && 'Markdown supported'}
-            </span>
-            <DraftMeta
-              edited={edited}
-              label="Summary line"
-              resetText="reset summary line"
-              onReset={() => form.clearText(key)}
-            />
-          </div>
-        )}
+        </SectionHead>
+        <CommentEditor
+          key={key}
+          label="Summary line"
+          draft={draft}
+          value={form.texts[key]}
+          variant="filled"
+          onChange={t => form.setText(key, t)}
+        />
       </section>
     </article>
   );

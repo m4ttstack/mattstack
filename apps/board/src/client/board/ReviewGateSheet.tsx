@@ -32,7 +32,6 @@ import {
   attachDraftEdits,
   draftEdits,
   findOutcomeQuestion,
-  hasDiffLine,
 } from './review-drafts.ts';
 import {
   readinessProse,
@@ -380,9 +379,6 @@ function ReviewGateSheet({
   const edits = drafts
     ? draftEdits(drafts, selectedFindings, form.texts, verdict)
     : { texts: {} };
-  const folded = drafts
-    ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
-    : [];
   const pinsByFile = useMemo(() => {
     const out = new Map<string, FilePin[]>();
     for (const f of findings) {
@@ -676,12 +672,7 @@ function ReviewGateSheet({
                   {mr && `posts on ${mrRef(mr)}`}
                 </span>
               </div>
-              <SummaryCard
-                outcome={verdict}
-                draft={summaryDraft}
-                folded={folded}
-                form={form}
-              />
+              <SummaryCard outcome={verdict} draft={summaryDraft} form={form} />
             </>
           )}
           {carryovers.length > 0 && (
