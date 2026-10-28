@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCheck, FileText, ListChecks } from 'lucide-react';
+import { ChartColumn, CheckCheck, ListChecks } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -699,7 +699,7 @@ function ReviewGateSheet({
             {(
               [
                 ['findings', 'Findings', ListChecks, findings.length],
-                ['report', 'Report', FileText, undefined],
+                ['report', 'Report', ChartColumn, undefined],
               ] as const
             ).map(([id, label, TabIcon, count]) => (
               <button
