@@ -70,6 +70,35 @@ export function carryoverTally(picks: CarryoverPick[]): string {
     .join(' · ');
 }
 
+const TALLY_ORDER: CarryoverCall[] = [
+  'fixed',
+  'pushback-accepted',
+  'not-fixed',
+  'pushback-rejected',
+];
+
+/** The earlier threads counted by status, each status as its card shows it:
+    the same dot, word and colour, then its count. */
+export function CarryoverTally({ picks }: { picks: CarryoverPick[] }) {
+  const counts = new Map<CarryoverCall, number>();
+  for (const p of picks)
+    counts.set(p.carry.call, (counts.get(p.carry.call) ?? 0) + 1);
+  return (
+    <span className="tui-review-tier-pills tui-carry-tally">
+      {TALLY_ORDER.filter(c => counts.has(c)).map(c => (
+        <span
+          key={c}
+          className="tui-reply-status"
+          data-hue={CARRYOVER_CALL[c].hue}
+        >
+          {CARRYOVER_CALL[c].text}
+          <span className="tui-review-sev-count">{counts.get(c)}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** One of the reviewer's earlier threads: what they wrote, what the author
     said back, the agent's check, and the reply this round posts. */
 export function CarryoverCard({

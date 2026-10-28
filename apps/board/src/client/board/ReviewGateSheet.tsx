@@ -46,7 +46,7 @@ import {
 import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
-  carryoverTally,
+  CarryoverTally,
   carryoverTexts,
   FindingAnchor,
   SkippedEarlier,
@@ -816,9 +816,7 @@ function ReviewGateSheet({
                     <span className="tui-sheet-list-title">
                       Earlier threads ({carryovers.length})
                     </span>
-                    <span className="tui-sheet-list-tally">
-                      {carryoverTally(carryovers)}
-                    </span>
+                    <CarryoverTally picks={carryovers} />
                   </div>
                   <div className="tui-respond-list">
                     {carryovers.map(c => (

@@ -6974,6 +6974,14 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-tier-pills:has(.tui-review-sev) {
   gap: 14px;
 }
+/* The earlier threads' tally: the cards' own status marks, in a row. */
+.tui-carry-tally {
+  gap: 14px;
+  margin-top: 0;
+}
+.tui-carry-tally > .tui-reply-status {
+  margin-left: 0;
+}
 .tui-review-sev-count {
   margin-left: 2px;
   font-weight: 400;
