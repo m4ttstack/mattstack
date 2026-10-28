@@ -345,6 +345,7 @@ function ReviewGateSheet({
   const findingsName = findingsQuestion?.id;
   const skippedName = skippedQuestion?.id;
   const outcomeName = outcomeQuestion?.id;
+  const [mainTab, setMainTab] = useState<'findings' | 'report'>('findings');
   const skippedEntries = useMemo(
     () =>
       (skippedQuestion?.options ?? []).flatMap(o => {
@@ -724,174 +725,204 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" data-sheet="review" ref={mainRef}>
-          {review.round !== undefined && (
-            <RoundHeading round={review.round} summary={roundSummary} />
-          )}
-          {carryovers.length > 0 && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">
-                  Your earlier threads ({carryovers.length})
-                </span>
-                <span className="tui-sheet-list-tally">
-                  {carryoverTally(carryovers)}
-                </span>
-              </div>
-              <div className="tui-respond-list">
-                {carryovers.map(c => (
-                  <CarryoverCard key={c.name} pick={c} form={form} />
-                ))}
-              </div>
-            </>
-          )}
-          {carryovers.length > 0 && !findingsQuestion && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">New this round</span>
-              </div>
-              <p className="tui-thread-nothing">Nothing new this round.</p>
-            </>
-          )}
-          {findingsQuestion && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">
-                  {carryovers.length > 0
-                    ? 'New this round'
-                    : findingsQuestion.label}
-                </span>
-                <span className="tui-sheet-list-tally">
-                  {selectedFindings.size} of {findings.length}
-                  {drafts ? '' : ' selected'}
-                  {!atEnd && moreBelow > 0 ? ` · ${moreBelow} more below` : ''}
-                </span>
-              </div>
-              <div
-                className="tui-review-find-list"
-                data-drafts={drafts ? '' : undefined}
+          <div
+            className="tui-tab-strip tui-review-tabs"
+            role="tablist"
+            aria-label="Review"
+          >
+            {(
+              [
+                ['findings', 'Findings', findings.length],
+                ['report', 'Report', undefined],
+              ] as const
+            ).map(([id, label, count]) => (
+              <button
+                key={id}
+                role="tab"
+                type="button"
+                aria-selected={mainTab === id}
+                className={`tui-tab${mainTab === id ? ' active' : ''}`}
+                onClick={() => setMainTab(id)}
               >
-                {drafts
-                  ? findingRows(tierGroups.flatMap(([, items]) => items))
-                  : tierGroups.map(([tier, items]) => {
-                      const allOn = items.every(f =>
-                        selectedFindings.has(f.id)
-                      );
-                      const allOff = items.every(
-                        f => !selectedFindings.has(f.id)
-                      );
-                      return (
-                        <div className="tui-review-tier-group" key={tier}>
-                          <div className="tui-review-tier-head">
-                            <span
-                              className="tui-review-tier-pill"
-                              data-tier={SEVERITY_LABEL[tier]}
-                            >
-                              {SEVERITY_LABEL[tier]} ({items.length})
+                {label}
+                {count !== undefined && (
+                  <span className="tui-tab-count">{count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          {mainTab === 'findings' && (
+            <>
+              {review.round !== undefined && (
+                <RoundHeading round={review.round} summary={roundSummary} />
+              )}
+              {carryovers.length > 0 && (
+                <>
+                  <div className="tui-sheet-list-head">
+                    <span className="tui-sheet-list-title">
+                      Your earlier threads ({carryovers.length})
+                    </span>
+                    <span className="tui-sheet-list-tally">
+                      {carryoverTally(carryovers)}
+                    </span>
+                  </div>
+                  <div className="tui-respond-list">
+                    {carryovers.map(c => (
+                      <CarryoverCard key={c.name} pick={c} form={form} />
+                    ))}
+                  </div>
+                </>
+              )}
+              {carryovers.length > 0 && !findingsQuestion && (
+                <>
+                  <div className="tui-sheet-list-head">
+                    <span className="tui-sheet-list-title">New this round</span>
+                  </div>
+                  <p className="tui-thread-nothing">Nothing new this round.</p>
+                </>
+              )}
+              {findingsQuestion && (
+                <>
+                  <div className="tui-sheet-list-head">
+                    <span className="tui-sheet-list-title">
+                      {carryovers.length > 0
+                        ? 'New this round'
+                        : findingsQuestion.label}
+                    </span>
+                    <span className="tui-sheet-list-tally">
+                      {selectedFindings.size} of {findings.length}
+                      {drafts ? '' : ' selected'}
+                      {!atEnd && moreBelow > 0
+                        ? ` · ${moreBelow} more below`
+                        : ''}
+                    </span>
+                  </div>
+                  <div
+                    className="tui-review-find-list"
+                    data-drafts={drafts ? '' : undefined}
+                  >
+                    {drafts
+                      ? findingRows(tierGroups.flatMap(([, items]) => items))
+                      : tierGroups.map(([tier, items]) => {
+                          const allOn = items.every(f =>
+                            selectedFindings.has(f.id)
+                          );
+                          const allOff = items.every(
+                            f => !selectedFindings.has(f.id)
+                          );
+                          return (
+                            <div className="tui-review-tier-group" key={tier}>
+                              <div className="tui-review-tier-head">
+                                <span
+                                  className="tui-review-tier-pill"
+                                  data-tier={SEVERITY_LABEL[tier]}
+                                >
+                                  {SEVERITY_LABEL[tier]} ({items.length})
+                                </span>
+                                <span className="tui-review-allnone-group">
+                                  <button
+                                    type="button"
+                                    className="tui-review-allnone"
+                                    data-noop={allOn || undefined}
+                                    onClick={() => toggleTier(items, true)}
+                                  >
+                                    all
+                                  </button>
+                                  <span
+                                    className="tui-review-allnone-sep"
+                                    aria-hidden="true"
+                                  >
+                                    ·
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="tui-review-allnone"
+                                    data-noop={allOff || undefined}
+                                    onClick={() => toggleTier(items, false)}
+                                  >
+                                    none
+                                  </button>
+                                </span>
+                              </div>
+                              {findingRows(items)}
+                            </div>
+                          );
+                        })}
+                  </div>
+                </>
+              )}
+              {skippedName && skippedEntries.length > 0 && (
+                <SkippedEarlier
+                  entries={skippedEntries}
+                  selected={selectedSkipped}
+                  onToggle={(value, on) =>
+                    form.toggleMulti(skippedName, value, on)
+                  }
+                />
+              )}
+            </>
+          )}
+          {mainTab === 'report' &&
+            (record ? (
+              <>
+                <dl className="tui-review-record">
+                  {strengths.length > 0 && (
+                    <div className="tui-review-record-row">
+                      <dt className="tui-review-record-label">strengths</dt>
+                      <dd className="tui-review-record-content">
+                        {strengths.map((s, i) => (
+                          <div className="tui-review-record-item" key={i}>
+                            <span className="tui-review-record-icon tui-review-record-icon-ok">
+                              <CircleCheckFilledIcon />
                             </span>
-                            <span className="tui-review-allnone-group">
-                              <button
-                                type="button"
-                                className="tui-review-allnone"
-                                data-noop={allOn || undefined}
-                                onClick={() => toggleTier(items, true)}
-                              >
-                                all
-                              </button>
-                              <span
-                                className="tui-review-allnone-sep"
-                                aria-hidden="true"
-                              >
-                                ·
+                            <span className="tui-review-record-stack">
+                              <span className="tui-review-record-lead">
+                                {s.lead}
                               </span>
-                              <button
-                                type="button"
-                                className="tui-review-allnone"
-                                data-noop={allOff || undefined}
-                                onClick={() => toggleTier(items, false)}
-                              >
-                                none
-                              </button>
+                              {typeof s.detail === 'string' && s.detail && (
+                                <span className="tui-review-record-detail">
+                                  {s.detail}
+                                </span>
+                              )}
                             </span>
                           </div>
-                          {findingRows(items)}
-                        </div>
-                      );
-                    })}
-              </div>
-            </>
-          )}
-          {skippedName && skippedEntries.length > 0 && (
-            <SkippedEarlier
-              entries={skippedEntries}
-              selected={selectedSkipped}
-              onToggle={(value, on) => form.toggleMulti(skippedName, value, on)}
-            />
-          )}
-
-          {!record && <hr className="tui-review-divider" />}
-          {record ? (
-            <>
-              <div className="tui-sheet-list-head tui-review-record-head">
-                <span className="tui-sheet-list-title">Review report</span>
-              </div>
-              <dl className="tui-review-record">
-                {strengths.length > 0 && (
-                  <div className="tui-review-record-row">
-                    <dt className="tui-review-record-label">strengths</dt>
-                    <dd className="tui-review-record-content">
-                      {strengths.map((s, i) => (
-                        <div className="tui-review-record-item" key={i}>
-                          <span className="tui-review-record-icon tui-review-record-icon-ok">
-                            <CircleCheckFilledIcon />
-                          </span>
-                          <span className="tui-review-record-stack">
-                            <span className="tui-review-record-lead">
-                              {s.lead}
-                            </span>
-                            {typeof s.detail === 'string' && s.detail && (
-                              <span className="tui-review-record-detail">
-                                {s.detail}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      ))}
-                    </dd>
-                  </div>
-                )}
-                {depth && (
-                  <div className="tui-review-record-row">
-                    <dt className="tui-review-record-label">depth</dt>
-                    <dd className="tui-review-record-content">
-                      <div className="tui-review-record-item">
-                        <span className="tui-review-record-icon">
-                          <SearchCheckIcon />
-                        </span>
-                        <span>{depth}</span>
-                      </div>
-                    </dd>
-                  </div>
-                )}
-                {notes.length > 0 && (
-                  <div className="tui-review-record-row">
-                    <dt className="tui-review-record-label">notes</dt>
-                    <dd className="tui-review-record-content">
-                      {notes.map((n, i) => (
-                        <div className="tui-review-record-item" key={i}>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                  {depth && (
+                    <div className="tui-review-record-row">
+                      <dt className="tui-review-record-label">depth</dt>
+                      <dd className="tui-review-record-content">
+                        <div className="tui-review-record-item">
                           <span className="tui-review-record-icon">
-                            <PencilLineIcon />
+                            <SearchCheckIcon />
                           </span>
-                          <span>{n}</span>
+                          <span>{depth}</span>
                         </div>
-                      ))}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </>
-          ) : (
-            <FullReportDisclosure mrUrl={mr?.webUrl} />
-          )}
+                      </dd>
+                    </div>
+                  )}
+                  {notes.length > 0 && (
+                    <div className="tui-review-record-row">
+                      <dt className="tui-review-record-label">notes</dt>
+                      <dd className="tui-review-record-content">
+                        {notes.map((n, i) => (
+                          <div className="tui-review-record-item" key={i}>
+                            <span className="tui-review-record-icon">
+                              <PencilLineIcon />
+                            </span>
+                            <span>{n}</span>
+                          </div>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </>
+            ) : (
+              <FullReportDisclosure mrUrl={mr?.webUrl} />
+            ))}
         </section>
         <aside className="tui-sheet-rail">
           {form.lost ? (

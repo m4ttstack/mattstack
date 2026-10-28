@@ -5091,19 +5091,15 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-3);
 }
 
-/* Hairline above the record cluster, spanning the left column. */
-.tui-review-divider {
-  margin: 22px 0 0;
-  border: none;
-  border-top: 1px solid var(--border-soft);
-}
 
 /* review record cluster: STRENGTHS / DEPTH / NOTES sharing one right-aligned
    label column and one text edge. */
-/* Under its own heading, the record is a white card like the findings
-   above it, so it reads as part of the review, not loose on the column. */
-.tui-review-record-head {
-  margin-top: 24px;
+/* The Report tab's record: a white card like the findings, so it reads
+   as part of the review, not loose on the column. */
+/* Findings and Report share the main column as tabs, so neither
+   scrolls under the other. */
+.tui-review-tabs {
+  margin-bottom: 16px;
 }
 .tui-review-record {
   margin: 0;
