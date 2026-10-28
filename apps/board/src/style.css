@@ -4395,7 +4395,7 @@ a.tui-id-card-ref:focus-visible {
   opacity: 0;
   transition: opacity 120ms;
 }
-.tui-review-card:hover .tui-review-code-more[data-reveal],
+.tui-review-section[data-section='code']:hover .tui-review-code-more[data-reveal],
 .tui-review-code-more[data-reveal]:focus-visible {
   opacity: 1;
 }
