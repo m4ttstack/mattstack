@@ -7195,7 +7195,11 @@ a.tui-id-card-ref:focus-visible {
   }
 }
 
-/* The Report tab opens on the same decision context card as the rail. */
+/* The Report tab opens on the same MR and decision context cards as the
+   rail. */
 .tui-review-report-context {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   margin-bottom: 16px;
 }

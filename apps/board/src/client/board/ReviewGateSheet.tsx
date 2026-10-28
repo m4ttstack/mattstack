@@ -835,7 +835,10 @@ function ReviewGateSheet({
             </>
           )}
           {mainTab === 'report' && (
-            <div className="tui-review-report-context">{contextCard}</div>
+            <div className="tui-review-report-context">
+              {mr && <MrCard mr={mr} />}
+              {contextCard}
+            </div>
           )}
           {mainTab === 'report' && (record || checks.length > 0) && (
             <dl className="tui-review-record">
