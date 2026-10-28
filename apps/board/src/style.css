@@ -4135,6 +4135,7 @@ a.tui-id-card-ref:focus-visible {
   margin-top: 0;
 }
 .tui-review-card-head .tui-review-finding-title {
+  flex: 0 1 auto;
   font-size: 14px;
   font-weight: 600;
 }
@@ -6951,11 +6952,8 @@ a.tui-id-card-ref:focus-visible {
   outline-offset: 2px;
 }
 
-/* A finding with no diff line says where its comment goes in the head;
-   its comment then follows the head straight on, under the head's line. */
-.tui-review-in-summary {
-  flex-shrink: 0;
-}
+/* A finding with no diff line: its comment follows the head straight on,
+   under the head's line. */
 .tui-review-card-head
   + .tui-review-card-body
   > .tui-review-section:first-child {
