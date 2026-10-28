@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Button, CHECK_ICON, Icon, ICONS } from '@mattstack/tui-kit';
+import { Button, CHECK_ICON, Chip, Icon, ICONS } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { Disclosure } from './Disclosure.tsx';
@@ -126,7 +126,15 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                     <Message key={i} {...msg} />
                   ))}
                   {p.silence && (
-                    <p className="tui-reply-msg tui-reply-silence">{p.silence}</p>
+                    <div className="tui-reply-msg tui-reply-silence">
+                      <Chip
+                        intent="muted"
+                        variant="outline"
+                        icon={ICONS['triangle-alert']}
+                      >
+                        {p.silence}
+                      </Chip>
+                    </div>
                   )}
                   {p.check && <AgentCheck {...p.check} />}
                 </section>

@@ -95,7 +95,7 @@ export function CarryoverCard({
           ? [{ who: author, text: carry.authorReply }]
           : []),
       ]}
-      silence={carry.authorReply ? undefined : `${author} hasn't replied.`}
+      silence={carry.authorReply ? undefined : 'No reply from author'}
       check={
         carry.note
           ? {
