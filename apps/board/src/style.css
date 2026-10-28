@@ -6876,3 +6876,23 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-code-body {
   overflow: hidden;
 }
+
+/* A dock taller than the rail allows (many response rows plus a
+   re-review row on a short screen) scrolls inside itself, and submit
+   sticks to its bottom so it never leaves the frame. */
+@media (min-width: 721px) {
+  .tui-sheet-dock {
+    flex-shrink: 0;
+    max-height: 75%;
+    overflow-y: auto;
+  }
+  /* Bands of the dock's ground above and below hide rows scrolling under
+     the stuck button. */
+  .tui-sheet-dock .tui-sheet-submit {
+    position: sticky;
+    bottom: 0;
+    box-shadow:
+      0 -10px 0 0 var(--surface-wash-fg-4-card),
+      0 18px 0 0 var(--surface-wash-fg-4-card);
+  }
+}
