@@ -275,6 +275,9 @@ export function ClickToEditField({
           // textbox already says it edits, so the pill stays out of the
           // accessibility tree.
           <span
+            // A fresh node per mode: the rest pill must start hidden, not
+            // fade out from Write's fully shown row.
+            key={editing ? 'write' : 'rest'}
             className="tui-cte-hint"
             aria-hidden={!editing || undefined}
             data-flash={editing ? undefined : (flash ?? undefined)}
