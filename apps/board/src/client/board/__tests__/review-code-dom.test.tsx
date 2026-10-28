@@ -1,11 +1,12 @@
-/** A drafted finding's The Code section: the file header from the
-    finding's anchor, the "view full diff" link once the sheet's DiffSource
+/** A drafted finding's code block: the file bar from the
+    finding's anchor, the "full diff" button once the sheet's DiffSource
     has the file, and the full-diff modal it opens (Escape closes it back to
     the link; the sheet stays open). */
 
 import React from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
+import { MotionGlobalConfig } from 'motion/react';
 import { createRoot, type Root } from 'react-dom/client';
 
 import type { GateRow } from '../../../gates/store.ts';
@@ -19,6 +20,12 @@ import { useGateForm } from '../GateForm.tsx';
 import { ReviewGateSheet } from '../ReviewGateSheet.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
+// happy-dom's Web Animations stub rejects a cancelled animation, which motion
+// raises as an unhandled error (StrictMode's double mount cancels one);
+// without `animate` motion uses its own frame loop, and skipAnimations
+// settles every fold at once.
+delete (Element.prototype as { animate?: unknown }).animate;
+MotionGlobalConfig.skipAnimations = true;
 
 afterAll(async () => {
   await GlobalRegistrator.unregister();
@@ -195,7 +202,7 @@ const codeOf = (title: string) => {
 };
 const fullDiffLink = (title: string) =>
   [...codeOf(title).querySelectorAll('button')].find(b =>
-    b.textContent?.includes('view full diff')
+    b.textContent?.includes('full diff')
   );
 const dialog = () =>
   document.querySelector<HTMLElement>(
@@ -231,7 +238,7 @@ test('the source is asked once per file, with the MR and the path', async () => 
   expect(asked).toEqual([{ mr: MR.webUrl!, file: 'lib/retry.ts' }]);
 });
 
-test('once the diff is in, view full diff opens the whole file with every finding on it', async () => {
+test('once the diff is in, full diff opens the whole file with every finding on it', async () => {
   await render(source);
   const link = fullDiffLink('Retry loop lacks backoff')!;
   expect(link).toBeDefined();
@@ -251,7 +258,7 @@ test('clicking the snippet opens the full diff too', async () => {
   await render(source);
   await React.act(async () =>
     codeOf('Magic number')
-      .querySelector<HTMLElement>('.tui-review-code')!
+      .querySelector<HTMLElement>('.tui-review-code-snippet')!
       .click()
   );
   expect(dialog()).not.toBeNull();
@@ -480,10 +487,10 @@ test('under StrictMode a revision change during the first fetch still settles', 
 test('selecting text inside the snippet does not open the full diff', async () => {
   await render({ ...source, fetchFileDiff: async () => RETRY });
   const snippet = codeOf('Retry loop lacks backoff').querySelector<HTMLElement>(
-    '.tui-review-code'
+    '.tui-review-code-snippet'
   )!;
   const range = document.createRange();
-  range.selectNodeContents(snippet.querySelector('.tui-review-code-path')!);
+  range.selectNodeContents(snippet);
   const picked = window.getSelection()!;
   picked.removeAllRanges();
   picked.addRange(range);

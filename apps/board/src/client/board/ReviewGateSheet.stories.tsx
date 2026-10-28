@@ -11,6 +11,7 @@ import '../../style.css';
 
 import type { GateQuestion, GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import { DiffSourceContext, type DiffSource } from './diff-source.ts';
 import { useGateForm } from './GateForm.tsx';
 import { ReviewGateSheet } from './ReviewGateSheet.tsx';
 
@@ -837,4 +838,169 @@ const draftedReReviewGate: GateRow = {
 export const DraftedReReview: Story = {
   decorators: [no404],
   render: () => <Host gate={draftedReReviewGate} mr={boardMr} />,
+};
+
+// --- DraftedFirstRound ---------------------------------------------------
+
+const draftedFirstRoundFindings = question(
+  'findings-1',
+  'Post which findings to !31?',
+  true,
+  [
+    {
+      value: 'f1',
+      label: '[Critical] SQL built from unsanitized input',
+      description: 'lib/db/query.ts:42 · parameterize the query',
+    },
+    {
+      value: 'f5',
+      label: '[Important] Retry loop lacks backoff',
+      description: 'lib/retry.ts:41 · add exponential backoff',
+    },
+    {
+      value: 'n-readme',
+      label: '[Minor] README still names the old folder',
+      description: 'README.md · mention the new path',
+    },
+    {
+      value: 'n-evidence',
+      label: '[Minor] No run for the --changed flag',
+      description: 'evidence · one quick run',
+    },
+  ],
+  findingsCtx(
+    {
+      ...F.f1,
+      comment:
+        '**issue:** the search handler drops the raw `q` straight into the `WHERE` clause, so a crafted query string reaches the database as SQL. could this use a bound parameter?\n\n```ts\ndb.query("SELECT * FROM items WHERE name = $1", [q]);\n```',
+    },
+    {
+      ...F.f5,
+      comment:
+        '**suggestion:** the loop retries immediately up to five times, so one upstream blip turns into six requests. something like `Math.min(200 * 2 ** attempt, 5000)` would back it off.',
+    },
+    {
+      id: 'n-readme',
+      severity: 'minor',
+      title: 'README still names the old folder',
+      file: 'README.md',
+      fix: 'mention the new path',
+      body: 'The README still says the scanner reads `lib/jobs`, and nothing mentions the move to `lib/tasks`.',
+      comment:
+        '**suggestion:** the `README.md` still says the scanner reads `lib/jobs`. anyone with a local overlay keyed on the old paths will get `merged 0/N` with no hint why. could we add a line about the move?',
+    },
+    {
+      id: 'n-evidence',
+      severity: 'minor',
+      title: 'No run for the --changed flag',
+      fix: 'one quick run',
+      body: 'Every AC has a run in the evidence except `--changed` picking up a file under `lib/tasks/**`.',
+      comment:
+        '**suggestion:** thanks for the extra evidence, that covers it nicely. the one AC without a run is `--changed` picking up a file under `lib/tasks/**`... would you mind grabbing one quick run of that?',
+    }
+  )
+);
+
+const draftedFirstRoundGate: GateRow = {
+  ...sixFindingGate,
+  gateId: 'sheet-drafted-first-round',
+  context: ctx({
+    ...(JSON.parse(sixFindingGate.context!) as Record<string, unknown>),
+    findings: { critical: 1, important: 1, minor: 2 },
+    editable: true,
+    summaryComments: {
+      approve:
+        'Left a few comments, the injection one is the main one. Approving once that lands.',
+      comment: 'Left a few comments, the injection one is the main one.',
+    },
+  }),
+  questions: [
+    draftedFirstRoundFindings,
+    question('outcome', 'Verdict on !31', false, [
+      {
+        value: 'comment',
+        label: 'comment (recommended)',
+        description: 'Post the selected findings without a verdict.',
+      },
+      {
+        value: 'approve',
+        label: 'approve',
+        description: 'Approve !31 and post the selected findings.',
+      },
+    ]),
+  ],
+};
+
+const FIRST_ROUND_PATCHES: Record<string, string> = {
+  'lib/db/query.ts': `@@ -35,12 +35,14 @@ export async function searchItems(
+ ) {
+   const db = await pool.connect();
+   const q = req.query.q ?? '';
+   const limit = Number(req.query.limit ?? 20);
+
+-  const rows = await db.query('SELECT * FROM items LIMIT $1', [limit]);
++  const rows = await db.query(
++    \`SELECT * FROM items
++     WHERE name LIKE '%\${q}%'
++     LIMIT \${limit}\`
++  );
+   return rows.map(toItem);
+ }
+
+ export async function itemById(id: string) {`,
+  'lib/retry.ts': `@@ -34,12 +34,14 @@ export async function withRetry<T>(
+   job: () => Promise<T>,
+   attempts = 5
+ ): Promise<T> {
+-  return job();
++  for (let attempt = 0; ; attempt++) {
++    try {
++      return await job();
++    } catch (err) {
++      if (attempt >= attempts) throw err;
++      log.warn('retrying', { attempt });
++    }
++  }
+ }
+
+ export function isRetryable(err: unknown) {`,
+};
+
+/** Invented patches for the two files the drafted findings sit on. */
+const firstRoundDiffs: DiffSource = {
+  fetchFileDiff: async ({ file }) =>
+    FIRST_ROUND_PATCHES[file]
+      ? {
+          path: file,
+          patch: FIRST_ROUND_PATCHES[file]!,
+          forge: 'gitlab',
+          webUrl: `${boardMr.webUrl}/diffs`,
+        }
+      : null,
+  loadView: () => import('./DiffView.tsx'),
+};
+
+/** A drafted first round with click-to-edit comments: two findings on a
+    diff line, two that fold into the summary comment. Every comment reads
+    rendered and opens raw on a click; a folded one edits in the summary or
+    in its own card. */
+export const DraftedFirstRound: Story = {
+  // A real gate's report.json carries the record cluster; without it the
+  // column falls back to the Full report disclosure, which real gates
+  // rarely show.
+  decorators: [
+    fetchStub(url =>
+      url.startsWith('/review/report.json')
+        ? new Response(reportJson, {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        : undefined
+    ),
+  ],
+  render: () => (
+    <DiffSourceContext.Provider value={firstRoundDiffs}>
+      <Host gate={draftedFirstRoundGate} mr={boardMr} />
+    </DiffSourceContext.Provider>
+  ),
 };

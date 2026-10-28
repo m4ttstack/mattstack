@@ -173,7 +173,7 @@ test('an open plan@1 gate opens the respond sheet: threads left; MR card, decisi
     'add retry to the fetch queue'
   );
   expect(card.querySelector('.tui-id-card-branch')!.textContent).toBe(
-    'feature/demo-12-retry'
+    '· feature/demo-12-retry'
   );
   const context = $('.tui-sheet-rail .tui-sheet-context-card')!;
   expect(context.querySelector('.tui-id-card-lead')!.textContent).toBe(
