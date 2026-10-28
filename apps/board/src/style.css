@@ -4098,6 +4098,21 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-card:not([data-off]) .tui-review-card-head {
   border-radius: 7px 7px 0 0;
 }
+/* The head row: the tick's label fills it, and an unticked card's "ask a
+   question" link sits after it, outside the label so its click never
+   toggles the finding. */
+.tui-review-card-head-bar {
+  display: flex;
+  align-items: center;
+}
+.tui-review-card-head-bar > .tui-review-card-head {
+  flex: 1;
+  min-width: 0;
+}
+.tui-review-card-head-bar > .tui-review-section-link {
+  flex: none;
+  padding: 0 16px 0 4px;
+}
 .tui-review-card-head .tui-gate-choice-input {
   margin-top: 0;
 }
@@ -4175,14 +4190,103 @@ a.tui-id-card-ref:focus-visible {
   cursor: pointer;
 }
 @media (hover: hover) {
-  .tui-review-section-link:hover {
+  .tui-review-section-link:hover:not(:disabled) {
     text-decoration: underline;
   }
+}
+/* An ask link while another finding's question is sending: one at a time. */
+.tui-review-section-link:disabled {
+  cursor: default;
+  color: var(--text-3);
 }
 .tui-review-section-link:focus-visible {
   outline: 2px solid var(--fill-accent);
   outline-offset: 2px;
   border-radius: 2px;
+}
+/* The question about one finding, written under the Agent Finding and
+   typed into the review pane; then the line saying the pane took it. */
+.tui-review-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  max-width: 140ch;
+}
+.tui-review-ask[data-asked] {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.tui-review-ask-field {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  overflow: hidden;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.tui-review-ask-field:focus-within {
+  border-color: var(--fill-accent);
+  box-shadow: 0 0 0 1px var(--fill-accent);
+}
+.tui-review-ask-field .tui-composer-input:disabled {
+  color: var(--text-3);
+}
+.tui-review-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.tui-review-ask-done {
+  font-size: 12px;
+  color: var(--text-ok-small);
+}
+/* A finding the review agent revised in its pane: the card's border and a
+   strip under its head take the warn hue, the way the board's banners do,
+   so a changed finding stands out before it posts. */
+.tui-review-card.tui-review-finding[data-revised] {
+  border-color: color-mix(in srgb, var(--fill-warn) 45%, transparent);
+}
+.tui-review-revised {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--fill-warn) 45%, transparent);
+  background: color-mix(in srgb, var(--fill-warn) 7%, transparent);
+  font-size: 12px;
+  color: var(--text-warn-small);
+}
+.tui-review-revised-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.tui-review-revised-text {
+  overflow-wrap: anywhere;
+}
+.tui-review-revised-original {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.tui-review-revised-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.tui-review-revised-original [data-part='markdown'] > * {
+  margin: 0;
+}
+.tui-review-revised-original [data-part='markdown'] > * + * {
+  margin-top: 6px;
 }
 /* The comment that posts: a plain field the agent drafted, teal once it
    takes focus or an edit, with the Markdown note and the tabs under it. */

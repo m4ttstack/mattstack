@@ -72,6 +72,71 @@ test('reconcile keeps a vanished active gate absent without answer evidence', ()
   expect(next.answered).not.toContain('g1');
 });
 
+test('reconcile follows a superseded active gate onto its successor, in place', () => {
+  // The old gate is closed, never answered, so no answer evidence exists;
+  // the server's old-to-new mapping is the evidence.
+  const next = reconcile(
+    session(),
+    [entry('g2', 2), entry('g3', 3), entry('g1b', 1)],
+    null,
+    undefined,
+    { g1: 'g1b' }
+  );
+  expect(next.activeId).toBe('g1b');
+  expect(next.order).toEqual(['g1b', 'g2', 'g3']);
+  expect(next.answered).toEqual([]);
+});
+
+test('reconcile swaps a superseded non-active gate in place', () => {
+  const next = reconcile(
+    session(),
+    [entry('g1', 1), entry('g2b', 2), entry('g3', 3)],
+    null,
+    undefined,
+    { g2: 'g2b' }
+  );
+  expect(next.order).toEqual(['g1', 'g2b', 'g3']);
+  expect(next.activeId).toBe('g1');
+  expect(next.answered).toEqual([]);
+});
+
+test('reconcile swaps in place when the successor was already appended', () => {
+  const appended = session({ order: ['g1', 'g2', 'g3', 'g1b'] });
+  const next = reconcile(
+    appended,
+    [entry('g2', 2), entry('g3', 3), entry('g1b', 1)],
+    null,
+    undefined,
+    { g1: 'g1b' }
+  );
+  expect(next.order).toEqual(['g1b', 'g2', 'g3']);
+  expect(next.activeId).toBe('g1b');
+});
+
+test('reconcile ignores a replacement whose successor is not in entries', () => {
+  const before = session();
+  const next = reconcile(
+    before,
+    [entry('g2', 2), entry('g3', 3)],
+    null,
+    undefined,
+    { g1: 'g1b' }
+  );
+  expect(next).toBe(before);
+});
+
+test('a held vanished active stays put even with a successor in entries', () => {
+  const next = reconcile(
+    session(),
+    [entry('g2', 2), entry('g3', 3), entry('g1b', 1)],
+    'g1',
+    undefined,
+    { g1: 'g1b' }
+  );
+  expect(next.activeId).toBe('g1');
+  expect(next.order).toEqual(['g1', 'g2', 'g3', 'g1b']);
+});
+
 test('reconcile keeps the whole queue through an empty snapshot', () => {
   const next = reconcile(session(), []);
   expect(next.activeId).toBe('g1');

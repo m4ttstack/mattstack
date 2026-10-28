@@ -25,6 +25,7 @@ import {
   getSetting,
   listOrgs,
   paneList,
+  paneSend,
   readDiscussions,
   readProjectMRs,
   rtCommand,
@@ -132,6 +133,7 @@ import {
 } from './draft-state.ts';
 import faviconSvg from './favicon.svg' with { type: 'text' };
 import { fileDiffRoute } from './file-diff-route.ts';
+import { handleFindingQuestion } from './finding-question.ts';
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
@@ -179,7 +181,9 @@ import {
   launchReview,
   mrTabLabel,
   parseLaunchNote,
+  readPaneScreen,
   reopenPrompt,
+  sendPaneEscape,
   sendPaneText,
   statusBinPath,
 } from './herdr.ts';
@@ -301,7 +305,19 @@ import {
 } from './respond-state.ts';
 import { respondTargets } from './respond-targets.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
+import {
+  previousReviewGateId,
+  reviewRevisionFor,
+  type ReviewRevision,
+} from './review-revision.ts';
 import { dropRounds, latestRounds } from './review-rounds.ts';
+import {
+  deleteSheetDraft,
+  dropDraftOnReviewVerdict,
+  pruneSheetDrafts,
+  readSheetDraft,
+  writeSheetDraft,
+} from './review-sheet-draft.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -329,6 +345,7 @@ import {
   ownerSteps,
   ringText,
 } from './run-owner.ts';
+import { parseSheetDraft, type SheetDraftReply } from './sheet-draft-shape.ts';
 import { canonicalReactions } from './slack-emoji.ts';
 import {
   attachOwnerPosts,
@@ -1172,9 +1189,21 @@ async function withRowState(mrs: BoardMR[]) {
         : {}),
       gates: joinGateExecutors(mr.gates, reconciler.executors),
       doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
+      ...withReviewRevision(mr.webUrl),
     })
   );
   return joinExecutorOrphans(rows, reconciler.executors);
+}
+
+/** The open review gate's revised findings for the review sheet, spread
+    into the MR's row; nothing when the gate superseded none or none changed
+    (see review-revision.ts). */
+function withReviewRevision(mrUrl: string | null | undefined): {
+  reviewRevision?: ReviewRevision;
+} {
+  if (!mrUrl) return {};
+  const reviewRevision = reviewRevisionFor(gateCache, mrUrl);
+  return reviewRevision ? { reviewRevision } : {};
 }
 
 function withSlackChannel<T extends BoardMR>(
@@ -2119,6 +2148,7 @@ const httpServer = Bun.serve({
             )
           );
           pruneDrafts(onBoard);
+          pruneSheetDrafts(onBoard);
           prunePeerReviews(onBoard);
           pruneClosedPaneMarkers(onBoard);
           pruneSentNudges(onBoard);
@@ -2150,6 +2180,9 @@ const httpServer = Bun.serve({
             })),
             mrs: mrsWithOrphans,
             queueExtras: buildQueueExtras(gateCache.rows()),
+            // Old gate id to the gate that superseded it, so an open sheet
+            // follows a re-raised gate onto its successor.
+            gateReplacements: gateCache.replacements(),
             orphans,
             // Enrolled peer usernames from the relay, when peering knows them.
             // Absent means unknown, and the pickers fall back to the roster.
@@ -2614,6 +2647,9 @@ const httpServer = Bun.serve({
             return new Response(dedup.reason, { status: 409 });
         }
         const statePath = reviewFilePath(parsed.mrUrl);
+        // A fresh run's gate is not a re-raise of the last run's, so the
+        // sheet's saved ticks and edits do not carry over.
+        deleteSheetDraft(parsed.mrUrl);
         writeReviewState(statePath, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
@@ -3047,6 +3083,89 @@ const httpServer = Bun.serve({
         return new Response(JSON.stringify({ ok: true }), {
           headers: { 'content-type': 'application/json' },
         });
+      }
+      case '/review/sheet-draft': {
+        // The review sheet's unsent ticks and edits, kept per MR so a gate
+        // the review agent re-raises after revising a finding restores them
+        // (see client/board/sheet-draft.ts). GET `?mr=&gate=` returns the
+        // draft (or null) and the gate `gate` superseded, so the sheet can
+        // tell a draft from this run from one left by another.
+        if (req.method !== 'GET' && req.method !== 'PUT')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        if (req.method === 'GET') {
+          const params = new URL(req.url).searchParams;
+          const mrUrl = params.get('mr');
+          const gateId = params.get('gate');
+          if (!mrUrl || !gateId)
+            return new Response('expected mr and gate', { status: 400 });
+          const reply: SheetDraftReply = {
+            draft: readSheetDraft(mrUrl) ?? null,
+            previousGateId: previousReviewGateId(gateCache, mrUrl, gateId),
+          };
+          return new Response(JSON.stringify(reply), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, draft } = (body ?? {}) as {
+          mrUrl?: unknown;
+          draft?: unknown;
+        };
+        const parsed = parseSheetDraft(draft);
+        if (typeof mrUrl !== 'string' || mrUrl === '' || !parsed)
+          return new Response(
+            'expected { mrUrl: string, draft: { ticked, known?, texts, outcome?, notes, gateId? } }',
+            { status: 400 }
+          );
+        writeSheetDraft(mrUrl, parsed);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      case '/review/finding-question': {
+        // Types the human's question about one finding into the review
+        // agent's own pane (see finding-question.ts).
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const result = await handleFindingQuestion(body, {
+          reviewGate: mrUrl => gateCache.get(`mr:${mrUrl}`, 'review-post'),
+          reviewPane: mrUrl => readReviewStates().get(mrUrl),
+          paneSend,
+          readScreen: paneId => readPaneScreen(paneId),
+          sendEscape: paneId => sendPaneEscape(paneId),
+          sleep: ms => Bun.sleep(ms),
+          focusPane,
+          logError: message => console.error(message),
+        });
+        return typeof result.body === 'string'
+          ? new Response(result.body, { status: result.status })
+          : new Response(JSON.stringify(result.body), {
+              status: result.status,
+              headers: { 'content-type': 'application/json' },
+            });
       }
       case '/drafts': {
         // The ONLY path from a held doctor draft to a GitLab note. The human
@@ -5218,6 +5337,14 @@ const stopRelay = FIXTURE_DIR
                 `gate answered resume failed: ${err instanceof Error ? err.message : err}`
               )
             );
+            // A real verdict on the review gate ends the sheet's draft.
+            try {
+              dropDraftOnReviewVerdict(gateFrame);
+            } catch (err) {
+              console.error(
+                `review sheet draft drop failed: ${err instanceof Error ? err.message : err}`
+              );
+            }
           }
           // The push is a wake-up, never the delivery: the journal is read
           // from the cursor so a frame that raced a reconnect is not lost.

@@ -680,3 +680,24 @@ export async function sendPaneText(
 ): Promise<void> {
   await runner(['pane', 'run', paneId, text]);
 }
+
+/** Press Escape in a running pane: dismisses the gate form a review pane is
+    showing, so a line typed next lands at its prompt (see
+    finding-question.ts). */
+export async function sendPaneEscape(
+  paneId: string,
+  runner: HerdrRunner = defaultRunner
+): Promise<void> {
+  await runner(['pane', 'send-keys', paneId, 'escape']);
+}
+
+/** The pane's visible screen as plain text (`herdr pane read <paneId>
+    --source visible`). Throws when herdr cannot read it. Used to check a
+    blocked review pane is showing Claude Code's question form before an
+    Escape is sent to it (see finding-question.ts). */
+export async function readPaneScreen(
+  paneId: string,
+  runner: HerdrRunner = defaultRunner
+): Promise<string> {
+  return runner(['pane', 'read', paneId, '--source', 'visible']);
+}

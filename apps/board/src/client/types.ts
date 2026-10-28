@@ -5,6 +5,7 @@ import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
+import type { ReviewRevision } from '../review-revision.ts';
 import type { SlackTemplates } from '../template.ts';
 import type { Handoff, HandoffKind } from '../triage/memory.ts';
 import type { TurnConfig } from '../turn.ts';
@@ -213,6 +214,9 @@ export type BoardMRWithReview = BoardMR & {
       distinct from `BoardData.orphans`, which only holds the leftover
       entries no MR row claimed. */
   orphan?: ExecutorView;
+  /** The findings the open review gate revised from the gate it
+      superseded, each with its original; absent when nothing changed. */
+  reviewRevision?: ReviewRevision;
 };
 
 export type AskKind = 'review' | 're-review' | 'respond';
@@ -335,6 +339,10 @@ export interface BoardData {
       herd-owned gates, admitted by non-"mr:" subject prefix -- an
       unescalated herd-owned gate never reaches this list. */
   queueExtras: GateRow[];
+  /** Superseded gate id to the gate that replaced it, for the gates the
+      server's cache still remembers replacing. Absent from an older
+      server. */
+  gateReplacements?: Record<string, string>;
   /** Reconciler executors in state "gone" that matched no MR row's subject;
       one that did match rides that row's own `orphan` field instead. */
   orphans: ExecutorView[];

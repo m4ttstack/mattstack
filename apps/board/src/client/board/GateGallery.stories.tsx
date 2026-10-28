@@ -108,11 +108,16 @@ function Face({
           onFocusPane={noop}
           onAnswered={noop}
           onContinue={noop}
+          onAskQuestion={askInGallery}
         />
       </DiffSourceContext.Provider>
     </PeopleProvider>
   );
 }
+
+/** The gallery's review pane takes every question after a short beat. */
+const askInGallery = () =>
+  new Promise<boolean>(resolve => setTimeout(() => resolve(true), 400));
 
 const face = (name: string, entry: G.GalleryGate): Story => ({
   name,
@@ -219,6 +224,25 @@ export const ReviewPostDraftedGitHub = face(
   'Review: post, drafted, GitHub with three verdicts',
   G.reviewPostDraftedGitHub
 );
+export const ReviewPostRevised = face(
+  'Review: post, drafted, one finding revised in the review pane',
+  G.reviewPostRevised
+);
+export const ReviewPostAsking: Story = {
+  ...face('Review: post, drafted, asking about a finding', G.reviewPostRevised),
+  play: async ({ canvasElement }) => {
+    const [ask] = await within(canvasElement).findAllByRole('button', {
+      name: /ask a question/,
+    });
+    await userEvent.click(ask!);
+    await userEvent.type(
+      await within(canvasElement).findByRole('textbox', {
+        name: /your question/,
+      }),
+      'Does the existing teardown test already cover this?'
+    );
+  },
+};
 export const ReviewPostVerdictOnly = face(
   'Review: post, prose, verdict only',
   G.reviewPostVerdictOnly

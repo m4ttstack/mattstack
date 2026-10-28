@@ -41,7 +41,13 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
-import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
+import {
+  AskLink,
+  FindingCard,
+  SummaryCard,
+  type FilePin,
+  type FindingAsk,
+} from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,
@@ -49,6 +55,7 @@ import {
   FindingAnchor,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
+import { useSheetDraft } from './sheet-draft.ts';
 import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
@@ -113,6 +120,80 @@ function safeDepth(report: ReviewReportJson | null): string | undefined {
   return report && typeof report.depth === 'string' && report.depth
     ? report.depth
     : undefined;
+}
+
+/** The ask link's tooltip while the review pane is gone (the server's
+    NO_REVIEW_PANE refusal, said before the click). */
+export const ASK_PANE_GONE =
+  "the review pane isn't running; resume the review from its row first";
+
+/** Types a question about one finding into the review pane (`POST
+    /review/finding-question` through the board's launch flow, which toasts
+    the outcome); resolves whether the pane took it. */
+export type AskQuestion = (
+  mr: BoardMRWithReview,
+  gateId: string,
+  findingId: string,
+  question: string
+) => Promise<boolean>;
+
+/** The sheet's questions to the review pane, one at a time: which findings
+    have their ask area open, which one is sending, and which the pane took.
+    All of it starts over on a new gate. */
+function useFindingAsks(
+  gateId: string,
+  send: ((findingId: string, question: string) => Promise<boolean>) | null,
+  onFocusPane: (() => void) | null,
+  unavailable?: string
+): (findingId: string) => FindingAsk | undefined {
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+  const [sending, setSending] = useState<string | null>(null);
+  useEffect(() => {
+    setOpen(new Set());
+    setAsked(new Set());
+    setSending(null);
+  }, [gateId]);
+  const live = useRef(gateId);
+  live.current = gateId;
+  if (!send) return () => undefined;
+  const without = (set: ReadonlySet<string>, id: string) => {
+    const next = new Set(set);
+    next.delete(id);
+    return next;
+  };
+  return findingId => ({
+    state:
+      sending === findingId
+        ? 'sending'
+        : asked.has(findingId)
+          ? 'asked'
+          : open.has(findingId)
+            ? 'open'
+            : 'idle',
+    blocked: sending !== null && sending !== findingId,
+    ...(unavailable !== undefined ? { unavailable } : {}),
+    onOpen: () => {
+      setAsked(a => without(a, findingId));
+      setOpen(o => new Set(o).add(findingId));
+    },
+    onCancel: () => setOpen(o => without(o, findingId)),
+    onSend: question => {
+      if (sending !== null || question.trim() === '') return;
+      const forGate = gateId;
+      setSending(findingId);
+      void send(findingId, question)
+        .catch(() => false)
+        .then(ok => {
+          if (live.current !== forGate) return;
+          setSending(null);
+          if (!ok) return;
+          setOpen(o => without(o, findingId));
+          setAsked(a => new Set(a).add(findingId));
+        });
+    },
+    ...(onFocusPane ? { onFocusPane } : {}),
+  });
 }
 
 /** Checks are rail material only (the CHECKS card), never part of the main
@@ -251,6 +332,8 @@ function readDrafts(
 function ReviewGateSheet({
   gate,
   mr,
+  onAskQuestion,
+  paneGone = false,
   form,
   queue,
   onClose,
@@ -259,6 +342,11 @@ function ReviewGateSheet({
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
+  /** Types a question about a finding into the review pane. */
+  onAskQuestion?: AskQuestion;
+  /** The reconciler reports the gate's pane gone: no question can reach it,
+      so the ask links stay but are disabled, saying why. */
+  paneGone?: boolean;
   form: GateFormState;
   queue: GateSheetQueue;
   onClose: () => void;
@@ -347,6 +435,24 @@ function ReviewGateSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.gateId]);
 
+  // After the seed above, so the restore's unticks land on top of it. Only a
+  // revision this gate carries drops its comment edit: one an earlier gate
+  // carried must not keep discarding what the reviewer typed since.
+  const revision =
+    mr?.reviewRevision?.gateId === gate.gateId ? mr.reviewRevision : undefined;
+  const revisedIds = useMemo(
+    () => Object.keys(revision?.revised ?? {}),
+    [revision]
+  );
+  useSheetDraft(
+    mr?.webUrl ?? undefined,
+    form,
+    { findings: findingsName, outcome: outcomeName },
+    findings.map(f => f.id),
+    revisedIds,
+    gate.gateId
+  );
+
   const handleReset = () => {
     form.resetAll();
     seedDefaults(true);
@@ -428,6 +534,16 @@ function ReviewGateSheet({
   const checks = useMemo(() => safeChecks(report), [report]);
   const notes = useMemo(() => safeNotes(report), [report]);
   const depth = safeDepth(report);
+  // Only an open gate has a review pane holding at it to ask.
+  const askFor = useFindingAsks(
+    gate.gateId,
+    mr && onAskQuestion && gate.status === 'open'
+      ? (findingId, question) =>
+          onAskQuestion(mr, gate.gateId, findingId, question)
+      : null,
+    mr ? () => onFocusPane(mr, 'review') : null,
+    paneGone ? ASK_PANE_GONE : undefined
+  );
 
   const mainRef = useRef<HTMLElement | null>(null);
   const [atEnd, setAtEnd] = useState(true);
@@ -518,6 +634,8 @@ function ReviewGateSheet({
       // The card's sections sit outside the label:
       // inside it, a click on the comment would toggle
       // the finding.
+      const original = revision?.revised[f.id]?.original;
+      const ask = askFor(f.id);
       if (drafts)
         return (
           <FindingCard
@@ -529,12 +647,20 @@ function ReviewGateSheet({
             mrRef={mr && mrRef(mr)}
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
+            ask={ask}
+            revision={original ? { original } : undefined}
             head={
-              <label className="tui-review-finding-row tui-review-card-head">
-                {tick}
-                {title}
-                {pills}
-              </label>
+              // An unticked card shows only its head, so the ask link moves
+              // up into it: beside the tick's label, never inside it, where
+              // a click on the link would toggle the finding.
+              <div className="tui-review-card-head-bar">
+                <label className="tui-review-finding-row tui-review-card-head">
+                  {tick}
+                  {title}
+                  {pills}
+                </label>
+                {!checked && ask && <AskLink title={f.title} ask={ask} />}
+              </div>
             }
           />
         );

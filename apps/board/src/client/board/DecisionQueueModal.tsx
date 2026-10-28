@@ -19,7 +19,7 @@ import { mrRef } from './MrLinks.tsx';
 import { postPicks } from './respond-post.ts';
 import { RespondSheetBody } from './RespondSheet.tsx';
 import { isReviewSheetGate, paneContext } from './review-gate.ts';
-import { ReviewGateSheet } from './ReviewGateSheet.tsx';
+import { ReviewGateSheet, type AskQuestion } from './ReviewGateSheet.tsx';
 import { paneReason, PaneSheetBody, StageSheetBody } from './StageSheet.tsx';
 
 /** One pip per queued gate. */
@@ -67,6 +67,7 @@ function DecisionQueueModal({
   onContinue,
   onLostChange,
   readOnly: seatReadOnly,
+  onAskQuestion,
 }: {
   gate: GateRow & { executor?: ExecutorState };
   /** Absent for a non-MR gate (queueExtras) -- the strip and face below
@@ -95,6 +96,9 @@ function DecisionQueueModal({
   /** Set when the seat cannot answer this gate (gateReadOnlyReason): the
       face shows the questions and says why, with no form to submit. */
   readOnly?: string | null;
+  /** Types a question about one review finding into the review pane,
+      through the board's launch flow; resolves whether the pane took it. */
+  onAskQuestion?: AskQuestion;
 }) {
   const paneGone = gate.executor === 'gone';
   const context = gateContext(gate);
@@ -214,6 +218,8 @@ function DecisionQueueModal({
       <ReviewGateSheet
         gate={gate}
         mr={mr}
+        onAskQuestion={onAskQuestion}
+        paneGone={paneGone}
         form={form}
         queue={queue}
         onClose={onClose}

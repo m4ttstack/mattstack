@@ -1171,6 +1171,37 @@ export const reviewPostDrafted: GalleryGate = {
   },
 };
 
+const RADAR_F2 = RADAR_FINDINGS[1]!;
+
+/** The drafted review after the review pane revised f2 from a question and
+    re-raised its gate: the gate it superseded had f2 as Important, anchored
+    four lines higher and worded differently. */
+export const reviewPostRevised: GalleryGate = {
+  ...reviewPostDrafted,
+  mr: {
+    ...MRS.radarLayers,
+    reviewRevision: {
+      gateId: 'gallery-review-post-revised',
+      revised: {
+        f2: {
+          original: {
+            ...RADAR_F2,
+            severity: 'important',
+            file: 'packages/radar-map/src/layers/hooks/useRadarMap.test.tsx:997',
+            title: 'Nothing covers a late model the map should still add',
+            body: 'The new tests only cover a model that lands after teardown. Nothing covers the late model the map should still add, so a guard on the wrong flag would pass.',
+            comment: RADAR_COMMENTS.f2,
+          },
+        },
+      },
+    },
+  },
+  gate: {
+    ...reviewPostDrafted.gate,
+    gateId: 'gallery-review-post-revised',
+  },
+};
+
 // Invented code for the radar review's two files, as GitLab's MR diffs API
 // returns them: per-file hunks with no file headers.
 const RADAR_HOOK_PATCH = `@@ -98,11 +98,12 @@ export function useRadarMap(provider: RadarProvider) {

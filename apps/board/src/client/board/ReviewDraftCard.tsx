@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
+import { Button, Chip, Markdown, Modal } from '@mattstack/tui-kit';
 import {
   CommentField,
   commentState,
@@ -38,9 +38,11 @@ import {
   CodeGlyph,
   CommentGlyph,
   FileGlyph,
+  QuestionGlyph,
   RemoveGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
+import { SEVERITY_LABEL } from './review-gate.ts';
 
 /** A diff that fails to load or render leaves the file header standing. */
 class DiffBoundary extends Component<
@@ -600,9 +602,203 @@ function CommentSection({
   );
 }
 
+/** A `file:line` anchor split into its path and the line part after the
+    last colon (a single line or a range such as `117–119`). */
+function splitAnchor(file: string | undefined): {
+  path: string;
+  lines?: string;
+} {
+  if (file === undefined) return { path: '' };
+  const m = /^(.*):(\d[^:]*)$/.exec(file);
+  return m ? { path: m[1]!, lines: m[2]! } : { path: file };
+}
+
+/** What a revision changed, in the strip's order: the severity, the anchor
+    (`lines a → b` on the same file, the whole anchor when the file moved),
+    then whether the title or body was reworded. */
+export function revisionSummary(
+  original: FindingEntry,
+  revised: FindingEntry
+): string[] {
+  const parts: string[] = [];
+  if (original.severity !== revised.severity)
+    parts.push(
+      `${SEVERITY_LABEL[original.severity]} → ${SEVERITY_LABEL[revised.severity]}`
+    );
+  if (original.file !== revised.file) {
+    const a = splitAnchor(original.file);
+    const b = splitAnchor(revised.file);
+    parts.push(
+      a.path === b.path && a.lines !== undefined && b.lines !== undefined
+        ? `lines ${a.lines} → ${b.lines}`
+        : `${original.file ?? 'no file'} → ${revised.file ?? 'no file'}`
+    );
+  }
+  if (original.title !== revised.title || original.body !== revised.body)
+    parts.push('finding reworded');
+  return parts;
+}
+
+/** A finding the review agent revised in its own pane and re-raised the
+    gate with: what changed, with the original's title and body behind a
+    toggle. */
+function RevisedStrip({
+  original,
+  revised,
+}: {
+  original: FindingEntry;
+  revised: FindingEntry;
+}) {
+  const [open, setOpen] = useState(false);
+  const text = [
+    'Revised in the review pane',
+    ...revisionSummary(original, revised),
+  ].join(' · ');
+  return (
+    <div className="tui-review-revised">
+      <div className="tui-review-revised-head">
+        <span className="tui-review-revised-text">{text}</span>
+        <button
+          type="button"
+          className="tui-review-section-link"
+          aria-expanded={open}
+          onClick={() => setOpen(o => !o)}
+        >
+          {open ? 'hide original' : 'show original'}
+        </button>
+      </div>
+      {open && (
+        <div className="tui-review-revised-original">
+          <p className="tui-review-revised-title">{original.title}</p>
+          <Markdown unstyled linkTargetBlank>
+            {original.body}
+          </Markdown>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One finding's question to the review pane: `idle` offers "ask a
+    question", `open` is the area being written, `sending` is the request in
+    flight, `asked` is a question the pane took. `blocked` is set while
+    another finding's question is sending: one question at a time.
+    `unavailable` is why no question can be asked at all (the review pane is
+    gone): the link stays, disabled, with the reason as its tooltip. */
+export interface FindingAsk {
+  state: 'idle' | 'open' | 'sending' | 'asked';
+  blocked: boolean;
+  unavailable?: string;
+  onOpen: () => void;
+  onCancel: () => void;
+  onSend: (question: string) => void;
+  /** Brings the review pane forward; absent when the sheet cannot. */
+  onFocusPane?: () => void;
+}
+
+export const ASK_PLACEHOLDER = 'What do you want to know about this finding?';
+
+/** A finding's "ask a question" link: in the Agent Finding head on a
+    ticked card, at the end of the card head on an unticked one. */
+export function AskLink({ title, ask }: { title: string; ask: FindingAsk }) {
+  return (
+    <button
+      type="button"
+      className="tui-review-section-link"
+      aria-label={`${title}: ask a question`}
+      aria-expanded={ask.state !== 'idle'}
+      disabled={
+        ask.unavailable !== undefined || ask.blocked || ask.state === 'sending'
+      }
+      title={ask.unavailable}
+      onClick={ask.onOpen}
+    >
+      ask a question
+      <QuestionGlyph />
+    </button>
+  );
+}
+
+/** The area under the Agent Finding where the question is written and
+    sent to the review pane, then where the sheet says the pane took it. */
+function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
+  const [text, setText] = useState('');
+  // A question the pane took is done with; asking again starts empty.
+  useEffect(() => {
+    if (ask.state === 'asked') setText('');
+  }, [ask.state]);
+  if (ask.state === 'asked')
+    return (
+      <div className="tui-review-ask" data-asked="">
+        <span className="tui-review-ask-done" role="status">
+          asked in the review pane
+        </span>
+        {ask.onFocusPane && (
+          <button
+            type="button"
+            className="tui-review-section-link"
+            onClick={ask.onFocusPane}
+          >
+            go to the review pane
+            <ArrowOutGlyph />
+          </button>
+        )}
+      </div>
+    );
+  const sending = ask.state === 'sending';
+  const empty = text.trim() === '';
+  return (
+    <div className="tui-review-ask">
+      <div className="tui-review-ask-field">
+        <textarea
+          className="tui-composer-input"
+          rows={3}
+          maxLength={2000}
+          value={text}
+          placeholder={ASK_PLACEHOLDER}
+          aria-label={`${title}: your question`}
+          disabled={sending}
+          autoFocus
+          onChange={e => setText(e.currentTarget.value)}
+          onKeyDown={e => {
+            // Escape here is the question's, never the sheet's: it cancels
+            // the question and must not reach the sheet's Escape-to-close.
+            if (e.key !== 'Escape') return;
+            e.stopPropagation();
+            if (!sending) ask.onCancel();
+          }}
+        />
+      </div>
+      <div className="tui-review-ask-actions">
+        <Button
+          type="button"
+          variant="light"
+          intent="accent"
+          size="sm"
+          disabled={sending || empty}
+          onClick={() => ask.onSend(text)}
+        >
+          send to the review pane
+        </Button>
+        <button
+          type="button"
+          className="tui-review-section-link"
+          disabled={sending}
+          onClick={ask.onCancel}
+        >
+          cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** One finding in a review whose comments the board posts: the header
     with its tick, then The Code, the agent's finding and the comment that
-    posts. Unticked, only the header shows. */
+    posts. Unticked, only the header shows, carrying the ask link (the
+    caller puts it in `head`) with the ask area under it. A finding the review pane
+    revised carries the revised strip under its header, ticked or not, so
+    the change is in view while deciding whether to post it. */
 export function FindingCard({
   finding: f,
   checked,
@@ -612,6 +808,8 @@ export function FindingCard({
   mrRef,
   mrRevision,
   pins,
+  ask,
+  revision,
 }: {
   finding: FindingEntry;
   checked: boolean;
@@ -621,13 +819,27 @@ export function FindingCard({
   mrRef?: string;
   mrRevision?: string;
   pins: FilePin[];
+  ask?: FindingAsk;
+  /** The finding as the gate this one superseded carried it. */
+  revision?: { original: FindingEntry };
 }) {
   return (
     <article
       className="tui-review-finding tui-review-card"
       data-off={checked ? undefined : ''}
+      data-revised={revision ? '' : undefined}
     >
       {head}
+      {revision && <RevisedStrip original={revision.original} revised={f} />}
+      {!checked && ask && ask.state !== 'idle' && (
+        <section
+          className="tui-review-section"
+          data-section="ask"
+          aria-label="Question"
+        >
+          <AskArea title={f.title} ask={ask} />
+        </section>
+      )}
       {checked && (
         <>
           {f.file && (
@@ -648,12 +860,17 @@ export function FindingCard({
               icon={<AgentGlyph />}
               name="Agent Finding"
               hue="accent"
-            />
+            >
+              {ask && <AskLink title={f.title} ask={ask} />}
+            </SectionHead>
             <div className="tui-review-section-body">
               <Markdown unstyled linkTargetBlank>
                 {f.body}
               </Markdown>
             </div>
+            {ask && ask.state !== 'idle' && (
+              <AskArea title={f.title} ask={ask} />
+            )}
           </section>
           <CommentSection finding={f} form={form} />
         </>
