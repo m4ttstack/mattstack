@@ -828,62 +828,67 @@ function ReviewGateSheet({
             />
           )}
 
-          <hr className="tui-review-divider" />
+          {!record && <hr className="tui-review-divider" />}
           {record ? (
-            <dl className="tui-review-record">
-              {strengths.length > 0 && (
-                <div className="tui-review-record-row">
-                  <dt className="tui-review-record-label">strengths</dt>
-                  <dd className="tui-review-record-content">
-                    {strengths.map((s, i) => (
-                      <div className="tui-review-record-item" key={i}>
-                        <span className="tui-review-record-icon tui-review-record-icon-ok">
-                          <CircleCheckFilledIcon />
-                        </span>
-                        <span className="tui-review-record-stack">
-                          <span className="tui-review-record-lead">
-                            {s.lead}
+            <>
+              <div className="tui-sheet-list-head tui-review-record-head">
+                <span className="tui-sheet-list-title">Review report</span>
+              </div>
+              <dl className="tui-review-record">
+                {strengths.length > 0 && (
+                  <div className="tui-review-record-row">
+                    <dt className="tui-review-record-label">strengths</dt>
+                    <dd className="tui-review-record-content">
+                      {strengths.map((s, i) => (
+                        <div className="tui-review-record-item" key={i}>
+                          <span className="tui-review-record-icon tui-review-record-icon-ok">
+                            <CircleCheckFilledIcon />
                           </span>
-                          {typeof s.detail === 'string' && s.detail && (
-                            <span className="tui-review-record-detail">
-                              {s.detail}
+                          <span className="tui-review-record-stack">
+                            <span className="tui-review-record-lead">
+                              {s.lead}
                             </span>
-                          )}
-                        </span>
-                      </div>
-                    ))}
-                  </dd>
-                </div>
-              )}
-              {depth && (
-                <div className="tui-review-record-row">
-                  <dt className="tui-review-record-label">depth</dt>
-                  <dd className="tui-review-record-content">
-                    <div className="tui-review-record-item">
-                      <span className="tui-review-record-icon">
-                        <SearchCheckIcon />
-                      </span>
-                      <span>{depth}</span>
-                    </div>
-                  </dd>
-                </div>
-              )}
-              {notes.length > 0 && (
-                <div className="tui-review-record-row">
-                  <dt className="tui-review-record-label">notes</dt>
-                  <dd className="tui-review-record-content">
-                    {notes.map((n, i) => (
-                      <div className="tui-review-record-item" key={i}>
+                            {typeof s.detail === 'string' && s.detail && (
+                              <span className="tui-review-record-detail">
+                                {s.detail}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </dd>
+                  </div>
+                )}
+                {depth && (
+                  <div className="tui-review-record-row">
+                    <dt className="tui-review-record-label">depth</dt>
+                    <dd className="tui-review-record-content">
+                      <div className="tui-review-record-item">
                         <span className="tui-review-record-icon">
-                          <PencilLineIcon />
+                          <SearchCheckIcon />
                         </span>
-                        <span>{n}</span>
+                        <span>{depth}</span>
                       </div>
-                    ))}
-                  </dd>
-                </div>
-              )}
-            </dl>
+                    </dd>
+                  </div>
+                )}
+                {notes.length > 0 && (
+                  <div className="tui-review-record-row">
+                    <dt className="tui-review-record-label">notes</dt>
+                    <dd className="tui-review-record-content">
+                      {notes.map((n, i) => (
+                        <div className="tui-review-record-item" key={i}>
+                          <span className="tui-review-record-icon">
+                            <PencilLineIcon />
+                          </span>
+                          <span>{n}</span>
+                        </div>
+                      ))}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </>
           ) : (
             <FullReportDisclosure mrUrl={mr?.webUrl} />
           )}

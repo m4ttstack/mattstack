@@ -5100,8 +5100,17 @@ a.tui-id-card-ref:focus-visible {
 
 /* review record cluster: STRENGTHS / DEPTH / NOTES sharing one right-aligned
    label column and one text edge. */
+/* Under its own heading, the record is a white card like the findings
+   above it, so it reads as part of the review, not loose on the column. */
+.tui-review-record-head {
+  margin-top: 24px;
+}
 .tui-review-record {
-  margin: 16px 0 0;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
   display: flex;
   flex-direction: column;
   gap: 12px;
