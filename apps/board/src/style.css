@@ -4449,6 +4449,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-reply-status {
   display: inline-flex;
+  margin-left: auto;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
