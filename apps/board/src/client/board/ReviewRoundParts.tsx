@@ -88,8 +88,9 @@ export function CarryoverCard({
     <ThreadReplyCard
       label={pick.label}
       status={CARRYOVER_CALL[carry.call]}
+      round={carry.round}
       messages={[
-        { who: 'You', meta: `round ${carry.round}`, text: carry.original },
+        { text: carry.original },
         ...(carry.authorReply
           ? [{ who: author, text: carry.authorReply }]
           : []),

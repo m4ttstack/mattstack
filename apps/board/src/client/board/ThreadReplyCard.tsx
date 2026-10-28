@@ -7,8 +7,8 @@ import { SearchCheckIcon } from './icons.tsx';
 import { CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 
 export interface ThreadMessage {
-  who: string;
-  meta?: string;
+  /** Absent on the viewer's own message, which needs no name. */
+  who?: string;
   text: string;
 }
 
@@ -18,6 +18,8 @@ export interface ThreadReplyCardProps {
   status: { text: string; hue: 'green' | 'amber' | 'accent' | 'muted' };
   /** The fix commit a respond reply points at. */
   sha?: string;
+  /** The review round the thread was opened in. */
+  round?: number;
   messages: ThreadMessage[];
   /** Said in place of the other side's message when they never replied. */
   silence?: string;
@@ -87,6 +89,11 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
             data-file={p.label.includes(':') ? '' : undefined}
           >
             {p.label}
+            {p.round !== undefined && (
+              <span className="tui-respond-pill tui-reply-round">
+                Round {p.round}
+              </span>
+            )}
           </span>
           <span className="tui-reply-status" data-hue={p.status.hue}>
             {p.status.text}
@@ -173,13 +180,10 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
   );
 }
 
-function Message({ who, meta, text }: ThreadMessage): ReactNode {
+function Message({ who, text }: ThreadMessage): ReactNode {
   return (
     <div className="tui-reply-msg">
-      <div className="tui-reply-who">
-        <span className="tui-reply-name">{who}</span>
-        {meta && <span className="tui-reply-meta">{meta}</span>}
-      </div>
+      {who && <span className="tui-reply-name">{who}</span>}
       <div className="tui-reply-text">
         <CommentMarkdown>{text}</CommentMarkdown>
       </div>
