@@ -2453,18 +2453,27 @@ body {
   outline-offset: 2px;
   border-radius: 3px;
 }
+/* The re-review ask sits under the replies it follows, in the dock: what
+   happens after posting, listed with what posts. */
 .tui-respond-rereview {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 18px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
 }
-.tui-respond-rereview-heading {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-2);
+.tui-respond-rereview-row {
+  align-items: center;
+  cursor: pointer;
+}
+.tui-respond-rereview-row .tui-sheet-card-text {
+  flex: 1;
+}
+.tui-respond-rereview-lead {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* Spans the post chip, its gap and the resolve slot, so the ask's text
+   starts where the replies' paths do. */
+.tui-respond-rereview[data-resolve-slot] .tui-respond-rereview-lead {
+  width: 120px;
 }
 .tui-post-tick .tui-gate-choice-input {
   width: 14px;

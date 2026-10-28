@@ -1849,9 +1849,11 @@ test('a post sheet offers an unticked re-review ask for each unrequested latch',
   expect(ticks).toHaveLength(1);
   expect(ticks[0]!.checked).toBe(false);
   expect(ticks[0]!.closest('label')!.textContent).toBe(
-    'Ask Bo for a re-review once posting finishes'
+    're-reviewask Bo after posting'
   );
-  expect($('[data-section="re-review"] h3')!.textContent).toBe('Re-review');
+  expect(
+    $('.tui-sheet-dock [data-section="re-review"]')!.getAttribute('aria-label')
+  ).toBe('Re-review');
 });
 
 test('a ticked re-review ask rides the answer as the latch thread id', async () => {
@@ -1897,7 +1899,7 @@ test("a run answering one person offers only that person's latch", async () => {
     )
   );
   expect(reReviewTicks().map(t => t.closest('label')!.textContent)).toEqual([
-    'Ask Ana for a re-review once posting finishes',
+    're-reviewask Ana after posting',
   ]);
 });
 

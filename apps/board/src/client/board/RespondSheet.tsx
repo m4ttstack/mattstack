@@ -44,7 +44,6 @@ import {
 } from './respond-post.ts';
 import {
   PostResolveChoice,
-  PostTick,
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
@@ -956,25 +955,6 @@ function RespondSheetBody({
               );
             })}
         </div>
-        {latches.length > 0 && (
-          <section
-            className="tui-respond-rereview"
-            data-section="re-review"
-            aria-label="Re-review"
-          >
-            <h3 className="tui-respond-rereview-heading">Re-review</h3>
-            {latches.map(l => (
-              <PostTick
-                key={l.discussionId}
-                on={reReviewIds.has(l.discussionId)}
-                onChange={on => toggleReReview(l.discussionId, on)}
-              >
-                Ask {people.short(l.reviewer)} for a re-review once posting
-                finishes
-              </PostTick>
-            ))}
-          </section>
-        )}
       </section>
       <aside className="tui-sheet-rail">
         {form.lost ? (
@@ -1047,6 +1027,55 @@ function RespondSheetBody({
                   />
                   {nextStep && (
                     <p className="tui-sheet-dock-next">{nextStep}</p>
+                  )}
+                  {latches.length > 0 && (
+                    <div
+                      className="tui-sheet-card-list tui-respond-rereview"
+                      data-section="re-review"
+                      data-resolve-slot={
+                        picks.some(p => p.resolve) || undefined
+                      }
+                      role="group"
+                      aria-label="Re-review"
+                    >
+                      {latches.map(l => {
+                        const on = reReviewIds.has(l.discussionId);
+                        return (
+                          <label
+                            key={l.discussionId}
+                            className="tui-sheet-card-row tui-respond-rereview-row"
+                          >
+                            <span className="tui-respond-rereview-lead">
+                              <Chip intent="accent" variant="outline" uppercase>
+                                re-review
+                              </Chip>
+                            </span>
+                            <span className="tui-sheet-card-text">
+                              ask {people.short(l.reviewer)} after posting
+                            </span>
+                            <span className="tui-check">
+                              <input
+                                type="checkbox"
+                                className="tui-gate-choice-input"
+                                data-type="checkbox"
+                                data-checked={on ? '' : undefined}
+                                checked={on}
+                                onChange={e =>
+                                  toggleReReview(
+                                    l.discussionId,
+                                    e.currentTarget.checked
+                                  )
+                                }
+                              />
+                              <span
+                                className="tui-check-tick"
+                                aria-hidden="true"
+                              />
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   )}
                 </>
               )}
