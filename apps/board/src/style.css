@@ -4590,11 +4590,21 @@ a.tui-id-card-ref:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 6px 12px;
+  padding: 3px 12px 4px;
   border: 1px solid var(--border);
   border-top: none;
   border-radius: 0 0 6px 6px;
   background: var(--card);
+}
+/* The footer's tick is a quiet line, not a second field. */
+.tui-cte-footer .tui-reply-resolve {
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tui-cte-footer .tui-gate-choice-input {
+  width: 13px;
+  height: 13px;
 }
 /* The findings close on a quiet line with room under it, so the last card
    never sits against the end of the scroll. */
