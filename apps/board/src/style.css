@@ -6615,6 +6615,16 @@ a.tui-id-card-ref:focus-visible {
   max-width: 1120px;
   margin-inline: auto;
 }
+/* The round band spans the whole column; its padding lines its text up
+   with the capped content below. */
+@media (min-width: 721px) {
+  .tui-sheet-main[data-sheet='review'] > .tui-sheet-round {
+    max-width: none;
+    margin-inline: -26px -28px;
+    padding-inline: calc(26px + max(0px, (100% - 1120px) / 2))
+      calc(28px + max(0px, (100% - 1120px) / 2));
+  }
+}
 
 /* The summary comment in the dock: two lines at rest, whole when open. */
 .tui-review-dock-summary {
