@@ -6765,3 +6765,34 @@ a.tui-id-card-ref:focus-visible {
   height: 12px;
   color: var(--text-accent);
 }
+
+/* At rest, an edited comment's pill on the field's top-left border: the
+   state, then its reset. Interactive, unlike the click-to-edit pill. */
+.tui-cte-badge {
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--fg) 6%, var(--card));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent),
+    0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(3px) scale(0.94);
+  }
+}
+.tui-cte-badge .tui-review-section-meta {
+  font-weight: 400;
+}

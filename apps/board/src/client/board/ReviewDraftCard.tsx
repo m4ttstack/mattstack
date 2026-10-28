@@ -490,6 +490,7 @@ function CommentEditor({
   onEditing,
   heading,
   actions,
+  badge,
 }: {
   label: string;
   draft: string;
@@ -500,6 +501,7 @@ function CommentEditor({
   onEditing?: (editing: boolean) => void;
   heading?: string;
   actions?: ReactNode;
+  badge?: ReactNode;
 }) {
   const { text, empty } = commentState(draft, value, true);
   const hintId = useId();
@@ -517,6 +519,7 @@ function CommentEditor({
         onEditing={onEditing}
         heading={heading}
         actions={actions}
+        badge={badge}
       />
       {empty && (
         <span className="tui-gate-error" id={hintId}>
@@ -558,6 +561,18 @@ function CommentSection({
               label={label}
               onReset={() => form.clearText(key)}
             />
+          )
+        }
+        badge={
+          edited && (
+            <>
+              <span>Edited</span>
+              <DraftMeta
+                edited
+                label={label}
+                onReset={() => form.clearText(key)}
+              />
+            </>
           )
         }
         onChange={t => form.setText(key, t)}

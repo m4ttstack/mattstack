@@ -91,6 +91,7 @@ export function ClickToEditField({
   onEditing,
   heading,
   actions,
+  badge,
 }: {
   label: string;
   text: string;
@@ -106,6 +107,8 @@ export function ClickToEditField({
   heading?: string;
   /** Controls on the header's right while writing, such as a reset. */
   actions?: ReactNode;
+  /** At rest, a pill on the field's top-left border, such as "Edited". */
+  badge?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -244,6 +247,9 @@ export function ClickToEditField({
             )}
           </AnimatePresence>
           <div className="tui-cte-wrap">
+            {!editing && badge && (
+              <span className="tui-cte-badge">{badge}</span>
+            )}
             <m.div
               className="tui-cte"
               data-variant={variant}
