@@ -4542,60 +4542,20 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-silence {
   align-items: flex-start;
 }
-/* A field with a footer is one box: the text, a hairline, then the
-   footer's controls, inside the same border and corners. */
-.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte[data-variant='plain'] {
-  border-bottom-color: var(--border-soft);
-  border-radius: 6px 6px 0 0;
-}
-.tui-cte-wrap:has(> .tui-cte-footer):has(
-    > .tui-cte[data-variant='plain']:is(
-        [data-editing],
-        :has(.tui-cte-view:focus-visible)
-      )
-  ) {
-  border-radius: 6px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fill-accent) 15%, transparent);
-}
-.tui-cte-wrap:has(> .tui-cte-footer)
-  > .tui-cte[data-variant='plain']:is(
-    [data-editing],
-    :has(.tui-cte-view:focus-visible)
-  ) {
-  box-shadow: none;
-  border-bottom-color: var(--border-soft);
-}
-.tui-cte-wrap:has(
-    > .tui-cte[data-variant='plain']:is(
-        [data-editing],
-        :has(.tui-cte-view:focus-visible)
-      )
-  )
-  > .tui-cte-footer {
-  border-color: color-mix(in srgb, var(--fill-accent) 70%, var(--border));
-}
-/* While writing, the hint line hangs under the box rather than inside the
-   ringed wrap, and the wrap keeps room for it. */
-.tui-cte-wrap:has(> .tui-cte-footer):has(> .tui-cte[data-editing]) {
-  position: relative;
-  margin-bottom: 22px;
-}
-.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte[data-editing] ~ .tui-cte-hint {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-}
+/* The footer hangs from the field's bottom-right edge as a small tinted
+   tab, set in from the corner, with a soft shade where it meets the field.
+   The field keeps its own border, corners and focus ring. */
 .tui-cte-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 3px 12px 4px;
+  width: max-content;
+  margin: -1px 12px 0 auto;
+  padding: 3px 10px 4px;
   border: 1px solid var(--border);
   border-top: none;
   border-radius: 0 0 6px 6px;
-  background: var(--card);
+  background: color-mix(in srgb, var(--fg) 4%, var(--card));
+  box-shadow: inset 0 3px 3px -3px color-mix(in srgb, black 18%, transparent);
 }
 /* The footer's tick is a quiet line, not a second field. */
 .tui-cte-footer .tui-reply-resolve {
