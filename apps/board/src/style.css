@@ -6813,11 +6813,16 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-accent);
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-/* Hover deepens the label; an underline or a wash cut off at the pill's
-   edge both read as noise in a 20px pill. */
+/* Hover washes the reset's whole half of the pill, as a split button
+   does; the label keeps its blue and takes no underline. */
+.tui-cte-badge .tui-review-reset.tui-composer-act {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
 .tui-cte-badge .tui-review-reset.tui-composer-act:hover {
   text-decoration: none;
-  color: var(--text-accent-small);
+  background: color-mix(in srgb, var(--fill-accent) 12%, transparent);
 }
 .tui-cte-badge + .tui-cte .tui-cte-view {
   padding-top: 15px;
