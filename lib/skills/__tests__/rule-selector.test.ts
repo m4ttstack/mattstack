@@ -85,6 +85,18 @@ describe("rule selector slot", () => {
       expect(compiled.verbs["self-review"]).toMatch(FAILS_TO_FINDINGS);
       expect(compiled.verbs["receive-review"]).not.toMatch(FAILS_TO_FINDINGS);
     });
+
+    test("review graph places the rule steps", () => {
+      const body = compiled.verbs.review;
+      const edge = (a: string, b: string) => new RegExp(`\\b${a} -> ${b}\\b`);
+      expect(body).toMatch(edge("select_rules", "dispatch_reviewer"));
+      expect(body).toMatch(edge("dispatch_reviewer", "check_verdicts"));
+      expect(body).toMatch(edge("assemble_draft", "fails_to_findings"));
+      expect(body).toMatch(edge("fails_to_findings", "verify_blocking"));
+      expect(body).not.toMatch(edge("dispatch_reviewer", "assemble_draft"));
+      expect(body).toMatch(edge("redispatch_reviewer", "assemble_draft"));
+      expect(body).toContain("run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}");
+    });
   });
 
   test("unbound: no fill text, bodies still present", async () => {

@@ -57,8 +57,15 @@ flowchart TB
     set_up_depth
     repro_browser{Review repro takes a browser screenshot?}
     capture_repro
+    select_rules
     dispatch_reviewer
+    check_verdicts
+    verdict_problems{Verdict problems left?}
+    run_budget_verdict_rounds[/"run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}"/]
+    verdict_rounds_spent{verdict-rounds:<depth> spent?}
+    repair_verdicts
     assemble_draft
+    fails_to_findings
     verify_blocking
     blocking_verified{Every blocking finding verified?}
     run_budget_verify_rounds[/"run_budget {runDb, key: verify-rounds:<depth>, limit: 2, stage}"/]
@@ -207,15 +214,24 @@ flowchart TB
     stop_checkout_without_provision --> worktree_provision
     worktree_provision --> provision_returned_path
     provision_returned_path -->|yes| tree_at_fetched_head
-    provision_returned_path -->|no: checks not run| dispatch_reviewer
+    provision_returned_path -->|no: checks not run| select_rules
     tree_at_fetched_head -->|yes| set_up_depth
-    tree_at_fetched_head -->|no: checks not run| dispatch_reviewer
+    tree_at_fetched_head -->|no: checks not run| select_rules
     set_up_depth --> repro_browser
     repro_browser -->|yes| capture_repro
-    repro_browser -->|no: read or verify depth, or the domain's own method| dispatch_reviewer
-    capture_repro -->|Board ready or Not drawn| dispatch_reviewer
-    dispatch_reviewer --> assemble_draft
-    assemble_draft --> verify_blocking
+    repro_browser -->|no: read or verify depth, or the domain's own method| select_rules
+    capture_repro -->|Board ready or Not drawn| select_rules
+    select_rules --> dispatch_reviewer
+    dispatch_reviewer --> check_verdicts
+    check_verdicts --> verdict_problems
+    verdict_problems -->|none, or no selector| assemble_draft
+    verdict_problems -->|yes| run_budget_verdict_rounds
+    run_budget_verdict_rounds --> verdict_rounds_spent
+    verdict_rounds_spent -->|no| repair_verdicts
+    repair_verdicts --> check_verdicts
+    verdict_rounds_spent -->|yes: list them in the notes| assemble_draft
+    assemble_draft --> fails_to_findings
+    fails_to_findings --> verify_blocking
     verify_blocking --> blocking_verified
     blocking_verified -->|yes, or none blocking| report_path_given
     blocking_verified -->|no| run_budget_verify_rounds
