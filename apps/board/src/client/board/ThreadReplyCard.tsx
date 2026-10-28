@@ -1,12 +1,21 @@
-import { useState, type ReactNode } from 'react';
-import { Flag, ThumbsUp } from 'lucide-react';
-import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
+import type { ReactNode } from 'react';
 
-import { Button, CHECK_ICON, Chip, Icon, ICONS } from '@mattstack/tui-kit';
+import { Chip, ICONS } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
-import { Disclosure } from './Disclosure.tsx';
-import { CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
+import {
+  AgentCheck,
+  Answer,
+  CardTitle,
+  CommentArea,
+  DraftField,
+  GateCard,
+  SaidBox,
+  StatusMark,
+  ThreadCode,
+  type AgentVerdict,
+  type StatusHue,
+} from './GateParts.tsx';
 
 export interface ThreadMessage {
   /** Absent on the viewer's own message, which needs no name. */
@@ -17,11 +26,17 @@ export interface ThreadMessage {
 export interface ThreadReplyCardProps {
   /** The thread's file:line, or "General thread". */
   label: string;
-  status: { text: string; hue: 'green' | 'amber' | 'accent' | 'muted' };
+  status: { text: string; hue: StatusHue };
   /** The fix commit a respond reply points at. */
   sha?: string;
   /** The review round the thread was opened in. */
   round?: number;
+  /** `conversation`: the thread reads as who said what above the reply (a
+      re-review). `stacked`: the agent's check, the comment being answered
+      in its box, and the reply hung under it (a respond post). */
+  layout?: 'conversation' | 'stacked';
+  /** The MR, for the code a file:line thread was left on. */
+  mr?: { url?: string; ref?: string; revision?: string };
   messages: ThreadMessage[];
   /** Said in place of the other side's message when they never replied. */
   silence?: string;
@@ -59,126 +74,87 @@ function ResolveTick({
   );
 }
 
-/** A reply on a review thread, shaped like a finding card: the header's
-    tick posts the reply, the thread reads as who said what, and the reply
-    is the click-to-edit comment. Unticked, the card folds to its header,
-    which keeps the resolve tick so a thread can close without a reply. */
+/** A reply on a review thread, in the finding card: the head's tick posts
+    the reply, and the reply is the click-to-edit comment. Unticked, the
+    card folds to its head, which keeps the resolve tick so a thread can
+    close without a reply. */
 export function ThreadReplyCard(p: ThreadReplyCardProps) {
   const { edited } = commentState(p.draft, p.value, true);
   const label = `Reply on ${p.label}`;
-  const reset = (resetText?: string) => (
-    <DraftMeta edited label={label} resetText={resetText} onReset={p.onReset} />
+  const stacked = p.layout === 'stacked';
+  const said = stacked ? p.messages.find(m => m.who) : undefined;
+  const field = (
+    <DraftField
+      label={label}
+      draft={p.draft}
+      value={p.value}
+      heading="Editing reply"
+      lead={stacked ? 'You:' : undefined}
+      footer={p.resolve && <ResolveTick label={p.label} resolve={p.resolve} />}
+      onChange={p.onChange}
+      onReset={p.onReset}
+    />
   );
   return (
-    <article
-      className="tui-review-card tui-reply-card"
-      data-off={p.posting ? undefined : ''}
-      aria-label={p.label}
-    >
-      <div className="tui-review-card-head tui-reply-head">
-        <label className="tui-review-finding-row tui-reply-head-label">
-          <input
-            type="checkbox"
-            className="tui-gate-choice-input"
-            data-type="checkbox"
-            data-checked={p.posting ? '' : undefined}
-            checked={p.posting}
-            aria-label={`${p.label}: post reply`}
-            onChange={e => p.onPosting(e.currentTarget.checked)}
-          />
-          <span
-            className="tui-review-finding-title tui-reply-title"
-            data-file={p.label.includes(':') ? '' : undefined}
-          >
-            {p.label}
+    <GateCard
+      label={p.label}
+      checked={p.posting}
+      tickLabel={`${p.label}: post reply`}
+      onCheck={p.onPosting}
+      head={
+        <>
+          <CardTitle label={p.label}>
             {p.round !== undefined && (
               <span className="tui-respond-pill tui-reply-round">
                 Round {p.round}
               </span>
             )}
-          </span>
-          <span className="tui-reply-status" data-hue={p.status.hue}>
-            {p.status.text}
+          </CardTitle>
+          <StatusMark {...p.status}>
             {p.sha && <code className="tui-reply-sha">{p.sha}</code>}
-          </span>
-        </label>
-        {!p.posting && p.resolve && (
-          <ResolveTick label={p.label} resolve={p.resolve} />
-        )}
-      </div>
-      <LazyMotion features={domAnimation}>
-        <AnimatePresence initial={false}>
-          {p.posting && (
-            <m.div
-              key="body"
-              className="tui-review-card-body"
-              initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
-              animate={{
-                height: 'auto',
-                opacity: 1,
-                transitionEnd: { overflow: 'visible' },
-              }}
-              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
-              transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-            >
-              {(p.messages.length > 0 || p.silence) && (
-                <section className="tui-reply-thread" aria-label="Thread">
-                  {p.messages.map((msg, i) => (
-                    <Message key={i} {...msg} />
-                  ))}
-                  {p.silence && (
-                    <div className="tui-reply-msg tui-reply-silence">
-                      <Chip
-                        intent="muted"
-                        variant="outline"
-                        icon={ICONS['triangle-alert']}
-                      >
-                        {p.silence}
-                      </Chip>
-                    </div>
-                  )}
-                </section>
-              )}
-              <section
-                className="tui-review-section"
-                data-section="comment"
-                data-draft-part=""
-                data-edited={edited || undefined}
-                aria-label="Reply"
+          </StatusMark>
+        </>
+      }
+      aside={
+        !p.posting &&
+        p.resolve && <ResolveTick label={p.label} resolve={p.resolve} />
+      }
+    >
+      <ThreadCode label={p.label} mr={p.mr} />
+      {!stacked && (p.messages.length > 0 || p.silence) && (
+        <section className="tui-reply-thread" aria-label="Thread">
+          {p.messages.map((msg, i) => (
+            <Message key={i} {...msg} />
+          ))}
+          {p.silence && (
+            <div className="tui-reply-msg tui-reply-silence">
+              <Chip
+                intent="muted"
+                variant="outline"
+                icon={ICONS['triangle-alert']}
               >
-                {p.check && <AgentCheck {...p.check} />}
-                <CommentEditor
-                  label={label}
-                  draft={p.draft}
-                  value={p.value}
-                  variant="plain"
-                  heading="Editing reply"
-                  actions={edited && reset()}
-                  badge={
-                    edited && (
-                      <>
-                        <span className="tui-cte-badge-state">Edited</span>
-                        <span
-                          className="tui-cte-badge-sep"
-                          aria-hidden="true"
-                        />
-                        {reset('Reset')}
-                      </>
-                    )
-                  }
-                  footer={
-                    p.resolve && (
-                      <ResolveTick label={p.label} resolve={p.resolve} />
-                    )
-                  }
-                  onChange={p.onChange}
-                />
-              </section>
-            </m.div>
+                {p.silence}
+              </Chip>
+            </div>
           )}
-        </AnimatePresence>
-      </LazyMotion>
-    </article>
+        </section>
+      )}
+      <CommentArea
+        label="Reply"
+        edited={edited}
+        className={stacked ? 'tui-stacked-area' : undefined}
+      >
+        {p.check && <AgentCheck {...p.check} />}
+        {said ? (
+          <>
+            <SaidBox who={said.who!} text={said.text} />
+            <Answer>{field}</Answer>
+          </>
+        ) : (
+          field
+        )}
+      </CommentArea>
+    </GateCard>
   );
 }
 
@@ -193,62 +169,4 @@ function Message({ who, text }: ThreadMessage): ReactNode {
   );
 }
 
-/** How the agent judged the author's answer: the change holds, the
-    pushback holds, or the thread is still open. */
-export type AgentVerdict = 'verified' | 'accepted' | 'flagged';
-
-const VERDICT = {
-  verified: {
-    label: 'Agent verified',
-    intent: 'ok',
-    icon: <Icon d={CHECK_ICON} />,
-  },
-  accepted: {
-    label: 'Agent accepted',
-    intent: 'accent',
-    icon: <ThumbsUp size={14} aria-hidden />,
-  },
-  flagged: {
-    label: 'Agent flagged',
-    intent: 'warn',
-    icon: <Flag size={14} aria-hidden />,
-  },
-} as const;
-
-/** What the agent found on the thread, behind a badge; a flagged thread
-    opens with its note showing. */
-function AgentCheck({
-  note,
-  verdict,
-}: {
-  note: string;
-  verdict: AgentVerdict;
-}) {
-  const [open, setOpen] = useState(verdict === 'flagged');
-  const v = VERDICT[verdict];
-  return (
-    <div
-      className="tui-reply-check"
-      data-verdict={verdict}
-      data-open={open || undefined}
-    >
-      <Button
-        type="button"
-        variant="filled"
-        intent={v.intent}
-        size="sm"
-        aria-expanded={open}
-        onClick={() => setOpen(o => !o)}
-      >
-        {v.icon}
-        {v.label}
-        <span className="tui-reply-check-chevron" data-open={open || undefined}>
-          {ICONS['chevron-right']}
-        </span>
-      </Button>
-      <Disclosure open={open}>
-        <p className="tui-reply-check-note">{note}</p>
-      </Disclosure>
-    </div>
-  );
-}
+export type { AgentVerdict };

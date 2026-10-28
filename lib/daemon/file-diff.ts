@@ -212,7 +212,14 @@ export function createFileDiffReader(opts: { now?: () => number } = {}) {
     }
     const listed = await entry.listing;
     if (!listed.ok) return listed;
-    const file = listed.files.find((f) => f.newPath === path) ?? listed.files.find((f) => f.oldPath === path) ?? null;
+    // A respond thread names its file by basename alone, so a path with no
+    // exact match takes the one changed file ending in it; two such files
+    // are ambiguous and match nothing.
+    const bySuffix = path.includes("/") ? [] : listed.files.filter((f) => f.newPath.endsWith(`/${path}`));
+    const file =
+      listed.files.find((f) => f.newPath === path) ??
+      listed.files.find((f) => f.oldPath === path) ??
+      (bySuffix.length === 1 ? bySuffix[0]! : null);
     return { ok: true, data: { forge: ctx.forge, headSha: head.headSha, truncated: listed.truncated, file } };
   };
 }

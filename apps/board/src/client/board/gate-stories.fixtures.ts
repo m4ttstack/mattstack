@@ -635,7 +635,70 @@ const pinOrigin = {
   runId: '20261028-091512-4c7d-11806',
 };
 
+// Invented code for the respond threads. Respond threads name their file
+// by basename, so the story's diff source answers to that.
+const pinDiff = (file: string, patch: string): FileDiff => ({
+  path: file,
+  patch,
+  forge: 'gitlab',
+  webUrl: `${FORGE}/831/diffs#${file}`,
+});
+
+const PLAN_PATCHES: Record<string, string> = {
+  'StationPins.tsx': `@@ -44,6 +44,7 @@ export function StationPins({ stations }: Props) {
+   const map = useMap();
+
+   return (
+     <Layer>
++      {stations.map((s, i) => <Pin key={i} station={s} />)}
+     </Layer>
+   );
+`,
+  'useMapCenter.ts': `@@ -19,5 +19,6 @@ import { useInterval } from './useInterval';
+
+ export function useMapCenter(map: MapView) {
+   const [center, setCenter] = useState(map.center);
++  useInterval(() => setCenter(map.center), 200);
+   return center;
+ }
+`,
+  'StationPins.test.tsx': `@@ -88,5 +88,8 @@ describe('StationPins', () => {
+   });
+
++  it('renders a pin per station', () => {
++    render(<StationPins stations={fixtures} />);
++    expect(screen.getAllByRole('button')).toHaveLength(fixtures.length);
+   });
+`,
+  'stationLayer.ts': `@@ -127,4 +127,5 @@ export function stationLayer(stations: Station[]) {
+   return source;
+ }
+
++export const CLUSTER_RADIUS = 48;
+`,
+};
+
+const POST_PATCHES: Record<string, string> = {
+  ...PLAN_PATCHES,
+  'StationPins.tsx': `@@ -44,6 +44,7 @@ export function StationPins({ stations }: Props) {
+   const map = useMap();
+
+   return (
+     <Layer>
++      {stations.map(s => <Pin key={s.id} station={s} />)}
+     </Layer>
+   );
+`,
+};
+
+const pinDiffs = (patches: Record<string, string>): DiffSource => ({
+  fetchFileDiff: async ({ file }) =>
+    patches[file] ? pinDiff(file, patches[file]!) : null,
+  loadView: () => import('./DiffView.tsx'),
+});
+
 export const respondPlan: StoryGate = {
+  diffs: pinDiffs(PLAN_PATCHES),
   mr: PIN_MR,
   gate: {
     gateId: 'story-respond-plan',
@@ -742,6 +805,7 @@ const postThread = (
     and the re-review ping on the Overview thread, which GitLab cannot
     resolve. */
 export const respondPost: StoryGate = {
+  diffs: pinDiffs(POST_PATCHES),
   // The answered plan gate rides on the MR, as on the board, so each reply
   // card shows the reviewer's comment above it.
   mr: {

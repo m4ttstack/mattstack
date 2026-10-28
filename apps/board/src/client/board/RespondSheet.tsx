@@ -20,7 +20,6 @@ import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { approvalSlots } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
-import { commentState } from './CommentComposer.tsx';
 import {
   parseGateCtx,
   type PlanCtx,
@@ -28,10 +27,12 @@ import {
   type ThreadCtx,
 } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
+import { THREAD_CALL } from './GateParts.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
 import { PersonLead, PersonTag } from './PersonLead.tsx';
+import { PlanThreadCard } from './PlanThreadCard.tsx';
 import {
   joinPlan,
   planThreadOrder,
@@ -64,7 +65,6 @@ import {
   respondPerson,
   subjectRef,
 } from './RespondGateHeader.tsx';
-import { CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 import { useSheetKeys } from './sheet-keys.ts';
 import { sheetAnswers } from './sheet-payload.ts';
 import {
@@ -189,57 +189,6 @@ function PostStepCard({
               Nothing to post for this thread.
             </p>
           )}
-    </section>
-  );
-}
-
-/** A plan thread's drafted reply as a click-to-edit field. The draft is the
-    reply-only option's text, so opening it to write picks that option. */
-function PlanReplyField({
-  label,
-  draft,
-  value,
-  onEdit,
-  onChange,
-  onReset,
-}: {
-  label: string;
-  draft: string;
-  value: string | undefined;
-  onEdit: () => void;
-  onChange: (text: string) => void;
-  onReset: () => void;
-}) {
-  const { edited } = commentState(draft, value, true);
-  const reset = (resetText?: string) => (
-    <DraftMeta edited label={label} resetText={resetText} onReset={onReset} />
-  );
-  return (
-    <section
-      className="tui-plan-reply"
-      data-draft-part=""
-      data-edited={edited || undefined}
-      aria-label="Drafted reply"
-    >
-      <CommentEditor
-        label={label}
-        draft={draft}
-        value={value}
-        variant="plain"
-        heading="Editing reply"
-        actions={edited && reset()}
-        badge={
-          edited && (
-            <>
-              <span className="tui-cte-badge-state">Edited</span>
-              <span className="tui-cte-badge-sep" aria-hidden="true" />
-              {reset('Reset')}
-            </>
-          )
-        }
-        onEditing={editing => editing && onEdit()}
-        onChange={onChange}
-      />
     </section>
   );
 }
@@ -697,6 +646,22 @@ function RespondSheetBody({
             : { text: 'Reply only', hue: 'muted' }
         }
         sha={reply.sha}
+        layout="stacked"
+        mr={
+          mr
+            ? {
+                url: mr.webUrl ?? undefined,
+                ref: mrRef(mr),
+                revision: mr.updatedAt ?? undefined,
+              }
+            : undefined
+        }
+        check={(() => {
+          const verdict = thread && THREAD_CALL[thread.verdict.call].check;
+          return verdict && thread.verdict.note
+            ? { note: thread.verdict.note, verdict }
+            : undefined;
+        })()}
         messages={
           thread?.claim.summary
             ? [{ who: people.short(thread.author), text: thread.claim.summary }]
@@ -934,53 +899,39 @@ function RespondSheetBody({
             .map(q => {
               const qctx = questionCtx.get(q.name);
               const pr = planReplyList.find(r => r.name === q.name);
-              const replying = !!pr && form.selections[q.name] === pr.value;
+              if (!q.multiple && qctx?.shape === 'thread@1')
+                return (
+                  <PlanThreadCard
+                    key={q.name}
+                    q={q}
+                    ctx={qctx}
+                    form={form}
+                    reviewer={people.short(qctx.author)}
+                    draft={pr?.draft}
+                    mr={
+                      mr
+                        ? {
+                            url: mr.webUrl ?? undefined,
+                            ref: mrRef(mr),
+                            revision: mr.updatedAt ?? undefined,
+                          }
+                        : undefined
+                    }
+                  />
+                );
               if (!q.multiple)
                 return (
                   <section
                     key={q.name}
                     className="tui-gate-question"
-                    data-gate-ctx={
-                      qctx?.shape === 'thread@1' ? 'thread' : undefined
-                    }
                     aria-label={q.prompt}
                   >
                     <div className="tui-gate-question-head">
                       <span className="tui-gate-question-label">
                         {q.prompt}
                       </span>
-                      {qctx?.shape === 'thread@1' && (
-                        <SeverityPill severity={qctx.severity} />
-                      )}
                     </div>
-                    {qctx?.shape === 'thread@1' && pr ? (
-                      <ThreadCard ctx={{ ...qctx, reply: { kind: 'none' } }}>
-                        <PlanReplyField
-                          label={`Reply on ${q.prompt}`}
-                          draft={pr.draft}
-                          value={replying ? form.texts[q.name] : undefined}
-                          onEdit={() => {
-                            if (!replying) form.setSingle(q.name, pr.value);
-                          }}
-                          onChange={t => form.setText(q.name, t)}
-                          onReset={() => form.clearText(q.name)}
-                        />
-                      </ThreadCard>
-                    ) : qctx?.shape === 'thread@1' ? (
-                      <ThreadCard ctx={qctx}>
-                        {qctx.reply.kind === 'direction' &&
-                          String(form.selections[q.name] ?? '').startsWith(
-                            'reply:'
-                          ) && (
-                            <p className="tui-thread-nothing">
-                              The agent drafts this reply next. You edit it when
-                              posting.
-                            </p>
-                          )}
-                      </ThreadCard>
-                    ) : (
-                      <ProseContext q={q} structured={qctx != null} />
-                    )}
+                    <ProseContext q={q} structured={qctx != null} />
                     <Choices q={q} form={form} />
                     <Note q={q} form={form} />
                   </section>

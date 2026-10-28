@@ -93,6 +93,7 @@ export function ClickToEditField({
   actions,
   badge,
   footer,
+  lead,
 }: {
   label: string;
   text: string;
@@ -113,6 +114,9 @@ export function ClickToEditField({
   /** Controls in a strip along the field's bottom, inside its border and
       outside the text, so a click there never opens the field. */
   footer?: ReactNode;
+  /** A line inside the box above the text, such as who is writing ("You:");
+      it is not part of the click target. */
+  lead?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -266,6 +270,7 @@ export function ClickToEditField({
               onAnimationComplete={() => setSwapping(false)}
             >
               <div ref={faces} className="tui-cte-faces">
+                {lead && <div className="tui-cte-lead">{lead}</div>}
                 <AnimatePresence mode="popLayout" initial={false}>
                   {editing ? (
                     <m.div key="write" {...FADE}>

@@ -29,6 +29,7 @@ import {
 import type { DiffPin } from './DiffView.tsx';
 import type { FindingEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
+import { CardBody, CommentArea, DraftField } from './GateParts.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
@@ -278,7 +279,7 @@ function changesLink(
     diff, the header stands alone. The snippet and "view full diff" open
     the whole file's diff. A diff the forge holds back, or one that failed
     to load, says so under the header and links to it on the forge. */
-function CodeSection({
+export function CodeSection({
   mrUrl,
   mrRef,
   mrRevision,
@@ -506,6 +507,7 @@ export function CommentEditor({
   actions,
   badge,
   footer,
+  lead,
 }: {
   label: string;
   draft: string;
@@ -518,6 +520,7 @@ export function CommentEditor({
   actions?: ReactNode;
   badge?: ReactNode;
   footer?: ReactNode;
+  lead?: ReactNode;
 }) {
   const { text, empty } = commentState(draft, value, true);
   const hintId = useId();
@@ -537,6 +540,7 @@ export function CommentEditor({
         actions={actions}
         badge={badge}
         footer={footer}
+        lead={lead}
       />
       {empty && (
         <span className="tui-gate-error" id={hintId}>
@@ -663,45 +667,16 @@ function CommentSection({
   const label = `Comment on ${finding.title}`;
   const { edited } = commentState(finding.comment!, form.texts[key], true);
   return (
-    <section
-      className="tui-review-section"
-      data-section="comment"
-      data-draft-part=""
-      data-edited={edited || undefined}
-      aria-label="Comment"
-    >
-      <CommentEditor
+    <CommentArea label="Comment" edited={edited}>
+      <DraftField
         label={label}
         draft={finding.comment!}
         value={form.texts[key]}
-        variant="plain"
         heading="Editing comment"
-        actions={
-          edited && (
-            <DraftMeta
-              edited
-              label={label}
-              onReset={() => form.clearText(key)}
-            />
-          )
-        }
-        badge={
-          edited && (
-            <>
-              <span className="tui-cte-badge-state">Edited</span>
-              <span className="tui-cte-badge-sep" aria-hidden="true" />
-              <DraftMeta
-                edited
-                label={label}
-                resetText="Reset"
-                onReset={() => form.clearText(key)}
-              />
-            </>
-          )
-        }
         onChange={t => form.setText(key, t)}
+        onReset={() => form.clearText(key)}
       />
-    </section>
+    </CommentArea>
   );
 }
 
@@ -733,39 +708,20 @@ export function FindingCard({
       data-off={checked ? undefined : ''}
     >
       {head}
-      <LazyMotion features={domAnimation}>
-        <AnimatePresence initial={false}>
-          {checked && (
-            <m.div
-              key="body"
-              className="tui-review-card-body"
-              // Clips only while easing: open, the body must let the
-              // finding's info card, which renders in place, spill out.
-              initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
-              animate={{
-                height: 'auto',
-                opacity: 1,
-                transitionEnd: { overflow: 'visible' },
-              }}
-              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
-              transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-            >
-              {hasDiffLine(f) ? (
-                <CodeSection
-                  mrUrl={mrUrl}
-                  mrRef={mrRef}
-                  mrRevision={mrRevision}
-                  finding={f}
-                  pins={pins}
-                />
-              ) : (
-                <FindingSection finding={f} />
-              )}
-              <CommentSection finding={f} form={form} />
-            </m.div>
-          )}
-        </AnimatePresence>
-      </LazyMotion>
+      <CardBody open={checked}>
+        {hasDiffLine(f) ? (
+          <CodeSection
+            mrUrl={mrUrl}
+            mrRef={mrRef}
+            mrRevision={mrRevision}
+            finding={f}
+            pins={pins}
+          />
+        ) : (
+          <FindingSection finding={f} />
+        )}
+        <CommentSection finding={f} form={form} />
+      </CardBody>
     </article>
   );
 }

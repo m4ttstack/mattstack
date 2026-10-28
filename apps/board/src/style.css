@@ -4368,21 +4368,24 @@ a.tui-id-card-ref:focus-visible {
 /* Inside a drafted card the card is the box: the code loses its own frame
    and its file bar spans the card. The snippet, not the whole block, opens
    the full diff. */
-.tui-review-finding .tui-review-section[data-section='code'] {
+:is(.tui-review-finding, .tui-reply-card)
+  .tui-review-section[data-section='code'] {
   padding: 0;
   border-top: none;
 }
-.tui-review-finding .tui-review-code,
-.tui-review-finding .tui-review-code:hover {
+:is(.tui-review-finding, .tui-reply-card) .tui-review-code,
+:is(.tui-review-finding, .tui-reply-card) .tui-review-code:hover {
   border: none;
   border-radius: 0;
   cursor: default;
 }
-.tui-review-finding .tui-review-code-file {
+:is(.tui-review-finding, .tui-reply-card) .tui-review-code-file {
   padding: 6px 14px;
   background: var(--panel);
 }
-.tui-review-finding .tui-review-code[data-folded] .tui-review-code-file {
+:is(.tui-review-finding, .tui-reply-card)
+  .tui-review-code[data-folded]
+  .tui-review-code-file {
   border-bottom: none;
 }
 .tui-review-code-snippet {
@@ -7251,4 +7254,107 @@ a.tui-id-card-ref:focus-visible {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-2);
+}
+
+/* A plan thread in the review card (B43): the verdict and the fix or
+   reply switch, the reviewer's comment in a box, then what answers it. */
+.tui-plan-card .tui-review-section[data-section='comment'] {
+  gap: 12px;
+}
+.tui-plan-verdict {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tui-plan-verdict > .tui-reply-check {
+  flex: 1;
+  min-width: 0;
+}
+.tui-plan-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.tui-plan-said {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.tui-plan-said-who {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tui-plan-fix {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding-left: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.tui-plan-fix > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-accent);
+}
+/* What answers the comment hangs under it on a rounded elbow that turns
+   into the answer's name line. */
+.tui-plan-answer {
+  position: relative;
+  padding-left: 28px;
+}
+.tui-plan-answer::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: -12px;
+  width: 15px;
+  height: 32px;
+  border-left: 1.5px solid var(--text-4);
+  border-bottom: 1.5px solid var(--text-4);
+  border-bottom-left-radius: 8px;
+}
+.tui-plan-later {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+/* The name line inside a comment field, like the reviewer's name in theirs. */
+.tui-cte-lead {
+  padding: 10px 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tui-plan-later > .tui-cte-lead {
+  padding: 0;
+}
+.tui-cte[data-variant='plain']
+  .tui-cte-lead
+  ~ *
+  :is(.tui-cte-view, .tui-cte-input) {
+  padding-top: 2px;
+}
+.tui-stacked-area {
+  gap: 12px;
 }
