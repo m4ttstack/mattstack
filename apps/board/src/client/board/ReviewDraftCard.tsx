@@ -305,6 +305,7 @@ function CodeSection({
       fetchedDiff.patch.trim() === '');
   const diff = fetchedDiff && !heldBack && DiffView ? fetchedDiff : null;
   const error = state.status === 'error' && DiffView ? state.message : null;
+  const loading = DiffView !== null && state.status === 'loading';
   const openable = diff !== null;
   const forgeLink =
     heldBack && fetchedDiff.webUrl
@@ -401,6 +402,7 @@ function CodeSection({
                     {error}
                   </p>
                 )}
+                {loading && <CodeLoading />}
                 {snippet && DiffView && (
                   <div
                     className="tui-review-code-snippet"
@@ -424,11 +426,12 @@ function CodeSection({
                     }}
                   >
                     <DiffBoundary key={snippet}>
-                      <Suspense fallback={null}>
+                      <Suspense fallback={<CodeLoading />}>
                         <DiffView
                           patch={snippet}
                           anchor={line}
                           separators="simple"
+                          pending={<CodeLoading />}
                         />
                       </Suspense>
                     </DiffBoundary>
@@ -542,6 +545,19 @@ export function CommentEditor({
         </span>
       )}
     </>
+  );
+}
+
+/** Holds the snippet's space while its diff or highlighter loads: about
+    the seven lines a three-line window shows, so the card neither
+    collapses under the file bar nor jumps when the code lands. */
+function CodeLoading() {
+  return (
+    <div className="tui-review-code-loading" aria-hidden="true">
+      {[62, 48, 71, 55, 40, 66, 34].map((w, i) => (
+        <span key={i} style={{ width: `${w}%` }} />
+      ))}
+    </div>
   );
 }
 
