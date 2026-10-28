@@ -814,7 +814,7 @@ export function SummaryCard({
         label="Summary line"
         draft={draft}
         value={form.texts[key]}
-        variant="filled"
+        variant="plain"
         onChange={t => form.setText(key, t)}
       />
     </section>

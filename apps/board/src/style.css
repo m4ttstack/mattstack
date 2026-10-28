@@ -6939,10 +6939,6 @@ a.tui-id-card-ref:focus-visible {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.tui-review-dock-summary .tui-cte[data-variant='filled']:not([data-editing]) {
-  border-color: var(--border-soft);
-  background: var(--card);
-}
 
 /* The rail's checks: a tally beside the title, then every check. */
 .tui-review-checks {
