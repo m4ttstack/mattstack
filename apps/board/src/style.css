@@ -4525,7 +4525,7 @@ a.tui-id-card-ref:focus-visible {
   margin: 0;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-purple);
+  color: var(--text-bad);
 }
 /* The agent's check is a kit button; a click opens what it found. */
 .tui-reply-check {
