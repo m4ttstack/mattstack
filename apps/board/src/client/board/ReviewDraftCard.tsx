@@ -10,7 +10,6 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Modal } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
@@ -464,6 +463,9 @@ function DraftMeta({
         type="button"
         className="tui-composer-act tui-review-reset"
         aria-label={`${label}: reset to draft`}
+        // Keeps a comment being written open: the reset swaps its text in
+        // place instead of blurring it shut first.
+        onMouseDown={e => e.preventDefault()}
         onClick={e =>
           resetToWrite(e.currentTarget, '[data-draft-part]', onReset)
         }
@@ -486,6 +488,8 @@ function CommentEditor({
   hint = true,
   onChange,
   onEditing,
+  heading,
+  actions,
 }: {
   label: string;
   draft: string;
@@ -494,6 +498,8 @@ function CommentEditor({
   hint?: boolean;
   onChange: (text: string) => void;
   onEditing?: (editing: boolean) => void;
+  heading?: string;
+  actions?: ReactNode;
 }) {
   const { text, empty } = commentState(draft, value, true);
   const hintId = useId();
@@ -509,6 +515,8 @@ function CommentEditor({
         describedBy={empty ? hintId : undefined}
         onChange={onChange}
         onEditing={onEditing}
+        heading={heading}
+        actions={actions}
       />
       {empty && (
         <span className="tui-gate-error" id={hintId}>
@@ -542,30 +550,18 @@ function CommentSection({
         draft={finding.comment!}
         value={form.texts[key]}
         variant="plain"
+        heading="Editing comment"
+        actions={
+          edited && (
+            <DraftMeta
+              edited
+              label={label}
+              onReset={() => form.clearText(key)}
+            />
+          )
+        }
         onChange={t => form.setText(key, t)}
       />
-      <LazyMotion features={domAnimation}>
-        <AnimatePresence initial={false}>
-          {edited && (
-            // The row opens and closes its height, and its share of the
-            // section's 8px gap, so the card eases instead of jumping.
-            <m.div
-              key="meta"
-              className="tui-review-meta-reveal"
-              initial={{ height: 0, opacity: 0, marginTop: -8 }}
-              animate={{ height: 'auto', opacity: 1, marginTop: 0 }}
-              exit={{ height: 0, opacity: 0, marginTop: -8 }}
-              transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-            >
-              <DraftMeta
-                edited
-                label={label}
-                onReset={() => form.clearText(key)}
-              />
-            </m.div>
-          )}
-        </AnimatePresence>
-      </LazyMotion>
     </section>
   );
 }

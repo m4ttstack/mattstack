@@ -5,6 +5,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react';
 import {
   AnimatePresence,
@@ -88,6 +89,8 @@ export function ClickToEditField({
   describedBy,
   onChange,
   onEditing,
+  heading,
+  actions,
 }: {
   label: string;
   text: string;
@@ -99,6 +102,10 @@ export function ClickToEditField({
   describedBy?: string;
   onChange: (text: string) => void;
   onEditing?: (editing: boolean) => void;
+  /** Names the mode while writing, e.g. "Editing comment". */
+  heading?: string;
+  /** Controls on the header's right, such as a reset. */
+  actions?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -207,100 +214,131 @@ export function ClickToEditField({
     onChange(`${value.slice(0, start)}  ${value.slice(end)}`);
   };
 
+  const showHeading = editing && !!heading;
   return (
     <LazyMotion features={domAnimation}>
       <MotionConfig reducedMotion="user">
-        <m.div
-          className="tui-cte"
-          data-variant={variant}
-          data-stripe={stripe}
-          data-editing={editing || undefined}
-          data-invalid={invalid || undefined}
-          initial={false}
-          animate={{ height }}
-          transition={swapping || !editing ? SWAP : STILL}
-          onAnimationComplete={() => setSwapping(false)}
-        >
-          <div ref={faces} className="tui-cte-faces">
-            <AnimatePresence mode="popLayout" initial={false}>
-              {editing ? (
-                <m.div key="write" {...FADE}>
-                  <textarea
-                    ref={area}
-                    className="tui-composer-input tui-cte-input"
-                    rows={1}
-                    value={text}
-                    aria-label={label}
-                    aria-invalid={invalid || undefined}
-                    aria-describedby={describedBy}
-                    onChange={e => onChange(e.currentTarget.value)}
-                    onKeyDown={onAreaKeyDown}
-                    onBlur={() => {
-                      // Escape's close moves focus to the view, which blurs
-                      // this still-mounted area; that blur must not undo it.
-                      if (!refocus.current) close(false);
-                    }}
-                  />
-                </m.div>
-              ) : (
-                <m.div key="read" {...FADE}>
-                  <div
-                    ref={view}
-                    className="tui-cte-view"
-                    role="textbox"
-                    aria-multiline="true"
-                    aria-readonly={readOnly || undefined}
-                    aria-label={label}
-                    aria-invalid={invalid || undefined}
-                    aria-describedby={describedBy}
-                    tabIndex={readOnly ? undefined : 0}
-                    onMouseDown={() => {
-                      pressed.current = true;
-                    }}
-                    onFocus={onViewFocus}
-                    onClick={onViewClick}
-                  >
-                    {text.trim() === '' ? (
-                      <p className="tui-field-preview-empty">Empty comment</p>
-                    ) : (
-                      <CommentMarkdown>{text}</CommentMarkdown>
+        <div className="tui-cte-stack">
+          <AnimatePresence initial={false}>
+            {(showHeading || actions) && (
+              <m.div
+                key="head"
+                className="tui-cte-head"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={SWAP}
+              >
+                <div className="tui-cte-head-row">
+                  <span className="tui-cte-heading">
+                    {showHeading && (
+                      <>
+                        <PencilLineIcon />
+                        {heading}
+                      </>
                     )}
-                  </div>
-                </m.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </m.div>
-        {hint && (editing || variant === 'plain') && (
-          // At rest, plain's hint is the hover "Click to edit" pill; the
-          // textbox already says it edits, so the pill stays out of the
-          // accessibility tree.
-          <span
-            // A fresh node per mode: the rest pill must start hidden, not
-            // fade out from Write's fully shown row.
-            key={editing ? 'write' : 'rest'}
-            className="tui-cte-hint"
-            aria-hidden={!editing || undefined}
-            data-flash={editing ? undefined : (flash ?? undefined)}
-          >
-            {editing ? (
-              <>
-                <span>Markdown supported</span>
-                <span>esc to finish</span>
-              </>
-            ) : flash ? (
-              <>
-                <CheckGlyph />
-                Comment updated
-              </>
-            ) : (
-              <>
-                <PencilLineIcon />
-                Click to edit
-              </>
+                  </span>
+                  {actions}
+                </div>
+              </m.div>
             )}
-          </span>
-        )}
+          </AnimatePresence>
+          <div className="tui-cte-wrap">
+            <m.div
+              className="tui-cte"
+              data-variant={variant}
+              data-stripe={stripe}
+              data-editing={editing || undefined}
+              data-invalid={invalid || undefined}
+              initial={false}
+              animate={{ height }}
+              transition={swapping || !editing ? SWAP : STILL}
+              onAnimationComplete={() => setSwapping(false)}
+            >
+              <div ref={faces} className="tui-cte-faces">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {editing ? (
+                    <m.div key="write" {...FADE}>
+                      <textarea
+                        ref={area}
+                        className="tui-composer-input tui-cte-input"
+                        rows={1}
+                        value={text}
+                        aria-label={label}
+                        aria-invalid={invalid || undefined}
+                        aria-describedby={describedBy}
+                        onChange={e => onChange(e.currentTarget.value)}
+                        onKeyDown={onAreaKeyDown}
+                        onBlur={() => {
+                          // Escape's close moves focus to the view, which blurs
+                          // this still-mounted area; that blur must not undo it.
+                          if (!refocus.current) close(false);
+                        }}
+                      />
+                    </m.div>
+                  ) : (
+                    <m.div key="read" {...FADE}>
+                      <div
+                        ref={view}
+                        className="tui-cte-view"
+                        role="textbox"
+                        aria-multiline="true"
+                        aria-readonly={readOnly || undefined}
+                        aria-label={label}
+                        aria-invalid={invalid || undefined}
+                        aria-describedby={describedBy}
+                        tabIndex={readOnly ? undefined : 0}
+                        onMouseDown={() => {
+                          pressed.current = true;
+                        }}
+                        onFocus={onViewFocus}
+                        onClick={onViewClick}
+                      >
+                        {text.trim() === '' ? (
+                          <p className="tui-field-preview-empty">
+                            Empty comment
+                          </p>
+                        ) : (
+                          <CommentMarkdown>{text}</CommentMarkdown>
+                        )}
+                      </div>
+                    </m.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </m.div>
+            {hint && (editing || variant === 'plain') && (
+              // At rest, plain's hint is the hover "Click to edit" pill; the
+              // textbox already says it edits, so the pill stays out of the
+              // accessibility tree.
+              <span
+                // A fresh node per mode: the rest pill must start hidden, not
+                // fade out from Write's fully shown row.
+                key={editing ? 'write' : 'rest'}
+                className="tui-cte-hint"
+                aria-hidden={!editing || undefined}
+                data-flash={editing ? undefined : (flash ?? undefined)}
+              >
+                {editing ? (
+                  <>
+                    <span>Markdown supported</span>
+                    <span>esc to finish</span>
+                  </>
+                ) : flash ? (
+                  <>
+                    <CheckGlyph />
+                    Comment updated
+                  </>
+                ) : (
+                  <>
+                    <PencilLineIcon />
+                    Click to edit
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+        </div>
       </MotionConfig>
     </LazyMotion>
   );
