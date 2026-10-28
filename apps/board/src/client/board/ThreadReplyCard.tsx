@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { Flag } from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Button, CHECK_ICON, Chip, Icon, ICONS } from '@mattstack/tui-kit';
@@ -209,11 +210,7 @@ function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       >
-        {settled ? (
-          <Icon d={CHECK_ICON} />
-        ) : (
-          <Icon d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M12 7v5l3 2" />
-        )}
+        {settled ? <Icon d={CHECK_ICON} /> : <Flag size={14} aria-hidden />}
         {label}
         <span className="tui-reply-check-chevron" data-open={open || undefined}>
           {ICONS['chevron-right']}
