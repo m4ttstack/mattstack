@@ -5033,6 +5033,15 @@ a.tui-id-card-ref:focus-visible {
   + .tui-cte-hint[data-flash='shown'] {
   opacity: 1;
 }
+/* "Comment updated" is a done state, so it takes the ok wash, not the
+   accent the edit cue wears; it keeps it through the fade. */
+.tui-cte[data-variant='plain']:not([data-editing]) + .tui-cte-hint[data-flash] {
+  color: var(--text-ok);
+  background: color-mix(in srgb, var(--fill-ok) 12%, var(--card));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--fill-ok) 18%, transparent),
+    0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
+}
 @media (hover: hover) {
   .tui-cte[data-variant='filled']:not([data-editing]):hover {
     background: color-mix(in srgb, var(--fg) 7%, var(--card));
