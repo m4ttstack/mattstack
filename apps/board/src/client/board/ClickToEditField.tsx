@@ -214,7 +214,11 @@ export function ClickToEditField({
                     aria-describedby={describedBy}
                     onChange={e => onChange(e.currentTarget.value)}
                     onKeyDown={onAreaKeyDown}
-                    onBlur={() => close(false)}
+                    onBlur={() => {
+                      // Escape's close moves focus to the view, which blurs
+                      // this still-mounted area; that blur must not undo it.
+                      if (!refocus.current) close(false);
+                    }}
                   />
                 </m.div>
               ) : (

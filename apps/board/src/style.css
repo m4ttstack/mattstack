@@ -4967,33 +4967,23 @@ a.tui-id-card-ref:focus-visible {
   border-color: var(--fill-ok);
 }
 /* Plain: a drafted finding's comment, the last section of its card. It
-   reads as text at rest, says it can be edited on hover, and opens out
-   into a field when clicked; the negative margin keeps the text still. */
+   sits in a comment box that is invisible at rest, outlines on hover, and
+   reads as an ordinary field while it is written in, so the text never
+   moves between the three. */
 .tui-cte[data-variant='plain'] {
-  position: relative;
-  margin: 0 -8px;
   border: 1px solid transparent;
   border-radius: 6px;
 }
 .tui-cte[data-variant='plain'] :is(.tui-cte-view, .tui-cte-input) {
-  padding: 4px 8px;
+  padding: 10px 12px;
 }
 .tui-cte[data-variant='plain'][data-editing] {
-  border-color: var(--fill-ok);
+  border-color: var(--fill-accent);
   background: var(--card);
 }
 @media (hover: hover) {
   .tui-cte[data-variant='plain']:not([data-editing]):hover {
-    background: color-mix(in srgb, var(--fg) 3%, transparent);
-  }
-  .tui-cte[data-variant='plain']:not([data-editing]):hover::after {
-    content: 'click to edit';
-    position: absolute;
-    top: 6px;
-    right: 8px;
-    font-size: 12px;
-    color: var(--text-3);
-    pointer-events: none;
+    border-color: var(--border-control);
   }
 }
 @media (hover: hover) {
@@ -5010,7 +5000,9 @@ a.tui-id-card-ref:focus-visible {
   border-color: var(--fill-bad);
 }
 .tui-cte-hint {
-  padding-left: 8px;
+  display: block;
+  margin-top: 6px;
+  padding-left: 12px;
   font-size: 12px;
   color: var(--text-3);
 }

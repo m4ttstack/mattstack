@@ -1768,36 +1768,31 @@ describe('a gate whose poster honors edited drafts', () => {
     }
   });
 
-  // Escape moves focus onto the rendered view; the textarea's blur then runs
-  // close(false), clearing the refocus flag, and onViewFocus reopens the field.
-  test.failing(
-    'Escape in a field returns it to rendered text with focus on it, not the sheet',
-    async () => {
-      await render(draftsGate());
-      sheetCloses = 0;
-      const section = sectionOf(itemFor('Unused import'), 'Comment')!;
-      await React.act(async () => {
-        section.querySelector<HTMLElement>('.tui-cte-view')!.click();
+  test('Escape in a field returns it to rendered text with focus on it, not the sheet', async () => {
+    await render(draftsGate());
+    sheetCloses = 0;
+    const section = sectionOf(itemFor('Unused import'), 'Comment')!;
+    await React.act(async () => {
+      section.querySelector<HTMLElement>('.tui-cte-view')!.click();
+    });
+    const box = section.querySelector<HTMLTextAreaElement>(
+      'textarea.tui-composer-input'
+    )!;
+    const esc = (el: Element) =>
+      React.act(async () => {
+        el.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+        );
       });
-      const box = section.querySelector<HTMLTextAreaElement>(
-        'textarea.tui-composer-input'
-      )!;
-      const esc = (el: Element) =>
-        React.act(async () => {
-          el.dispatchEvent(
-            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
-          );
-        });
-      box.focus();
-      await esc(box);
-      expect(
-        section.querySelector('.tui-cte')!.hasAttribute('data-editing')
-      ).toBe(false);
-      expect(document.activeElement).toBe(
-        [...section.querySelectorAll('.tui-cte-view')].at(-1) ?? null
-      );
-    }
-  );
+    box.focus();
+    await esc(box);
+    expect(
+      section.querySelector('.tui-cte')!.hasAttribute('data-editing')
+    ).toBe(false);
+    expect(document.activeElement).toBe(
+      [...section.querySelectorAll('.tui-cte-view')].at(-1) ?? null
+    );
+  });
 
   test('without editable the sheet is the one it was: fix lines, no boxes, no summary card', async () => {
     await render(draftsGate({ editable: false }));
