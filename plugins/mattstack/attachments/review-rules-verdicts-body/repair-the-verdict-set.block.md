@@ -7,13 +7,21 @@ order: 2
 A problem event charges `verdict-rounds:<depth>`, the depth in force, limit
 2, which allows exactly one repair. While the budget is not spent, repair:
 
-1. Dispatch one fresh-context reviewer with the selection text, the first
-   verdict set and findings, and the problems. It returns a corrected
-   verdict set only, in a block tagged with the `fence` value, and no
-   findings.
-2. Check the corrected set as in Check the verdict set. The first review's
-   findings stay; only the verdict set is replaced.
+1. Dispatch one fresh-context reviewer through the same dispatch flow and
+   reviewer provider as the review (Review dispatch). Its payload is the
+   selection text, the first verdict set and findings, and the problems.
+   Its reply is the verdict set block alone, tagged with the `fence` value,
+   with no findings: for the repair this overrides the reviewer shape's
+   buckets.
+2. Check the corrected set as in Check the verdict set. It replaces the
+   first verdict set only when it parses (exactly one block, valid JSON);
+   otherwise the first set stays. The first review's findings stay either
+   way.
 
-Problems left once the budget is spent go into the draft's notes, quoted,
-and the run goes on without a hold. A rule with no verdict in the set, or
-one the remaining problems name, is listed in the notes as unanswered.
+Problems left once the budget is spent never hold the run. They go on one
+line in the draft's Assessment reasoning, `Unanswered rules:` followed by
+the id of each unanswered rule and then the leftover problems, quoted; when
+a report json is written, the same line goes into its `notes`. A rule is
+unanswered when the set has no verdict for it or the leftover problems name
+it. An unanswered rule is never turned into a finding, whatever its
+verdict.

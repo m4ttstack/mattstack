@@ -4,7 +4,8 @@ order: 1
 
 # Check the verdict set
 
-These steps run only when the selector ran and the reviewer has returned.
+These steps run only once the reviewer has returned, and never with no
+selection or the empty selection (Rule selector's Select the rules).
 
 1. Extract the reply's fenced block tagged with the `fence` value into
    `verdict-set.json` in the review scratch dir.
