@@ -4368,9 +4368,6 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-finding .tui-review-code[data-folded] .tui-review-code-file {
   border-bottom: none;
 }
-.tui-review-code-file[data-strip] {
-  font-size: 12px;
-}
 .tui-review-code-snippet {
   cursor: pointer;
 }
@@ -6658,4 +6655,13 @@ a.tui-id-card-ref:focus-visible {
   .tui-gate-choice-input:focus-visible {
   outline: 2px solid var(--fill-accent);
   outline-offset: 2px;
+}
+
+/* A finding with no diff line says where its comment goes in the head;
+   its comment then follows the head straight on, under the head's line. */
+.tui-review-in-summary {
+  flex-shrink: 0;
+}
+.tui-review-card-head + .tui-review-section {
+  border-top: none;
 }

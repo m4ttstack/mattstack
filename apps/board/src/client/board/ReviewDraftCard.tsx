@@ -571,7 +571,7 @@ export function FindingCard({
       {head}
       {checked && (
         <>
-          {hasDiffLine(f) ? (
+          {hasDiffLine(f) && (
             <CodeSection
               mrUrl={mrUrl}
               mrRef={mrRef}
@@ -579,17 +579,6 @@ export function FindingCard({
               finding={f}
               pins={pins}
             />
-          ) : (
-            <div className="tui-review-code-file" data-strip="">
-              {f.file && (
-                <>
-                  <FileGlyph />
-                  <span className="tui-review-code-path">{f.file}</span>
-                  <span aria-hidden="true">·</span>
-                </>
-              )}
-              <span>no diff line · posts in summary</span>
-            </div>
           )}
           <CommentSection finding={f} form={form} />
         </>

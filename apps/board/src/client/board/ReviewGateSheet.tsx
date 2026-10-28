@@ -33,6 +33,7 @@ import {
   attachDraftEdits,
   draftEdits,
   findOutcomeQuestion,
+  hasDiffLine,
 } from './review-drafts.ts';
 import {
   readinessProse,
@@ -585,6 +586,21 @@ function ReviewGateSheet({
                 {tick}
                 {title}
                 {pills}
+                {!hasDiffLine(f) && (
+                  <Chip
+                    intent="muted"
+                    variant="outline"
+                    uppercase
+                    className="tui-review-in-summary"
+                    title={
+                      f.file
+                        ? `${f.file} has no diff line, so this posts in the summary comment`
+                        : 'No diff line, so this posts in the summary comment'
+                    }
+                  >
+                    in summary
+                  </Chip>
+                )}
                 <span className="tui-review-sev" data-sev={f.severity}>
                   {SEVERITY_LABEL[f.severity]}
                 </span>
