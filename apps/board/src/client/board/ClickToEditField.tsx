@@ -251,8 +251,7 @@ export function ClickToEditField({
           </div>
         </m.div>
         {hint && (editing || variant === 'plain') && (
-          // Plain keeps the row at rest so hover's "Click to edit" moves
-          // nothing below it.
+          // At rest, plain's hint is the hover "Click to edit" pill.
           <span className="tui-cte-hint">
             {editing && (
               <>
