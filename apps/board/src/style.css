@@ -5016,6 +5016,7 @@ a.tui-id-card-ref:focus-visible {
     0 0 0 1px color-mix(in srgb, var(--fill-accent) 14%, transparent),
     0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
   opacity: 0;
+  transform: translateY(3px) scale(0.94);
   pointer-events: none;
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -5027,11 +5028,18 @@ a.tui-id-card-ref:focus-visible {
 @media (hover: hover) {
   .tui-cte[data-variant='plain']:not([data-editing]):hover + .tui-cte-hint {
     opacity: 1;
+    transform: none;
   }
 }
+/* The flash mounts already shown, so it eases in from the hidden pose. */
 .tui-cte[data-variant='plain']:not([data-editing])
   + .tui-cte-hint[data-flash='shown'] {
   opacity: 1;
+  transform: none;
+  @starting-style {
+    opacity: 0;
+    transform: translateY(3px) scale(0.94);
+  }
 }
 /* "Comment updated" is a done state, so it takes the ok wash, not the
    accent the edit cue wears; it keeps it through the fade. */
