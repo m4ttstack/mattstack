@@ -4820,13 +4820,17 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-accent);
   text-underline-offset: 2px;
 }
+/* Inline code: the code block's frameless wash. Wrapped across lines,
+   each piece closes its own corners and padding instead of one box
+   breaking open at the line end. */
 .tui-md-comment :not(pre) > code {
   padding: 1px 5px;
-  border: 1px solid var(--border-soft);
   border-radius: 4px;
-  background: var(--surface-wash-fg-4-card);
+  background: color-mix(in srgb, var(--fg) 6%, var(--card));
   font-family: var(--font-mono);
   font-size: 0.88em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .tui-md-comment blockquote {
   padding: 0 0 0 12px;
@@ -6601,10 +6605,10 @@ a.tui-id-card-ref:focus-visible {
   background: var(--panel);
 }
 /* On a wide display the findings stop at a readable measure, centred in
-   the column, with the rail still pinned right; 960px keeps a 12px mono
-   diff line near 130 characters. */
+   the column, with the rail still pinned right; 1120px keeps a 12px mono
+   diff line near 150 characters. */
 .tui-sheet-main[data-sheet='review'] > * {
-  max-width: 960px;
+  max-width: 1120px;
   margin-inline: auto;
 }
 
