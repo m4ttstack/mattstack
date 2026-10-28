@@ -4524,6 +4524,12 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-silence {
   align-items: flex-start;
 }
+/* The agent's verdict is its own band between the thread and the reply,
+   so the card reads issue, verdict, comment. */
+.tui-reply-verify {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-soft);
+}
 /* The agent's check is a kit button; a click opens what it found. */
 .tui-reply-check {
   display: flex;

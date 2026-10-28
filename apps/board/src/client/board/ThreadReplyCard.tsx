@@ -120,7 +120,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
               exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
               transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
             >
-              {(p.messages.length > 0 || p.silence || p.check) && (
+              {(p.messages.length > 0 || p.silence) && (
                 <section className="tui-reply-thread" aria-label="Thread">
                   {p.messages.map((msg, i) => (
                     <Message key={i} {...msg} />
@@ -136,7 +136,11 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                       </Chip>
                     </div>
                   )}
-                  {p.check && <AgentCheck {...p.check} />}
+                </section>
+              )}
+              {p.check && (
+                <section className="tui-reply-verify" aria-label="Agent check">
+                  <AgentCheck {...p.check} />
                 </section>
               )}
               <section
