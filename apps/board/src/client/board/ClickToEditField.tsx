@@ -104,7 +104,7 @@ export function ClickToEditField({
   onEditing?: (editing: boolean) => void;
   /** Names the mode while writing, e.g. "Editing comment". */
   heading?: string;
-  /** Controls on the header's right, such as a reset. */
+  /** Controls on the header's right while writing, such as a reset. */
   actions?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -220,7 +220,7 @@ export function ClickToEditField({
       <MotionConfig reducedMotion="user">
         <div className="tui-cte-stack">
           <AnimatePresence initial={false}>
-            {(showHeading || actions) && (
+            {editing && (showHeading || actions) && (
               <m.div
                 key="head"
                 className="tui-cte-head"
