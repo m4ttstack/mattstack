@@ -117,12 +117,12 @@ function SummaryAndFindings() {
       </div>
       <article className="tui-review-card tui-review-summary">
         <section className="tui-review-section">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <ClickToEditField
               label="Summary line"
               text={summary}
               variant="bare"
-              stripe="focus"
+              stripe="always"
               hint={false}
               onChange={setSummary}
               onEditing={track('summary')}
