@@ -6600,6 +6600,13 @@ a.tui-id-card-ref:focus-visible {
 .tui-sheet-main[data-sheet='review'] {
   background: var(--panel);
 }
+/* On a wide display the findings stop at a readable measure, centred in
+   the column, with the rail still pinned right; 960px keeps a 12px mono
+   diff line near 130 characters. */
+.tui-sheet-main[data-sheet='review'] > * {
+  max-width: 960px;
+  margin-inline: auto;
+}
 
 /* The review verdict: plain rows, one line each, the option's own
    description trailing in a light hand. */
