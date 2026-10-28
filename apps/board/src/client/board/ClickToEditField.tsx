@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -15,7 +16,10 @@ import {
 
 import { sourceOffset } from './caret-map.ts';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
-import { PencilLineIcon } from './icons.tsx';
+import { CheckGlyph, PencilLineIcon } from './icons.tsx';
+
+const FLASH_MS = 1600;
+const FADE_MS = 200;
 
 type CaretDocument = Document & {
   caretPositionFromPoint?: (
@@ -107,6 +111,18 @@ export function ClickToEditField({
   // The box eases only across a swap; a line typed in Write grows it at
   // once, so the caret's line is never clipped mid-ease.
   const [swapping, setSwapping] = useState(false);
+  // Closing on a changed text flashes "Comment updated" in the pill, then
+  // fades it; the label holds through the fade so it never swaps mid-ease.
+  const openedWith = useRef(text);
+  const [flash, setFlash] = useState<'shown' | 'fading' | null>(null);
+  useEffect(() => {
+    if (flash === null) return;
+    const id = window.setTimeout(
+      () => setFlash(flash === 'shown' ? 'fading' : null),
+      flash === 'shown' ? FLASH_MS : FADE_MS
+    );
+    return () => window.clearTimeout(id);
+  }, [flash]);
 
   useLayoutEffect(() => {
     const el = faces.current;
@@ -118,6 +134,8 @@ export function ClickToEditField({
   }, []);
 
   const open = (at: number) => {
+    openedWith.current = text;
+    setFlash(null);
     caret.current = at;
     setSwapping(true);
     setEditing(true);
@@ -125,6 +143,7 @@ export function ClickToEditField({
   };
   const close = (keepFocus: boolean) => {
     refocus.current = keepFocus;
+    if (text !== openedWith.current) setFlash('shown');
     setSwapping(true);
     setEditing(false);
     onEditing?.(false);
@@ -255,11 +274,20 @@ export function ClickToEditField({
           // At rest, plain's hint is the hover "Click to edit" pill; the
           // textbox already says it edits, so the pill stays out of the
           // accessibility tree.
-          <span className="tui-cte-hint" aria-hidden={!editing || undefined}>
+          <span
+            className="tui-cte-hint"
+            aria-hidden={!editing || undefined}
+            data-flash={editing ? undefined : (flash ?? undefined)}
+          >
             {editing ? (
               <>
                 <span>Markdown supported</span>
                 <span>esc to finish</span>
+              </>
+            ) : flash ? (
+              <>
+                <CheckGlyph />
+                Comment updated
               </>
             ) : (
               <>

@@ -401,6 +401,15 @@ export function PencilLineIcon() {
   );
 }
 
+/** A done mark (lucide `check`, ISC licensed). */
+export function CheckGlyph() {
+  return (
+    <svg {...RECORD_ICON}>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
 /** The Code section's mark (lucide `code`, ISC licensed). */
 export function CodeGlyph() {
   return (

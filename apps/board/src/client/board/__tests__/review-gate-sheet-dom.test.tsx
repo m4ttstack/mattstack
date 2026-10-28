@@ -1696,6 +1696,32 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(section.querySelector('.tui-cte-view')).not.toBeNull();
   });
 
+  test('closing a changed comment flashes "Comment updated"; an unchanged one does not', async () => {
+    await render(draftsGate());
+    const section = sectionOf(itemFor('Unused import'), 'Comment')!;
+    const hint = () => section.querySelector('.tui-cte-hint')!;
+    await React.act(async () => {
+      section.querySelector<HTMLElement>('.tui-cte-view')!.click();
+    });
+    await React.act(async () => {
+      section.querySelector('textarea')!.blur();
+    });
+    expect(hint().hasAttribute('data-flash')).toBe(false);
+    expect(hint().textContent).toBe('Click to edit');
+
+    const changed = sectionOf(
+      itemFor('SQL built from unsanitized input'),
+      'Comment'
+    )!;
+    await edit(changed, 'Bind q as a parameter.');
+    await React.act(async () => {
+      changed.querySelector('textarea')!.blur();
+    });
+    const flash = changed.querySelector('.tui-cte-hint')!;
+    expect(flash.getAttribute('data-flash')).toBe('shown');
+    expect(flash.textContent).toBe('Comment updated');
+  });
+
   test('Tab onto a rendered comment opens it for typing', async () => {
     await render(draftsGate());
     const section = sectionOf(itemFor('Unused import'), 'Comment')!;

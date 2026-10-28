@@ -5029,6 +5029,10 @@ a.tui-id-card-ref:focus-visible {
     opacity: 1;
   }
 }
+.tui-cte[data-variant='plain']:not([data-editing])
+  + .tui-cte-hint[data-flash='shown'] {
+  opacity: 1;
+}
 @media (hover: hover) {
   .tui-cte[data-variant='filled']:not([data-editing]):hover {
     background: color-mix(in srgb, var(--fg) 7%, var(--card));
