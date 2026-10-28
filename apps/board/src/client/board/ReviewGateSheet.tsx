@@ -351,11 +351,6 @@ function ReviewGateSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.gateId]);
 
-  const handleReset = () => {
-    form.resetAll();
-    seedDefaults(true);
-  };
-
   const selectedFindings = useMemo(() => {
     const current = findingsName ? form.selections[findingsName] : undefined;
     return new Set(Array.isArray(current) ? current : []);
@@ -900,13 +895,6 @@ function ReviewGateSheet({
                     <h3 className="tui-sheet-dock-heading">
                       {mr ? `Verdict on ${mrRef(mr)}` : 'Verdict'}
                     </h3>
-                    <button
-                      type="button"
-                      className="tui-sheet-reset"
-                      onClick={handleReset}
-                    >
-                      reset
-                    </button>
                   </div>
                   <div
                     className="tui-gate-choices"

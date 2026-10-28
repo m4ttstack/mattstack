@@ -528,30 +528,11 @@ test('a blank or whitespace-only note posts the bare selection, not an empty not
   expect(body.answers.outcome).toBe('approve');
 });
 
-test('reset re-seeds every finding checked and the recommended outcome', async () => {
+test('the verdict dock has no reset that would discard every edit', async () => {
   await render();
-
-  const first = container.querySelector(
-    '.tui-review-finding-row input[type="checkbox"]'
-  ) as HTMLInputElement;
-  await click(first);
-  const comment = [...container.querySelectorAll('input[type=radio]')].find(
-    i => (i as HTMLInputElement).value === 'comment'
-  ) as HTMLInputElement;
-  await click(comment);
-
-  expect(container.querySelector('.tui-sheet-submit')?.textContent).toBe(
-    'comment'
-  );
-
-  await click(buttonByText('reset'));
-
   expect(
-    container.querySelector('.tui-sheet-list-tally')?.textContent
-  ).toContain('6 of 6 selected');
-  expect(container.querySelector('.tui-sheet-submit')?.textContent).toBe(
-    'approve'
-  );
+    container.querySelector('.tui-sheet-dock .tui-sheet-reset')
+  ).toBeNull();
 });
 
 function checkboxForTitle(title: string): HTMLInputElement {
