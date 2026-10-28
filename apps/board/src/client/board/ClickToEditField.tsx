@@ -15,6 +15,7 @@ import {
 
 import { sourceOffset } from './caret-map.ts';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
+import { PencilLineIcon } from './icons.tsx';
 
 type CaretDocument = Document & {
   caretPositionFromPoint?: (
@@ -251,12 +252,19 @@ export function ClickToEditField({
           </div>
         </m.div>
         {hint && (editing || variant === 'plain') && (
-          // At rest, plain's hint is the hover "Click to edit" pill.
-          <span className="tui-cte-hint">
-            {editing && (
+          // At rest, plain's hint is the hover "Click to edit" pill; the
+          // textbox already says it edits, so the pill stays out of the
+          // accessibility tree.
+          <span className="tui-cte-hint" aria-hidden={!editing || undefined}>
+            {editing ? (
               <>
                 <span>Markdown supported</span>
                 <span>esc to finish</span>
+              </>
+            ) : (
+              <>
+                <PencilLineIcon />
+                Click to edit
               </>
             )}
           </span>

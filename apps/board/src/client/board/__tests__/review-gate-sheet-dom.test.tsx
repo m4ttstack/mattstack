@@ -1387,7 +1387,9 @@ describe('a gate whose poster honors edited drafts', () => {
     )!;
     expect(box.querySelector('.tui-cte-view')).not.toBeNull();
     expect(box.querySelector('textarea')).toBeNull();
-    expect(box.querySelector('.tui-cte-hint')!.textContent).toBe('');
+    expect(box.querySelector('.tui-cte-hint')!.textContent).toBe(
+      'Click to edit'
+    );
     expect(valueOf(box)).toContain('Could we bind it as a parameter instead?');
     expect(valueOf(box)).toContain(
       'A test with a quote in the name would pin it.'
