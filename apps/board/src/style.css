@@ -4998,9 +4998,10 @@ a.tui-id-card-ref:focus-visible {
   min-height: 0;
   margin: 0;
   padding: 1px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--fill-accent) 22%, var(--border));
   border-radius: 999px;
-  background: var(--card);
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--fill-accent) 8%, var(--card));
   box-shadow: 0 1px 4px color-mix(in srgb, var(--fg) 8%, transparent);
   opacity: 0;
   pointer-events: none;
