@@ -4627,14 +4627,15 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A comment as it reads on the MR: the Markdown subset review comments
    use, at the field's own size, so switching tabs keeps the card still. */
+.tui-md-comment :is(p, ul, ol, blockquote, table, .tui-md-code) {
+  margin: 0 0 8px;
+}
+/* After the block margins above: same specificity, so order decides. */
 .tui-md-comment > :first-child {
   margin-top: 0;
 }
 .tui-md-comment > :last-child {
   margin-bottom: 0;
-}
-.tui-md-comment :is(p, ul, ol, blockquote, table, .tui-md-code) {
-  margin: 0 0 8px;
 }
 .tui-md-comment :is(h1, h2, h3, h4, h5, h6) {
   margin: 12px 0 6px;
