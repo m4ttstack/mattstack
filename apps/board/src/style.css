@@ -7132,6 +7132,15 @@ a.tui-id-card-ref:focus-visible {
   font-weight: 500;
   color: var(--text-3);
 }
+/* The suggested fix follows the finding under a hairline, same label. */
+.tui-review-info-fix {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
 
 /* The code under its file bar; motion eases its height on fold. */
 .tui-review-code-body {

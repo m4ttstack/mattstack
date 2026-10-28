@@ -343,7 +343,9 @@ function CodeSection({
           </button>
           <FileGlyph />
           <CodePath path={path} line={line} />
-          {finding.body && <FindingInfo body={finding.body} />}
+          {finding.body && (
+            <FindingInfo body={finding.body} fix={finding.fix} />
+          )}
           {forgeLink && (
             <a
               className="tui-review-section-link tui-review-code-more"
@@ -585,7 +587,7 @@ function CodePath({ path, line }: { path: string; line?: number }) {
 
 /** The agent's finding behind an info mark in the code's file bar: the
     comment already says it to the author, so it stays a click away. */
-function FindingInfo({ body }: { body: string }) {
+function FindingInfo({ body, fix }: { body: string; fix?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <Popover
@@ -617,6 +619,12 @@ function FindingInfo({ body }: { body: string }) {
       <div className="tui-review-info-card">
         <span className="tui-review-info-title">Agent finding</span>
         <CommentMarkdown>{body}</CommentMarkdown>
+        {fix && (
+          <div className="tui-review-info-fix">
+            <span className="tui-review-info-title">Suggested fix</span>
+            <CommentMarkdown>{fix}</CommentMarkdown>
+          </div>
+        )}
       </div>
     </Popover>
   );
