@@ -4758,11 +4758,10 @@ a.tui-id-card-ref:focus-visible {
    sits in a finding or reply card; bare stacks inside the summary card so
    its parts read as the one comment the forge shows. A stripe is a
    left edge with square corners, never a rounded one. */
-.tui-cte {
-  transition:
-    border-color 120ms,
-    box-shadow 120ms,
-    background-color 120ms;
+.tui-cte,
+.tui-cte-view,
+.tui-cte-input {
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .tui-cte-view {
   box-sizing: border-box;
