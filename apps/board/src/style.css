@@ -4111,9 +4111,9 @@ a.tui-id-card-ref:focus-visible {
   border-radius: 7px 7px 0 0;
   border-bottom: 1px solid var(--border-soft);
 }
-/* The whole strip is the tickbox's label, and its hover tint spans the
-   strip edge to edge, following the card's corners, so it reads as one
-   clickable header. The severity takes the far end. */
+/* The whole strip is the tickbox's label, and the finding rows' blue
+   hover wash spans the strip edge to edge, following the card's corners,
+   so it reads as one clickable header. The severity takes the far end. */
 .tui-review-card-head.tui-review-finding-row {
   margin: 0;
   padding: 10px 14px;
@@ -4123,10 +4123,10 @@ a.tui-id-card-ref:focus-visible {
   outline: none;
 }
 .tui-review-card-head.tui-review-finding-row:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  background: color-mix(in srgb, var(--fill-accent-hover) 6%, transparent);
 }
 .tui-review-card-head.tui-review-finding-row:active {
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  background: color-mix(in srgb, var(--fill-accent) 11%, transparent);
 }
 .tui-review-card-head > .tui-review-sev {
   margin-left: auto;
