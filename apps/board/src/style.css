@@ -4793,7 +4793,7 @@ a.tui-id-card-ref:focus-visible {
   box-shadow: 0 0 0 1px var(--fill-ok);
 }
 .tui-cte[data-variant='bare'] .tui-cte-view {
-  padding: 2px 12px 8px;
+  padding: 8px 12px;
 }
 /* Write opens out from the text so the wash has room around it. */
 .tui-cte[data-variant='bare'] .tui-cte-input {
