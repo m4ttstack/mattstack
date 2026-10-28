@@ -110,6 +110,13 @@ describe("rule selector slot", () => {
       expect(body).toMatch(edge("make_recorded_move", "assemble_draft"));
       expect(body).toContain("run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}");
     });
+    test("receive-review selects rules before the adjudicator", () => {
+      const body = compiled.verbs["receive-review"];
+      expect(body).toMatch(/\bany_unresolved -> select_rules\b/);
+      expect(body).toMatch(/\bselect_rules -> dispatch_adjudicator\b/);
+      expect(body).not.toMatch(/\bany_unresolved -> dispatch_adjudicator\b/);
+      expect(body).not.toMatch(/\bcheck_verdicts\b/);
+    });
   });
 
   test("unbound: no fill text, bodies still present", async () => {

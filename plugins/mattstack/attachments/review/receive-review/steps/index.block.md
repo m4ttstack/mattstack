@@ -47,6 +47,7 @@ flowchart TB
     read_pr_threads_gh
     keep_unresolved_human
     any_unresolved{Any unresolved human threads?}
+    select_rules
     dispatch_adjudicator
     draft_verdict_table
     build_plan_open
@@ -207,7 +208,8 @@ flowchart TB
     mr_threads_unresolved -->|an error: fail, quoting it| own_run_failed_or_abandoned
     read_pr_threads_gh --> keep_unresolved_human
     keep_unresolved_human --> any_unresolved
-    any_unresolved -->|yes| dispatch_adjudicator
+    any_unresolved -->|yes| select_rules
+    select_rules --> dispatch_adjudicator
     any_unresolved -->|none: say so| report_outcome
     dispatch_adjudicator --> draft_verdict_table
     draft_verdict_table --> build_plan_open
