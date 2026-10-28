@@ -6827,3 +6827,11 @@ a.tui-id-card-ref:focus-visible {
 .tui-cte-badge + .tui-cte .tui-cte-view {
   padding-top: 15px;
 }
+/* The wash already divides the halves; the hairline beside it would
+   double the edge. */
+.tui-cte-badge-sep {
+  transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tui-cte-badge:has(.tui-review-reset:hover) .tui-cte-badge-sep {
+  opacity: 0;
+}
