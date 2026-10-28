@@ -21,11 +21,17 @@ import type { GateRow } from '../../gates/store.ts';
 import { approvalSlots } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import { CommentComposer } from './CommentComposer.tsx';
-import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
+import {
+  parseGateCtx,
+  type PlanCtx,
+  type PostCtx,
+  type ThreadCtx,
+} from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
+import { ThreadReplyCard } from './ThreadReplyCard.tsx';
 import { PersonLead, PersonTag } from './PersonLead.tsx';
 import {
   joinPlan,
@@ -47,7 +53,6 @@ import {
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
-  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 } from './RespondCards.tsx';
@@ -625,28 +630,43 @@ function RespondSheetBody({
     const v = form.selections[p.name];
     return Array.isArray(v) && v.includes(p.post);
   };
-  // `framed`: the composer is the thread's whole card, so its strip names
-  // the thread and its outcome.
-  const editableReply = (p: PostPick, framed = false) => {
+  // A reply card: the header's tick posts, the reviewer's comment reads
+  // above the reply when the plan gate's thread is known.
+  const replyCard = (p: PostPick, thread?: ThreadCtx) => {
     const live = postingPick(p);
+    const reply = p.reply!;
     return (
-      <CommentComposer
-        label={`Reply on ${p.label}`}
-        noun="reply"
-        heldKicker="drafted reply · not posting"
-        {...(framed
-          ? {
-              where: p.label,
-              status: <StripOutcome verb={p.reply!.verb} />,
-              heldMeta: 'not posting',
-            }
-          : { kicker: 'will post as reply' })}
-        draft={p.reply!.text}
+      <ThreadReplyCard
+        key={p.name}
+        label={p.label}
+        status={
+          reply.verb === 'fix'
+            ? { text: 'Fixed', hue: 'green' }
+            : { text: 'Reply only', hue: 'muted' }
+        }
+        sha={reply.sha}
+        messages={
+          thread?.claim.summary
+            ? [{ who: people.short(thread.author), text: thread.claim.summary }]
+            : []
+        }
+        draft={reply.text}
         value={live ? form.texts[p.name] : undefined}
-        canEdit={live}
+        posting={live}
+        onPosting={on => form.toggleMulti(p.name, p.post, on)}
+        resolve={
+          p.resolve
+            ? {
+                on: (() => {
+                  const v = form.selections[p.name];
+                  return Array.isArray(v) && v.includes(p.resolve!);
+                })(),
+                onChange: on => form.toggleMulti(p.name, p.resolve!, on),
+              }
+            : undefined
+        }
         onChange={text => form.setText(p.name, text)}
         onReset={() => form.clearText(p.name)}
-        controls={<PostResolveChoice pick={p} form={form} />}
       />
     );
   };
@@ -814,11 +834,11 @@ function RespondSheetBody({
           {threadJoin
             ? threadJoin.map(j => {
                 const pick = picks.find(p => p.threadId === j.threadId);
+                if (pick?.reply) return replyCard(pick, j.thread);
                 return (
                   <PostStepCard
                     key={j.threadId}
                     j={j}
-                    reply={pick?.reply ? editableReply(pick) : undefined}
                   >
                     {pick && !pick.reply && (
                       <PostResolveChoice pick={pick} form={form} />
@@ -836,19 +856,7 @@ function RespondSheetBody({
                   );
                 const p = item.pick;
                 const display = displayOf(p.name);
-                if (p.reply)
-                  return (
-                    <section
-                      key={p.name}
-                      className="tui-gate-question"
-                      data-gate-ctx="thread"
-                      data-step="post"
-                      data-frame="composer"
-                      aria-label={p.label}
-                    >
-                      {editableReply(p, true)}
-                    </section>
-                  );
+                if (p.reply) return replyCard(p);
                 return (
                   <section
                     key={p.name}
