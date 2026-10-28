@@ -97,6 +97,19 @@ describe("rule selector slot", () => {
       expect(body).toMatch(edge("redispatch_reviewer", "assemble_draft"));
       expect(body).toContain("run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}");
     });
+
+    test("self-review graph places the rule steps", () => {
+      const body = compiled.verbs["self-review"];
+      const edge = (a: string, b: string) => new RegExp(`\\b${a} -> ${b}\\b`);
+      expect(body).toMatch(edge("run_depth_checks", "select_rules"));
+      expect(body).toMatch(edge("select_rules", "repro_browser"));
+      expect(body).toMatch(edge("dispatch_reviewer", "check_verdicts"));
+      expect(body).toMatch(edge("fails_to_findings", "assemble_draft"));
+      expect(body).not.toMatch(edge("run_depth_checks", "repro_browser"));
+      expect(body).not.toMatch(edge("dispatch_reviewer", "assemble_draft"));
+      expect(body).toMatch(edge("make_recorded_move", "assemble_draft"));
+      expect(body).toContain("run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}");
+    });
   });
 
   test("unbound: no fill text, bodies still present", async () => {
