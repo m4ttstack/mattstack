@@ -4788,7 +4788,7 @@ a.tui-id-card-ref:focus-visible {
   box-shadow: 0 0 0 1px var(--fill-ok);
 }
 .tui-cte[data-variant='bare'] :is(.tui-cte-view, .tui-cte-input) {
-  padding: 6px 12px;
+  padding: 2px 12px;
 }
 .tui-cte[data-variant='bare'] {
   border-left: 2px solid transparent;
