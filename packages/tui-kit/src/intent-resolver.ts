@@ -78,9 +78,9 @@ export const tuiIntentResolver: IntentResolver = ({ intent, variant }) => {
     };
   }
 
-  // The helper mixes an outline's hover over the page surface, which reads
+  // The helper mixes outline and subtle hovers over the page surface, which reads
   // as a grey patch on a card; a wash of the tone alone sits on any ground.
-  if (variant === "outline") {
+  if (variant === "outline" || variant === "subtle") {
     result = { ...result, hover: `color-mix(in srgb, ${tone} 8%, transparent)` };
   }
 
