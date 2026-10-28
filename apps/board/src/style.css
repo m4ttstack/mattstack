@@ -4799,11 +4799,11 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-cte[data-variant='bare'][data-editing] {
   border-left-color: var(--fill-ok);
-  background: color-mix(in srgb, var(--fill-ok) 7%, transparent);
+  background: var(--surface-wash-fg-4-card);
 }
 @media (hover: hover) {
   .tui-cte[data-variant='bare']:not([data-editing]):hover {
-    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
   }
 }
 .tui-cte[data-invalid] {
