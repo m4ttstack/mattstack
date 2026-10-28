@@ -329,6 +329,11 @@ export function ClickToEditField({
                 className="tui-cte-hint"
                 aria-hidden={!editing || undefined}
                 data-flash={editing ? undefined : (flash ?? undefined)}
+                // The rest pill reads like a button, so a click on it opens
+                // the field too, with the caret at the end.
+                onClick={
+                  editing || readOnly ? undefined : () => open(text.length)
+                }
               >
                 {editing ? (
                   <>
