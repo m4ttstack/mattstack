@@ -259,6 +259,7 @@ export function fenceLanguage(lang: string): string | undefined {
 const CODE_CSS = `${BOARD_CSS}
 :host {
   --diffs-font-size: 13px;
+  --diffs-bg: transparent;
 }
 `;
 

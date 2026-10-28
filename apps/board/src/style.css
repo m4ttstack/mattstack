@@ -4853,25 +4853,31 @@ a.tui-id-card-ref:focus-visible {
   border: none;
   border-top: 1px solid var(--border-soft);
 }
-/* A fenced block: its language over the code, on a quiet wash; a
+/* A fenced block: a grey wash with no frame, so a comment's code reads
+   as content, not a third box. The language floats top-right and the
+   code wraps around it, so only the first line gives up its width. A
    suggestion reads as the change it proposes. */
 .tui-md-code {
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 8px 12px;
+  border-radius: 2px;
   background: var(--surface-wash-fg-4-card);
-  overflow: hidden;
+}
+.tui-md-code::after {
+  content: '';
+  display: block;
+  clear: both;
 }
 .tui-md-code-head {
-  padding: 3px 10px;
-  border-bottom: 1px solid var(--border-soft);
-  font-family: var(--font-mono);
+  float: right;
+  margin: 1px 0 0 12px;
+  font-family: var(--font-sans);
   font-size: 11px;
+  line-height: 1.6;
   color: var(--text-3);
 }
 .tui-md-code-body {
   margin: 0;
-  padding: 8px 12px;
-  background: var(--card);
+  padding: 0;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
@@ -4879,22 +4885,19 @@ a.tui-id-card-ref:focus-visible {
   overflow-wrap: anywhere;
 }
 .tui-md-code-hl {
-  padding: 2px 0;
-  background: var(--card);
+  padding: 0;
+  background: none;
 }
 .tui-md-code[data-suggestion] {
-  border-color: color-mix(in srgb, var(--fill-ok) 45%, var(--card));
-  background: color-mix(in srgb, var(--fill-ok) 7%, var(--card));
+  background: color-mix(in srgb, var(--fill-ok) 8%, var(--card));
 }
 .tui-md-code[data-suggestion] .tui-md-code-head {
-  font-family: var(--font-sans);
   font-weight: 500;
   color: var(--text-ok-small);
-  border-bottom-color: color-mix(in srgb, var(--fill-ok) 30%, var(--card));
 }
 .tui-md-code[data-suggestion] .tui-md-code-body {
+  padding-left: 9px;
   border-left: 3px solid var(--fill-ok);
-  background: color-mix(in srgb, var(--fill-ok) 7%, var(--card));
 }
 .tui-field-preview-empty {
   margin: 0;
