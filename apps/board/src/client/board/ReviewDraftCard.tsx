@@ -32,6 +32,7 @@ import {
   ArrowOutGlyph,
   ChevronGlyph,
   FileGlyph,
+  UndoGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
 
@@ -443,7 +444,7 @@ function DraftMeta({
   edited,
   label,
   onReset,
-  resetText = 'reset to draft',
+  resetText = 'Reset to draft',
   unedited,
 }: {
   edited: boolean;
@@ -458,16 +459,15 @@ function DraftMeta({
     ) : null;
   return (
     <span className="tui-review-section-meta" data-edited="">
-      <span className="tui-composer-edited">edited</span>
-      <span aria-hidden="true">·</span>
       <button
         type="button"
-        className="tui-composer-act"
+        className="tui-composer-act tui-review-reset"
         aria-label={`${label}: reset to draft`}
         onClick={e =>
           resetToWrite(e.currentTarget, '[data-draft-part]', onReset)
         }
       >
+        <UndoGlyph />
         {resetText}
       </button>
     </span>

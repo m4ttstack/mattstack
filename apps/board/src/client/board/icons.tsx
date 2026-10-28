@@ -401,6 +401,16 @@ export function PencilLineIcon() {
   );
 }
 
+/** Back to the draft (lucide `undo-2`, ISC licensed). */
+export function UndoGlyph() {
+  return (
+    <svg {...RECORD_ICON}>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
+    </svg>
+  );
+}
+
 /** A done mark (lucide `check`, ISC licensed). */
 export function CheckGlyph() {
   return (
