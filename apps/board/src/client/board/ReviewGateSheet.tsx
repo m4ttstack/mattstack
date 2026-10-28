@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCheck } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -808,9 +809,12 @@ function ReviewGateSheet({
                   }
                 />
               )}
-              <p className="tui-sheet-end">
-                You've reached the end of the findings.
-              </p>
+              <div className="tui-sheet-end">
+                <span className="tui-sheet-end-icon" aria-hidden>
+                  <CheckCheck size={18} />
+                </span>
+                <p>You've reached the end of the findings.</p>
+              </div>
             </>
           )}
           {mainTab === 'report' && (record || checks.length > 0) && (
