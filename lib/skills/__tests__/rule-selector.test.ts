@@ -98,6 +98,11 @@ describe("rule selector slot", () => {
       expect(body).toContain("run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}");
     });
 
+    test("review graph: every path to the dispatch passes select_rules, a failed head checkout included", () => {
+      const into = [...compiled.verbs.review.matchAll(/^\s*(\w+) -> dispatch_reviewer\b/gm)].map((m) => m[1]);
+      expect(into).toEqual(["select_rules"]);
+    });
+
     test("self-review graph places the rule steps", () => {
       const body = compiled.verbs["self-review"];
       const edge = (a: string, b: string) => new RegExp(`\\b${a} -> ${b}\\b`);
