@@ -4550,7 +4550,6 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   width: max-content;
   margin: 0 12px 0 auto;
-  padding: 3px 14px 4px;
   border-radius: 0 0 6px 6px;
   background: color-mix(in srgb, var(--fg) 8%, var(--card));
   box-shadow: inset 0 3px 3px -3px color-mix(in srgb, black 18%, transparent);
@@ -4560,9 +4559,25 @@ a.tui-id-card-ref:focus-visible {
 .tui-cte-footer:has(.tui-gate-choice-input:checked) {
   background: color-mix(in srgb, var(--fill-accent) 13%, var(--card));
 }
+/* The whole tab is the tick's label: a deeper tint under the pointer and
+   deeper still while pressed. */
+.tui-cte-footer:hover {
+  background: color-mix(in srgb, var(--fg) 12%, var(--card));
+}
+.tui-cte-footer:active {
+  background: color-mix(in srgb, var(--fg) 16%, var(--card));
+}
+.tui-cte-footer:has(.tui-gate-choice-input:checked):hover {
+  background: color-mix(in srgb, var(--fill-accent) 19%, var(--card));
+}
+.tui-cte-footer:has(.tui-gate-choice-input:checked):active {
+  background: color-mix(in srgb, var(--fill-accent) 25%, var(--card));
+}
 /* The footer's tick is a quiet line, not a second field. */
 .tui-cte-footer .tui-reply-resolve {
   flex-direction: row-reverse;
+  padding: 3px 14px 4px;
+  user-select: none;
   gap: 6px;
   font-size: 12px;
   color: var(--text-1);
