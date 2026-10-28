@@ -4144,16 +4144,16 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
 }
 .tui-review-sev::before {
   content: '';
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: var(--text-4);
+  background: var(--text-3);
 }
 .tui-review-sev[data-sev='critical'] {
   color: var(--text-bad-small);
