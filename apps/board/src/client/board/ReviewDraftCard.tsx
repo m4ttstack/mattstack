@@ -652,10 +652,10 @@ export function SummaryCard({
       data-section="summary"
       data-draft-part=""
       data-edited={edited || undefined}
-      aria-label="Summary comment"
+      aria-label="Review comment"
     >
       <div className="tui-review-dock-summary-head">
-        <span className="tui-review-dock-summary-title">Summary comment</span>
+        <span className="tui-review-dock-summary-title">Review comment</span>
         {edited ? (
           <DraftMeta
             edited
