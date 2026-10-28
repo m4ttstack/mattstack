@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCheck } from 'lucide-react';
+import { CheckCheck, FileText, ListChecks } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -698,10 +698,10 @@ function ReviewGateSheet({
           >
             {(
               [
-                ['findings', 'Findings', findings.length],
-                ['report', 'Report', undefined],
+                ['findings', 'Findings', ListChecks, findings.length],
+                ['report', 'Report', FileText, undefined],
               ] as const
-            ).map(([id, label, count]) => (
+            ).map(([id, label, TabIcon, count]) => (
               <button
                 key={id}
                 role="tab"
@@ -710,6 +710,7 @@ function ReviewGateSheet({
                 className={`tui-tab${mainTab === id ? ' active' : ''}`}
                 onClick={() => setMainTab(id)}
               >
+                <TabIcon size={14} aria-hidden />
                 {label}
                 {count !== undefined && (
                   <span className="tui-tab-count">{count}</span>

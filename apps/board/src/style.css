@@ -7203,3 +7203,12 @@ a.tui-id-card-ref:focus-visible {
   gap: 12px;
   margin-bottom: 16px;
 }
+/* The rail's MR card sits on the panel there; on the panel-toned main
+   column it takes the card ground so it doesn't vanish into it. */
+.tui-review-report-context .tui-id-card {
+  border-color: var(--border);
+  background: var(--card);
+}
+.tui-review-tabs .tui-tab > svg {
+  margin-right: 6px;
+}
