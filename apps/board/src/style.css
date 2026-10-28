@@ -4826,6 +4826,21 @@ a.tui-id-card-ref:focus-visible {
   border-left-color: var(--fill-ok);
   background: var(--surface-wash-fg-4-card);
 }
+/* Filled: a finding's own comment, a light well with no border at rest;
+   writing in it draws the border. */
+.tui-cte[data-variant='filled'] {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--surface-wash-fg-4-card);
+}
+.tui-cte[data-variant='filled'][data-editing] {
+  border-color: var(--fill-ok);
+}
+@media (hover: hover) {
+  .tui-cte[data-variant='filled']:not([data-editing]):hover {
+    background: color-mix(in srgb, var(--fg) 7%, var(--card));
+  }
+}
 @media (hover: hover) {
   .tui-cte[data-variant='bare']:not([data-editing]):hover {
     background: color-mix(in srgb, var(--fg) 2%, transparent);

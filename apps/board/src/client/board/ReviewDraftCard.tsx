@@ -478,6 +478,7 @@ function CommentEditor({
   label,
   draft,
   value,
+  variant,
   hint = true,
   onChange,
   onEditing,
@@ -485,6 +486,7 @@ function CommentEditor({
   label: string;
   draft: string;
   value: string | undefined;
+  variant: 'bare' | 'filled';
   hint?: boolean;
   onChange: (text: string) => void;
   onEditing?: (editing: boolean) => void;
@@ -496,8 +498,8 @@ function CommentEditor({
       <ClickToEditField
         label={label}
         text={text}
-        variant="bare"
-        stripe="always"
+        variant={variant}
+        stripe={variant === 'bare' ? 'always' : undefined}
         hint={hint}
         invalid={empty}
         describedBy={empty ? hintId : undefined}
@@ -544,6 +546,7 @@ function CommentSection({
         label={label}
         draft={finding.comment!}
         value={form.texts[key]}
+        variant="filled"
         onChange={t => form.setText(key, t)}
       />
     </section>
@@ -675,6 +678,7 @@ export function SummaryCard({
             label="Summary line"
             draft={draft}
             value={form.texts[key]}
+            variant="bare"
             hint={false}
             onChange={t => form.setText(key, t)}
             onEditing={track('summary')}
@@ -685,6 +689,7 @@ export function SummaryCard({
               label={`Summary comment: ${f.title}`}
               draft={f.comment!}
               value={form.texts[commentKey(f.id)]}
+              variant="bare"
               hint={false}
               onChange={t => form.setText(commentKey(f.id), t)}
               onEditing={track(f.id)}

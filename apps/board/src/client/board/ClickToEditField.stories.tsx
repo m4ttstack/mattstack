@@ -262,8 +262,7 @@ function SummaryAndFindings() {
                     <ClickToEditField
                       label={`Comment on ${f.title}`}
                       text={texts[f.id]!}
-                      variant="bare"
-                      stripe="always"
+                      variant="filled"
                       onChange={setText(f.id)}
                       onEditing={track(`card:${f.id}`)}
                     />
