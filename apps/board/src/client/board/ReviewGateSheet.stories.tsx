@@ -985,7 +985,19 @@ const firstRoundDiffs: DiffSource = {
     rendered and opens raw on a click; a folded one edits in the summary or
     in its own card. */
 export const DraftedFirstRound: Story = {
-  decorators: [no404],
+  // A real gate's report.json carries the record cluster; without it the
+  // column falls back to the Full report disclosure, which real gates
+  // rarely show.
+  decorators: [
+    fetchStub(url =>
+      url.startsWith('/review/report.json')
+        ? new Response(reportJson, {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        : undefined
+    ),
+  ],
   render: () => (
     <DiffSourceContext.Provider value={firstRoundDiffs}>
       <Host gate={draftedFirstRoundGate} mr={boardMr} />
