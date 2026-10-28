@@ -100,8 +100,12 @@ export function CarryoverCard({
         carry.note
           ? {
               note: carry.note,
-              settled:
-                carry.call === 'fixed' || carry.call === 'pushback-accepted',
+              verdict:
+                carry.call === 'fixed'
+                  ? 'verified'
+                  : carry.call === 'pushback-accepted'
+                    ? 'accepted'
+                    : 'flagged',
             }
           : undefined
       }

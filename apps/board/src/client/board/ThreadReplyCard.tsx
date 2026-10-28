@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Flag } from 'lucide-react';
+import { Flag, ThumbsUp } from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Button, CHECK_ICON, Chip, Icon, ICONS } from '@mattstack/tui-kit';
@@ -25,7 +25,7 @@ export interface ThreadReplyCardProps {
   messages: ThreadMessage[];
   /** Said in place of the other side's message when they never replied. */
   silence?: string;
-  check?: { note: string; settled: boolean };
+  check?: { note: string; verdict: AgentVerdict };
   draft: string;
   value: string | undefined;
   posting: boolean;
@@ -193,27 +193,55 @@ function Message({ who, text }: ThreadMessage): ReactNode {
   );
 }
 
-/** What the agent found on the thread, behind a badge: verified when the
-    author's change or pushback holds, else still open. */
-function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
-  const [open, setOpen] = useState(!settled);
-  const label = settled ? 'Agent verified' : 'Agent flagged';
+/** How the agent judged the author's answer: the change holds, the
+    pushback holds, or the thread is still open. */
+export type AgentVerdict = 'verified' | 'accepted' | 'flagged';
+
+const VERDICT = {
+  verified: {
+    label: 'Agent verified',
+    intent: 'ok',
+    icon: <Icon d={CHECK_ICON} />,
+  },
+  accepted: {
+    label: 'Agent accepted',
+    intent: 'accent',
+    icon: <ThumbsUp size={14} aria-hidden />,
+  },
+  flagged: {
+    label: 'Agent flagged',
+    intent: 'warn',
+    icon: <Flag size={14} aria-hidden />,
+  },
+} as const;
+
+/** What the agent found on the thread, behind a badge; a flagged thread
+    opens with its note showing. */
+function AgentCheck({
+  note,
+  verdict,
+}: {
+  note: string;
+  verdict: AgentVerdict;
+}) {
+  const [open, setOpen] = useState(verdict === 'flagged');
+  const v = VERDICT[verdict];
   return (
     <div
       className="tui-reply-check"
-      data-settled={settled || undefined}
+      data-verdict={verdict}
       data-open={open || undefined}
     >
       <Button
         type="button"
         variant="filled"
-        intent={settled ? 'ok' : 'warn'}
+        intent={v.intent}
         size="sm"
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       >
-        {settled ? <Icon d={CHECK_ICON} /> : <Flag size={14} aria-hidden />}
-        {label}
+        {v.icon}
+        {v.label}
         <span className="tui-reply-check-chevron" data-open={open || undefined}>
           {ICONS['chevron-right']}
         </span>

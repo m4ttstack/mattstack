@@ -4629,8 +4629,11 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-check {
   --check-line: var(--fill-warn);
 }
-.tui-reply-check[data-settled] {
+.tui-reply-check[data-verdict='verified'] {
   --check-line: var(--fill-ok);
+}
+.tui-reply-check[data-verdict='accepted'] {
+  --check-line: var(--fill-accent);
 }
 .tui-reply-check > .tui-disclosure {
   align-self: stretch;
