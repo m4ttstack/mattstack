@@ -17,6 +17,7 @@ import {
   expect,
   test,
 } from 'bun:test';
+import { MotionGlobalConfig } from 'motion/react';
 import { createRoot, type Root } from 'react-dom/client';
 
 import { gateDraftKey } from '@mattstack/gate-kit/react';
@@ -34,6 +35,9 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 // raises as an unhandled error when a comment swaps faces; without `animate`
 // motion falls back to its own frame loop.
 delete (Element.prototype as { animate?: unknown }).animate;
+// Folds and fades finish at once, so an unticked card's sections leave the
+// DOM in the same act() rather than after an exit animation.
+MotionGlobalConfig.skipAnimations = true;
 
 afterAll(async () => {
   await GlobalRegistrator.unregister();
@@ -459,14 +463,9 @@ test('a clean review labels the submit with the outcome alone, never post 0', as
   ).toBe(false);
 });
 
-test('a note on the outcome question posts as {value, note}, not silently dropped', async () => {
+test('a note saved in an earlier draft posts as {value, note}, not silently dropped', async () => {
   seedDraft(GATE.gateId, { notes: { outcome: 'Merge once CI settles.' } });
   await render();
-
-  const note = container.querySelector(
-    '.tui-sheet-dock .tui-gate-note'
-  ) as HTMLInputElement;
-  expect(note.value).toBe('Merge once CI settles.');
 
   await click(buttonByText('approve'));
 
@@ -532,7 +531,7 @@ test('a blank or whitespace-only note posts the bare selection, not an empty not
   expect(body.answers.outcome).toBe('approve');
 });
 
-test('the verdict dock has no reset; the note is behind an add note button', async () => {
+test('the verdict dock has no reset and no note field', async () => {
   await render();
   const dock = container.querySelector('.tui-sheet-dock')!;
   expect(
@@ -541,12 +540,14 @@ test('the verdict dock has no reset; the note is behind an add note button', asy
     )
   ).toEqual([]);
   expect(dock.querySelector('.tui-gate-note')).toBeNull();
-  const add = dock.querySelector<HTMLButtonElement>('.tui-review-add-note')!;
-  expect(add.textContent).toBe('add note');
-  await click(add);
-  expect(dock.querySelector('.tui-gate-note')).not.toBeNull();
-  expect(dock.querySelector('.tui-review-add-note')).toBeNull();
 });
+
+async function openReportTab() {
+  const tab = [...container.querySelectorAll('[role="tab"]')].find(
+    b => b.textContent === 'Report'
+  ) as HTMLButtonElement;
+  await click(tab);
+}
 
 function checkboxForTitle(title: string): HTMLInputElement {
   const row = [...container.querySelectorAll('.tui-review-finding-row')].find(
@@ -600,13 +601,14 @@ test("a malformed report.json renders the sheet without throwing and skips the r
   await React.act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
+  await openReportTab();
 
   const labels = [
     ...container.querySelectorAll('.tui-review-record-label'),
   ].map(l => l.textContent);
-  // strengths and notes are dropped whole (not arrays); checks render in the
-  // rail's CHECKS card, not the main column, so they never add a label here.
-  expect(labels).toEqual(['depth']);
+  // strengths and notes are dropped whole (not arrays); the checks show in
+  // the Report tab's card as well as the rail's.
+  expect(labels).toEqual(['depth', 'checks']);
   // The one malformed check entry (missing `text`) is dropped, the
   // well-typed one stays and shows up in the rail card.
   expect(container.textContent).toContain('real check');
@@ -820,6 +822,7 @@ test("report.json's summary never reaches the decision card", async () => {
   await React.act(async () => {
     await new Promise(resolve => setTimeout(resolve, 0));
   });
+  await openReportTab();
   expect(container.querySelector('.tui-sheet-context-lead')!.textContent).toBe(
     'Ready to merge: with fixes'
   );
@@ -1375,7 +1378,7 @@ describe('a gate whose poster honors edited drafts', () => {
       )
     ).toEqual(['Critical', 'Important', 'Important', 'Minor']);
     expect(container.querySelector('.tui-sheet-list-tally')!.textContent).toBe(
-      '4 of 4'
+      'Posting 4 of 4'
     );
   });
 
@@ -1569,10 +1572,10 @@ describe('a gate whose poster honors edited drafts', () => {
     const dock = container.querySelector('.tui-sheet-dock')!;
     const card = dock.querySelector('.tui-review-dock-summary')!;
     expect(card.tagName).toBe('SECTION');
-    expect(card.getAttribute('aria-label')).toBe('Summary comment');
+    expect(card.getAttribute('aria-label')).toBe('Review comment');
     expect(
       card.querySelector('.tui-review-dock-summary-title')!.textContent
-    ).toBe('Summary comment');
+    ).toBe('Review comment');
     expect(card.querySelector('.tui-review-section-meta')!.textContent).toBe(
       'posts on !31'
     );
@@ -1590,12 +1593,13 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(container.querySelector('.tui-review-summary')).toBeNull();
   });
 
-  test('on a later round the round band stays first, the findings list right under it', async () => {
+  test('on a later round the tabs lead, then the round band, then the findings list', async () => {
     await render(draftsGate({ round: 2 }));
     const main = container.querySelector('.tui-sheet-main')!;
-    expect(main.firstElementChild?.className).toBe('tui-sheet-round');
+    expect(main.firstElementChild?.getAttribute('role')).toBe('tablist');
+    expect(main.children[1]?.className).toBe('tui-sheet-round');
     expect(
-      main.children[1]?.querySelector('.tui-sheet-list-title')?.textContent
+      main.children[2]?.querySelector('.tui-sheet-list-title')?.textContent
     ).toBe('Post which findings to !31?');
   });
 
@@ -1731,11 +1735,11 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(section.querySelector('textarea')).not.toBeNull();
   });
 
-  test('a changed comment says edited with a reset that restores the draft', async () => {
+  test('a changed comment offers a reset that restores the draft', async () => {
     await render(draftsGate());
     const item = () => itemFor('Unused import');
     await edit(item(), 'Drop this import, please.');
-    expect(metaOf(item())).toBe('edited·reset to draft');
+    expect(metaOf(item())).toBe('Reset to draft');
     await click(
       item().querySelector<HTMLButtonElement>('button.tui-composer-act')!
     );
@@ -1746,12 +1750,12 @@ describe('a gate whose poster honors edited drafts', () => {
     );
   });
 
-  test('an edited summary line says edited, and its reset restores the draft', async () => {
+  test('an edited summary line offers a reset that restores the draft', async () => {
     await render(draftsGate());
     await edit(summaryLine(), 'Approve, edited.');
     expect(
       summaryLine().querySelector('.tui-review-section-meta')!.textContent
-    ).toBe('edited·reset to draft');
+    ).toBe('Reset to draft');
     await click(
       summaryLine().querySelector<HTMLButtonElement>(
         'button[aria-label="Summary line: reset to draft"]'
@@ -1864,14 +1868,6 @@ describe('keyboard', () => {
     expect(body.answers['findings-1']).toEqual(['f1', 'f2', 'f3', 'f4']);
   });
 
-  test('Ctrl+Enter in the verdict note still posts', async () => {
-    await render();
-    await click(buttonByText('add note'));
-    const note = container.querySelector('.tui-sheet-dock .tui-gate-note')!;
-    await press(note, 'Enter', { ctrlKey: true });
-    expect(answerPosts().length).toBe(1);
-  });
-
   test('a number key picks that verdict, and the caps number each verdict', async () => {
     await render();
     const caps = [
@@ -1889,17 +1885,6 @@ describe('keyboard', () => {
     expect(container.querySelector('.tui-sheet-submit')?.textContent).toBe(
       'comment'
     );
-  });
-
-  test('a number typed into the verdict note never changes the verdict', async () => {
-    await render();
-    await click(buttonByText('add note'));
-    const note = container.querySelector('.tui-sheet-dock .tui-gate-note')!;
-    await press(note, '2');
-    const radios = [
-      ...container.querySelectorAll('.tui-sheet-rail input[type=radio]'),
-    ] as HTMLInputElement[];
-    expect(radios.find(r => r.value === 'approve')?.checked).toBe(true);
   });
 
   test('the submit button shows the chord without changing its label', async () => {
