@@ -4984,9 +4984,15 @@ a.tui-id-card-ref:focus-visible {
 .tui-cte[data-variant='plain'] :is(.tui-cte-view, .tui-cte-input) {
   padding: 10px 12px;
 }
-.tui-cte[data-variant='plain'][data-editing] {
+/* Keyboard focus on the rendered text (Escape lands there) rings the
+   field like Write does; an outline on the text would clip at its corners. */
+.tui-cte[data-variant='plain'][data-editing],
+.tui-cte[data-variant='plain']:has(.tui-cte-view:focus-visible) {
   border-color: color-mix(in srgb, var(--fill-accent) 70%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fill-accent) 15%, transparent);
+}
+.tui-cte[data-variant='plain'] .tui-cte-view:focus-visible {
+  outline: none;
 }
 /* At rest the hint is a pill riding the field's top border, in the
    field's top padding, so it never covers the text; it eases in with the
