@@ -10,7 +10,7 @@ import '@mattstack/tui-kit/canvas.css';
 import '../../style.css';
 
 import { ClickToEditField } from './ClickToEditField.tsx';
-import { AgentGlyph, CommentGlyph } from './icons.tsx';
+import { AgentGlyph, CodeGlyph, CommentGlyph, FileGlyph } from './icons.tsx';
 
 /**
  * First build pass of the click-to-edit comment (board.pen B26 and B27):
@@ -63,7 +63,31 @@ type Story = StoryObj<typeof meta>;
 
 registerTheme(tuiTheme);
 
-const FINDINGS = [
+interface StoryFinding {
+  id: string;
+  title: string;
+  body: string;
+  comment: string;
+  file?: { path: string; line: number };
+}
+
+const FINDINGS: StoryFinding[] = [
+  {
+    id: 'd1',
+    title: 'retryPolicy retries a job that already failed for good',
+    body: '`retryPolicy` retries every rejection, including `PermanentJobError`, so a job that can never succeed burns all five attempts.',
+    comment:
+      "**issue:** this retries `PermanentJobError` too, so a job that can't succeed eats all five attempts before it fails. could we skip retries for that one?",
+    file: { path: 'src/jobs/retry-policy.ts', line: 34 },
+  },
+  {
+    id: 'd2',
+    title: 'The delay never backs off',
+    body: 'The delay is fixed at `200ms`; the spec asks for exponential backoff capped at 5s.',
+    comment:
+      '**suggestion:** the spec wants exponential backoff capped at 5s, and this is a flat `200ms`. something like `Math.min(200 * 2 ** attempt, 5000)` would cover it.',
+    file: { path: 'src/jobs/retry-policy.ts', line: 41 },
+  },
   {
     id: 'f1',
     title: 'No run for the --changed flag',
@@ -100,7 +124,7 @@ function SummaryAndFindings() {
     setTexts(prev => ({ ...prev, [id]: t }));
   const track = (key: string) => (on: boolean) =>
     setEditing(prev => (on ? key : prev === key ? null : prev));
-  const folded = FINDINGS.filter(f => ticked.has(f.id));
+  const folded = FINDINGS.filter(f => !f.file && ticked.has(f.id));
   return (
     <>
       <div className="tui-sheet-list-head" style={{ marginTop: 0 }}>
@@ -181,6 +205,30 @@ function SummaryAndFindings() {
               </label>
               {on && (
                 <>
+                  {f.file && (
+                    <section className="tui-review-section" data-section="code">
+                      <div className="tui-review-section-head">
+                        <span
+                          className="tui-review-section-name"
+                          data-hue="muted"
+                        >
+                          <CodeGlyph />
+                          The Code
+                        </span>
+                      </div>
+                      <div className="tui-review-code">
+                        <div className="tui-review-code-file">
+                          <FileGlyph />
+                          <span className="tui-review-code-path">
+                            {f.file.path}
+                            <span className="tui-review-code-line">
+                              :{f.file.line}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </section>
+                  )}
                   <section className="tui-review-section">
                     <div className="tui-review-section-head">
                       <span
@@ -204,14 +252,18 @@ function SummaryAndFindings() {
                         Comment
                       </span>
                       <span className="tui-review-section-meta">
-                        {editing === `summary:${f.id}`
-                          ? 'editing in summary'
-                          : 'posts in summary'}
+                        {f.file
+                          ? 'drafted by the agent'
+                          : editing === `summary:${f.id}`
+                            ? 'editing in summary'
+                            : 'posts in summary'}
                       </span>
                     </div>
                     <ClickToEditField
                       label={`Comment on ${f.title}`}
                       text={texts[f.id]!}
+                      variant="bare"
+                      stripe="always"
                       onChange={setText(f.id)}
                       onEditing={track(`card:${f.id}`)}
                     />
