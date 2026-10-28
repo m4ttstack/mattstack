@@ -18,6 +18,8 @@ make none.
 A fail whose evidence is all on the `old` side, or absent, has no anchor:
 it stays a finding, with its locations in the body.
 
-A fail at the same file and line as a finding the reviewer reported merges
-into one finding. It carries both bodies, the rule's title and the higher
-of the two tiers.
+A fail merges with a finding the reviewer reported only when that finding
+sits at the anchor's file and line and describes the same issue the rule
+names. The merged finding carries both bodies, the rule's title and the
+higher of the two tiers. Any other reviewer finding stays as its own
+finding beside the rule's.

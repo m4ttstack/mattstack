@@ -245,7 +245,7 @@ flowchart TB
     gate_record_plan -->|its rows| rewrite_report_rows
     rewrite_report_rows --> code_changes_answer
     code_changes_answer -->|approve, or skip| next_report_row
-    code_changes_answer -->|revise: a fresh dispatch; a handed plan is spent| dispatch_adjudicator
+    code_changes_answer -->|revise: a fresh dispatch; a handed plan is spent| select_rules
     next_report_row -->|fix, code-changes approve, not yet on the branch| implement_fix
     next_report_row -->|fix already committed on the branch| commit_fix
     next_report_row -->|override| redraft_override
