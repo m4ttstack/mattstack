@@ -4309,11 +4309,27 @@ a.tui-id-card-ref:focus-visible {
   border-bottom: 1px solid var(--border-soft);
 }
 .tui-review-code-path {
+  display: flex;
   min-width: 0;
   font-family: var(--font-mono);
   font-size: 12px;
+  white-space: nowrap;
   color: var(--text-1);
-  overflow-wrap: anywhere;
+}
+/* The folders shrink first and lose their start: right-to-left puts the
+   ellipsis on the left, and the inner run keeps the path in order. */
+.tui-review-code-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.tui-review-code-name {
+  flex: none;
+}
+.tui-review-code-file > :not(.tui-review-code-path) {
+  flex-shrink: 0;
 }
 /* The anchor's line reads like the file name in a finding's anchor. */
 .tui-review-code-line {

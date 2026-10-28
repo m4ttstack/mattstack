@@ -10,7 +10,6 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { Info } from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Button, ICONS, Modal, Popover } from '@mattstack/tui-kit';
@@ -343,12 +342,7 @@ function CodeSection({
             <ChevronGlyph />
           </button>
           <FileGlyph />
-          <span className="tui-review-code-path">
-            {path}
-            {line !== undefined && (
-              <span className="tui-review-code-line">:{line}</span>
-            )}
-          </span>
+          <CodePath path={path} line={line} />
           {finding.body && <FindingInfo body={finding.body} />}
           {forgeLink && (
             <a
@@ -564,6 +558,31 @@ function CodeLoading() {
   );
 }
 
+/** A file path that fits its bar: the folders give way first, losing
+    their start to an ellipsis, while the file name and line stay whole.
+    The full path is the hover title. */
+function CodePath({ path, line }: { path: string; line?: number }) {
+  const cut = path.lastIndexOf('/') + 1;
+  return (
+    <span
+      className="tui-review-code-path"
+      title={line !== undefined ? `${path}:${line}` : path}
+    >
+      {cut > 0 && (
+        <span className="tui-review-code-dir">
+          <span dir="ltr">{path.slice(0, cut)}</span>
+        </span>
+      )}
+      <span className="tui-review-code-name">
+        {path.slice(cut)}
+        {line !== undefined && (
+          <span className="tui-review-code-line">:{line}</span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 /** The agent's finding behind an info mark in the code's file bar: the
     comment already says it to the author, so it stays a click away. */
 function FindingInfo({ body }: { body: string }) {
@@ -584,7 +603,6 @@ function FindingInfo({ body }: { body: string }) {
           size="sm"
           className="tui-review-info"
         >
-          <Info size={14} aria-hidden />
           Agent finding
           <span
             className="tui-reply-check-chevron"
@@ -616,7 +634,7 @@ function FindingSection({ finding: f }: { finding: FindingEntry }) {
       {f.file && (
         <div className="tui-review-code-file">
           <FileGlyph />
-          <span className="tui-review-code-path">{f.file}</span>
+          <CodePath path={f.file} />
         </div>
       )}
       <div className="tui-review-finding-said">
