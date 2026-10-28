@@ -242,6 +242,49 @@ function readDrafts(
   return { findings: map, summaries };
 }
 
+/** The report's checks in the rail: a tally beside the title, then every
+    check. */
+function ChecksCard({
+  checks,
+}: {
+  checks: Array<{ tag: string; text: string }>;
+}) {
+  const count = (tag: string) => checks.filter(c => c.tag === tag).length;
+  const tally = [
+    [count('PASS'), 'pass'],
+    [count('FAIL'), 'fail'],
+    [checks.length - count('PASS') - count('FAIL'), 'n/a'],
+  ]
+    .filter(([n]) => (n as number) > 0)
+    .map(([n, label]) => `${n} ${label}`)
+    .join(', ');
+  return (
+    <div className="tui-sheet-card tui-review-checks">
+      <div className="tui-review-checks-head">
+        <span className="tui-sheet-card-title">checks</span>
+        <span className="tui-review-checks-tally">{tally}</span>
+      </div>
+      <div className="tui-sheet-card-list">
+        {checks.map((c, i) => (
+          <div className="tui-sheet-card-row" key={i}>
+            <Chip
+              intent={
+                c.tag === 'FAIL' ? 'bad' : c.tag === 'PASS' ? 'ok' : 'muted'
+              }
+              variant="outline"
+              uppercase
+              className="tui-sheet-card-chip"
+            >
+              {c.tag}
+            </Chip>
+            <span className="tui-sheet-card-text">{c.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** The full-screen sheet a `review-post` gate opens (design doc §4). Header
     carries queue chrome; the main column is the findings and the optional
     record cluster; the rail is the MR card, decision context and checks,
@@ -287,6 +330,7 @@ function ReviewGateSheet({
   const findingsName = findingsQuestion?.id;
   const skippedName = skippedQuestion?.id;
   const outcomeName = outcomeQuestion?.id;
+  const [mainTab, setMainTab] = useState<'findings' | 'report'>('findings');
   const skippedEntries = useMemo(
     () =>
       (skippedQuestion?.options ?? []).flatMap(o => {
@@ -347,11 +391,6 @@ function ReviewGateSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.gateId]);
 
-  const handleReset = () => {
-    form.resetAll();
-    seedDefaults(true);
-  };
-
   const selectedFindings = useMemo(() => {
     const current = findingsName ? form.selections[findingsName] : undefined;
     return new Set(Array.isArray(current) ? current : []);
@@ -375,9 +414,6 @@ function ReviewGateSheet({
   const edits = drafts
     ? draftEdits(drafts, selectedFindings, form.texts, verdict)
     : { texts: {} };
-  const folded = drafts
-    ? findings.filter(f => selectedFindings.has(f.id) && !hasDiffLine(f))
-    : [];
   const pinsByFile = useMemo(() => {
     const out = new Map<string, FilePin[]>();
     for (const f of findings) {
@@ -391,17 +427,6 @@ function ReviewGateSheet({
     }
     return out;
   }, [findings]);
-  const removeFolded = (f: FindingEntry) => {
-    if (!findingsName) return;
-    form.toggleMulti(findingsName, f.id, false);
-    // The part's button unmounts with it, which would drop focus outside
-    // the sheet's Tab trap.
-    document
-      .querySelector<HTMLInputElement>(
-        `input[aria-labelledby="tui-review-finding-title-${CSS.escape(f.id)}"]`
-      )
-      ?.focus();
-  };
   const outcomeText =
     outcomeQuestion && typeof selectedOutcome === 'string'
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
@@ -428,46 +453,6 @@ function ReviewGateSheet({
   const checks = useMemo(() => safeChecks(report), [report]);
   const notes = useMemo(() => safeNotes(report), [report]);
   const depth = safeDepth(report);
-
-  const mainRef = useRef<HTMLElement | null>(null);
-  const [atEnd, setAtEnd] = useState(true);
-  const [moreBelow, setMoreBelow] = useState(0);
-  useEffect(() => {
-    const el = mainRef.current;
-    if (!el) return;
-    // Rect-to-rect, not offsetTop-to-scrollTop: offsetTop is relative to the
-    // nearest positioned ancestor, which is not necessarily this scroll
-    // container, so mixing it with scrollTop/clientHeight silently drifts
-    // once any row's offsetParent differs from `el`.
-    const measure = () => {
-      const box = el.getBoundingClientRect();
-      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
-      setAtEnd(remaining <= 1);
-      const rows = el.querySelectorAll<HTMLElement>(
-        '.tui-review-find-list .tui-review-finding-row'
-      );
-      let below = 0;
-      rows.forEach(row => {
-        if (row.getBoundingClientRect().top >= box.bottom) below++;
-      });
-      setMoreBelow(below);
-    };
-    measure();
-    el.addEventListener('scroll', measure);
-    window.addEventListener('resize', measure);
-    // Cards grow after mount (the code view loads lazily), moving rows across the fold.
-    const resized =
-      typeof ResizeObserver === 'undefined'
-        ? null
-        : new ResizeObserver(measure);
-    const list = el.querySelector('.tui-review-find-list');
-    if (resized && list) resized.observe(list);
-    return () => {
-      el.removeEventListener('scroll', measure);
-      window.removeEventListener('resize', measure);
-      resized?.disconnect();
-    };
-  }, [findings.length, report]);
 
   /** A severity group's findings: drafted cards set in under the group's
       heading, or the plain rows of a review the board doesn't edit. */
@@ -534,6 +519,24 @@ function ReviewGateSheet({
                 {tick}
                 {title}
                 {pills}
+                {!hasDiffLine(f) && (
+                  <Chip
+                    intent="muted"
+                    variant="outline"
+                    uppercase
+                    className="tui-review-in-summary"
+                    title={
+                      f.file
+                        ? `${f.file} has no diff line, so this posts in the summary comment`
+                        : 'No diff line, so this posts in the summary comment'
+                    }
+                  >
+                    in summary
+                  </Chip>
+                )}
+                <span className="tui-review-sev" data-sev={f.severity}>
+                  {SEVERITY_LABEL[f.severity]}
+                </span>
               </label>
             }
           />
@@ -666,126 +669,143 @@ function ReviewGateSheet({
       onClose={onClose}
     >
       <div className="tui-sheet-body">
-        <section className="tui-sheet-main" ref={mainRef}>
-          {review.round !== undefined && (
-            <RoundHeading round={review.round} summary={roundSummary} />
-          )}
-          {verdict !== undefined && summaryDraft !== undefined && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">Summary comment</span>
-                {mr && (
-                  <span className="tui-sheet-list-tally">
-                    posts on {mrRef(mr)}
-                  </span>
-                )}
-              </div>
-              <SummaryCard
-                outcome={verdict}
-                verdictLabel={outcomeText.toLowerCase()}
-                draft={summaryDraft}
-                folded={folded}
-                form={form}
-                onRemove={removeFolded}
-              />
-            </>
-          )}
-          {carryovers.length > 0 && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">
-                  Your earlier threads ({carryovers.length})
-                </span>
-                <span className="tui-sheet-list-tally">
-                  {carryoverTally(carryovers)}
-                </span>
-              </div>
-              <div className="tui-respond-list">
-                {carryovers.map(c => (
-                  <CarryoverCard key={c.name} pick={c} form={form} />
-                ))}
-              </div>
-            </>
-          )}
-          {carryovers.length > 0 && !findingsQuestion && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">New this round</span>
-              </div>
-              <p className="tui-thread-nothing">Nothing new this round.</p>
-            </>
-          )}
-          {findingsQuestion && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">
-                  {carryovers.length > 0
-                    ? 'New this round'
-                    : findingsQuestion.label}
-                </span>
-                <span className="tui-sheet-list-tally">
-                  {selectedFindings.size} of {findings.length} selected
-                  {!atEnd && moreBelow > 0 ? ` · ${moreBelow} more below` : ''}
-                </span>
-              </div>
-              <div
-                className="tui-review-find-list"
-                data-drafts={drafts ? '' : undefined}
+        <section className="tui-sheet-main" data-sheet="review">
+          <div
+            className="tui-tab-strip tui-review-tabs"
+            role="tablist"
+            aria-label="Review"
+          >
+            {(
+              [
+                ['findings', 'Findings', findings.length],
+                ['report', 'Report', undefined],
+              ] as const
+            ).map(([id, label, count]) => (
+              <button
+                key={id}
+                role="tab"
+                type="button"
+                aria-selected={mainTab === id}
+                className={`tui-tab${mainTab === id ? ' active' : ''}`}
+                onClick={() => setMainTab(id)}
               >
-                {tierGroups.map(([tier, items]) => {
-                  const allOn = items.every(f => selectedFindings.has(f.id));
-                  const allOff = items.every(f => !selectedFindings.has(f.id));
-                  return (
-                    <div className="tui-review-tier-group" key={tier}>
-                      <div className="tui-review-tier-head">
-                        <span
-                          className="tui-review-tier-pill"
-                          data-tier={SEVERITY_LABEL[tier]}
-                        >
-                          {SEVERITY_LABEL[tier]} ({items.length})
-                        </span>
-                        <span className="tui-review-allnone-group">
-                          <button
-                            type="button"
-                            className="tui-review-allnone"
-                            data-noop={allOn || undefined}
-                            onClick={() => toggleTier(items, true)}
-                          >
-                            all
-                          </button>
-                          <span
-                            className="tui-review-allnone-sep"
-                            aria-hidden="true"
-                          >
-                            ·
-                          </span>
-                          <button
-                            type="button"
-                            className="tui-review-allnone"
-                            data-noop={allOff || undefined}
-                            onClick={() => toggleTier(items, false)}
-                          >
-                            none
-                          </button>
-                        </span>
-                      </div>
-                      {findingRows(items)}
-                    </div>
-                  );
-                })}
-              </div>
+                {label}
+                {count !== undefined && (
+                  <span className="tui-tab-count">{count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          {mainTab === 'findings' && (
+            <>
+              {review.round !== undefined && (
+                <RoundHeading round={review.round} summary={roundSummary} />
+              )}
+              {carryovers.length > 0 && (
+                <>
+                  <div className="tui-sheet-list-head">
+                    <span className="tui-sheet-list-title">
+                      Your earlier threads ({carryovers.length})
+                    </span>
+                    <span className="tui-sheet-list-tally">
+                      {carryoverTally(carryovers)}
+                    </span>
+                  </div>
+                  <div className="tui-respond-list">
+                    {carryovers.map(c => (
+                      <CarryoverCard key={c.name} pick={c} form={form} />
+                    ))}
+                  </div>
+                </>
+              )}
+              {carryovers.length > 0 && !findingsQuestion && (
+                <>
+                  <div className="tui-sheet-list-head">
+                    <span className="tui-sheet-list-title">New this round</span>
+                  </div>
+                  <p className="tui-thread-nothing">Nothing new this round.</p>
+                </>
+              )}
+              {findingsQuestion && (
+                <>
+                  <div className="tui-sheet-list-head">
+                    <span className="tui-sheet-list-title">
+                      {carryovers.length > 0
+                        ? 'New this round'
+                        : findingsQuestion.label}
+                    </span>
+                    <span className="tui-sheet-list-tally">
+                      {drafts ? 'Posting ' : ''}
+                      {selectedFindings.size} of {findings.length}
+                      {drafts ? '' : ' selected'}
+                    </span>
+                  </div>
+                  <div
+                    className="tui-review-find-list"
+                    data-drafts={drafts ? '' : undefined}
+                  >
+                    {drafts
+                      ? findingRows(tierGroups.flatMap(([, items]) => items))
+                      : tierGroups.map(([tier, items]) => {
+                          const allOn = items.every(f =>
+                            selectedFindings.has(f.id)
+                          );
+                          const allOff = items.every(
+                            f => !selectedFindings.has(f.id)
+                          );
+                          return (
+                            <div className="tui-review-tier-group" key={tier}>
+                              <div className="tui-review-tier-head">
+                                <span
+                                  className="tui-review-tier-pill"
+                                  data-tier={SEVERITY_LABEL[tier]}
+                                >
+                                  {SEVERITY_LABEL[tier]} ({items.length})
+                                </span>
+                                <span className="tui-review-allnone-group">
+                                  <button
+                                    type="button"
+                                    className="tui-review-allnone"
+                                    data-noop={allOn || undefined}
+                                    onClick={() => toggleTier(items, true)}
+                                  >
+                                    all
+                                  </button>
+                                  <span
+                                    className="tui-review-allnone-sep"
+                                    aria-hidden="true"
+                                  >
+                                    ·
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="tui-review-allnone"
+                                    data-noop={allOff || undefined}
+                                    onClick={() => toggleTier(items, false)}
+                                  >
+                                    none
+                                  </button>
+                                </span>
+                              </div>
+                              {findingRows(items)}
+                            </div>
+                          );
+                        })}
+                  </div>
+                </>
+              )}
+              {skippedName && skippedEntries.length > 0 && (
+                <SkippedEarlier
+                  entries={skippedEntries}
+                  selected={selectedSkipped}
+                  onToggle={(value, on) =>
+                    form.toggleMulti(skippedName, value, on)
+                  }
+                />
+              )}
             </>
           )}
-          {skippedName && skippedEntries.length > 0 && (
-            <SkippedEarlier
-              entries={skippedEntries}
-              selected={selectedSkipped}
-              onToggle={(value, on) => form.toggleMulti(skippedName, value, on)}
-            />
-          )}
-
-          <hr className="tui-review-divider" />
-          {record ? (
+          {mainTab === 'report' && (record || checks.length > 0) && (
             <dl className="tui-review-record">
               {strengths.length > 0 && (
                 <div className="tui-review-record-row">
@@ -839,8 +859,35 @@ function ReviewGateSheet({
                   </dd>
                 </div>
               )}
+              {checks.length > 0 && (
+                <div className="tui-review-record-row">
+                  <dt className="tui-review-record-label">checks</dt>
+                  <dd className="tui-review-record-content">
+                    {checks.map((ch, i) => (
+                      <div className="tui-review-record-item" key={i}>
+                        <Chip
+                          intent={
+                            ch.tag === 'FAIL'
+                              ? 'bad'
+                              : ch.tag === 'PASS'
+                                ? 'ok'
+                                : 'muted'
+                          }
+                          variant="outline"
+                          uppercase
+                          className="tui-sheet-card-chip"
+                        >
+                          {ch.tag}
+                        </Chip>
+                        <span>{ch.text}</span>
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+              )}
             </dl>
-          ) : (
+          )}
+          {mainTab === 'report' && !record && (
             <FullReportDisclosure mrUrl={mr?.webUrl} />
           )}
         </section>
@@ -869,11 +916,15 @@ function ReviewGateSheet({
                       {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(
                         s => (
                           <span
-                            className="tui-review-tier-pill"
+                            className="tui-review-sev"
+                            data-sev={s}
                             data-tier={SEVERITY_LABEL[s]}
                             key={s}
                           >
-                            {SEVERITY_LABEL[s]} ({review.findings[s]})
+                            {SEVERITY_LABEL[s]}
+                            <span className="tui-review-sev-count">
+                              {review.findings[s]}
+                            </span>
                           </span>
                         )
                       )}
@@ -881,32 +932,7 @@ function ReviewGateSheet({
                   )}
                 </div>
 
-                {checks.length > 0 && (
-                  <div className="tui-sheet-card">
-                    <span className="tui-sheet-card-title">checks</span>
-                    <div className="tui-sheet-card-list">
-                      {checks.map((c, i) => (
-                        <div className="tui-sheet-card-row" key={i}>
-                          <Chip
-                            intent={
-                              c.tag === 'FAIL'
-                                ? 'bad'
-                                : c.tag === 'PASS'
-                                  ? 'ok'
-                                  : 'muted'
-                            }
-                            variant="outline"
-                            uppercase
-                            className="tui-sheet-card-chip"
-                          >
-                            {c.tag}
-                          </Chip>
-                          <span className="tui-sheet-card-text">{c.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {checks.length > 0 && <ChecksCard checks={checks} />}
               </div>
 
               {outcomeQuestion && (
@@ -915,13 +941,6 @@ function ReviewGateSheet({
                     <h3 className="tui-sheet-dock-heading">
                       {mr ? `Verdict on ${mrRef(mr)}` : 'Verdict'}
                     </h3>
-                    <button
-                      type="button"
-                      className="tui-sheet-reset"
-                      onClick={handleReset}
-                    >
-                      reset
-                    </button>
                   </div>
                   <div
                     className="tui-gate-choices"
@@ -980,17 +999,14 @@ function ReviewGateSheet({
                       );
                     })}
                   </div>
-                  <input
-                    type="text"
-                    className="tui-gate-note"
-                    aria-label={`Note for ${outcomeQuestion.label}`}
-                    placeholder="Add a note"
-                    value={outcomeNote}
-                    onChange={e =>
-                      outcomeName &&
-                      form.setNote(outcomeName, e.currentTarget.value)
-                    }
-                  />
+                  {verdict !== undefined && summaryDraft !== undefined && (
+                    <SummaryCard
+                      outcome={verdict}
+                      draft={summaryDraft}
+                      form={form}
+                      postsOn={mr ? mrRef(mr) : undefined}
+                    />
+                  )}
                   <Button
                     type="button"
                     variant="filled"

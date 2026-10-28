@@ -10,15 +10,12 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
-import {
-  CommentField,
-  commentState,
-  FieldTabs,
-  resetToWrite,
-  type FieldMode,
-} from './CommentComposer.tsx';
+import { Modal, Popover } from '@mattstack/tui-kit';
+import { ClickToEditField } from './ClickToEditField.tsx';
+import { commentState, resetToWrite } from './CommentComposer.tsx';
+import { CommentMarkdown } from './CommentMarkdown.tsx';
 import {
   anchorLine,
   anchorPath,
@@ -35,10 +32,10 @@ import type { GateFormState } from './GateForm.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
-  CodeGlyph,
-  CommentGlyph,
+  ChevronGlyph,
   FileGlyph,
-  RemoveGlyph,
+  InfoGlyph,
+  UndoGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
 
@@ -65,28 +62,6 @@ export interface FilePin {
   id: string;
   title: string;
   line: number;
-}
-
-function SectionHead({
-  icon,
-  name,
-  hue,
-  children,
-}: {
-  icon: ReactNode;
-  name: string;
-  hue: 'muted' | 'accent' | 'ok';
-  children?: ReactNode;
-}) {
-  return (
-    <div className="tui-review-section-head">
-      <span className="tui-review-section-name" data-hue={hue}>
-        {icon}
-        {name}
-      </span>
-      {children}
-    </div>
-  );
 }
 
 /** How long the full diff keeps re-centring the finding you came from
@@ -342,6 +317,8 @@ function CodeSection({
     [diff, line]
   );
   const [open, setOpen] = useState(false);
+  const leavingField = useRef(false);
+  const [folded, setFolded] = useState(false);
   const link = useRef<HTMLButtonElement | null>(null);
   return (
     <section
@@ -349,50 +326,21 @@ function CodeSection({
       data-section="code"
       aria-label="The Code"
     >
-      <SectionHead icon={<CodeGlyph />} name="The Code" hue="muted">
-        {forgeLink && (
-          <a
-            className="tui-review-section-link"
-            href={forgeLink.href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            open on {forgeLink.forge}
-            <ArrowOutGlyph />
-          </a>
-        )}
-        {openable && (
-          <button
-            ref={link}
-            type="button"
-            className="tui-review-section-link"
-            aria-haspopup="dialog"
-            onClick={() => setOpen(true)}
-          >
-            view full diff
-            <ArrowOutGlyph />
-          </button>
-        )}
-      </SectionHead>
       <div
         className="tui-review-code"
         data-openable={openable ? '' : undefined}
-        onClick={
-          openable
-            ? e => {
-                const picked = window.getSelection();
-                if (
-                  picked &&
-                  !picked.isCollapsed &&
-                  e.currentTarget.contains(picked.anchorNode)
-                )
-                  return;
-                setOpen(true);
-              }
-            : undefined
-        }
+        data-folded={folded || undefined}
       >
         <div className="tui-review-code-file">
+          <button
+            type="button"
+            className="tui-review-code-fold"
+            aria-expanded={!folded}
+            aria-label={folded ? `Show ${path}` : `Fold ${path}`}
+            onClick={() => setFolded(v => !v)}
+          >
+            <ChevronGlyph />
+          </button>
           <FileGlyph />
           <span className="tui-review-code-path">
             {path}
@@ -400,31 +348,96 @@ function CodeSection({
               <span className="tui-review-code-line">:{line}</span>
             )}
           </span>
+          {finding.body && <FindingInfo body={finding.body} />}
+          {forgeLink && (
+            <a
+              className="tui-review-section-link tui-review-code-more"
+              href={forgeLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              open on {forgeLink.forge}
+              <ArrowOutGlyph />
+            </a>
+          )}
           {openable && (
-            <span className="tui-review-code-hint" aria-hidden="true">
-              click to expand
-            </span>
+            <button
+              ref={link}
+              type="button"
+              className="tui-review-section-link tui-review-code-more"
+              data-reveal=""
+              aria-haspopup="dialog"
+              onClick={() => setOpen(true)}
+            >
+              full diff
+              <ArrowOutGlyph />
+            </button>
           )}
         </div>
-        {heldBack && (fetchedDiff.tooLarge || fetchedDiff.binary) && (
-          <p className="tui-review-code-held">
-            {fetchedDiff.binary
-              ? 'A binary file, with no diff to show here.'
-              : 'Too large to show here.'}
-          </p>
-        )}
-        {error !== null && (
-          <p className="tui-review-code-held" data-tone="error" role="status">
-            {error}
-          </p>
-        )}
-        {snippet && DiffView && (
-          <DiffBoundary key={snippet}>
-            <Suspense fallback={null}>
-              <DiffView patch={snippet} anchor={line} separators="simple" />
-            </Suspense>
-          </DiffBoundary>
-        )}
+        <LazyMotion features={domAnimation}>
+          <AnimatePresence initial={false}>
+            {!folded && (
+              <m.div
+                key="body"
+                className="tui-review-code-body"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+              >
+                {heldBack && (fetchedDiff.tooLarge || fetchedDiff.binary) && (
+                  <p className="tui-review-code-held">
+                    {fetchedDiff.binary
+                      ? 'A binary file, with no diff to show here.'
+                      : 'Too large to show here.'}
+                  </p>
+                )}
+                {error !== null && (
+                  <p
+                    className="tui-review-code-held"
+                    data-tone="error"
+                    role="status"
+                  >
+                    {error}
+                  </p>
+                )}
+                {snippet && DiffView && (
+                  <div
+                    className="tui-review-code-snippet"
+                    onMouseDown={() => {
+                      // A press that only closes a comment being written must
+                      // not also open the full diff.
+                      leavingField.current = !!document.activeElement?.closest(
+                        '.tui-cte[data-editing]'
+                      );
+                    }}
+                    onClick={e => {
+                      if (leavingField.current) return;
+                      const picked = window.getSelection();
+                      if (
+                        picked &&
+                        !picked.isCollapsed &&
+                        e.currentTarget.contains(picked.anchorNode)
+                      )
+                        return;
+                      setOpen(true);
+                    }}
+                  >
+                    <DiffBoundary key={snippet}>
+                      <Suspense fallback={null}>
+                        <DiffView
+                          patch={snippet}
+                          anchor={line}
+                          separators="simple"
+                        />
+                      </Suspense>
+                    </DiffBoundary>
+                  </div>
+                )}
+              </m.div>
+            )}
+          </AnimatePresence>
+        </LazyMotion>
       </div>
       {open && diff && DiffView && (
         <FullDiffModal
@@ -446,7 +459,7 @@ function DraftMeta({
   edited,
   label,
   onReset,
-  resetText = 'reset to draft',
+  resetText = 'Reset to draft',
   unedited,
 }: {
   edited: boolean;
@@ -461,51 +474,70 @@ function DraftMeta({
     ) : null;
   return (
     <span className="tui-review-section-meta" data-edited="">
-      <span className="tui-composer-edited">edited</span>
-      <span aria-hidden="true">·</span>
       <button
         type="button"
-        className="tui-composer-act"
+        className="tui-composer-act tui-review-reset"
         aria-label={`${label}: reset to draft`}
+        // Keeps a comment being written open: the reset swaps its text in
+        // place instead of blurring it shut first.
+        onMouseDown={e => e.preventDefault()}
         onClick={e =>
           resetToWrite(e.currentTarget, '[data-draft-part]', onReset)
         }
       >
+        <UndoGlyph />
         {resetText}
       </button>
     </span>
   );
 }
 
-/** A comment field with its blank-edit hint, in a part that `DraftMeta`'s
-    reset finds by `data-draft-part`. */
-function DraftField({
+/** A comment that reads rendered and opens raw on a click, with its
+    blank-edit hint, in a part that `DraftMeta`'s reset finds by
+    `data-draft-part`. */
+function CommentEditor({
   label,
   draft,
   value,
-  mode,
+  variant,
+  hint = true,
   onChange,
+  onEditing,
+  heading,
+  actions,
+  badge,
 }: {
   label: string;
   draft: string;
   value: string | undefined;
-  mode: FieldMode;
+  variant: 'bare' | 'filled' | 'plain';
+  hint?: boolean;
   onChange: (text: string) => void;
+  onEditing?: (editing: boolean) => void;
+  heading?: string;
+  actions?: ReactNode;
+  badge?: ReactNode;
 }) {
   const { text, empty } = commentState(draft, value, true);
-  const hint = useId();
+  const hintId = useId();
   return (
     <>
-      <CommentField
+      <ClickToEditField
         label={label}
         text={text}
-        mode={mode}
+        variant={variant}
+        stripe={variant === 'bare' ? 'always' : undefined}
+        hint={hint}
         invalid={empty}
-        describedBy={empty ? hint : undefined}
+        describedBy={empty ? hintId : undefined}
         onChange={onChange}
+        onEditing={onEditing}
+        heading={heading}
+        actions={actions}
+        badge={badge}
       />
       {empty && (
-        <span className="tui-gate-error" id={hint}>
+        <span className="tui-gate-error" id={hintId}>
           the comment is empty
         </span>
       )}
@@ -513,39 +545,55 @@ function DraftField({
   );
 }
 
-/** A comment's framed field over its "Markdown supported" footer with the
-    Write and Preview tabs: the one editor every review comment uses. */
-function CommentEditor({
-  label,
-  draft,
-  value,
-  mode,
-  onMode,
-  onChange,
-}: {
-  label: string;
-  draft: string;
-  value: string | undefined;
-  mode: FieldMode;
-  onMode: (mode: FieldMode) => void;
-  onChange: (text: string) => void;
-}) {
+/** The agent's finding behind an info mark in the code's file bar: the
+    comment already says it to the author, so it stays a click away. */
+function FindingInfo({ body }: { body: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <>
-      <div className="tui-review-comment-field">
-        <DraftField
-          label={label}
-          draft={draft}
-          value={value}
-          mode={mode}
-          onChange={onChange}
-        />
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      side="bottom"
+      align="start"
+      sideOffset={6}
+      ariaLabel="Agent finding"
+      trigger={
+        <button
+          type="button"
+          className="tui-review-info"
+          aria-label="Agent finding"
+        >
+          <InfoGlyph />
+        </button>
+      }
+    >
+      <div className="tui-review-info-card">
+        <span className="tui-review-info-title">Agent finding</span>
+        <CommentMarkdown>{body}</CommentMarkdown>
       </div>
-      <div className="tui-review-comment-foot">
-        <span>Markdown supported</span>
-        <FieldTabs label={label} mode={mode} onMode={onMode} />
+    </Popover>
+  );
+}
+
+/** With no diff line to show, the slot the code takes holds the agent's
+    finding instead, under its file when it names one. */
+function FindingSection({ finding: f }: { finding: FindingEntry }) {
+  return (
+    <section
+      className="tui-review-section"
+      data-section="finding"
+      aria-label="Finding"
+    >
+      {f.file && (
+        <div className="tui-review-code-file">
+          <FileGlyph />
+          <span className="tui-review-code-path">{f.file}</span>
+        </div>
+      )}
+      <div className="tui-review-finding-said">
+        <CommentMarkdown>{f.body}</CommentMarkdown>
       </div>
-    </>
+    </section>
   );
 }
 
@@ -558,44 +606,46 @@ function CommentSection({
 }) {
   const key = commentKey(finding.id);
   const label = `Comment on ${finding.title}`;
-  const [mode, setMode] = useState<FieldMode>('write');
   const { edited } = commentState(finding.comment!, form.texts[key], true);
-  const anchored = hasDiffLine(finding);
   return (
     <section
       className="tui-review-section"
       data-section="comment"
       data-draft-part=""
-      data-edited={(anchored && edited) || undefined}
+      data-edited={edited || undefined}
       aria-label="Comment"
     >
-      <SectionHead icon={<CommentGlyph />} name="Comment" hue="ok">
-        {anchored && (
-          <DraftMeta
-            edited={edited}
-            label={label}
-            unedited="drafted by the agent"
-            onReset={() => {
-              form.clearText(key);
-              setMode('write');
-            }}
-          />
-        )}
-      </SectionHead>
-      {anchored ? (
-        <CommentEditor
-          label={label}
-          draft={finding.comment!}
-          value={form.texts[key]}
-          mode={mode}
-          onMode={setMode}
-          onChange={t => form.setText(key, t)}
-        />
-      ) : (
-        <p className="tui-review-section-note">
-          Posts in the summary (no diff line)
-        </p>
-      )}
+      <CommentEditor
+        label={label}
+        draft={finding.comment!}
+        value={form.texts[key]}
+        variant="plain"
+        heading="Editing comment"
+        actions={
+          edited && (
+            <DraftMeta
+              edited
+              label={label}
+              onReset={() => form.clearText(key)}
+            />
+          )
+        }
+        badge={
+          edited && (
+            <>
+              <span className="tui-cte-badge-state">Edited</span>
+              <span className="tui-cte-badge-sep" aria-hidden="true" />
+              <DraftMeta
+                edited
+                label={label}
+                resetText="Reset"
+                onReset={() => form.clearText(key)}
+              />
+            </>
+          )
+        }
+        onChange={t => form.setText(key, t)}
+      />
     </section>
   );
 }
@@ -628,174 +678,90 @@ export function FindingCard({
       data-off={checked ? undefined : ''}
     >
       {head}
-      {checked && (
-        <>
-          {f.file && (
-            <CodeSection
-              mrUrl={mrUrl}
-              mrRef={mrRef}
-              mrRevision={mrRevision}
-              finding={f}
-              pins={pins}
-            />
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence initial={false}>
+          {checked && (
+            <m.div
+              key="body"
+              className="tui-review-card-body"
+              // Clips only while easing: open, the body must let the
+              // finding's info card, which renders in place, spill out.
+              initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
+              animate={{
+                height: 'auto',
+                opacity: 1,
+                transitionEnd: { overflow: 'visible' },
+              }}
+              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
+              transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+            >
+              {hasDiffLine(f) ? (
+                <CodeSection
+                  mrUrl={mrUrl}
+                  mrRef={mrRef}
+                  mrRevision={mrRevision}
+                  finding={f}
+                  pins={pins}
+                />
+              ) : (
+                <FindingSection finding={f} />
+              )}
+              <CommentSection finding={f} form={form} />
+            </m.div>
           )}
-          <section
-            className="tui-review-section"
-            data-section="finding"
-            aria-label="Agent Finding"
-          >
-            <SectionHead
-              icon={<AgentGlyph />}
-              name="Agent Finding"
-              hue="accent"
-            />
-            <div className="tui-review-section-body">
-              <Markdown unstyled linkTargetBlank>
-                {f.body}
-              </Markdown>
-            </div>
-          </section>
-          <CommentSection finding={f} form={form} />
-        </>
-      )}
+        </AnimatePresence>
+      </LazyMotion>
     </article>
   );
 }
 
-/** A finding with no diff line, as a section of the summary it posts in,
-    with its own editor and a control to drop it from the summary. */
-function FoldedSection({
-  finding: f,
+/** The review's summary line, drafted for the picked verdict, in the dock
+    beside the choice that swaps it. Two lines at rest; a click opens it
+    whole. A finding with no diff line edits in its own card; the poster
+    joins it in after this line. */
+export function SummaryCard({
+  outcome,
+  draft,
   form,
-  onRemove,
+  postsOn,
 }: {
-  finding: FindingEntry;
+  outcome: string;
+  draft: string;
   form: GateFormState;
-  onRemove: () => void;
+  postsOn?: string;
 }) {
-  const key = commentKey(f.id);
-  const label = `Summary comment: ${f.title}`;
-  const [mode, setMode] = useState<FieldMode>('write');
-  const { edited } = commentState(f.comment!, form.texts[key], true);
+  const key = summaryKey(outcome);
+  const { edited } = commentState(draft, form.texts[key], true);
   return (
     <section
-      className="tui-review-section"
-      data-section="folded"
+      className="tui-review-dock-summary"
+      data-section="summary"
       data-draft-part=""
       data-edited={edited || undefined}
-      aria-label={f.title}
+      aria-label="Review comment"
     >
-      <SectionHead icon={<AgentGlyph />} name={f.title} hue="muted">
-        <span className="tui-review-section-meta">
+      <div className="tui-review-dock-summary-head">
+        <span className="tui-review-dock-summary-title">Review comment</span>
+        {edited ? (
           <DraftMeta
-            edited={edited}
-            label={label}
-            unedited="no diff line"
-            onReset={() => {
-              form.clearText(key);
-              setMode('write');
-            }}
+            edited
+            label="Summary line"
+            onReset={() => form.clearText(key)}
           />
-          <button
-            type="button"
-            className="tui-review-remove"
-            aria-label={`${label}: remove`}
-            onClick={onRemove}
-          >
-            <RemoveGlyph />
-            Remove
-          </button>
-        </span>
-      </SectionHead>
+        ) : (
+          postsOn && (
+            <span className="tui-review-section-meta">posts on {postsOn}</span>
+          )
+        )}
+      </div>
       <CommentEditor
-        label={label}
-        draft={f.comment!}
+        key={key}
+        label="Summary line"
+        draft={draft}
         value={form.texts[key]}
-        mode={mode}
-        onMode={setMode}
+        variant="filled"
         onChange={t => form.setText(key, t)}
       />
     </section>
-  );
-}
-
-/** The summary's verdict badge: approving reads as done, a comment as the
-    board's accent, a change request as a warning. */
-const VERDICT_INTENT: Record<string, 'ok' | 'accent' | 'warn'> = {
-  approve: 'ok',
-  comment: 'accent',
-  request_changes: 'warn',
-};
-
-/** The review's summary comment as it will post (`joinSummary`), as one
-    card in the finding cards' frame: the summary line drafted for the
-    picked verdict, then each ticked finding with no diff line as its own
-    section. */
-export function SummaryCard({
-  outcome,
-  verdictLabel,
-  draft,
-  folded,
-  form,
-  onRemove,
-}: {
-  outcome: string;
-  verdictLabel: string;
-  draft: string;
-  folded: FindingEntry[];
-  form: GateFormState;
-  onRemove: (f: FindingEntry) => void;
-}) {
-  const key = summaryKey(outcome);
-  const [mode, setMode] = useState<FieldMode>('write');
-  const { edited } = commentState(draft, form.texts[key], true);
-  return (
-    <article className="tui-review-card tui-review-summary">
-      <section
-        className="tui-review-section"
-        data-section="summary"
-        data-draft-part=""
-        data-edited={edited || undefined}
-        aria-label="Summary comment"
-      >
-        <SectionHead icon={<CommentGlyph />} name="Summary" hue="ok">
-          <span className="tui-review-section-meta">
-            <DraftMeta
-              edited={edited}
-              label="Summary line"
-              onReset={() => {
-                form.clearText(key);
-                setMode('write');
-              }}
-            />
-            <Chip
-              intent={VERDICT_INTENT[outcome] ?? 'muted'}
-              variant="outline"
-              uppercase
-              data-verdict={outcome}
-            >
-              for {verdictLabel}
-            </Chip>
-          </span>
-        </SectionHead>
-        <CommentEditor
-          key={key}
-          label="Summary line"
-          draft={draft}
-          value={form.texts[key]}
-          mode={mode}
-          onMode={setMode}
-          onChange={t => form.setText(key, t)}
-        />
-      </section>
-      {folded.map(f => (
-        <FoldedSection
-          key={f.id}
-          finding={f}
-          form={form}
-          onRemove={() => onRemove(f)}
-        />
-      ))}
-    </article>
   );
 }

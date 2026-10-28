@@ -401,12 +401,52 @@ export function PencilLineIcon() {
   );
 }
 
+/** Back to the draft (lucide `undo-2`, ISC licensed). */
+export function UndoGlyph() {
+  return (
+    <svg {...RECORD_ICON}>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
+    </svg>
+  );
+}
+
+/** More about this (lucide `info`, ISC licensed). */
+export function InfoGlyph() {
+  return (
+    <svg {...RECORD_ICON} width={13} height={13}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+/** A done mark (lucide `check`, ISC licensed). */
+export function CheckGlyph() {
+  return (
+    <svg {...RECORD_ICON}>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
 /** The Code section's mark (lucide `code`, ISC licensed). */
 export function CodeGlyph() {
   return (
     <svg {...RECORD_ICON}>
       <path d="m16 18 6-6-6-6" />
       <path d="m8 6-6 6 6 6" />
+    </svg>
+  );
+}
+
+/** A file header's fold control (lucide `chevron-down`, ISC licensed);
+    CSS turns it to point right while the code is folded. */
+export function ChevronGlyph() {
+  return (
+    <svg {...RECORD_ICON} width={13} height={13}>
+      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }
