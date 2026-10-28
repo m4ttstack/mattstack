@@ -20,7 +20,7 @@ import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { approvalSlots } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
-import { CommentComposer } from './CommentComposer.tsx';
+import { commentState } from './CommentComposer.tsx';
 import {
   parseGateCtx,
   type PlanCtx,
@@ -64,6 +64,7 @@ import {
   respondPerson,
   subjectRef,
 } from './RespondGateHeader.tsx';
+import { CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 import { useSheetKeys } from './sheet-keys.ts';
 import { sheetAnswers } from './sheet-payload.ts';
 import {
@@ -188,6 +189,57 @@ function PostStepCard({
               Nothing to post for this thread.
             </p>
           )}
+    </section>
+  );
+}
+
+/** A plan thread's drafted reply as a click-to-edit field. The draft is the
+    reply-only option's text, so opening it to write picks that option. */
+function PlanReplyField({
+  label,
+  draft,
+  value,
+  onEdit,
+  onChange,
+  onReset,
+}: {
+  label: string;
+  draft: string;
+  value: string | undefined;
+  onEdit: () => void;
+  onChange: (text: string) => void;
+  onReset: () => void;
+}) {
+  const { edited } = commentState(draft, value, true);
+  const reset = (resetText?: string) => (
+    <DraftMeta edited label={label} resetText={resetText} onReset={onReset} />
+  );
+  return (
+    <section
+      className="tui-plan-reply"
+      data-draft-part=""
+      data-edited={edited || undefined}
+      aria-label="Drafted reply"
+    >
+      <CommentEditor
+        label={label}
+        draft={draft}
+        value={value}
+        variant="plain"
+        heading="Editing reply"
+        actions={edited && reset()}
+        badge={
+          edited && (
+            <>
+              <span className="tui-cte-badge-state">Edited</span>
+              <span className="tui-cte-badge-sep" aria-hidden="true" />
+              {reset('Reset')}
+            </>
+          )
+        }
+        onEditing={editing => editing && onEdit()}
+        onChange={onChange}
+      />
     </section>
   );
 }
@@ -903,14 +955,13 @@ function RespondSheetBody({
                     </div>
                     {qctx?.shape === 'thread@1' && pr ? (
                       <ThreadCard ctx={{ ...qctx, reply: { kind: 'none' } }}>
-                        <CommentComposer
+                        <PlanReplyField
                           label={`Reply on ${q.prompt}`}
-                          noun="reply"
-                          kicker="will post as reply"
-                          heldKicker="drafted reply"
                           draft={pr.draft}
                           value={replying ? form.texts[q.name] : undefined}
-                          canEdit={replying}
+                          onEdit={() => {
+                            if (!replying) form.setSingle(q.name, pr.value);
+                          }}
                           onChange={t => form.setText(q.name, t)}
                           onReset={() => form.clearText(q.name)}
                         />
