@@ -4975,27 +4975,33 @@ a.tui-id-card-ref:focus-visible {
    glows and says it edits; writing draws the focus ring. The box keeps
    one geometry in every state. */
 .tui-cte[data-variant='plain'] {
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--card);
+  transition-duration: 200ms;
 }
 .tui-cte[data-variant='plain'] :is(.tui-cte-view, .tui-cte-input) {
   padding: 10px 12px;
 }
 .tui-cte[data-variant='plain'][data-editing] {
-  border-color: var(--fill-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fill-accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--fill-accent) 70%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fill-accent) 15%, transparent);
+}
+/* "Click to edit" sits where Write puts "Markdown supported", on the
+   text's left edge, and eases in with the glow instead of popping. */
+.tui-cte[data-variant='plain']:not([data-editing]) + .tui-cte-hint::before {
+  content: 'Click to edit';
+  opacity: 0;
+  transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 @media (hover: hover) {
   .tui-cte[data-variant='plain']:not([data-editing]):hover {
-    box-shadow: 0 2px 14px
-      color-mix(in srgb, var(--fill-accent) 20%, transparent);
+    box-shadow: 0 2px 16px
+      color-mix(in srgb, var(--fill-accent) 14%, transparent);
   }
   .tui-cte[data-variant='plain']:not([data-editing]):hover
     + .tui-cte-hint::before {
-    content: 'Click to edit';
-    color: var(--text-accent-small);
-    font-weight: 500;
+    opacity: 1;
   }
 }
 @media (hover: hover) {
@@ -5016,7 +5022,7 @@ a.tui-id-card-ref:focus-visible {
   justify-content: space-between;
   min-height: 18px;
   margin-top: 6px;
-  padding: 0 4px;
+  padding: 0 13px;
   font-size: 12px;
   color: var(--text-3);
 }
