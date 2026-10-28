@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Modal } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
@@ -543,9 +544,28 @@ function CommentSection({
         variant="plain"
         onChange={t => form.setText(key, t)}
       />
-      {edited && (
-        <DraftMeta edited label={label} onReset={() => form.clearText(key)} />
-      )}
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence initial={false}>
+          {edited && (
+            // The row opens and closes its height, and its share of the
+            // section's 8px gap, so the card eases instead of jumping.
+            <m.div
+              key="meta"
+              className="tui-review-meta-reveal"
+              initial={{ height: 0, opacity: 0, marginTop: -8 }}
+              animate={{ height: 'auto', opacity: 1, marginTop: 0 }}
+              exit={{ height: 0, opacity: 0, marginTop: -8 }}
+              transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+            >
+              <DraftMeta
+                edited
+                label={label}
+                onReset={() => form.clearText(key)}
+              />
+            </m.div>
+          )}
+        </AnimatePresence>
+      </LazyMotion>
     </section>
   );
 }

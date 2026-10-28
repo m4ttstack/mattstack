@@ -108,8 +108,9 @@ export function ClickToEditField({
   const refocus = useRef(false);
   const faces = useRef<HTMLDivElement | null>(null);
   const [height, setHeight] = useState<number | 'auto'>('auto');
-  // The box eases only across a swap; a line typed in Write grows it at
-  // once, so the caret's line is never clipped mid-ease.
+  // The box eases across a swap and at rest (a reset changing the text);
+  // a line typed in Write grows it at once, so the caret's line is never
+  // clipped mid-ease.
   const [swapping, setSwapping] = useState(false);
   // Closing on a changed text flashes "Comment updated" in the pill, then
   // fades it; the label holds through the fade so it never swaps mid-ease.
@@ -217,7 +218,7 @@ export function ClickToEditField({
           data-invalid={invalid || undefined}
           initial={false}
           animate={{ height }}
-          transition={swapping ? SWAP : STILL}
+          transition={swapping || !editing ? SWAP : STILL}
           onAnimationComplete={() => setSwapping(false)}
         >
           <div ref={faces} className="tui-cte-faces">

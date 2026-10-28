@@ -4408,11 +4408,6 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-finding .tui-review-section[data-section='comment']:last-child {
   border-radius: 0 0 7px 7px;
 }
-.tui-review-finding
-  .tui-review-section[data-section='comment']
-  > .tui-review-section-meta {
-  align-self: flex-end;
-}
 /* The diff draws in a shadow root; these reach it as inherited custom
    properties. */
 .tui-diff {
@@ -6739,4 +6734,11 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-reset svg {
   width: 12px;
   height: 12px;
+}
+
+/* The reset row under a comment; motion eases its height. */
+.tui-review-meta-reveal {
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
 }
