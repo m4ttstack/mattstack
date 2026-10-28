@@ -42,8 +42,8 @@ import {
 } from './review-gate.ts';
 import {
   FindingCard,
+  FindingPeek,
   SummaryCard,
-  VerdictChip,
   type FilePin,
 } from './ReviewDraftCard.tsx';
 import {
@@ -392,6 +392,7 @@ function ReviewGateSheet({
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
       : '';
   const outcomeNote = outcomeName ? (form.notes[outcomeName] ?? '') : '';
+  const [noteOpen, setNoteOpen] = useState(false);
 
   const [report, setReport] = useState<ReviewReportJson | null>(null);
   useEffect(() => {
@@ -515,11 +516,17 @@ function ReviewGateSheet({
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
             head={
-              <label className="tui-review-finding-row tui-review-card-head">
-                {tick}
-                {title}
+              <div className="tui-review-card-head">
+                <label className="tui-review-finding-row">
+                  {tick}
+                  {title}
+                </label>
                 {pills}
-              </label>
+                <FindingPeek body={f.body} />
+                <span className="tui-review-sev" data-sev={f.severity}>
+                  {SEVERITY_LABEL[f.severity]}
+                </span>
+              </div>
             }
           />
         );
@@ -651,24 +658,9 @@ function ReviewGateSheet({
       onClose={onClose}
     >
       <div className="tui-sheet-body">
-        <section className="tui-sheet-main" ref={mainRef}>
+        <section className="tui-sheet-main" data-sheet="review" ref={mainRef}>
           {review.round !== undefined && (
             <RoundHeading round={review.round} summary={roundSummary} />
-          )}
-          {verdict !== undefined && summaryDraft !== undefined && (
-            <>
-              <div className="tui-sheet-list-head">
-                <span className="tui-sheet-list-title">Summary comment</span>
-                <span className="tui-sheet-list-tally tui-review-summary-tally">
-                  <VerdictChip
-                    outcome={verdict}
-                    verdictLabel={outcomeText.toLowerCase()}
-                  />
-                  {mr && `posts on ${mrRef(mr)}`}
-                </span>
-              </div>
-              <SummaryCard outcome={verdict} draft={summaryDraft} form={form} />
-            </>
           )}
           {carryovers.length > 0 && (
             <>
@@ -712,47 +704,53 @@ function ReviewGateSheet({
                 className="tui-review-find-list"
                 data-drafts={drafts ? '' : undefined}
               >
-                {tierGroups.map(([tier, items]) => {
-                  const allOn = items.every(f => selectedFindings.has(f.id));
-                  const allOff = items.every(f => !selectedFindings.has(f.id));
-                  return (
-                    <div className="tui-review-tier-group" key={tier}>
-                      <div className="tui-review-tier-head">
-                        <span
-                          className="tui-review-tier-pill"
-                          data-tier={SEVERITY_LABEL[tier]}
-                        >
-                          {SEVERITY_LABEL[tier]} ({items.length})
-                        </span>
-                        <span className="tui-review-allnone-group">
-                          <button
-                            type="button"
-                            className="tui-review-allnone"
-                            data-noop={allOn || undefined}
-                            onClick={() => toggleTier(items, true)}
-                          >
-                            all
-                          </button>
-                          <span
-                            className="tui-review-allnone-sep"
-                            aria-hidden="true"
-                          >
-                            ·
-                          </span>
-                          <button
-                            type="button"
-                            className="tui-review-allnone"
-                            data-noop={allOff || undefined}
-                            onClick={() => toggleTier(items, false)}
-                          >
-                            none
-                          </button>
-                        </span>
-                      </div>
-                      {findingRows(items)}
-                    </div>
-                  );
-                })}
+                {drafts
+                  ? findingRows(tierGroups.flatMap(([, items]) => items))
+                  : tierGroups.map(([tier, items]) => {
+                      const allOn = items.every(f =>
+                        selectedFindings.has(f.id)
+                      );
+                      const allOff = items.every(
+                        f => !selectedFindings.has(f.id)
+                      );
+                      return (
+                        <div className="tui-review-tier-group" key={tier}>
+                          <div className="tui-review-tier-head">
+                            <span
+                              className="tui-review-tier-pill"
+                              data-tier={SEVERITY_LABEL[tier]}
+                            >
+                              {SEVERITY_LABEL[tier]} ({items.length})
+                            </span>
+                            <span className="tui-review-allnone-group">
+                              <button
+                                type="button"
+                                className="tui-review-allnone"
+                                data-noop={allOn || undefined}
+                                onClick={() => toggleTier(items, true)}
+                              >
+                                all
+                              </button>
+                              <span
+                                className="tui-review-allnone-sep"
+                                aria-hidden="true"
+                              >
+                                ·
+                              </span>
+                              <button
+                                type="button"
+                                className="tui-review-allnone"
+                                data-noop={allOff || undefined}
+                                onClick={() => toggleTier(items, false)}
+                              >
+                                none
+                              </button>
+                            </span>
+                          </div>
+                          {findingRows(items)}
+                        </div>
+                      );
+                    })}
               </div>
             </>
           )}
@@ -895,9 +893,18 @@ function ReviewGateSheet({
                     <h3 className="tui-sheet-dock-heading">
                       {mr ? `Verdict on ${mrRef(mr)}` : 'Verdict'}
                     </h3>
+                    {!noteOpen && outcomeNote === '' && (
+                      <button
+                        type="button"
+                        className="tui-sheet-reset"
+                        onClick={() => setNoteOpen(true)}
+                      >
+                        add note
+                      </button>
+                    )}
                   </div>
                   <div
-                    className="tui-gate-choices"
+                    className="tui-gate-choices tui-review-verdicts"
                     role="radiogroup"
                     aria-label={outcomeQuestion.label}
                   >
@@ -953,17 +960,28 @@ function ReviewGateSheet({
                       );
                     })}
                   </div>
-                  <input
-                    type="text"
-                    className="tui-gate-note"
-                    aria-label={`Note for ${outcomeQuestion.label}`}
-                    placeholder="Add a note"
-                    value={outcomeNote}
-                    onChange={e =>
-                      outcomeName &&
-                      form.setNote(outcomeName, e.currentTarget.value)
-                    }
-                  />
+                  {verdict !== undefined && summaryDraft !== undefined && (
+                    <SummaryCard
+                      outcome={verdict}
+                      draft={summaryDraft}
+                      form={form}
+                      postsOn={mr ? mrRef(mr) : undefined}
+                    />
+                  )}
+                  {(noteOpen || outcomeNote !== '') && (
+                    <input
+                      type="text"
+                      className="tui-gate-note"
+                      aria-label={`Note for ${outcomeQuestion.label}`}
+                      placeholder="Add a note"
+                      autoFocus={noteOpen && outcomeNote === ''}
+                      value={outcomeNote}
+                      onChange={e =>
+                        outcomeName &&
+                        form.setNote(outcomeName, e.currentTarget.value)
+                      }
+                    />
+                  )}
                   <Button
                     type="button"
                     variant="filled"

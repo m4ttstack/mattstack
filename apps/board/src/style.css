@@ -4098,20 +4098,88 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-finding[data-off] .tui-review-finding-title {
   color: var(--text-3);
 }
-.tui-review-finding-row.tui-review-card-head {
+/* A drafted finding is one box: the title strip, the file bar, the diff,
+   then the comment, each divided by a hairline. */
+.tui-review-card-head {
+  display: flex;
   align-items: center;
-  margin: 0;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 8px 14px;
   border-radius: 7px;
 }
 .tui-review-card:not([data-off]) .tui-review-card-head {
   border-radius: 7px 7px 0 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-review-card-head > .tui-review-finding-row {
+  flex: 1;
+  align-items: center;
+  margin: 0 -6px;
+  padding: 4px 6px;
 }
 .tui-review-card-head .tui-gate-choice-input {
   margin-top: 0;
 }
 .tui-review-card-head .tui-review-finding-title {
   font-size: 14px;
+  font-weight: 600;
+}
+/* The agent's finding waits behind its mark until the card is hovered or
+   the mark takes focus. */
+.tui-review-peek {
+  display: inline-flex;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.tui-review-card:hover .tui-review-peek,
+.tui-review-peek:focus-within {
+  opacity: 1;
+}
+.tui-review-peek-mark {
+  display: inline-flex;
+  border-radius: 3px;
+}
+.tui-review-peek-mark:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+}
+.tui-review-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.tui-review-sev::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.tui-review-sev[data-sev='critical'] {
+  color: var(--text-bad-small);
+}
+.tui-review-sev[data-sev='critical']::before {
+  background: var(--fill-bad);
+}
+.tui-review-sev[data-sev='important'] {
+  color: var(--text-gold-vivid);
+}
+/* Gold, not the warn orange: next to critical's crimson the orange reads
+   as the same alarm. */
+.tui-review-sev[data-sev='important']::before {
+  background: var(--gold);
+}
+/* No severity headings in a drafted review, so nothing to indent under. */
+.tui-review-find-list[data-drafts] > .tui-review-tier-items {
+  padding-left: 0;
+}
+.tui-review-finding[data-off] .tui-review-sev {
+  opacity: 0.6;
 }
 .tui-review-section {
   display: flex;
@@ -4285,6 +4353,68 @@ a.tui-id-card-ref:focus-visible {
   .tui-review-code[data-openable]:hover .tui-review-code-hint {
     opacity: 1;
   }
+}
+/* Inside a drafted card the card is the box: the code loses its own frame
+   and its file bar spans the card. The snippet, not the whole block, opens
+   the full diff. */
+.tui-review-finding .tui-review-section[data-section='code'] {
+  padding: 0;
+  border-top: none;
+}
+.tui-review-finding .tui-review-code,
+.tui-review-finding .tui-review-code:hover {
+  border: none;
+  border-radius: 0;
+  cursor: default;
+}
+.tui-review-finding .tui-review-code-file {
+  padding: 6px 14px;
+  background: var(--panel);
+}
+.tui-review-finding .tui-review-code[data-folded] .tui-review-code-file {
+  border-bottom: none;
+}
+.tui-review-code-file[data-strip] {
+  font-size: 12px;
+}
+.tui-review-code-snippet {
+  cursor: pointer;
+}
+.tui-review-code-fold {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: transform 120ms;
+}
+.tui-review-code[data-folded] .tui-review-code-fold {
+  transform: rotate(-90deg);
+}
+.tui-review-code-fold:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.tui-review-code-more {
+  margin-left: auto;
+}
+.tui-review-code-more[data-reveal] {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.tui-review-card:hover .tui-review-code-more[data-reveal],
+.tui-review-code-more[data-reveal]:focus-visible {
+  opacity: 1;
+}
+.tui-review-finding .tui-review-section[data-section='comment'] {
+  padding: 10px 14px 12px;
+}
+.tui-review-finding
+  .tui-review-section[data-section='comment']
+  > .tui-review-section-meta {
+  align-self: flex-end;
 }
 /* The diff draws in a shadow root; these reach it as inherited custom
    properties. */
@@ -4844,6 +4974,36 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-cte[data-variant='filled'][data-editing] {
   border-color: var(--fill-ok);
+}
+/* Plain: a drafted finding's comment, the last section of its card. It
+   reads as text at rest, says it can be edited on hover, and opens out
+   into a field when clicked; the negative margin keeps the text still. */
+.tui-cte[data-variant='plain'] {
+  position: relative;
+  margin: 0 -8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.tui-cte[data-variant='plain'] :is(.tui-cte-view, .tui-cte-input) {
+  padding: 4px 8px;
+}
+.tui-cte[data-variant='plain'][data-editing] {
+  border-color: var(--fill-ok);
+  background: var(--card);
+}
+@media (hover: hover) {
+  .tui-cte[data-variant='plain']:not([data-editing]):hover {
+    background: color-mix(in srgb, var(--fg) 3%, transparent);
+  }
+  .tui-cte[data-variant='plain']:not([data-editing]):hover::after {
+    content: 'click to edit';
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 12px;
+    color: var(--text-3);
+    pointer-events: none;
+  }
 }
 @media (hover: hover) {
   .tui-cte[data-variant='filled']:not([data-editing]):hover {
@@ -6370,4 +6530,72 @@ a.tui-id-card-ref:focus-visible {
       background: var(--surface-card);
     }
   }
+}
+
+/* The review sheet's main column sits a step lighter than the page, so its
+   white cards separate softly. */
+.tui-sheet-main[data-sheet='review'] {
+  background: var(--panel);
+}
+
+/* The review verdict: plain rows, one line each, the option's own
+   description trailing in a light hand. */
+.tui-review-verdicts {
+  gap: 2px;
+}
+.tui-review-verdicts .tui-gate-choice {
+  min-height: 0;
+  padding: 6px 8px;
+  border-color: transparent;
+}
+.tui-review-verdicts .tui-gate-choice[data-checked] {
+  border-color: transparent;
+}
+.tui-review-verdicts .tui-gate-choice-label {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  text-align: left;
+}
+.tui-review-verdicts .tui-gate-choice-label-row {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.tui-review-verdicts .tui-gate-choice-subtitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-4);
+}
+
+/* The summary comment in the dock: two lines at rest, whole when open. */
+.tui-review-dock-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tui-review-dock-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tui-review-dock-summary-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tui-review-dock-summary .tui-cte:not([data-editing]) .tui-md-comment {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tui-review-dock-summary .tui-cte[data-variant='filled']:not([data-editing]) {
+  border-color: var(--border-soft);
+  background: var(--card);
 }

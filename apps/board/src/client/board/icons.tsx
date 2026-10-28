@@ -411,6 +411,16 @@ export function CodeGlyph() {
   );
 }
 
+/** A file header's fold control (lucide `chevron-down`, ISC licensed);
+    CSS turns it to point right while the code is folded. */
+export function ChevronGlyph() {
+  return (
+    <svg {...RECORD_ICON} width={13} height={13}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
 /** A file header's mark (lucide `file`, ISC licensed). */
 export function FileGlyph() {
   return (

@@ -86,7 +86,7 @@ export function ClickToEditField({
 }: {
   label: string;
   text: string;
-  variant?: 'boxed' | 'bare' | 'filled';
+  variant?: 'boxed' | 'bare' | 'filled' | 'plain';
   stripe?: 'always' | 'focus';
   hint?: boolean;
   readOnly?: boolean;

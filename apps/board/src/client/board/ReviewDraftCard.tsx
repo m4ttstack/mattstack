@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
+import { Modal, Tooltip } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
 import {
@@ -30,8 +30,7 @@ import type { GateFormState } from './GateForm.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
-  CodeGlyph,
-  CommentGlyph,
+  ChevronGlyph,
   FileGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
@@ -59,28 +58,6 @@ export interface FilePin {
   id: string;
   title: string;
   line: number;
-}
-
-function SectionHead({
-  icon,
-  name,
-  hue,
-  children,
-}: {
-  icon: ReactNode;
-  name: string;
-  hue: 'muted' | 'accent' | 'ok';
-  children?: ReactNode;
-}) {
-  return (
-    <div className="tui-review-section-head">
-      <span className="tui-review-section-name" data-hue={hue}>
-        {icon}
-        {name}
-      </span>
-      {children}
-    </div>
-  );
 }
 
 /** How long the full diff keeps re-centring the finding you came from
@@ -336,6 +313,7 @@ function CodeSection({
     [diff, line]
   );
   const [open, setOpen] = useState(false);
+  const [folded, setFolded] = useState(false);
   const link = useRef<HTMLButtonElement | null>(null);
   return (
     <section
@@ -343,50 +321,21 @@ function CodeSection({
       data-section="code"
       aria-label="The Code"
     >
-      <SectionHead icon={<CodeGlyph />} name="The Code" hue="muted">
-        {forgeLink && (
-          <a
-            className="tui-review-section-link"
-            href={forgeLink.href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            open on {forgeLink.forge}
-            <ArrowOutGlyph />
-          </a>
-        )}
-        {openable && (
-          <button
-            ref={link}
-            type="button"
-            className="tui-review-section-link"
-            aria-haspopup="dialog"
-            onClick={() => setOpen(true)}
-          >
-            view full diff
-            <ArrowOutGlyph />
-          </button>
-        )}
-      </SectionHead>
       <div
         className="tui-review-code"
         data-openable={openable ? '' : undefined}
-        onClick={
-          openable
-            ? e => {
-                const picked = window.getSelection();
-                if (
-                  picked &&
-                  !picked.isCollapsed &&
-                  e.currentTarget.contains(picked.anchorNode)
-                )
-                  return;
-                setOpen(true);
-              }
-            : undefined
-        }
+        data-folded={folded || undefined}
       >
         <div className="tui-review-code-file">
+          <button
+            type="button"
+            className="tui-review-code-fold"
+            aria-expanded={!folded}
+            aria-label={folded ? `Show ${path}` : `Fold ${path}`}
+            onClick={() => setFolded(v => !v)}
+          >
+            <ChevronGlyph />
+          </button>
           <FileGlyph />
           <span className="tui-review-code-path">
             {path}
@@ -394,30 +343,75 @@ function CodeSection({
               <span className="tui-review-code-line">:{line}</span>
             )}
           </span>
+          {forgeLink && (
+            <a
+              className="tui-review-section-link tui-review-code-more"
+              href={forgeLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              open on {forgeLink.forge}
+              <ArrowOutGlyph />
+            </a>
+          )}
           {openable && (
-            <span className="tui-review-code-hint" aria-hidden="true">
-              click to expand
-            </span>
+            <button
+              ref={link}
+              type="button"
+              className="tui-review-section-link tui-review-code-more"
+              data-reveal=""
+              aria-haspopup="dialog"
+              onClick={() => setOpen(true)}
+            >
+              full diff
+              <ArrowOutGlyph />
+            </button>
           )}
         </div>
-        {heldBack && (fetchedDiff.tooLarge || fetchedDiff.binary) && (
-          <p className="tui-review-code-held">
-            {fetchedDiff.binary
-              ? 'A binary file, with no diff to show here.'
-              : 'Too large to show here.'}
-          </p>
-        )}
-        {error !== null && (
-          <p className="tui-review-code-held" data-tone="error" role="status">
-            {error}
-          </p>
-        )}
-        {snippet && DiffView && (
-          <DiffBoundary key={snippet}>
-            <Suspense fallback={null}>
-              <DiffView patch={snippet} anchor={line} separators="simple" />
-            </Suspense>
-          </DiffBoundary>
+        {!folded && (
+          <>
+            {heldBack && (fetchedDiff.tooLarge || fetchedDiff.binary) && (
+              <p className="tui-review-code-held">
+                {fetchedDiff.binary
+                  ? 'A binary file, with no diff to show here.'
+                  : 'Too large to show here.'}
+              </p>
+            )}
+            {error !== null && (
+              <p
+                className="tui-review-code-held"
+                data-tone="error"
+                role="status"
+              >
+                {error}
+              </p>
+            )}
+            {snippet && DiffView && (
+              <div
+                className="tui-review-code-snippet"
+                onClick={e => {
+                  const picked = window.getSelection();
+                  if (
+                    picked &&
+                    !picked.isCollapsed &&
+                    e.currentTarget.contains(picked.anchorNode)
+                  )
+                    return;
+                  setOpen(true);
+                }}
+              >
+                <DiffBoundary key={snippet}>
+                  <Suspense fallback={null}>
+                    <DiffView
+                      patch={snippet}
+                      anchor={line}
+                      separators="simple"
+                    />
+                  </Suspense>
+                </DiffBoundary>
+              </div>
+            )}
+          </>
         )}
       </div>
       {open && diff && DiffView && (
@@ -486,7 +480,7 @@ function CommentEditor({
   label: string;
   draft: string;
   value: string | undefined;
-  variant: 'bare' | 'filled';
+  variant: 'bare' | 'filled' | 'plain';
   hint?: boolean;
   onChange: (text: string) => void;
   onEditing?: (editing: boolean) => void;
@@ -525,7 +519,6 @@ function CommentSection({
   const key = commentKey(finding.id);
   const label = `Comment on ${finding.title}`;
   const { edited } = commentState(finding.comment!, form.texts[key], true);
-  const anchored = hasDiffLine(finding);
   return (
     <section
       className="tui-review-section"
@@ -534,22 +527,37 @@ function CommentSection({
       data-edited={edited || undefined}
       aria-label="Comment"
     >
-      <SectionHead icon={<CommentGlyph />} name="Comment" hue="ok">
-        <DraftMeta
-          edited={edited}
-          label={label}
-          unedited={anchored ? 'drafted by the agent' : 'posts in summary'}
-          onReset={() => form.clearText(key)}
-        />
-      </SectionHead>
       <CommentEditor
         label={label}
         draft={finding.comment!}
         value={form.texts[key]}
-        variant="filled"
+        variant="plain"
         onChange={t => form.setText(key, t)}
       />
+      {edited && (
+        <DraftMeta edited label={label} onReset={() => form.clearText(key)} />
+      )}
     </section>
+  );
+}
+
+/** The agent's finding behind a mark beside the title: the comment says
+    the same thing to the author, so the card leaves it out and keeps it a
+    hover away. */
+export function FindingPeek({ body }: { body: string }) {
+  const tip = body.replace(/`/g, '');
+  return (
+    <Tooltip tip={tip} className="tui-review-peek">
+      <span
+        className="tui-review-peek-mark"
+        role="img"
+        tabIndex={0}
+        aria-label="Agent finding"
+        aria-description={tip}
+      >
+        <AgentGlyph />
+      </span>
+    </Tooltip>
   );
 }
 
@@ -583,7 +591,7 @@ export function FindingCard({
       {head}
       {checked && (
         <>
-          {f.file && (
+          {hasDiffLine(f) ? (
             <CodeSection
               mrUrl={mrUrl}
               mrRef={mrRef}
@@ -591,23 +599,18 @@ export function FindingCard({
               finding={f}
               pins={pins}
             />
-          )}
-          <section
-            className="tui-review-section"
-            data-section="finding"
-            aria-label="Agent Finding"
-          >
-            <SectionHead
-              icon={<AgentGlyph />}
-              name="Agent Finding"
-              hue="accent"
-            />
-            <div className="tui-review-section-body">
-              <Markdown unstyled linkTargetBlank>
-                {f.body}
-              </Markdown>
+          ) : (
+            <div className="tui-review-code-file" data-strip="">
+              {f.file && (
+                <>
+                  <FileGlyph />
+                  <span className="tui-review-code-path">{f.file}</span>
+                  <span aria-hidden="true">·</span>
+                </>
+              )}
+              <span>no diff line · posts in summary</span>
             </div>
-          </section>
+          )}
           <CommentSection finding={f} form={form} />
         </>
       )}
@@ -615,73 +618,53 @@ export function FindingCard({
   );
 }
 
-/** The summary's verdict badge: approving reads as done, a comment as the
-    board's accent, a change request as a warning. */
-const VERDICT_INTENT: Record<string, 'ok' | 'accent' | 'warn'> = {
-  approve: 'ok',
-  comment: 'accent',
-  request_changes: 'warn',
-};
-
-export function VerdictChip({
-  outcome,
-  verdictLabel,
-}: {
-  outcome: string;
-  verdictLabel: string;
-}) {
-  return (
-    <Chip
-      intent={VERDICT_INTENT[outcome] ?? 'muted'}
-      variant="outline"
-      uppercase
-      data-verdict={outcome}
-    >
-      review verdict: {verdictLabel}
-    </Chip>
-  );
-}
-
-/** The review's summary line, drafted for the picked verdict, in the same
-    section and field a finding's comment uses. A finding with no diff line
-    edits in its own card; the poster joins it in after this line. */
+/** The review's summary line, drafted for the picked verdict, in the dock
+    beside the choice that swaps it. Two lines at rest; a click opens it
+    whole. A finding with no diff line edits in its own card; the poster
+    joins it in after this line. */
 export function SummaryCard({
   outcome,
   draft,
   form,
+  postsOn,
 }: {
   outcome: string;
   draft: string;
   form: GateFormState;
+  postsOn?: string;
 }) {
   const key = summaryKey(outcome);
   const { edited } = commentState(draft, form.texts[key], true);
   return (
-    <article className="tui-review-card tui-review-summary">
-      <section
-        className="tui-review-section"
-        data-section="summary"
-        data-draft-part=""
-        data-edited={edited || undefined}
-        aria-label="Summary comment"
-      >
-        <SectionHead icon={<CommentGlyph />} name="Summary" hue="ok">
+    <section
+      className="tui-review-dock-summary"
+      data-section="summary"
+      data-draft-part=""
+      data-edited={edited || undefined}
+      aria-label="Summary comment"
+    >
+      <div className="tui-review-dock-summary-head">
+        <span className="tui-review-dock-summary-title">Summary comment</span>
+        {edited ? (
           <DraftMeta
-            edited={edited}
+            edited
             label="Summary line"
-            unedited="drafted by the agent"
             onReset={() => form.clearText(key)}
           />
-        </SectionHead>
-        <CommentEditor
-          key={key}
-          label="Summary line"
-          draft={draft}
-          value={form.texts[key]}
-          variant="filled"
-          onChange={t => form.setText(key, t)}
-        />
-      </section>
-    </article>
+        ) : (
+          postsOn && (
+            <span className="tui-review-section-meta">posts on {postsOn}</span>
+          )
+        )}
+      </div>
+      <CommentEditor
+        key={key}
+        label="Summary line"
+        draft={draft}
+        value={form.texts[key]}
+        variant="filled"
+        onChange={t => form.setText(key, t)}
+      />
+    </section>
   );
 }
