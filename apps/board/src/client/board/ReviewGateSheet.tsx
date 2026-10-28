@@ -454,46 +454,6 @@ function ReviewGateSheet({
   const notes = useMemo(() => safeNotes(report), [report]);
   const depth = safeDepth(report);
 
-  const mainRef = useRef<HTMLElement | null>(null);
-  const [atEnd, setAtEnd] = useState(true);
-  const [moreBelow, setMoreBelow] = useState(0);
-  useEffect(() => {
-    const el = mainRef.current;
-    if (!el) return;
-    // Rect-to-rect, not offsetTop-to-scrollTop: offsetTop is relative to the
-    // nearest positioned ancestor, which is not necessarily this scroll
-    // container, so mixing it with scrollTop/clientHeight silently drifts
-    // once any row's offsetParent differs from `el`.
-    const measure = () => {
-      const box = el.getBoundingClientRect();
-      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
-      setAtEnd(remaining <= 1);
-      const rows = el.querySelectorAll<HTMLElement>(
-        '.tui-review-find-list .tui-review-finding-row'
-      );
-      let below = 0;
-      rows.forEach(row => {
-        if (row.getBoundingClientRect().top >= box.bottom) below++;
-      });
-      setMoreBelow(below);
-    };
-    measure();
-    el.addEventListener('scroll', measure);
-    window.addEventListener('resize', measure);
-    // Cards grow after mount (the code view loads lazily), moving rows across the fold.
-    const resized =
-      typeof ResizeObserver === 'undefined'
-        ? null
-        : new ResizeObserver(measure);
-    const list = el.querySelector('.tui-review-find-list');
-    if (resized && list) resized.observe(list);
-    return () => {
-      el.removeEventListener('scroll', measure);
-      window.removeEventListener('resize', measure);
-      resized?.disconnect();
-    };
-  }, [findings.length, report]);
-
   /** A severity group's findings: drafted cards set in under the group's
       heading, or the plain rows of a review the board doesn't edit. */
   const findingRows = (items: FindingEntry[]) => {
@@ -709,7 +669,7 @@ function ReviewGateSheet({
       onClose={onClose}
     >
       <div className="tui-sheet-body">
-        <section className="tui-sheet-main" data-sheet="review" ref={mainRef}>
+        <section className="tui-sheet-main" data-sheet="review">
           <div
             className="tui-tab-strip tui-review-tabs"
             role="tablist"
@@ -777,9 +737,6 @@ function ReviewGateSheet({
                     <span className="tui-sheet-list-tally">
                       {selectedFindings.size} of {findings.length}
                       {drafts ? '' : ' selected'}
-                      {!atEnd && moreBelow > 0
-                        ? ` · ${moreBelow} more below`
-                        : ''}
                     </span>
                   </div>
                   <div
