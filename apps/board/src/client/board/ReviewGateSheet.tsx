@@ -670,6 +670,9 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" data-sheet="review">
+          {review.round !== undefined && (
+            <RoundHeading round={review.round} summary={roundSummary} />
+          )}
           <div
             className="tui-tab-strip tui-review-tabs"
             role="tablist"
@@ -698,9 +701,6 @@ function ReviewGateSheet({
           </div>
           {mainTab === 'findings' && (
             <>
-              {review.round !== undefined && (
-                <RoundHeading round={review.round} summary={roundSummary} />
-              )}
               {carryovers.length > 0 && (
                 <>
                   <div className="tui-sheet-list-head">
