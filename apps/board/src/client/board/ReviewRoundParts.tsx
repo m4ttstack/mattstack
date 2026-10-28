@@ -51,25 +51,6 @@ export function carryoverTexts(
   );
 }
 
-/** "2 fixed · 1 pushback accepted · 1 waiting on author" */
-export function carryoverTally(picks: CarryoverPick[]): string {
-  let fixed = 0;
-  let accepted = 0;
-  let waiting = 0;
-  for (const p of picks) {
-    if (p.carry.call === 'fixed') fixed++;
-    else if (p.carry.call === 'pushback-accepted') accepted++;
-    else waiting++;
-  }
-  return [
-    fixed > 0 ? `${fixed} fixed` : null,
-    accepted > 0 ? `${accepted} pushback accepted` : null,
-    waiting > 0 ? `${waiting} waiting on author` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
-
 const TALLY_ORDER: CarryoverCall[] = [
   'fixed',
   'pushback-accepted',
