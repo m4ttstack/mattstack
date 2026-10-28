@@ -192,7 +192,7 @@ function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
     <div className="tui-reply-check">
       <Button
         type="button"
-        variant="light"
+        variant="outline"
         intent={settled ? 'ok' : 'warn'}
         size="sm"
         aria-expanded={open}
