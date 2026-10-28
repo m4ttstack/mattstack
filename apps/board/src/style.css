@@ -4516,9 +4516,9 @@ a.tui-id-card-ref:focus-visible {
   margin: 0;
   padding-top: 12px;
   border-top: 1px solid var(--border-soft);
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
 }
 .tui-reply-check-k {
   margin-right: 4px;
