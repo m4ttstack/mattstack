@@ -6643,3 +6643,17 @@ a.tui-id-card-ref:focus-visible {
   flex: 1;
   min-width: 0;
 }
+
+/* The decision context's severities as the cards show them: a dot, the
+   name, the count. */
+.tui-review-tier-pills:has(.tui-review-sev) {
+  gap: 14px;
+}
+.tui-review-sev-count {
+  margin-left: 2px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.tui-review-add-note {
+  color: var(--text-accent-small);
+}

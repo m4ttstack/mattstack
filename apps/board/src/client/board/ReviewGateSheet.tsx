@@ -253,6 +253,18 @@ function readDrafts(
     over the pinned verdict dock. Selection state keys by the COLLAPSED question ids
     (`collapseChunks`), so a fresh gate defaults to every finding checked and
     the recommended verdict picked -- the reviewer opts OUT rather than in. */
+/** The usual review verdicts in a few words, beside their radio; the
+    gate's own sentence stays on hover. */
+function verdictGloss(
+  value: string,
+  mr: BoardMRWithReview | undefined
+): string | undefined {
+  if (value === 'comment') return 'no verdict';
+  if (value === 'approve') return mr ? `approves ${mrRef(mr)}` : 'approves';
+  if (value === 'request_changes') return 'asks for changes';
+  return undefined;
+}
+
 /** The report's checks as a tally, with only the failures listed until
     the chevron opens the rest: on a laptop's rail the passes are the part
     nobody needs to reread. */
@@ -754,7 +766,8 @@ function ReviewGateSheet({
                     : findingsQuestion.label}
                 </span>
                 <span className="tui-sheet-list-tally">
-                  {selectedFindings.size} of {findings.length} selected
+                  {selectedFindings.size} of {findings.length}
+                  {drafts ? '' : ' selected'}
                   {!atEnd && moreBelow > 0 ? ` · ${moreBelow} more below` : ''}
                 </span>
               </div>
@@ -905,11 +918,15 @@ function ReviewGateSheet({
                       {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(
                         s => (
                           <span
-                            className="tui-review-tier-pill"
+                            className="tui-review-sev"
+                            data-sev={s}
                             data-tier={SEVERITY_LABEL[s]}
                             key={s}
                           >
-                            {SEVERITY_LABEL[s]} ({review.findings[s]})
+                            {SEVERITY_LABEL[s]}
+                            <span className="tui-review-sev-count">
+                              {review.findings[s]}
+                            </span>
                           </span>
                         )
                       )}
@@ -929,7 +946,7 @@ function ReviewGateSheet({
                     {!noteOpen && outcomeNote === '' && (
                       <button
                         type="button"
-                        className="tui-sheet-reset"
+                        className="tui-sheet-reset tui-review-add-note"
                         onClick={() => setNoteOpen(true)}
                       >
                         add note
@@ -983,8 +1000,12 @@ function ReviewGateSheet({
                               )}
                             </span>
                             {optionDescription(o) && (
-                              <span className="tui-gate-choice-subtitle">
-                                {optionDescription(o)}
+                              <span
+                                className="tui-gate-choice-subtitle"
+                                title={optionDescription(o)}
+                              >
+                                {verdictGloss(value, mr) ??
+                                  optionDescription(o)}
                               </span>
                             )}
                           </span>
