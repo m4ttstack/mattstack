@@ -4,9 +4,10 @@ order: 1
 
 # The contract
 
-The text under the Rule selector heading above is the pack's fill. Read it
-on every run, since it may consult settings or the environment: its answer
-is never carried over from an earlier run. It resolves to one of two
+The pack's fill is the text between the italic line at the top of Rule
+selector and this section; an unbound slot leaves it empty. Read it on
+every run, since it may consult settings or the environment: its answer is
+never carried over from an earlier run. A fill resolves to one of two
 shapes.
 
 - The single line `selector: none`.

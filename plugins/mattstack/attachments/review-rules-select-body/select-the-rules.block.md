@@ -4,10 +4,12 @@ order: 2
 
 # Select the rules
 
-Resolve the fill first. Nothing under the Rule selector heading, or the
-line `selector: none`, skips every rule step in this skill: no selector
-run, no rule text in the dispatch, no verdict request, no verdict file.
-Everything else runs as it would without this section.
+Resolve the fill first (the text between the italic line at the top of Rule
+selector and The contract). An empty fill, or the line `selector: none`,
+skips every rule step in this skill: no selector run, no rule text in the
+dispatch, no verdict request, no verdict file, and no setup observation.
+Everything else runs as it would without this section. A fill that is not
+empty and resolves to neither shape is a failure (When the selector fails).
 
 With a selector:
 
