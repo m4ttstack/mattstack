@@ -735,6 +735,7 @@ function ReviewGateSheet({
                         : findingsQuestion.label}
                     </span>
                     <span className="tui-sheet-list-tally">
+                      {drafts ? 'Posting ' : ''}
                       {selectedFindings.size} of {findings.length}
                       {drafts ? '' : ' selected'}
                     </span>
