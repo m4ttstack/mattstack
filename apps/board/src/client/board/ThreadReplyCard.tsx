@@ -186,7 +186,7 @@ function Message({ who, text }: ThreadMessage): ReactNode {
     author's change or pushback holds, else still open. */
 function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
   const [open, setOpen] = useState(false);
-  const label = settled ? 'Agent verified' : 'Agent: still open';
+  const label = settled ? 'Agent verified' : 'Agent flagged';
   return (
     <div
       className="tui-reply-check"
