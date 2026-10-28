@@ -51,6 +51,52 @@ class HighlightBoundary extends Component<
   }
 }
 
+/** A fence's info string as people name the language; an unknown one shows
+    as written. */
+const LANG_NAMES: Record<string, string> = {
+  ts: 'TypeScript',
+  typescript: 'TypeScript',
+  tsx: 'TSX',
+  js: 'JavaScript',
+  javascript: 'JavaScript',
+  jsx: 'JSX',
+  json: 'JSON',
+  sh: 'Shell',
+  bash: 'Shell',
+  shell: 'Shell',
+  zsh: 'Shell',
+  py: 'Python',
+  python: 'Python',
+  rb: 'Ruby',
+  ruby: 'Ruby',
+  go: 'Go',
+  rs: 'Rust',
+  rust: 'Rust',
+  sql: 'SQL',
+  yml: 'YAML',
+  yaml: 'YAML',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  css: 'CSS',
+  scss: 'SCSS',
+  html: 'HTML',
+  graphql: 'GraphQL',
+  gql: 'GraphQL',
+  diff: 'Diff',
+  swift: 'Swift',
+  kt: 'Kotlin',
+  kotlin: 'Kotlin',
+  java: 'Java',
+};
+
+function langName(lang: string | undefined): string {
+  if (!lang) return 'code';
+  // Own keys only: a fence tagged `__proto__` or `constructor` comes from
+  // MR content and must not reach Object.prototype.
+  const key = lang.toLowerCase();
+  return Object.hasOwn(LANG_NAMES, key) ? LANG_NAMES[key]! : lang;
+}
+
 /** A fenced code block: a labelled block, highlighted once the sheet's
     source brings the highlighter and the language is one it knows, and a
     plain block otherwise. A `suggestion` fence is the forge's suggested
@@ -66,7 +112,7 @@ function CodeFence({ lang, code }: { lang?: string; code: string }) {
       data-lang={suggestion ? undefined : lang}
     >
       <div className="tui-md-code-head">
-        {suggestion ? 'Suggested change' : (lang ?? 'code')}
+        {suggestion ? 'Suggested change' : langName(lang)}
       </div>
       {Highlighted && lang && !suggestion ? (
         <HighlightBoundary fallback={plain}>
