@@ -4463,24 +4463,26 @@ a.tui-id-card-ref:focus-visible {
   background: currentColor;
 }
 .tui-reply-status[data-hue='green'] {
-  color: var(--text-ok-small);
+  color: var(--text-ok);
 }
 .tui-reply-status[data-hue='amber'] {
-  color: var(--text-warn-small);
+  color: var(--text-warn);
 }
 .tui-reply-status[data-hue='accent'] {
-  color: var(--text-accent-small);
+  color: var(--text-accent);
 }
 .tui-reply-sha {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-accent-small);
 }
+/* The thread reads top to bottom on one left edge: each message is a name
+   line over its words, and the agent's check closes it under a hairline. */
 .tui-reply-thread {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 14px 14px;
+  gap: 16px;
+  padding: 14px 14px 16px;
 }
 .tui-reply-msg {
   display: flex;
@@ -4489,20 +4491,9 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-reply-who {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-}
-.tui-reply-avatar {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1px solid var(--border-soft);
-  background: var(--panel);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-3);
+  line-height: 1.3;
 }
 .tui-reply-name {
   font-size: 13px;
@@ -4513,18 +4504,13 @@ a.tui-id-card-ref:focus-visible {
   font-size: 12px;
   color: var(--text-3);
 }
-.tui-reply-text,
-.tui-reply-silence {
-  padding-left: 26px;
-}
-.tui-reply-text [data-part='markdown'] > * {
-  margin: 0;
-}
-.tui-reply-text [data-part='markdown'] > * + * {
-  margin-top: 6px;
+.tui-reply-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
 }
 .tui-reply-silence {
-  margin: 0;
+  margin: -8px 0 0;
   font-size: 13px;
   color: var(--text-3);
 }
@@ -4533,11 +4519,15 @@ a.tui-id-card-ref:focus-visible {
   align-items: flex-start;
   gap: 8px;
   margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
   font-size: 13px;
+  line-height: 1.45;
   color: var(--text-3);
 }
 .tui-reply-check-icon {
   display: inline-flex;
+  flex-shrink: 0;
   margin-top: 2px;
   color: var(--text-warn);
 }

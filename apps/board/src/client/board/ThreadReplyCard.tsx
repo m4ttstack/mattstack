@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Markdown } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
+import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { SearchCheckIcon } from './icons.tsx';
 import { CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 
@@ -177,16 +177,11 @@ function Message({ who, meta, text }: ThreadMessage): ReactNode {
   return (
     <div className="tui-reply-msg">
       <div className="tui-reply-who">
-        <span className="tui-reply-avatar" aria-hidden>
-          {who.slice(0, 1).toUpperCase()}
-        </span>
         <span className="tui-reply-name">{who}</span>
         {meta && <span className="tui-reply-meta">{meta}</span>}
       </div>
       <div className="tui-reply-text">
-        <Markdown unstyled linkTargetBlank>
-          {text}
-        </Markdown>
+        <CommentMarkdown>{text}</CommentMarkdown>
       </div>
     </div>
   );
