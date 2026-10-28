@@ -1,11 +1,8 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
 import { CornerDownRight, MessageSquare, Wrench } from 'lucide-react';
 
-import type {
-  GateItemChoice,
-  GateItemDisplay,
-} from '@mattstack/gate-kit/react';
-import { Button } from '@mattstack/tui-kit';
+import type { GateItemDisplay } from '@mattstack/gate-kit/react';
+import { LabeledSeg } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
 import type { ThreadCtx } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
@@ -78,20 +75,6 @@ export function PlanThreadCard({
   const value = replying ? form.texts[q.name] : undefined;
   const { edited } = commentState(draft ?? '', value, true);
 
-  const option = (c: GateItemChoice, icon: ReactNode, text: string) => (
-    <Button
-      type="button"
-      size="sm"
-      variant={answer === c.value ? 'light' : 'subtle'}
-      intent="muted"
-      aria-pressed={answer === c.value}
-      onClick={() => choose(c.value)}
-    >
-      {icon}
-      {text}
-    </Button>
-  );
-
   return (
     <GateCard
       label={label}
@@ -124,18 +107,28 @@ export function PlanThreadCard({
             <span />
           )}
           {fix && reply && (
-            <div
+            <LabeledSeg
+              soft
               className="tui-plan-switch"
-              role="group"
-              aria-label="Fix or reply"
-            >
-              {option(fix, <Wrench size={14} aria-hidden />, 'Fix the code')}
-              {option(
-                reply,
-                <MessageSquare size={14} aria-hidden />,
-                'Reply only'
-              )}
-            </div>
+              legend="Fix or reply"
+              options={[fix.value, reply.value]}
+              labels={{
+                [fix.value]: (
+                  <>
+                    <Wrench size={14} aria-hidden />
+                    Fix the code
+                  </>
+                ),
+                [reply.value]: (
+                  <>
+                    <MessageSquare size={14} aria-hidden />
+                    Reply only
+                  </>
+                ),
+              }}
+              value={replying ? reply.value : fix.value}
+              onChange={choose}
+            />
           )}
         </div>
         <SaidBox

@@ -646,6 +646,7 @@ function RespondSheetBody({
             : { text: 'Reply only', hue: 'muted' }
         }
         sha={reply.sha}
+        tag={thread && <SeverityPill severity={thread.severity} />}
         layout="stacked"
         mr={
           mr
@@ -657,7 +658,11 @@ function RespondSheetBody({
             : undefined
         }
         check={(() => {
-          const verdict = thread && THREAD_CALL[thread.verdict.call].check;
+          // A reply-only thread's call was settled on the plan gate.
+          const verdict =
+            reply.verb === 'fix' &&
+            thread &&
+            THREAD_CALL[thread.verdict.call].check;
           return verdict && thread.verdict.note
             ? { note: thread.verdict.note, verdict }
             : undefined;

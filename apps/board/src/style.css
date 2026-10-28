@@ -7272,12 +7272,23 @@ a.tui-id-card-ref:focus-visible {
   min-width: 0;
 }
 .tui-plan-switch {
-  display: inline-flex;
   flex-shrink: 0;
-  gap: 2px;
   padding: 3px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.tui-plan-switch [data-part='segmented-option'] {
+  flex: none;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.tui-plan-switch [data-part='segmented-option'][data-active] {
+  font-weight: 600;
+}
+.tui-plan-switch [data-part='segmented-option'][data-active] svg {
+  color: var(--text-accent-small);
 }
 .tui-plan-said {
   display: flex;

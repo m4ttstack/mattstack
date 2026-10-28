@@ -31,6 +31,8 @@ export interface ThreadReplyCardProps {
   sha?: string;
   /** The review round the thread was opened in. */
   round?: number;
+  /** Beside the title, as the plan card shows the thread's severity. */
+  tag?: ReactNode;
   /** `conversation`: the thread reads as who said what above the reply (a
       re-review). `stacked`: the agent's check, the comment being answered
       in its box, and the reply hung under it (a respond post). */
@@ -110,6 +112,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
               </span>
             )}
           </CardTitle>
+          {p.tag}
           <StatusMark {...p.status}>
             {p.sha && <code className="tui-reply-sha">{p.sha}</code>}
           </StatusMark>
