@@ -4386,6 +4386,22 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-summary {
   margin-bottom: 4px;
 }
+.tui-review-summary-tally {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.tui-review-summary-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.tui-review-summary-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 /* Drops a folded finding from the summary: a quiet text control with its
    own mark, brightening on hover like the section's other actions. */
 .tui-review-remove {

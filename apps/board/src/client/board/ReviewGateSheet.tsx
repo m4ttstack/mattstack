@@ -41,7 +41,12 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
-import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
+import {
+  FindingCard,
+  SummaryCard,
+  VerdictChip,
+  type FilePin,
+} from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
   carryoverTally,
@@ -391,17 +396,6 @@ function ReviewGateSheet({
     }
     return out;
   }, [findings]);
-  const removeFolded = (f: FindingEntry) => {
-    if (!findingsName) return;
-    form.toggleMulti(findingsName, f.id, false);
-    // The part's button unmounts with it, which would drop focus outside
-    // the sheet's Tab trap.
-    document
-      .querySelector<HTMLInputElement>(
-        `input[aria-labelledby="tui-review-finding-title-${CSS.escape(f.id)}"]`
-      )
-      ?.focus();
-  };
   const outcomeText =
     outcomeQuestion && typeof selectedOutcome === 'string'
       ? displayForValue(selectedOutcome, outcomeQuestion.options).text
@@ -674,19 +668,19 @@ function ReviewGateSheet({
             <>
               <div className="tui-sheet-list-head">
                 <span className="tui-sheet-list-title">Summary comment</span>
-                {mr && (
-                  <span className="tui-sheet-list-tally">
-                    posts on {mrRef(mr)}
-                  </span>
-                )}
+                <span className="tui-sheet-list-tally tui-review-summary-tally">
+                  <VerdictChip
+                    outcome={verdict}
+                    verdictLabel={outcomeText.toLowerCase()}
+                  />
+                  {mr && `posts on ${mrRef(mr)}`}
+                </span>
               </div>
               <SummaryCard
                 outcome={verdict}
-                verdictLabel={outcomeText.toLowerCase()}
                 draft={summaryDraft}
                 folded={folded}
                 form={form}
-                onRemove={removeFolded}
               />
             </>
           )}

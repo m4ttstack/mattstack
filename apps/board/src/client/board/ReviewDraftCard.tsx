@@ -12,13 +12,8 @@ import {
 } from 'react';
 
 import { Chip, Markdown, Modal } from '@mattstack/tui-kit';
-import {
-  CommentField,
-  commentState,
-  FieldTabs,
-  resetToWrite,
-  type FieldMode,
-} from './CommentComposer.tsx';
+import { ClickToEditField } from './ClickToEditField.tsx';
+import { commentState, resetToWrite } from './CommentComposer.tsx';
 import {
   anchorLine,
   anchorPath,
@@ -38,7 +33,6 @@ import {
   CodeGlyph,
   CommentGlyph,
   FileGlyph,
-  RemoveGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
 
@@ -477,74 +471,44 @@ function DraftMeta({
   );
 }
 
-/** A comment field with its blank-edit hint, in a part that `DraftMeta`'s
-    reset finds by `data-draft-part`. */
-function DraftField({
-  label,
-  draft,
-  value,
-  mode,
-  onChange,
-}: {
-  label: string;
-  draft: string;
-  value: string | undefined;
-  mode: FieldMode;
-  onChange: (text: string) => void;
-}) {
-  const { text, empty } = commentState(draft, value, true);
-  const hint = useId();
-  return (
-    <>
-      <CommentField
-        label={label}
-        text={text}
-        mode={mode}
-        invalid={empty}
-        describedBy={empty ? hint : undefined}
-        onChange={onChange}
-      />
-      {empty && (
-        <span className="tui-gate-error" id={hint}>
-          the comment is empty
-        </span>
-      )}
-    </>
-  );
-}
-
-/** A comment's framed field over its "Markdown supported" footer with the
-    Write and Preview tabs: the one editor every review comment uses. */
+/** A comment that reads rendered and opens raw on a click, with its
+    blank-edit hint, in a part that `DraftMeta`'s reset finds by
+    `data-draft-part`. */
 function CommentEditor({
   label,
   draft,
   value,
-  mode,
-  onMode,
+  hint = true,
   onChange,
+  onEditing,
 }: {
   label: string;
   draft: string;
   value: string | undefined;
-  mode: FieldMode;
-  onMode: (mode: FieldMode) => void;
+  hint?: boolean;
   onChange: (text: string) => void;
+  onEditing?: (editing: boolean) => void;
 }) {
+  const { text, empty } = commentState(draft, value, true);
+  const hintId = useId();
   return (
     <>
-      <div className="tui-review-comment-field">
-        <DraftField
-          label={label}
-          draft={draft}
-          value={value}
-          mode={mode}
-          onChange={onChange}
-        />
-      </div>
-      <div className="tui-review-comment-foot">
-        <span>Markdown supported</span>
-        <FieldTabs label={label} mode={mode} onMode={onMode} />
-      </div>
+      <ClickToEditField
+        label={label}
+        text={text}
+        variant="bare"
+        stripe="always"
+        hint={hint}
+        invalid={empty}
+        describedBy={empty ? hintId : undefined}
+        onChange={onChange}
+        onEditing={onEditing}
+      />
+      {empty && (
+        <span className="tui-gate-error" id={hintId}>
+          the comment is empty
+        </span>
+      )}
     </>
   );
 }
@@ -558,7 +522,6 @@ function CommentSection({
 }) {
   const key = commentKey(finding.id);
   const label = `Comment on ${finding.title}`;
-  const [mode, setMode] = useState<FieldMode>('write');
   const { edited } = commentState(finding.comment!, form.texts[key], true);
   const anchored = hasDiffLine(finding);
   return (
@@ -566,36 +529,23 @@ function CommentSection({
       className="tui-review-section"
       data-section="comment"
       data-draft-part=""
-      data-edited={(anchored && edited) || undefined}
+      data-edited={edited || undefined}
       aria-label="Comment"
     >
       <SectionHead icon={<CommentGlyph />} name="Comment" hue="ok">
-        {anchored && (
-          <DraftMeta
-            edited={edited}
-            label={label}
-            unedited="drafted by the agent"
-            onReset={() => {
-              form.clearText(key);
-              setMode('write');
-            }}
-          />
-        )}
-      </SectionHead>
-      {anchored ? (
-        <CommentEditor
+        <DraftMeta
+          edited={edited}
           label={label}
-          draft={finding.comment!}
-          value={form.texts[key]}
-          mode={mode}
-          onMode={setMode}
-          onChange={t => form.setText(key, t)}
+          unedited={anchored ? 'drafted by the agent' : 'posts in summary'}
+          onReset={() => form.clearText(key)}
         />
-      ) : (
-        <p className="tui-review-section-note">
-          Posts in the summary (no diff line)
-        </p>
-      )}
+      </SectionHead>
+      <CommentEditor
+        label={label}
+        draft={finding.comment!}
+        value={form.texts[key]}
+        onChange={t => form.setText(key, t)}
+      />
     </section>
   );
 }
@@ -662,63 +612,6 @@ export function FindingCard({
   );
 }
 
-/** A finding with no diff line, as a section of the summary it posts in,
-    with its own editor and a control to drop it from the summary. */
-function FoldedSection({
-  finding: f,
-  form,
-  onRemove,
-}: {
-  finding: FindingEntry;
-  form: GateFormState;
-  onRemove: () => void;
-}) {
-  const key = commentKey(f.id);
-  const label = `Summary comment: ${f.title}`;
-  const [mode, setMode] = useState<FieldMode>('write');
-  const { edited } = commentState(f.comment!, form.texts[key], true);
-  return (
-    <section
-      className="tui-review-section"
-      data-section="folded"
-      data-draft-part=""
-      data-edited={edited || undefined}
-      aria-label={f.title}
-    >
-      <SectionHead icon={<AgentGlyph />} name={f.title} hue="muted">
-        <span className="tui-review-section-meta">
-          <DraftMeta
-            edited={edited}
-            label={label}
-            unedited="no diff line"
-            onReset={() => {
-              form.clearText(key);
-              setMode('write');
-            }}
-          />
-          <button
-            type="button"
-            className="tui-review-remove"
-            aria-label={`${label}: remove`}
-            onClick={onRemove}
-          >
-            <RemoveGlyph />
-            Remove
-          </button>
-        </span>
-      </SectionHead>
-      <CommentEditor
-        label={label}
-        draft={f.comment!}
-        value={form.texts[key]}
-        mode={mode}
-        onMode={setMode}
-        onChange={t => form.setText(key, t)}
-      />
-    </section>
-  );
-}
-
 /** The summary's verdict badge: approving reads as done, a comment as the
     board's accent, a change request as a warning. */
 const VERDICT_INTENT: Record<string, 'ok' | 'accent' | 'warn'> = {
@@ -727,28 +620,46 @@ const VERDICT_INTENT: Record<string, 'ok' | 'accent' | 'warn'> = {
   request_changes: 'warn',
 };
 
-/** The review's summary comment as it will post (`joinSummary`), as one
-    card in the finding cards' frame: the summary line drafted for the
-    picked verdict, then each ticked finding with no diff line as its own
-    section. */
-export function SummaryCard({
+export function VerdictChip({
   outcome,
   verdictLabel,
-  draft,
-  folded,
-  form,
-  onRemove,
 }: {
   outcome: string;
   verdictLabel: string;
+}) {
+  return (
+    <Chip
+      intent={VERDICT_INTENT[outcome] ?? 'muted'}
+      variant="outline"
+      uppercase
+      data-verdict={outcome}
+    >
+      for {verdictLabel}
+    </Chip>
+  );
+}
+
+/** The review's summary comment as it will post (`joinSummary`): the
+    summary line drafted for the picked verdict, then each ticked finding
+    with no diff line, every part its own borderless field so the card
+    reads as the one comment the forge shows. A folded part edits here or
+    in its finding's card, both on the same text. */
+export function SummaryCard({
+  outcome,
+  draft,
+  folded,
+  form,
+}: {
+  outcome: string;
   draft: string;
   folded: FindingEntry[];
   form: GateFormState;
-  onRemove: (f: FindingEntry) => void;
 }) {
   const key = summaryKey(outcome);
-  const [mode, setMode] = useState<FieldMode>('write');
   const { edited } = commentState(draft, form.texts[key], true);
+  const [editing, setEditing] = useState<string | null>(null);
+  const track = (part: string) => (on: boolean) =>
+    setEditing(prev => (on ? part : prev === part ? null : prev));
   return (
     <article className="tui-review-card tui-review-summary">
       <section
@@ -758,44 +669,42 @@ export function SummaryCard({
         data-edited={edited || undefined}
         aria-label="Summary comment"
       >
-        <SectionHead icon={<CommentGlyph />} name="Summary" hue="ok">
-          <span className="tui-review-section-meta">
+        <div className="tui-review-summary-parts">
+          <CommentEditor
+            key={key}
+            label="Summary line"
+            draft={draft}
+            value={form.texts[key]}
+            hint={false}
+            onChange={t => form.setText(key, t)}
+            onEditing={track('summary')}
+          />
+          {folded.map(f => (
+            <CommentEditor
+              key={f.id}
+              label={`Summary comment: ${f.title}`}
+              draft={f.comment!}
+              value={form.texts[commentKey(f.id)]}
+              hint={false}
+              onChange={t => form.setText(commentKey(f.id), t)}
+              onEditing={track(f.id)}
+            />
+          ))}
+        </div>
+        {(editing !== null || edited) && (
+          <div className="tui-review-summary-foot">
+            <span className="tui-cte-hint">
+              {editing !== null && 'Markdown supported'}
+            </span>
             <DraftMeta
               edited={edited}
               label="Summary line"
-              onReset={() => {
-                form.clearText(key);
-                setMode('write');
-              }}
+              resetText="reset summary line"
+              onReset={() => form.clearText(key)}
             />
-            <Chip
-              intent={VERDICT_INTENT[outcome] ?? 'muted'}
-              variant="outline"
-              uppercase
-              data-verdict={outcome}
-            >
-              for {verdictLabel}
-            </Chip>
-          </span>
-        </SectionHead>
-        <CommentEditor
-          key={key}
-          label="Summary line"
-          draft={draft}
-          value={form.texts[key]}
-          mode={mode}
-          onMode={setMode}
-          onChange={t => form.setText(key, t)}
-        />
+          </div>
+        )}
       </section>
-      {folded.map(f => (
-        <FoldedSection
-          key={f.id}
-          finding={f}
-          form={form}
-          onRemove={() => onRemove(f)}
-        />
-      ))}
     </article>
   );
 }
