@@ -4489,6 +4489,23 @@ a.tui-id-card-ref:focus-visible {
   flex-direction: column;
   gap: 4px;
 }
+/* A reply sits indented under the comment it answers, joined by a rounded
+   elbow that drops from the comment and turns into the reply's name. */
+.tui-reply-msg + .tui-reply-msg {
+  position: relative;
+  padding-left: 24px;
+}
+.tui-reply-msg + .tui-reply-msg::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: -12px;
+  width: 12px;
+  height: 21px;
+  border-left: 1.5px solid var(--text-4);
+  border-bottom: 1.5px solid var(--text-4);
+  border-bottom-left-radius: 8px;
+}
 .tui-reply-name {
   font-size: 13px;
   font-weight: 600;
