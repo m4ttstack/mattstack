@@ -313,6 +313,7 @@ function CodeSection({
     [diff, line]
   );
   const [open, setOpen] = useState(false);
+  const leavingField = useRef(false);
   const [folded, setFolded] = useState(false);
   const link = useRef<HTMLButtonElement | null>(null);
   return (
@@ -389,7 +390,15 @@ function CodeSection({
             {snippet && DiffView && (
               <div
                 className="tui-review-code-snippet"
+                onMouseDown={() => {
+                  // A press that only closes a comment being written must
+                  // not also open the full diff.
+                  leavingField.current = !!document.activeElement?.closest(
+                    '.tui-cte[data-editing]'
+                  );
+                }}
                 onClick={e => {
+                  if (leavingField.current) return;
                   const picked = window.getSelection();
                   if (
                     picked &&
