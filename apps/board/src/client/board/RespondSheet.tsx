@@ -31,7 +31,6 @@ import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
-import { ThreadReplyCard } from './ThreadReplyCard.tsx';
 import { PersonLead, PersonTag } from './PersonLead.tsx';
 import {
   joinPlan,
@@ -80,6 +79,7 @@ import {
   type RowChip,
   type SheetRow,
 } from './SheetParts.tsx';
+import { ThreadReplyCard } from './ThreadReplyCard.tsx';
 
 /** A post-step thread's decision: post its final reply or hold it. Both
     write the replies checklist the gate answers with. */
@@ -802,7 +802,7 @@ function RespondSheetBody({
 
   return (
     <div className="tui-sheet-body">
-      <section className="tui-sheet-main">
+      <section className="tui-sheet-main" data-sheet="respond">
         <RoundHeading {...gateRounds(ctx, mr?.respond?.responseRound)} />
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
@@ -836,10 +836,7 @@ function RespondSheetBody({
                 const pick = picks.find(p => p.threadId === j.threadId);
                 if (pick?.reply) return replyCard(pick, j.thread);
                 return (
-                  <PostStepCard
-                    key={j.threadId}
-                    j={j}
-                  >
+                  <PostStepCard key={j.threadId} j={j}>
                     {pick && !pick.reply && (
                       <PostResolveChoice pick={pick} form={form} />
                     )}

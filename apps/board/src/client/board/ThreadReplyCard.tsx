@@ -63,12 +63,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
   const { edited } = commentState(p.draft, p.value, true);
   const label = `Reply on ${p.label}`;
   const reset = (resetText?: string) => (
-    <DraftMeta
-      edited
-      label={label}
-      resetText={resetText}
-      onReset={p.onReset}
-    />
+    <DraftMeta edited label={label} resetText={resetText} onReset={p.onReset} />
   );
   return (
     <article
@@ -156,7 +151,10 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                     edited && (
                       <>
                         <span className="tui-cte-badge-state">Edited</span>
-                        <span className="tui-cte-badge-sep" aria-hidden="true" />
+                        <span
+                          className="tui-cte-badge-sep"
+                          aria-hidden="true"
+                        />
                         {reset('Reset')}
                       </>
                     )

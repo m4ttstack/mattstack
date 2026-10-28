@@ -187,9 +187,7 @@ const TILE_FINDINGS = {
   },
 };
 
-const findingOption = (
-  f: (typeof TILE_FINDINGS)[keyof typeof TILE_FINDINGS]
-) =>
+const findingOption = (f: (typeof TILE_FINDINGS)[keyof typeof TILE_FINDINGS]) =>
   opt(
     f.id,
     `[${f.severity[0]!.toUpperCase()}${f.severity.slice(1)}] ${f.title}`,
@@ -237,8 +235,7 @@ export const reviewFirstRound: StoryGate = {
       findings: { critical: 1, important: 2, minor: 4 },
       editable: true,
       summaryComments: {
-        comment:
-          'Left a few comments! The region key one is blocking for me.',
+        comment: 'Left a few comments! The region key one is blocking for me.',
         approve:
           'Looks good to me, approving. Left a few inline notes to pick up on the way.',
       },
@@ -575,8 +572,7 @@ const PIN_PLAN = {
     claim:
       'polling the center every 200ms keeps a timer running while the map is idle; the map already fires `moveend`.',
     note: 'confirmed: useMapCenter.ts:22 sets an interval with no idle check, and moveend fires after every pan and zoom.',
-    reply:
-      'switched to `moveend`, so nothing runs while the map is idle.',
+    reply: 'switched to `moveend`, so nothing runs while the map is idle.',
   },
   t3: {
     fix: 'Add a test that re-centers with a popover open and expects it to stay open.',
@@ -746,7 +742,28 @@ const postThread = (
     and the re-review ping on the Overview thread, which GitLab cannot
     resolve. */
 export const respondPost: StoryGate = {
-  mr: PIN_MR,
+  // The answered plan gate rides on the MR, as on the board, so each reply
+  // card shows the reviewer's comment above it.
+  mr: {
+    ...PIN_MR,
+    gates: [
+      {
+        ...respondPlan.gate,
+        gateId: 'story-respond-plan-answered',
+        status: 'answered',
+        answers: {
+          'thread-1': `fix:${PIN_THREADS.t1}`,
+          'thread-2': `fix:${PIN_THREADS.t2}`,
+          'thread-3': `fix:${PIN_THREADS.t3}`,
+          'thread-4': `fix:${PIN_THREADS.t4}`,
+          'thread-5': `reply:${PIN_THREADS.t5}`,
+          'code-changes': 'approve',
+        },
+        answeredBy: 'board',
+        answeredAt: minutesAgo(8),
+      },
+    ],
+  } as BoardMRWithReview,
   gate: {
     gateId: 'story-respond-post',
     subject: mrSubject(831),

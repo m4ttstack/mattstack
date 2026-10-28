@@ -90,7 +90,9 @@ export function CarryoverCard({
       status={CARRYOVER_CALL[carry.call]}
       messages={[
         { who: 'You', meta: `round ${carry.round}`, text: carry.original },
-        ...(carry.authorReply ? [{ who: author, text: carry.authorReply }] : []),
+        ...(carry.authorReply
+          ? [{ who: author, text: carry.authorReply }]
+          : []),
       ]}
       silence={carry.authorReply ? undefined : `${author} hasn't replied.`}
       check={
