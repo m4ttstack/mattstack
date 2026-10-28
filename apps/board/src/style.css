@@ -4523,14 +4523,8 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-check-chevron[data-open] {
   transform: rotate(90deg);
 }
-.tui-reply-check-note {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--text-1);
-}
-/* Open, the note hangs from the button on a rule in its tone, dropped
-   from under the button's icon. */
+/* The note hangs from the button on a rule in its tone, dropped from
+   under the button's icon. Only the disclosure's height animates. */
 .tui-reply-check {
   --check-line: var(--fill-warn);
 }
@@ -4540,13 +4534,16 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-check > .tui-disclosure {
   align-self: stretch;
 }
-.tui-reply-check .tui-disclosure.open .tui-disclosure-body {
+.tui-reply-check .tui-disclosure .tui-disclosure-body {
   padding-top: 0;
 }
-.tui-reply-check[data-open] .tui-reply-check-note {
+.tui-reply-check-note {
   margin: 0 0 0 13px;
   padding: 8px 0 2px 14px;
   border-left: 2px solid var(--check-line);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
 }
 .tui-reply-resolve {
   display: inline-flex;

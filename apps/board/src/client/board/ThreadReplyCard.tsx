@@ -185,7 +185,7 @@ function Message({ who, text }: ThreadMessage): ReactNode {
 /** What the agent found on the thread, behind a badge: verified when the
     author's change or pushback holds, else still open. */
 function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!settled);
   const label = settled ? 'Agent verified' : 'Agent flagged';
   return (
     <div
