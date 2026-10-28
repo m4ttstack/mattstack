@@ -4408,6 +4408,158 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-finding .tui-review-section[data-section='comment']:last-child {
   border-radius: 0 0 7px 7px;
 }
+
+/* A reply on a review thread: the finding card's header, comment area and
+   corners, with the thread as who said what in between. */
+.tui-reply-card .tui-review-section[data-section='comment'] {
+  position: relative;
+  padding: 16px 14px 14px;
+  background: var(--panel);
+  border-radius: 0 0 7px 7px;
+}
+.tui-reply-head {
+  padding: 0;
+}
+.tui-reply-head-label {
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: inherit;
+}
+.tui-reply-head-label:focus-within {
+  background: none;
+  outline: none;
+}
+.tui-reply-head-label .tui-gate-choice-input {
+  margin-top: 0;
+}
+.tui-reply-head .tui-reply-resolve {
+  padding-right: 14px;
+}
+.tui-reply-title[data-file] {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+}
+.tui-reply-card[data-off] .tui-reply-title {
+  color: var(--text-3);
+}
+.tui-reply-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.tui-reply-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tui-reply-status[data-hue='green'] {
+  color: var(--text-ok-small);
+}
+.tui-reply-status[data-hue='amber'] {
+  color: var(--text-warn-small);
+}
+.tui-reply-status[data-hue='accent'] {
+  color: var(--text-accent-small);
+}
+.tui-reply-sha {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-accent-small);
+}
+.tui-reply-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+.tui-reply-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tui-reply-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tui-reply-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-soft);
+  background: var(--panel);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.tui-reply-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tui-reply-meta {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tui-reply-text,
+.tui-reply-silence {
+  padding-left: 26px;
+}
+.tui-reply-text [data-part='markdown'] > * {
+  margin: 0;
+}
+.tui-reply-text [data-part='markdown'] > * + * {
+  margin-top: 6px;
+}
+.tui-reply-silence {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.tui-reply-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.tui-reply-check-icon {
+  display: inline-flex;
+  margin-top: 2px;
+  color: var(--text-warn);
+}
+.tui-reply-check[data-settled] .tui-reply-check-icon {
+  color: var(--text-ok);
+}
+.tui-reply-resolve {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.tui-reply-resolve .tui-gate-choice-input[data-checked],
+.tui-reply-head-label .tui-gate-choice-input[data-checked] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px 11px;
+}
 /* The diff draws in a shadow root; these reach it as inherited custom
    properties. */
 .tui-diff {

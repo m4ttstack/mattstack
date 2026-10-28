@@ -713,7 +713,12 @@ function ReviewGateSheet({
                   </div>
                   <div className="tui-respond-list">
                     {carryovers.map(c => (
-                      <CarryoverCard key={c.name} pick={c} form={form} />
+                      <CarryoverCard
+                        key={c.name}
+                        pick={c}
+                        form={form}
+                        author={mr?.author?.name ?? 'The author'}
+                      />
                     ))}
                   </div>
                 </>

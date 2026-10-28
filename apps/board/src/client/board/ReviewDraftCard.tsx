@@ -455,7 +455,7 @@ function CodeSection({
 }
 
 /** "edited · reset to draft", or who wrote the text. */
-function DraftMeta({
+export function DraftMeta({
   edited,
   label,
   onReset,
@@ -495,7 +495,7 @@ function DraftMeta({
 /** A comment that reads rendered and opens raw on a click, with its
     blank-edit hint, in a part that `DraftMeta`'s reset finds by
     `data-draft-part`. */
-function CommentEditor({
+export function CommentEditor({
   label,
   draft,
   value,
