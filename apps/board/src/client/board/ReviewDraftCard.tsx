@@ -566,10 +566,12 @@ function CommentSection({
         badge={
           edited && (
             <>
-              <span>Edited</span>
+              <span className="tui-cte-badge-state">Edited</span>
+              <span className="tui-cte-badge-sep" aria-hidden="true" />
               <DraftMeta
                 edited
                 label={label}
+                resetText="Reset"
                 onReset={() => form.clearText(key)}
               />
             </>

@@ -6767,32 +6767,56 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* At rest, an edited comment's pill on the field's top-left border: the
-   state, then its reset. Interactive, unlike the click-to-edit pill. */
+   state, a hairline, then its reset. Interactive, unlike the click-to-edit
+   pill; the field's text drops a little to clear it. */
 .tui-cte-badge {
   position: absolute;
   top: -10px;
   left: 12px;
   z-index: 1;
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
   height: 20px;
-  padding: 0 9px;
   border-radius: 999px;
+  overflow: hidden;
   font-size: 12px;
-  font-weight: 500;
   line-height: 1;
-  color: var(--text-2);
-  background: color-mix(in srgb, var(--fg) 6%, var(--card));
+  background: color-mix(in srgb, var(--fg) 5%, var(--card));
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent),
-    0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
+    0 1px 2px color-mix(in srgb, var(--fg) 6%, transparent);
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   @starting-style {
     opacity: 0;
     transform: translateY(3px) scale(0.94);
   }
 }
+.tui-cte-badge-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px 0 9px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.tui-cte-badge-sep {
+  align-self: center;
+  width: 1px;
+  height: 10px;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
 .tui-cte-badge .tui-review-section-meta {
-  font-weight: 400;
+  display: flex;
+}
+.tui-cte-badge .tui-review-reset {
+  padding: 0 9px 0 7px;
+  font-size: 12px;
+  color: var(--text-accent);
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tui-cte-badge .tui-review-reset:hover {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--fill-accent) 10%, transparent);
+}
+.tui-cte-badge + .tui-cte .tui-cte-view {
+  padding-top: 15px;
 }
