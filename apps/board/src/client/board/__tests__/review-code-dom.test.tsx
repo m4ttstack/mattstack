@@ -6,6 +6,7 @@
 import React from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
+import { MotionGlobalConfig } from 'motion/react';
 import { createRoot, type Root } from 'react-dom/client';
 
 import type { GateRow } from '../../../gates/store.ts';
@@ -19,6 +20,12 @@ import { useGateForm } from '../GateForm.tsx';
 import { ReviewGateSheet } from '../ReviewGateSheet.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
+// happy-dom's Web Animations stub rejects a cancelled animation, which motion
+// raises as an unhandled error (StrictMode's double mount cancels one);
+// without `animate` motion uses its own frame loop, and skipAnimations
+// settles every fold at once.
+delete (Element.prototype as { animate?: unknown }).animate;
+MotionGlobalConfig.skipAnimations = true;
 
 afterAll(async () => {
   await GlobalRegistrator.unregister();
