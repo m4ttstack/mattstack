@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Modal, Popover } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
@@ -373,59 +374,70 @@ function CodeSection({
             </button>
           )}
         </div>
-        {!folded && (
-          <>
-            {heldBack && (fetchedDiff.tooLarge || fetchedDiff.binary) && (
-              <p className="tui-review-code-held">
-                {fetchedDiff.binary
-                  ? 'A binary file, with no diff to show here.'
-                  : 'Too large to show here.'}
-              </p>
-            )}
-            {error !== null && (
-              <p
-                className="tui-review-code-held"
-                data-tone="error"
-                role="status"
+        <LazyMotion features={domAnimation}>
+          <AnimatePresence initial={false}>
+            {!folded && (
+              <m.div
+                key="body"
+                className="tui-review-code-body"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
               >
-                {error}
-              </p>
+                {heldBack && (fetchedDiff.tooLarge || fetchedDiff.binary) && (
+                  <p className="tui-review-code-held">
+                    {fetchedDiff.binary
+                      ? 'A binary file, with no diff to show here.'
+                      : 'Too large to show here.'}
+                  </p>
+                )}
+                {error !== null && (
+                  <p
+                    className="tui-review-code-held"
+                    data-tone="error"
+                    role="status"
+                  >
+                    {error}
+                  </p>
+                )}
+                {snippet && DiffView && (
+                  <div
+                    className="tui-review-code-snippet"
+                    onMouseDown={() => {
+                      // A press that only closes a comment being written must
+                      // not also open the full diff.
+                      leavingField.current = !!document.activeElement?.closest(
+                        '.tui-cte[data-editing]'
+                      );
+                    }}
+                    onClick={e => {
+                      if (leavingField.current) return;
+                      const picked = window.getSelection();
+                      if (
+                        picked &&
+                        !picked.isCollapsed &&
+                        e.currentTarget.contains(picked.anchorNode)
+                      )
+                        return;
+                      setOpen(true);
+                    }}
+                  >
+                    <DiffBoundary key={snippet}>
+                      <Suspense fallback={null}>
+                        <DiffView
+                          patch={snippet}
+                          anchor={line}
+                          separators="simple"
+                        />
+                      </Suspense>
+                    </DiffBoundary>
+                  </div>
+                )}
+              </m.div>
             )}
-            {snippet && DiffView && (
-              <div
-                className="tui-review-code-snippet"
-                onMouseDown={() => {
-                  // A press that only closes a comment being written must
-                  // not also open the full diff.
-                  leavingField.current = !!document.activeElement?.closest(
-                    '.tui-cte[data-editing]'
-                  );
-                }}
-                onClick={e => {
-                  if (leavingField.current) return;
-                  const picked = window.getSelection();
-                  if (
-                    picked &&
-                    !picked.isCollapsed &&
-                    e.currentTarget.contains(picked.anchorNode)
-                  )
-                    return;
-                  setOpen(true);
-                }}
-              >
-                <DiffBoundary key={snippet}>
-                  <Suspense fallback={null}>
-                    <DiffView
-                      patch={snippet}
-                      anchor={line}
-                      separators="simple"
-                    />
-                  </Suspense>
-                </DiffBoundary>
-              </div>
-            )}
-          </>
-        )}
+          </AnimatePresence>
+        </LazyMotion>
       </div>
       {open && diff && DiffView && (
         <FullDiffModal
