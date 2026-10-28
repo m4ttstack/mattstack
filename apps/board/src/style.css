@@ -4524,8 +4524,8 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-silence {
   margin: 0;
   font-size: 14px;
-  font-weight: 500;
-  color: var(--text-bad);
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text-bad) 70%, var(--text-3));
 }
 /* The agent's check is a kit button; a click opens what it found. */
 .tui-reply-check {
