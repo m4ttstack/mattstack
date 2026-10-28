@@ -10,9 +10,10 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { Info } from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Modal, Popover } from '@mattstack/tui-kit';
+import { Button, Modal, Popover } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
@@ -34,7 +35,6 @@ import {
   ArrowOutGlyph,
   ChevronGlyph,
   FileGlyph,
-  InfoGlyph,
   UndoGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
@@ -577,13 +577,16 @@ function FindingInfo({ body }: { body: string }) {
       sideOffset={6}
       ariaLabel="Agent finding"
       trigger={
-        <button
+        <Button
           type="button"
+          variant="subtle"
+          intent="accent"
+          size="sm"
           className="tui-review-info"
-          aria-label="Agent finding"
         >
-          <InfoGlyph />
-        </button>
+          <Info size={14} aria-hidden />
+          Agent finding
+        </Button>
       }
     >
       <div className="tui-review-info-card">

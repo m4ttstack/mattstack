@@ -7101,26 +7101,6 @@ a.tui-id-card-ref:focus-visible {
 
 /* The info mark beside a code file's path, and the agent's finding it
    opens on a click. */
-.tui-review-info {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-.tui-review-info:hover,
-.tui-review-info[data-popup-open] {
-  color: var(--text-accent);
-  background: color-mix(in srgb, var(--fill-accent) 10%, transparent);
-}
-.tui-review-info:focus-visible {
-  outline: 2px solid var(--fill-accent);
-  outline-offset: 1px;
-}
 .tui-review-info-card {
   display: flex;
   flex-direction: column;
