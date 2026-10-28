@@ -705,7 +705,7 @@ function ReviewGateSheet({
                 <>
                   <div className="tui-sheet-list-head">
                     <span className="tui-sheet-list-title">
-                      Your earlier threads ({carryovers.length})
+                      Earlier threads ({carryovers.length})
                     </span>
                     <span className="tui-sheet-list-tally">
                       {carryoverTally(carryovers)}
