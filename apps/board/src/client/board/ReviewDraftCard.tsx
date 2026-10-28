@@ -13,7 +13,7 @@ import {
 import { Info } from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Button, Modal, Popover } from '@mattstack/tui-kit';
+import { Button, ICONS, Modal, Popover } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
@@ -586,6 +586,13 @@ function FindingInfo({ body }: { body: string }) {
         >
           <Info size={14} aria-hidden />
           Agent finding
+          <span
+            className="tui-reply-check-chevron"
+            data-open={open || undefined}
+            aria-hidden
+          >
+            {ICONS['chevron-right']}
+          </span>
         </Button>
       }
     >
