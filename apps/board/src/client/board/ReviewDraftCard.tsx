@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { Modal } from '@mattstack/tui-kit';
+import { Modal, Popover } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
@@ -33,6 +33,7 @@ import {
   ArrowOutGlyph,
   ChevronGlyph,
   FileGlyph,
+  InfoGlyph,
   UndoGlyph,
 } from './icons.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
@@ -346,6 +347,7 @@ function CodeSection({
               <span className="tui-review-code-line">:{line}</span>
             )}
           </span>
+          {finding.body && <FindingInfo body={finding.body} />}
           {forgeLink && (
             <a
               className="tui-review-section-link tui-review-code-more"
@@ -528,6 +530,56 @@ function CommentEditor({
         </span>
       )}
     </>
+  );
+}
+
+/** The agent's finding behind an info mark in the code's file bar: the
+    comment already says it to the author, so it stays a hover away. The
+    short close delay lets the pointer cross from the mark into the card. */
+function FindingInfo({ body }: { body: string }) {
+  const [open, setOpen] = useState(false);
+  const closing = useRef<number | undefined>(undefined);
+  const show = () => {
+    window.clearTimeout(closing.current);
+    setOpen(true);
+  };
+  const hide = () => {
+    window.clearTimeout(closing.current);
+    closing.current = window.setTimeout(() => setOpen(false), 120);
+  };
+  useEffect(() => () => window.clearTimeout(closing.current), []);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      side="bottom"
+      align="start"
+      sideOffset={6}
+      ariaLabel="Agent finding"
+      initialFocus={false}
+      trigger={
+        <button
+          type="button"
+          className="tui-review-info"
+          aria-label="Agent finding"
+          onMouseEnter={show}
+          onMouseLeave={hide}
+          onFocus={show}
+          onBlur={hide}
+        >
+          <InfoGlyph />
+        </button>
+      }
+    >
+      <div
+        className="tui-review-info-card"
+        onMouseEnter={show}
+        onMouseLeave={hide}
+      >
+        <span className="tui-review-info-title">Agent finding</span>
+        <CommentMarkdown>{body}</CommentMarkdown>
+      </div>
+    </Popover>
   );
 }
 

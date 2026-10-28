@@ -411,6 +411,17 @@ export function UndoGlyph() {
   );
 }
 
+/** More about this (lucide `info`, ISC licensed). */
+export function InfoGlyph() {
+  return (
+    <svg {...RECORD_ICON} width={13} height={13}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
 /** A done mark (lucide `check`, ISC licensed). */
 export function CheckGlyph() {
   return (

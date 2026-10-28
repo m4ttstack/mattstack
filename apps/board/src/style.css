@@ -6831,3 +6831,41 @@ a.tui-id-card-ref:focus-visible {
   line-height: 1.55;
   color: var(--text-1);
 }
+
+/* The info mark beside a code file's path, and the agent's finding it
+   opens on hover. */
+.tui-review-info {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-3);
+  cursor: help;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tui-review-info:hover,
+.tui-review-info[data-popup-open] {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--fill-accent) 10%, transparent);
+}
+.tui-review-info:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
+}
+.tui-review-info-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.tui-review-info-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
