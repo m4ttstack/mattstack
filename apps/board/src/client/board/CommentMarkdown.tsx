@@ -51,10 +51,6 @@ class HighlightBoundary extends Component<
   }
 }
 
-/** A fenced code block: a labelled block, highlighted once the sheet's
-    source brings the highlighter and the language is one it knows, and a
-    plain block otherwise. A `suggestion` fence is the forge's suggested
-    change, labelled so. */
 /** A fence's info string as people name the language; an unknown one shows
     as written. */
 const LANG_NAMES: Record<string, string> = {
@@ -95,9 +91,16 @@ const LANG_NAMES: Record<string, string> = {
 
 function langName(lang: string | undefined): string {
   if (!lang) return 'code';
-  return LANG_NAMES[lang.toLowerCase()] ?? lang;
+  // Own keys only: a fence tagged `__proto__` or `constructor` comes from
+  // MR content and must not reach Object.prototype.
+  const key = lang.toLowerCase();
+  return Object.hasOwn(LANG_NAMES, key) ? LANG_NAMES[key]! : lang;
 }
 
+/** A fenced code block: a labelled block, highlighted once the sheet's
+    source brings the highlighter and the language is one it knows, and a
+    plain block otherwise. A `suggestion` fence is the forge's suggested
+    change, labelled so. */
 function CodeFence({ lang, code }: { lang?: string; code: string }) {
   const Highlighted = useCodeBlock();
   const suggestion = lang !== undefined && /^suggestion\b/.test(lang);

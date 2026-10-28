@@ -270,6 +270,13 @@ test('a fenced block shows its language over the code, and plain without a highl
   expect(block.querySelector('.tui-md-code-hl')).toBeNull();
 });
 
+test('a fence named after an Object.prototype key shows that name, not the prototype', async () => {
+  const panel = await preview('```__proto__\nx\n```\n\n```constructor\ny\n```');
+  expect(
+    [...panel.querySelectorAll('.tui-md-code-head')].map(h => h.textContent)
+  ).toEqual(['__proto__', 'constructor']);
+});
+
 test('a suggestion fence reads as a suggested change', async () => {
   const panel = await preview(RICH);
   const block = panel.querySelector<HTMLElement>(
