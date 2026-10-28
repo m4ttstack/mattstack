@@ -266,6 +266,8 @@ const CODE_CSS = `${BOARD_CSS}
 }
 [data-code] {
   padding: 0;
+  scrollbar-gutter: auto;
+  overflow: visible;
 }
 [data-line] {
   padding-inline: 0;
