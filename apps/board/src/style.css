@@ -4884,8 +4884,19 @@ a.tui-id-card-ref:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Highlighted code lays out as a grid that floats can't flow into, so
+   its label sits in the corner and the code keeps a gutter clear of it. */
+.tui-md-code:has(.tui-md-code-hl) {
+  position: relative;
+}
+.tui-md-code:has(.tui-md-code-hl) .tui-md-code-head {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  margin: 1px 0 0;
+}
 .tui-md-code-hl {
-  padding: 0;
+  padding: 0 76px 0 0;
   background: none;
 }
 .tui-md-code[data-suggestion] {
