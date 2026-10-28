@@ -4973,7 +4973,7 @@ a.tui-id-card-ref:focus-visible {
 }
 /* Plain: a drafted finding's comment, a white field on the card's grey
    comment area so it reads as an input before the pointer arrives. Hover
-   glows and says it edits; writing draws the focus ring. The box keeps
+   shows the click-to-edit pill; writing draws the focus ring. The box keeps
    one geometry in every state. */
 .tui-cte[data-variant='plain'] {
   border: 1px solid var(--border);
@@ -4990,7 +4990,7 @@ a.tui-id-card-ref:focus-visible {
 }
 /* At rest the hint is a pill riding the field's top border, in the
    field's top padding, so it never covers the text; it eases in with the
-   glow. The section it sits in is its positioning box. */
+   pointer. The section it sits in is its positioning box. */
 .tui-cte[data-variant='plain']:not([data-editing]) + .tui-cte-hint {
   position: absolute;
   top: 6px;
@@ -5019,10 +5019,6 @@ a.tui-id-card-ref:focus-visible {
   flex-shrink: 0;
 }
 @media (hover: hover) {
-  .tui-cte[data-variant='plain']:not([data-editing]):hover {
-    box-shadow: 0 2px 16px
-      color-mix(in srgb, var(--fill-accent) 14%, transparent);
-  }
   .tui-cte[data-variant='plain']:not([data-editing]):hover + .tui-cte-hint {
     opacity: 1;
   }
