@@ -193,8 +193,8 @@ The review cluster: a shared engine plus the protocols around it.
 `review-posting` and `subagent-review-loop` are model-visible; `review`,
 `self-review`, and `receive-review` are hidden via `disable-model-invocation`
 and reached only as a pack's compiled verbs. The review skills plug into
-domain packs via the `review-criteria@1`, `reviewer-dispatch@1`, and
-`reply-rules@1` contracts, while `subagent-review-loop` is a standalone
+domain packs via the `review-criteria@1`, `reviewer-dispatch@1`,
+`rule-selector@1`, and `reply-rules@1` contracts, while `subagent-review-loop` is a standalone
 one-off with no props.
 
 - The review flow lives in five internal include bodies
