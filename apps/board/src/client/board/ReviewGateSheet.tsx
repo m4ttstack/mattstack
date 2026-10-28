@@ -628,6 +628,36 @@ function ReviewGateSheet({
     .filter(Boolean)
     .join(' · ');
 
+  const contextCard = (
+    <div className="tui-sheet-context-card">
+      <span className="tui-sheet-context-label">decision context</span>
+      <p className="tui-sheet-context-lead">
+        {readinessProse(review.readiness)}
+      </p>
+      <div className="tui-sheet-context-reasoning">
+        <Markdown unstyled linkTargetBlank>
+          {review.summary}
+        </Markdown>
+      </div>
+      {meta && <p className="tui-sheet-context-meta">{meta}</p>}
+      {SEVERITY_ORDER.some(s => review.findings[s] > 0) && (
+        <div className="tui-review-tier-pills">
+          {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(s => (
+            <span
+              className="tui-review-sev"
+              data-sev={s}
+              data-tier={SEVERITY_LABEL[s]}
+              key={s}
+            >
+              {SEVERITY_LABEL[s]}
+              <span className="tui-review-sev-count">{review.findings[s]}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <GateSheet
       variant="review"
@@ -804,6 +834,9 @@ function ReviewGateSheet({
               </div>
             </>
           )}
+          {mainTab === 'report' && (
+            <div className="tui-review-report-context">{contextCard}</div>
+          )}
           {mainTab === 'report' && (record || checks.length > 0) && (
             <dl className="tui-review-record">
               {strengths.length > 0 && (
@@ -897,39 +930,7 @@ function ReviewGateSheet({
             <>
               <div className="tui-sheet-rail-scroll">
                 {mr && <MrCard mr={mr} />}
-                <div className="tui-sheet-context-card">
-                  <span className="tui-sheet-context-label">
-                    decision context
-                  </span>
-                  <p className="tui-sheet-context-lead">
-                    {readinessProse(review.readiness)}
-                  </p>
-                  <div className="tui-sheet-context-reasoning">
-                    <Markdown unstyled linkTargetBlank>
-                      {review.summary}
-                    </Markdown>
-                  </div>
-                  {meta && <p className="tui-sheet-context-meta">{meta}</p>}
-                  {SEVERITY_ORDER.some(s => review.findings[s] > 0) && (
-                    <div className="tui-review-tier-pills">
-                      {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(
-                        s => (
-                          <span
-                            className="tui-review-sev"
-                            data-sev={s}
-                            data-tier={SEVERITY_LABEL[s]}
-                            key={s}
-                          >
-                            {SEVERITY_LABEL[s]}
-                            <span className="tui-review-sev-count">
-                              {review.findings[s]}
-                            </span>
-                          </span>
-                        )
-                      )}
-                    </div>
-                  )}
-                </div>
+                {contextCard}
 
                 {checks.length > 0 && <ChecksCard checks={checks} />}
               </div>
