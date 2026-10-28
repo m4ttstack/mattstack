@@ -126,7 +126,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
                     <Message key={i} {...msg} />
                   ))}
                   {p.silence && (
-                    <p className="tui-reply-silence">{p.silence}</p>
+                    <p className="tui-reply-msg tui-reply-silence">{p.silence}</p>
                   )}
                   {p.check && <AgentCheck {...p.check} />}
                 </section>

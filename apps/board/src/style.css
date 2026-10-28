@@ -4522,9 +4522,10 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-1);
 }
 .tui-reply-silence {
-  margin: -8px 0 0;
-  font-size: 13px;
-  color: var(--text-3);
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-warn);
 }
 /* The agent's check is a kit button; a click opens what it found. */
 .tui-reply-check {
