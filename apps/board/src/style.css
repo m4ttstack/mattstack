@@ -4555,6 +4555,23 @@ a.tui-id-card-ref:focus-visible {
   box-shadow: inset 0 3px 3px -3px color-mix(in srgb, black 18%, transparent);
   transition: background-color 200ms ease;
 }
+/* While writing, the helper line shares the tab's row: the line takes the
+   left and the tab keeps the right, so neither pushes the other down. */
+.tui-cte-wrap:has(> .tui-cte-footer) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte {
+  flex: 0 0 100%;
+}
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte[data-editing] ~ .tui-cte-hint {
+  flex: 1;
+  order: 1;
+}
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte-footer {
+  order: 2;
+}
 /* Ticked, the tab washes blue: this thread resolves when the review posts. */
 .tui-cte-footer:has(.tui-gate-choice-input:checked) {
   background: color-mix(in srgb, var(--fill-accent) 13%, var(--card));
