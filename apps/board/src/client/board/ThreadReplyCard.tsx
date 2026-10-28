@@ -203,7 +203,7 @@ function AgentCheck({ note, settled }: { note: string; settled: boolean }) {
     >
       <Button
         type="button"
-        variant="outline"
+        variant="filled"
         intent={settled ? 'ok' : 'warn'}
         size="sm"
         aria-expanded={open}
