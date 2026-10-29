@@ -139,11 +139,15 @@ function nudgeTargets(
 
 /** Reviewers to ask through their latch thread: an armed latch on the MR
     from someone the switchboard has said nothing about. A reviewer it has
-    heard from is either a switchboard ask already or mid-review. */
+    heard from is either a switchboard ask already or mid-review, unless
+    that report is an error: then the switchboard offers nothing and the
+    latch is the only way left to ask. */
 function latchTargets(mrx: BoardMRWithReview): ReviewerLatch[] {
   if (askOutstanding(mrx)) return [];
   const known = new Set(
-    (mrx.peerReviews ?? []).map(p => p.reviewer.toLowerCase())
+    (mrx.peerReviews ?? [])
+      .filter(p => p.status !== 'error')
+      .map(p => p.reviewer.toLowerCase())
   );
   return (mrx.reviewerLatches ?? []).filter(
     l => !known.has(l.reviewer.toLowerCase())
