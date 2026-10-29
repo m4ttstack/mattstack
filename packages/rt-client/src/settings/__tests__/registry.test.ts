@@ -418,7 +418,7 @@ describe("settings/registry", () => {
         "rt.notify.sounds",
         "review.ruleSelector",
       ];
-      expect(suiteKeys).toHaveLength(102);
+      expect(suiteKeys).toHaveLength(101);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

@@ -74,6 +74,7 @@ const WS_QUESTION_RE = /^ Quick safety check:/;
 const WS_OPTION_RE = /^ (?<cursor>❯| ) (?<label>\S.*?)\s*$/;
 const WS_ACCEPT_RE = /^Yes, I trust this folder/;
 const WS_WINDOW_CAP = 24;
+const RULE_RE = /^─{8,}\s*$/;
 
 // Terminal cells, not code points or UTF-16 units: an emoji in the echoed
 // brief above the dialog is two cells wide despite being one code point, and

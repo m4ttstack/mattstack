@@ -2,27 +2,27 @@
 name: "writing-style-conversational"
 description: "Use only when the mattstack writing-style lookup names mattstack:writing-style-conversational, or falls back to it because the lookup failed or the skill it named will not load. The voice for review comments, replies, PR descriptions and commit messages posted under the operator's name: short, friendly sentences in sentence case, like talking to a teammate."
 metadata:
-  compiled: "mattstack@0.32.32"
+  compiled: "mattstack@0.32.33"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `mattstack@0.32.32:writing-style-conversational`, use it; otherwise call `skills_resolve {id: "mattstack@0.32.32:writing-style-conversational"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `mattstack@0.32.33:writing-style-conversational`, use it; otherwise call `skills_resolve {id: "mattstack@0.32.33:writing-style-conversational"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: block:writing-style-conversational source=mattstack:writing-style-conversational version=0.32.32 path=attachments/writing-style/writing-style-conversational/index.block.md lines=7-12 -->
+<!-- part: block:writing-style-conversational source=mattstack:writing-style-conversational version=0.32.33 path=attachments/writing-style/writing-style-conversational/index.block.md lines=7-12 -->
 # Conversational
 
 Short, friendly, and plain, like talking to a teammate across a desk. Load
 this before the first draft and write in it from the first word.
 
-<!-- part: block:writing-style-floor source=mattstack:writing-style-floor version=0.32.32 path=attachments/writing-style-floor/index.block.md lines=6-10 -->
+<!-- part: block:writing-style-floor source=mattstack:writing-style-floor version=0.32.33 path=attachments/writing-style-floor/index.block.md lines=6-10 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
 review summary, replies on their own PR, PR descriptions, commit messages.
 The preset sets the voice; these set the floor.
 
-<!-- part: block:writing-style-floor/never source=mattstack:writing-style-floor version=0.32.32 path=attachments/writing-style-floor/never.block.md lines=5-20 -->
+<!-- part: block:writing-style-floor/never source=mattstack:writing-style-floor version=0.32.33 path=attachments/writing-style-floor/never.block.md lines=5-20 -->
 ### Never
 
 - **Em or en dashes.** Rephrase, or use parentheses, a colon, or an ellipsis
@@ -40,7 +40,7 @@ The preset sets the voice; these set the floor.
   noticed:", "Took a look", "I just wanted to". Start with the claim.
 - **Invented precision.** "most" beats "~96%" unless the number was measured.
 
-<!-- part: block:writing-style-floor/always source=mattstack:writing-style-floor version=0.32.32 path=attachments/writing-style-floor/always.block.md lines=5-35 -->
+<!-- part: block:writing-style-floor/always source=mattstack:writing-style-floor version=0.32.33 path=attachments/writing-style-floor/always.block.md lines=5-35 -->
 ### Always
 
 - **Compress before posting.** The first draft is a rough cut. Before posting
@@ -73,7 +73,7 @@ The preset sets the voice; these set the floor.
   notes. It never recaps a finding, lists strengths, or reports what you ran.
   A finding with no line to anchor to is its own top-level comment.
 
-<!-- part: block:writing-style-conversational/voice source=mattstack:writing-style-conversational version=0.32.32 path=attachments/writing-style/writing-style-conversational/voice.block.md lines=5-17 -->
+<!-- part: block:writing-style-conversational/voice source=mattstack:writing-style-conversational version=0.32.33 path=attachments/writing-style/writing-style-conversational/voice.block.md lines=5-17 -->
 ## Voice
 
 - **Sentence case** everywhere, with contractions.
@@ -88,7 +88,7 @@ The preset sets the voice; these set the floor.
 Compression target: would this read naturally if you said it out loud to the
 author? Cut anything you would not say.
 
-<!-- part: block:writing-style-conversational/review-findings source=mattstack:writing-style-conversational version=0.32.32 path=attachments/writing-style/writing-style-conversational/review-findings.block.md lines=5-24 -->
+<!-- part: block:writing-style-conversational/review-findings source=mattstack:writing-style-conversational version=0.32.33 path=attachments/writing-style/writing-style-conversational/review-findings.block.md lines=5-24 -->
 ## Review findings
 
 Open with a bolded Conventional Comments label, never a code span
@@ -110,13 +110,13 @@ const pageCount = Math.ceil(total / pageSize);
 A process ask is one line that leads with the approval if there is one:
 `**suggestion:** Looks good! Could you add a test for the empty-list case?`
 
-<!-- part: block:writing-style-conversational/review-summary source=mattstack:writing-style-conversational version=0.32.32 path=attachments/writing-style/writing-style-conversational/review-summary.block.md lines=5-8 -->
+<!-- part: block:writing-style-conversational/review-summary source=mattstack:writing-style-conversational version=0.32.33 path=attachments/writing-style/writing-style-conversational/review-summary.block.md lines=5-8 -->
 ## Review summary
 
 One line: `Looks good to me, no blockers. Left a few comments inline.` Only a
 blocker joins it.
 
-<!-- part: block:writing-style-conversational/replies-on-your-own-pr source=mattstack:writing-style-conversational version=0.32.32 path=attachments/writing-style/writing-style-conversational/replies-on-your-own-pr.block.md lines=6-14 -->
+<!-- part: block:writing-style-conversational/replies-on-your-own-pr source=mattstack:writing-style-conversational version=0.32.33 path=attachments/writing-style/writing-style-conversational/replies-on-your-own-pr.block.md lines=6-14 -->
 ## Replies on your own PR
 
 One to three short sentences. No sign-offs; thank someone only if they
@@ -127,12 +127,12 @@ matters.
 - `Good call, switched to Record<Status, string>.`
 - `I'd skip the lock for now. The job runs on one worker, and a lock adds a round trip per write.`
 
-<!-- part: block:writing-style-conversational/pr-descriptions source=mattstack:writing-style-conversational version=0.32.32 path=attachments/writing-style/writing-style-conversational/pr-descriptions.block.md lines=6-8 -->
+<!-- part: block:writing-style-conversational/pr-descriptions source=mattstack:writing-style-conversational version=0.32.33 path=attachments/writing-style/writing-style-conversational/pr-descriptions.block.md lines=6-8 -->
 ## PR descriptions
 
 Read `@writing-style-conversational/pr-description.md` before drafting.
 
-<!-- part: block:writing-style-conversational/commit-messages source=mattstack:writing-style-conversational version=0.32.32 path=attachments/writing-style/writing-style-conversational/commit-messages.block.md lines=5-9 -->
+<!-- part: block:writing-style-conversational/commit-messages source=mattstack:writing-style-conversational version=0.32.33 path=attachments/writing-style/writing-style-conversational/commit-messages.block.md lines=5-9 -->
 ## Commit messages
 
 - Subject: imperative, sentence case, under 72 characters, with the ticket

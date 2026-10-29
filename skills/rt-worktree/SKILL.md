@@ -209,9 +209,8 @@ whether Claude Code's `EnterWorktree` is routed through rt. When it is,
 into the tree, promptless; non-rt repos fall back to stock
 `.claude/worktrees`. When the hook is not installed, or a path is needed
 before entering, provision explicitly and enter the result's `path` by path
-mode, which prompts; with `panes.relocationAutoAccept` on, rt answers that
-prompt itself for a path in its registry once the mattstack plugin's hook
-has announced it. When name mode lands in a stock
+mode; the mattstack plugin lets that through without a prompt for a tree
+rt's registry holds. When name mode lands in a stock
 `.claude/worktrees` tree, the session is inside it: leave it with
 `ExitWorktree {action: keep}`, then provision and enter by path.
 
