@@ -4697,14 +4697,13 @@ a.tui-id-card-ref:focus-visible {
   background: var(--card);
   border-radius: 0 0 7px 7px;
 }
-/* Your reply sits on a washed band across the card's foot, as GitLab's
+/* Your reply sits on a shaded band across the card's foot, as GitLab's
    reply does; the field on it stays a plain card. */
 .tui-reply-band {
   margin: 0 -14px -14px;
   padding: 12px 14px 14px;
-  border-top: 1px solid var(--border-soft);
   border-radius: 0 0 7px 7px;
-  background: color-mix(in srgb, var(--fill-accent) 5%, var(--card));
+  background: var(--card-well);
 }
 /* The elbow reaches from the comment above, past the band's top edge. */
 .tui-reply-band > .tui-plan-answer {
