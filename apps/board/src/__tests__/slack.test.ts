@@ -567,6 +567,35 @@ describe('refreshOwnerPosts', () => {
     });
     expect(api.calls).toEqual([]);
   });
+
+  test('records who left each reaction, the token user as you', async () => {
+    api = mockSlackApi({
+      'acme-channel': [msg('100.5', `can someone look at ${URL_A}`)],
+    });
+    await findOwnerPost('tok', 'acme-channel', URL_A, 1000, db);
+    api.restore();
+    api = mockSlackApi({
+      'acme-channel': [
+        {
+          ...msg('100.5', `can someone look at ${URL_A}`),
+          reactions: [
+            { name: 'white_check_mark', users: ['U_SELF', 'U_KIM'] },
+            { name: 'eyes', users: ['U_KIM'] },
+          ],
+        } as SlackMessage,
+      ],
+    });
+    await refreshOwnerPosts('tok', [URL_A], {
+      retryAfter: 2000,
+      now: 3000,
+      gapMs: 0,
+      db,
+    });
+    expect(readOwnerPosts(URL_A, db)['acme-channel']?.reactedBy).toEqual({
+      white_check_mark: { you: true, others: ['U_KIM'] },
+      eyes: { you: false, others: ['U_KIM'] },
+    });
+  });
 });
 
 describe('owner posts left', () => {

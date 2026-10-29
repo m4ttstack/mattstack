@@ -331,7 +331,11 @@ import {
   ownerSteps,
   ringText,
 } from './run-owner.ts';
-import { canonicalReactions } from './slack-emoji.ts';
+import {
+  canonicalReactedBy,
+  canonicalReactions,
+  type ReactedBy,
+} from './slack-emoji.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -1116,6 +1120,24 @@ function canonical(reactions: string[]): string[] {
   );
 }
 
+function canonicalMarks<
+  T extends { reactions?: string[]; reactedBy?: ReactedBy },
+>(post: T): T {
+  return {
+    ...post,
+    ...(post.reactions ? { reactions: canonical(post.reactions) } : {}),
+    ...(post.reactedBy
+      ? {
+          reactedBy: canonicalReactedBy(
+            post.reactedBy,
+            config.slack.emoji,
+            config.slack.emojiAliases
+          ),
+        }
+      : {}),
+  };
+}
+
 async function withRowState(mrs: BoardMR[]) {
   const reconciler = await fetchReconcilerView();
   const doctorTabsMemo = new Map<string, string[]>();
@@ -1163,15 +1185,9 @@ async function withRowState(mrs: BoardMR[]) {
   const rows = attachActiveRuns(attachHandoffs(joined, memory), runOwners).map(
     mr => ({
       ...mr,
-      ...(mr.slack
-        ? { slack: { ...mr.slack, reactions: canonical(mr.slack.reactions) } }
-        : {}),
+      ...(mr.slack ? { slack: canonicalMarks(mr.slack) } : {}),
       ...(mr.ownerPosts
-        ? {
-            ownerPosts: mr.ownerPosts.map(p =>
-              p.reactions ? { ...p, reactions: canonical(p.reactions) } : p
-            ),
-          }
+        ? { ownerPosts: mr.ownerPosts.map(canonicalMarks) }
         : {}),
       gates: joinGateExecutors(mr.gates, reconciler.executors),
       doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
@@ -4462,7 +4478,10 @@ const httpServer = Bun.serve({
           return new Response(
             JSON.stringify({
               ok: true,
-              reactions: canonical(ref.reactions ?? []),
+              ...canonicalMarks({
+                reactions: ref.reactions ?? [],
+                reactedBy: ref.reactedBy,
+              }),
             }),
             {
               headers: { 'content-type': 'application/json' },

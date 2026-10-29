@@ -5,6 +5,7 @@ import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
+import type { ReactedBy } from '../slack-emoji.ts';
 import type { SlackTemplates } from '../template.ts';
 import type { Handoff, HandoffKind } from '../triage/memory.ts';
 import type { TurnConfig } from '../turn.ts';
@@ -116,6 +117,7 @@ export interface SlackInfo {
   status: 'found' | 'notfound';
   permalink?: string;
   reactions: string[];
+  reactedBy?: ReactedBy;
   posted: boolean;
   /** When the board last looked for the thread (ms). */
   checkedAt?: number;
@@ -198,6 +200,7 @@ export type BoardMRWithReview = BoardMR & {
     permalink: string;
     postedAt: number;
     reactions?: string[];
+    reactedBy?: ReactedBy;
   }>;
   /** The other teams that own a Code Owner section on this MR, on the seat's
       own MRs once the server has read its approval rules. */

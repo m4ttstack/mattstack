@@ -1,3 +1,4 @@
+import type { ReactedBy } from '../../slack-emoji.ts';
 import type { BoardMRWithReview } from '../types.ts';
 
 /** One place an MR was posted in Slack. */
@@ -9,6 +10,7 @@ export interface SlackPostLink {
   team?: true;
   postedAt?: number;
   reactions?: string[];
+  reactedBy?: ReactedBy;
 }
 
 /** Slack permalinks end `p` + the message ts without its dot. */
@@ -32,6 +34,7 @@ export function slackPosts(
       team: true,
       ...(postedAt ? { postedAt } : {}),
       reactions: mr.slack!.reactions,
+      ...(mr.slack!.reactedBy ? { reactedBy: mr.slack!.reactedBy } : {}),
     });
   }
   for (const post of mr.ownerPosts ?? []) {
@@ -41,6 +44,7 @@ export function slackPosts(
       permalink: post.permalink,
       postedAt: post.postedAt,
       ...(post.reactions ? { reactions: post.reactions } : {}),
+      ...(post.reactedBy ? { reactedBy: post.reactedBy } : {}),
     });
   }
   return out;
