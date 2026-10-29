@@ -26,7 +26,7 @@ import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
-import { repoBasename, trackedRepos } from "./repos.ts";
+import { repoBasename, reposCloneSatisfied, trackedRepos } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
 
 // ─── skills.materialize ──────────────────────────────────────────────────────
@@ -226,7 +226,9 @@ async function boardCwdsRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
   }
 }
 
+/** A placement `repos.clone` has yet to land leaves the index on the old path, so nothing here can be trusted until it runs. */
 function boardCwdsSatisfied(ctx: ApplyContext): boolean {
+  if (!reposCloneSatisfied(ctx)) return false;
   const { identity, path } = boardTarget(ctx);
   if (identity === null) return true;
   if (path === null) return false;

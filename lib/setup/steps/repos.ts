@@ -350,7 +350,7 @@ export function trackedRepos(ctx: ApplyContext): { found: { identity: string; na
 }
 
 /** Every repo is registered, and none has an answer recorded since that points somewhere else. */
-function reposCloneSatisfied(ctx: ApplyContext): boolean {
+export function reposCloneSatisfied(ctx: ApplyContext): boolean {
   const { found, missing } = trackedRepos(ctx);
   if (missing.length > 0) return false;
   const { placements } = readPlacements(ctx.p);

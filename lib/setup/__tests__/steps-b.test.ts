@@ -17,6 +17,7 @@ import { runApplyWith, type ApplyContext, type StepDef, type StepOutcome } from 
 import type { ApplyEvent } from "../contract.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { STEPS } from "../steps/index.ts";
+import { writePlacement } from "../repo-placement.ts";
 import type { SetupIntent } from "../intent.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
@@ -1235,6 +1236,8 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(getSetting("board.cwds").value).toEqual(all(widgets));
       expect(readSetupState(p).boardCwdsWritten).toEqual(all(widgets));
       expect(readSetupState(p).boardRestartPending).toBe(true);
+      expect(await boardCwdsStep.satisfied!(ctx)).toBe(false);
+      await register(GADGETS, join(home, "code", "gadgets"));
       expect(await boardCwdsStep.satisfied!(ctx)).toBe(true);
     });
 
@@ -1325,6 +1328,19 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(fakeProbes({ home }), { snapshot: boardSnapshot });
       await runApplyWith(inertSteps(ran), ctx, { only: "board.restart" });
       expect(ran).toEqual(["board.restart"]);
+    });
+
+    test("moving the board repo after Install re-places it, repoints and restarts", async () => {
+      await register(GADGETS, join(home, "code", "gadgets"));
+      const old = await register(WIDGETS, join(home, "code", "widgets"));
+      const p = fakeProbes({ home });
+      setSetting("board.cwds", all(old), "machine");
+      updateSetupState(p, (s) => ({ ...s, boardCwdsWritten: all(old) }));
+      writePlacement(p, WIDGETS, { mode: "checkout", path: join(home, "work", "widgets") });
+      const ran: string[] = [];
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+      await runApplyWith(inertSteps(ran), ctx, { only: "board.restart" });
+      expect(ran).toEqual(["repos.clone", "board.cwds", "board.restart"]);
     });
 
     test("the plan event names the board's repo", async () => {

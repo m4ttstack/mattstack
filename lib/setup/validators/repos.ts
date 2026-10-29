@@ -61,7 +61,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
   const placedParents = [...new Set(Object.values(resolved).filter((pl) => pl.mode === "checkout").map((pl) => dirname(pl.path)))];
   const installed = p.exists(homeGitDir(p.home));
   const boardRepo = snapshot.boardRepo ?? null;
-  // The board's repo also repoints the board and restarts it; board.restart runs repos.clone and board.cwds first.
+  // The board's repo also repoints the board and restarts it: an --only board.restart run lands the placement through repos.clone, then board.cwds, while either is unsatisfied.
   const thenFor = (identity: string) => (installed ? ["setup", "apply", "--only", identity === boardRepo ? "board.restart" : "repos.clone"] : null);
   const taken = (identity: string) => takenFor(resolved, tracked, identity);
 
