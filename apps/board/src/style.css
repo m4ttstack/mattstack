@@ -5359,9 +5359,7 @@ a.tui-id-card-ref:focus-visible {
   line-height: 1;
   color: var(--text-accent);
   background: color-mix(in srgb, var(--fill-accent) 12%, var(--card));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--fill-accent) 14%, transparent),
-    0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fill-accent) 14%, transparent);
   opacity: 0;
   transform: translateY(3px) scale(0.94);
   pointer-events: none;
@@ -5406,9 +5404,7 @@ a.tui-id-card-ref:focus-visible {
 .tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint[data-flash] {
   color: var(--text-ok);
   background: color-mix(in srgb, var(--fill-ok) 12%, var(--card));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--fill-ok) 18%, transparent),
-    0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fill-ok) 18%, transparent);
 }
 @media (hover: hover) {
   .tui-cte[data-variant='filled']:not([data-editing]):hover {
