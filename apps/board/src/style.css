@@ -7376,7 +7376,7 @@ a.tui-id-card-ref:focus-visible {
 .tui-comment-avatar svg {
   width: 100%;
   height: 100%;
-  transform: translateY(14%) scale(1.2);
+  transform: translateY(12%) scale(0.92);
 }
 .tui-plan-fix {
   display: flex;
