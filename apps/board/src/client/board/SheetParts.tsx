@@ -281,11 +281,14 @@ function SheetLost({
     column says, with a one-line account of what this round holds. */
 function RoundHeading({
   round,
+  noun = 'Round',
   revise,
   summary,
   aside,
 }: {
   round?: number;
+  /** What the round is called ahead of its number. */
+  noun?: string;
   /** Re-adjudications past the round, shown after it. */
   revise?: number;
   summary?: string;
@@ -293,7 +296,7 @@ function RoundHeading({
   aside?: ReactNode;
 }) {
   const text = [
-    round !== undefined ? `Round ${round}` : undefined,
+    round !== undefined ? `${noun} ${round}` : undefined,
     revise !== undefined
       ? `${round !== undefined ? 'revise' : 'Revise'} ${revise}`
       : undefined,

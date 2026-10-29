@@ -678,6 +678,7 @@ function ReviewGateSheet({
           {review.round !== undefined && (
             <RoundHeading
               round={review.round}
+              noun="Review Round"
               aside={
                 review.round >= 2 && <ReviewTrack round={review.round} />
               }
