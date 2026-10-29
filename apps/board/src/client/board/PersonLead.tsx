@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
 import { MemberInvadr } from './MemberInvadr.tsx';
 
@@ -23,10 +24,17 @@ export function PersonTag({
 /** A comment's name line: the person's invader on a tile, then their name.
     Without an id it is the name alone. */
 export function CommentAuthor({ id, name }: { id?: string; name: string }) {
+  const tile = useRef<HTMLSpanElement>(null);
+  // The tile's wash takes the invader's own colour, which invadrs settles
+  // inside the svg (a roster look or its hashed pick), so it is read back.
+  useLayoutEffect(() => {
+    const fill = tile.current?.querySelector('svg')?.getAttribute('fill');
+    if (fill) tile.current!.style.setProperty('--avatar-hue', fill);
+  }, [id]);
   return (
     <span className="tui-comment-author">
       {id && (
-        <span className="tui-comment-avatar">
+        <span ref={tile} className="tui-comment-avatar">
           <MemberInvadr id={id} />
         </span>
       )}
