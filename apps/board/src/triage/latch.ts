@@ -1,6 +1,6 @@
 /**
- * The latch pass: read every MR whose review is done or whose latch row is
- * live, and act on the latch.
+ * The latch pass: read every MR whose review is done, whose commented review
+ * was pruned, or whose latch row is not spent, and act on the latch.
  *
  * Branch order is the design's safety property, not a style choice. The spent
  * check is unconditional and runs first, so no board-made resolve can ever be
@@ -179,6 +179,58 @@ const IN_FLIGHT: ReadonlySet<LatchPhase> = new Set([
   'running',
   'error',
 ]);
+
+export interface LatchScope {
+  rows: Pick<LatchRow, 'mrUrl' | 'phase'>[];
+  states: Map<string, ReviewState>;
+  pruned: Map<string, ReviewState>;
+}
+
+/** The MRs the latch pass reads, once each: every MR with a done review
+    state (approve ones too, so a half-finished spend is repaired), a
+    commented tombstone (the pass decides between resurrecting and dropping),
+    or a latch row that is not spent. A live row is owed an answer, a launch
+    or a landing whatever its review lane now reads: an armed row's request
+    can arrive while the lane reads error or reviewing. */
+export function latchInScope<T extends { webUrl?: string | null }>(
+  mrs: T[],
+  scope: LatchScope
+): T[] {
+  const owed = new Set(
+    scope.rows.filter(r => r.phase !== 'spent').map(r => r.mrUrl)
+  );
+  const seen = new Set<string>();
+  return mrs.filter(m => {
+    const url = m.webUrl;
+    if (!url || seen.has(url)) return false;
+    const tomb = scope.pruned.get(url);
+    const hit =
+      owed.has(url) ||
+      scope.states.get(url)?.status === 'done' ||
+      (tomb?.status === 'done' && tomb.outcome === 'comment');
+    if (hit) seen.add(url);
+    return hit;
+  });
+}
+
+function inFlight(review: ReviewState | undefined): review is ReviewState {
+  return review?.status === 'queued' || review?.status === 'reviewing';
+}
+
+/** A run in flight is the follow-up only when it started at or after the
+    stamp: a queued row's request, or an error row's last launch. A run that
+    began before the request is an earlier review that cannot have seen the
+    author's fixes. An error row with no stamp never launched for this
+    request, so any run in flight is the reviewer's relaunch. */
+function followUpInFlight(
+  review: ReviewState | undefined,
+  phase: LatchPhase,
+  stamp: number | null
+): review is ReviewState {
+  if (!inFlight(review)) return false;
+  if (stamp === null) return phase === 'error';
+  return runStamp(review) >= stamp;
+}
 
 interface Rows {
   read(mrUrl: string): LatchRow | null;
@@ -507,12 +559,17 @@ function trackCanon(
   if (stored && stored.phase !== 'spent' && canon.kind === 'spent') {
     return stored;
   }
+  // An acknowledged note with no row (a lost db) takes the post's time as its
+  // stamp: the commented review that armed the latch began before the post,
+  // so it can never land as the follow-up, and a later run still can.
+  const posted = Date.parse(canon.createdAt);
+  const acked = IN_FLIGHT.has(canon.kind) && Number.isFinite(posted);
   const fresh: Omit<LatchRow, 'mrUrl' | 'updatedAt'> = {
     discussionId: canon.discussionId,
     rootNoteId: canon.rootNoteId,
     phase: canon.kind,
     wait: null,
-    launchAt: null,
+    launchAt: acked ? posted : null,
     failures: 0,
     stuck: false,
     variant: null,
@@ -670,7 +727,7 @@ async function queuedLatch(t: Tick): Promise<void> {
     const moved = rows.cas(
       mr.mrUrl,
       ['queued'],
-      { phase: 'armed', wait: null },
+      { phase: 'armed', wait: null, launchAt: null },
       now,
       guard
     );
@@ -681,20 +738,10 @@ async function queuedLatch(t: Tick): Promise<void> {
     return;
   }
   // Any review that starts while the request waits is the follow-up, even one
-  // launched by hand: one ask never gets two reviews.
-  if (review && (review.status === 'queued' || review.status === 'reviewing')) {
-    const moved = rows.cas(
-      mr.mrUrl,
-      ['queued'],
-      { phase: 'running', launchAt: runStamp(review), wait: null },
-      now,
-      guard
-    );
-    if (moved) {
-      await show(t, 'running', { state: 'running' }, threadClosed(t));
-      audit(t, 'dispatched', { outcome: 'review already running' });
-    }
-    return;
+  // launched by hand: one ask never gets two reviews. One already running
+  // when the request came in is not; the request waits it out.
+  if (followUpInFlight(review, 'queued', t.row.launchAt)) {
+    return adoptRun(t, 'queued', review);
   }
   const m = memoryFor(t);
   const { decision, wait } = decide(t, m);
@@ -702,12 +749,18 @@ async function queuedLatch(t: Tick): Promise<void> {
     auditDecision(t, decision, m);
     return dispatch(t, 'queued', m);
   }
+  return waitQueued(t, wait);
+}
+
+async function waitQueued(t: Tick, wait: WaitReason): Promise<void> {
   const variant: BannerVariant = { state: 'queued', wait };
   if (variantKey(variant) === t.row.variant) {
     t.result.skipped++;
     return;
   }
-  const moved = rows.cas(mr.mrUrl, ['queued'], { wait }, now, guard);
+  const moved = t.rows.cas(t.mr.mrUrl, ['queued'], { wait }, t.now, {
+    discussionId: t.canon.discussionId,
+  });
   if (!moved) {
     t.result.skipped++;
     return;
@@ -715,6 +768,30 @@ async function queuedLatch(t: Tick): Promise<void> {
   await show(t, 'queued', variant, 'keep');
   audit(t, 'queued', { reason: wait });
   t.result.queued++;
+}
+
+/** A run in flight that is this request's follow-up becomes the latch's
+    launch: no second review starts and nothing is charged. */
+async function adoptRun(
+  t: Tick,
+  from: 'armed' | 'queued' | 'error',
+  review: ReviewState
+): Promise<void> {
+  const moved = t.rows.cas(
+    t.mr.mrUrl,
+    [from],
+    { phase: 'running', launchAt: runStamp(review), wait: null, stuck: false },
+    t.now,
+    { discussionId: t.canon.discussionId }
+  );
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  await show(t, 'running', { state: 'running' }, threadClosed(t));
+  if (from === 'armed') await supersede(t.deps, t.mr, t.canon, t.carriers);
+  if (from === 'error') audit(t, 'recovered');
+  else audit(t, 'dispatched', { outcome: 'review already running' });
 }
 
 /** The row moved to armed but the note still shows a later phase: either the
@@ -765,6 +842,16 @@ async function dispatch(
   m: MrMemory
 ): Promise<void> {
   const { deps, rows, mr, canon, now } = t;
+  // A review the board launched since this tick's snapshot is live in a pane;
+  // launching now would resume a second prompt into it.
+  const lane = deps.readReviewStates().get(mr.mrUrl);
+  if (inFlight(lane)) {
+    const stamp = from === 'armed' ? now : t.row.launchAt;
+    if (followUpInFlight(lane, from, stamp)) return adoptRun(t, from, lane);
+    if (from === 'armed') return queue(t, 'review-in-flight');
+    if (from === 'queued') return waitQueued(t, 'review-in-flight');
+    return waitError(t, 'review-in-flight');
+  }
   const launch = await deps.launchReReview(mr.mrUrl, mr.iid);
   if (launch.kind === 'error') return fail(t, launch.message);
 
@@ -796,35 +883,23 @@ async function dispatch(
     reviewing, however long a post gate parks it; only the lane reading
     error (the closed-pane reconciler's verdict included) is a failure. */
 async function runningLatch(t: Tick): Promise<void> {
-  if (t.review?.status !== 'error') {
-    t.result.skipped++;
+  if (t.review?.status === 'error') return fail(t, t.review.message);
+  // The row moves before the note, so a rewrite that threw leaves the note
+  // showing the request for the whole run unless a later pass shows running.
+  if (
+    t.row.variant !== variantKey({ state: 'running' }) &&
+    (await show(t, 'running', { state: 'running' }, threadClosed(t)))
+  ) {
+    audit(t, 'repaired');
+    t.result.repaired++;
     return;
   }
-  return fail(t, t.review.message);
+  t.result.skipped++;
 }
 
 async function erroredLatch(t: Tick): Promise<void> {
-  const { rows, mr, canon, now, review } = t;
-  if (review && (review.status === 'queued' || review.status === 'reviewing')) {
-    const moved = rows.cas(
-      mr.mrUrl,
-      ['error'],
-      {
-        phase: 'running',
-        launchAt: runStamp(review),
-        wait: null,
-        stuck: false,
-      },
-      now,
-      { discussionId: canon.discussionId }
-    );
-    if (moved) {
-      await show(t, 'running', { state: 'running' }, threadClosed(t));
-      audit(t, 'recovered');
-    } else {
-      t.result.skipped++;
-    }
-    return;
+  if (followUpInFlight(t.review, 'error', t.row.launchAt)) {
+    return adoptRun(t, 'error', t.review);
   }
   if (t.row.stuck) {
     // The stuck transition notifies before its GitLab writes, so a write cut
@@ -847,13 +922,17 @@ async function erroredLatch(t: Tick): Promise<void> {
     auditDecision(t, decision, m);
     return dispatch(t, 'error', m);
   }
+  return waitError(t, wait);
+}
+
+async function waitError(t: Tick, wait: WaitReason): Promise<void> {
   const variant = retryingVariant(wait);
   if (variantKey(variant) === t.row.variant) {
     t.result.skipped++;
     return;
   }
-  const moved = rows.cas(mr.mrUrl, ['error'], { wait }, now, {
-    discussionId: canon.discussionId,
+  const moved = t.rows.cas(t.mr.mrUrl, ['error'], { wait }, t.now, {
+    discussionId: t.canon.discussionId,
   });
   if (!moved) {
     t.result.skipped++;
@@ -910,8 +989,9 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
     t.result.errored++;
     return;
   }
-  // Stuck needs a person, and a stuck row never transitions again, so the
-  // notification goes before any GitLab write that could throw.
+  // Stuck needs a person, and the stuck repair redoes the banner and reply
+  // but never re-notifies, so the notification goes before any GitLab write
+  // that could throw.
   await t.notifyStuck(
     `Follow-up review stuck on !${mr.iid}`,
     `It failed ${LATCH_MAX_FAILURES} times. Relaunch it from the board.`,
@@ -930,13 +1010,13 @@ async function showStuck(t: Tick): Promise<boolean> {
   if (!t.rows.read(t.mr.mrUrl)?.stuck) return false;
   const variant: BannerVariant = { state: 'error-stuck' };
   if (!(await show(t, 'error', variant, threadClosed(t)))) return false;
-  await supersede(t.deps, t.mr, t.canon, t.carriers);
   await t.deps.gateway.createNote(
     t.mr.projectId,
     t.mr.iid,
     copyFor(variant).sentence,
     t.canon.discussionId
   );
+  await supersede(t.deps, t.mr, t.canon, t.carriers);
   return true;
 }
 
@@ -944,7 +1024,7 @@ async function queue(t: Tick, wait: WaitReason): Promise<void> {
   const moved = t.rows.cas(
     t.mr.mrUrl,
     ['armed'],
-    { phase: 'queued', wait },
+    { phase: 'queued', wait, launchAt: t.now },
     t.now,
     { discussionId: t.canon.discussionId }
   );

@@ -16,6 +16,7 @@ import { parseTriageBlock } from '../triage/config.ts';
 import {
   LATCH_MAX_FAILURES,
   LATCH_POST_GRACE_MS,
+  latchInScope,
   runLatchPass,
   runStamp,
   waitReasonOf,
@@ -978,7 +979,7 @@ describe('the queue', () => {
 
   test('a hand-launched review satisfies a queued request', async () => {
     const db = tempDb();
-    putLatchRow(queuedRow(), db);
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
     const reviewing: ReviewState = {
       ...commented,
       status: 'reviewing',
@@ -1000,9 +1001,172 @@ describe('the queue', () => {
     });
   });
 
+  // The run began before the author resolved, so it cannot have seen the
+  // fixes the request is about.
+  test('a review already running when the request came in is not adopted', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 3_000,
+    };
+    const { deps, launches, uploads, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).queued).toBe(1);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(uploads).toEqual(['latch-2317-queued-review-in-flight.gif']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+      launchAt: NOW - 2_000,
+    });
+  });
+
+  test('a queued row with no request stamp never adopts a run in flight', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: null }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+    });
+  });
+
+  test('a review the board launched since the snapshot is adopted, not launched again', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 500,
+    };
+    let reads = 0;
+    const { deps, launches, memory, noteBodies, audits } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? commented : reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 500,
+    });
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: 'dispatched',
+        outcome: 'review already running',
+      })
+    );
+  });
+
+  test('an armed request finding a run launched since the snapshot adopts it', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW - LATCH_POST_GRACE_MS }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW,
+    };
+    let reads = 0;
+    const { deps, launches, memory } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? commented : reviewing]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW,
+    });
+  });
+
+  test('a run that began before the request, found at launch time, keeps the request waiting', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 3_000,
+    };
+    let reads = 0;
+    const { deps, launches, uploads } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? commented : reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-queued-review-in-flight.gif']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+    });
+  });
+
+  test('a running row whose note never showed running is healed', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({ phase: 'running', launchAt: NOW - 1_000, variant: 'armed' }),
+      db
+    );
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, calls, launches, noteBodies, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).repaired).toBe(1);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      variant: 'running',
+    });
+    expect(audits.map(a => a.action)).toContain('repaired');
+
+    await runLatchPass(deps);
+    expect(calls).toHaveLength(2);
+  });
+
   test('stale note never re-requests a running latch', async () => {
     const db = tempDb();
-    putLatchRow(row({ phase: 'running', launchAt: NOW - 1_000 }), db);
+    putLatchRow(
+      row({ phase: 'running', launchAt: NOW - 1_000, variant: 'running' }),
+      db
+    );
     const { deps, calls, launches } = harness({
       db,
       detail: detail(
@@ -1017,7 +1181,10 @@ describe('the queue', () => {
 
   test('a running row whose lane is gone is skipped', async () => {
     const db = tempDb();
-    putLatchRow(row({ phase: 'running', launchAt: NOW - 1_000 }), db);
+    putLatchRow(
+      row({ phase: 'running', launchAt: NOW - 1_000, variant: 'running' }),
+      db
+    );
     const { deps, calls, launches } = harness({
       db,
       readReviewStates: () => new Map(),
@@ -1030,7 +1197,7 @@ describe('the queue', () => {
 
   test('author reopening a queued latch withdraws it', async () => {
     const db = tempDb();
-    putLatchRow(queuedRow(), db);
+    putLatchRow(queuedRow({ launchAt: NOW - 5_000 }), db);
     const { deps, calls, launches, noteBodies, audits } = harness({
       db,
       memory: cooling(),
@@ -1043,6 +1210,7 @@ describe('the queue', () => {
     expect(readLatchRow(MR, db)).toMatchObject({
       phase: 'armed',
       wait: null,
+      launchAt: null,
       variant: 'armed',
     });
     expect(audits.map(a => a.action)).toContain('withdrawn');
@@ -1280,6 +1448,7 @@ describe('the queue', () => {
     expect(readLatchRow(MR, db)).toMatchObject({
       phase: 'queued',
       wait: 'review-in-flight',
+      launchAt: NOW,
     });
   });
 
@@ -1732,6 +1901,88 @@ describe('error, retry and stuck', () => {
       failures: 3,
     });
   });
+
+  test('a run in flight that began before the last launch does not recover an error row', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 2 * 60 * 60_000,
+    };
+    const { deps, launches, calls } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'error', failures: 1 });
+  });
+
+  test('the stuck reply goes out before the extra copies are spent', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(
+        disc('d1', runningBody(), '2026-09-02T10:00:00Z', true),
+        disc('d2', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    const update = h.deps.gateway.updateNote;
+    h.deps.gateway.updateNote = async (p, i, id, body) => {
+      if (body.startsWith(SPENT)) throw new Error('gitlab 500');
+      return update(p, i, id, body);
+    };
+    expect((await runLatchPass(h.deps)).failed).toBe(1);
+    expect(h.replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(readLatchRow(MR, db)?.variant).toBe('error-stuck');
+  });
+});
+
+describe('a lost db mid follow-up', () => {
+  const POSTED = '2026-09-01T10:00:00Z';
+  const POSTED_MS = Date.parse(POSTED);
+
+  test('the commented review from before the post never lands as the follow-up', async () => {
+    const db = tempDb();
+    const earlier: ReviewState = {
+      ...commented,
+      runStartedAt: POSTED_MS - 60_000,
+      updatedAt: POSTED_MS - 1_000,
+    };
+    const { deps, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, earlier]]),
+      detail: detail(disc('d1', runningBody(), POSTED, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(0);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: POSTED_MS,
+    });
+  });
+
+  test('a follow-up that started after the post lands', async () => {
+    const db = tempDb();
+    const finished: ReviewState = {
+      ...commented,
+      runStartedAt: POSTED_MS + 60_000,
+      updatedAt: NOW - 60_000,
+    };
+    const { deps, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, finished]]),
+      detail: detail(disc('d1', runningBody(), POSTED, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(replies).toEqual(['Follow-up review done.']);
+    expect(readLatchRow(MR, db)?.phase).toBe('armed');
+  });
 });
 
 describe('landing a follow-up from the pass', () => {
@@ -2099,6 +2350,61 @@ describe('landing a follow-up from the pass', () => {
       phase: 'armed',
       variant: 'done-comments-1',
     });
+  });
+});
+
+describe('latchInScope', () => {
+  const OTHER = 'https://gitlab.com/acme/web/-/merge_requests/2400';
+  const mrs = [{ webUrl: MR }, { webUrl: OTHER }, { webUrl: null }];
+  const none = new Map<string, ReviewState>();
+  const urls = (got: { webUrl?: string | null }[]) => got.map(m => m.webUrl);
+
+  // A request can arrive while the lane reads error (a hand-launched review
+  // died) or reviewing; the pass must still see the latch.
+  test('every live row phase is in scope whatever the lane reads, armed included', () => {
+    for (const phase of ['armed', 'queued', 'running', 'error'] as const) {
+      const got = latchInScope(mrs, {
+        rows: [{ mrUrl: MR, phase }],
+        states: new Map([[MR, { ...commented, status: 'error' }]]),
+        pruned: none,
+      });
+      expect(urls(got)).toEqual([MR]);
+    }
+  });
+
+  test('a spent row or no row falls back to the done and tombstone checks', () => {
+    const scope = (rows: { mrUrl: string; phase: 'spent' }[]) =>
+      latchInScope(mrs, {
+        rows,
+        states: new Map([
+          [MR, { ...commented, status: 'reviewing' }],
+          [OTHER, { ...commented, mrUrl: OTHER, outcome: 'approve' }],
+        ]),
+        pruned: none,
+      });
+    expect(urls(scope([{ mrUrl: MR, phase: 'spent' }]))).toEqual([OTHER]);
+    expect(urls(scope([]))).toEqual([OTHER]);
+  });
+
+  test('a commented tombstone is in scope, an approved one is not', () => {
+    const got = latchInScope(mrs, {
+      rows: [],
+      states: none,
+      pruned: new Map([
+        [MR, commented],
+        [OTHER, { ...commented, mrUrl: OTHER, outcome: 'approve' }],
+      ]),
+    });
+    expect(urls(got)).toEqual([MR]);
+  });
+
+  test('an MR listed twice and matched twice is read once', () => {
+    const got = latchInScope([{ webUrl: MR }, { webUrl: MR }], {
+      rows: [{ mrUrl: MR, phase: 'queued' }],
+      states: new Map([[MR, commented]]),
+      pruned: new Map([[MR, commented]]),
+    });
+    expect(urls(got)).toEqual([MR]);
   });
 });
 

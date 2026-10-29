@@ -66,7 +66,11 @@ import {
   loadTriageConfig,
 } from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
-import { runLatchPass, type LatchMrFacts } from '../src/triage/latch.ts';
+import {
+  latchInScope,
+  runLatchPass,
+  type LatchMrFacts,
+} from '../src/triage/latch.ts';
 import {
   CRON_CLAIM_STALE_MS,
   readMemory,
@@ -200,48 +204,33 @@ try {
       .map(m => ownMrFacts({ ...m, webUrl: m.webUrl! }));
   };
 
-  // The latch pass's mirror image of fetchOwnMrs: every MR this board holds a
-  // done review state for, whatever its outcome, rather than the MRs this
-  // identity authored. Approve-outcome states stay in scope so a half-finished
-  // spend can be repaired; without them nothing ever would be. A commented
-  // TOMBSTONE also qualifies: its MR left the board with review state and came
-  // back without it, and the pass decides between resurrecting and dropping.
-  // A latch queued, running or in error is owed a launch or a landing whatever
-  // its review lane now reads, so its MR stays in scope too.
+  // The latch pass's mirror image of fetchOwnMrs: MRs this board reviewed
+  // rather than the MRs this identity authored (latchInScope says which).
   const fetchLatchMrs = async (): Promise<LatchMrFacts[]> => {
-    const states = readReviewStates();
-    const pruned = readPrunedReviewStates();
-    const owed = new Set(
-      readLatchRows()
-        .filter(r => ['queued', 'running', 'error'].includes(r.phase))
-        .map(r => r.mrUrl)
-    );
-    const inScope = (url: string | null | undefined): boolean => {
-      if (!url) return false;
-      if (owed.has(url)) return true;
-      if (states.get(url)?.status === 'done') return true;
-      const tomb = pruned.get(url);
-      return tomb?.status === 'done' && tomb.outcome === 'comment';
-    };
     const { prs, tags, windows } = await collectProjectPRs(
       boardConfig,
       readProjectMRs
     );
-    return buildBoard(prs, boardConfig, undefined, tags, windows)
-      .filter(m => inScope(m.webUrl))
-      .map(m => ({
-        mrUrl: m.webUrl!,
-        iid: m.iid,
-        projectId: parseRepoId(m.repositoryId),
-        projectPath:
-          projectPathFromWebUrl(m.webUrl!, boardConfig.gitlabHost) ?? '',
-        // Encoded, not the bare rtRepos value: readDetail below passes this
-        // straight to readDiscussions, which is daemon-identity-keyed.
-        rtRepo: repoIdentityField(m.rtRepo) ?? '',
-        approvedBySelf: m.reviews.approvedBy.some(
-          r => r.username.toLowerCase() === username.toLowerCase()
-        ),
-      }));
+    return latchInScope(
+      buildBoard(prs, boardConfig, undefined, tags, windows),
+      {
+        rows: readLatchRows(),
+        states: readReviewStates(),
+        pruned: readPrunedReviewStates(),
+      }
+    ).map(m => ({
+      mrUrl: m.webUrl!,
+      iid: m.iid,
+      projectId: parseRepoId(m.repositoryId),
+      projectPath:
+        projectPathFromWebUrl(m.webUrl!, boardConfig.gitlabHost) ?? '',
+      // Encoded, not the bare rtRepos value: readDetail below passes this
+      // straight to readDiscussions, which is daemon-identity-keyed.
+      rtRepo: repoIdentityField(m.rtRepo) ?? '',
+      approvedBySelf: m.reviews.approvedBy.some(
+        r => r.username.toLowerCase() === username.toLowerCase()
+      ),
+    }));
   };
 
   if (!peerMode) {
