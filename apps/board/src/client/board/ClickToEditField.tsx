@@ -270,7 +270,24 @@ export function ClickToEditField({
               onAnimationComplete={() => setSwapping(false)}
             >
               <div ref={faces} className="tui-cte-faces">
-                {lead && <div className="tui-cte-lead">{lead}</div>}
+                {lead && (
+                  // The name line is part of the field: a click there edits,
+                  // and while editing it must not blur the textarea.
+                  <div
+                    className="tui-cte-lead"
+                    data-editable={readOnly ? undefined : ''}
+                    onMouseDown={e => {
+                      if (editing) e.preventDefault();
+                    }}
+                    onClick={() => {
+                      if (readOnly) return;
+                      if (editing) area.current?.focus();
+                      else open(text.length);
+                    }}
+                  >
+                    {lead}
+                  </div>
+                )}
                 <AnimatePresence mode="popLayout" initial={false}>
                   {editing ? (
                     <m.div key="write" {...FADE}>
