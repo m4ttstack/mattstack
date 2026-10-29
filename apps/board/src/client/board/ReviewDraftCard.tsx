@@ -30,6 +30,7 @@ import type { DiffPin } from './DiffView.tsx';
 import type { FindingEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { CardBody, CommentArea, DraftField } from './GateParts.tsx';
+import { CommentAuthor } from './PersonLead.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
@@ -659,9 +660,11 @@ function FindingSection({ finding: f }: { finding: FindingEntry }) {
 function CommentSection({
   finding,
   form,
+  you,
 }: {
   finding: FindingEntry;
   form: GateFormState;
+  you?: string;
 }) {
   const key = commentKey(finding.id);
   const label = `Comment on ${finding.title}`;
@@ -673,6 +676,7 @@ function CommentSection({
         draft={finding.comment!}
         value={form.texts[key]}
         heading="Editing comment"
+        lead={<CommentAuthor id={you} name="You:" />}
         onChange={t => form.setText(key, t)}
         onReset={() => form.clearText(key)}
       />
@@ -692,6 +696,7 @@ export function FindingCard({
   mrRef,
   mrRevision,
   pins,
+  you,
 }: {
   finding: FindingEntry;
   checked: boolean;
@@ -701,6 +706,8 @@ export function FindingCard({
   mrRef?: string;
   mrRevision?: string;
   pins: FilePin[];
+  /** The reviewer's username, for the avatar beside the comment. */
+  you?: string;
 }) {
   return (
     <article
@@ -720,7 +727,7 @@ export function FindingCard({
         ) : (
           <FindingSection finding={f} />
         )}
-        <CommentSection finding={f} form={form} />
+        <CommentSection finding={f} form={form} you={you} />
       </CardBody>
     </article>
   );

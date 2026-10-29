@@ -86,11 +86,14 @@ export function CarryoverCard({
   pick,
   form,
   author,
+  you,
 }: {
   pick: CarryoverPick;
   form: GateFormState;
   /** The MR author's name, who the reviewer's thread is with. */
   author: string;
+  /** The reviewer's username, for the avatar beside the reply. */
+  you?: string;
 }) {
   const { carry } = pick;
   const posting = isPosting(pick, form.selections);
@@ -119,6 +122,7 @@ export function CarryoverCard({
             }
           : undefined
       }
+      selfId={you}
       draft={carry.reply}
       value={posting ? form.texts[pick.name] : undefined}
       posting={posting}

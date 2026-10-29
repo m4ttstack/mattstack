@@ -96,7 +96,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
       draft={p.draft}
       value={p.value}
       heading="Editing reply"
-      lead={stacked ? <CommentAuthor id={p.selfId} name="You:" /> : undefined}
+      lead={<CommentAuthor id={p.selfId} name="You:" />}
       footer={p.resolve && <ResolveTick label={p.label} resolve={p.resolve} />}
       onChange={p.onChange}
       onReset={p.onReset}

@@ -560,6 +560,7 @@ function ReviewGateSheet({
             mrRef={mr && mrRef(mr)}
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
+            you={you}
             head={
               <label className="tui-review-finding-row tui-review-card-head">
                 {tick}
@@ -783,6 +784,7 @@ function ReviewGateSheet({
                         pick={c}
                         form={form}
                         author={mr?.author?.name ?? 'The author'}
+                        you={you}
                       />
                     ))}
                   </div>
