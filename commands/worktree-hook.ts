@@ -8,9 +8,10 @@
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { warn } from "../lib/ui/warn.ts";
-import { existsSync } from "fs";
+import { existsSync, realpathSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { isAbsolute, join } from "path";
+import { realTreeGuardDeps } from "../lib/mcp/tree-guard.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import { currentRepoIdentityFor } from "../lib/repo-arg.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
@@ -273,6 +274,26 @@ export async function announceRelocation(_args: string[]): Promise<void> {
   } catch {
     // the daemon being unreachable falls through to the human's own dialog, not the hook's error
   }
+}
+
+/** Only a tree's own root counts, never a folder inside one: the same rule the daemon's relocation accept applies. */
+export function isRegisteredWorktreePath(
+  path: unknown,
+  deps: { treeByPath: (p: string) => unknown; realpath: (p: string) => string } = { treeByPath: realTreeGuardDeps.treeByPath, realpath: realpathSync },
+): boolean {
+  if (typeof path !== "string" || !isAbsolute(path)) return false;
+  let real: string;
+  try {
+    real = deps.realpath(path);
+  } catch {
+    return false;
+  }
+  return deps.treeByPath(path) !== null || deps.treeByPath(real) !== null;
+}
+
+/** Never call directly: the mattstack plugin's EnterWorktree `tool.check` mod runs it and reads only the exit code (0 registered, 1 not). */
+export async function isRegisteredCommand(args: string[]): Promise<void> {
+  process.exit(isRegisteredWorktreePath(args[0]) ? 0 : 1);
 }
 
 /**
