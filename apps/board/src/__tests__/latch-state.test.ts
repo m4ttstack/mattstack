@@ -77,6 +77,18 @@ describe('latch state', () => {
     ).toBe(false);
   });
 
+  test('casLatch ignores undefined patch values', () => {
+    const db = openStateDb(tempPath());
+    putLatchRow(row({ phase: 'queued', wait: 'budget', launchAt: 9 }), db);
+    expect(
+      casLatch(MR, ['queued'], { phase: 'running', wait: undefined }, 200, db)
+    ).toBe(true);
+    const after = readLatchRow(MR, db)!;
+    expect(after.phase).toBe('running');
+    expect(after.wait).toBe('budget');
+    expect(after.launchAt).toBe(9);
+  });
+
   test('two cas racing from the same phase, only one wins', () => {
     const db = openStateDb(tempPath());
     putLatchRow(row({ phase: 'queued' }), db);

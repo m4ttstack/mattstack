@@ -75,7 +75,7 @@ export function readLatchRow(
 }
 
 export function readLatchRows(db: Database = getStateDb()): LatchRow[] {
-  return (db.query('SELECT * FROM latch_state').all() as LatchRecord[]).map(
+  return (db.query('SELECT * FROM latch_state ORDER BY mr_url').all() as LatchRecord[]).map(
     toRow
   );
 }
@@ -116,6 +116,7 @@ export function casLatch(
   for (const key of Object.keys(COLUMNS) as Array<keyof typeof COLUMNS>) {
     if (key === 'updatedAt' || !(key in patch)) continue;
     const value = patch[key];
+    if (value === undefined) continue;
     sets.push(`${COLUMNS[key]} = ?`);
     values.push(typeof value === 'boolean' ? (value ? 1 : 0) : (value ?? null));
   }
