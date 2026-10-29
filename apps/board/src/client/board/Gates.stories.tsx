@@ -11,6 +11,8 @@ import '../../style.css';
 import { DecisionQueueModal } from './DecisionQueueModal.tsx';
 import { DiffSourceContext, noDiffSource } from './diff-source.ts';
 import * as G from './gate-stories.fixtures.ts';
+import { assignMemberLooks } from './invadr-colors.ts';
+import { MemberLooksProvider } from './MemberInvadr.tsx';
 import { boardPeople, PeopleProvider } from './people.ts';
 
 /**
@@ -109,30 +111,38 @@ function ReviewReport(Story: () => ReactNode) {
 
 const noop = () => {};
 
+/** The story roster's looks, assigned as the board assigns its own, so no
+    two people share a creature or colour. */
+const STORY_LOOKS = assignMemberLooks(
+  [...G.PEOPLE].map(([username]) => username)
+);
+
 function Face({ entry }: { entry: G.StoryGate }) {
   const people = boardPeople({
     allMembers: [...G.PEOPLE].map(([username, name]) => ({ username, name })),
     mrs: [entry.mr],
   });
   return (
-    <PeopleProvider value={people}>
-      <DiffSourceContext.Provider value={entry.diffs ?? noDiffSource}>
-        <DecisionQueueModal
-          gate={entry.gate}
-          mr={entry.mr}
-          position={2}
-          states={['done', 'active', 'todo', 'todo']}
-          nextPeek="!831 · keep station pins when the map re-centers"
-          onClose={noop}
-          onNext={noop}
-          onBack={noop}
-          onFocusPane={noop}
-          onAnswered={noop}
-          onContinue={noop}
-          self="renee"
-        />
-      </DiffSourceContext.Provider>
-    </PeopleProvider>
+    <MemberLooksProvider value={STORY_LOOKS}>
+      <PeopleProvider value={people}>
+        <DiffSourceContext.Provider value={entry.diffs ?? noDiffSource}>
+          <DecisionQueueModal
+            gate={entry.gate}
+            mr={entry.mr}
+            position={2}
+            states={['done', 'active', 'todo', 'todo']}
+            nextPeek="!831 · keep station pins when the map re-centers"
+            onClose={noop}
+            onNext={noop}
+            onBack={noop}
+            onFocusPane={noop}
+            onAnswered={noop}
+            onContinue={noop}
+            self="renee"
+          />
+        </DiffSourceContext.Provider>
+      </PeopleProvider>
+    </MemberLooksProvider>
   );
 }
 
