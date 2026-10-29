@@ -4,6 +4,8 @@ import { LAYOUT, STRIPS } from '../../assets/latch/index.ts';
 import {
   allVariantKeys,
   copyFor,
+  DOT_GAP_PX,
+  DOT_PX,
   variantKey,
   variantOfKey,
   type BannerVariant,
@@ -52,6 +54,24 @@ describe('variant keys', () => {
     expect(variantKey({ state: 'done-comments', count: 0 })).toBe('done-comments-none');
     expect(variantKey({ state: 'done-comments', count: null })).toBe('done-comments-none');
     expect(variantKey({ state: 'queued', wait: 'cooldown' })).toBe('queued-cooldown');
+  });
+
+  test('fractional counts floor and non-finite counts read as none', () => {
+    expect(variantKey({ state: 'done-comments', count: 2.5 })).toBe('done-comments-2');
+    expect(variantKey({ state: 'done-comments', count: NaN })).toBe('done-comments-none');
+    expect(variantKey({ state: 'done-comments', count: Infinity })).toBe('done-comments-none');
+    expect(SUB({ state: 'done-comments', count: 2.5 })).toBe('2 new comments. Resolve when ready');
+    expect(SUB({ state: 'done-comments', count: NaN })).toBe('Review posted. Resolve when ready');
+  });
+
+  test('a null wait reads as the next sweep', () => {
+    expect(variantKey({ state: 'queued', wait: null })).toBe('queued-next-sweep');
+    expect(variantKey({ state: 'error-retrying', wait: null })).toBe('error-retrying-next-sweep');
+  });
+
+  test('dot pitch is shared in 2x px', () => {
+    expect(DOT_PX).toBe(8);
+    expect(DOT_GAP_PX).toBe(8);
   });
 
   test('unknown keys have no variant', () => {

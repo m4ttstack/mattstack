@@ -15,14 +15,19 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { chromium } from 'playwright';
 
-import { allVariantKeys, copyFor, variantOfKey } from '../src/latch/variants.ts';
+import {
+  allVariantKeys,
+  copyFor,
+  DOT_GAP_PX,
+  DOT_PX,
+  variantOfKey,
+} from '../src/latch/variants.ts';
 
 const W = 520;
 const H = 64;
 const SCALE = 2;
 const DOTS_GAP = 6;
-const DOT = 4;
-const DOTS_SPAN = DOT * 3 + 4 * 2;
+const DOTS_SPAN = (DOT_PX * 3 + DOT_GAP_PX * 2) / SCALE;
 const OUT = join(import.meta.dir, '..', 'assets', 'latch');
 
 const escape = (s: string) =>
@@ -51,17 +56,19 @@ const page = await browser.newPage({
   deviceScaleFactor: SCALE,
 });
 await page.setContent(html, { waitUntil: 'networkidle' });
+// FontFaceSet.check() is true when no face is registered at all, which is
+// what a failed stylesheet fetch leaves, so require each load to find a face.
 const fontsOk = await page.evaluate(async () => {
   const fonts = (
     globalThis as unknown as {
-      document: {
-        fonts: { load(f: string): Promise<unknown[]>; check(f: string): boolean };
-      };
+      document: { fonts: { load(f: string): Promise<{ status: string }[]> } };
     }
   ).document.fonts;
-  await fonts.load("18px 'Silkscreen'");
-  await fonts.load("13px 'IBM Plex Mono'");
-  return fonts.check("18px 'Silkscreen'") && fonts.check("13px 'IBM Plex Mono'");
+  const silkscreen = await fonts.load("18px 'Silkscreen'");
+  const plex = await fonts.load("13px 'IBM Plex Mono'");
+  return [silkscreen, plex].every(
+    (faces) => faces.length > 0 && faces.every((f) => f.status === 'loaded')
+  );
 });
 if (!fontsOk) {
   await browser.close();
@@ -101,7 +108,7 @@ for (const key of keys) {
   }
   layout[key] = {
     dotsX: Math.round((m.titleRight + DOTS_GAP) * SCALE),
-    dotsY: Math.round(m.titleMid * SCALE - DOT),
+    dotsY: Math.round(m.titleMid * SCALE - DOT_PX / 2),
   };
   await page.locator('#band').screenshot({ path: join(OUT, `${key}.png`) });
 }

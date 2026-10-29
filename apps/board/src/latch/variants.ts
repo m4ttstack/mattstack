@@ -20,7 +20,7 @@ export type BannerState =
 
 export interface BannerVariant {
   state: BannerState;
-  wait?: WaitReason;
+  wait?: WaitReason | null;
   count?: number | null;
 }
 
@@ -64,8 +64,19 @@ const RETRY_WAITS = Object.keys(RETRY_SUB) as WaitReason[];
 
 const MAX_COUNT = 20;
 
-function countSlug(count: number | null | undefined): string {
-  if (count == null || count <= 0) return 'none';
+/** The indicator's dots, in 2x px: each dot is DOT_PX square, DOT_GAP_PX apart. */
+export const DOT_PX = 8;
+export const DOT_GAP_PX = 8;
+
+function cleanCount(count: number | null | undefined): number | null {
+  if (count == null || !Number.isFinite(count)) return null;
+  const n = Math.floor(count);
+  return n > 0 ? n : null;
+}
+
+function countSlug(raw: number | null | undefined): string {
+  const count = cleanCount(raw);
+  if (count == null) return 'none';
   if (count > MAX_COUNT) return '20plus';
   return String(count);
 }
@@ -112,8 +123,9 @@ export function variantOfKey(key: string): BannerVariant | null {
   return v ? { ...v } : null;
 }
 
-function doneCommentsSub(count: number | null | undefined): string {
-  if (count == null || count <= 0) return 'Review posted. Resolve when ready';
+function doneCommentsSub(raw: number | null | undefined): string {
+  const count = cleanCount(raw);
+  if (count == null) return 'Review posted. Resolve when ready';
   if (count === 1) return '1 new comment. Resolve when ready';
   if (count > MAX_COUNT) return '20+ new comments. Resolve when ready';
   return `${count} new comments. Resolve when ready`;
