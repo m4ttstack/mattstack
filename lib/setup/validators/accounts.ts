@@ -238,9 +238,8 @@ const REINVITE_STEPS: Action = {
 };
 
 /**
- * Never required and never finish-gated: only the org admin can deliver
- * the token, so the member must still be able to Install and Finish. verify
- * reports its needs-you all the same. The note must not start "Works
+ * It blocks Finish (never Install) and is never waivable; only the org admin
+ * can fix it, so its steps name them. The note must not start "Works
  * without": the app's Done screen drops rows whose note does.
  */
 const BOARD_PEERING_BASE = {

@@ -211,14 +211,17 @@ public struct PlanRow: Codable, Equatable, Identifiable, Sendable {
     /// Whether this row offers Skip at all; an rt that predates this field
     /// keeps Fast Browser's Skip by decoding as `finishGated`.
     public var waivable: Bool
+    /// Shown under "No action needed" whatever its state; never a task.
+    public var information: Bool
     public init(id: String, kind: RowKind, title: String, why: String, required: Bool,
                 optionalNote: String? = nil, status: RowStatus, detail: String? = nil,
                 action: RowAction? = nil, recheck: RecheckPolicy, finishGated: Bool = false, waived: Bool = false,
-                waivable: Bool? = nil) {
+                waivable: Bool? = nil, information: Bool = false) {
         self.id = id; self.kind = kind; self.title = title; self.why = why; self.required = required
         self.optionalNote = optionalNote; self.status = status; self.detail = detail
         self.action = action; self.recheck = recheck; self.finishGated = finishGated; self.waived = waived
         self.waivable = waivable ?? finishGated
+        self.information = information
     }
     /// `finishGated` and `waived` are newer than the rest of the contract: an
     /// rt that predates them omits the keys, and that must read as "not
@@ -236,6 +239,7 @@ public struct PlanRow: Codable, Equatable, Identifiable, Sendable {
         action = try c.decodeIfPresent(RowAction.self, forKey: .action)
         recheck = try c.decode(RecheckPolicy.self, forKey: .recheck)
         finishGated = try c.decodeIfPresent(Bool.self, forKey: .finishGated) ?? false
+        information = try c.decodeIfPresent(Bool.self, forKey: .information) ?? false
         waived = try c.decodeIfPresent(Bool.self, forKey: .waived) ?? false
         // An rt that predates `waivable` offered Skip on every finish-gated row.
         waivable = try c.decodeIfPresent(Bool.self, forKey: .waivable) ?? finishGated

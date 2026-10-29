@@ -88,6 +88,8 @@ export interface Row {
   waived?: boolean;
   /** Emitted on every finish-gated row: whether Skip for now is offered. An app reading a row without it treats a finish-gated row as waivable. */
   waivable?: boolean;
+  /** Shown under "No action needed" whatever its state: never required and never finish-gated. */
+  information?: true;
 }
 
 export interface Group {
@@ -131,8 +133,11 @@ export const GROUP_TITLES: Record<GroupId, string> = {
   team: "Team and backup",
 };
 
+/** The finish-gated rows `rt setup waive` may skip; the gate honors a stored waiver only for these. */
+export const WAIVABLE_ROW_IDS: readonly string[] = ["skills.overrides", "tool.chrome-signin", "tool.mission-control"];
+
 /** The rows that gate Finish. Enumerated here so `rt setup waive` can refuse anything else and offer a picker over the set. */
-export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension", "skills.writing-style"];
+export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension", "skills.writing-style", ...WAIVABLE_ROW_IDS];
 
 /** One `repos.place:<identity>` row per tracked repo, so those ids cannot be enumerated above. */
 export const REPO_PLACE_ROW_PREFIX = "repos.place:";
@@ -143,9 +148,6 @@ export const FINISH_GATED_ACCOUNT_IDS: readonly string[] = ["account.slack", "ac
 export function isFinishGatedRowId(id: string): boolean {
   return FINISH_GATED_ROW_IDS.includes(id) || FINISH_GATED_ACCOUNT_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX);
 }
-
-/** The finish-gated rows `rt setup waive` may skip; the gate honors a stored waiver only for these. */
-export const WAIVABLE_ROW_IDS: readonly string[] = ["tool.fast-browser-extension"];
 
 /**
  * Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray).

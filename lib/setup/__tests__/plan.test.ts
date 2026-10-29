@@ -6,8 +6,8 @@ import { teamLocalPath } from "../../team/team-local.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
 import { renderSopsYamlRules } from "../../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../../secrets/team-store.ts";
-import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
-import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
+import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finalizePlan, row, type Group, type Plan, type Row } from "../contract.ts";
+import { applyFinishGate, waivedNote } from "../finish-gate.ts";
 import { markDeferred } from "../repo-placement.ts";
 import { setSetting } from "../../settings/write.ts";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -166,7 +166,7 @@ describe("composePlan", () => {
     }
   });
 
-  test("solo intent, no teams -> no access rows, github optional, fast-browser optional, no team rows, and the existing modes unchanged", async () => {
+  test("solo intent, no teams -> no access rows, github optional, fast-browser finish-gated, no team rows, and the existing modes unchanged", async () => {
     const priorHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), "rt-plan-solo-"));
     closeStateDb();
@@ -182,10 +182,11 @@ describe("composePlan", () => {
       const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
       expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false]]);
       const tools = everyRow(plan).rows;
-      expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(false);
+      expect(tools.find((r) => r.id === "tool.fast-browser")).toMatchObject({ required: false, finishGated: true, waivable: false, optionalNote: null });
       expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);
-      expect(plan.requiredMissing).toEqual([]);
-      expect(plan.canInstall).toBe(true);
+      // Only steps expected before Install on every path, each with something to press; nothing team-shaped.
+      expect(plan.requiredMissing).toEqual(["tool.chrome", "tool.state-backup", "home.backup"]);
+      expect(plan.canInstall).toBe(false);
     } finally {
       closeStateDb();
       process.env.HOME = priorHome;
@@ -333,7 +334,7 @@ describe("composePlan — install-satisfied flip", () => {
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
       // The fake home has no home repo, so skills.writing-style also blocks Finish here.
-      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.fast-browser-extension"]);
+      expect(plan.finishBlockedBy).toEqual(["tool.mission-control", "skills.writing-style", "tool.linear-mcp", "tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.shell"]);
       expect(plan.requiredMissing).not.toContain("tool.fast-browser-extension");
     }
   });
@@ -379,9 +380,9 @@ test("a daemon row that needs you with no action, as in CI, still flips like any
   expect(flip("status").required).toBe(true);
 });
 
-function gatedRow(status: Row["status"]): Row {
+function gatedRow(status: Row["status"], id = "tool.fast-browser-extension"): Row {
   return row({
-    id: "tool.fast-browser-extension",
+    id,
     kind: "tool",
     title: "Fast Browser extension",
     why: "x",
@@ -394,14 +395,15 @@ function gatedRow(status: Row["status"]): Row {
   });
 }
 
-function gatedPlan(status: Row["status"], mode: "plan" | "status", waived: string[] = []) {
-  const groups: Group[] = [{ id: "tools", title: "Tools", rows: [gatedRow(status)] }];
+function gatedPlan(status: Row["status"], mode: "plan" | "status", waived: string[] = [], id?: string) {
+  const groups: Group[] = [{ id: "tools", title: "Tools", rows: [gatedRow(status, id)] }];
   return finalizePlan({ slug: "acme", name: "Acme", mode: "none" }, applyFinishGate(groups, mode, waived), new Date(), waived);
 }
 
 describe("finish gate", () => {
-  test("the contract names exactly two finish-gated rows today", () => {
-    expect([...FINISH_GATED_ROW_IDS]).toEqual(["tool.fast-browser-extension", "skills.writing-style"]);
+  test("the contract names the finish-gated rows and the three that can be skipped", () => {
+    expect([...WAIVABLE_ROW_IDS]).toEqual(["skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
+    expect([...FINISH_GATED_ROW_IDS]).toEqual(["tool.fast-browser-extension", "skills.writing-style", "skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
   });
 
   test("a needs-you finish-gated row blocks Finish in both modes and never Install", () => {
@@ -441,11 +443,11 @@ describe("finish gate", () => {
 
   test("a waived finish-gated row reads optional with the skipped-on-this-Mac note, carries waived:true, keeps its status and action, and leaves finishBlockedBy, in both modes", () => {
     for (const mode of ["plan", "status"] as const) {
-      const plan = gatedPlan("needs-you", mode, ["tool.fast-browser-extension"]);
+      const plan = gatedPlan("needs-you", mode, ["tool.mission-control"], "tool.mission-control");
       const r = plan.groups[0]!.rows[0]!;
       expect(r.required).toBe(false);
       expect(r.waived).toBe(true);
-      expect(r.optionalNote).toBe(WAIVED_NOTE);
+      expect(r.optionalNote).toBe(waivedNote("tool.mission-control"));
       expect(r.status).toBe("needs-you");
       expect(r.action?.type).toBe("steps");
       expect(plan.finishBlockedBy).toEqual([]);
@@ -464,14 +466,12 @@ describe("finish gate", () => {
     const home = mkdtempSync(join(tmpdir(), "rt-plan-waived-"));
     process.env.HOME = home;
     try {
-      setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
+      setSetting("setup.waived", ["tool.mission-control"], "machine");
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
-      const r = everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
-      expect(r.optionalNote).toBe(WAIVED_NOTE);
-      // skills.writing-style is finish-gated but not waivable, so it still blocks Finish.
-      expect(plan.finishBlockedBy).toEqual(["skills.writing-style"]);
+      const r = everyRow(plan).rows.find((r) => r.id === "tool.mission-control")!;
+      expect(r.optionalNote).toBe(waivedNote("tool.mission-control"));
+      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.linear-mcp", "tool.proxy", "tool.shell"]);
     } finally {
       process.env.HOME = prevHome;
       rmSync(home, { recursive: true, force: true });
@@ -484,14 +484,13 @@ describe("finish gate", () => {
     process.env.HOME = home;
     try {
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-      const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
+      const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => everyRow(plan).rows.find((r) => r.id === "tool.mission-control")!;
 
       setSetting("setup.waived", [], "machine");
-      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
-      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: ["tool.fast-browser-extension"] });
+      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: ["tool.mission-control"] });
       expect(extension(injectedWaived).waived).toBe(true);
 
-      setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
+      setSetting("setup.waived", ["tool.mission-control"], "machine");
       const injectedNone = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: [] });
       expect(extension(injectedNone).waived).toBeFalsy();
       const fromStore = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
@@ -533,6 +532,53 @@ describe("finish gate", () => {
   });
 });
 
+
+describe("Install stays reachable", () => {
+  const RECHECK = ["setup", "status"].join(" ");
+
+  function stranded(plan: Plan): string[] {
+    const rows = plan.groups.flatMap((g) => g.rows);
+    return plan.requiredMissing.filter((id) => {
+      const r = rows.find((x) => x.id === id)!;
+      return r.action === null || (r.action.type === "run" && r.action.verb.join(" ") === RECHECK);
+    });
+  }
+
+  test("no required row that is not ready lacks an action a person can press", async () => {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-reachable-"));
+    closeStateDb();
+    process.env.HOME = home;
+    try {
+      const teamPath = sharedStorePath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, JSON.stringify({
+        "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, slack: { clientId: "abc" } },
+        "mattstack.tracking": { repos: { "github.com/acme/widgets": {} } },
+      }));
+      const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
+      // A restore brings the team's clone back with the home repo, so its plan reads that clone's origin.
+      const restoredClone = { [join(orgDirUnder("/fake-home", "acme"), ".git", "config")]: '[remote "origin"]\n\turl = https://github.com/acme/mattstack.git\n' };
+      const fixtures: { name: string; intent: SetupIntent; orgs: string[]; files?: Record<string, string> }[] = [
+        { name: "create", intent: createIntent(), orgs: [] },
+        { name: "join, cloned", intent: joinIntent(), orgs: ["acme"] },
+        { name: "restore", intent: restoreIntent(), orgs: ["acme"], files: restoredClone },
+        { name: "solo", intent: { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" }, orgs: [] },
+      ];
+      for (const f of fixtures) {
+        // A reachable network: a host that does not answer is a fault Re-check is the honest remedy for.
+        const p = fakeProbes({ exec: soloExec, tray: grantedTray, fetch: async () => ({ status: 200, body: "", headers: {} }), dirs: { "/Applications/mattstack.app": [] }, files: f.files ?? {} });
+        writeIntent(p, f.intent);
+        const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: f.orgs, waived: [] });
+        expect({ fixture: f.name, stranded: stranded(plan) }).toEqual({ fixture: f.name, stranded: [] });
+      }
+    } finally {
+      closeStateDb();
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("pendingJoinTeam", () => {
   test("before the clone exists the pointer's first team selects the pack", () => { expect(pendingJoinTeam(joinIntent(), [])).toBe("gadgets"); });

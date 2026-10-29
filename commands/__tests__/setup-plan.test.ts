@@ -173,8 +173,7 @@ describe("setupStatus Finish line", () => {
       const rows = cap.stdout().trimEnd().split("\n");
       const install = rows.findIndex((l) => l.includes("Install can run") || l.includes("Install is waiting on"));
       expect(install).toBeGreaterThan(0);
-      // The fake home has no home repo, so the writing-style row blocks Finish here.
-      expect(rows[install + 1]).toBe("[needs you] Finish is waiting on  Writing style");
+      expect(rows[install + 1]).toBe("[needs you] Finish is waiting on  Mission Control shortcut, Writing style, Linear MCP, Fast Browser, Local proxy, Shell integration");
     } finally {
       cap.restore();
     }
@@ -212,7 +211,8 @@ describe("org access in the setup accounts group", () => {
     for (const mode of ["plan", "status"] as const) {
       const plan = await composePlan({ p: fakeProbes(), secrets: fakeSecrets(), ci: true, mode, orgs: ["acme"], waived: [] });
       const row = plan.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "team.identity");
-      expect(row).toMatchObject({ kind: "access", required: false, status: "needs-you" });
+      // Expected before Install, and its steps are something to press.
+      expect(row).toMatchObject({ kind: "access", required: true, status: "needs-you", action: { type: "steps" } });
       expect(row!.finishGated).toBeUndefined();
       expect(plan.groups.flatMap((g) => g.rows).some((r) => r.id.startsWith("pack."))).toBe(false);
     }

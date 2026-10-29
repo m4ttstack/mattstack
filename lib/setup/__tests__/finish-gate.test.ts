@@ -7,7 +7,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finalizePlan, finishBlockers, row, type Action, type Row } from "../contract.ts";
 import { UserActionableError } from "../../errors.ts";
-import { WAIVED_SETTING_KEY, applyFinishGate, gateTeamAccounts, readWaived, realWaiverStore, unwaiveRow, waiveRow } from "../finish-gate.ts";
+import { WAIVED_SETTING_KEY, applyFinishGate, gateTeamAccounts, readWaived, realWaiverStore, unwaiveRow, waivedNote, waiveRow } from "../finish-gate.ts";
 
 let home: string;
 let prevHome: string | undefined;
@@ -85,15 +85,15 @@ function fakeStore(initial: string[] = []) {
 describe("waiveRow / unwaiveRow", () => {
   test("waive adds the id once; a second waive writes nothing and reports no change", () => {
     const { store, writes } = fakeStore();
-    expect(waiveRow("tool.fast-browser-extension", store)).toEqual({ waived: ["tool.fast-browser-extension"], changed: true });
-    expect(waiveRow("tool.fast-browser-extension", store)).toEqual({ waived: ["tool.fast-browser-extension"], changed: false });
-    expect(writes).toEqual([["tool.fast-browser-extension"]]);
+    expect(waiveRow("tool.mission-control", store)).toEqual({ waived: ["tool.mission-control"], changed: true });
+    expect(waiveRow("tool.mission-control", store)).toEqual({ waived: ["tool.mission-control"], changed: false });
+    expect(writes).toEqual([["tool.mission-control"]]);
   });
 
   test("unwaive removes the id; unwaiving an absent id writes nothing and reports no change", () => {
-    const { store, writes } = fakeStore(["tool.fast-browser-extension"]);
-    expect(unwaiveRow("tool.fast-browser-extension", store)).toEqual({ waived: [], changed: true });
-    expect(unwaiveRow("tool.fast-browser-extension", store)).toEqual({ waived: [], changed: false });
+    const { store, writes } = fakeStore(["tool.mission-control"]);
+    expect(unwaiveRow("tool.mission-control", store)).toEqual({ waived: [], changed: true });
+    expect(unwaiveRow("tool.mission-control", store)).toEqual({ waived: [], changed: false });
     expect(writes).toEqual([[]]);
   });
 
@@ -122,10 +122,10 @@ describe("waiveRow / unwaiveRow", () => {
 
   test("the real store round-trips through the machine scope", () => {
     const store = realWaiverStore();
-    waiveRow("tool.fast-browser-extension", store);
-    expect(readWaived()).toEqual(["tool.fast-browser-extension"]);
+    waiveRow("tool.mission-control", store);
+    expect(readWaived()).toEqual(["tool.mission-control"]);
     expect(getSetting(WAIVED_SETTING_KEY).provenance.map((p) => p.scope)).toEqual(["machine"]);
-    unwaiveRow("tool.fast-browser-extension", store);
+    unwaiveRow("tool.mission-control", store);
     expect(readWaived()).toEqual([]);
   });
 });
@@ -133,23 +133,49 @@ describe("waiveRow / unwaiveRow", () => {
 describe("non-waivable finish gates", () => {
   const style = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "d", finishGated: true });
   const ext = row({ id: "tool.fast-browser-extension", kind: "tool", title: "Ext", why: "x", required: false, status: "needs-you", detail: "d", finishGated: true });
-  const groups = [{ id: "tools" as const, title: "Tools", rows: [style, ext] }];
+  const mission = row({ id: "tool.mission-control", kind: "tool", title: "Mission Control", why: "x", required: false, status: "needs-you", detail: "d", finishGated: true });
+  const groups = [{ id: "tools" as const, title: "Tools", rows: [style, ext, mission] }];
 
-  test("only the Fast Browser row is waivable", () => {
-    expect(WAIVABLE_ROW_IDS).toEqual(["tool.fast-browser-extension"]);
+  test("only the three can-skip rows are waivable", () => {
+    expect(WAIVABLE_ROW_IDS).toEqual(["skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
   });
 
   test("a stored waiver for a non-waivable row is ignored where the gate is read", () => {
-    const waived = ["skills.writing-style", "tool.fast-browser-extension"];
-    expect(finishBlockers(groups, waived)).toEqual(["skills.writing-style"]);
+    const waived = ["skills.writing-style", "tool.mission-control"];
+    expect(finishBlockers(groups, waived)).toEqual(["skills.writing-style", "tool.fast-browser-extension"]);
     const applied = applyFinishGate(groups, "status", waived)[0]!.rows;
     expect(applied.find((r) => r.id === "skills.writing-style")?.waived).toBeFalsy();
-    expect(applied.find((r) => r.id === "tool.fast-browser-extension")?.waived).toBe(true);
+    expect(applied.find((r) => r.id === "tool.mission-control")?.waived).toBe(true);
+  });
+
+  test("a waiver stored for tool.fast-browser-extension is no longer honored", () => {
+    const waived = ["tool.fast-browser-extension"];
+    for (const mode of ["plan", "status"] as const) {
+      const applied = applyFinishGate(groups, mode, waived)[0]!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
+      expect(applied.finishGated).toBe(true);
+      expect(applied.waived).toBeUndefined();
+      expect(applied.waivable).toBe(false);
+    }
+    expect(finishBlockers(groups, waived)).toContain("tool.fast-browser-extension");
+  });
+
+  test("a skipped can-skip row reads optional with its own note", () => {
+    const applied = applyFinishGate(groups, "plan", ["tool.mission-control"])[0]!.rows.find((r) => r.id === "tool.mission-control")!;
+    expect(applied).toMatchObject({ required: false, waived: true, optionalNote: waivedNote("tool.mission-control") });
+    expect(waivedNote("tool.mission-control")).toBe("Skipped on this Mac: Control+Up stays with Mission Control.");
+    expect(waivedNote("skills.overrides")).toBe("Skipped on this Mac: old slot keys stay in your overrides file.");
+    expect(waivedNote("tool.chrome-signin")).toBe("Skipped on this Mac: confirm Chrome's sign-in yourself.");
+  });
+
+  test("status mode keeps a can-skip row optional, so verify never nags about it", () => {
+    const applied = applyFinishGate(groups, "status", [])[0]!.rows;
+    expect(applied.find((r) => r.id === "tool.mission-control")).toMatchObject({ required: false, finishGated: true, waivable: true });
+    expect(applied.find((r) => r.id === "tool.fast-browser-extension")).toMatchObject({ required: true, optionalNote: null });
   });
 
   test("every finish-gated row carries waivable", () => {
     const applied = applyFinishGate(groups, "plan", [])[0]!.rows;
-    expect(applied.map((r) => [r.id, r.waivable])).toEqual([["skills.writing-style", false], ["tool.fast-browser-extension", true]]);
+    expect(applied.map((r) => [r.id, r.waivable])).toEqual([["skills.writing-style", false], ["tool.fast-browser-extension", false], ["tool.mission-control", true]]);
   });
 
   test("waive refuses a finish-gated row that is not waivable", () => {

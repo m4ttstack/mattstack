@@ -45,7 +45,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     const rows = await repoPlacementRows(realFsProbes(home), TEAM, snapshot([WIDGETS, ACME_API]));
 
     expect(rows.map((r) => r.id)).toEqual([`repos.place:${WIDGETS}`, `repos.place:${ACME_API}`]);
-    expect(byId(rows, WIDGETS)).toMatchObject({ kind: "tool", title: "widgets", why: "gitlab.com/acme", required: false, recheck: "on-activate", status: "ready", detail: "Found your widgets checkout" });
+    expect(byId(rows, WIDGETS)).toMatchObject({ kind: "tool", title: "widgets", why: "gitlab.com/acme", required: true, recheck: "on-activate", status: "ready", detail: "Found your widgets checkout" });
     expect(action(byId(rows, WIDGETS))).toMatchObject({ type: "place-repo", label: "Locate…", identity: WIDGETS, repo: "widgets", mode: "checkout", checkoutPath: widgets, problem: null, then: null, oneClick: null, segmentRecords: true });
     // The other segment never offers the checkout's own folder as a clone location.
     expect(action(byId(rows, WIDGETS)).clonePath).toBe(join(home, "Documents", "GitHub", "widgets"));
@@ -115,6 +115,19 @@ describe("repoPlacementRows: one row per tracked repo", () => {
 });
 
 describe("repoPlacementRows: a repo Install left for you", () => {
+  test("every repos.place row is required before Install", async () => {
+    installed();
+    mkdirSync(join(home, "code"), { recursive: true });
+    gitRepo(join(home, "code", "widgets"), { origin: "https://gitlab.com/acme/widgets.git" });
+    const p = realFsProbes(home);
+    markDeferred(p, ACME_API);
+    const rows = await repoPlacementRows(p, TEAM, snapshot([WIDGETS, ACME_API]));
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.required)).toBe(true);
+    expect(byId(rows, ACME_API)).toMatchObject({ required: true, finishGated: true });
+  });
+
   test("unanswered: finish-gated, not waivable, with Clone here at the shown location", async () => {
     installed();
     mkdirSync(join(home, "code"), { recursive: true });

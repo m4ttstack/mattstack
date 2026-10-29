@@ -17,6 +17,7 @@ import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type
 import { UserActionableError } from "../errors.ts";
 import { activeTeamFor } from "../team/active-team.ts";
 import { APPROVAL_DEPENDENT_IDS, APPROVAL_WAIT_DETAIL, approvalState, type ApprovalState } from "../team/approval.ts";
+import { applyExpectations } from "./expectations.ts";
 import { applyFinishGate, gateTeamAccounts, readWaived } from "./finish-gate.ts";
 import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
@@ -214,7 +215,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
 
   const waived = i.waived ?? readWaived();
   const wait = team.slug ? approvalState(i.p, team.slug) : { kind: "not-joined" as const };
-  const gated = applyApprovalWait(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode), i.mode), wait);
+  const gated = applyApprovalWait(applyExpectations(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode), i.mode)), wait);
   return finalizePlan(team, regroupTools(applyFinishGate(gated, i.mode, waived)), i.p.now(), waived);
 }
 

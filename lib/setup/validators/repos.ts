@@ -135,7 +135,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         kind: "tool",
         title: base,
         why: dirname(identity),
-        required: false,
+        required: true,
         recheck: "on-activate",
         status: s.status,
         detail: s.problem ?? s.note,

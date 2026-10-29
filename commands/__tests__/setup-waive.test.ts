@@ -59,20 +59,33 @@ afterEach(() => quiet.restore());
 describe("rt setup waive", () => {
   test("--json writes the id at machine scope and prints an ok envelope", async () => {
     const t = deps();
-    await setupWaive(["tool.fast-browser-extension", "--json"], {}, t.d);
-    expect(t.writes).toEqual([["tool.fast-browser-extension"]]);
+    await setupWaive(["tool.mission-control", "--json"], {}, t.d);
+    expect(t.writes).toEqual([["tool.mission-control"]]);
     expect(t.lines).toHaveLength(1);
     const body = JSON.parse(t.lines[0]!);
     expect(body.contract).toBe(1);
     expect(body.ok).toBe(true);
-    expect(body.id).toBe("tool.fast-browser-extension");
-    expect(body.waived).toEqual(["tool.fast-browser-extension"]);
+    expect(body.id).toBe("tool.mission-control");
+    expect(body.waived).toEqual(["tool.mission-control"]);
+  });
+
+  test("tool.mission-control can be skipped", async () => {
+    const t = deps();
+    await setupWaive(["tool.mission-control", "--json"], {}, t.d);
+    expect(JSON.parse(t.lines[0]!)).toMatchObject({ ok: true, id: "tool.mission-control", changed: true, waived: ["tool.mission-control"] });
+  });
+
+  test("tool.fast-browser-extension cannot be skipped any more", async () => {
+    const t = deps();
+    expect(await exitCode(() => setupWaive(["tool.fast-browser-extension", "--json"], {}, t.d))).toBe(2);
+    expect(t.writes).toEqual([]);
+    expect(JSON.parse(t.lines[0]!).error.code).toBe("not-waivable");
   });
 
   test("human mode prints one line", async () => {
     const t = deps();
-    await setupWaive(["tool.fast-browser-extension"], {}, t.d);
-    expect(quiet.stdout()).toBe("[ok] Skipped on this Mac  tool.fast-browser-extension\n");
+    await setupWaive(["tool.mission-control"], {}, t.d);
+    expect(quiet.stdout()).toBe("[ok] Skipped on this Mac  tool.mission-control\n");
     expect(t.lines).toEqual([]);
   });
 
@@ -82,7 +95,7 @@ describe("rt setup waive", () => {
     expect(t.writes).toEqual([]);
     const body = JSON.parse(t.lines[0]!);
     expect(body.error.code).toBe("not-waivable");
-    expect(body.error.message).toContain("tool.fast-browser-extension");
+    expect(body.error.message).toContain("tool.mission-control");
   });
 
   test("no id off a TTY exits 2 with usage, never a picker", async () => {
@@ -95,14 +108,14 @@ describe("rt setup waive", () => {
   test("no id on a TTY offers a picker over the finish-gated rows; cancel exits 0", async () => {
     const t = deps({ isTTY: () => true });
     expect(await exitCode(() => setupWaive([], {}, t.d))).toBe(0);
-    expect(t.picked()?.options).toEqual(["tool.fast-browser-extension"]);
+    expect(t.picked()?.options).toEqual(["skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
     expect(t.writes).toEqual([]);
   });
 
   test("a picked id is waived like a typed one", async () => {
-    const t = deps({ isTTY: () => true, pick: async () => "tool.fast-browser-extension" });
+    const t = deps({ isTTY: () => true, pick: async () => "tool.mission-control" });
     await setupWaive([], {}, t.d);
-    expect(t.writes).toEqual([["tool.fast-browser-extension"]]);
+    expect(t.writes).toEqual([["tool.mission-control"]]);
   });
 
   test("--json on a TTY never opens the picker", async () => {
@@ -127,24 +140,31 @@ describe("rt setup waive", () => {
         },
       },
     });
-    expect(await exitCode(() => setupWaive(["tool.fast-browser-extension", "--json"], {}, t.d))).toBe(1);
+    expect(await exitCode(() => setupWaive(["tool.mission-control", "--json"], {}, t.d))).toBe(1);
     expect(t.lines).toEqual([]);
     expect(quiet.stderr()).toBe("Could not save the change\n  why: settings.local.jsonc: duplicate key\n");
   });
 });
 
 describe("rt setup unwaive", () => {
-  test("removes the id and prints the remaining list", async () => {
-    const t = deps({ initial: ["tool.fast-browser-extension"] });
+  test("unwaive still clears an old fast-browser-extension waiver", async () => {
+    const t = deps({ initial: ["tool.fast-browser-extension", "tool.mission-control"] });
     await setupUnwaive(["tool.fast-browser-extension", "--json"], {}, t.d);
+    expect(t.writes).toEqual([["tool.mission-control"]]);
+    expect(JSON.parse(t.lines[0]!)).toMatchObject({ ok: true, id: "tool.fast-browser-extension", changed: true, waived: ["tool.mission-control"] });
+  });
+
+  test("removes the id and prints the remaining list", async () => {
+    const t = deps({ initial: ["tool.mission-control"] });
+    await setupUnwaive(["tool.mission-control", "--json"], {}, t.d);
     expect(t.writes).toEqual([[]]);
     expect(JSON.parse(t.lines[0]!).waived).toEqual([]);
   });
 
   test("human mode prints one line", async () => {
-    const t = deps({ initial: ["tool.fast-browser-extension"] });
-    await setupUnwaive(["tool.fast-browser-extension"], {}, t.d);
-    expect(quiet.stdout()).toBe("[ok] Re-armed on this Mac  tool.fast-browser-extension\n");
+    const t = deps({ initial: ["tool.mission-control"] });
+    await setupUnwaive(["tool.mission-control"], {}, t.d);
+    expect(quiet.stdout()).toBe("[ok] Re-armed on this Mac  tool.mission-control\n");
   });
 
   test("an id that is not finish-gated exits 2", async () => {
@@ -157,24 +177,24 @@ describe("rt setup unwaive", () => {
 
   test("a row that was never skipped says so instead of claiming to re-arm it, and the envelope carries changed:false", async () => {
     const t = deps();
-    await setupUnwaive(["tool.fast-browser-extension"], {}, t.d);
+    await setupUnwaive(["tool.mission-control"], {}, t.d);
     expect(t.writes).toEqual([]);
-    expect(quiet.stdout()).toBe("[skipped] Was not skipped on this Mac  tool.fast-browser-extension\n");
+    expect(quiet.stdout()).toBe("[skipped] Was not skipped on this Mac  tool.mission-control\n");
     const j = deps();
-    await setupUnwaive(["tool.fast-browser-extension", "--json"], {}, j.d);
-    expect(JSON.parse(j.lines[0]!)).toMatchObject({ ok: true, id: "tool.fast-browser-extension", changed: false, waived: [] });
+    await setupUnwaive(["tool.mission-control", "--json"], {}, j.d);
+    expect(JSON.parse(j.lines[0]!)).toMatchObject({ ok: true, id: "tool.mission-control", changed: false, waived: [] });
   });
 
   test("a real re-arm carries changed:true", async () => {
-    const t = deps({ initial: ["tool.fast-browser-extension"] });
-    await setupUnwaive(["tool.fast-browser-extension", "--json"], {}, t.d);
+    const t = deps({ initial: ["tool.mission-control"] });
+    await setupUnwaive(["tool.mission-control", "--json"], {}, t.d);
     expect(JSON.parse(t.lines[0]!)).toMatchObject({ ok: true, changed: true, waived: [] });
   });
 
   test("no id on a TTY offers a picker over the rows skipped on this Mac only", async () => {
-    const t = deps({ initial: ["tool.fast-browser-extension"], isTTY: () => true });
+    const t = deps({ initial: ["tool.mission-control"], isTTY: () => true });
     expect(await exitCode(() => setupUnwaive([], {}, t.d))).toBe(0);
-    expect(t.picked()?.options).toEqual(["tool.fast-browser-extension"]);
+    expect(t.picked()?.options).toEqual(["tool.mission-control"]);
   });
 
   test("no id on a TTY with nothing skipped falls through to the usage error, never an empty picker", async () => {
@@ -187,20 +207,20 @@ describe("rt setup unwaive", () => {
 
 describe("rt setup waive envelope", () => {
   test("a second waive of the same row is a no-op the copy admits, with changed:false", async () => {
-    const t = deps({ initial: ["tool.fast-browser-extension"] });
-    await setupWaive(["tool.fast-browser-extension"], {}, t.d);
+    const t = deps({ initial: ["tool.mission-control"] });
+    await setupWaive(["tool.mission-control"], {}, t.d);
     expect(t.writes).toEqual([]);
-    expect(quiet.stdout()).toBe("[skipped] Already skipped on this Mac  tool.fast-browser-extension\n");
-    const j = deps({ initial: ["tool.fast-browser-extension"] });
-    await setupWaive(["tool.fast-browser-extension", "--json"], {}, j.d);
-    expect(JSON.parse(j.lines[0]!)).toMatchObject({ ok: true, changed: false, waived: ["tool.fast-browser-extension"] });
+    expect(quiet.stdout()).toBe("[skipped] Already skipped on this Mac  tool.mission-control\n");
+    const j = deps({ initial: ["tool.mission-control"] });
+    await setupWaive(["tool.mission-control", "--json"], {}, j.d);
+    expect(JSON.parse(j.lines[0]!)).toMatchObject({ ok: true, changed: false, waived: ["tool.mission-control"] });
   });
 });
 
 describe("setup waive --json bytes", () => {
   test("the ok envelope is contract, at, ok, id, changed, waived", async () => {
     const t = deps({ json: realJson });
-    await setupWaive(["tool.fast-browser-extension", "--json"], {}, t.d);
-    expect(quiet.stdout()).toBe('{"contract":1,"at":"2026-01-01T00:00:00.000Z","ok":true,"id":"tool.fast-browser-extension","changed":true,"waived":["tool.fast-browser-extension"]}\n');
+    await setupWaive(["tool.mission-control", "--json"], {}, t.d);
+    expect(quiet.stdout()).toBe('{"contract":1,"at":"2026-01-01T00:00:00.000Z","ok":true,"id":"tool.mission-control","changed":true,"waived":["tool.mission-control"]}\n');
   });
 });

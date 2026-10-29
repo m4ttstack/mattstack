@@ -43,8 +43,9 @@ board's `.env` nor rt's `switchboardToken` holds a token (with the
 re-invite remedy, or, on any Mac holding the admin token, the
 `rt team peer` steps, which `verify`'s note names too), `error` with a re-check when
 `<url>/healthz` (no auth header; `/health` is not a route) does not answer
-200, `ready` otherwise. It is never required or finish-gated (only the org admin
-can fix it), but `verify` reports it, so `rt setup update` notifies. The
+200, `ready` otherwise. It blocks Finish (never Install) and is never waivable;
+only the org admin can fix it, so its steps name them. `verify` reports it,
+so `rt setup update` notifies. The
 stored copies older rt wrote (`board.switchboardUrl`,
 `rt.integrations.switchboardUrl`, the board's `config.json` `switchboard.url`)
 are retired keys deleted by the `2026-10-02-retire-switchboard-url`
