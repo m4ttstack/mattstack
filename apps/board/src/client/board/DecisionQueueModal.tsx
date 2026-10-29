@@ -157,8 +157,8 @@ function DecisionQueueModal({
       {gate.status === 'parked' ? (
         <Button
           type="button"
-          variant="light"
-          intent="accent"
+          variant="subtle"
+          intent="muted"
           size="sm"
           disabled
           title="parked: answering this gate resumes its pane"
@@ -168,8 +168,8 @@ function DecisionQueueModal({
       ) : (
         <Button
           type="button"
-          variant="light"
-          intent="accent"
+          variant="subtle"
+          intent="muted"
           size="sm"
           disabled={!form.originFocusable || form.focusBusy || paneGone}
           title={
