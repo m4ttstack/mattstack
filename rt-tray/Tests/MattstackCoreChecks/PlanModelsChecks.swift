@@ -217,4 +217,17 @@ let planModelsChecks: [Check] = [
         c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","board":null"#).utf8)).board, nil)
         c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action("").utf8)).board, nil)
     },
+    Check("PlanModels: an open-url action's waiting, again and primary decode") { c in
+        let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
+        let json = #"{"type":"open-url","label":"Add to Chrome","url":"\#(url)","primary":true,"waiting":"Waiting for Chrome","again":"Open again"}"#
+        let a = try JSONDecoder().decode(RowAction.self, from: Data(json.utf8))
+        c.expectEqual(a.type, .openURL)
+        c.expectEqual(a.primary, true)
+        c.expectEqual(a.waiting, "Waiting for Chrome")
+        c.expectEqual(a.again, "Open again")
+        let plain = try JSONDecoder().decode(RowAction.self, from: Data(#"{"type":"open-url","label":"Download","url":"https://claude.ai/download"}"#.utf8))
+        c.expectEqual(plain.primary, nil)
+        c.expectEqual(plain.waiting, nil)
+        c.expectEqual(plain.again, nil)
+    },
 ]

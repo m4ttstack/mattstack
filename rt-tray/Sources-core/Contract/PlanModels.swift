@@ -173,6 +173,12 @@ public struct RowAction: Codable, Equatable, Sendable {
     public var segmentRecords: Bool?
     /// On the board's repo only: the line saying the board's agents start there.
     public var board: String?
+    /// `open-url` only, from here down: the line the row shows once the page is open, until the row reads ready.
+    public var waiting: String?
+    /// The button label while waiting; it opens the page again.
+    public var again: String?
+    /// Drawn as the row's one prominent button.
+    public var primary: Bool?
     public init(type: ActionType, label: String, target: String? = nil, which: String? = nil,
                 integration: String? = nil, fields: [ActionField]? = nil,
                 alternatives: [ActionAlternative]? = nil, verb: [String]? = nil, tool: String? = nil,
@@ -181,7 +187,8 @@ public struct RowAction: Codable, Equatable, Sendable {
                 subtitle: String? = nil, footnote: String? = nil, create: ActionLink? = nil,
                 identity: String? = nil, repo: String? = nil, mode: String? = nil, checkoutPath: String? = nil,
                 clonePath: String? = nil, note: String? = nil, problem: String? = nil, then: [String]? = nil,
-                oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil, board: String? = nil) {
+                oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil, board: String? = nil,
+                waiting: String? = nil, again: String? = nil, primary: Bool? = nil) {
         self.type = type; self.label = label; self.target = target; self.which = which
         self.integration = integration; self.fields = fields; self.alternatives = alternatives
         self.verb = verb; self.tool = tool; self.via = via; self.steps = steps; self.url = url
@@ -190,6 +197,7 @@ public struct RowAction: Codable, Equatable, Sendable {
         self.identity = identity; self.repo = repo; self.mode = mode; self.checkoutPath = checkoutPath
         self.clonePath = clonePath; self.note = note; self.problem = problem; self.then = then
         self.oneClick = oneClick; self.segmentRecords = segmentRecords; self.board = board
+        self.waiting = waiting; self.again = again; self.primary = primary
     }
 }
 

@@ -34,7 +34,9 @@ export type Action =
   | { type: "install"; label: string; tool: string; via: "brew" | "vendor" | "apple-clt" | "bundled-link" }
   | { type: "link-bundled"; label: string; tool: string }
   | { type: "steps"; label: string; steps: string[] }
-  | { type: "open-url"; label: string; url: string }
+  // `waiting` is the line the app shows once the page is open, until the row reads ready; `again`
+  // labels the button that opens it again meanwhile. `primary` draws it as the row's prominent button.
+  | { type: "open-url"; label: string; url: string; waiting?: string; again?: string; primary?: boolean }
   | { type: "run"; label: string; verb: string[] }
   // Collects `fields` in the app, then runs `verb --json` with the values as JSON on stdin; an
   // alternative runs the same verb with {"alternative": "<id>"} instead. `connect` without an integration.

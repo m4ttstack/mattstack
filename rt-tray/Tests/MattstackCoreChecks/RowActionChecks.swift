@@ -45,6 +45,11 @@ let rowActionChecks: [Check] = [
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .unknown, label: "?"), fieldValues: nil, alternative: nil), .none)
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .openURL, label: "x", url: "not a url at all ::"), fieldValues: nil, alternative: nil), .none)
     },
+    Check("RowActionDispatcher: Add to Chrome opens the Web Store") { c in
+        let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
+        let add = RowAction(type: .openURL, label: "Add to Chrome", url: url, waiting: "Waiting for Chrome", again: "Open again", primary: true)
+        c.expectEqual(RowActionDispatcher.dispatch(add, fieldValues: nil, alternative: nil), .openURL(URL(string: url)!))
+    },
     Check("failureCopy redacts stderr for secret-bearing actions; RtClientError.copy never echoes the raw error") { c in
         let leaky = RtResult(exitCode: 1, stdout: Data(), stderr: Data("token=glpat-xyz-should-not-leak".utf8))
         let redacted = leaky.failureCopy(verb: "setup gitlab connect", redactStderr: true)

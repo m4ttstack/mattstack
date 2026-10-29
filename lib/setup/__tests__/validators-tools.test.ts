@@ -4,8 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { setSetting } from "../../settings/write.ts";
-import { DONE_ACTION_TYPES, FINISH_GATED_ROW_IDS, STEP_IDS, WAIVABLE_ROW_IDS } from "../contract.ts";
-import { toolRows, extractVersion } from "../validators/tools.ts";
+import { FINISH_GATED_ROW_IDS, STEP_IDS, WAIVABLE_ROW_IDS } from "../contract.ts";
+import { FAST_BROWSER_ADD_ACTION, toolRows, extractVersion } from "../validators/tools.ts";
 import type { ToolsSeams } from "../validators/tools.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
@@ -487,35 +487,37 @@ describe("toolRows - tool.fast-browser-extension", () => {
 
   // doctor warns when macOS privacy keeps it out of Chrome's profile; its
   // wording addresses a terminal, and here the reader is the app.
-  test("extension-installed warns (profile unreadable) -> mattstack's own detail, never doctor's terminal text", async () => {
+  // The row is no longer waivable, so its copy must never offer a skip.
+  test("a profile mattstack cannot read asks for Full Disk Access and never offers a skip", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-installed", "warn")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("mattstack cannot read Chrome's profile. Grant Full Disk Access to mattstack.app, or skip this if Fast Browser shows in chrome://extensions");
-    expect(r.action?.type).toBe("steps");
-    expect((r.action as { steps: string[] }).steps.join(" ")).not.toContain("terminal");
+    expect(r.detail).toBe("mattstack cannot read Chrome's profile. Turn on Full Disk Access for mattstack, then Re-check");
+    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Turn on Full Disk Access for mattstack in System Settings, then Re-check"] });
+    const steps = (r.action as { steps: string[] }).steps;
+    for (const text of [r.detail ?? "", ...steps]) expect(text.toLowerCase()).not.toContain("skip");
+    expect(steps.join(" ")).not.toContain("terminal");
   });
 
   // Install already runs Fast Browser's setup and the default connection is
   // manual, so pairing belongs only to the auto-mode "not paired yet" row.
-  test("extension-loaded check fails -> needs-you with only the Web Store install step", async () => {
+  test("not loaded offers the same button", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
-    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [`Install Fast Browser from the [Chrome Web Store](${WEB_STORE_URL})`] });
+    expect(r.detail).toBe("Not loaded in Chrome");
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
   });
 
   // The extension ships on the Chrome Web Store; doctor's remedy for a missing
   // one still walks a fresh user through Developer mode and Load unpacked.
-  test("not installed (real doctor report) -> Web Store install steps, never Developer mode or Load unpacked", async () => {
+  test("a missing extension offers Add to Chrome, opening the Web Store", async () => {
     const r = await pickRow(toolRows(withChrome(doctorExec(SETUP_INCOMPLETE_DOCTOR)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
-    const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toBe(`Install Fast Browser from the [Chrome Web Store](${WEB_STORE_URL})`);
-    expect(steps.join(" ")).not.toMatch(/Developer mode|Load unpacked/);
-    expect(steps.join(" ")).not.toMatch(/fast-browser configure|reconnect token/);
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
+    expect(FAST_BROWSER_ADD_ACTION).toEqual({ type: "open-url", label: "Add to Chrome", url: WEB_STORE_URL, primary: true, waiting: "Waiting for Chrome", again: "Open again" });
   });
 
   // extension-loaded passes when no managed extension is loaded at all and
@@ -527,8 +529,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
-    const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toContain(WEB_STORE_URL);
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
   });
 
   // doctor distinguishes a missing extension from a store copy on another
@@ -549,7 +550,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(typeof r.detail).toBe("string");
-    expect((r.action as { steps: string[] }).steps[0]).toContain(WEB_STORE_URL);
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
   });
 
   // A stale unpacked load needs Chrome's reload arrow; loading unpacked again
@@ -574,7 +575,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // isn't auto (the documented default). Manual connection is the documented
   // default, so a manually connected machine is healthy. This row reports the
   // check's status rather than inventing an additional rule.
-  test("extension-loaded passes but pairing check fails -> needs-you with pairing-only steps", async () => {
+  test("loaded but unpaired keeps the pairing steps", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "pairing", "fail")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
@@ -629,7 +630,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(rows.filter((r) => r.finishGated).map((r) => r.id)).toEqual(FINISH_GATED_ROW_IDS.filter((id) => !WAIVABLE_ROW_IDS.includes(id)));
   });
 
-  test("every action the extension row can carry, across its states, is one the Done screen handles", async () => {
+  test("every state the extension row can reach carries an action the app can run", async () => {
     const scenarios: ExecScript[] = [
       doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")),
       doctorExec(withCheckStatus(REAL_DOCTOR, "pairing", "fail")),
@@ -641,7 +642,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     for (const exec of scenarios) {
       const r = await pickRow(toolRows(withChrome(exec), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
       expect(r.action).not.toBeNull();
-      expect((DONE_ACTION_TYPES as readonly string[]).includes(r.action!.type)).toBe(true);
+      expect(["open-url", "steps", "run"]).toContain(r.action!.type);
     }
   });
 });
@@ -1321,7 +1322,7 @@ describe("Done-screen contract: optional rows with a manual action", () => {
     const rows = await toolRows(p, reqs, { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
 
     const extension = rows.find((r) => r.id === "tool.fast-browser-extension")!;
-    expect(extension.action?.type).toBe("steps");
+    expect(extension.action?.type).toBe("open-url");
     const signin = rows.find((r) => r.id === "tool.chrome-signin")!;
     expect(signin.action?.type).toBe("steps");
 

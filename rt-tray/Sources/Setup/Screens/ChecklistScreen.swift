@@ -31,6 +31,8 @@ struct ChecklistScreen: View {
     @State private var selected: String?
     @State private var filter: ChecklistLayout.SummaryKind?
     @State private var waitingOnYou: [String: String] = [:]
+    /// Rows whose waiting line came from opening a page, not from an apply run.
+    @State private var pageWaits: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -93,6 +95,7 @@ struct ChecklistScreen: View {
             }
         }
         .environment(\.repoPlacementAnswer, { row, mode, path in placeRepo(row, mode: mode, path: path) })
+        .onChange(of: model.allRows) { _, rows in settlePageWaits(rows) }
         // .contain: without it, the footer HStack's only interactive child
         // (Re-check) reports THIS screen-level identifier instead of its own
         // -- same fix as InstallScreen's stepRow.
@@ -285,6 +288,14 @@ struct ChecklistScreen: View {
         Task { if let recheck { await recheck() } else { await model.recheckAll() } }
     }
 
+    /// A page wait ends when the row reads ready, or when a re-read moves it to an action that waits on nothing (the pairing steps).
+    private func settlePageWaits(_ rows: [PlanRow]) {
+        for row in rows where pageWaits.contains(row.id) && (row.status == .ready || row.action?.waiting == nil) {
+            waitingOnYou[row.id] = nil
+            pageWaits.remove(row.id)
+        }
+    }
+
     private func perform(_ row: PlanRow) {
         guard let action = row.action else { return }
         actionErrors[row.id] = nil
@@ -368,6 +379,10 @@ struct ChecklistScreen: View {
             run(RowActionDispatcher.dispatch(action, fieldValues: ["root": url.path], alternative: nil), for: row)
         case .openURL(let url):
             NSWorkspace.shared.open(url)
+            if let waiting = row.action?.waiting {
+                waitingOnYou[row.id] = waiting
+                pageWaits.insert(row.id)
+            }
         case .showSteps(let list):
             steps = (row.title, list)
         case .collectFields(let fields, _, let alternatives, let create):

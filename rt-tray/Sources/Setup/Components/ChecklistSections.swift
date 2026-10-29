@@ -223,6 +223,11 @@ struct SectionRow: View {
 
     private var isChecking: Bool { activity.checking.contains(row.id) }
     private var isBroken: Bool { row.status == .error || row.status == .invalid }
+    /// After an open-url with `again`, the row waits on the page it opened and its button opens it again.
+    private var pageWait: (text: String, again: String)? {
+        guard let text = activity.waiting[row.id], let action = row.action, action.type == .openURL, let again = action.again else { return nil }
+        return (text, again)
+    }
 
     var body: some View {
         if let action = row.action, action.type == .placeRepo {
@@ -242,7 +247,7 @@ struct SectionRow: View {
                     Text(d).font(.caption).foregroundStyle(isBroken ? Color.red : Color.secondary)
                 }
                 if let n = row.optionalNote { Text(n).font(.caption).foregroundStyle(.secondary) }
-                if let waiting = activity.waiting[row.id] { RowWaitingCaption(rowId: row.id, text: waiting).padding(.top, 2) }
+                if let waiting = activity.waiting[row.id], pageWait == nil { RowWaitingCaption(rowId: row.id, text: waiting).padding(.top, 2) }
                 if let error = activity.errors[row.id] {
                     Text(error).font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.checklistRowError(row.id))
                 }
@@ -253,9 +258,23 @@ struct SectionRow: View {
                 Button(FinishGate.skipSheetConfirm) { onSkip(row) }.controlSize(.regular)
                     .accessibilityIdentifier(AXID.doneSkipRow(row.id))
             }
-            if let action = row.action, action.type != .unknown {
-                Button(action.label) { perform(row) }.controlSize(.regular).disabled(isChecking)
+            if let pageWait {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(pageWait.text).font(.caption).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AXID.checklistRowWaiting(row.id))
+                Button(pageWait.again) { perform(row) }.controlSize(.regular).disabled(isChecking)
                     .accessibilityIdentifier(ids.action(row.id))
+            } else if let action = row.action, action.type != .unknown {
+                if action.primary == true {
+                    Button(action.label) { perform(row) }.buttonStyle(.borderedProminent).controlSize(.regular).disabled(isChecking)
+                        .accessibilityIdentifier(ids.action(row.id))
+                } else {
+                    Button(action.label) { perform(row) }.controlSize(.regular).disabled(isChecking)
+                        .accessibilityIdentifier(ids.action(row.id))
+                }
             }
             RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id))
         }

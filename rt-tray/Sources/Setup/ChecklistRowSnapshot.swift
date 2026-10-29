@@ -58,19 +58,28 @@ enum ChecklistRowSnapshot {
         RowAction(type: .run, label: label, verb: ["setup", "apply", "--only", id])
     }
 
-    private static let extensionID = "tool.browser-extension"
+    private static let extensionID = "tool.fast-browser-extension"
+    /// The same row after Add to Chrome, while the Web Store is open.
+    private static let waitingExtensionID = "tool.fast-browser-extension.waiting"
+
+    private static func extensionRow(_ id: String) -> PlanRow {
+        PlanRow(id: id, kind: .tool, title: "Fast Browser extension",
+                why: "Fast Browser drives your real Chrome session through this extension.", required: false,
+                optionalNote: "You load this into Chrome yourself; Install cannot do it for you.",
+                status: .needsYou, detail: "The pinned Chrome extension is not installed.",
+                action: RowAction(type: .openURL, label: "Add to Chrome",
+                                  url: "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm",
+                                  waiting: "Waiting for Chrome", again: "Open again", primary: true),
+                recheck: .onActivate, finishGated: true, waivable: false)
+    }
 
     private static let tools: [PlanRow] = [
         PlanRow(id: "tool.daemon", kind: .tool, title: "Daemon",
                 why: "The daemon watches your repos and backs MRs and notifications.", required: true,
                 status: .missing, detail: "not registered yet", action: step("Register services", "services.register"),
                 recheck: .onActivate),
-        PlanRow(id: extensionID, kind: .tool, title: "Browser extension",
-                why: "Agents drive your browser through this extension.", required: false,
-                optionalNote: "You load this into your browser yourself; Install cannot do it for you.",
-                status: .needsYou, detail: "not loaded yet",
-                action: RowAction(type: .steps, label: "Show steps…", steps: ["Open the extension store", "Add the extension"]),
-                recheck: .onActivate, finishGated: true),
+        extensionRow(extensionID),
+        extensionRow(waitingExtensionID),
         PlanRow(id: "tool.proxy", kind: .tool, title: "Local proxy",
                 why: "Serves apps on .localhost/.mattstack domains instead of raw ports.", required: false,
                 optionalNote: "Works without this; apps serve on their ports meanwhile.",
@@ -106,9 +115,10 @@ enum ChecklistRowSnapshot {
         var body: some View {
             let layout = ChecklistLayout.make([PlanGroup(id: "tools", title: "Tools", rows: tools),
                                                PlanGroup(id: "mac", title: "Your Mac", rows: mac)],
-                                              finishBlockedBy: [extensionID])
+                                              finishBlockedBy: [extensionID, waitingExtensionID])
             let activity = RowActivity(checking: ["tool.proxy"],
-                                       waiting: ["tool.proxy": NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy])
+                                       waiting: ["tool.proxy": NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy,
+                                                 waitingExtensionID: "Waiting for Chrome"])
             // The second group has settled rows only, so its No action needed card draws open.
             return VStack(alignment: .leading, spacing: 20) {
                 ForEach(layout.sections) { section in
@@ -117,8 +127,7 @@ enum ChecklistRowSnapshot {
             }
             .padding(20)
             .controlSize(.large)
-            .frame(width: SetupWindowController.width)
-        }
+            .frame(width: SetupWindowController.width)        }
     }
 
     private static let installSteps: [InstallStep] = [
