@@ -62,6 +62,7 @@ import {
   itemMix,
   itemNoun,
   leadVerb,
+  personRound,
   RespondCtxFacts,
   respondPerson,
   subjectRef,
@@ -792,6 +793,7 @@ function RespondSheetBody({
         : mainQs.map(q => q.prompt)
   );
   const person = respondPerson(ctx, gate.openedAt, mr);
+  const ownRound = personRound(gate.openedAt, person, mr);
   const dockPick = dockQs
     .map(q => {
       const v = form.selections[q.name];
@@ -868,20 +870,24 @@ function RespondSheetBody({
           title={`Respond to ${people.short(person)}`}
           aside={
             <GateTimeline
-              round={mr?.respond?.responseRound ?? ctx.round ?? 1}
+              round={ownRound ?? ctx.round ?? 1}
               review={{
                 id: person,
                 label: `${people.short(person)} ${personApproved(mr, person) ? 'approved' : 'reviewed'}`,
                 outcome: personApproved(mr, person) ? 'approve' : 'comment',
               }}
               response={{ label: 'Your response', at: plan ? 'Plan' : 'Post' }}
-              history={respondHistory(
-                mr?.respond?.responseRound ?? ctx.round ?? 1,
-                mr?.respondOutcomes?.[person] ?? [],
-                { id: person, name: people.short(person) },
-                mr?.author.username,
-                plan ? 'You, planning' : 'You, posting'
-              )}
+              history={
+                ownRound !== undefined
+                  ? respondHistory(
+                      ownRound,
+                      mr?.respondOutcomes?.[person] ?? [],
+                      { id: person, name: people.short(person) },
+                      mr?.author.username,
+                      plan ? 'You, planning' : 'You, posting'
+                    )
+                  : undefined
+              }
             />
           }
         />
