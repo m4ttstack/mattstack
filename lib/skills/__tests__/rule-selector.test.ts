@@ -115,6 +115,15 @@ describe("rule selector slot", () => {
       expect(body).toMatch(edge("make_recorded_move", "assemble_draft"));
       expect(body).toContain("run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}");
     });
+    test("self-review's diff takes in untracked files without staging them", () => {
+      const body = compiled.verbs["self-review"];
+      expect(body).toMatch(/`git ls-files -z --others\s+--exclude-standard`/);
+      expect(body).toMatch(/`git diff --no-index\s+-- \/dev\/null <path>`/);
+      expect(body).toContain("never `git add` or `git add -N` to make a new file show up");
+      expect(body).toContain("`self-review.diff`");
+      expect(body).toContain("## The diff to review");
+    });
+
     test("receive-review: every edge into the adjudicator passes select_rules", () => {
       const into = [...compiled.verbs["receive-review"].matchAll(/^\s*(\w+) -> dispatch_adjudicator\b/gm)].map((m) => m[1]);
       expect(into).toEqual(["select_rules"]);
