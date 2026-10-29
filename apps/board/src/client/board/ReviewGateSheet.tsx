@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChartColumn, ListChecks, ScanSearch } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -21,13 +22,15 @@ import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
+import { GateTimeline, type RoundEntry } from './GateTimeline.tsx';
 import {
   CircleCheckFilledIcon,
   PencilLineIcon,
   SearchCheckIcon,
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
-import { mrRef } from './MrLinks.tsx';
+import { mrRef, onGitHub } from './MrLinks.tsx';
+import { usePeople } from './people.ts';
 import {
   attachDraftEdits,
   draftEdits,
@@ -44,7 +47,7 @@ import {
 import { FindingCard, SummaryCard, type FilePin } from './ReviewDraftCard.tsx';
 import {
   CarryoverCard,
-  carryoverTally,
+  CarryoverTally,
   carryoverTexts,
   FindingAnchor,
   SkippedEarlier,
@@ -53,7 +56,8 @@ import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
   reserveDock,
-  RoundHeading,
+  SheetEnd,
+  SheetHeading,
   SheetLost,
   SUBMIT_KEYS,
 } from './SheetParts.tsx';
@@ -207,13 +211,51 @@ const DISPOSITION: Record<
 function severityGroups(
   findings: FindingEntry[]
 ): Array<[FindingSeverity, FindingEntry[]]> {
-  return SEVERITY_ORDER.map(
-    s =>
-      [s, findings.filter(f => f.severity === s)] as [
-        FindingSeverity,
-        FindingEntry[],
-      ]
-  ).filter(([, items]) => items.length > 0);
+  // Inside a severity, the findings on the code come first and the ones
+  // with no diff line after, each keeping the agent's order.
+  return SEVERITY_ORDER.map(s => {
+    const items = findings.filter(f => f.severity === s);
+    return [
+      s,
+      [...items.filter(hasDiffLine), ...items.filter(f => !hasDiffLine(f))],
+    ] as [FindingSeverity, FindingEntry[]];
+  }).filter(([, items]) => items.length > 0);
+}
+
+/** The rounds behind a review gate, from what each recorded round posted.
+    A round that approved needs no reply; any other is taken as answered,
+    since a later round exists. */
+function reviewHistory(
+  round: number,
+  outcomes: readonly ('comment' | 'approve')[],
+  you: string | undefined,
+  authorId: string | undefined,
+  author: string
+): RoundEntry[] {
+  return Array.from({ length: round }, (_, i): RoundEntry => {
+    if (i === round - 1)
+      return {
+        round: i + 1,
+        events: [{ id: you, text: 'You, reviewing', now: 'review' }],
+      };
+    const outcome = outcomes[i];
+    const posted = {
+      id: you,
+      text:
+        outcome === 'approve'
+          ? 'You approved'
+          : outcome === 'comment'
+            ? 'You commented'
+            : 'You reviewed',
+    };
+    return {
+      round: i + 1,
+      events:
+        outcome === 'approve'
+          ? [posted]
+          : [posted, { id: authorId, text: `${author} replied` }],
+    };
+  });
 }
 
 /** The drafts the poster falls back to, or null when the gate does not
@@ -299,6 +341,7 @@ function ReviewGateSheet({
   onClose,
   onContinue,
   onFocusPane,
+  self,
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
@@ -308,6 +351,8 @@ function ReviewGateSheet({
   /** Retires a gate answered elsewhere from the queue. */
   onContinue: () => void;
   onFocusPane: (mr: BoardMRWithReview, domain: GateDomain) => void;
+  /** The seat's username: the reviewer when the gate names none. */
+  self?: string | null;
 }) {
   const data = useMemo(() => readReviewGate(gate), [gate]);
   const { questions, groups } = useMemo(
@@ -331,6 +376,7 @@ function ReviewGateSheet({
   const skippedName = skippedQuestion?.id;
   const outcomeName = outcomeQuestion?.id;
   const [mainTab, setMainTab] = useState<'findings' | 'report'>('findings');
+  const people = usePeople(mr);
   const skippedEntries = useMemo(
     () =>
       (skippedQuestion?.options ?? []).flatMap(o => {
@@ -514,26 +560,12 @@ function ReviewGateSheet({
             mrRef={mr && mrRef(mr)}
             mrRevision={mr?.updatedAt ?? undefined}
             pins={f.file ? (pinsByFile.get(anchorPath(f.file)) ?? []) : []}
+            you={you}
             head={
               <label className="tui-review-finding-row tui-review-card-head">
                 {tick}
                 {title}
                 {pills}
-                {!hasDiffLine(f) && (
-                  <Chip
-                    intent="muted"
-                    variant="outline"
-                    uppercase
-                    className="tui-review-in-summary"
-                    title={
-                      f.file
-                        ? `${f.file} has no diff line, so this posts in the summary comment`
-                        : 'No diff line, so this posts in the summary comment'
-                    }
-                  >
-                    in summary
-                  </Chip>
-                )}
                 <span className="tui-review-sev" data-sev={f.severity}>
                   {SEVERITY_LABEL[f.severity]}
                 </span>
@@ -623,22 +655,39 @@ function ReviewGateSheet({
 
   if (!data) return null;
   const { review } = data;
+  const author = mr ? people.short(mr.author.username) : 'the author';
+  const you = review.reviewer ?? self ?? undefined;
   const meta = reviewMeta(review);
-  const roundSummary = [
-    carryovers.length > 0
-      ? `${carryovers.length} earlier ${carryovers.length === 1 ? 'thread' : 'threads'}`
-      : null,
-    findings.length > 0
-      ? `${findings.length} new ${findings.length === 1 ? 'finding' : 'findings'}`
-      : carryovers.length > 0
-        ? 'nothing new'
-        : null,
-    skippedEntries.length > 0
-      ? `${skippedEntries.length} skipped earlier`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+
+  const contextCard = (
+    <div className="tui-sheet-context-card">
+      <span className="tui-sheet-context-label">decision context</span>
+      <p className="tui-sheet-context-lead">
+        {readinessProse(review.readiness)}
+      </p>
+      <div className="tui-sheet-context-reasoning">
+        <Markdown unstyled linkTargetBlank>
+          {review.summary}
+        </Markdown>
+      </div>
+      {meta && <p className="tui-sheet-context-meta">{meta}</p>}
+      {SEVERITY_ORDER.some(s => review.findings[s] > 0) && (
+        <div className="tui-review-tier-pills">
+          {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(s => (
+            <span
+              className="tui-review-sev"
+              data-sev={s}
+              data-tier={SEVERITY_LABEL[s]}
+              key={s}
+            >
+              {SEVERITY_LABEL[s]}
+              <span className="tui-review-sev-count">{review.findings[s]}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <GateSheet
@@ -670,6 +719,27 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" data-sheet="review">
+          <SheetHeading
+            icon={<ScanSearch size={18} aria-hidden />}
+            title={`Review ${author}'s ${mr && onGitHub(mr) ? 'PR' : 'MR'}`}
+            aside={
+              <GateTimeline
+                round={review.round ?? 1}
+                review={{ id: you, label: 'Your review' }}
+                response={{
+                  id: mr?.author.username,
+                  label: `${author}'s response`,
+                }}
+                history={reviewHistory(
+                  review.round ?? 1,
+                  mr?.review?.outcomes ?? [],
+                  you,
+                  mr?.author.username,
+                  author
+                )}
+              />
+            }
+          />
           <div
             className="tui-tab-strip tui-review-tabs"
             role="tablist"
@@ -677,10 +747,10 @@ function ReviewGateSheet({
           >
             {(
               [
-                ['findings', 'Findings', findings.length],
-                ['report', 'Report', undefined],
+                ['findings', 'Findings', ListChecks, findings.length],
+                ['report', 'Report', ChartColumn, undefined],
               ] as const
-            ).map(([id, label, count]) => (
+            ).map(([id, label, TabIcon, count]) => (
               <button
                 key={id}
                 role="tab"
@@ -689,6 +759,7 @@ function ReviewGateSheet({
                 className={`tui-tab${mainTab === id ? ' active' : ''}`}
                 onClick={() => setMainTab(id)}
               >
+                <TabIcon size={14} aria-hidden />
                 {label}
                 {count !== undefined && (
                   <span className="tui-tab-count">{count}</span>
@@ -698,22 +769,23 @@ function ReviewGateSheet({
           </div>
           {mainTab === 'findings' && (
             <>
-              {review.round !== undefined && (
-                <RoundHeading round={review.round} summary={roundSummary} />
-              )}
               {carryovers.length > 0 && (
                 <>
                   <div className="tui-sheet-list-head">
                     <span className="tui-sheet-list-title">
-                      Your earlier threads ({carryovers.length})
+                      Earlier threads ({carryovers.length})
                     </span>
-                    <span className="tui-sheet-list-tally">
-                      {carryoverTally(carryovers)}
-                    </span>
+                    <CarryoverTally picks={carryovers} />
                   </div>
                   <div className="tui-respond-list">
                     {carryovers.map(c => (
-                      <CarryoverCard key={c.name} pick={c} form={form} />
+                      <CarryoverCard
+                        key={c.name}
+                        pick={c}
+                        form={form}
+                        author={mr?.author?.name ?? 'The author'}
+                        you={you}
+                      />
                     ))}
                   </div>
                 </>
@@ -803,9 +875,17 @@ function ReviewGateSheet({
                   }
                 />
               )}
+              <SheetEnd>You've reached the end of the findings.</SheetEnd>
             </>
           )}
-          {mainTab === 'report' && (record || checks.length > 0) && (
+          {mainTab === 'report' && (
+            <div className="tui-review-report-context">
+              {mr && <MrCard mr={mr} />}
+              {contextCard}
+              {checks.length > 0 && <ChecksCard checks={checks} />}
+            </div>
+          )}
+          {mainTab === 'report' && record && (
             <dl className="tui-review-record">
               {strengths.length > 0 && (
                 <div className="tui-review-record-row">
@@ -859,32 +939,6 @@ function ReviewGateSheet({
                   </dd>
                 </div>
               )}
-              {checks.length > 0 && (
-                <div className="tui-review-record-row">
-                  <dt className="tui-review-record-label">checks</dt>
-                  <dd className="tui-review-record-content">
-                    {checks.map((ch, i) => (
-                      <div className="tui-review-record-item" key={i}>
-                        <Chip
-                          intent={
-                            ch.tag === 'FAIL'
-                              ? 'bad'
-                              : ch.tag === 'PASS'
-                                ? 'ok'
-                                : 'muted'
-                          }
-                          variant="outline"
-                          uppercase
-                          className="tui-sheet-card-chip"
-                        >
-                          {ch.tag}
-                        </Chip>
-                        <span>{ch.text}</span>
-                      </div>
-                    ))}
-                  </dd>
-                </div>
-              )}
             </dl>
           )}
           {mainTab === 'report' && !record && (
@@ -898,39 +952,7 @@ function ReviewGateSheet({
             <>
               <div className="tui-sheet-rail-scroll">
                 {mr && <MrCard mr={mr} />}
-                <div className="tui-sheet-context-card">
-                  <span className="tui-sheet-context-label">
-                    decision context
-                  </span>
-                  <p className="tui-sheet-context-lead">
-                    {readinessProse(review.readiness)}
-                  </p>
-                  <div className="tui-sheet-context-reasoning">
-                    <Markdown unstyled linkTargetBlank>
-                      {review.summary}
-                    </Markdown>
-                  </div>
-                  {meta && <p className="tui-sheet-context-meta">{meta}</p>}
-                  {SEVERITY_ORDER.some(s => review.findings[s] > 0) && (
-                    <div className="tui-review-tier-pills">
-                      {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(
-                        s => (
-                          <span
-                            className="tui-review-sev"
-                            data-sev={s}
-                            data-tier={SEVERITY_LABEL[s]}
-                            key={s}
-                          >
-                            {SEVERITY_LABEL[s]}
-                            <span className="tui-review-sev-count">
-                              {review.findings[s]}
-                            </span>
-                          </span>
-                        )
-                      )}
-                    </div>
-                  )}
-                </div>
+                {contextCard}
 
                 {checks.length > 0 && <ChecksCard checks={checks} />}
               </div>

@@ -3592,7 +3592,7 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
-  padding: 14px 20px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
 }
 .tui-gate-sheet-lead {
@@ -3609,9 +3609,9 @@ a.tui-id-card-ref:focus-visible {
   min-width: 0;
 }
 .tui-gate-sheet-title {
-  font-weight: 700;
-  font-size: 20px;
-  color: var(--text-1);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-2);
 }
 .tui-gate-sheet-actions {
   display: flex;
@@ -3658,7 +3658,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-gate-queue-pos {
   line-height: 1.2;
-  font-size: var(--gate-font-meta);
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
   white-space: nowrap;
@@ -3786,7 +3786,7 @@ a.tui-id-card-ref:focus-visible {
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 4px 12px;
   margin: -22px -28px 28px -26px;
   padding: 16px 28px 16px 26px;
@@ -3806,6 +3806,261 @@ a.tui-id-card-ref:focus-visible {
   font-size: var(--gate-font-body);
   color: var(--text-2);
 }
+.tui-sheet-round-aside {
+  align-self: center;
+  margin-left: auto;
+}
+.tui-sheet-round-n {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tui-sheet-round-n > svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+/* Where a gate sits in the review loop. A step's colour says what it was:
+   accent for a review that commented, ok for an approval, purple for the
+   response (the board's commented, approved and comments-resolved pills).
+   A line takes the colour of the step it leaves. */
+.tui-tl,
+.tui-tl-response-steps {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tui-tl:has(.tui-tl-response) {
+  align-items: flex-end;
+}
+.tui-tl:has(.tui-tl-response) > li:not(.tui-tl-response) {
+  margin-bottom: 8px;
+}
+.tui-tl > li,
+.tui-tl-response-steps > li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.tui-tl > li + li::before,
+.tui-tl-response-steps > li + li::before {
+  content: '';
+  width: 24px;
+  height: 2px;
+  /* 8px clear on both sides: the item's own 7px gap makes up the right. */
+  margin: 0 1px 0 8px;
+  border-radius: 1px;
+  background: var(--border-soft);
+}
+.tui-tl-response-steps > li + li::before {
+  width: 20px;
+}
+.tui-tl > li + .tui-tl-response {
+  position: relative;
+  margin-left: 40px;
+}
+.tui-tl > li + .tui-tl-response::before {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: calc(50% + 5px);
+  margin: 0;
+}
+.tui-tl-round-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, var(--card));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tui-tl-round-chip[data-menu] {
+  cursor: pointer;
+}
+.tui-tl-round-chip[data-menu]:hover,
+.tui-tl-round-chip[data-menu][data-popup-open] {
+  background: color-mix(in srgb, var(--fg) 10%, var(--card));
+}
+.tui-tl-round-chip > svg {
+  color: var(--text-3);
+}
+/* The round menu: a label column, then who did what, rounds ruled apart. */
+.tui-tl-history {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 300px;
+  padding: 16px;
+}
+.tui-tl-history-round {
+  display: flex;
+  gap: 12px;
+}
+.tui-tl-history-round + .tui-tl-history-round {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.tui-tl-history-n {
+  flex: 0 0 60px;
+  line-height: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.tui-tl-history-round[data-current] .tui-tl-history-n {
+  font-weight: 700;
+  color: var(--text-1);
+}
+.tui-tl-history ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tui-tl-history li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+/* Holds a line's place when its person is unknown, so the text still aligns. */
+.tui-tl-history-blank {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+.tui-tl-history li[data-now] {
+  font-weight: 600;
+}
+.tui-tl-history li[data-now='review'] {
+  color: var(--text-accent);
+}
+.tui-tl-history li[data-now='response'] {
+  color: var(--text-purple);
+}
+.tui-tl-mark {
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  background: var(--card);
+}
+.tui-tl-step[data-state='done'] {
+  color: var(--text-1);
+}
+.tui-tl-step[aria-current] {
+  font-weight: 700;
+  color: var(--tl-text);
+}
+.tui-tl-step[data-phase='review'] {
+  --tl-fill: var(--fill-accent);
+  --tl-text: var(--text-accent);
+}
+.tui-tl-step[data-outcome='approve'] {
+  --tl-fill: var(--fill-ok);
+  --tl-text: var(--text-ok);
+}
+.tui-tl-step[data-phase='response'] {
+  --tl-fill: var(--fill-purple);
+  --tl-text: var(--text-purple);
+}
+.tui-tl-step[data-phase='review'] .tui-tl-mark {
+  width: 26px;
+  height: 26px;
+}
+.tui-tl-step[data-phase='review']:is([data-state='done'], [aria-current])
+  .tui-tl-mark {
+  border: 1px solid color-mix(in srgb, var(--tl-fill) 28%, transparent);
+  background: color-mix(in srgb, var(--tl-fill) 18%, var(--card));
+  color: var(--tl-text);
+}
+.tui-tl-step[data-phase='response']:is([data-state='done'], [aria-current])
+  .tui-tl-mark {
+  border-color: color-mix(in srgb, var(--tl-fill) 45%, transparent);
+  color: var(--tl-text);
+}
+.tui-tl-response-steps > [data-state='next'] .tui-tl-mark {
+  border-color: color-mix(in srgb, var(--fill-purple) 35%, transparent);
+}
+.tui-tl-mark > span {
+  /* Even, so it sits whole pixels in from either edge of an even mark. */
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tl-fill);
+}
+.tui-tl-step[aria-current] .tui-tl-mark {
+  position: relative;
+}
+.tui-tl-step[aria-current] .tui-tl-mark::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  animation: tui-tl-here 2.4s ease-out infinite;
+}
+@keyframes tui-tl-here {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--tl-fill) 35%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-tl-step[aria-current] .tui-tl-mark::after {
+    animation: none;
+  }
+}
+.tui-tl-step[data-outcome='comment'] + li::before {
+  background: var(--fill-accent);
+}
+.tui-tl-step[data-outcome='approve'] + li::before {
+  background: var(--fill-ok);
+}
+.tui-tl-response-steps > [data-state='done'] + li::before {
+  background: var(--fill-purple);
+}
+/* Plan, Fix and Post are one phase: a purple wash, named on its top edge. */
+.tui-tl-response {
+  position: relative;
+  padding: 18px 18px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fill-purple) 10%, transparent);
+}
+.tui-tl-response-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  translate: -50% -50%;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--fill-purple) 35%, transparent);
+  border-radius: 4px;
+  background: var(--card);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-purple);
+}
 .tui-sheet-round + .tui-sheet-list-head {
   margin-top: 0;
 }
@@ -3823,6 +4078,13 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-sheet-list-title {
   font-weight: 700;
+}
+.tui-sheet-list-head:has(+ .tui-sheet-list-lede) {
+  margin-bottom: 4px;
+}
+.tui-sheet-list-lede {
+  margin: 0 0 12px;
+  color: var(--text-2);
 }
 .tui-sheet-list-tally {
   color: var(--text-3);
@@ -4135,6 +4397,7 @@ a.tui-id-card-ref:focus-visible {
   margin-top: 0;
 }
 .tui-review-card-head .tui-review-finding-title {
+  flex: 0 1 auto;
   font-size: 14px;
   font-weight: 600;
 }
@@ -4143,16 +4406,16 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
 }
 .tui-review-sev::before {
   content: '';
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: var(--text-4);
+  background: var(--text-3);
 }
 .tui-review-sev[data-sev='critical'] {
   color: var(--text-bad-small);
@@ -4308,11 +4571,27 @@ a.tui-id-card-ref:focus-visible {
   border-bottom: 1px solid var(--border-soft);
 }
 .tui-review-code-path {
+  display: flex;
   min-width: 0;
   font-family: var(--font-mono);
   font-size: 12px;
+  white-space: nowrap;
   color: var(--text-1);
-  overflow-wrap: anywhere;
+}
+/* The folders shrink first and lose their start: right-to-left puts the
+   ellipsis on the left, and the inner run keeps the path in order. */
+.tui-review-code-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.tui-review-code-name {
+  flex: none;
+}
+.tui-review-code-file > :not(.tui-review-code-path) {
+  flex-shrink: 0;
 }
 /* The anchor's line reads like the file name in a finding's anchor. */
 .tui-review-code-line {
@@ -4351,21 +4630,24 @@ a.tui-id-card-ref:focus-visible {
 /* Inside a drafted card the card is the box: the code loses its own frame
    and its file bar spans the card. The snippet, not the whole block, opens
    the full diff. */
-.tui-review-finding .tui-review-section[data-section='code'] {
+:is(.tui-review-finding, .tui-reply-card)
+  .tui-review-section[data-section='code'] {
   padding: 0;
   border-top: none;
 }
-.tui-review-finding .tui-review-code,
-.tui-review-finding .tui-review-code:hover {
+:is(.tui-review-finding, .tui-reply-card) .tui-review-code,
+:is(.tui-review-finding, .tui-reply-card) .tui-review-code:hover {
   border: none;
   border-radius: 0;
   cursor: default;
 }
-.tui-review-finding .tui-review-code-file {
+:is(.tui-review-finding, .tui-reply-card) .tui-review-code-file {
   padding: 6px 14px;
   background: var(--panel);
 }
-.tui-review-finding .tui-review-code[data-folded] .tui-review-code-file {
+:is(.tui-review-finding, .tui-reply-card)
+  .tui-review-code[data-folded]
+  .tui-review-code-file {
   border-bottom: none;
 }
 .tui-review-code-snippet {
@@ -4373,12 +4655,23 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-review-code-fold {
   display: inline-flex;
-  padding: 0;
+  margin: -3px;
+  padding: 3px;
   border: none;
+  border-radius: 4px;
   background: none;
   color: var(--text-3);
   cursor: pointer;
-  transition: transform 120ms;
+  transition:
+    transform 120ms,
+    background-color 120ms,
+    color 120ms;
+}
+@media (hover: hover) {
+  .tui-review-code-fold:hover {
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    color: var(--text-1);
+  }
 }
 .tui-review-code[data-folded] .tui-review-code-fold {
   transform: rotate(-90deg);
@@ -4403,10 +4696,293 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-finding .tui-review-section[data-section='comment'] {
   position: relative;
   padding: 16px 14px 14px;
-  background: var(--panel);
+  background: var(--card-well);
 }
 .tui-review-finding .tui-review-section[data-section='comment']:last-child {
   border-radius: 0 0 7px 7px;
+}
+
+/* A reply on a review thread: the finding card's header, comment area and
+   corners, with the thread as who said what in between. */
+.tui-reply-card .tui-review-section[data-section='comment'] {
+  position: relative;
+  padding: 16px 14px 14px;
+  background: var(--card);
+  border-radius: 0 0 7px 7px;
+}
+/* Your reply sits on a shaded band across the card's foot, as GitLab's
+   reply does; the field on it stays a plain card. */
+.tui-reply-band {
+  margin: 0 -14px -14px;
+  /* Room above the field for the edit chip that rides its top edge. */
+  padding: 18px 14px 14px;
+  border-radius: 0 0 7px 7px;
+  background: color-mix(in srgb, var(--fg) 3%, var(--card));
+}
+/* The elbow reaches from the comment above, past the band's top edge. */
+.tui-reply-band > .tui-plan-answer {
+  margin-top: 0;
+}
+.tui-reply-band > .tui-plan-answer::before {
+  top: -31px;
+  height: 51px;
+}
+.tui-reply-band > .tui-plan-answer:has(.tui-cte[data-editing])::before {
+  height: 76px;
+}
+.tui-reply-head {
+  padding: 0;
+}
+.tui-reply-head-label {
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: inherit;
+}
+.tui-reply-head-label:focus-within {
+  background: none;
+  outline: none;
+}
+.tui-reply-head-label .tui-gate-choice-input {
+  margin-top: 0;
+}
+.tui-reply-head .tui-reply-resolve {
+  padding-right: 14px;
+}
+.tui-reply-title[data-file] {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+}
+.tui-reply-card[data-off] .tui-reply-title {
+  color: var(--text-3);
+}
+.tui-reply-status {
+  display: inline-flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.tui-reply-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tui-reply-status[data-hue='green'] {
+  color: var(--text-ok);
+}
+.tui-reply-status[data-hue='amber'] {
+  color: var(--text-warn);
+}
+.tui-reply-status[data-hue='accent'] {
+  color: var(--text-accent);
+}
+.tui-reply-sha {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-accent-small);
+}
+/* The thread reads top to bottom on one left edge: each message is a name
+   line over its words, and the agent's check closes it under a hairline. */
+.tui-reply-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px 14px 16px;
+}
+.tui-reply-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* A reply sits indented under the comment it answers, joined by a rounded
+   elbow that drops from the comment and turns into the reply's name. */
+.tui-reply-msg + .tui-reply-msg {
+  position: relative;
+  padding-left: 24px;
+}
+.tui-reply-msg + .tui-reply-msg::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: -12px;
+  width: 12px;
+  height: 21px;
+  border-left: 1.5px solid var(--border);
+  border-bottom: 1.5px solid var(--border);
+  border-bottom-left-radius: 8px;
+}
+.tui-reply-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-1);
+}
+.tui-reply-round {
+  margin-left: 10px;
+  vertical-align: 1px;
+}
+.tui-reply-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.tui-reply-silence {
+  align-items: flex-start;
+}
+/* The footer hangs from the field's bottom-right edge as a small tinted
+   tab, set in from the corner, with a soft shade where it meets the field.
+   The field keeps its own border, corners and focus ring. */
+.tui-cte-footer {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  margin: 0 12px 0 auto;
+  border-radius: 0 0 6px 6px;
+  background: color-mix(in srgb, var(--fg) 8%, var(--card));
+  box-shadow: inset 0 3px 3px -3px color-mix(in srgb, black 18%, transparent);
+  transition: background-color 200ms ease;
+}
+/* While writing, the helper line shares the tab's row: the line takes the
+   left and the tab keeps the right, so neither pushes the other down. */
+.tui-cte-wrap:has(> .tui-cte-footer) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte {
+  flex: 0 0 100%;
+}
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte[data-editing] ~ .tui-cte-hint {
+  flex: 1;
+  order: 1;
+}
+.tui-cte-wrap:has(> .tui-cte-footer) > .tui-cte-footer {
+  order: 2;
+}
+/* Ticked, the tab washes blue: this thread resolves when the review posts. */
+.tui-cte-footer:has(.tui-gate-choice-input:checked) {
+  background: color-mix(in srgb, var(--fill-accent) 13%, var(--card));
+}
+/* The whole tab is the tick's label: a deeper tint under the pointer and
+   deeper still while pressed. */
+.tui-cte-footer:hover {
+  background: color-mix(in srgb, var(--fg) 12%, var(--card));
+}
+.tui-cte-footer:active {
+  background: color-mix(in srgb, var(--fg) 16%, var(--card));
+}
+.tui-cte-footer:has(.tui-gate-choice-input:checked):hover {
+  background: color-mix(in srgb, var(--fill-accent) 19%, var(--card));
+}
+.tui-cte-footer:has(.tui-gate-choice-input:checked):active {
+  background: color-mix(in srgb, var(--fill-accent) 25%, var(--card));
+}
+/* The footer's tick is a quiet line, not a second field. */
+.tui-cte-footer .tui-reply-resolve {
+  flex-direction: row-reverse;
+  padding: 3px 14px 4px;
+  user-select: none;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.tui-cte-footer .tui-gate-choice-input {
+  width: 13px;
+  height: 13px;
+}
+/* The findings close on a quiet line with room under it, so the last card
+   never sits against the end of the scroll. */
+.tui-sheet-end {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 44px 0 64px;
+  font-size: 15px;
+  color: var(--text-3);
+}
+.tui-sheet-end p {
+  margin: 0;
+}
+.tui-sheet-end-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border-soft);
+  background: var(--panel);
+  box-shadow: inset 0 1px 3px color-mix(in srgb, black 12%, transparent);
+  color: var(--text-3);
+}
+/* The agent's verdict opens the comment area, the reason for the reply
+   below it; the gap clears the field's pill on its top border. */
+.tui-reply-card .tui-review-section[data-section='comment'] > .tui-reply-check {
+  margin-bottom: 6px;
+}
+/* The agent's check is a kit button; a click opens what it found. */
+.tui-reply-check {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.tui-reply-check-chevron {
+  display: inline-flex;
+  margin-left: 2px;
+  transition: transform 150ms;
+}
+.tui-reply-check-chevron[data-open] {
+  transform: rotate(90deg);
+}
+/* The note hangs from the button on a rule in its tone, dropped from
+   under the button's icon. Only the disclosure's height animates. */
+.tui-reply-check {
+  --check-line: var(--fill-warn);
+}
+.tui-reply-check[data-verdict='verified'] {
+  --check-line: var(--fill-ok);
+}
+.tui-reply-check[data-verdict='accepted'] {
+  --check-line: var(--fill-accent);
+}
+.tui-reply-check > .tui-disclosure {
+  align-self: stretch;
+}
+.tui-reply-check .tui-disclosure .tui-disclosure-body {
+  padding-top: 0;
+}
+.tui-reply-check-note {
+  margin: 0 0 0 13px;
+  padding: 8px 0 2px 14px;
+  border-left: 2px solid var(--check-line);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.tui-reply-resolve {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.tui-reply-resolve .tui-gate-choice-input[data-checked],
+.tui-reply-head-label .tui-gate-choice-input[data-checked] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px 11px;
 }
 /* The diff draws in a shadow root; these reach it as inherited custom
    properties. */
@@ -5011,7 +5587,7 @@ a.tui-id-card-ref:focus-visible {
 /* At rest the hint is a pill riding the field's top border, in the
    field's top padding, so it never covers the text; it eases in with the
    pointer. The section it sits in is its positioning box. */
-.tui-cte[data-variant='plain']:not([data-editing]) + .tui-cte-hint {
+.tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint {
   position: absolute;
   top: -10px;
   right: 12px;
@@ -5026,16 +5602,14 @@ a.tui-id-card-ref:focus-visible {
   line-height: 1;
   color: var(--text-accent);
   background: color-mix(in srgb, var(--fill-accent) 12%, var(--card));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--fill-accent) 14%, transparent),
-    0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fill-accent) 14%, transparent);
   opacity: 0;
   transform: translateY(3px) scale(0.94);
   pointer-events: none;
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* Write's hint tucks just under the field. */
-.tui-cte[data-variant='plain'][data-editing] + .tui-cte-hint {
+.tui-cte[data-variant='plain'][data-editing] ~ .tui-cte-hint {
   margin-top: 5px;
 }
 .tui-cte-hint svg {
@@ -5044,14 +5618,23 @@ a.tui-id-card-ref:focus-visible {
   flex-shrink: 0;
 }
 @media (hover: hover) {
-  .tui-cte[data-variant='plain']:not([data-editing]):hover + .tui-cte-hint {
+  .tui-cte[data-variant='plain']:not([data-editing]):hover ~ .tui-cte-hint,
+  .tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint:hover {
     opacity: 1;
     transform: none;
+    pointer-events: auto;
+    cursor: pointer;
   }
+  .tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint:hover {
+    background: color-mix(in srgb, var(--fill-accent) 20%, var(--card));
+  }
+}
+.tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint:active {
+  background: color-mix(in srgb, var(--fill-accent) 28%, var(--card));
 }
 /* The flash mounts already shown, so it eases in from the hidden pose. */
 .tui-cte[data-variant='plain']:not([data-editing])
-  + .tui-cte-hint[data-flash='shown'] {
+  ~ .tui-cte-hint[data-flash='shown'] {
   opacity: 1;
   transform: none;
   @starting-style {
@@ -5061,12 +5644,10 @@ a.tui-id-card-ref:focus-visible {
 }
 /* "Comment updated" is a done state, so it takes the ok wash, not the
    accent the edit cue wears; it keeps it through the fade. */
-.tui-cte[data-variant='plain']:not([data-editing]) + .tui-cte-hint[data-flash] {
+.tui-cte[data-variant='plain']:not([data-editing]) ~ .tui-cte-hint[data-flash] {
   color: var(--text-ok);
   background: color-mix(in srgb, var(--fill-ok) 12%, var(--card));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--fill-ok) 18%, transparent),
-    0 1px 3px color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fill-ok) 18%, transparent);
 }
 @media (hover: hover) {
   .tui-cte[data-variant='filled']:not([data-editing]):hover {
@@ -6603,17 +7184,30 @@ a.tui-id-card-ref:focus-visible {
   }
 }
 
-/* The review sheet's main column sits a step lighter than the page, so its
+/* The review and respond sheets' main column sits a step lighter than the page, so its
    white cards separate softly. */
-.tui-sheet-main[data-sheet='review'] {
+.tui-sheet-main:is([data-sheet='review'], [data-sheet='respond']) {
+  /* A card's lower well sits a step darker than the page around it. */
+  --card-well: color-mix(in srgb, var(--fg) 4.5%, var(--card));
   background: var(--panel);
 }
 /* On a wide display the findings stop at a readable measure, centred in
-   the column, with the rail still pinned right; 1120px keeps a 12px mono
-   diff line near 150 characters. */
-.tui-sheet-main[data-sheet='review'] > * {
-  max-width: 1120px;
+   the column, with the rail still pinned right; 1040px keeps a 12px mono
+   diff line near 140 characters without stretching the prose. */
+.tui-sheet-main:is([data-sheet='review'], [data-sheet='respond']) > * {
+  max-width: 1040px;
   margin-inline: auto;
+}
+/* The round band spans the whole column; its padding lines its text up
+   with the capped content below. */
+@media (min-width: 721px) {
+  .tui-sheet-main:is([data-sheet='review'], [data-sheet='respond'])
+    > .tui-sheet-round {
+    max-width: none;
+    margin-inline: -26px -28px;
+    padding-inline: calc(26px + max(0px, (100% - 1040px) / 2))
+      calc(28px + max(0px, (100% - 1040px) / 2));
+  }
 }
 
 /* The summary comment in the dock: two lines at rest, whole when open. */
@@ -6638,10 +7232,6 @@ a.tui-id-card-ref:focus-visible {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-.tui-review-dock-summary .tui-cte[data-variant='filled']:not([data-editing]) {
-  border-color: var(--border-soft);
-  background: var(--card);
 }
 
 /* The rail's checks: a tally beside the title, then every check. */
@@ -6674,6 +7264,14 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-tier-pills:has(.tui-review-sev) {
   gap: 14px;
 }
+/* The earlier threads' tally: the cards' own status marks, in a row. */
+.tui-carry-tally {
+  gap: 14px;
+  margin-top: 0;
+}
+.tui-carry-tally > .tui-reply-status {
+  margin-left: 0;
+}
 .tui-review-sev-count {
   margin-left: 2px;
   font-weight: 400;
@@ -6688,11 +7286,8 @@ a.tui-id-card-ref:focus-visible {
   outline-offset: 2px;
 }
 
-/* A finding with no diff line says where its comment goes in the head;
-   its comment then follows the head straight on, under the head's line. */
-.tui-review-in-summary {
-  flex-shrink: 0;
-}
+/* A finding with no diff line: its comment follows the head straight on,
+   under the head's line. */
 .tui-review-card-head
   + .tui-review-card-body
   > .tui-review-section:first-child {
@@ -6836,26 +7431,6 @@ a.tui-id-card-ref:focus-visible {
 
 /* The info mark beside a code file's path, and the agent's finding it
    opens on a click. */
-.tui-review-info {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-.tui-review-info:hover,
-.tui-review-info[data-popup-open] {
-  color: var(--text-accent);
-  background: color-mix(in srgb, var(--fill-accent) 10%, transparent);
-}
-.tui-review-info:focus-visible {
-  outline: 2px solid var(--fill-accent);
-  outline-offset: 1px;
-}
 .tui-review-info-card {
   display: flex;
   flex-direction: column;
@@ -6870,6 +7445,15 @@ a.tui-id-card-ref:focus-visible {
   font-size: 11px;
   font-weight: 500;
   color: var(--text-3);
+}
+/* The suggested fix follows the finding under a hairline, same label. */
+.tui-review-info-fix {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
 }
 
 /* The code under its file bar; motion eases its height on fold. */
@@ -6895,4 +7479,247 @@ a.tui-id-card-ref:focus-visible {
       0 -10px 0 0 var(--surface-wash-fg-4-card),
       0 18px 0 0 var(--surface-wash-fg-4-card);
   }
+}
+
+/* The snippet's stand-in while it loads: seven quiet bars at the diff's
+   line pitch, pulsing gently. */
+.tui-review-code-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 9.2px;
+  padding: 9px 14px 9px 52px;
+}
+.tui-review-code-loading > span {
+  height: 10px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  animation: tui-code-loading 1.2s ease-in-out infinite alternate;
+}
+@keyframes tui-code-loading {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-review-code-loading > span {
+    animation: none;
+  }
+}
+
+/* The Report tab opens on the same MR and decision context cards as the
+   rail. */
+.tui-review-report-context {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+/* The rail's MR card sits on the panel there; on the panel-toned main
+   column it takes the card ground so it doesn't vanish into it. */
+.tui-review-report-context .tui-id-card {
+  border-color: var(--border);
+  background: var(--card);
+}
+.tui-review-tabs .tui-tab > svg {
+  margin-right: 6px;
+}
+
+/* A fix's reply direction: what the reply will say once the fix lands,
+   quoted under a small label rather than framed like a field. */
+.tui-thread-direction {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.tui-thread-direction-k {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.tui-thread-direction-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+/* A plan thread in the review card (B43): the verdict and the fix or
+   reply switch, the reviewer's comment in a box, then what answers it. */
+.tui-plan-card .tui-review-section[data-section='comment'] {
+  gap: 12px;
+}
+.tui-plan-verdict {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tui-plan-verdict > .tui-reply-check {
+  flex: 1;
+  min-width: 0;
+}
+.tui-plan-switch {
+  flex-shrink: 0;
+  padding: 3px;
+  border-radius: 8px;
+}
+.tui-plan-switch [data-part='segmented-option'] {
+  flex: none;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.tui-plan-switch [data-part='segmented-option'][data-active] {
+  font-weight: 600;
+}
+.tui-plan-switch [data-part='segmented-option'][data-active] svg {
+  color: var(--text-accent-small);
+}
+.tui-plan-said {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.tui-plan-said-who {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tui-comment-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+/* The whole invader on a filled tile. */
+.tui-comment-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--avatar-hue, var(--text-3)) 10%,
+    var(--card)
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--avatar-hue, var(--text-3)) 18%, var(--card));
+}
+.tui-comment-avatar svg {
+  width: 100%;
+  height: 100%;
+  transform: scale(0.78);
+}
+.tui-plan-fix {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding-left: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+.tui-plan-fix > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-accent);
+}
+/* What answers the comment hangs under it on a rounded elbow that turns
+   into the answer's name line. */
+.tui-plan-answer {
+  position: relative;
+  /* Room for the click-to-edit chip, which rides 10px above the field. */
+  margin-top: 6px;
+  padding-left: 28px;
+}
+.tui-plan-answer::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: -18px;
+  width: 15px;
+  height: 38px;
+  border-left: 1.5px solid var(--border);
+  border-bottom: 1.5px solid var(--border);
+  border-bottom-left-radius: 8px;
+  /* Matches the edit heading's slide in ClickToEditField (SWAP). */
+  transition: height 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Editing opens a heading row above the field; the elbow follows the
+   field's name line down past it. */
+.tui-plan-answer:has(.tui-cte[data-editing])::before {
+  height: 63px;
+}
+/* Your reply carries a faint accent wash so it reads apart from what it
+   answers; editing turns the field back into a plain one. A finding's own
+   comment, with its code, stays plain. */
+.tui-plan-card .tui-plan-answer .tui-cte:not([data-editing]) {
+  border-color: color-mix(in srgb, var(--fill-accent) 22%, var(--border));
+  background: color-mix(in srgb, var(--fill-accent) 5%, var(--card));
+}
+.tui-plan-later {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  width: fit-content;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.tui-plan-later > [data-part='tooltip'] {
+  display: flex;
+}
+.tui-plan-later-info {
+  display: inline-flex;
+  /* The text's ink sits below its line box's centre. */
+  translate: 0 1px;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tui-plan-later-info:hover,
+.tui-plan-later-info:focus-visible {
+  color: var(--text-1);
+}
+/* The name line inside a comment field, like the reviewer's name in theirs. */
+.tui-cte-lead[data-editable] {
+  cursor: text;
+}
+.tui-cte-lead {
+  padding: 10px 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tui-cte[data-variant='plain']
+  .tui-cte-lead
+  ~ *
+  :is(.tui-cte-view, .tui-cte-input) {
+  padding-top: 2px;
+}
+.tui-stacked-area {
+  gap: 12px;
 }

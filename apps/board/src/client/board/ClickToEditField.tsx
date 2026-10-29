@@ -92,6 +92,8 @@ export function ClickToEditField({
   heading,
   actions,
   badge,
+  footer,
+  lead,
 }: {
   label: string;
   text: string;
@@ -109,6 +111,12 @@ export function ClickToEditField({
   actions?: ReactNode;
   /** At rest, a pill on the field's top-left border, such as "Edited". */
   badge?: ReactNode;
+  /** Controls in a strip along the field's bottom, inside its border and
+      outside the text, so a click there never opens the field. */
+  footer?: ReactNode;
+  /** A line inside the box above the text, such as who is writing ("You:").
+      A click on it edits the field like a click on the text. */
+  lead?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -262,6 +270,24 @@ export function ClickToEditField({
               onAnimationComplete={() => setSwapping(false)}
             >
               <div ref={faces} className="tui-cte-faces">
+                {lead && (
+                  // The name line is part of the field: a click there edits,
+                  // and while editing it must not blur the textarea.
+                  <div
+                    className="tui-cte-lead"
+                    data-editable={readOnly ? undefined : ''}
+                    onMouseDown={e => {
+                      if (editing) e.preventDefault();
+                    }}
+                    onClick={() => {
+                      if (readOnly) return;
+                      if (editing) area.current?.focus();
+                      else open(text.length);
+                    }}
+                  >
+                    {lead}
+                  </div>
+                )}
                 <AnimatePresence mode="popLayout" initial={false}>
                   {editing ? (
                     <m.div key="write" {...FADE}>
@@ -313,6 +339,7 @@ export function ClickToEditField({
                 </AnimatePresence>
               </div>
             </m.div>
+            {footer && <div className="tui-cte-footer">{footer}</div>}
             {hint && (editing || variant === 'plain') && (
               // At rest, plain's hint is the hover "Click to edit" pill; the
               // textbox already says it edits, so the pill stays out of the
@@ -324,6 +351,11 @@ export function ClickToEditField({
                 className="tui-cte-hint"
                 aria-hidden={!editing || undefined}
                 data-flash={editing ? undefined : (flash ?? undefined)}
+                // The rest pill reads like a button, so a click on it opens
+                // the field too, with the caret at the end.
+                onClick={
+                  editing || readOnly ? undefined : () => open(text.length)
+                }
               >
                 {editing ? (
                   <>

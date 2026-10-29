@@ -1,25 +1,22 @@
 import { useState } from 'react';
 
 import type { GateSelections } from '@mattstack/gate-kit';
-import { Markdown } from '@mattstack/tui-kit';
-import { CommentComposer } from './CommentComposer.tsx';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { CarryoverCall, SkippedEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
-import { SearchCheckIcon } from './icons.tsx';
 import { sendableTexts } from './respond-post.ts';
-import { PostResolveChoice } from './RespondCards.tsx';
 import { SEVERITY_LABEL, type CarryoverPick } from './review-gate.ts';
+import { ThreadReplyCard } from './ThreadReplyCard.tsx';
 
 /** Every label names who has to act; none says "open" or "unresolved". */
 export const CARRYOVER_CALL: Record<
   CarryoverCall,
   { text: string; hue: 'green' | 'amber' | 'accent' }
 > = {
-  fixed: { text: 'fixed by author', hue: 'green' },
-  'not-fixed': { text: 'waiting on author', hue: 'amber' },
-  'pushback-accepted': { text: 'author pushed back · accept', hue: 'accent' },
-  'pushback-rejected': { text: 'author pushed back · hold firm', hue: 'amber' },
+  fixed: { text: 'Fixed', hue: 'green' },
+  'not-fixed': { text: 'Waiting on author', hue: 'amber' },
+  'pushback-accepted': { text: 'Pushback accepted', hue: 'accent' },
+  'pushback-rejected': { text: 'Holding firm', hue: 'amber' },
 };
 
 export function isPosting(
@@ -54,119 +51,93 @@ export function carryoverTexts(
   );
 }
 
-/** "2 fixed · 1 pushback accepted · 1 waiting on author" */
-export function carryoverTally(picks: CarryoverPick[]): string {
-  let fixed = 0;
-  let accepted = 0;
-  let waiting = 0;
-  for (const p of picks) {
-    if (p.carry.call === 'fixed') fixed++;
-    else if (p.carry.call === 'pushback-accepted') accepted++;
-    else waiting++;
-  }
-  return [
-    fixed > 0 ? `${fixed} fixed` : null,
-    accepted > 0 ? `${accepted} pushback accepted` : null,
-    waiting > 0 ? `${waiting} waiting on author` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
+const TALLY_ORDER: CarryoverCall[] = [
+  'fixed',
+  'pushback-accepted',
+  'not-fixed',
+  'pushback-rejected',
+];
 
-function Quote({
-  k,
-  who,
-  text,
-}: {
-  k: string;
-  who: 'you' | 'author';
-  text: string;
-}) {
+/** The earlier threads counted by status, each status as its card shows it:
+    the same dot, word and colour, then its count. */
+export function CarryoverTally({ picks }: { picks: CarryoverPick[] }) {
+  const counts = new Map<CarryoverCall, number>();
+  for (const p of picks)
+    counts.set(p.carry.call, (counts.get(p.carry.call) ?? 0) + 1);
   return (
-    <div className="tui-carry-quote" data-who={who}>
-      <span className="tui-carry-quote-k">{k}</span>
-      <div className="tui-carry-quote-text">
-        <Markdown unstyled linkTargetBlank>
-          {text}
-        </Markdown>
-      </div>
-    </div>
+    <span className="tui-review-tier-pills tui-carry-tally">
+      {TALLY_ORDER.filter(c => counts.has(c)).map(c => (
+        <span
+          key={c}
+          className="tui-reply-status"
+          data-hue={CARRYOVER_CALL[c].hue}
+        >
+          {CARRYOVER_CALL[c].text}
+          <span className="tui-review-sev-count">{counts.get(c)}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 
 /** One of the reviewer's earlier threads: what they wrote, what the author
-    said back, the agent's check, and the reply this round posts, with the
-    respond gate's own post/hold and resolve controls. */
+    said back, the agent's check, and the reply this round posts. */
 export function CarryoverCard({
   pick,
   form,
+  author,
+  you,
 }: {
   pick: CarryoverPick;
   form: GateFormState;
+  /** The MR author's name, who the reviewer's thread is with. */
+  author: string;
+  /** The reviewer's username, for the avatar beside the reply. */
+  you?: string;
 }) {
   const { carry } = pick;
   const posting = isPosting(pick, form.selections);
-  const call = CARRYOVER_CALL[carry.call];
   return (
-    <section
-      className="tui-gate-question"
-      data-gate-ctx="thread"
-      data-step="carryover"
-      aria-label={pick.label}
-    >
-      <div className="tui-gate-question-head">
-        <span className="tui-gate-question-label">{pick.label}</span>
-        <span
-          className="tui-respond-chip tui-thread-outcome"
-          data-hue={call.hue}
-          data-call={carry.call}
-        >
-          {call.text}
-        </span>
-      </div>
-      <div className="tui-thread-card">
-        <Quote
-          k={`you wrote · round ${carry.round}`}
-          who="you"
-          text={carry.original}
-        />
-        {carry.authorReply ? (
-          <Quote k="author replied" who="author" text={carry.authorReply} />
-        ) : (
-          <p className="tui-thread-nothing">
-            The author hasn't replied in this thread.
-          </p>
-        )}
-        {carry.note && (
-          <div
-            className="tui-carry-check"
-            data-settled={
-              carry.call === 'fixed' || carry.call === 'pushback-accepted'
-                ? ''
-                : undefined
+    <ThreadReplyCard
+      label={pick.label}
+      status={CARRYOVER_CALL[carry.call]}
+      round={carry.round}
+      messages={[
+        { text: carry.original },
+        ...(carry.authorReply
+          ? [{ who: author, text: carry.authorReply }]
+          : []),
+      ]}
+      silence={carry.authorReply ? undefined : 'No reply from author'}
+      check={
+        carry.note
+          ? {
+              note: carry.note,
+              verdict:
+                carry.call === 'fixed'
+                  ? 'verified'
+                  : carry.call === 'pushback-accepted'
+                    ? 'accepted'
+                    : 'flagged',
             }
-          >
-            <span className="tui-carry-check-icon">
-              <SearchCheckIcon />
-            </span>
-            <span className="tui-carry-check-k">agent's check</span>
-            <span className="tui-carry-check-note">{carry.note}</span>
-          </div>
-        )}
-        <CommentComposer
-          label={`Reply on ${pick.label}`}
-          noun="reply"
-          kicker="will post as reply"
-          heldKicker="drafted reply · not posting"
-          draft={carry.reply}
-          value={posting ? form.texts[pick.name] : undefined}
-          canEdit={posting}
-          onChange={t => form.setText(pick.name, t)}
-          onReset={() => form.clearText(pick.name)}
-          controls={<PostResolveChoice pick={pick} form={form} />}
-        />
-      </div>
-    </section>
+          : undefined
+      }
+      selfId={you}
+      draft={carry.reply}
+      value={posting ? form.texts[pick.name] : undefined}
+      posting={posting}
+      onPosting={on => form.toggleMulti(pick.name, pick.post, on)}
+      resolve={
+        pick.resolve
+          ? {
+              on: isResolving(pick, form.selections),
+              onChange: on => form.toggleMulti(pick.name, pick.resolve!, on),
+            }
+          : undefined
+      }
+      onChange={t => form.setText(pick.name, t)}
+      onReset={() => form.clearText(pick.name)}
+    />
   );
 }
 

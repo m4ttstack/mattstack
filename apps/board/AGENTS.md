@@ -43,10 +43,12 @@ resolves run to MR in the background; the request path never waits on it).
 
 ## Seeing every face
 
-`bun run storybook` from the repo root, then `Gates/Board/Gallery`: one
-story per gate kind and variant, built from real gate shapes with invented
-data (`gate-gallery.fixtures.ts`). Add a story when you add a gate kind or
-variant, with invented names only (the repo is public).
+`bun run storybook` from the repo root, then `Gates/Board`: four stories
+(review first round, review re-review, respond plan, respond post), each
+rebuilt from a real gate's shape with invented data
+(`gate-stories.fixtures.ts`). Keep it to gates a real run asks; a variant
+belongs in a DOM test, not a new story. Invented names only (the repo is
+public).
 
 ## Respond rounds
 
