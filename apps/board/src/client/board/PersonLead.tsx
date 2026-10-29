@@ -20,12 +20,16 @@ export function PersonTag({
   );
 }
 
-/** A comment's name line: the person's invader cropped to a ringed circle,
-    then their name. Without an id it is the name alone. */
+/** A comment's name line: the person's invader framed in a circle like a
+    headshot, then their name. Without an id it is the name alone. */
 export function CommentAuthor({ id, name }: { id?: string; name: string }) {
   return (
     <span className="tui-comment-author">
-      {id && <MemberInvadr id={id} className="tui-comment-avatar" />}
+      {id && (
+        <span className="tui-comment-avatar">
+          <MemberInvadr id={id} />
+        </span>
+      )}
       {name}
     </span>
   );

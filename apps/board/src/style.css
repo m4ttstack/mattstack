@@ -6951,10 +6951,10 @@ a.tui-id-card-ref:focus-visible {
   background: var(--panel);
 }
 /* On a wide display the findings stop at a readable measure, centred in
-   the column, with the rail still pinned right; 1120px keeps a 12px mono
-   diff line near 150 characters. */
+   the column, with the rail still pinned right; 1040px keeps a 12px mono
+   diff line near 140 characters without stretching the prose. */
 .tui-sheet-main:is([data-sheet='review'], [data-sheet='respond']) > * {
-  max-width: 1120px;
+  max-width: 1040px;
   margin-inline: auto;
 }
 /* The round band spans the whole column; its padding lines its text up
@@ -7361,16 +7361,22 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 7px;
 }
-/* The invader cropped to a circle, ringed with a hairline gap. */
+/* The invader enlarged and dropped inside a filled circle, so the frame
+   crops it like a headshot. */
 .tui-comment-avatar {
+  display: inline-flex;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   overflow: hidden;
-  box-shadow:
-    0 0 0 1.5px var(--card),
-    0 0 0 2.5px var(--border-control);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.tui-comment-avatar svg {
+  width: 100%;
+  height: 100%;
+  transform: translateY(14%) scale(1.2);
 }
 .tui-plan-fix {
   display: flex;
