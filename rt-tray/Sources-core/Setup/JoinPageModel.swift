@@ -57,6 +57,9 @@ public final class JoinPageModel: ObservableObject {
     private let needs: NeedBroker
     private let clock: @Sendable () -> Date
     private var pollTask: Task<Void, Never>?
+    /// Bumped by reset and join: a check answered under an older value is dropped.
+    private var generation = 0
+    private var checksInFlight = 0
 
     public init(rt: RtRunning, needs: NeedBroker, clock: @escaping @Sendable () -> Date = Date.init) {
         self.rt = rt; self.needs = needs; self.clock = clock
@@ -90,6 +93,7 @@ public final class JoinPageModel: ObservableObject {
 
     /// Another pass through Your team is another invite, which replaces the pending join.
     public func reset() {
+        generation += 1
         phase = .needsToken
         lastStatus = nil
         checkError = nil
@@ -106,36 +110,52 @@ public final class JoinPageModel: ObservableObject {
     }
 
     public func join() async {
+        guard phase != .joining else { return }
+        generation += 1
+        let mine = generation
         phase = .joining
         logLines = []
         checkError = nil
         let failure = await RowVerbRun.apply(Self.joinVerb, rt: rt, needs: needs,
                                              waiting: { [weak self] copy in await self?.setNeedWaiting(copy) },
                                              log: { [weak self] line in await self?.appendLog(line) })
+        guard mine == generation else { return }
         needWaiting = nil
         if let failure {
             phase = .failed(detail: failure, remedy: nil)
             return
         }
         joinLanded = true
-        await check()
-        if phase == .joining, let checkError {
+        // Never skipped for a poll in flight: that poll's answer is dropped, and only this one can leave Joining.
+        await runCheck()
+        if mine == generation, phase == .joining, let checkError {
             phase = .failed(detail: checkError, remedy: nil)
         }
     }
 
     public func check() async {
         guard !isChecking else { return }
+        await runCheck()
+    }
+
+    private func runCheck() async {
+        let mine = generation
+        checksInFlight += 1
         isChecking = true
-        defer { isChecking = false }
+        defer {
+            checksInFlight -= 1
+            isChecking = checksInFlight > 0
+        }
         let verb = "setup join-status"
         let result: RtResult
         do {
             result = try await rt.run(Self.statusVerb, stdin: nil)
         } catch {
+            guard mine == generation else { return }
             checkError = (error as? RtClientError)?.copy ?? "rt \(verb) failed to start."
             return
         }
+        guard mine == generation else { return }
         if let e = result.userError, e.code != nil {
             if e.code == "no-join" {
                 checkError = nil
@@ -171,9 +191,12 @@ public final class JoinPageModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
                 if self.isAwaitingApproval { await self.check() }
+                if case .approved = self.phase { self.pollTask = nil; return }
             }
         }
     }
+
+    public var isPolling: Bool { pollTask != nil }
 
     public func stopPolling() {
         pollTask?.cancel()

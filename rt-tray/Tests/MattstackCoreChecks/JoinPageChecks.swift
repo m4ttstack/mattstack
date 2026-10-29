@@ -192,6 +192,59 @@ let joinPageChecks: [Check] = [
         rt.answers = ["setup join-status --json": (1, "")]
         c.expect(await JoinPageModel.launchStatus(rt: rt) == nil)
     },
+    Check("JoinPage: the join landed while a poll was in flight: the page still leaves Joining") { c in
+        let rt = ScriptedRt()
+        rt.streamLines = joinOkLines
+        rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
+        rt.duringNextRun = { try? await Task.sleep(nanoseconds: 300_000_000) }
+        let m = await makeModel(rt)
+        let poll = Task { await m.check() }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        c.expect(await MainActor.run { m.isChecking }, "the poll is in flight")
+        await m.join()
+        let afterJoin = await MainActor.run { m.phase }
+        c.expect(await waitingStatus(m) != nil, "the join's own check runs past the poll; got \(afterJoin)")
+        rt.answers = ["setup join-status --json": (2, "")]
+        await poll.value
+        let afterPoll = await MainActor.run { m.phase }
+        c.expect(await waitingStatus(m) != nil, "the stale poll's answer is dropped; got \(afterPoll)")
+        c.expectEqual(await MainActor.run { m.checkError }, nil)
+        c.expect(await MainActor.run { !m.isChecking })
+    },
+    Check("JoinPage: a check still in flight at a reset is dropped") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
+        rt.duringNextRun = { try? await Task.sleep(nanoseconds: 150_000_000) }
+        let m = await makeModel(rt)
+        let poll = Task { await m.check() }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        await MainActor.run { m.reset() }
+        await poll.value
+        c.expectEqual(await MainActor.run { m.phase }, .needsToken)
+    },
+    Check("JoinPage: a second join while one runs does nothing") { c in
+        let rt = ScriptedRt()
+        rt.streamLines = joinOkLines
+        rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
+        rt.duringNextRun = { try? await Task.sleep(nanoseconds: 150_000_000) }
+        let m = await makeModel(rt)
+        let first = Task { await m.join() }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        await m.join()
+        await first.value
+        c.expectEqual(rt.calls.filter { $0.args == joinOnly }.count, 1)
+    },
+    Check("JoinPage: polling ends once approved") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
+        let m = await makeModel(rt)
+        await m.check()
+        await MainActor.run { m.startPolling(every: 0.02) }
+        rt.answers = ["setup join-status --json": (0, statusJSON("approved", since: nil))]
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        c.expectEqual(await MainActor.run { m.phase }, .approved(team: "acme"))
+        c.expect(await MainActor.run { !m.isPolling }, "an approved page has nothing left to ask")
+    },
     Check("JoinPage: a new pass through Your team starts the page over") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup join-status --json": (2, "")]

@@ -129,7 +129,7 @@ struct JoinPageBody: View {
                     "Accepting your invite and copying your team's settings")
         case .waiting:
             return ("hourglass", .accentColor, "Waiting for your team admin to approve your request to join the team",
-                    "Your team admin gets your request in mattstack. Setup carries on by itself once they approve.")
+                    "Your team admin gets your request in mattstack. Continue unlocks once they approve.")
         case .unreadable:
             return ("questionmark.circle", .accentColor, "You joined \(team)",
                     "mattstack can't tell yet whether your team admin approved you. The checklist shows what still waits on them.")
@@ -272,7 +272,7 @@ struct JoinPageBody: View {
     }
 
     private func unreadableReason(_ s: JoinStatus) -> String {
-        let base = "rt couldn't read who your team has approved"
+        let base = "mattstack couldn't read who your team has approved"
         guard s.pull.outcome == "failed" || s.pull.outcome == "held", !s.pull.detail.isEmpty else { return base }
         return "\(base). \(s.pull.detail)"
     }
@@ -299,7 +299,7 @@ struct JoinPageBody: View {
     private var checkStrip: some View {
         HStack(spacing: 6) {
             if display.isChecking { ProgressView().controlSize(.small) }
-            Text(display.phase.isUnreadable ? "Check again once your admin has approved you" : "Setup continues once you're approved")
+            Text(display.phase.isUnreadable ? "Check again, or continue" : "Continue unlocks once they approve")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
             Button("Check again", action: onCheckAgain).controlSize(.small).disabled(display.isChecking)

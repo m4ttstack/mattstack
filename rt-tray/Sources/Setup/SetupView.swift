@@ -27,9 +27,13 @@ struct SetupView: View {
                     JoinScreen(model: join, readiness: readiness, permissions: permissions, rt: env.rt, needs: env.needs)
                         .transition(pushTransition)
                 case .checklist:
-                    ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
-                                    presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil) : .page(flow.page))
-                        .transition(pushTransition)
+                    if flow.holdsChecklist {
+                        ChecklistLoadingView(title: "Checking your team…")
+                    } else {
+                        ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
+                                        presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil) : .page(flow.page))
+                            .transition(pushTransition)
+                    }
                 case .install: InstallScreen(model: install).transition(pushTransition)
                 case .done:
                     ChecklistScreen(
@@ -146,6 +150,7 @@ struct SetupView: View {
 
     private var continueEnabled: Bool {
         guard !flow.primaryClosesWindow else { return true }
+        if flow.holdsChecklist { return false }
         switch flow.step {
         case .welcome: return true
         case .fullDiskAccess: return readiness.fullDiskAccessState == .on

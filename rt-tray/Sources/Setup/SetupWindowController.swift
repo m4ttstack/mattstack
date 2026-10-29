@@ -65,6 +65,8 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         if let step { flow.jump(to: step, landing: step == .checklist && !flow.readOnly) }
         team.enter(entry, choice: choice, joinCode: joinCode)
         if entry == .firstRun, !flow.readOnly, flow.step == .checklist { resumeAJoinStillWaiting() }
+        // The page's own onAppear does not fire again for a window shown a second time.
+        if flow.step == .join { environment.join.startPolling() }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         applyStyle()
@@ -82,9 +84,12 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     /// whose team rows cannot settle yet, so it goes back to the wait.
     private func resumeAJoinStillWaiting() {
         let rt = environment.rt
+        flow.resolvingJoin = true
         Task { @MainActor [weak self] in
-            guard let status = await JoinPageModel.launchStatus(rt: rt), status.state == "waiting",
-                  let self, self.flow.step == .checklist else { return }
+            let status = await JoinPageModel.launchStatus(rt: rt)
+            guard let self else { return }
+            defer { self.flow.resolvingJoin = false }
+            guard let status, status.state == "waiting", self.flow.step == .checklist else { return }
             self.environment.join.adopt(status)
             self.flow.joining = true
             self.flow.jump(to: .join)
@@ -109,6 +114,8 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         SetupSession.setRunning(false, for: ObjectIdentifier(self))
+        // The hosting view outlives the window, so the page's onDisappear never fires on close.
+        environment.join.stopPolling()
         // Only balances an outstanding becameVisible() (see
         // SetupFlowModel.readinessIsVisible) — closing on a step that
         // already left .checklist must not send a second, unmatched hide.

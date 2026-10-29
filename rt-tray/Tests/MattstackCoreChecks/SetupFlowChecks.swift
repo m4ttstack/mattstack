@@ -11,6 +11,24 @@ private let flowGroups = [
 ]
 
 let setupFlowChecks: [Check] = [
+    Check("flow: while a join is being resolved the checklist is held and Continue is off") { c in
+        await MainActor.run {
+            let flow = SetupFlowModel()
+            flow.jump(to: .checklist)
+            c.expect(!flow.holdsChecklist)
+            flow.resolvingJoin = true
+            c.expect(flow.holdsChecklist, "nothing on the checklist may run before the wait is known")
+            flow.jump(to: .join)
+            c.expect(!flow.holdsChecklist, "the join page is what a waiting Mac sees")
+            flow.jump(to: .checklist)
+            flow.resolvingJoin = false
+            c.expect(!flow.holdsChecklist)
+            let status = SetupFlowModel(readOnly: true)
+            status.jump(to: .checklist)
+            status.resolvingJoin = true
+            c.expect(status.holdsChecklist, "the flag alone decides; only the onboarding window ever sets it")
+        }
+    },
     Check("SetupStep order and titles") { c in
         c.expectEqual(SetupStep.allCases, [.welcome, .fullDiskAccess, .team, .join, .checklist, .install, .done])
         c.expectEqual(SetupStep.fullDiskAccess.title, "Full Disk Access")

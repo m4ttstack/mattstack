@@ -52,6 +52,11 @@ public final class SetupFlowModel: ObservableObject {
     /// first run.
     @Published public var entry: SetupEntry = .firstRun
     @Published public var joining = false
+    /// Set while a window opening on the checklist asks whether this Mac is
+    /// still waiting on its team admin: nothing on the checklist may run
+    /// before that answer, since approval-wait rows block Finish, not Install.
+    @Published public var resolvingJoin = false
+    public var holdsChecklist: Bool { resolvingJoin && step == .checklist }
     /// The checklist page on screen: a plan group's id. nil until a plan lands.
     @Published public var page: String?
     @Published public private(set) var pages = WizardPages()
