@@ -480,15 +480,9 @@ describe("readWatchdogConfig", () => {
     expect(readWatchdogConfig(read)).toEqual({
       enabled: false, fastMins: 3, shepherdFastMins: 5, backstopMins: 15,
       retryMins: 1, notifyQuietMins: 1, nagMins: 45, notifyHuman: true,
-      midRunTrustAccept: false, relocationAutoAccept: true,
+      midRunTrustAccept: false,
       backgroundCapMins: 60,
     });
-  });
-
-  test("relocationAutoAccept resolves from the panes family, shared with the reconciler's seam", () => {
-    const read = <T,>(key: string): { value: T } =>
-      ({ value: (key === "panes.relocationAutoAccept" ? false : undefined) as T });
-    expect(readWatchdogConfig(read).relocationAutoAccept).toBe(false);
   });
 
   test("retryMins and notifyQuietMins floor at 1 minute so a 0/0 config cannot notify every sweep; fastMins keeps 0 for the immediate-poke setting", () => {
@@ -519,7 +513,7 @@ describe("the board-37 specimen: a turn that ended before a daemon restart", () 
   const cfg: WatchdogConfig = {
     enabled: true, fastMins: 2, shepherdFastMins: 5, backstopMins: 15,
     retryMins: 5, notifyQuietMins: 30, nagMins: 30, notifyHuman: true,
-    midRunTrustAccept: false, relocationAutoAccept: false,
+    midRunTrustAccept: false,
     backgroundCapMins: 60,
   };
 
@@ -557,7 +551,6 @@ describe("the board-37 specimen: a turn that ended before a daemon restart", () 
         parkStuckAtModal: () => {},
         notifyStuckAtModal: () => {},
         acceptTrustModal: async () => false,
-        acceptRelocationModal: async () => false,
         notifyHuman: () => {},
       },
       cfg: () => cfg,
