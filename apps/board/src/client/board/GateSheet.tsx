@@ -129,7 +129,8 @@ function GateSheet({
             <Button
               type="button"
               iconOnly
-              variant="default"
+              variant="subtle"
+              intent="muted"
               size="sm"
               onClick={page('previous gate', queue.onPrev)}
               disabled={!queue.canPrev}
@@ -154,7 +155,8 @@ function GateSheet({
             <Button
               type="button"
               iconOnly
-              variant="default"
+              variant="subtle"
+              intent="muted"
               size="sm"
               onClick={page('next gate', queue.onNext)}
               disabled={!queue.canNext}
