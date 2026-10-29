@@ -344,6 +344,10 @@ export async function runLatchPass(
       }
 
       const row = trackCanon(deps, rows, mr, canon, stored, now);
+      if (!row) {
+        result.skipped++;
+        continue;
+      }
 
       // Step 1: spent wins over everything, unconditionally.
       if (canon.kind === 'spent') {
@@ -432,7 +436,8 @@ export async function runLatchPass(
 }
 
 /** The row for the canonical latch: adopted from the note when there is
-    none, or re-pointed when a post race left it on an older copy. */
+    none, or re-pointed when a post race left it on an older copy. Null when
+    another writer moved the row since this tick read it. */
 function trackCanon(
   deps: LatchPassDeps,
   rows: Rows,
@@ -440,7 +445,7 @@ function trackCanon(
   canon: LatchRef,
   stored: LatchRow | null,
   now: number
-): LatchRow {
+): LatchRow | null {
   if (stored && stored.discussionId === canon.discussionId) return stored;
   const audit = (action: string) =>
     deps.appendAudit({
@@ -450,19 +455,12 @@ function trackCanon(
       event: 'latch',
       action,
     });
-  if (stored && stored.phase !== 'spent' && canon.kind !== 'spent') {
-    const repointed: LatchRow = {
-      ...stored,
-      discussionId: canon.discussionId,
-      rootNoteId: canon.rootNoteId,
-      updatedAt: now,
-    };
-    rows.put(repointed);
-    audit('repointed');
-    return repointed;
+  // A live row beside a read that shows only a spent latch elsewhere is a
+  // read that cannot see the row's latch yet, as in step 0.
+  if (stored && stored.phase !== 'spent' && canon.kind === 'spent') {
+    return stored;
   }
-  const adopted: LatchRow = {
-    mrUrl: mr.mrUrl,
+  const fresh: Omit<LatchRow, 'mrUrl' | 'updatedAt'> = {
     discussionId: canon.discussionId,
     rootNoteId: canon.rootNoteId,
     phase: canon.kind,
@@ -471,11 +469,59 @@ function trackCanon(
     failures: 0,
     stuck: false,
     variant: null,
-    updatedAt: now,
   };
-  rows.put(adopted);
-  audit('adopted');
-  return adopted;
+  if (!stored) {
+    const adopted: LatchRow = { mrUrl: mr.mrUrl, ...fresh, updatedAt: now };
+    rows.put(adopted);
+    audit('adopted');
+    return adopted;
+  }
+  // Guarded on the copy this tick read, so a row another writer moved in the
+  // meantime is never overwritten from a stale snapshot.
+  const live = stored.phase !== 'spent';
+  const moved = rows.cas(
+    mr.mrUrl,
+    [stored.phase],
+    live
+      ? { discussionId: canon.discussionId, rootNoteId: canon.rootNoteId }
+      : fresh,
+    now,
+    { discussionId: stored.discussionId }
+  );
+  if (!moved) return null;
+  audit(live ? 'repointed' : 'adopted');
+  return live
+    ? {
+        ...stored,
+        discussionId: canon.discussionId,
+        rootNoteId: canon.rootNoteId,
+        updatedAt: now,
+      }
+    : { mrUrl: mr.mrUrl, ...fresh, updatedAt: now };
+}
+
+/** The lane decideRequest sees for a latch the row holds. The row is the
+    record that a commented review existed, so a lane reading error, done with
+    no outcome, or gone must not be refused as having none. A lane in flight
+    passes through, so it still reads review-in-flight. */
+function rowLane(
+  mr: LatchMrFacts,
+  review: ReviewState | undefined
+): ReviewState {
+  if (review && (review.status === 'queued' || review.status === 'reviewing')) {
+    return review;
+  }
+  return {
+    ...(review ?? {
+      mrUrl: mr.mrUrl,
+      iid: mr.iid,
+      status: 'done',
+      startedAt: 0,
+      updatedAt: 0,
+    }),
+    status: 'done',
+    outcome: 'comment',
+  };
 }
 
 async function armedLatch(
@@ -483,12 +529,13 @@ async function armedLatch(
   review: ReviewState | undefined
 ): Promise<void> {
   if (t.canon.kind !== 'armed') return repairArmed(t);
-  if (t.carriers.length === 0 || !review) {
+  if (t.carriers.length === 0) {
     t.result.skipped++;
     return;
   }
   const m = memoryFor(t);
-  const decision = decideRequest(requestOf(t), review, m, t.policy, t.now);
+  const lane = rowLane(t.mr, review);
+  const decision = decideRequest(requestOf(t), lane, m, t.policy, t.now);
   auditDecision(t, decision, m);
   if (decision.action === 'dispatch') return dispatch(t, 'armed', m);
   const wait = waitReasonOf(decision);
@@ -502,6 +549,24 @@ async function queuedLatch(
 ): Promise<void> {
   const { rows, mr, canon, now } = t;
   const guard = { discussionId: canon.discussionId };
+  // The queued marker proves this read post-dates the pass's own rewrite, so
+  // an open thread is the author taking the request back, even while a review
+  // runs. An armed open note is a read from before the request and proves
+  // nothing.
+  if (canon.kind === 'queued' && !canon.resolved) {
+    const moved = rows.cas(
+      mr.mrUrl,
+      ['queued'],
+      { phase: 'armed', wait: null },
+      now,
+      guard
+    );
+    if (moved) {
+      await show(t, 'armed', { state: 'armed' }, 'keep');
+      audit(t, 'withdrawn');
+    }
+    return;
+  }
   // Any review that starts while the request waits is the follow-up, even one
   // launched by hand: one ask never gets two reviews.
   if (review && (review.status === 'queued' || review.status === 'reviewing')) {
@@ -518,37 +583,8 @@ async function queuedLatch(
     }
     return;
   }
-  // The queued marker proves this read post-dates the pass's own rewrite, so
-  // an open thread is the author taking the request back. An armed open note
-  // is a read from before the request and proves nothing.
-  if (canon.kind === 'queued' && !canon.resolved) {
-    const moved = rows.cas(
-      mr.mrUrl,
-      ['queued'],
-      { phase: 'armed', wait: null },
-      now,
-      guard
-    );
-    if (moved) {
-      await show(t, 'armed', { state: 'armed' }, 'keep');
-      audit(t, 'withdrawn');
-    }
-    return;
-  }
-  // The row is the record that a commented review existed. The lane may since
-  // read error or be gone, which decideRequest would refuse outright.
-  const lane: ReviewState = {
-    ...(review ?? {
-      mrUrl: mr.mrUrl,
-      iid: mr.iid,
-      status: 'done',
-      startedAt: 0,
-      updatedAt: 0,
-    }),
-    status: 'done',
-    outcome: 'comment',
-  };
   const m = memoryFor(t);
+  const lane = rowLane(mr, review);
   const decision = decideRequest(requestOf(t), lane, m, t.policy, now);
   const wait = decision.action === 'dispatch' ? null : waitReasonOf(decision);
   if (decision.action === 'dispatch' || !wait) {
@@ -562,7 +598,11 @@ async function queuedLatch(
     return;
   }
   const moved = rows.cas(mr.mrUrl, ['queued'], { wait }, now, guard);
-  if (moved) await show(t, 'queued', variant, 'keep');
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  await show(t, 'queued', variant, 'keep');
   audit(t, 'queued', { reason: wait });
   t.result.queued++;
 }

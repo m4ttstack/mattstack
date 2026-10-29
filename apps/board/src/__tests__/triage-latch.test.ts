@@ -477,23 +477,6 @@ describe('step 3: armed and resolved', () => {
     expect(calls).toContain('resolve:extra');
   });
 
-  test('a refusal replies with the reason and still unresolves', async () => {
-    const db = tempDb();
-    putLatchRow(row({ updatedAt: NOW }), db);
-    const { deps, calls, launches, memory } = harness({
-      db,
-      readReviewStates: () => new Map([[MR, noOutcome]]),
-      detail: detail(
-        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
-      ),
-    });
-    expect((await runLatchPass(deps)).rejected).toBe(1);
-    expect(launches).toEqual([]);
-    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
-    expect(memory.mrs[MR]?.attemptsToday).toBe(0);
-    expect(memory.mrs[MR]?.lastDispatchAt).toBeNull();
-  });
-
   // A GitLab write failing after a successful launch must still charge the
   // attempt, or the next tick reads the same resolved latch as a fresh
   // request and dispatches again every tick for as long as the write fails.
@@ -552,26 +535,6 @@ describe('step 3: armed and resolved', () => {
       {
         title: 'Follow-up review started on !2317',
         message: 'The author asked for a follow-up review',
-        mrUrl: MR,
-      },
-    ]);
-  });
-
-  test('a refusal notifies the plain reason, never the code', async () => {
-    const db = tempDb();
-    putLatchRow(row({ updatedAt: NOW }), db);
-    const { deps, notifies } = harness({
-      db,
-      readReviewStates: () => new Map([[MR, noOutcome]]),
-      detail: detail(
-        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
-      ),
-    });
-    await runLatchPass(deps);
-    expect(notifies).toEqual([
-      {
-        title: 'Follow-up review skipped on !2317',
-        message: 'No earlier review to follow up on',
         mrUrl: MR,
       },
     ]);
@@ -1233,22 +1196,172 @@ describe('the queue', () => {
     }
   });
 
-  test('no-commented-review still refuses with Not yet', async () => {
+  // decideRequest has no reason left that never clears for a row-backed
+  // latch, so the pane failing to start is the hard refusal this pass meets.
+  test('a hard refusal still replies Not yet and reopens', async () => {
     const db = tempDb();
     putLatchRow(row({ updatedAt: NOW }), db);
-    const { deps, calls, launches, replies } = harness({
+    const { deps, calls, replies } = harness({
+      db,
+      launchReReview: async () => ({ kind: 'error', message: 'boom' }),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).rejected).toBe(1);
+    expect(replies).toEqual([
+      "Not yet: the pane failed to start. Resolve this thread again once that clears and I'll pick it up.",
+    ]);
+    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
+    expect(readLatchRow(MR, db)?.phase).toBe('armed');
+  });
+
+  test('an errored lane does not refuse an armed request', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const failed: ReviewState = {
+      ...commented,
+      status: 'error',
+      outcome: undefined,
+    };
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('an abandoned follow-up lane does not refuse an armed request', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const { deps, launches, replies } = harness({
       db,
       readReviewStates: () => new Map([[MR, noOutcome]]),
       detail: detail(
         disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
       ),
     });
-    expect((await runLatchPass(deps)).rejected).toBe(1);
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('an armed row whose lane is gone still takes a request', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+  });
+
+  test('a request during a running review queues behind it', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const reviewing: ReviewState = { ...commented, status: 'reviewing' };
+    const { deps, launches, uploads } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).queued).toBe(1);
     expect(launches).toEqual([]);
-    expect(replies).toHaveLength(1);
-    expect(replies[0]).toStartWith('Not yet: no-commented-review.');
-    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
-    expect(readLatchRow(MR, db)?.phase).toBe('armed');
+    expect(uploads).toEqual(['latch-2317-queued-review-in-flight.gif']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+    });
+  });
+
+  test('reopening a queued latch while a hand-launched review runs withdraws it and leaves the thread open', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, calls, launches, noteBodies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', false)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(ARMED + '\n');
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'armed', wait: null });
+  });
+
+  test('a wait change that loses its cas writes and counts nothing', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, calls, audits } = harness({
+      db,
+      casLatch: () => false,
+      memory: {
+        identity: null,
+        mrs: {
+          [MR]: { ...emptyMrMemory('1970-01-12'), attemptsToday: 3 },
+        },
+      },
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    const result = await runLatchPass(deps);
+    expect(result.queued).toBe(0);
+    expect(calls).toEqual([]);
+    expect(audits.map(a => a.action)).not.toContain('queued');
+  });
+
+  // A read that cannot see the row's latch yet, beside an old spent relic,
+  // must not overwrite the row with the relic.
+  test('a live row is kept when the read shows only a spent latch elsewhere', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, calls } = harness({
+      db,
+      detail: detail(
+        disc('relic', spentLatchBody(IMG), '2026-08-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'd1',
+      phase: 'queued',
+    });
+  });
+
+  test('a re-point that loses its cas skips the tick', async () => {
+    const db = tempDb();
+    putLatchRow(row({ discussionId: 'old', updatedAt: NOW }), db);
+    const { deps, calls, launches } = harness({
+      db,
+      casLatch: () => false,
+      detail: detail(
+        disc('new', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true),
+        disc('old', armedLatchBody(IMG), '2026-08-01T10:00:00Z', false)
+      ),
+    });
+    expect((await runLatchPass(deps)).skipped).toBe(1);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)?.discussionId).toBe('old');
   });
 });
 
