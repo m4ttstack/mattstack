@@ -3853,7 +3853,8 @@ a.tui-id-card-ref:focus-visible {
   content: '';
   width: 24px;
   height: 2px;
-  margin: 0 3px;
+  /* 8px clear on both sides: the item's own 7px gap makes up the right. */
+  margin: 0 1px 0 8px;
   border-radius: 1px;
   background: var(--border-soft);
 }
@@ -3862,13 +3863,13 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-tl > li + .tui-tl-response {
   position: relative;
-  margin-left: 30px;
+  margin-left: 40px;
 }
 .tui-tl > li + .tui-tl-response::before {
   position: absolute;
-  right: 100%;
+  right: calc(100% + 8px);
   top: calc(50% + 5px);
-  margin: 0 3px;
+  margin: 0;
 }
 .tui-tl-round-chip {
   display: inline-flex;
