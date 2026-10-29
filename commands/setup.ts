@@ -35,7 +35,7 @@ import { HERDR_NOT_INSTALLED, startHerdr, type HerdrStartResult } from "../lib/h
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type PlacementMode, type StepId } from "../lib/setup/contract.ts";
 import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
-import type { RenderStatus } from "../lib/ui/protocol.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { resolveTool } from "../lib/deps/resolve.ts";
 import { devAppNotice, type DevAppNotice } from "../lib/dev/notice.ts";
@@ -50,6 +50,8 @@ import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
 import { cloneSlugs, forgeFromRemote, hostFromRemote, legacyDeclaredForge } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
+import { APPROVAL_WAIT_DETAIL, approvalState, type ApprovalState } from "../lib/team/approval.ts";
+import { pullOrgClone, type OrgPull } from "../lib/team/org-pull.ts";
 import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
@@ -1383,6 +1385,73 @@ export async function setupWaive(args: string[], _ctx: CommandContext = {}, deps
 
 export async function setupUnwaive(args: string[], _ctx: CommandContext = {}, deps: WaiveDeps = realWaiveDeps()): Promise<void> {
   await runWaiver(args, deps, "unwaive");
+}
+
+// ─── join-status (`rt setup join-status`) ──────────────────────────────────
+
+export interface JoinStatus {
+  team: { slug: string; name: string };
+  state: ApprovalState["kind"];
+  since: string | null;
+  uses: { repos: number; accounts: number; packs: number };
+  pull: OrgPull;
+}
+
+export interface JoinStatusDeps {
+  probes: Probes;
+  json: (value: unknown) => void;
+  exit: (code: number) => never;
+  pull: typeof pullOrgClone;
+  /** The joined team's shared settings; tests inject one so they never reach the real resolver. */
+  teamSnapshot?: (p: Probes, slug: string) => TeamSnapshot;
+}
+
+export function realJoinStatusDeps(): JoinStatusDeps {
+  return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit, pull: pullOrgClone };
+}
+
+function joinStatusLine(slug: string, state: ApprovalState, pull: OrgPull): Block {
+  const pullHint = pull.outcome === "failed" || pull.outcome === "held" ? pull.detail : undefined;
+  switch (state.kind) {
+    case "approved":
+      return out.line("done", `You're in the ${slug} team`);
+    case "waiting":
+      return out.line("pending", APPROVAL_WAIT_DETAIL, pullHint);
+    case "unreadable":
+      return out.line("warn", `${state.path} ${state.reason}`, pullHint);
+    case "not-joined":
+      return out.line("skipped", `This Mac has no key the ${slug} team can approve yet`, pullHint);
+  }
+}
+
+export async function setupJoinStatus(args: string[], _ctx: CommandContext = {}, deps: JoinStatusDeps = realJoinStatusDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const p = deps.probes;
+  const slug = cloneSlugs(p).find((s) => readTeamLocal(p, s).joinedByRt);
+  if (!slug) {
+    return exitWithUserError(new UserActionableError("no-join", "This Mac has not joined a team"), json, sinkOf(deps), { next: out.cmd("rt team join") });
+  }
+
+  const pull = await deps.pull(p, slug);
+  const state = approvalState(p, slug);
+  const snapshot = deps.teamSnapshot ? deps.teamSnapshot(p, slug) : readTeamSnapshot(p, slug);
+  const body: JoinStatus = {
+    team: { slug, name: slug },
+    state: state.kind,
+    since: state.kind === "waiting" ? state.since : null,
+    uses: {
+      repos: snapshot.trackingIdentities.length,
+      accounts: Object.keys(snapshot.integrations).filter((k) => k !== "forge").length,
+      packs: snapshot.plugins.length,
+    },
+    pull,
+  };
+  if (json) {
+    deps.json(envelope(body, p.now()));
+    return;
+  }
+  out.print(joinStatusLine(slug, state, pull));
 }
 
 // ─── connect ────────────────────────────────────────────────────────────

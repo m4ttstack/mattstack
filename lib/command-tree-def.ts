@@ -2785,6 +2785,13 @@ export const TREE: Record<string, CommandNode> = {
         hidden: true,
         args: [SETUP_JSON_ARG],
       },
+      "join-status": {
+        description: "Check whether your team admin approved your request to join",
+        module: "./commands/setup.ts",
+        fn: "setupJoinStatus",
+        hidden: true,
+        args: [SETUP_JSON_ARG],
+      },
       waive: {
         description: "Skip a finish-gated checklist row on this Mac so setup can finish without it",
         module: "./commands/setup.ts",
