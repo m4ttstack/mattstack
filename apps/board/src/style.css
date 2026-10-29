@@ -7339,9 +7339,7 @@ a.tui-id-card-ref:focus-visible {
   border-bottom-left-radius: 8px;
 }
 .tui-plan-later {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  margin: 0;
   padding: 10px 12px;
   border: 1px dashed var(--border);
   border-radius: 6px;
@@ -7356,9 +7354,6 @@ a.tui-id-card-ref:focus-visible {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-1);
-}
-.tui-plan-later > .tui-cte-lead {
-  padding: 0;
 }
 .tui-cte[data-variant='plain']
   .tui-cte-lead

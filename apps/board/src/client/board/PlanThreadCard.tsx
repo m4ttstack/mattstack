@@ -154,12 +154,9 @@ export function PlanThreadCard({
                 onReset={() => form.clearText(q.name)}
               />
             ) : (
-              <div className="tui-plan-later">
-                <span className="tui-cte-lead">You:</span>
-                <span>
-                  The agent drafts this reply next. You edit it when posting.
-                </span>
-              </div>
+              <p className="tui-plan-later">
+                The agent drafts this reply next. You edit it when posting.
+              </p>
             )}
           </Answer>
         )}
