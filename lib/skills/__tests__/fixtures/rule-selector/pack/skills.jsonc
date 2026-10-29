@@ -1,8 +1,21 @@
 {
   "version": 2,
+  "pipelines": {
+    "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ]
+  },
   "bindings": {
     "mattstack:review/rule-selector": { "rule-selector": "acme:acme-rule-selector" },
     "mattstack:self-review/rule-selector": { "rule-selector": "acme:acme-rule-selector" },
-    "mattstack:receive-review/rule-selector": { "rule-selector": "acme:acme-rule-selector" }
+    "mattstack:receive-review/rule-selector": { "rule-selector": "acme:acme-rule-selector" },
+    "mattstack:stage-implement/rule-selector": { "rule-selector": "acme:acme-rule-selector" }
   }
 }

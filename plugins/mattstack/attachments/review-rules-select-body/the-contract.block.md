@@ -18,6 +18,15 @@ shapes.
   - `fence: <info string>`, the tag of the fenced code block the reviewer
     returns its verdict set in.
 
+  An optional fourth line, `check: <command template>`, holds the
+  placeholder `{base}`. The implement stage runs it in the worktree with
+  nothing on stdin, `{base}` replaced by the branch point, and reads its
+  stdout as the rules that apply and the lines worth a look; exit 0 means
+  it ran, and any other exit is one observation that never blocks. The
+  review verbs never run it: a fill with a `check:` line is still the
+  three-line shape here. The line is additive, so the contract stays
+  `rule-selector@1`, and a fill without it behaves as before.
+
 **The selection** is the JSON the selector prints. This skill reads only
 its `rules` list: each rule has an `id`, a `severity` (`blocking` or
 `advisory`) and a `summary`.
