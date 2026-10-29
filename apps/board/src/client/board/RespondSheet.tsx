@@ -458,7 +458,7 @@ function reviewerApproved(
   mr: BoardMRWithReview | undefined,
   person: string
 ): boolean {
-  const r = mr?.reviews.reviewers.find(x => x.username === person);
+  const r = mr?.reviews?.reviewers?.find(x => x.username === person);
   return getReviewDisplayState(r?.reviewState ?? null) === 'approved';
 }
 
