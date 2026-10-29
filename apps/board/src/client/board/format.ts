@@ -2,6 +2,7 @@ import { getReviewDisplayState } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import { stripDraftPrefix } from '../../data.ts';
 import type { ReviewerLatch } from '../../latch/discussions.ts';
+import { canonicalUsername } from '../../peer/envelope.ts';
 import type { RespondStatus } from '../../respond-outcome.ts';
 import { DEFAULT_SLACK_EMOJI } from '../../slack-emoji.ts';
 import {
@@ -317,8 +318,8 @@ const THREAD_LABEL: Record<ThreadStatus, string> = {
 export type ReviewMenuKind = 'focus' | 'review' | 'redo' | 'follow-up';
 
 /** The review items for the menu. Focus only while the pane is alive; a
-    review whose pane is gone, or one already logged (the board's own, or a
-    person's on GitLab, see `reviewLogged`), is redone from scratch. A
+    review whose pane is gone, or one already logged (the board's own, or
+    yours on GitLab, see `reviewedBy`), is redone from scratch. A
     follow-up checks the author's changes since the last round. */
 function reviewMenuItems(
   status?: ReviewStatus,
@@ -344,14 +345,36 @@ function reviewMenuItems(
 /** Whether anyone has reviewed the MR on GitLab: a reviewer who commented,
     approved or requested changes, an approval on the tally, or reviewer
     threads. The thing a re-review would re-check. */
+const REVIEWED_STATES = new Set(['REVIEWED', 'APPROVED', 'REQUESTED_CHANGES']);
+
 function reviewLogged(mr: BoardMR): boolean {
-  const states = new Set(['REVIEWED', 'APPROVED', 'REQUESTED_CHANGES']);
   return (
     mr.reviews.given > 0 ||
     mr.reviewerComments > 0 ||
     (mr.reviews.reviewers ?? []).some(
-      r => !!r.reviewState && states.has(r.reviewState)
+      r => !!r.reviewState && REVIEWED_STATES.has(r.reviewState)
     )
+  );
+}
+
+/** Whether this person reviewed the MR on GitLab: approved it, holds a
+    reviewer state, or opened a thread. Only their own review has a round
+    to follow up on. */
+function reviewedBy(mr: BoardMR, username: string | null): boolean {
+  if (username === null) return false;
+  const me = canonicalUsername(username);
+  const threads = mr.myThreads;
+  return (
+    (mr.reviews.approvedBy ?? []).some(
+      a => canonicalUsername(a.username) === me
+    ) ||
+    (mr.reviews.reviewers ?? []).some(
+      r =>
+        canonicalUsername(r.username) === me &&
+        !!r.reviewState &&
+        REVIEWED_STATES.has(r.reviewState)
+    ) ||
+    (!!threads && threads.awaiting + threads.replied + threads.resolved > 0)
   );
 }
 
@@ -499,6 +522,7 @@ export {
   THREAD_ICON,
   THREAD_LABEL,
   reviewMenuItems,
+  reviewedBy,
   reviewLogged,
   respondChoices,
   respondChoiceLabel,
