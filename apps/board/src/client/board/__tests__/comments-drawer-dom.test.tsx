@@ -478,6 +478,59 @@ test('a remote board shows the threads with no reply or resolve controls', async
   expect(labels).not.toContain('resolve');
 });
 
+// ── replying to MR comments ─────────────────────────────────────────────────
+
+const edComment = {
+  ...note(9200, 'ed', 'looks good to me'),
+  discussionId: 'dC',
+};
+const ownComment = {
+  ...note(9201, 'matt', 'pushed a fix'),
+  discussionId: 'dD',
+};
+
+function comment(id: string): HTMLElement {
+  const el = document.querySelector<HTMLElement>(
+    `[data-part="sidedrawer"] [data-comment-discussion-id="${id}"]`
+  );
+  if (!el) throw new Error(`no MR comment ${id} in the drawer`);
+  return el;
+}
+
+test('reply on an MR comment posts under that comment and shows the answer', async () => {
+  servedDiscussions = { threads: [], comments: [edComment] };
+  const answered = { ...note(9202, 'matt', 'thanks!'), discussionId: 'dC' };
+  writeAnswer = () => json({ threads: [], comments: [edComment, answered] });
+  await renderBoardWithDrawerOpen();
+  await press(comment('dC'), 'reply');
+  await type(comment('dC').querySelector('textarea')!, 'thanks!');
+  await press(comment('dC'), 'send');
+  expect(posts).toEqual([
+    {
+      url: '/discussions/reply',
+      body: { ...THREAD_ADDRESS, discussionId: 'dC', body: 'thanks!' },
+    },
+  ]);
+  expect(comment('dC').textContent).toContain('thanks!');
+  expect(comment('dC').querySelector('textarea')).toBeNull();
+});
+
+test("the author's own MR comment and a remote board's comments offer no reply", async () => {
+  servedDiscussions = { threads: [], comments: [edComment, ownComment] };
+  await renderBoardWithDrawerOpen();
+  const labels = (id: string) =>
+    [...comment(id).querySelectorAll('button')].map(b => b.textContent?.trim());
+  expect(labels('dC')).toContain('reply');
+  expect(labels('dD')).not.toContain('reply');
+  expect(comment('dC').textContent).not.toContain('send & resolve');
+
+  await React.act(async () => root.unmount());
+  container.remove();
+  servedData = { ...BOARD_DATA, local: false };
+  await renderBoardWithDrawerOpen();
+  expect(labels('dC')).not.toContain('reply');
+});
+
 // ── long notes ──────────────────────────────────────────────────────────────
 
 describe('long notes', () => {

@@ -21,7 +21,10 @@ export interface CommentThread {
 /** A general (non-resolvable) comment on the MR — the Overview-tab notes GitLab
     doesn't make into resolvable threads. These are dropped from the thread
     accounting but shown in the drawer so a later author comment isn't invisible. */
-export type GeneralComment = CommentNote;
+export interface GeneralComment extends CommentNote {
+  /** GitLab's discussion id: a reply lands under this comment. */
+  discussionId: string;
+}
 
 /** Integration linkback notes (e.g. Linear's `<!-- linear-linkback --> <details>…`)
     are non-resolvable notes but not real comments — an automated HTML blob, not
@@ -107,7 +110,7 @@ export function summarizeDiscussions(
       for (const n of notes) {
         if (isAutomatedNote(n.body ?? '') || isBotAuthor(n.author, configBots))
           continue;
-        comments.push(toNote(n));
+        comments.push({ ...toNote(n), discussionId: d.id });
       }
       continue;
     }

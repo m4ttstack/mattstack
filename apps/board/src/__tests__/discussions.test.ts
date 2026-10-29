@@ -134,6 +134,15 @@ describe('summarizeDiscussions', () => {
     expect(comments.map(c => c.body)).toEqual(['pushed a fix, see abc123']);
   });
 
+  test('a general comment carries the discussion id a reply is addressed to', () => {
+    const d = detail([
+      { notes: [note('reviewer', { body: 'please fix' })] },
+      { notes: [note('reviewer', { resolvable: false, body: 'lgtm' })] },
+    ]);
+    const { comments } = summarizeDiscussions(d, AUTHOR);
+    expect(comments.map(c => c.discussionId)).toEqual(['d1']);
+  });
+
   test('a later author general comment flips an awaiting thread to replied', () => {
     const d = detail([
       {
@@ -389,6 +398,7 @@ describe('hasQuietReview', () => {
     username,
     at: '2026-09-01T00:00:00Z',
     body: 'x',
+    discussionId: 'd1',
   });
 
   test("a roster member's plain note on someone else's MR counts", () => {

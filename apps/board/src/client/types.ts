@@ -442,4 +442,4 @@ export type CommentThread = {
   status: ThreadStatus;
   notes: CommentNote[];
 };
-export type GeneralComment = CommentNote;
+export type GeneralComment = CommentNote & { discussionId: string };

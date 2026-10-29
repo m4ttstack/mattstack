@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { Button, ICONS, Markdown, SideDrawer } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
@@ -72,10 +78,12 @@ function CommentNoteView({
   mr,
   note,
   now,
+  verbs,
 }: {
   mr: BoardMR;
   note: CommentNote;
   now: number;
+  verbs?: ReactNode;
 }) {
   const isAuthor = note.username === mr.author.username;
   return (
@@ -86,15 +94,18 @@ function CommentNoteView({
         >
           {note.name}
         </span>
-        <a
-          className="tui-cd-note-time"
-          href={mr.webUrl ? `${mr.webUrl}#note_${note.id}` : '#'}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="open this comment in gitlab"
-        >
-          {ago(note.at, now)} ↗
-        </a>
+        <span className="tui-cd-thread-verbs">
+          {verbs}
+          <a
+            className="tui-cd-note-time"
+            href={mr.webUrl ? `${mr.webUrl}#note_${note.id}` : '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="open this comment in gitlab"
+          >
+            {ago(note.at, now)} ↗
+          </a>
+        </span>
       </div>
       <NoteBody body={note.body} />
     </div>
@@ -178,11 +189,11 @@ interface ThreadWrites {
   open: (id: string) => void;
   close: () => void;
   setDraft: (id: string, text: string) => void;
-  send: (t: CommentThread, alsoResolve: boolean) => void;
+  send: (id: string, alsoResolve: boolean) => void;
   toggleResolved: (t: CommentThread) => void;
 }
 
-/** Reply and resolve for one MR's threads. One write at a time: a second
+/** Reply and resolve for one MR's threads and MR comments. One write at a time: a second
     click while one is in flight is ignored, not queued. */
 function useThreadWrites(
   mr: BoardMR,
@@ -205,8 +216,7 @@ function useThreadWrites(
     author: mr.author.username,
   });
 
-  const send = async (t: CommentThread, alsoResolve: boolean) => {
-    const id = t.discussionId;
+  const send = async (id: string, alsoResolve: boolean) => {
     const body = drafts[id] ?? '';
     if (inFlight.current || !body.trim()) return;
     inFlight.current = true;
@@ -261,23 +271,25 @@ function useThreadWrites(
     open: setComposing,
     close: () => setComposing(null),
     setDraft: (id, text) => setDrafts(d => ({ ...d, [id]: text })),
-    send: (t, alsoResolve) => void send(t, alsoResolve),
+    send: (id, alsoResolve) => void send(id, alsoResolve),
     toggleResolved: t => void toggleResolved(t),
   };
 }
 
-/** The reply box at a thread's foot. ⌘↵ sends; Escape closes the box and
-    keeps the draft, and stops there so the drawer behind it stays open. */
+/** The reply box at a thread's or MR comment's foot. ⌘↵ sends; Escape
+    closes the box and keeps the draft, and stops there so the drawer behind
+    it stays open. */
 function ReplyBox({
-  thread,
+  id,
   writes,
   canResolve,
+  label,
 }: {
-  thread: CommentThread;
+  id: string;
   writes: ThreadWrites;
   canResolve: boolean;
+  label: string;
 }) {
-  const id = thread.discussionId;
   const draft = writes.drafts[id] ?? '';
   const ref = useAutoGrowTextarea([draft]);
   useEffect(() => {
@@ -297,7 +309,7 @@ function ReplyBox({
         rows={2}
         value={draft}
         placeholder="reply…"
-        aria-label="reply to this thread"
+        aria-label={label}
         onChange={e => writes.setDraft(id, e.currentTarget.value)}
         onKeyDown={e => {
           if (e.key === 'Escape') {
@@ -305,7 +317,7 @@ function ReplyBox({
             writes.close();
           } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
-            writes.send(thread, false);
+            writes.send(id, false);
           }
         }}
       />
@@ -320,7 +332,7 @@ function ReplyBox({
         >
           cancel
         </Button>
-        {canResolve && thread.status !== 'resolved' && (
+        {canResolve && (
           <Button
             type="button"
             size="sm"
@@ -328,7 +340,7 @@ function ReplyBox({
             intent="accent"
             busy={busy === 'send-resolve'}
             disabled={locked || empty}
-            onClick={() => writes.send(thread, true)}
+            onClick={() => writes.send(id, true)}
           >
             send & resolve
           </Button>
@@ -340,7 +352,7 @@ function ReplyBox({
           intent="accent"
           busy={busy === 'send'}
           disabled={locked || empty}
-          onClick={() => writes.send(thread, false)}
+          onClick={() => writes.send(id, false)}
         >
           send
         </Button>
@@ -426,7 +438,12 @@ function ThreadCard({
         <CommentNoteView key={n.id} mr={mr} note={n} now={now} />
       ))}
       {writes?.composing === id && (
-        <ReplyBox thread={thread} writes={writes} canResolve={canResolve} />
+        <ReplyBox
+          id={id}
+          writes={writes}
+          canResolve={canResolve && !resolved}
+          label="reply to this thread"
+        />
       )}
       {error && (
         <p className="tui-cd-error" role="alert">
@@ -437,11 +454,84 @@ function ThreadCard({
   );
 }
 
+/** One MR comment's discussion: its notes, with reply when the board can
+    write and someone other than the author took part. The reply lands under
+    the comment on GitLab, answering it and no earlier one. */
+function CommentCard({
+  mr,
+  id,
+  notes,
+  now,
+  writes,
+}: {
+  mr: BoardMR;
+  id: string;
+  notes: GeneralComment[];
+  now: number;
+  writes: ThreadWrites | null;
+}) {
+  const canReply =
+    writes !== null && notes.some(n => n.username !== mr.author.username);
+  const error = writes?.errors[id];
+  return (
+    <div className="tui-cd-comment" data-comment-discussion-id={id}>
+      {notes.map((n, i) => (
+        <CommentNoteView
+          key={n.id}
+          mr={mr}
+          note={n}
+          now={now}
+          verbs={
+            canReply &&
+            i === 0 && (
+              <button
+                type="button"
+                className="tui-cd-verb"
+                onClick={() => writes.open(id)}
+              >
+                reply
+              </button>
+            )
+          }
+        />
+      ))}
+      {writes?.composing === id && (
+        <ReplyBox
+          id={id}
+          writes={writes}
+          canResolve={false}
+          label="reply to this comment"
+        />
+      )}
+      {error && (
+        <p className="tui-cd-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** MR comments grouped by discussion, in the order each discussion first
+    appears. */
+function byDiscussion(
+  comments: GeneralComment[]
+): Array<[string, GeneralComment[]]> {
+  const groups = new Map<string, GeneralComment[]>();
+  for (const c of comments) {
+    const group = groups.get(c.discussionId);
+    if (group) group.push(c);
+    else groups.set(c.discussionId, [c]);
+  }
+  return [...groups];
+}
+
 /** Right-side drawer showing an MR's review threads (each with its status and
     notes) plus a section for general MR comments: the Overview-tab notes that
     aren't threads, so a later author comment isn't invisible. Lazily fetched.
-    A local board can also reply to any thread here, and resolve every
-    thread on its seat's own MR plus the ones its seat started elsewhere. */
+    A local board can also reply to any thread or MR comment here, and
+    resolve every thread on its seat's own MR plus the ones its seat started
+    elsewhere. */
 function CommentsDrawer({
   mr,
   local,
@@ -536,8 +626,15 @@ function CommentsDrawer({
             {data.comments.length > 0 && (
               <section className="tui-cd-comments">
                 <div className="tui-cd-comments-head">MR comments</div>
-                {data.comments.map(c => (
-                  <CommentNoteView key={c.id} mr={mr} note={c} now={now} />
+                {byDiscussion(data.comments).map(([id, notes]) => (
+                  <CommentCard
+                    key={id}
+                    mr={mr}
+                    id={id}
+                    notes={notes}
+                    now={now}
+                    writes={canWrite ? writes : null}
+                  />
                 ))}
               </section>
             )}
