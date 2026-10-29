@@ -3,6 +3,7 @@ import { Flag, ThumbsUp } from 'lucide-react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
 import { Button, CHECK_ICON, Icon, ICONS } from '@mattstack/tui-kit';
+import { CodePath } from './CodePath.tsx';
 import { commentState } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { Disclosure } from './Disclosure.tsx';
@@ -46,12 +47,20 @@ export function CardTitle({
   label: string;
   children?: ReactNode;
 }) {
+  const colon = label.lastIndexOf(':');
   return (
     <span
       className="tui-review-finding-title tui-reply-title"
       data-file={isAnchor(label) ? '' : undefined}
     >
-      {label}
+      {isAnchor(label) ? (
+        <CodePath
+          path={label.slice(0, colon)}
+          line={Number(label.slice(colon + 1))}
+        />
+      ) : (
+        label
+      )}
       {children}
     </span>
   );
