@@ -3845,9 +3845,37 @@ a.tui-id-card-ref:focus-visible {
   font-weight: 700;
   color: var(--text-accent-small);
 }
+/* A "you are here" marker, not a control: a solid dot in a soft halo
+   that breathes outward. */
 .tui-phase[aria-current] .tui-phase-dot {
-  border-color: var(--fill-accent);
-  background: radial-gradient(var(--on-fill-accent) 0 3px, var(--fill-accent) 3.5px);
+  position: relative;
+  border: 0;
+  background: radial-gradient(
+    var(--fill-accent) 0 4.5px,
+    color-mix(in srgb, var(--fill-accent) 22%, var(--card)) 5px
+  );
+}
+.tui-phase[aria-current] .tui-phase-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--fill-accent) 35%, transparent);
+  animation: tui-phase-here 2.4s ease-out infinite;
+}
+@keyframes tui-phase-here {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--fill-accent) 35%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--fill-accent) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-phase[aria-current] .tui-phase-dot::after {
+    animation: none;
+  }
 }
 .tui-phase-dot {
   display: inline-grid;
