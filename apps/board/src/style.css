@@ -3597,11 +3597,6 @@ a.tui-id-card-ref:focus-visible {
      showing between them. */
   box-sizing: border-box;
   height: 48px;
-  /* WebKit lets a backdrop-filtered sticky bar in the column below paint
-     past the column's top edge; the head sits above it to cover that. */
-  position: relative;
-  z-index: 3;
-  background: var(--card);
 }
 /* WebKit re-rasterises an inline svg avatar, coarse then sharp, whenever
    the area around it repaints (hovering a diff flickers every one); its own
@@ -3791,33 +3786,24 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* The round is the context every card below is read in, so it stays pinned
-   while the column scrolls. The column drops its top padding so the bar
-   pins flush under the sheet head; the side margins span the column's 28px
-   padding, stopping 2px short of the left edge, where the sheet's own focus
-   ring is drawn. */
-@media (min-width: 721px) {
-  .tui-sheet-main:has(> .tui-sheet-round:first-child) {
-    padding-top: 0;
-  }
-}
+   while the column scrolls. The negative top and margins pull it over the
+   column's own padding (22px 28px, `.tui-sheet-main`), so the frosted bar
+   spans the column and no card shows through above it. It stops 2px short
+   of the left edge, where the sheet's own focus ring is drawn. */
 .tui-sheet-round {
   position: sticky;
-  top: 0;
+  top: -22px;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 12px;
-  margin: 0 -28px 28px -26px;
+  margin: -22px -28px 28px -26px;
   padding: 16px 28px 16px 26px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   box-shadow: 0 4px 10px -4px color-mix(in srgb, black 14%, transparent);
-  /* WebKit draws the blurred backdrop past the bar's top edge, over the
-     sheet head's border. The clip cuts only that edge: the shadow and the
-     round chip's history popover, rendered in place, spill below. */
-  clip-path: inset(0 -100vw -100vh -100vw);
 }
 .tui-sheet-round-n {
   margin: 0;
@@ -4037,8 +4023,7 @@ a.tui-id-card-ref:focus-visible {
 .tui-tl-step[aria-current] .tui-tl-mark::after {
   /* A disc behind the mark, scaled out from its edge: transform and
      opacity run on the compositor, where an animated box-shadow repaints
-     every frame, and under the frosted round bar WebKit re-blurs on each
-     repaint and stutters. */
+     every frame and stutters in WebKit. */
   content: '';
   position: absolute;
   inset: -7px;
