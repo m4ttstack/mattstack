@@ -22,7 +22,7 @@ import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
-import { GateTimeline } from './GateTimeline.tsx';
+import { GateTimeline, type RoundEntry } from './GateTimeline.tsx';
 import {
   CircleCheckFilledIcon,
   PencilLineIcon,
@@ -220,6 +220,42 @@ function severityGroups(
       [...items.filter(hasDiffLine), ...items.filter(f => !hasDiffLine(f))],
     ] as [FindingSeverity, FindingEntry[]];
   }).filter(([, items]) => items.length > 0);
+}
+
+/** The rounds behind a review gate, from what each recorded round posted.
+    A round that approved needs no reply; any other is taken as answered,
+    since a later round exists. */
+function reviewHistory(
+  round: number,
+  outcomes: readonly ('comment' | 'approve')[],
+  you: string | undefined,
+  authorId: string | undefined,
+  author: string
+): RoundEntry[] {
+  return Array.from({ length: round }, (_, i): RoundEntry => {
+    if (i === round - 1)
+      return {
+        round: i + 1,
+        events: [{ id: you, text: 'You, reviewing', now: 'review' }],
+      };
+    const outcome = outcomes[i];
+    const posted = {
+      id: you,
+      text:
+        outcome === 'approve'
+          ? 'You approved'
+          : outcome === 'comment'
+            ? 'You commented'
+            : 'You reviewed',
+    };
+    return {
+      round: i + 1,
+      events:
+        outcome === 'approve'
+          ? [posted]
+          : [posted, { id: authorId, text: `${author} replied` }],
+    };
+  });
 }
 
 /** The drafts the poster falls back to, or null when the gate does not
@@ -689,6 +725,13 @@ function ReviewGateSheet({
                   id: mr?.author.username,
                   label: `${author}'s response`,
                 }}
+                history={reviewHistory(
+                  review.round ?? 1,
+                  mr?.review?.outcomes ?? [],
+                  review.reviewer,
+                  mr?.author.username,
+                  author
+                )}
               />
             }
           />

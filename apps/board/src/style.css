@@ -3870,13 +3870,80 @@ a.tui-id-card-ref:focus-visible {
   top: calc(50% + 5px);
   margin: 0 3px;
 }
-.tui-tl-round {
+.tui-tl-round-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
   padding: 0 8px;
+  border: 0;
   border-radius: 6px;
   background: color-mix(in srgb, var(--fg) 6%, var(--card));
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-1);
+}
+.tui-tl-round-chip[data-menu] {
+  cursor: pointer;
+}
+.tui-tl-round-chip[data-menu]:hover,
+.tui-tl-round-chip[data-menu][data-popup-open] {
+  background: color-mix(in srgb, var(--fg) 10%, var(--card));
+}
+.tui-tl-round-chip > svg {
+  color: var(--text-3);
+}
+/* The round menu: a label column, then who did what, rounds ruled apart. */
+.tui-tl-history {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 300px;
+  padding: 16px;
+}
+.tui-tl-history-round {
+  display: flex;
+  gap: 12px;
+}
+.tui-tl-history-round + .tui-tl-history-round {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.tui-tl-history-n {
+  flex: 0 0 60px;
+  line-height: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.tui-tl-history-round[data-current] .tui-tl-history-n {
+  font-weight: 700;
+  color: var(--text-1);
+}
+.tui-tl-history ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tui-tl-history li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.tui-tl-history li[data-now] {
+  font-weight: 600;
+}
+.tui-tl-history li[data-now='review'] {
+  color: var(--text-accent);
+}
+.tui-tl-history li[data-now='response'] {
+  color: var(--text-purple);
 }
 .tui-tl-mark {
   box-sizing: border-box;
