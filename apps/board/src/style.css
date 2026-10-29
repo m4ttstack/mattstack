@@ -3936,12 +3936,11 @@ a.tui-id-card-ref:focus-visible {
   font-size: 13px;
   color: var(--text-1);
 }
+/* Holds a line's place when its person is unknown, so the text still aligns. */
 .tui-tl-history-blank {
   flex-shrink: 0;
   width: 20px;
   height: 20px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--fg) 6%, var(--card));
 }
 .tui-tl-history li[data-now] {
   font-weight: 600;

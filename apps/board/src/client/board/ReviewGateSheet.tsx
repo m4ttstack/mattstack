@@ -341,6 +341,7 @@ function ReviewGateSheet({
   onClose,
   onContinue,
   onFocusPane,
+  self,
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
@@ -350,6 +351,8 @@ function ReviewGateSheet({
   /** Retires a gate answered elsewhere from the queue. */
   onContinue: () => void;
   onFocusPane: (mr: BoardMRWithReview, domain: GateDomain) => void;
+  /** The seat's username: the reviewer when the gate names none. */
+  self?: string | null;
 }) {
   const data = useMemo(() => readReviewGate(gate), [gate]);
   const { questions, groups } = useMemo(
@@ -652,6 +655,7 @@ function ReviewGateSheet({
   if (!data) return null;
   const { review } = data;
   const author = mr ? people.short(mr.author.username) : 'the author';
+  const you = review.reviewer ?? self ?? undefined;
   const meta = reviewMeta(review);
 
   const contextCard = (
@@ -720,7 +724,7 @@ function ReviewGateSheet({
             aside={
               <GateTimeline
                 round={review.round ?? 1}
-                review={{ id: review.reviewer, label: 'Your review' }}
+                review={{ id: you, label: 'Your review' }}
                 response={{
                   id: mr?.author.username,
                   label: `${author}'s response`,
@@ -728,7 +732,7 @@ function ReviewGateSheet({
                 history={reviewHistory(
                   review.round ?? 1,
                   mr?.review?.outcomes ?? [],
-                  review.reviewer,
+                  you,
                   mr?.author.username,
                   author
                 )}

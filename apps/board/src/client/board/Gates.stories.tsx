@@ -129,6 +129,7 @@ function Face({ entry }: { entry: G.StoryGate }) {
           onFocusPane={noop}
           onAnswered={noop}
           onContinue={noop}
+          self="renee"
         />
       </DiffSourceContext.Provider>
     </PeopleProvider>

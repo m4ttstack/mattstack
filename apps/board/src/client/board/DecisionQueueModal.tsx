@@ -67,6 +67,7 @@ function DecisionQueueModal({
   onContinue,
   onLostChange,
   readOnly: seatReadOnly,
+  self,
 }: {
   gate: GateRow & { executor?: ExecutorState };
   /** Absent for a non-MR gate (queueExtras) -- the strip and face below
@@ -95,6 +96,8 @@ function DecisionQueueModal({
   /** Set when the seat cannot answer this gate (gateReadOnlyReason): the
       face shows the questions and says why, with no form to submit. */
   readOnly?: string | null;
+  /** The seat's username, for the avatar beside "you" in a sheet. */
+  self?: string | null;
 }) {
   const paneGone = gate.executor === 'gone';
   const context = gateContext(gate);
@@ -219,6 +222,7 @@ function DecisionQueueModal({
         onClose={onClose}
         onContinue={onContinue}
         onFocusPane={onFocusPane}
+        self={self}
       />
     );
   }
