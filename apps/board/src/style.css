@@ -4021,19 +4021,30 @@ a.tui-id-card-ref:focus-visible {
   position: relative;
 }
 .tui-tl-step[aria-current] .tui-tl-mark::after {
+  /* A disc behind the mark, scaled out from its edge: transform and
+     opacity run on the compositor, where an animated box-shadow repaints
+     every frame, and under the frosted round bar WebKit re-blurs on each
+     repaint and stutters. */
   content: '';
   position: absolute;
-  inset: -1px;
+  inset: -7px;
   border-radius: 50%;
+  z-index: -1;
+  background: color-mix(in srgb, var(--tl-fill) 35%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
   animation: tui-tl-here 2.4s ease-out infinite;
 }
 @keyframes tui-tl-here {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--tl-fill) 35%, transparent);
+    transform: scale(0.667);
+    opacity: 1;
   }
   70%,
   100% {
-    box-shadow: 0 0 0 6px transparent;
+    transform: scale(1);
+    opacity: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
