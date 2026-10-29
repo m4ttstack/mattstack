@@ -2,7 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { INVADR_SPRITES, resolveInvadr } from 'invadrs';
 
 import { LAYOUT } from '../../assets/latch/index.ts';
-import { GIF_H, GIF_W, latchBannerGif, legShuffle } from '../latch/banner.ts';
+import {
+  GIF_H,
+  GIF_W,
+  latchBannerGif,
+  legShuffle,
+  renderBannerGif,
+} from '../latch/banner.ts';
 import {
   allVariantKeys,
   copyFor,
@@ -11,6 +17,7 @@ import {
   variantOfKey,
   type BannerVariant,
 } from '../latch/variants.ts';
+import { PROTOTYPE_CREATURE } from './fixtures/latch-prototype-creature.ts';
 
 const MR_A = 'https://gitlab.com/acme/web/-/merge_requests/2317';
 const MR_B = 'https://gitlab.com/acme/web/-/merge_requests/2318';
@@ -196,18 +203,32 @@ describe('latchBannerGif', () => {
     ).toBe(false);
   });
 
-  test('paints the creature in the variant accent', () => {
+  test('paints every creature cell and eye in its exact colour, for every variant', () => {
     const { grid, accent } = resolveInvadr(MR_A, { accent: true });
-    const row = grid.findIndex(r => r.some(Boolean));
-    const col = grid[row]!.findIndex(Boolean);
-    const [ex, ey] = accent!.cells[0]!;
-    for (const key of ['armed', 'running', 'done-approved']) {
+    const filled = grid.flatMap((r, row) =>
+      r.flatMap((on, col) => (on ? [[col, row] as [number, number]] : []))
+    );
+    for (const key of allVariantKeys()) {
       const gif = parseGif(gifFor(key));
-      expect(rgbAt(gif, 0, ...cellCentre(col, row))).toBe(
-        copyFor(variantOfKey(key)!).accent
+      const want = copyFor(variantOfKey(key)!).accent;
+      const bodies = new Set(
+        filled.map(c => rgbAt(gif, 0, ...cellCentre(...c)))
       );
-      expect(rgbAt(gif, 0, ...cellCentre(ex, ey))).toBe('#ece8f4');
+      const eyes = new Set(
+        accent!.cells.map(c => rgbAt(gif, 0, ...cellCentre(...c)))
+      );
+      expect({ key, bodies: [...bodies], eyes: [...eyes] }).toEqual({
+        key,
+        bodies: [want],
+        eyes: ['#ece8f4'],
+      });
     }
+  }, 60_000);
+
+  test('names the variant when its strip is missing', () => {
+    expect(() =>
+      renderBannerGif(PROTOTYPE_CREATURE, { state: 'nope' as never })
+    ).toThrow('no latch strip for nope');
   });
 
   test('lights the queued dots beside the title', () => {
@@ -248,5 +269,10 @@ describe('legShuffle', () => {
   test('moves cells toward the centre and keeps the centre column', () => {
     const grid = toGrid(['.....', '#.#.#', '##.##']);
     expect(legShuffle(grid)).toEqual(toGrid(['.....', '.###.', '.###.']));
+  });
+
+  test("turns the prototype's first leg pose into its second", () => {
+    const [first, second] = PROTOTYPE_CREATURE.frames;
+    expect(legShuffle(first)).toEqual(second);
   });
 });

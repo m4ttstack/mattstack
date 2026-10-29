@@ -160,15 +160,37 @@ function hex(c: string): Rgb {
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }
 
-class Canvas {
-  readonly painted = new Map<string, Rgb>();
+/** Ids for every colour painted in one GIF, shared across its frames. */
+class PaintedColours {
+  readonly ids = new Map<string, number>();
+  readonly colours: Rgb[] = [];
 
-  constructor(readonly data: Uint8Array) {}
+  idOf(c: Rgb): number {
+    const key = c.join(',');
+    let id = this.ids.get(key);
+    if (id === undefined) {
+      id = this.colours.length;
+      this.ids.set(key, id);
+      this.colours.push(c);
+    }
+    return id;
+  }
+}
+
+class Canvas {
+  /** The painted colour id per pixel, or -1 where the strip shows through. */
+  readonly owner = new Int16Array(GIF_W * GIF_H).fill(-1);
+
+  constructor(
+    readonly data: Uint8Array,
+    private readonly painted: PaintedColours
+  ) {}
 
   rect(x0: number, y0: number, w: number, h: number, colour: Rgb, alpha = 1) {
     for (let y = Math.max(0, y0); y < Math.min(GIF_H, y0 + h); y++) {
       for (let x = Math.max(0, x0); x < Math.min(GIF_W, x0 + w); x++) {
-        const i = (y * GIF_W + x) << 2;
+        const p = y * GIF_W + x;
+        const i = p << 2;
         const c: Rgb = [0, 1, 2].map(k =>
           Math.round(colour[k]! * alpha + this.data[i + k]! * (1 - alpha))
         ) as Rgb;
@@ -176,7 +198,7 @@ class Canvas {
         this.data[i + 1] = c[1];
         this.data[i + 2] = c[2];
         this.data[i + 3] = 0xff;
-        this.painted.set(c.join(','), c);
+        this.owner[p] = this.painted.idOf(c);
       }
     }
   }
@@ -205,10 +227,12 @@ export function renderBannerGif(
 ): Uint8Array {
   const key = variantKey(variant);
   const copy = copyFor(variant);
-  const strip = PNG.sync.read(readFileSync(STRIPS[key]!));
-  const layout = (LAYOUT as Record<string, { dotsX: number; dotsY: number }>)[
-    key
-  ]!;
+  const stripPath = STRIPS[key];
+  const layout = (
+    LAYOUT as Record<string, { dotsX: number; dotsY: number } | undefined>
+  )[key];
+  if (!stripPath || !layout) throw new Error(`no latch strip for ${key}`);
+  const strip = PNG.sync.read(readFileSync(stripPath));
   const [grid, shuffled] = creature.frames;
   const body = hex(copy.accent);
   const eye = hex(EYE);
@@ -218,9 +242,9 @@ export function renderBannerGif(
   const restY = BOX_Y;
 
   const plan = framesFor(variant.state);
-  const exact = new Map<string, Rgb>();
-  const frames = plan.map(f => {
-    const canvas = new Canvas(new Uint8Array(strip.data));
+  const painted = new PaintedColours();
+  const canvases = plan.map(f => {
+    const canvas = new Canvas(new Uint8Array(strip.data), painted);
     const cells = f.legs ? shuffled : grid;
     const ox = Math.min(
       Math.max(restX + (f.dx ?? 0) * CELL, BOX_X),
@@ -263,24 +287,30 @@ export function renderBannerGif(
         else canvas.rect(x, y, RING_CELL, RING_CELL, hex(RING_UNLIT));
       });
     }
-    for (const [k, c] of canvas.painted) exact.set(k, c);
-    return canvas.data;
+    return canvas;
   });
 
-  const all = new Uint8Array(frames.length * frames[0]!.length);
-  frames.forEach((d, i) => all.set(d, i * d.length));
-  // Painted colours are appended verbatim so the creature, dots and ring
-  // keep their exact accent instead of an rgb565-quantized neighbour.
-  const palette = [...quantize(all, 256 - exact.size), ...exact.values()];
+  const size = GIF_W * GIF_H * 4;
+  const all = new Uint8Array(canvases.length * size);
+  canvases.forEach((c, i) => all.set(c.data, i * size));
+  const quantized = quantize(all, 256 - painted.colours.length);
+  const palette = [...quantized, ...painted.colours];
 
   const gif = GIFEncoder();
-  frames.forEach((d, i) =>
-    gif.writeFrame(applyPalette(d, palette), GIF_W, GIF_H, {
+  canvases.forEach((c, i) => {
+    // applyPalette caches its nearest match per rgb565 bucket, so a strip
+    // pixel can hand a painted colour the wrong index; painted pixels get
+    // their own exact entry instead.
+    const index = applyPalette(c.data, palette);
+    for (let p = 0; p < c.owner.length; p++) {
+      if (c.owner[p]! >= 0) index[p] = quantized.length + c.owner[p]!;
+    }
+    gif.writeFrame(index, GIF_W, GIF_H, {
       palette: i === 0 ? palette : undefined,
       delay: plan[i]!.delay,
       repeat: 0,
-    })
-  );
+    });
+  });
   gif.finish();
   return gif.bytes();
 }

@@ -105,6 +105,7 @@ for (const key of keys) {
     const sub = box('.sub');
     return {
       copyRight: copyBox.right,
+      titleRight: box('.title').right,
       dotsLeft: dots[0].left,
       dotsTop: dots[0].top,
       dotsRight: dots[2].right,
@@ -112,7 +113,8 @@ for (const key of keys) {
     };
   }, inner);
 
-  if (m.dotsRight > m.copyRight || m.subRight > m.copyRight) {
+  const titleEnd = copy.indicator === 'dots' ? m.dotsRight : m.titleRight;
+  if (titleEnd > m.copyRight || m.subRight > m.copyRight) {
     throw new Error(`${key}: copy overflows its box`);
   }
   layout[key] = {
