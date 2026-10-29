@@ -35,8 +35,10 @@ quote the exit status and the first line of stderr in one line when the
 stage returns to the orchestrator, fix nothing on its account, and record
 the commits.
 
-Run it once. The check never runs again in this stage: self-review judges
-the result with verdicts.
+Run it once. The check never runs again in this stage. Rule verdicts come
+later only where the pack's self-review runs the self-review verb with
+this same selector bound; the default self-review stage reads the diff
+without the rules.
 
 *If a rule below asks for a move this skill's graph marks STOP, take the off-script edge instead.*
 
