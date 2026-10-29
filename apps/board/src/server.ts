@@ -186,7 +186,7 @@ import {
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
-import { countNewDiscussions } from './latch/land.ts';
+import { fetchNewDiscussionCount } from './latch/land.ts';
 import { readLatchRow } from './latch/latch-state.ts';
 import {
   acceptedReReview,
@@ -4955,17 +4955,16 @@ async function handleAgentSignal(
             outcome,
             arm,
             reviewRunStartedAt: vouched ? runStamp(lane) : null,
-            countNew: async launchAt => {
-              try {
-                const fresh = await new MRDetailFetcher(
-                  config.gitlabHost,
-                  gitlabToken
-                ).fetchDetail(projectId, mr.iid);
-                return countNewDiscussions(fresh, self, launchAt);
-              } catch {
-                return null;
-              }
-            },
+            countNew: launchAt =>
+              fetchNewDiscussionCount(
+                () =>
+                  new MRDetailFetcher(
+                    config.gitlabHost,
+                    gitlabToken
+                  ).fetchDetail(projectId, mr.iid),
+                self,
+                launchAt
+              ),
             self,
             approvedBy: mr.reviews.approvedBy.map(r => r.username),
             detail,

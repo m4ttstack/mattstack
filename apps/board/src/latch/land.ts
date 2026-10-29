@@ -191,6 +191,19 @@ export function countNewDiscussions(
   return n;
 }
 
+/** countNewDiscussions over a fresh read; null when the read fails. */
+export async function fetchNewDiscussionCount(
+  fetchDetail: () => Promise<MRDetail>,
+  self: string,
+  launchAt: number
+): Promise<number | null> {
+  try {
+    return countNewDiscussions(await fetchDetail(), self, launchAt);
+  } catch {
+    return null;
+  }
+}
+
 /** An approval spends every copy. The copy a landing already marked
     done-approved keeps that banner, so a later spend from a stale read
     cannot turn the follow-up's verdict back into a plain approval. */

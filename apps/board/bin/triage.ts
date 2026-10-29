@@ -2,7 +2,12 @@
 // rt cron is the intended caller (spec §5); a human running it by hand gets
 // the same one idempotent evaluation pass. The board server NEVER runs this.
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
-import { GitLabProvider, parseRepoId, type MRDetail } from '@mattstack/glance';
+import {
+  GitLabProvider,
+  MRDetailFetcher,
+  parseRepoId,
+  type MRDetail,
+} from '@mattstack/glance';
 import {
   listOrgs,
   readDiscussions,
@@ -23,6 +28,13 @@ import {
 } from '../src/doctor-state.ts';
 import { launchDoctor, sendPaneText } from '../src/herdr.ts';
 import { latchGateway } from '../src/latch/gateway.ts';
+import { fetchNewDiscussionCount } from '../src/latch/land.ts';
+import {
+  casLatch,
+  putLatchRow,
+  readLatchRow,
+  readLatchRows,
+} from '../src/latch/latch-state.ts';
 import { packForLaunch } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
@@ -132,12 +144,15 @@ try {
   // once per run and only when something actually notifies. Null (deck not
   // answering) sends the notification without a click target.
   let boardUrl: Promise<string | null> | undefined;
-  const notify = async (title: string, message: string, mrUrl: string) => {
-    if (triage.notify !== 'rt') return;
+  const boardLinkFor = async (mrUrl: string): Promise<string | null> => {
     boardUrl ??= deckAppUrl('board');
     const base = await boardUrl;
+    return base ? boardMrLink(base, mrUrl) : null;
+  };
+  const notify = async (title: string, message: string, mrUrl: string) => {
+    if (triage.notify !== 'rt') return;
     await notifyEscalation(title, message, triage.notify, {
-      url: base ? boardMrLink(base, mrUrl) : null,
+      url: await boardLinkFor(mrUrl),
     });
   };
 
@@ -191,11 +206,19 @@ try {
   // spend can be repaired; without them nothing ever would be. A commented
   // TOMBSTONE also qualifies: its MR left the board with review state and came
   // back without it, and the pass decides between resurrecting and dropping.
+  // A latch queued, running or in error is owed a launch or a landing whatever
+  // its review lane now reads, so its MR stays in scope too.
   const fetchLatchMrs = async (): Promise<LatchMrFacts[]> => {
     const states = readReviewStates();
     const pruned = readPrunedReviewStates();
+    const owed = new Set(
+      readLatchRows()
+        .filter(r => ['queued', 'running', 'error'].includes(r.phase))
+        .map(r => r.mrUrl)
+    );
     const inScope = (url: string | null | undefined): boolean => {
       if (!url) return false;
+      if (owed.has(url)) return true;
       if (states.get(url)?.status === 'done') return true;
       const tomb = pruned.get(url);
       return tomb?.status === 'done' && tomb.outcome === 'comment';
@@ -355,6 +378,24 @@ try {
         reReview,
         appendAudit,
         notify,
+        notifyStuck: async (title, message, mrUrl) =>
+          notifyEscalation(title, message, 'rt', {
+            url: await boardLinkFor(mrUrl),
+          }),
+        countNew: (mr, launchAt) =>
+          fetchNewDiscussionCount(
+            () =>
+              new MRDetailFetcher(
+                boardConfig.gitlabHost,
+                latchToken
+              ).fetchDetail(mr.projectId, mr.iid),
+            username,
+            launchAt
+          ),
+        readLatchRow: mrUrl => readLatchRow(mrUrl),
+        casLatch: (mrUrl, from, patch, at, opts) =>
+          casLatch(mrUrl, from, patch, at, undefined, opts),
+        putLatchRow: row => putLatchRow(row),
         now: () => Date.now(),
       });
       console.log(`latch pass: ${JSON.stringify(latchResult)}`);

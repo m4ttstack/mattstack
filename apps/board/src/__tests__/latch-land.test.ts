@@ -3,6 +3,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import type { MRDetail } from '@mattstack/glance';
 import {
   countNewDiscussions,
+  fetchNewDiscussionCount,
   landFollowUp,
   type LandInput,
 } from '../latch/land.ts';
@@ -356,5 +357,27 @@ describe('countNewDiscussions', () => {
       ],
     } as unknown as MRDetail;
     expect(countNewDiscussions(detail, 'matt', launchAt)).toBe(2);
+  });
+
+  test('fetchNewDiscussionCount counts a fresh read the same way', async () => {
+    const detail = {
+      mrIid: 2317,
+      repositoryId: 'gitlab:42',
+      discussions: [
+        disc('a', 'Rename this', 'matt', '2026-09-01T10:01:00Z'),
+        disc('b', armedLatchBody(IMG), 'matt', '2026-09-01T10:02:00Z'),
+        disc('c', 'Before launch', 'matt', '2026-09-01T09:00:00Z'),
+      ],
+    } as unknown as MRDetail;
+    expect(
+      await fetchNewDiscussionCount(async () => detail, 'matt', launchAt)
+    ).toBe(1);
+  });
+
+  test('fetchNewDiscussionCount is null when the read fails', async () => {
+    const failing = async (): Promise<MRDetail> => {
+      throw new Error('gitlab down');
+    };
+    expect(await fetchNewDiscussionCount(failing, 'matt', launchAt)).toBeNull();
   });
 });
