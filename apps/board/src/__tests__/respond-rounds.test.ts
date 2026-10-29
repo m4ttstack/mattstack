@@ -10,6 +10,7 @@ import {
   readRespondOutcomes,
   readRespondRounds,
   recordRespondRound,
+  reviewerOutcome,
 } from '../respond-rounds.ts';
 import { openStateDb } from '../state/db.ts';
 
@@ -85,5 +86,40 @@ describe('respond rounds', () => {
     expect(out[0]).toEqual({ webUrl: URL_A, respondRounds: { john: 2 } });
     expect(out[1]).toBe(b);
     expect(out[2]).toBe(none);
+  });
+});
+
+describe('the outcome a response round records', () => {
+  const reviews = (r: object) => ({
+    reviews: { approvedBy: [], reviewers: [], ...r },
+  });
+  test('an approver who was never an assigned reviewer approved', () => {
+    expect(
+      reviewerOutcome(
+        reviews({ approvedBy: [{ username: 'renee' }] }) as never,
+        'renee'
+      )
+    ).toBe('approve');
+  });
+  test('an assigned reviewer whose state reads approved approved', () => {
+    expect(
+      reviewerOutcome(
+        reviews({
+          reviewers: [{ username: 'renee', reviewState: 'APPROVED' }],
+        }) as never,
+        'renee'
+      )
+    ).toBe('approve');
+  });
+  test('anyone else commented', () => {
+    expect(
+      reviewerOutcome(
+        reviews({
+          reviewers: [{ username: 'renee', reviewState: 'REVIEWED' }],
+        }) as never,
+        'renee'
+      )
+    ).toBe('comment');
+    expect(reviewerOutcome(undefined, 'renee')).toBe('comment');
   });
 });

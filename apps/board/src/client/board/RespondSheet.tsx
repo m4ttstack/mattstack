@@ -17,10 +17,9 @@ import {
   type GateSelections,
 } from '@mattstack/gate-kit';
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
-import { getReviewDisplayState } from '@mattstack/glance';
 import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
-import { approvalSlots } from '../../view.ts';
+import { approvalSlots, personApproved } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import {
   parseGateCtx,
@@ -446,22 +445,6 @@ function MrStatusCard({ mr }: { mr: BoardMRWithReview }) {
   );
 }
 
-/** A respond gate in the full-screen sheet: the respond header and every
-    thread (or reply) in the main column, each decided on its own card; the
-    rail shows what the submit will do, the MR's status, and docks the
-    submit. On a respond-plan gate the code-changes question never shows:
-    any fix pick implies `approve`, none implies the gate's sentinel, and
-    `revise` is its own action with a required reason. */
-/** Whether the person a respond gate answers approved the MR, as GitLab
-    reports their review state now. */
-function reviewerApproved(
-  mr: BoardMRWithReview | undefined,
-  person: string
-): boolean {
-  const r = mr?.reviews?.reviewers?.find(x => x.username === person);
-  return getReviewDisplayState(r?.reviewState ?? null) === 'approved';
-}
-
 /** The rounds behind a respond gate: what the reviewer had posted when each
     round began, and your reply to each round before this one. */
 function respondHistory(
@@ -492,6 +475,12 @@ function respondHistory(
   }));
 }
 
+/** A respond gate in the full-screen sheet: the respond header and every
+    thread (or reply) in the main column, each decided on its own card; the
+    rail shows what the submit will do, the MR's status, and docks the
+    submit. On a respond-plan gate the code-changes question never shows:
+    any fix pick implies `approve`, none implies the gate's sentinel, and
+    `revise` is its own action with a required reason. */
 function RespondSheetBody({
   gate,
   mr,
@@ -882,8 +871,8 @@ function RespondSheetBody({
               round={mr?.respond?.responseRound ?? ctx.round ?? 1}
               review={{
                 id: person,
-                label: `${people.short(person)} ${reviewerApproved(mr, person) ? 'approved' : 'reviewed'}`,
-                outcome: reviewerApproved(mr, person) ? 'approve' : 'comment',
+                label: `${people.short(person)} ${personApproved(mr, person) ? 'approved' : 'reviewed'}`,
+                outcome: personApproved(mr, person) ? 'approve' : 'comment',
               }}
               response={{ label: 'Your response', at: plan ? 'Plan' : 'Post' }}
               history={respondHistory(

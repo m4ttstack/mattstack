@@ -8,7 +8,6 @@ import {
 } from '@mattstack/app-server/event-bridge';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
 import {
-  getReviewDisplayState,
   GitLabProvider,
   NoteMutator,
   parseRepoId,
@@ -286,6 +285,7 @@ import {
   readRespondOutcomes,
   readRespondRounds,
   recordRespondRound,
+  reviewerOutcome,
 } from './respond-rounds.ts';
 import {
   attachResponds,
@@ -2792,12 +2792,7 @@ const httpServer = Bun.serve({
               person,
               undefined,
               undefined,
-              getReviewDisplayState(
-                mr.reviews.reviewers.find(r => r.username === person)
-                  ?.reviewState ?? null
-              ) === 'approved'
-                ? 'approve'
-                : 'comment'
+              reviewerOutcome(mr, person)
             )
           : undefined;
         const statePath = respondFilePath(parsed.mrUrl);

@@ -1,9 +1,18 @@
 import { Database } from 'bun:sqlite';
 
 import { getStateDb } from './state/index.ts';
+import { personApproved } from './view.ts';
 
 /** What the person had posted on the MR when a response round began. */
 export type ReviewerOutcome = 'comment' | 'approve';
+
+/** What the person has posted on the MR now, as a response round records it. */
+export function reviewerOutcome(
+  mr: Parameters<typeof personApproved>[0],
+  person: string
+): ReviewerOutcome {
+  return personApproved(mr, person) ? 'approve' : 'comment';
+}
 
 /** Records the next response round for this person and returns it (1 on the first). */
 export function recordRespondRound(
