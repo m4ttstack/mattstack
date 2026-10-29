@@ -1,62 +1,127 @@
 /**
- * Renders the latch banner's fixed artwork to assets/latch-band.png, once, at
- * build time. Text is the only reason a browser is involved: the runtime
- * compositor paints sprite pixels and cannot render glyphs. Re-run by hand
- * after changing the band's look, and commit the result.
+ * Renders the text strip behind every latch banner variant to
+ * assets/latch/<key>.png, once, at build time. Text is the only reason a
+ * browser is involved: the runtime compositor paints the creature and the
+ * indicator and cannot render glyphs. Re-run by hand after changing the
+ * copy or the look, and commit the result.
  *
  *   bun run scripts/build-latch-band.ts
+ *
+ * Also writes assets/latch/layout.json (where the runtime paints the dots,
+ * in 2x px) and assets/latch/index.ts, which embeds each strip by file:
+ * `bun build --compile` embeds single files, never a directory.
  */
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { chromium } from 'playwright';
 
-const W = 1200;
-const H = 208;
-// Left inset reserved for the sprite the runtime paints in; the artwork must
-// leave it empty or the sprite lands on top of the band's own pixels.
-const SPRITE_BOX = 120 + 60 * 2;
+import { allVariantKeys, copyFor, variantOfKey } from '../src/latch/variants.ts';
+
+const W = 520;
+const H = 64;
+const SCALE = 2;
+const DOTS_GAP = 6;
+const DOT = 4;
+const DOTS_SPAN = DOT * 3 + 4 * 2;
+const OUT = join(import.meta.dir, '..', 'assets', 'latch');
+
+const escape = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 const html = `<!doctype html><meta charset="utf-8">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&family=IBM+Plex+Mono:wght@400&display=swap">
 <style>
-  html, body { margin: 0; padding: 0; }
-  .band {
-    width: ${W}px; height: ${H}px; box-sizing: border-box;
-    display: flex; align-items: center;
-    padding: 0 60px 0 ${SPRITE_BOX}px;
-    background: #161224;
-    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 2px, transparent 2px 6px);
-  }
-  .stack { display: flex; flex-direction: column; gap: 16px; width: 100%; }
-  /* GitLab shows the band at about half width. Silkscreen draws on an 8px
-     grid, so 48px lands on whole pixels at 50% where 50px smeared; weight 400
-     keeps the counters open that 700 filled in. */
-  .title { font-family: 'Silkscreen', 'Courier New', monospace; font-weight: 400;
-           font-size: 48px; letter-spacing: 0.06em; color: #f6f2ff; line-height: 1; }
-  .rule { height: 4px; background: #ff6b9d; width: 100%; }
-  .sub { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 30px;
-         letter-spacing: 0.08em; color: #ffd0e0; text-transform: uppercase; line-height: 1; }
+  html, body { margin: 0; padding: 0; background: #2a2638; }
+  /* The sprite and ring boxes stay bare background: the runtime paints into them. */
+  .band { width: ${W}px; height: ${H}px; box-sizing: border-box; display: flex; align-items: center;
+          gap: 10px; padding: 0 24px 0 14px; background: #2a2638; }
+  .sprite { width: 45px; height: 33px; flex: none; }
+  .copy { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+  .title { font-family: 'Silkscreen'; font-size: 18px; letter-spacing: 1px; color: #ece8f4;
+           line-height: 1; white-space: nowrap; align-self: flex-start; }
+  .sub { font-family: 'IBM Plex Mono'; font-size: 13px; color: #b7b0c8; line-height: 1;
+         white-space: nowrap; }
+  .ring { width: 22px; height: 22px; flex: none; }
 </style>
-<div class="band"><div class="stack">
-  <div class="title">READY FOR RE-REVIEW?</div>
-  <div class="rule"></div>
-  <div class="sub">resolve this thread to summon another pass</div>
-</div></div>`;
+<div class="band" id="band"></div>`;
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: W, height: H } });
-await page.setContent(html, { waitUntil: 'networkidle' });
-await page.evaluate(
-  () =>
-    (
-      globalThis as unknown as {
-        document: { fonts: { ready: Promise<unknown> } };
-      }
-    ).document.fonts.ready
-);
-mkdirSync(join(import.meta.dir, '..', 'assets'), { recursive: true });
-await page.locator('.band').screenshot({
-  path: join(import.meta.dir, '..', 'assets', 'latch-band.png'),
+const page = await browser.newPage({
+  viewport: { width: W, height: H },
+  deviceScaleFactor: SCALE,
 });
+await page.setContent(html, { waitUntil: 'networkidle' });
+const fontsOk = await page.evaluate(async () => {
+  const fonts = (
+    globalThis as unknown as {
+      document: {
+        fonts: { load(f: string): Promise<unknown[]>; check(f: string): boolean };
+      };
+    }
+  ).document.fonts;
+  await fonts.load("18px 'Silkscreen'");
+  await fonts.load("13px 'IBM Plex Mono'");
+  return fonts.check("18px 'Silkscreen'") && fonts.check("13px 'IBM Plex Mono'");
+});
+if (!fontsOk) {
+  await browser.close();
+  throw new Error('Google Fonts did not load; refusing to render strips with fallback fonts');
+}
+
+mkdirSync(OUT, { recursive: true });
+const keys = allVariantKeys();
+const layout: Record<string, { dotsX: number; dotsY: number }> = {};
+
+for (const key of keys) {
+  const copy = copyFor(variantOfKey(key)!);
+  const inner = `<div class="sprite"></div>
+    <div class="copy"><div class="title">${escape(copy.title.toUpperCase())}</div>
+    <div class="sub">${escape(copy.sub)}</div></div>${
+      copy.indicator === 'ring' ? '<div class="ring"></div>' : ''
+    }`;
+  const m = await page.evaluate((markup) => {
+    const doc = (globalThis as unknown as { document: any }).document;
+    const band = doc.getElementById('band');
+    band.innerHTML = markup;
+    const box = (sel: string) => band.querySelector(sel).getBoundingClientRect();
+    const copyBox = box('.copy');
+    const title = box('.title');
+    const sub = box('.sub');
+    return {
+      copyRight: copyBox.right,
+      titleRight: title.right,
+      titleMid: title.top + title.height / 2,
+      subRight: sub.right,
+    };
+  }, inner);
+
+  const limit = m.copyRight - (copy.indicator === 'dots' ? DOTS_GAP + DOTS_SPAN : 0);
+  if (m.titleRight > limit || m.subRight > m.copyRight) {
+    throw new Error(`${key}: copy overflows its box`);
+  }
+  layout[key] = {
+    dotsX: Math.round((m.titleRight + DOTS_GAP) * SCALE),
+    dotsY: Math.round(m.titleMid * SCALE - DOT),
+  };
+  await page.locator('#band').screenshot({ path: join(OUT, `${key}.png`) });
+}
 await browser.close();
-console.log(`wrote assets/latch-band.png (${W}x${H})`);
+
+writeFileSync(join(OUT, 'layout.json'), `${JSON.stringify(layout, null, 2)}\n`);
+const imports = keys.map((k, i) => `import s${i} from './${k}.png' with { type: 'file' };`);
+const entries = keys.map((k, i) => `  '${k}': s${i},`);
+writeFileSync(
+  join(OUT, 'index.ts'),
+  [
+    '// generated by scripts/build-latch-band.ts; do not edit',
+    ...imports,
+    '',
+    'export const STRIPS: Record<string, string> = {',
+    ...entries,
+    '};',
+    '',
+    "export { default as LAYOUT } from './layout.json';",
+    '',
+  ].join('\n')
+);
+console.log(`wrote ${keys.length} strips to assets/latch (${W * SCALE}x${H * SCALE})`);

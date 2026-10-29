@@ -23,7 +23,7 @@ export {
 };
 export type { LatchKind };
 
-const ARMED_COPY = [
+export const ARMED_COPY = [
   "**Addressed everything?** Resolve this thread and I'll take another pass over the MR.",
   '',
   "Leave it open while there's still work in flight.",
@@ -36,9 +36,9 @@ const ARMED_COPY = [
     that did not happen. */
 export type SpentReason = 'approved' | 'duplicate';
 
-const SPENT_COPY =
+export const SPENT_COPY =
   'Approved, so this latch is spent. Nothing further to do here.';
-const DUPLICATE_COPY =
+export const DUPLICATE_COPY =
   'Superseded by a newer latch on this MR; nothing to do here.';
 
 export function armedLatchBody(imageMarkdown: string): string {
