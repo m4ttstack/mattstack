@@ -33,11 +33,16 @@ function isEmpty(cwds: Partial<BoardCwds> | undefined): boolean {
   return cwds === undefined || KEYS.every((k) => !cwds[k]);
 }
 
+/** All three on one path is the shape the old setup step wrote, always the first tracked repo. */
+function isUniform(cwds: Partial<BoardCwds> | undefined): boolean {
+  return cwds !== undefined && KEYS.every((k) => cwds[k] === cwds.review);
+}
+
 /**
  * Install replaces only an empty value or the one rt wrote last, so a value
  * the member set by hand stays. The migration has no record of what rt
- * wrote, so it replaces only a value that cannot work: missing, gone, or not
- * a checkout of a tracked repo.
+ * wrote, so it replaces only a value that cannot work (missing, gone, or not
+ * a checkout of a tracked repo) or one in the shape the old step wrote.
  */
 export function planBoardCwds(i: {
   current: Partial<BoardCwds> | undefined;
@@ -58,5 +63,5 @@ export function planBoardCwds(i: {
     const path = i.current?.[k];
     return !path || !i.exists(path) || !i.isTrackedCheckout(path);
   });
-  return broken ? { write } : { leave: "hand-set" };
+  return broken || isUniform(i.current) ? { write } : { leave: "hand-set" };
 }

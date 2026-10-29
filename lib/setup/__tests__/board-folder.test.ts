@@ -47,13 +47,25 @@ describe("planBoardCwds", () => {
     expect(install({ target: null })).toEqual({ leave: "no-repo" });
   });
 
-  test("migration: a missing, gone or untracked value is rewritten; a real tracked checkout is left", () => {
+  test("migration: a missing, gone or untracked value is rewritten; the target is left", () => {
     const migrate = (over: Partial<Parameters<typeof planBoardCwds>[0]>) => install({ mode: "migration", ...over });
     expect(migrate({ current: undefined })).toEqual({ write: all(TARGET) });
     expect(migrate({ current: { review: "/a", respond: "/a" } })).toEqual({ write: all(TARGET) });
     expect(migrate({ current: all("/gone"), exists: (path) => path !== "/gone" })).toEqual({ write: all(TARGET) });
     expect(migrate({ current: all("/notes"), isTrackedCheckout: (path) => path !== "/notes" })).toEqual({ write: all(TARGET) });
-    expect(migrate({ current: all("/custom") })).toEqual({ leave: "hand-set" });
     expect(migrate({ current: all(TARGET) })).toEqual({ leave: "current" });
+  });
+
+  test("migration: the old uniform value on another tracked repo is repointed", () => {
+    expect(install({ mode: "migration", current: all("/Users/jane/code/gadgets") })).toEqual({ write: all(TARGET) });
+  });
+
+  test("migration: differing values on real checkouts are left alone", () => {
+    const current = { review: "/Users/jane/code/gadgets", respond: TARGET, doctor: TARGET };
+    expect(install({ mode: "migration", current })).toEqual({ leave: "hand-set" });
+  });
+
+  test("install: the old uniform value on another tracked repo is still hand-set", () => {
+    expect(install({ current: all("/Users/jane/code/gadgets") })).toEqual({ leave: "hand-set" });
   });
 });

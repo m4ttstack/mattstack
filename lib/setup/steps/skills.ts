@@ -16,7 +16,7 @@ import { setSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { planBoardCwds, type BoardCwds } from "../board-folder.ts";
-import type { StepId } from "../contract.ts";
+import type { EventId } from "../contract.ts";
 import type { Probes } from "../probes.ts";
 import { tildify } from "../repo-placement.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
@@ -102,7 +102,7 @@ export const skillsLinkStep: StepDef = {
 // ─── board.keys ──────────────────────────────────────────────────────────────
 
 /** True only when a key is both registered AND write-eligible — a def missing from the registry (or shipped `migrated: false`) is logged and left alone rather than letting `setSetting`'s own refusal crash the step. */
-function writable(ctx: ApplyContext, key: string, stepId: StepId = "board.keys"): boolean {
+export function writable(ctx: ApplyContext, key: string, stepId: EventId = "board.keys"): boolean {
   const def = getDef(key);
   if (!def || !isMigrated(def)) {
     ctx.log(stepId, `${key}: key not in registry yet`);
@@ -213,9 +213,14 @@ async function boardCwdsRun(ctx: ApplyContext): Promise<StepOutcome> {
     if (plan.leave === "hand-set") return { state: "skipped", detail: "You set the board's folders yourself, so rt left them alone" };
     return { state: "done", detail: `The board already starts in ${tildify(ctx.p.home, path)}` };
   }
-  setSetting("board.cwds", plan.write, "machine");
-  updateSetupState(ctx.p, (s) => ({ ...s, boardCwdsWritten: plan.write, boardRestartPending: true }));
+  writeBoardCwds(ctx, plan.write);
   return { state: "done", detail: `The board's agents start in ${tildify(ctx.p.home, path)}` };
+}
+
+/** Recorded as rt's so a later move replaces it, and pending until the board restarts, since it reads `board.cwds` once at boot. */
+export function writeBoardCwds(ctx: ApplyContext, cwds: BoardCwds): void {
+  setSetting("board.cwds", cwds, "machine");
+  updateSetupState(ctx.p, (s) => ({ ...s, boardCwdsWritten: cwds, boardRestartPending: true }));
 }
 
 async function boardCwdsRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
