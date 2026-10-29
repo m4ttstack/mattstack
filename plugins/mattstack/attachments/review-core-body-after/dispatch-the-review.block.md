@@ -12,6 +12,9 @@ it the full payload:
 - the commit range
 - the setup observations from Set up for the depth
 - the filled criteria addendum, when the pack binds criteria
+- the rule selection text and the verdict request naming the `fence`
+  value, unless there is no selection or the selection is empty (Rule
+  selector's Select the rules)
 
 It owns the template, the subagent, and the standard blocks. Judgment forms
 there, not here: whoever sized this change carries assumptions about it, and

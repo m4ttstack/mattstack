@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "bindings": {
+    "mattstack:review/rule-selector": { "rule-selector": "acme:acme-rule-selector" },
+    "mattstack:self-review/rule-selector": { "rule-selector": "acme:acme-rule-selector" },
+    "mattstack:receive-review/rule-selector": { "rule-selector": "acme:acme-rule-selector" }
+  }
+}
