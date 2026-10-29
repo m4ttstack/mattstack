@@ -569,12 +569,35 @@ test('the slack marks are a button onto the post, and plain marks without one', 
   const marks = container.querySelector('.tui-row-marks')!;
   expect(marks.tagName).toBe('BUTTON');
   expect(marks.className).toContain('tui-copy-inline');
-  expect(marks.getAttribute('title')).toContain('open in slack');
+  expect(marks.getAttribute('aria-label')).toBe(
+    'Someone marked this looking in Slack'
+  );
+  expect(marks.getAttribute('title')).toBe('');
 
   await render([mr({ slack })]);
   const plain = container.querySelector('.tui-row-marks')!;
   expect(plain.tagName).toBe('SPAN');
-  expect(plain.getAttribute('title')).toBe('posted in slack');
+  expect(plain.getAttribute('title')).toBe('');
+});
+
+test('the slack marks tip says whether you left the furthest mark', async () => {
+  await render([
+    mr({
+      slack: {
+        status: 'found',
+        reactions: ['eyes', 'white_check_mark'],
+        reactedBy: {
+          eyes: { you: false, others: ['U1'] },
+          white_check_mark: { you: true, others: ['U2'] },
+        },
+        posted: true,
+        permalink: 'https://slack.test/p/1',
+      },
+    }),
+  ]);
+  expect(
+    container.querySelector('.tui-row-marks')!.getAttribute('aria-label')
+  ).toBe('You and 1 other marked this approved in Slack');
 });
 
 test('with several posts the slack marks show the count and open the chooser', async () => {
@@ -601,7 +624,7 @@ test('with several posts the slack marks show the count and open the chooser', a
   );
   const marks = container.querySelector<HTMLButtonElement>('.tui-row-marks')!;
   expect(marks.querySelector('.tui-slack-count')!.textContent).toBe('2');
-  expect(marks.getAttribute('title')).toBe('open in slack · 2 posts');
+  expect(marks.getAttribute('aria-label')).toBe('open in slack');
   await React.act(async () => marks.click());
   expect(chosen).toEqual([1418]);
   expect(marks.hasAttribute('data-active')).toBe(false);
@@ -638,7 +661,9 @@ test('with several posts the mark is the furthest any channel reached, with how 
   const marks = container.querySelector('.tui-row-marks')!;
   const stage = marks.querySelector('[data-slack-stage]')!;
   expect(stage.getAttribute('data-slack-stage')).toBe('approved');
-  expect(stage.getAttribute('title')).toContain('2 of 3 channels');
+  expect(marks.getAttribute('aria-label')).toBe(
+    'Someone marked this approved in 2 of 3 Slack channels'
+  );
   expect(
     [...marks.querySelectorAll('.tui-slack-count')].map(n => n.textContent)
   ).toEqual(['2', '3']);

@@ -1,3 +1,4 @@
+import type { ReactedBy } from '../../slack-emoji.ts';
 import type { SlackInfo } from '../types.ts';
 
 export type SlackStage = 'looking' | 'commented' | 'approved';
@@ -43,4 +44,46 @@ export function furthestAcross<M extends { emoji: string; stage: SlackStage }>(
     } else if (m.stage === mark.stage) count++;
   }
   return { mark, count };
+}
+
+type Reactors = ReactedBy[string];
+
+/** Everyone who left `emoji` on any of the posts; undefined when no post
+    says who reacted. */
+export function reactorsOf(
+  posts: ReadonlyArray<{ reactedBy?: ReactedBy }>,
+  emoji: string
+): Reactors | undefined {
+  let out: Reactors | undefined;
+  for (const post of posts) {
+    const who = post.reactedBy?.[emoji];
+    if (!who) continue;
+    out ??= { you: false, others: [] };
+    out.you ||= who.you;
+    for (const id of who.others)
+      if (!out.others.includes(id)) out.others.push(id);
+  }
+  return out;
+}
+
+function whoText({ you, others }: Reactors): string {
+  const n = others.length;
+  const rest = `${n} other${n === 1 ? '' : 's'}`;
+  if (you) return n ? `You and ${rest}` : 'You';
+  if (n === 1) return 'Someone else';
+  return n ? rest.replace(/^./, c => c.toUpperCase()) : 'Someone';
+}
+
+/** The Slack marks' tooltip: who left the furthest mark ("Someone" until
+    the board knows who), and in how many channels. */
+export function marksTip(
+  mark: { word: string } | null,
+  who: Reactors | undefined,
+  across?: { reached: number; posts: number }
+): string | null {
+  if (!mark) return null;
+  const where = across
+    ? `${across.reached} of ${across.posts} Slack channels`
+    : 'Slack';
+  return `${who ? whoText(who) : 'Someone'} marked this ${mark.word} in ${where}`;
 }
