@@ -877,6 +877,21 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
     expect(order).toEqual(["team.join"]);
   });
 
+  test("a step's titleFor names it in the plan and in a failed prerequisite's detail", async () => {
+    const { step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false, titleFor: () => "Join acme" }, { state: "failed", detail: "relay down" }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+    const { ctx, events } = testCtx();
+
+    await runApplyWith(steps, ctx, { only: "plugins.install" });
+
+    const plan = events.find((e) => e.event === "plan") as Extract<ApplyEvent, { event: "plan" }>;
+    expect(plan.steps.map((s) => s.title)).toEqual(["Join acme", "plugins.install"]);
+    expect(events).toContainEqual({ event: "step", id: "team.join", state: "failed", detail: "Join acme: relay down" });
+  });
+
   test("a named step this run gates out runs none of its prerequisites either", async () => {
     const { order, step } = recorder();
     const steps = [step("team.join", { satisfied: () => false }), step("plugins.install", { prerequisites: ["team.join"], applies: () => false })];

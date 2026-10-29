@@ -27,6 +27,7 @@ import { activeTeam } from "../../packages/rt-client/src/settings/active-team.ts
 import { directoryEntry, type TeamDirectory } from "../../packages/rt-client/src/settings/team-directory.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 import type { Probes } from "./probes.ts";
+import { boardRepoIdentity } from "./board-folder.ts";
 
 export interface TeamIntegrations {
   forge?: { host: string; provider: "github" | "gitlab" };
@@ -43,6 +44,8 @@ export interface TeamSnapshot {
   remote: string | null;
   /** The team's board tracks at least one project, which is what makes a board worth peering. */
   boardProjects?: boolean;
+  /** The tracked identity the board's agents start in (`boardRepoIdentity`). */
+  boardRepo?: string | null;
 }
 
 /** Reads one registered setting key, degrading to `undefined` on a resolver-layer throw rather than taking the whole plan down with it. Injectable so tests never touch the real resolver/disk. */
@@ -133,14 +136,17 @@ export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: Setting
   const gitConfig = p.readFile(join(orgDirUnder(p.home, slug), ".git", "config"));
   const remote = gitConfig !== null ? parseOriginUrl(gitConfig) : null;
 
+  const trackingIdentities = Object.keys(tracking?.repos ?? {});
+
   return {
     slug,
     integrations,
-    trackingIdentities: Object.keys(tracking?.repos ?? {}),
+    trackingIdentities,
     marketplaces: Array.isArray(marketplaces) ? (marketplaces as string[]) : [],
     plugins: Array.isArray(plugins) ? (plugins as string[]) : [],
     remote,
     boardProjects: Array.isArray(boardProjects) && boardProjects.length > 0,
+    boardRepo: boardRepoIdentity(boardProjects, trackingIdentities),
   };
 }
 

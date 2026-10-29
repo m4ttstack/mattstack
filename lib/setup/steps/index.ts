@@ -18,7 +18,7 @@ import { settingsSeedStep } from "./settings.ts";
 import { reposCloneStep } from "./repos.ts";
 import { servicesRegisterStep, proxyInstallStep } from "./services.ts";
 import { deckManagedStep } from "./deck.ts";
-import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, cronTriageStep } from "./skills.ts";
+import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, boardCwdsStep, boardRestartStep, cronTriageStep } from "./skills.ts";
 import { pluginsInstallStep } from "./plugins.ts";
 import { linearMcpStep } from "./linear-mcp.ts";
 import { claudePermissionsStep } from "./claude-permissions.ts";
@@ -72,6 +72,7 @@ export const STEPS: StepDef[] = [
   skillsMaterializeStep,
   skillsLinkStep,
   boardKeysStep,
+  boardCwdsStep,
   // cron.triage is the last settings-store write in apply order.
   // intercepts.install must stay behind both repos.clone (the repo index
   // it reads) and this step: staleIntercepts() compares the rules cache's
@@ -86,6 +87,7 @@ export const STEPS: StepDef[] = [
   herdrIntegrationStep,
   extensionInstallStep,
   servicesStartStep,
+  boardRestartStep,
   snapshotPushStep,
   verifyStep,
 ];

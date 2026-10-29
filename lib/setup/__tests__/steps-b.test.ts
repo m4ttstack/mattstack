@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { getDaemonConfig } from "../../daemon-config.ts";
-import { updateRepoIndex, updateRepoIndexAsync } from "../../repo-index.ts";
+import { removeIndexRow, updateRepoIndex, updateRepoIndexAsync } from "../../repo-index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { getDef } from "../../settings/registry.ts";
@@ -13,7 +13,10 @@ import { setSetting } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
-import type { ApplyContext, StepOutcome } from "../apply.ts";
+import { runApplyWith, type ApplyContext, type StepDef, type StepOutcome } from "../apply.ts";
+import type { ApplyEvent } from "../contract.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
+import { STEPS } from "../steps/index.ts";
 import type { SetupIntent } from "../intent.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
@@ -25,7 +28,7 @@ import type { Probes } from "../probes.ts";
 import { servicesRegisterStep, proxyInstallStep, PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH } from "../steps/services.ts";
 import { deckManagedStep } from "../steps/deck.ts";
 import { unwritten } from "../steps/step-utils.ts";
-import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, cronTriageStep } from "../steps/skills.ts";
+import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, boardCwdsStep, makeBoardRestartStep, cronTriageStep } from "../steps/skills.ts";
 import { personalSkillsDir } from "../../skills/writing-style-sources.ts";
 
 // ─── shared fakes (same shapes as steps-a.test.ts; none of steps B's bodies
@@ -1006,19 +1009,17 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       return { repoName, repoDir };
     }
 
-    // board.cwds is derived from rt.repoRoots, which settings.seed used to write at
-    // step 8. It is now set by the user or by repos.clone as repos land. A
-    // regression here is silent: boardKeysRun logs and
-    // leaves the setting unset rather than failing.
-    test("board.keys still seeds board.cwds from a root the user chose before Install", async () => {
+    test("board.keys no longer writes board.cwds", async () => {
       const { repoName, repoDir } = seedTrackedRepo();
       setSetting("rt.repoRoots", [dirname(repoDir)], "machine");
       const { ctx } = makeCtx(fakeProbes({ home }), { snapshot: { slug: "acme", integrations: {}, trackingIdentities: [`gitlab.com/acme/${repoName}`], marketplaces: [], plugins: [], remote: null } });
-      await boardKeysStep.run(ctx);
-      expect(getSetting<Record<string, string>>("board.cwds").value?.review).toBe(join(dirname(repoDir), repoName));
+      const outcome = await boardKeysStep.run(ctx);
+      expect(detailOf(outcome)).toContain("gitq.board");
+      expect(detailOf(outcome)).not.toContain("board.cwds");
+      expect(unwritten("board.cwds")).toBe(true);
     });
 
-    test("a tracked repo indexed by identity through a symlink to an existing clone seeds board.cwds and gitq.board", async () => {
+    test("a tracked repo indexed by identity through a symlink to an existing clone seeds gitq.board", async () => {
       const identity = "gitlab.com/acme/acme-dev";
       const clone = join(home, "luke");
       mkdirSync(clone);
@@ -1033,23 +1034,20 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx, logs } = makeCtx(fakeProbes({ home }), { snapshot: { slug: "acme", integrations: {}, trackingIdentities: [identity], marketplaces: [], plugins: [], remote: null } });
       const outcome = await boardKeysStep.run(ctx);
 
-      expect(detailOf(outcome)).toContain("board.cwds");
-      const cwd = getSetting<Record<string, string>>("board.cwds").value?.review;
-      expect(cwd && existsSync(cwd) ? realpathSync(cwd) : cwd).toBe(realpathSync(clone));
+      expect(detailOf(outcome)).toContain("gitq.board");
       const board = getSetting<{ repos: { path: string; name: string }[]; port: number }>("gitq.board").value!;
       expect(board.port).toBe(11008);
       expect(board.repos.map((r) => r.name)).toEqual(["acme-dev"]);
       expect(board.repos.map((r) => realpathSync(r.path))).toEqual([realpathSync(clone)]);
-      expect(logs.some((l) => l.line.includes("board.cwds"))).toBe(false);
+      expect(logs.some((l) => l.line.includes("gitq.board"))).toBe(false);
     });
 
-    test("a tracked repo not registered yet leaves board.cwds and gitq.board unset, so the run after a recovered clone writes both", async () => {
+    test("a tracked repo not registered yet leaves gitq.board unset, so the run after a recovered clone writes it", async () => {
       const snapshot = { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null };
       setSetting("rt.repoRoots", [home], "machine");
 
       const { ctx: before, logs } = makeCtx(fakeProbes({ home }), { snapshot });
       await boardKeysStep.run(before);
-      expect(unwritten("board.cwds")).toBe(true);
       expect(getSetting("gitq.board").value).toBeUndefined();
       expect(logs.some((l) => l.line.includes("gitq.board"))).toBe(true);
 
@@ -1060,14 +1058,14 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const { ctx: after } = makeCtx(fakeProbes({ home }), { snapshot });
       const outcome = await boardKeysStep.run(after);
-      expect(detailOf(outcome)).toContain("board.cwds");
+      expect(detailOf(outcome)).toContain("gitq.board");
       const board = getSetting<{ repos: { path: string; name: string }[]; port: number }>("gitq.board").value!;
       expect(board.port).toBe(11008);
       expect(board.repos.map((r) => r.name)).toEqual(["acme-dev"]);
       expect(board.repos.map((r) => realpathSync(r.path))).toEqual([realpathSync(clone)]);
     });
 
-    test("with only some tracked repos registered, board.cwds and gitq.board wait for the rest instead of latching a partial set", async () => {
+    test("with only some tracked repos registered, gitq.board waits for the rest instead of latching a partial set", async () => {
       const snapshot = { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/one", "gitlab.com/acme/two"], marketplaces: [], plugins: [], remote: null };
       setSetting("rt.repoRoots", [home], "machine");
       const one = join(home, "one");
@@ -1077,7 +1075,6 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const { ctx, logs } = makeCtx(fakeProbes({ home }), { snapshot });
       await boardKeysStep.run(ctx);
-      expect(unwritten("board.cwds")).toBe(true);
       expect(getSetting("gitq.board").value).toBeUndefined();
       expect(logs.some((l) => l.line.includes("two"))).toBe(true);
 
@@ -1091,7 +1088,6 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(board.port).toBe(11008);
       expect(board.repos.map((r) => r.name)).toEqual(["one", "two"]);
       expect(board.repos.map((r) => realpathSync(r.path))).toEqual([realpathSync(one), realpathSync(two)]);
-      expect(getSetting<Record<string, string>>("board.cwds").value?.review).toBeDefined();
     });
 
     test("never writes board.rtRepos: the board derives it from board.projects and board.gitlabHost", async () => {
@@ -1105,25 +1101,22 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(getDef("board.rtRepos")).toBeUndefined();
     });
 
-    test("writes board.cwds and gitq.board once, then skips them once set (idempotent latch)", async () => {
+    test("writes gitq.board once, then skips it once set (idempotent latch)", async () => {
       const { repoName } = seedTrackedRepo();
       setSetting("rt.repoRoots", [home], "machine");
       const p = fakeProbes({ home });
       const { ctx: first } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: [`gitlab.com/acme/${repoName}`], marketplaces: [], plugins: [], remote: null } });
 
       const firstOutcome = await boardKeysStep.run(first);
-      expect(detailOf(firstOutcome)).toContain("board.cwds");
       expect(detailOf(firstOutcome)).toContain("gitq.board");
-      const expectedCwd = join(home, repoName);
-      expect(getSetting("board.cwds").value).toEqual({ review: expectedCwd, respond: expectedCwd, doctor: expectedCwd });
       expect(getSetting("gitq.board").value).toEqual({ repos: [{ path: expect.any(String), name: repoName }], port: 11008 });
 
-      // Someone (or a prior run) already set board.cwds by hand — the second run must not clobber it.
-      setSetting("board.cwds", { review: "/custom", respond: "/custom", doctor: "/custom" }, "machine");
+      const custom = { repos: [{ path: "/custom", name: repoName }], port: 11008 };
+      setSetting("gitq.board", custom, "machine");
       const { ctx: second } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: [`gitlab.com/acme/${repoName}`], marketplaces: [], plugins: [], remote: null } });
       const secondOutcome = await boardKeysStep.run(second);
-      expect(detailOf(secondOutcome)).not.toContain("board.cwds");
-      expect(getSetting("board.cwds").value).toEqual({ review: "/custom", respond: "/custom", doctor: "/custom" });
+      expect(detailOf(secondOutcome)).not.toContain("gitq.board");
+      expect(getSetting("gitq.board").value).toEqual(custom);
     });
 
     test("no tracked repos and no repo root: nothing is written and nothing crashes", async () => {
@@ -1210,6 +1203,138 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(outcome.state).toBe("done");
       expect(unwritten("board.defaultMember")).toBe(true);
       expect(logs.some((l) => l.line.includes("forge login unavailable"))).toBe(true);
+    });
+  });
+
+  // ─── board.cwds and board.restart ───────────────────────────────────────
+
+  describe("board.cwds and board.restart", () => {
+    const WIDGETS = "gitlab.example.com/acme/widgets";
+    const GADGETS = "github.com/acme/gadgets";
+    const boardSnapshot: TeamSnapshot = { slug: "acme", integrations: {}, trackingIdentities: [GADGETS, WIDGETS], marketplaces: [], plugins: [], remote: null, boardRepo: WIDGETS };
+    const all = (path: string) => ({ review: path, respond: path, doctor: path });
+
+    afterEach(() => {
+      for (const identity of [WIDGETS, GADGETS]) removeIndexRow(serializeIdentity({ kind: "remote", id: identity }));
+    });
+
+    async function register(identity: string, dir: string): Promise<string> {
+      mkdirSync(dir, { recursive: true });
+      execFileSync("git", ["init", "-q", dir]);
+      expect((await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: identity }), dir)).ok).toBe(true);
+      return dir;
+    }
+
+    test("board.cwds writes all three to the board repo's registered path and records what it wrote", async () => {
+      const widgets = await register(WIDGETS, join(home, "code", "widgets"));
+      const p = fakeProbes({ home });
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+
+      const outcome = await boardCwdsStep.run(ctx);
+      expect(outcome.state).toBe("done");
+      expect(getSetting("board.cwds").value).toEqual(all(widgets));
+      expect(readSetupState(p).boardCwdsWritten).toEqual(all(widgets));
+      expect(readSetupState(p).boardRestartPending).toBe(true);
+      expect(await boardCwdsStep.satisfied!(ctx)).toBe(true);
+    });
+
+    test("board.cwds replaces the value it wrote before when the board repo moves", async () => {
+      const p = fakeProbes({ home });
+      setSetting("board.cwds", all("/old/widgets"), "machine");
+      updateSetupState(p, (s) => ({ ...s, boardCwdsWritten: all("/old/widgets") }));
+      const widgets = await register(WIDGETS, join(home, "work", "widgets"));
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+
+      expect(await boardCwdsStep.satisfied!(ctx)).toBe(false);
+      expect((await boardCwdsStep.run(ctx)).state).toBe("done");
+      expect(getSetting("board.cwds").value).toEqual(all(widgets));
+    });
+
+    test("board.cwds waits while the board repo is not registered yet", async () => {
+      await register(GADGETS, join(home, "code", "gadgets"));
+      const p = fakeProbes({ home });
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+
+      const outcome = await boardCwdsStep.run(ctx);
+      expect(outcome.state).toBe("skipped");
+      expect(unwritten("board.cwds")).toBe(true);
+      expect(readSetupState(p).boardRestartPending).toBeUndefined();
+    });
+
+    test("board.cwds leaves a hand-set value and says so", async () => {
+      await register(WIDGETS, join(home, "code", "widgets"));
+      setSetting("board.cwds", all("/custom"), "machine");
+      const p = fakeProbes({ home });
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+
+      expect(await boardCwdsStep.run(ctx)).toEqual({ state: "skipped", detail: "You set the board's folders yourself, so rt left them alone" });
+      expect(getSetting("board.cwds").value).toEqual(all("/custom"));
+      expect(readSetupState(p).boardRestartPending).toBeUndefined();
+    });
+
+    test("board.restart restarts the board once after a write, then clears the flag", async () => {
+      await register(WIDGETS, join(home, "code", "widgets"));
+      const p = fakeProbes({ home });
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+      let restarts = 0;
+      const restart = makeBoardRestartStep({ restartBoard: async () => ++restarts > 0 });
+
+      await boardCwdsStep.run(ctx);
+      expect((await restart.run(ctx)).state).toBe("done");
+      expect(restarts).toBe(1);
+      expect(readSetupState(p).boardRestartPending).toBeUndefined();
+      expect((await restart.run(ctx)).state).toBe("skipped");
+      expect(restarts).toBe(1);
+    });
+
+    test("board.restart with nothing new skips without calling deck", async () => {
+      const p = fakeProbes({ home });
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+      let restarts = 0;
+      const outcome = await makeBoardRestartStep({ restartBoard: async () => ++restarts > 0 }).run(ctx);
+      expect(outcome.state).toBe("skipped");
+      expect(restarts).toBe(0);
+    });
+
+    test("a restart deck refuses is partial with the command to run", async () => {
+      const p = fakeProbes({ home });
+      updateSetupState(p, (s) => ({ ...s, boardRestartPending: true }));
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+
+      expect(await makeBoardRestartStep({ restartBoard: async () => false }).run(ctx)).toMatchObject({ state: "partial", remedy: "Run deck restart board" });
+      expect(readSetupState(p).boardRestartPending).toBe(true);
+    });
+
+    /** The real registry, with every body replaced, so only the queue and the plan are under test. */
+    function inertSteps(ran: string[]): StepDef[] {
+      return STEPS.map((s) => ({ ...s, run: async () => (ran.push(s.id), { state: "skipped" as const, detail: "inert" }) }));
+    }
+
+    test("an --only board.restart run clones and repoints first", async () => {
+      const ran: string[] = [];
+      const { ctx } = makeCtx(fakeProbes({ home }), { snapshot: boardSnapshot });
+      await runApplyWith(inertSteps(ran), ctx, { only: "board.restart" });
+      expect(ran).toEqual(["repos.clone", "board.cwds", "board.restart"]);
+    });
+
+    test("an --only board.restart run with everything in place restarts alone", async () => {
+      await register(GADGETS, join(home, "code", "gadgets"));
+      const widgets = await register(WIDGETS, join(home, "code", "widgets"));
+      setSetting("board.cwds", all(widgets), "machine");
+      const ran: string[] = [];
+      const { ctx } = makeCtx(fakeProbes({ home }), { snapshot: boardSnapshot });
+      await runApplyWith(inertSteps(ran), ctx, { only: "board.restart" });
+      expect(ran).toEqual(["board.restart"]);
+    });
+
+    test("the plan event names the board's repo", async () => {
+      const events: ApplyEvent[] = [];
+      const { ctx } = makeCtx(fakeProbes({ home }), { snapshot: boardSnapshot, emit: (ev) => events.push(ev) });
+      await runApplyWith(inertSteps([]), ctx, { only: "board.restart" });
+      const plan = events.find((e) => e.event === "plan") as Extract<ApplyEvent, { event: "plan" }>;
+      const title = (id: string) => plan.steps.find((s) => s.id === id)?.title;
+      expect(title("board.cwds")).toBe("Point the board at widgets");
+      expect(title("board.restart")).toBe("Restart the board");
     });
   });
 

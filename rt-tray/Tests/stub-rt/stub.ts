@@ -250,7 +250,9 @@ const STEPS = [
   ["secrets.write", "Store the tokens you entered", "rt"], ["path.link", "Link rt, fast-browser, gitq, deck into ~/.local/bin", "rt"],
   ["settings.seed", "Write machine settings", "rt"], ["repos.clone", "Clone the team's repositories", "rt"],
   ["services.register", "Register the rt daemon and deck", "app"], ["proxy.install", "Install the local HTTPS proxy", "privileged"],
+  ["board.cwds", "Point the board at widgets", "rt"],
   ["plugins.install", "Install the mattstack skills into Claude Code", "rt"], ["services.start", "Start services", "rt"],
+  ["board.restart", "Restart the board", "rt"],
   ["verify", "Verify everything", "rt"],
 ] as const;
 

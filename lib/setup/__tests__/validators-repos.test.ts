@@ -64,8 +64,17 @@ describe("repoPlacementRows: one row per tracked repo", () => {
       then: null,
       oneClick: null,
       segmentRecords: true,
+      board: null,
     });
     expect(rows.every((r) => !r.finishGated)).toBe(true);
+  });
+
+  test("the board repo's row says the board's agents start there, and its then repoints the board", async () => {
+    installed();
+    const rows = await repoPlacementRows(realFsProbes(home), TEAM, { ...snapshot([WIDGETS, ACME_API]), boardRepo: ACME_API });
+
+    expect(action(byId(rows, ACME_API))).toMatchObject({ board: "The board's review, respond and doctor agents start here", then: ["setup", "apply", "--only", "board.restart"] });
+    expect(action(byId(rows, WIDGETS))).toMatchObject({ board: null, then: THEN });
   });
 
   test("a checkout in the only repo folder still gets a clone location of its own", async () => {

@@ -43,7 +43,7 @@ describe("readTeamSnapshot — injected read seam", () => {
       "mattstack.tracking": { repos: { "github.com/acme/repo": {}, "gitlab.example.com/acme/other": {} } },
       "claude.marketplaces": ["market-a"],
       "claude.plugins": ["plugin-a", "plugin-b"],
-      "board.projects": ["acme/app"],
+      "board.projects": ["acme/other"],
     });
     const p = fakeProbes({ home: "/fake-home" });
     const snapshot = readTeamSnapshot(p, "acme", { read, team: null });
@@ -55,6 +55,7 @@ describe("readTeamSnapshot — injected read seam", () => {
       plugins: ["plugin-a", "plugin-b"],
       remote: null,
       boardProjects: true,
+      boardRepo: "gitlab.example.com/acme/other",
     });
   });
 

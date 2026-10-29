@@ -6,6 +6,7 @@
  */
 
 import { dirname, join } from "path";
+import type { BoardCwds } from "./board-folder.ts";
 import type { Probes } from "./probes.ts";
 
 export interface SetupState {
@@ -32,6 +33,10 @@ export interface SetupState {
   finishedAt?: string;
   /** Marketplace re-points the org.folder step started: written before `claude plugin marketplace remove` (which uninstalls the marketplace's plugins) so a run halted before the re-add finishes at the next one. */
   orgMarketplaceMoves?: PendingMarketplaceMove[];
+  /** The `board.cwds` value rt wrote last: Install replaces that value, never one the member set by hand. */
+  boardCwdsWritten?: BoardCwds;
+  /** `board.cwds` changed since the board last restarted, so `board.restart` has something to do. */
+  boardRestartPending?: boolean;
 }
 
 export interface PendingMarketplaceMove {

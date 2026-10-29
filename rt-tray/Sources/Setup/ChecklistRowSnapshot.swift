@@ -148,10 +148,12 @@ enum ChecklistRowSnapshot {
     }
 
     private static func place(_ repo: String, mode: String, checkout: String? = nil, clone: String, note: String,
-                              problem: String? = nil, oneClick: PlaceRepoOneClick? = nil, records: Bool = true) -> RowAction {
+                              problem: String? = nil, oneClick: PlaceRepoOneClick? = nil, records: Bool = true,
+                              board: String? = nil) -> RowAction {
         RowAction(type: .placeRepo, label: mode == "clone" ? "Choose location…" : "Locate…", identity: "gitlab.com/acme/\(repo)",
                   repo: repo, mode: mode, checkoutPath: checkout, clonePath: clone, note: note, problem: problem,
-                  then: records ? nil : ["setup", "apply", "--only", "repos.clone"], oneClick: oneClick, segmentRecords: records)
+                  then: records ? nil : ["setup", "apply", "--only", board == nil ? "repos.clone" : "board.restart"],
+                  oneClick: oneClick, segmentRecords: records, board: board)
     }
 
     private static func repoRow(_ repo: String, status: RowStatus, gated: Bool = false, _ action: RowAction) -> PlanRow {
@@ -162,6 +164,9 @@ enum ChecklistRowSnapshot {
 
     private static let found = repoRow("widgets", status: .ready,
         place("widgets", mode: "checkout", checkout: "~/code/widgets", clone: "~/Documents/GitHub/widgets-2", note: "Found your widgets checkout"))
+    private static let boardRepo = repoRow("gadgets", status: .ready,
+        place("gadgets", mode: "checkout", checkout: "~/code/gadgets", clone: "~/Documents/GitHub/gadgets", note: "Found your gadgets checkout",
+              board: "The board's review, respond and doctor agents start here"))
     private static let toClone = repoRow("acme-api", status: .ready,
         place("acme-api", mode: "clone", clone: "~/code/acme-api", note: "rt clones it here when you click Install"))
     private static let refused = repoRow("dev1", status: .ready,
@@ -181,7 +186,9 @@ enum ChecklistRowSnapshot {
             let none = RowActivity()
             return VStack(alignment: .leading, spacing: 20) {
                 ChecklistCard {
-                    ChecklistCardHeader(title: "No action needed · 3")
+                    ChecklistCardHeader(title: "No action needed · 4")
+                    Divider()
+                    SettledRow(row: boardRepo, isChecking: false, error: nil) { _ in }
                     Divider()
                     SettledRow(row: found, isChecking: false, error: nil) { _ in }
                     Divider()

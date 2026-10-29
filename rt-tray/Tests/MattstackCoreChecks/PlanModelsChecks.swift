@@ -208,4 +208,13 @@ let planModelsChecks: [Check] = [
         c.expectEqual(a.segmentRecords, false)
         c.expectEqual(row.action.flatMap(DoneActions.route), nil)
     },
+    Check("PlanModels: a place-repo action's board line decodes, and absent reads nil") { c in
+        func action(_ extra: String) -> String {
+            #"{"type":"place-repo","label":"Locate…","identity":"gitlab.com/acme/widgets","repo":"widgets""# + extra + "}"
+        }
+        let line = "The board's review, respond and doctor agents start here"
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","board":"\#(line)""#).utf8)).board, line)
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","board":null"#).utf8)).board, nil)
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action("").utf8)).board, nil)
+    },
 ]

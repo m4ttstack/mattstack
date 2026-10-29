@@ -110,6 +110,8 @@ export interface ApplyContext {
 export interface StepDef {
   id: StepId;
   title: string;
+  /** A title that names what this run acts on; the plan and a failed step's detail use it over `title`. */
+  titleFor?(ctx: ApplyContext): string;
   kind: StepKind;
   applies(ctx: ApplyContext): boolean;
   run(ctx: ApplyContext): Promise<StepOutcome>;
@@ -268,7 +270,8 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
     queue = applicable.slice(resumeStart(applicable, opts.from));
   }
 
-  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.title, kind: s.kind })) });
+  const titleOf = (s: StepDef) => s.titleFor?.(ctx) ?? s.title;
+  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: titleOf(s), kind: s.kind })) });
   settleLegacyFinish(ctx);
 
   let lastRanId: StepId | undefined;
@@ -308,7 +311,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       }
 
       if (outcome.state === "failed" && opts.only !== undefined && step.id !== opts.only && step.id !== INTERCEPTS_STEP) {
-        outcome = { ...outcome, detail: `${step.title}: ${outcome.detail}` };
+        outcome = { ...outcome, detail: `${titleOf(step)}: ${outcome.detail}` };
       }
       ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
 

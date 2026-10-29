@@ -59,6 +59,7 @@ struct RepoPlacementRow: View {
     let error: String?
     let ids: RowIDs
     @Environment(\.repoPlacementAnswer) private var answer
+    @Environment(\.colorScheme) private var scheme
     /// The segment on screen. A refused pick keeps it where the member put it, away from rt's `mode`.
     @State private var shown: String
     /// The segment the last answer was given on: its failure belongs to that segment alone.
@@ -120,12 +121,25 @@ struct RepoPlacementRow: View {
                 Text(note).font(.caption).foregroundStyle(noteColor).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(shownError != nil ? AXID.checklistRowError(row.id) : ids.row(row.id) + ".note")
             }
+            if let board = action.board { boardLine(board) }
             RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id))
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(ids.row(row.id))
         .onChange(of: action.mode) { _, mode in if let mode { shown = mode } }
+    }
+
+    private func boardLine(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "rectangle.3.group").foregroundStyle(Color.accentColor)
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(scheme == .dark ? 0.18 : 0.08)))
+        .accessibilityIdentifier(ids.row(row.id) + ".board")
     }
 
     @ViewBuilder private var stateIcon: some View {

@@ -31,6 +31,7 @@ import type { TeamSnapshot } from "../team-settings.ts";
 type PlaceRepo = Extract<Action, { type: "place-repo" }>;
 
 const CLONES_AT_INSTALL = "rt clones it here when you click Install";
+const BOARD_LINE = "The board's review, respond and doctor agents start here";
 
 async function indexedCheckout(p: Probes, identity: string): Promise<string | null> {
   const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
@@ -59,7 +60,9 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
   const { placements, deferred, failed } = readPlacements(p);
   const placedParents = [...new Set(Object.values(resolved).filter((pl) => pl.mode === "checkout").map((pl) => dirname(pl.path)))];
   const installed = p.exists(homeGitDir(p.home));
-  const then = installed ? ["setup", "apply", "--only", "repos.clone"] : null;
+  const boardRepo = snapshot.boardRepo ?? null;
+  // The board's repo also repoints the board and restarts it; board.restart runs repos.clone and board.cwds first.
+  const thenFor = (identity: string) => (installed ? ["setup", "apply", "--only", identity === boardRepo ? "board.restart" : "repos.clone"] : null);
   const taken = (identity: string) => takenFor(resolved, tracked, identity);
 
   /** A checkout row's other segment: the first folder rt would clone into that is free and is not the checkout itself, else the default's name with the first free `-<n>` suffix. */
@@ -126,9 +129,10 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         clonePath: s.clonePath,
         note: s.note,
         problem: s.problem,
-        then,
+        then: thenFor(identity),
         oneClick: s.oneClick,
         segmentRecords: !installed,
+        board: identity === boardRepo ? BOARD_LINE : null,
       };
       return row({
         id: `${REPO_PLACE_ROW_PREFIX}${identity}`,

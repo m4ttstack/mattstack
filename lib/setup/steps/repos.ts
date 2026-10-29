@@ -10,7 +10,7 @@
  */
 
 import { dirname } from "path";
-import { updateRepoIndexAsync } from "../../repo-index.ts";
+import { getKnownRepos, updateRepoIndexAsync } from "../../repo-index.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
@@ -327,11 +327,42 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   };
 }
 
+/**
+ * The tracking identities (less any `RT_SKIP_REPOS` entry), split into the
+ * ones with a registered repo, named by basename (what `repos.clone` calls
+ * its destination) and located where the index says it lives, and the ones
+ * still missing. Rows are keyed by serialized identity; a legacy row keyed by
+ * that basename still counts.
+ */
+export function trackedRepos(ctx: ApplyContext): { found: { identity: string; name: string; path: string }[]; missing: string[] } {
+  const skip = skippedIdentities(ctx.p.env);
+  const identities = (ctx.snapshot?.trackingIdentities ?? []).filter((id) => !skip.has(id) && !skip.has(repoBasename(id)));
+  const known = getKnownRepos().filter((r) => r.registered !== false && r.worktrees[0]);
+  const found: { identity: string; name: string; path: string }[] = [];
+  const missing: string[] = [];
+  for (const identity of identities) {
+    const name = repoBasename(identity);
+    const row = known.find((r) => r.repoName === serializeIdentity({ kind: "remote", id: identity })) ?? known.find((r) => r.repoName === name);
+    if (row) found.push({ identity, name, path: row.worktrees[0]!.path });
+    else missing.push(name);
+  }
+  return { found, missing };
+}
+
+/** Every repo is registered, and none has an answer recorded since that points somewhere else. */
+function reposCloneSatisfied(ctx: ApplyContext): boolean {
+  const { found, missing } = trackedRepos(ctx);
+  if (missing.length > 0) return false;
+  const { placements } = readPlacements(ctx.p);
+  return found.every((r) => placements[r.identity] === undefined || placements[r.identity]!.path === r.path);
+}
+
 export const reposCloneStep: StepDef = {
   id: "repos.clone",
   feedsIntercepts: true,
   title: "Clone your repos",
   kind: "rt",
   applies: () => true,
+  satisfied: reposCloneSatisfied,
   run: reposCloneRun,
 };

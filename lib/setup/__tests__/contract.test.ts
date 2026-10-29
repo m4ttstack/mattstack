@@ -83,7 +83,7 @@ describe("row", () => {
 });
 
 describe("STEP_IDS", () => {
-  test("matches the contract's 29 ids in order", () => {
+  test("matches the contract's 32 ids in order", () => {
     expect(STEP_IDS).toEqual([
       "home.init",
       "home.restore",
@@ -104,6 +104,7 @@ describe("STEP_IDS", () => {
       "skills.materialize",
       "skills.link",
       "board.keys",
+      "board.cwds",
       "cron.triage",
       "intercepts.install",
       "plugins.install",
@@ -113,6 +114,7 @@ describe("STEP_IDS", () => {
       "herdr.integration",
       "extension.install",
       "services.start",
+      "board.restart",
       "snapshot.push",
       "verify",
     ]);

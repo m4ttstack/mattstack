@@ -1154,6 +1154,7 @@ exports[`the setup plan's shape and copy Your repos: one row per tracked repo, a
   "rows": [
     {
       "action": {
+        "board": "The board's review, respond and doctor agents start here",
         "checkoutPath": null,
         "clonePath": "/fake-home/Documents/GitHub/widgets",
         "identity": "gitlab.com/acme/widgets",
@@ -1165,7 +1166,7 @@ exports[`the setup plan's shape and copy Your repos: one row per tracked repo, a
           "setup",
           "apply",
           "--only",
-          "repos.clone",
+          "board.restart",
         ],
         "type": "place-repo",
       },
@@ -1177,6 +1178,7 @@ exports[`the setup plan's shape and copy Your repos: one row per tracked repo, a
     },
     {
       "action": {
+        "board": null,
         "checkoutPath": null,
         "clonePath": "/fake-home/Documents/GitHub/acme-api",
         "identity": "gitlab.com/acme/acme-api",

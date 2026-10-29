@@ -57,6 +57,8 @@ export type Action =
       then: string[] | null;
       oneClick: { label: string; mode: PlacementMode; path: string } | null;
       segmentRecords: boolean;
+      // The board's repo only: the line saying the board's agents start there.
+      board: string | null;
     }
   // The app appends the picked id and --json to verb; "other" collects a free-text id for the same verb.
   // other.suggestions is the app's only source of completions for a typed id; it never scans the filesystem.
@@ -183,6 +185,7 @@ export const STEP_IDS = [
   "skills.materialize",
   "skills.link",
   "board.keys",
+  "board.cwds",
   "cron.triage",
   "intercepts.install",
   "plugins.install",
@@ -192,6 +195,7 @@ export const STEP_IDS = [
   "herdr.integration",
   "extension.install",
   "services.start",
+  "board.restart",
   "snapshot.push",
   "verify",
 ] as const;

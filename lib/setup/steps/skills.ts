@@ -1,29 +1,32 @@
 /**
- * `skills.materialize`, `board.keys`, `cron.triage` — three small rt-only
- * steps that share no state, kept in one file because none is big enough to
- * earn its own. Each wraps an existing, already-tested library
+ * `skills.materialize`, `skills.link`, `board.keys`, `board.cwds`,
+ * `board.restart`, `cron.triage` — small rt-only steps, kept in one file
+ * because none is big enough to earn its own. Each wraps an existing, already-tested library
  * (`materializeSkills`, `getDef`/`setSetting`, `resolveTool`/
  * `installCronTrigger`) rather than re-deriving its logic.
  */
 
 import { join } from "path";
 import { HELPERS_DIR } from "../../bundle-layout.ts";
-import { getKnownRepos } from "../../repo-index.ts";
-import { appBundlePath, bundledToolPath, resolveTool } from "../../deps/resolve.ts";
+import { appBundlePath, bundledToolPath, resolveTool, restartAppWithDeck } from "../../deps/resolve.ts";
 import { getDef, isMigrated } from "../../settings/registry.ts";
-import { serializeIdentity } from "../../settings/identity.ts";
+import { storedValue } from "../../settings/presence.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
+import { planBoardCwds, type BoardCwds } from "../board-folder.ts";
 import type { StepId } from "../contract.ts";
+import type { Probes } from "../probes.ts";
+import { tildify } from "../repo-placement.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 import { installCronTrigger, peerTrigger, triageTrigger } from "../cron-install.ts";
 import { linkBundledSkills } from "../skills-link-bundled.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
-import { repoBasename, skippedIdentities } from "./repos.ts";
+import { repoBasename, trackedRepos } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
 
 // ─── skills.materialize ──────────────────────────────────────────────────────
@@ -98,28 +101,6 @@ export const skillsLinkStep: StepDef = {
 
 // ─── board.keys ──────────────────────────────────────────────────────────────
 
-/**
- * The tracking identities (less any `RT_SKIP_REPOS` entry), split into the
- * ones with a registered repo, named by basename (what `repos.clone` calls
- * its destination) and located where the index says it lives, and the ones
- * still missing. Rows are keyed by serialized identity; a legacy row keyed by
- * that basename still counts.
- */
-function trackedRepos(ctx: ApplyContext): { found: { name: string; path: string }[]; missing: string[] } {
-  const skip = skippedIdentities(ctx.p.env);
-  const identities = (ctx.snapshot?.trackingIdentities ?? []).filter((id) => !skip.has(id) && !skip.has(repoBasename(id)));
-  const known = getKnownRepos().filter((r) => r.registered !== false && r.worktrees[0]);
-  const found: { name: string; path: string }[] = [];
-  const missing: string[] = [];
-  for (const identity of identities) {
-    const name = repoBasename(identity);
-    const row = known.find((r) => r.repoName === serializeIdentity({ kind: "remote", id: identity })) ?? known.find((r) => r.repoName === name);
-    if (row) found.push({ name, path: row.worktrees[0]!.path });
-    else missing.push(name);
-  }
-  return { found, missing };
-}
-
 /** True only when a key is both registered AND write-eligible — a def missing from the registry (or shipped `migrated: false`) is logged and left alone rather than letting `setSetting`'s own refusal crash the step. */
 function writable(ctx: ApplyContext, key: string, stepId: StepId = "board.keys"): boolean {
   const def = getDef(key);
@@ -166,18 +147,8 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
   const { found, missing } = trackedRepos(ctx);
-  // Both keys are written once and never topped up, so they wait until every tracked repo is registered.
+  // Written once and never topped up, so it waits until every tracked repo is registered.
   const waiting = missing.length > 0 ? `waiting on ${missing.join(", ")} (not registered yet), left unset; written on the next run once repos.clone lands them` : null;
-
-  if (writable(ctx, "board.cwds") && unwritten("board.cwds")) {
-    const cwd = found[0]?.path;
-    if (waiting) ctx.log("board.keys", `board.cwds: ${waiting}`);
-    else if (!cwd) ctx.log("board.keys", "board.cwds: the team tracks no repos, left unset");
-    else {
-      setSetting("board.cwds", { review: cwd, respond: cwd, doctor: cwd }, "machine");
-      written.push("board.cwds");
-    }
-  }
 
   if (writable(ctx, "gitq.board") && unwritten("gitq.board")) {
     if (waiting) ctx.log("board.keys", `gitq.board: ${waiting}`);
@@ -209,6 +180,113 @@ export const boardKeysStep: StepDef = {
   applies: () => true,
   run: boardKeysRunSafe,
 };
+
+// ─── board.cwds ──────────────────────────────────────────────────────────────
+
+/** The board's repo, and where it is registered on this Mac (null until `repos.clone` lands it). */
+function boardTarget(ctx: ApplyContext): { identity: string | null; path: string | null } {
+  const identity = ctx.snapshot?.boardRepo ?? null;
+  if (identity === null) return { identity, path: null };
+  return { identity, path: trackedRepos(ctx).found.find((r) => r.identity === identity)?.path ?? null };
+}
+
+function boardCwdsPlan(ctx: ApplyContext, target: string | null) {
+  return planBoardCwds({
+    current: storedValue<Partial<BoardCwds>>("board.cwds"),
+    rtWrote: readSetupState(ctx.p).boardCwdsWritten,
+    target,
+    mode: "install",
+    exists: (path) => ctx.p.exists(path),
+    isTrackedCheckout: () => true,
+  });
+}
+
+async function boardCwdsRun(ctx: ApplyContext): Promise<StepOutcome> {
+  const { identity, path } = boardTarget(ctx);
+  if (identity === null) return { state: "skipped", detail: "None of the team's repos is the board's" };
+  const name = repoBasename(identity);
+  if (path === null) return { state: "skipped", detail: `Waits until ${name} is on this Mac` };
+  if (!writable(ctx, "board.cwds", "board.cwds")) return { state: "skipped", detail: "This rt doesn't know the board.cwds setting" };
+
+  const plan = boardCwdsPlan(ctx, path);
+  if ("leave" in plan) {
+    if (plan.leave === "hand-set") return { state: "skipped", detail: "You set the board's folders yourself, so rt left them alone" };
+    return { state: "done", detail: `The board already starts in ${tildify(ctx.p.home, path)}` };
+  }
+  setSetting("board.cwds", plan.write, "machine");
+  updateSetupState(ctx.p, (s) => ({ ...s, boardCwdsWritten: plan.write, boardRestartPending: true }));
+  return { state: "done", detail: `The board's agents start in ${tildify(ctx.p.home, path)}` };
+}
+
+async function boardCwdsRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
+  try {
+    return await boardCwdsRun(ctx);
+  } catch (err) {
+    return toFailedOutcome(err);
+  }
+}
+
+function boardCwdsSatisfied(ctx: ApplyContext): boolean {
+  const { identity, path } = boardTarget(ctx);
+  if (identity === null) return true;
+  if (path === null) return false;
+  const plan = boardCwdsPlan(ctx, path);
+  return "leave" in plan && plan.leave === "current";
+}
+
+export const boardCwdsStep: StepDef = {
+  id: "board.cwds",
+  feedsIntercepts: true,
+  title: "Point the board at your repo",
+  titleFor: (ctx) => {
+    const repo = ctx.snapshot?.boardRepo;
+    return repo ? `Point the board at ${repoBasename(repo)}` : boardCwdsStep.title;
+  },
+  kind: "rt",
+  applies: () => true,
+  prerequisites: ["repos.clone"],
+  satisfied: boardCwdsSatisfied,
+  run: boardCwdsRunSafe,
+};
+
+// ─── board.restart ───────────────────────────────────────────────────────────
+
+/** The board reads `board.cwds` once at boot. */
+export interface BoardRestartSeams {
+  restartBoard(p: Probes): Promise<boolean>;
+}
+
+export function makeBoardRestartStep(seams: BoardRestartSeams = { restartBoard: (p) => restartAppWithDeck(p, "board") }): StepDef {
+  async function run(ctx: ApplyContext): Promise<StepOutcome> {
+    if (readSetupState(ctx.p).boardRestartPending !== true) return { state: "skipped", detail: "Nothing new for the board to read" };
+    let restarted = false;
+    try {
+      restarted = await seams.restartBoard(ctx.p);
+    } catch (err) {
+      ctx.log("board.restart", `deck restart board threw: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!restarted) return { state: "partial", detail: "deck didn't restart the board, so it still uses its old folders", remedy: "Run deck restart board" };
+    updateSetupState(ctx.p, ({ boardRestartPending: _, ...s }) => s);
+    return { state: "done", detail: "Restarted the board" };
+  }
+
+  return {
+    id: "board.restart",
+    title: "Restart the board",
+    kind: "rt",
+    applies: () => true,
+    prerequisites: ["board.cwds"],
+    async run(ctx) {
+      try {
+        return await run(ctx);
+      } catch (err) {
+        return toFailedOutcome(err);
+      }
+    },
+  };
+}
+
+export const boardRestartStep = makeBoardRestartStep();
 
 // ─── cron.triage ─────────────────────────────────────────────────────────────
 

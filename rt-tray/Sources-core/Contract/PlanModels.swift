@@ -171,6 +171,8 @@ public struct RowAction: Codable, Equatable, Sendable {
     public var oneClick: PlaceRepoOneClick?
     /// Whether switching the segment alone records the shown path.
     public var segmentRecords: Bool?
+    /// On the board's repo only: the line saying the board's agents start there.
+    public var board: String?
     public init(type: ActionType, label: String, target: String? = nil, which: String? = nil,
                 integration: String? = nil, fields: [ActionField]? = nil,
                 alternatives: [ActionAlternative]? = nil, verb: [String]? = nil, tool: String? = nil,
@@ -179,7 +181,7 @@ public struct RowAction: Codable, Equatable, Sendable {
                 subtitle: String? = nil, footnote: String? = nil, create: ActionLink? = nil,
                 identity: String? = nil, repo: String? = nil, mode: String? = nil, checkoutPath: String? = nil,
                 clonePath: String? = nil, note: String? = nil, problem: String? = nil, then: [String]? = nil,
-                oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil) {
+                oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil, board: String? = nil) {
         self.type = type; self.label = label; self.target = target; self.which = which
         self.integration = integration; self.fields = fields; self.alternatives = alternatives
         self.verb = verb; self.tool = tool; self.via = via; self.steps = steps; self.url = url
@@ -187,7 +189,7 @@ public struct RowAction: Codable, Equatable, Sendable {
         self.subtitle = subtitle; self.footnote = footnote; self.create = create
         self.identity = identity; self.repo = repo; self.mode = mode; self.checkoutPath = checkoutPath
         self.clonePath = clonePath; self.note = note; self.problem = problem; self.then = then
-        self.oneClick = oneClick; self.segmentRecords = segmentRecords
+        self.oneClick = oneClick; self.segmentRecords = segmentRecords; self.board = board
     }
 }
 
