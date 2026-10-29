@@ -9,7 +9,7 @@ struct ChecklistScreen: View {
     enum Presentation {
         case accounts
         /// A wizard page: one group. nil while no plan has landed.
-        case page(String?)
+        case page(String?, onSkip: ((PlanRow) -> Void)? = nil)
         /// Setup status, and the wizard's last step when `overview` is set.
         /// `rowsConfirmed` is false while the model still holds the pre-install rows: the summary then shows its Overview alone.
         /// `recheck` replaces the model's own re-read: the summary's gate must see every re-read, or a second fetch would let its check confirm rows it never read.
@@ -112,7 +112,7 @@ struct ChecklistScreen: View {
             }
             switch presentation {
             case .accounts: flatList
-            case .page(let id): pageBody(id)
+            case .page(let id, let onSkip): pageBody(id, onSkip: onSkip)
             case .sidebar(let overview, let onSkip, let rowsConfirmed, _):
                 sidebarBody(overview: overview, onSkip: onSkip, rowsConfirmed: rowsConfirmed || overview == nil)
             case .rows: EmptyView()
@@ -160,7 +160,7 @@ struct ChecklistScreen: View {
         }
     }
 
-    private func pageBody(_ id: String?) -> some View {
+    private func pageBody(_ id: String?, onSkip: ((PlanRow) -> Void)?) -> some View {
         let notes = model.groups.first(where: { $0.id == id })?.rows.filter(PageNote.isNote) ?? []
         let layout = ChecklistLayout.make(PageNote.withoutNotes(model.groups), finishBlockedBy: model.finishBlockedBy)
         return ScrollView {
@@ -171,7 +171,8 @@ struct ChecklistScreen: View {
                 }
                 ForEach(notes, id: \.id) { PageNoteView(row: $0) }
                 if let section = layout.sections.first(where: { $0.id == id }) {
-                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity) { perform($0) }
+                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
+                                          onSkip: onSkip) { perform($0) }
                         .id(section.id)
                 }
             }
@@ -184,7 +185,7 @@ struct ChecklistScreen: View {
     }
 
     private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool) -> some View {
-        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy, afterInstall: true)
+        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy)
         let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(liveErrors.keys))
             .filter { rowsConfirmed || $0.id == ChecklistLayout.overviewID }
         let current = rowsConfirmed ? layout.selection(preferred: selected, overview: overview != nil) : ChecklistLayout.overviewID
@@ -239,7 +240,7 @@ struct ChecklistScreen: View {
                             ChecklistSectionsView(
                                 needsYou: layout.attention.map(\.row), finishBlockedBy: layout.finishBlockedBy, activity: activity,
                                 contexts: Dictionary(layout.attention.map { ($0.row.id, $0.groupTitle) }, uniquingKeysWith: { first, _ in first }),
-                                needsYouIDs: overview != nil ? .beforeYouFinish : .checklist, onSkip: onSkip) { perform($0) }
+                                needsYouIDs: overview != nil ? .beforeYouFinish : .checklist) { perform($0) }
                         } else if current == ChecklistLayout.allID {
                             VStack(alignment: .leading, spacing: 18) {
                                 ForEach(layout.sections) { section in
@@ -287,7 +288,7 @@ struct ChecklistScreen: View {
         let status: String?
         switch presentation {
         case .accounts: status = nil
-        case .page(let id):
+        case .page(let id, _):
             let group = model.groups.first { $0.id == id }
             let isLast = WizardPages(groups: model.groups).ids.last == id
             status = PageGate.footer(blockers: group.map { PageGate.blockers(in: $0).count } ?? 0, isLast: isLast, canInstall: model.canInstall)
@@ -526,7 +527,7 @@ enum PageLead {
         if required == 1 { return "One thing here needs you before Install can run." }
         if required > 1 { return "\(required) things here need you before Install can run." }
         if !section.needsYou.isEmpty { return "Nothing here blocks Install. One thing is needed before you finish." }
-        return section.optional.isEmpty ? "Nothing here needs you." : "Nothing here blocks Install."
+        return section.canSkip.isEmpty ? "Nothing here needs you." : "Nothing here blocks Install."
     }
 }
 
@@ -546,7 +547,7 @@ struct SummaryGlyph: View {
         switch kind {
         case .needsYou: return nil
         case .ready: return "checkmark.circle"
-        case .optional: return "circle"
+        case .skipped: return "circle"
         case .notNeeded: return "circle.dashed"
         }
     }
@@ -589,7 +590,7 @@ struct SummaryCount: View {
         case nil: return "all"
         case .needsYou?: return "needsYou"
         case .ready?: return "ready"
-        case .optional?: return "optional"
+        case .skipped?: return "skipped"
         case .notNeeded?: return "notNeeded"
         }
     }

@@ -11,12 +11,12 @@ public struct ChecklistLayout: Equatable, Sendable {
         public let id: String
         public let title: String
         public let needsYou: [PlanRow]
-        public let optional: [PlanRow]
+        public let canSkip: [PlanRow]
         public let noAction: [PlanRow]
-        public var count: Int { needsYou.count + optional.count + noAction.count }
+        public var count: Int { needsYou.count + canSkip.count + noAction.count }
     }
 
-    public enum SummaryKind: Equatable, Sendable { case needsYou, ready, optional, notNeeded }
+    public enum SummaryKind: Equatable, Sendable { case needsYou, ready, skipped, notNeeded }
 
     public struct SummaryPart: Equatable, Sendable {
         public let kind: SummaryKind
@@ -57,10 +57,11 @@ public struct ChecklistLayout: Equatable, Sendable {
         }
         if overview { out.append(Entry(id: Self.overviewID, title: "Overview", count: nil, mark: .overview)) }
         out += sections.map { section in
-            let ids = Set((section.needsYou + section.optional + section.noAction).map(\.id))
+            let ids = Set((section.needsYou + section.canSkip + section.noAction).map(\.id))
+            // A row you can skip is no attention row, but Finish waits on it until it is skipped.
             let mark: EntryMark = !ids.isDisjoint(with: failed) ? .failed
                 : !ids.isDisjoint(with: running) ? .running
-                : section.needsYou.isEmpty ? .settled : .needsYou
+                : section.needsYou.isEmpty && section.canSkip.isEmpty ? .settled : .needsYou
             return Entry(id: section.id, title: section.title, count: section.count, mark: mark)
         }
         return out
@@ -75,31 +76,31 @@ public struct ChecklistLayout: Equatable, Sendable {
         return sections.isEmpty ? nil : Self.allID
     }
 
-    public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = [], afterInstall: Bool = false) -> ChecklistLayout {
+    public static func make(_ groups: [PlanGroup], finishBlockedBy: [String] = []) -> ChecklistLayout {
         let blocked = Set(finishBlockedBy)
         var attention: [Attention] = []
         var sections: [Section] = []
         for group in groups where !group.rows.isEmpty {
             var buckets: [RowSection: [PlanRow]] = [:]
             for row in group.rows {
-                buckets[ChecklistSorting.section(for: row, finishBlockedBy: blocked, afterInstall: afterInstall), default: []].append(row)
+                buckets[ChecklistSorting.section(for: row, finishBlockedBy: blocked), default: []].append(row)
             }
             let needing = buckets[.needsYou] ?? []
             attention += needing.map { Attention(row: $0, groupTitle: group.title) }
             sections.append(Section(id: group.id, title: group.title, needsYou: needing,
-                                    optional: buckets[.optional] ?? [], noAction: buckets[.noAction] ?? []))
+                                    canSkip: buckets[.canSkip] ?? [], noAction: buckets[.noAction] ?? []))
         }
         return ChecklistLayout(attention: attention, sections: sections, finishBlockedBy: blocked)
     }
 
-    /// A row Install will set (not ready, nothing to press) is in no count:
-    /// it is neither ready nor anything the user owes.
+    /// An information row that is not ready is in no count: it is neither
+    /// ready nor anything the user owes. A skipped row counts as skipped only.
     private func rows(_ kind: SummaryKind, in section: Section) -> [PlanRow] {
         switch kind {
         case .needsYou: return section.needsYou
-        case .ready: return section.noAction.filter { $0.status == .ready }
-        case .optional: return section.optional
-        case .notNeeded: return section.noAction.filter { $0.status == .skipped }
+        case .ready: return section.noAction.filter { $0.status == .ready && !$0.isWaived }
+        case .skipped: return section.noAction.filter(\.isWaived)
+        case .notNeeded: return section.noAction.filter { $0.status == .skipped && !$0.isWaived }
         }
     }
 
@@ -118,13 +119,13 @@ public struct ChecklistLayout: Equatable, Sendable {
 
     public var summary: [SummaryPart] {
         let count = { (kind: SummaryKind) in filtered(kind).reduce(0) { $0 + $1.rows.count } }
-        let ready = count(.ready), optional = count(.optional), notNeeded = count(.notNeeded)
+        let ready = count(.ready), skipped = count(.skipped), notNeeded = count(.notNeeded)
         var parts: [SummaryPart] = []
         if !attention.isEmpty {
             parts.append(SummaryPart(kind: .needsYou, text: attention.count == 1 ? "1 needs you" : "\(attention.count) need you"))
         }
         if ready > 0 { parts.append(SummaryPart(kind: .ready, text: "\(ready) ready")) }
-        if optional > 0 { parts.append(SummaryPart(kind: .optional, text: "\(optional) optional")) }
+        if skipped > 0 { parts.append(SummaryPart(kind: .skipped, text: "\(skipped) skipped")) }
         if notNeeded > 0 { parts.append(SummaryPart(kind: .notNeeded, text: "\(notNeeded) not needed here")) }
         return parts
     }

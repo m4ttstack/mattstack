@@ -219,33 +219,28 @@ final class SetupFlowUITests: XCTestCase {
         waitUntilGone("setup.done.screen")
     }
 
-    /// The finish gate end to end: a plan that names the extension row in
-    /// finishBlockedBy holds Finish shut, Skip for now confirms with the
-    /// pinned copy, and the waived plan re-opens Finish with the row back in
-    /// its group's pane.
-    func testFinishGateSkipForNowEnablesFinish() {
+    /// The finish gate end to end: a plan that names the Mission Control row
+    /// in finishBlockedBy holds Finish shut while the row sits in its group's
+    /// You can skip card, never under Needs you; Skip confirms with the row's
+    /// own title, and the waived plan re-opens Finish with the row settled.
+    func testFinishGateSkipEnablesFinish() {
         joinThroughInstall("finish-gate")
-        waitFor("setup.done.beforeYouFinish.tool.fast-browser-extension", 30)
-        XCTAssertTrue(el("setup.checklist.group.needs-you").exists, "the summary opens on Needs you")
-        XCTAssertEqual(el("setup.checklist.filter.needsYou").value as? String, "on", "the count for the open pane is the one that is on")
-        XCTAssertEqual(el("setup.checklist.filter.all").value as? String, "off")
-        XCTAssertFalse(el("setup.done.overview").exists, "Needs you is the open pane, not Overview")
-        XCTAssertFalse(el("setup.done.continue").isEnabled, "Finish waits on the extension")
-        el("setup.done.skip.tool.fast-browser-extension").click()
+        waitFor("setup.done.overview", 30)
+        XCTAssertFalse(el("setup.checklist.group.needs-you").exists, "a row you can skip is not one that needs you")
+        XCTAssertFalse(el("setup.done.continue").isEnabled, "Finish waits on the Mission Control row")
+        el("setup.checklist.group.tools").click()
+        waitFor("setup.checklist.section.canSkip")
+        el("setup.done.skip.tool.mission-control").click()
         waitFor("setup.done.skipConfirm")
-        XCTAssertTrue(app.staticTexts["Skip the Fast Browser extension?"].exists)
-        // A subscript query refuses an identifier past 128 characters.
-        let skipBody = "Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings."
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@ OR label == %@", skipBody, skipBody)).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Skip Mission Control shortcut?"].exists)
         el("setup.done.skipConfirm.skip").click()
         waitUntilEnabled("setup.done.continue", 30)
-        XCTAssertFalse(el("setup.checklist.group.needs-you").exists, "the skipped row left Needs you")
-        XCTAssertFalse(el("setup.done.beforeYouFinish.tool.fast-browser-extension").exists, "its Needs you pane went with it")
         XCTAssertFalse(el("setup.done.skipConfirm").exists, "the sheet closed on success")
-        el("setup.checklist.group.tools").click()
-        waitFor("setup.checklist.row.tool.fast-browser-extension.status")
-        XCTAssertEqual(el("setup.checklist.row.tool.fast-browser-extension.status").value as? String, "needs-you", "a skip waives the row, it does not fix it")
-        XCTAssertFalse(el("setup.done.skip.tool.fast-browser-extension").exists, "a skipped row offers no second Skip")
+        XCTAssertFalse(el("setup.checklist.section.canSkip").exists, "the skipped row left You can skip")
+        waitFor("setup.checklist.row.tool.mission-control.status")
+        XCTAssertEqual(el("setup.checklist.row.tool.mission-control.status").value as? String, "needs-you", "a skip waives the row, it does not fix it")
+        XCTAssertFalse(el("setup.done.skip.tool.mission-control").exists, "a skipped row offers no second Skip")
+        XCTAssertFalse(el("setup.done.skip.tool.fast-browser-extension").exists, "the extension can never be skipped")
         el("setup.done.continue").click()
         waitUntilGone("setup.done.screen")
     }

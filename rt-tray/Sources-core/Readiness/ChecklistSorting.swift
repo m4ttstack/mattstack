@@ -1,14 +1,13 @@
 import Foundation
 
-public enum RowSection: Equatable, Sendable { case needsYou, optional, noAction }
+public enum RowSection: Equatable, Sendable { case needsYou, canSkip, noAction }
 
 public enum NeedBadge: String, Equatable, Sendable {
-    case required = "Required"
     case beforeFinish = "Before you finish"
 }
 
-/// Where a checklist row is drawn. A warning heading sits over `needsYou`
-/// only, so nothing optional may land there.
+/// Where a checklist row is drawn. Every unfinished step needs you, except
+/// the ones rt lets you skip, which sit in their own card.
 public enum ChecklistSorting {
     /// Mirrors `finalizePlan` in lib/setup/contract.ts: a finish-gated row is
     /// Finish's concern whatever its `required` reads.
@@ -16,21 +15,18 @@ public enum ChecklistSorting {
         row.required && !row.finishGated && row.status != .ready
     }
 
-    public static func section(for row: PlanRow, finishBlockedBy: Set<String>, afterInstall: Bool = false) -> RowSection {
+    public static func section(for row: PlanRow, finishBlockedBy: Set<String>) -> RowSection {
+        if row.information { return .noAction }
+        let settled = row.status == .ready || row.status == .skipped
+        // rt honors a waiver only on a row it lets you skip.
+        let skipped = row.waived && row.waivable
+        if row.finishGated && row.waivable && !skipped && !settled { return .canSkip }
         if blocksInstall(row) || finishBlockedBy.contains(row.id) { return .needsYou }
-        if row.status == .ready { return .noAction }
-        if hasUsableAction(row) || row.status == .error || row.status == .invalid { return .optional }
-        if afterInstall && row.status != .skipped { return .optional }
-        return .noAction
+        if settled || skipped { return .noAction }
+        return .needsYou
     }
 
     public static func badge(for row: PlanRow, finishBlockedBy: Set<String>) -> NeedBadge? {
-        if blocksInstall(row) { return .required }
-        return finishBlockedBy.contains(row.id) ? .beforeFinish : nil
-    }
-
-    private static func hasUsableAction(_ row: PlanRow) -> Bool {
-        guard let action = row.action else { return false }
-        return action.type != .unknown
+        finishBlockedBy.contains(row.id) ? .beforeFinish : nil
     }
 }

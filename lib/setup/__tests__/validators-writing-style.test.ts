@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DONE_ACTION_TYPES, FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finishBlockers } from "../contract.ts";
+import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finishBlockers } from "../contract.ts";
 import { unwaiveRow } from "../finish-gate.ts";
 import { writingStyleRow, writingStyleRowFor } from "../validators/writing-style.ts";
 import { listWritingStyles, type SkillInventory } from "../../skills/writing-style-sources.ts";
@@ -66,11 +66,6 @@ describe("writingStyleRow", () => {
     const r = writingStyleRow({ homeReady: true, resolved: { skill: "mattstack:writing-style-conversational", source: "user" }, inventory: inv(["mattstack:writing-style-conversational"]), options: opts });
     expect(r.status).toBe("ready");
     expect(r.detail).toBe("Conversational (yours)");
-  });
-
-  test("every action this row can carry is one the Done screen handles", () => {
-    const r = writingStyleRow({ homeReady: true, resolved: { skill: "x", source: "fallback" }, inventory: inv(), options: opts });
-    expect((DONE_ACTION_TYPES as readonly string[]).includes(r.action!.type)).toBe(true);
   });
 
   test("a ready row preselects the current style in its choose action", () => {

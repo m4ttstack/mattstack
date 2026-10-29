@@ -116,15 +116,18 @@ struct SummaryOverview: View {
     }
 }
 
-/// Confirms a Skip for now with the cost stated. Buttons are driven by
-/// their wording from the VM walkthrough, so the labels are the contract.
+/// Confirms a Skip with the row's own reason stated as its cost. Buttons
+/// are driven by their wording from the VM walkthrough, so the labels are
+/// the contract.
 struct SkipConfirmSheet: View {
     @ObservedObject var model: DoneModel
+    /// Held apart from `model.skipTarget`, which empties while the sheet animates away.
+    let row: PlanRow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(FinishGate.skipSheetTitle).font(.headline)
-            Text(FinishGate.skipSheetBody).fixedSize(horizontal: false, vertical: true)
+            Text(FinishGate.skipSheetTitle(row.title)).font(.headline)
+            Text(row.why).fixedSize(horizontal: false, vertical: true)
             if let e = model.skipError {
                 Text(e).font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.doneSkipConfirmError)
             }

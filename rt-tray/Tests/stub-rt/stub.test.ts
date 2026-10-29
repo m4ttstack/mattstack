@@ -153,41 +153,47 @@ test("uninstall real run streams every v1 action id, the two need events, and ho
 });
 
 // The finish-gate scenario's shape is a contract with
-// mattstackUITests.testFinishGateSkipForNowEnablesFinish.
+// mattstackUITests.testFinishGateSkipEnablesFinish.
 const EXTENSION = "tool.fast-browser-extension";
-const WAIVED_NOTE = "Skipped on this Mac: agents cannot capture screenshots or annotate evidence from your browser. Load it later from Settings.";
-const extensionRow = (plan: { groups: { rows: Record<string, unknown>[] }[] }) => plan.groups.flatMap((g) => g.rows).find((r) => r.id === EXTENSION);
+const MISSION_CONTROL = "tool.mission-control";
+const WAIVED_NOTE = "Skipped on this Mac: Control+Up stays with Mission Control.";
+const rowById = (plan: { groups: { rows: Record<string, unknown>[] }[] }, id: string) => plan.groups.flatMap((g) => g.rows).find((r) => r.id === id);
 
-test("finish-gate: the extension row blocks Finish, waive moves it to waived, unwaive re-arms it", async () => {
+test("finish-gate: the extension row is rt's Add to Chrome, finish-gated and never skippable", async () => {
+  const state = mkdtempSync(join(tmpdir(), "stub-"));
+  const plan = await run("finish-gate", ["setup", "plan", "--json"], "", state);
+  const row = rowById(plan.lines[0], EXTENSION)!;
+  expect(row).toMatchObject({ finishGated: true, waivable: false, waived: false, required: false });
+  expect(row.action).toEqual({ type: "open-url", label: "Add to Chrome", url: "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm",
+                               primary: true, waiting: "Waiting for Chrome", again: "Open again" });
+  const refused = await run("finish-gate", ["setup", "waive", EXTENSION, "--json"], "", state);
+  expect(refused.code).toBe(2);
+  expect(refused.lines[0].error.code).toBe("not-waivable");
+});
+
+test("finish-gate: the Mission Control row blocks Finish, waive moves it to waived, unwaive re-arms it", async () => {
   const state = mkdtempSync(join(tmpdir(), "stub-"));
   const first = await run("finish-gate", ["setup", "plan", "--json"], "", state);
   expect(first.code).toBe(0);
   expect(first.lines[0].canInstall).toBe(true);
-  expect(first.lines[0].finishBlockedBy).toEqual([EXTENSION]);
-  const row = extensionRow(first.lines[0])!;
-  expect(row.status).toBe("needs-you");
-  expect(row.finishGated).toBe(true);
-  expect(row.waived).toBe(false);
-  expect(row.required).toBe(false);
-  expect((row.action as { type: string }).type).toBe("steps");
+  expect(first.lines[0].finishBlockedBy).toEqual([MISSION_CONTROL]);
+  const row = rowById(first.lines[0], MISSION_CONTROL)!;
+  expect(row).toMatchObject({ status: "needs-you", finishGated: true, waivable: true, waived: false, required: false });
 
-  const waive = await run("finish-gate", ["setup", "waive", EXTENSION, "--json"], "", state);
+  const waive = await run("finish-gate", ["setup", "waive", MISSION_CONTROL, "--json"], "", state);
   expect(waive.code).toBe(0);
-  expect(waive.lines[0]).toMatchObject({ ok: true, id: EXTENSION, waived: [EXTENSION] });
+  expect(waive.lines[0]).toMatchObject({ ok: true, id: MISSION_CONTROL, waived: [MISSION_CONTROL] });
 
   const second = await run("finish-gate", ["setup", "plan", "--json"], "", state);
   expect(second.lines[0].finishBlockedBy).toEqual([]);
-  const waived = extensionRow(second.lines[0])!;
-  expect(waived.waived).toBe(true);
-  expect(waived.required).toBe(false);
-  expect(waived.status).toBe("needs-you");
-  expect(waived.optionalNote).toBe(WAIVED_NOTE);
+  const waived = rowById(second.lines[0], MISSION_CONTROL)!;
+  expect(waived).toMatchObject({ waived: true, required: false, status: "needs-you", optionalNote: WAIVED_NOTE });
 
-  const unwaive = await run("finish-gate", ["setup", "unwaive", EXTENSION, "--json"], "", state);
+  const unwaive = await run("finish-gate", ["setup", "unwaive", MISSION_CONTROL, "--json"], "", state);
   expect(unwaive.lines[0].waived).toEqual([]);
   const third = await run("finish-gate", ["setup", "plan", "--json"], "", state);
-  expect(third.lines[0].finishBlockedBy).toEqual([EXTENSION]);
-  expect(extensionRow(third.lines[0])!.waived).toBe(false);
+  expect(third.lines[0].finishBlockedBy).toEqual([MISSION_CONTROL]);
+  expect(rowById(third.lines[0], MISSION_CONTROL)!.waived).toBe(false);
 });
 
 test("setup finish records finishedAt where the app reads it, the way rt does", async () => {
@@ -209,7 +215,8 @@ test("every other scenario keeps an open gate and no extension row", async () =>
   for (const scenario of ["join-happy", "create-happy", "perm-denied-then-granted"]) {
     const res = await run(scenario, ["setup", "plan", "--json"]);
     expect(res.lines[0].finishBlockedBy).toEqual([]);
-    expect(extensionRow(res.lines[0])).toBeUndefined();
+    expect(rowById(res.lines[0], EXTENSION)).toBeUndefined();
+    expect(rowById(res.lines[0], MISSION_CONTROL)).toBeUndefined();
     expect(writingStyleRow(res.lines[0])).toBeUndefined();
   }
 });

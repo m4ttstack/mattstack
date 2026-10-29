@@ -256,18 +256,6 @@ public struct PlanRow: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public enum RowBadge: String, Equatable, Sendable { case required, optional }
-
-public extension PlanRow {
-    /// Finish-gated rows that cannot be skipped are required even though Install does not wait on them;
-    /// a skippable finish gate reads required:false in plan mode yet still blocks Finish until skipped.
-    var badge: RowBadge? {
-        if finishGated && !waivable { return .required }
-        if required || (finishGated && !waived) { return nil }
-        return .optional
-    }
-}
-
 public struct PlanGroup: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String

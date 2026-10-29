@@ -27,7 +27,7 @@ let samplePlanJSON = """
 """
 
 let planModelsChecks: [Check] = [
-    Check("the org rows decode, and only team.none carries an action DoneActions routes") { c in
+    Check("the org rows decode with their actions") { c in
         let json = Data(#"""
         { "contract": 1, "at": "2026-10-01T00:00:00Z", "team": { "slug": "acme", "name": "Acme", "mode": "none" },
           "groups": [ { "id": "accounts", "title": "Accounts", "rows": [
@@ -43,9 +43,10 @@ let planModelsChecks: [Check] = [
         let plan = try JSONDecoder().decode(Plan.self, from: json)
         let rows = plan.groups[0].rows
         try c.requireEqual(rows.map(\.id), ["team.none", "team.identity", "team.push-access"])
-        c.expectEqual(rows[0].action.flatMap(DoneActions.route), .steps(["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"]))
-        c.expectEqual(rows[1].action.flatMap(DoneActions.route), nil)
-        c.expectEqual(rows[2].action.flatMap(DoneActions.route), nil)
+        c.expectEqual(rows[0].action?.type, .steps)
+        c.expectEqual(rows[0].action?.steps, ["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"])
+        c.expectEqual(rows[1].action?.type, .connect)
+        c.expectEqual(rows[2].action?.type, .connect)
         c.expectEqual(rows[2].action?.create?.url, "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg")
     },
     Check("Plan decodes the contract sample") { c in
@@ -155,17 +156,6 @@ let planModelsChecks: [Check] = [
         let again = try JSONDecoder().decode(RowAction.self, from: JSONEncoder().encode(a))
         c.expectEqual(again, a)
     },
-    Check("badge: an unskippable finish gate reads required; a skippable one reads optional only once skipped; otherwise optional or nil by `required`") { c in
-        func row(finishGated: Bool, waivable: Bool, waived: Bool = false, required: Bool) -> PlanRow {
-            PlanRow(id: "r", kind: .tool, title: "t", why: "w", required: required, status: .needsYou,
-                    recheck: .onChange, finishGated: finishGated, waived: waived, waivable: waivable)
-        }
-        c.expectEqual(row(finishGated: true, waivable: false, required: false).badge, .required)
-        c.expectEqual(row(finishGated: true, waivable: true, required: false).badge, nil)
-        c.expectEqual(row(finishGated: true, waivable: true, waived: true, required: false).badge, .optional)
-        c.expectEqual(row(finishGated: false, waivable: false, required: false).badge, .optional)
-        c.expectEqual(row(finishGated: false, waivable: false, required: true).badge, nil)
-    },
     Check("waivable: absent on a finish-gated row reads true; present is honored") { c in
         func row(_ extra: String) -> String {
             #"{"id":"r","kind":"tool","title":"t","why":"w","required":false,"status":"needs-you","recheck":"on-change""# + extra + "}"
@@ -206,7 +196,6 @@ let planModelsChecks: [Check] = [
         c.expectEqual(a.then, ["setup", "apply", "--only", "repos.clone"])
         c.expectEqual(a.oneClick, PlaceRepoOneClick(label: "Clone here", mode: "clone", path: "/Users/dev1/code/widgets"))
         c.expectEqual(a.segmentRecords, false)
-        c.expectEqual(row.action.flatMap(DoneActions.route), nil)
     },
     Check("PlanModels: a place-repo action's board line decodes, and absent reads nil") { c in
         func action(_ extra: String) -> String {

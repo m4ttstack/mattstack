@@ -20,8 +20,8 @@ public enum ChecklistFooter {
         return "Checked \(minutes / 60)h ago"
     }
 
-    /// Titles of rows badged `.required` that are neither ready nor skipped, in plan order.
+    /// Titles of finish-gated rows that cannot be skipped and are neither ready nor skipped, in plan order.
     public static func owedBeforeFinish(_ rows: [PlanRow]) -> [String] {
-        rows.filter { $0.badge == .required && $0.status != .ready && $0.status != .skipped }.map(\.title)
+        rows.filter { $0.finishGated && !$0.waivable && $0.status != .ready && $0.status != .skipped }.map(\.title)
     }
 }

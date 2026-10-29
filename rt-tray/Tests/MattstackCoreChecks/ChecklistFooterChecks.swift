@@ -40,7 +40,7 @@ let checklistFooterChecks: [Check] = [
         c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: now.addingTimeInterval(-59 * 60), now: now), "Checked 59 min ago")
         c.expectEqual(ChecklistFooter.refreshNote(isRefreshing: false, lastCheckedAt: now.addingTimeInterval(-3 * 3600), now: now), "Checked 3h ago")
     },
-    Check("ChecklistFooter.owedBeforeFinish: only badge==.required rows not ready or skipped, in plan order") { c in
+    Check("ChecklistFooter.owedBeforeFinish: only finish-gated rows that cannot be skipped, not ready or skipped, in plan order") { c in
         let rows = [
             row(id: "a", title: "A", finishGated: true, waivable: false, status: .needsYou),
             row(id: "b", title: "B", finishGated: true, waivable: true, status: .needsYou),

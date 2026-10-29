@@ -23,7 +23,7 @@ struct RowActivity {
 struct ChecklistSectionsView: View {
     private struct Rows {
         let needsYou: [PlanRow]
-        let optional: [PlanRow]
+        let canSkip: [PlanRow]
         let noAction: [PlanRow]
     }
 
@@ -39,7 +39,7 @@ struct ChecklistSectionsView: View {
 
     init(section: ChecklistLayout.Section, finishBlockedBy: Set<String>, activity: RowActivity, contexts: [String: String] = [:],
          needsYouIDs: RowIDs = .checklist, onSkip: ((PlanRow) -> Void)? = nil, perform: @escaping (PlanRow) -> Void) {
-        self.section = Rows(needsYou: section.needsYou, optional: section.optional, noAction: section.noAction)
+        self.section = Rows(needsYou: section.needsYou, canSkip: section.canSkip, noAction: section.noAction)
         self.finishBlockedBy = finishBlockedBy; self.activity = activity; self.contexts = contexts
         self.needsYouIDs = needsYouIDs; self.onSkip = onSkip; self.perform = perform
     }
@@ -47,14 +47,14 @@ struct ChecklistSectionsView: View {
     /// Rows lifted out of their groups into one Needs you card.
     /// `ChecklistLayout.Section` has no public initializer, so this pane cannot be handed one.
     init(needsYou: [PlanRow], finishBlockedBy: Set<String>, activity: RowActivity, contexts: [String: String],
-         needsYouIDs: RowIDs, onSkip: ((PlanRow) -> Void)?, perform: @escaping (PlanRow) -> Void) {
-        self.section = Rows(needsYou: needsYou, optional: [], noAction: [])
+         needsYouIDs: RowIDs, perform: @escaping (PlanRow) -> Void) {
+        self.section = Rows(needsYou: needsYou, canSkip: [], noAction: [])
         self.finishBlockedBy = finishBlockedBy; self.activity = activity; self.contexts = contexts
-        self.needsYouIDs = needsYouIDs; self.onSkip = onSkip; self.perform = perform
+        self.needsYouIDs = needsYouIDs; self.onSkip = nil; self.perform = perform
     }
 
     private var noActionShown: Bool {
-        noActionOpen || (section.needsYou.isEmpty && section.optional.isEmpty)
+        noActionOpen || (section.needsYou.isEmpty && section.canSkip.isEmpty)
             || section.noAction.contains { activity.errors[$0.id] != nil }
     }
 
@@ -62,34 +62,37 @@ struct ChecklistSectionsView: View {
         VStack(alignment: .leading, spacing: 12) {
             if !section.needsYou.isEmpty {
                 ChecklistCard {
-                    ChecklistCardHeader(title: "Needs you", symbol: "exclamationmark.triangle.fill", multicolor: true)
+                    ChecklistCardHeader(title: "Needs you", symbol: "exclamationmark.triangle.fill", multicolor: true,
+                                        note: "\(section.needsYou.count) to do")
                     ForEach(section.needsYou) { row in
                         Divider()
                         SectionRow(row: row, badge: ChecklistSorting.badge(for: row, finishBlockedBy: finishBlockedBy),
-                                   context: contexts[row.id], activity: activity, ids: needsYouIDs,
-                                   onSkip: row.waivable && finishBlockedBy.contains(row.id) ? onSkip : nil, perform: perform)
+                                   context: contexts[row.id], activity: activity, ids: needsYouIDs, onSkip: nil, perform: perform)
                     }
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AXID.checklistSection("needsYou"))
             }
-            if !section.optional.isEmpty {
+            if !section.canSkip.isEmpty {
                 ChecklistCard {
-                    ChecklistCardHeader(title: "Optional")
-                    ForEach(section.optional) { row in
+                    ChecklistCardHeader(title: "You can skip", note: "only if you won't use it")
+                    ForEach(section.canSkip) { row in
                         Divider()
-                        SectionRow(row: row, badge: nil, context: nil, activity: activity, ids: .checklist, onSkip: nil, perform: perform)
+                        SectionRow(row: row, badge: nil, context: nil, activity: activity, ids: .checklist, onSkip: onSkip, perform: perform)
                     }
                 }
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(AXID.checklistSection("optional"))
+                .accessibilityIdentifier(AXID.checklistSection("canSkip"))
             }
             if !section.noAction.isEmpty {
                 ChecklistCard {
                     Button { noActionOpen.toggle() } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle").foregroundStyle(.green)
-                            Text("No action needed · \(section.noAction.count)").font(.callout.weight(.semibold))
+                            Text("No action needed").font(.callout.weight(.semibold))
+                            Text("\(section.noAction.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.primary.opacity(0.08)))
                             if !noActionShown {
                                 Text(section.noAction.map(\.title).joined(separator: ", "))
                                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
@@ -131,32 +134,27 @@ struct ChecklistCardHeader: View {
     let title: String
     var symbol: String?
     var multicolor = false
+    var note: String?
     var body: some View {
         HStack(spacing: 8) {
             if let symbol { Image(systemName: symbol).symbolRenderingMode(multicolor ? .multicolor : .monochrome) }
             Text(title).font(.callout.weight(.semibold))
             Spacer()
+            if let note { Text(note).font(.caption).foregroundStyle(.secondary) }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Color.primary.opacity(0.03))
     }
 }
 
+/// Every count but Needs you lists settled rows; Needs you rows are drawn by their own pane only.
 struct ChecklistFilterView: View {
-    /// There is no case for Needs you rows: their badge and Skip are drawn by their own pane only.
-    enum Rows { case optional, settled }
-
-    let rows: Rows
     let groups: [ChecklistLayout.FilterGroup]
     let activity: RowActivity
     let perform: (PlanRow) -> Void
 
     init?(kind: ChecklistLayout.SummaryKind, layout: ChecklistLayout, activity: RowActivity, perform: @escaping (PlanRow) -> Void) {
-        switch kind {
-        case .needsYou: return nil
-        case .optional: rows = .optional
-        case .ready, .notNeeded: rows = .settled
-        }
+        guard kind != .needsYou else { return nil }
         groups = layout.filtered(kind); self.activity = activity; self.perform = perform
     }
 
@@ -167,12 +165,7 @@ struct ChecklistFilterView: View {
                     ChecklistCardHeader(title: group.title)
                     ForEach(group.rows) { row in
                         Divider()
-                        switch rows {
-                        case .optional:
-                            SectionRow(row: row, badge: nil, context: nil, activity: activity, ids: .checklist, onSkip: nil, perform: perform)
-                        case .settled:
-                            SettledRow(row: row, isChecking: activity.checking.contains(row.id), error: activity.errors[row.id], perform: perform)
-                        }
+                        SettledRow(row: row, isChecking: activity.checking.contains(row.id), error: activity.errors[row.id], perform: perform)
                     }
                 }
                 .accessibilityElement(children: .contain)
@@ -254,10 +247,6 @@ struct SectionRow: View {
             }
             Spacer(minLength: 8)
             if isChecking { ProgressView().controlSize(.small) }
-            if let onSkip {
-                Button(FinishGate.skipSheetConfirm) { onSkip(row) }.controlSize(.regular)
-                    .accessibilityIdentifier(AXID.doneSkipRow(row.id))
-            }
             if let pageWait {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
@@ -275,6 +264,10 @@ struct SectionRow: View {
                     Button(action.label) { perform(row) }.controlSize(.regular).disabled(isChecking)
                         .accessibilityIdentifier(ids.action(row.id))
                 }
+            }
+            if let onSkip {
+                Button(FinishGate.skipRowButton) { onSkip(row) }.controlSize(.regular)
+                    .accessibilityIdentifier(AXID.doneSkipRow(row.id))
             }
             RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id))
         }
@@ -334,6 +327,9 @@ struct SettledRow: View {
                         .accessibilityIdentifier(AXID.checklistRowAction(row.id))
                 }
                 RowStatusProbe(row: row, isChecking: isChecking, id: AXID.checklistRowStatus(row.id))
+            }
+            if row.isWaived, let note = row.optionalNote {
+                Text(note).font(.caption).foregroundStyle(.secondary)
             }
             if let error {
                 Text(error).font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.checklistRowError(row.id))

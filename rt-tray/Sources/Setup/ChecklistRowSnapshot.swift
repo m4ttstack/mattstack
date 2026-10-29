@@ -3,7 +3,7 @@ import SwiftUI
 import MattstackCore
 
 /// `rt-tray --render-checklist-row-snapshots <out-dir>` renders the checklist's
-/// three sections and the row states the row actions produce (waiting on the
+/// three sections (Needs you, You can skip, No action needed) and the row states the row actions produce (waiting on the
 /// admin dialog, the per-step buttons) and the dev-login Add sheet's states,
 /// light and dark, then exits before any
 /// window, status item, socket or daemon work exists. Also the "Your repos"
@@ -102,6 +102,19 @@ enum ChecklistRowSnapshot {
                 required: false, status: .ready, detail: "Not needed: your team declares no intercepts", recheck: .onChange),
     ]
 
+    static let missionControl = PlanRow(
+        id: "tool.mission-control", kind: .tool, title: "Mission Control shortcut",
+        why: "rt's nav picker uses Control+Up, which macOS binds to Mission Control by default.", required: false,
+        optionalNote: "Works without this; only matters if Control+Up doesn't reach rt's nav picker.",
+        status: .needsYou, detail: "Control+Up opens Mission Control, and rt's picker needs it",
+        action: RowAction(type: .openSettings, label: "Open Keyboard Settings…", target: "keyboard-shortcuts"),
+        recheck: .onActivate, finishGated: true, waivable: true)
+
+    static let pathPrecedence = PlanRow(
+        id: "tool.path", kind: .tool, title: "PATH precedence",
+        why: "Which rt your shell runs when more than one is installed.", required: false,
+        status: .needsYou, detail: "~/.local/bin comes after /usr/local/bin", recheck: .onChange, information: true)
+
     private static let mac: [PlanRow] = [
         PlanRow(id: "perm.login-items", kind: .permission, title: "Login Items",
                 why: "Lets mattstack.app start automatically and stay running in the background.",
@@ -109,20 +122,37 @@ enum ChecklistRowSnapshot {
         PlanRow(id: "perm.disk", kind: .permission, title: "Full Disk Access",
                 why: "Reads your repositories' git state.", required: true, status: .ready, detail: "Granted",
                 action: RowAction(type: .openSettings, label: "Open Settings…", target: "fda"), recheck: .onActivate),
+        missionControl,
+        pathPrecedence,
+    ]
+
+    /// Settled rows only, so its No action needed card draws open: a skipped row with its note, and an information row.
+    private static let agents: [PlanRow] = [
+        PlanRow(id: "skills.overrides", kind: .tool, title: "Skill overrides",
+                why: "Old slot keys in your own overrides file stop the mattstack skills from compiling.", required: false,
+                optionalNote: "Skipped on this Mac: old slot keys stay in your overrides file.",
+                status: .needsYou, detail: "2 old slot keys in overrides.md", recheck: .onChange,
+                finishGated: true, waived: true, waivable: true),
+        PlanRow(id: "team.push-access", kind: .access, title: "Push access",
+                why: "Whether your token can push to the team repo.", required: false,
+                status: .ready, detail: "Read only: only admins push team settings", recheck: .onChange, information: true),
+        PlanRow(id: "tool.claude", kind: .tool, title: "Claude Code",
+                why: "Runs the agents.", required: true, status: .ready, detail: "2.1.0", recheck: .onChange),
     ]
 
     private struct Rows: View {
         var body: some View {
             let layout = ChecklistLayout.make([PlanGroup(id: "tools", title: "Tools", rows: tools),
-                                               PlanGroup(id: "mac", title: "Your Mac", rows: mac)],
-                                              finishBlockedBy: [extensionID, waitingExtensionID])
+                                               PlanGroup(id: "mac", title: "Your Mac", rows: mac),
+                                               PlanGroup(id: "agents", title: "Agents and editors", rows: agents)],
+                                              finishBlockedBy: [extensionID, waitingExtensionID, missionControl.id])
             let activity = RowActivity(checking: ["tool.proxy"],
                                        waiting: ["tool.proxy": NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy,
                                                  waitingExtensionID: "Waiting for Chrome"])
-            // The second group has settled rows only, so its No action needed card draws open.
             return VStack(alignment: .leading, spacing: 20) {
                 ForEach(layout.sections) { section in
-                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity) { _ in }
+                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
+                                          onSkip: { _ in }) { _ in }
                 }
             }
             .padding(20)
@@ -195,7 +225,7 @@ enum ChecklistRowSnapshot {
             let none = RowActivity()
             return VStack(alignment: .leading, spacing: 20) {
                 ChecklistCard {
-                    ChecklistCardHeader(title: "No action needed · 4")
+                    ChecklistCardHeader(title: "No action needed", note: "4")
                     Divider()
                     SettledRow(row: boardRepo, isChecking: false, error: nil) { _ in }
                     Divider()

@@ -4,8 +4,8 @@ import Combine
 /// Copy and rules for the finish gate: finish-gated rows block the wizard's
 /// Finish until ready, skipped, or waived on this Mac by `rt setup waive`.
 public enum FinishGate {
-    public static let skipSheetTitle = "Skip the Fast Browser extension?"
-    public static let skipSheetBody = "Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings."
+    public static let skipRowButton = "Skip"
+    public static func skipSheetTitle(_ rowTitle: String) -> String { "Skip \(rowTitle)?" }
     public static let skipSheetConfirm = "Skip for now"
     public static let skipSheetCancel = "Cancel"
 
@@ -84,35 +84,8 @@ public final class ChoiceClient {
     }
 }
 
-public enum DoneRoute: Equatable, Sendable {
-    case openURL(URL)
-    case steps([String])
-    case recheck
-    case choose
-}
-
-/// The types this routes are pinned to DONE_ACTION_TYPES in
-/// lib/setup/contract.ts. No screen routes through it: the summary's rows
-/// run through the checklist's own dispatcher.
-public enum DoneActions {
-    public static func route(_ action: RowAction) -> DoneRoute? {
-        switch action.type {
-        case .openURL:
-            // Mirrors RowActionDispatcher: an unsupported scheme does nothing.
-            guard let raw = action.url, let url = URL(string: raw), url.scheme?.hasPrefix("http") == true else { return nil }
-            return .openURL(url)
-        case .steps: return .steps(action.steps ?? [])
-        // The only run verb a finish-gated row carries is a re-check.
-        case .run: return .recheck
-        case .choose: return .choose
-        case .openSettings, .requestPermission, .connect, .form, .oauth, .install, .ownerOnce, .linkBundled, .chooseFolder, .placeRepo, .unknown:
-            return nil
-        }
-    }
-}
-
-/// The summary's gate: which rows block Finish, which optional ones are
-/// still outstanding, and the Skip for now sheet. Nothing is listed until the
+/// The summary's gate: which rows block Finish, which others are still
+/// outstanding, and the Skip for now sheet. Nothing is listed until the
 /// post-install re-check lands, since the model still holds the pre-Install
 /// plan before then; the gate reads closed while that check is in flight.
 /// A check that fails reads open with the failure shown: a gate that could

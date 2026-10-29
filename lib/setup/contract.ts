@@ -153,13 +153,6 @@ export function isFinishGatedRowId(id: string): boolean {
   return FINISH_GATED_ROW_IDS.includes(id) || FINISH_GATED_ACCOUNT_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX);
 }
 
-/**
- * Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray).
- * A deferred `repos.place:*` row is finish-gated and carries `place-repo`, and a gated account row carries its connect or oauth action;
- * the summary runs both through the checklist dispatcher, not `DoneActions`.
- */
-export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose"] as const;
-
 export type StepKind = "rt" | "app" | "privileged";
 /**
  * `needs-you`: the step ran and did its part, but something is left that only the member can do; the run carries on.

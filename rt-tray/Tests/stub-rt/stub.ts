@@ -12,6 +12,9 @@ import {
 } from "../../../lib/skills/writing-style-sources.ts";
 import { writingStyleRow as buildWritingStyleRow } from "../../../lib/setup/validators/writing-style.ts";
 import { AFTER_INSTALL_ROW } from "../../../lib/setup/plan.ts";
+import { isFinishGatedRowId, WAIVABLE_ROW_IDS } from "../../../lib/setup/contract.ts";
+import { WAIVED_NOTES } from "../../../lib/setup/finish-gate.ts";
+import { FAST_BROWSER_ADD_ACTION } from "../../../lib/setup/validators/tools.ts";
 
 const scenario = process.env.RT_STUB_SCENARIO ?? "join-happy";
 const stateDir = process.env.RT_STUB_STATE_DIR ?? join(import.meta.dir, ".state", scenario);
@@ -40,22 +43,34 @@ const row = (id: string, kind: string, title: string, why: string, required: boo
              detail: string | null, action: unknown, recheck = "on-change", optionalNote: string | null = null) =>
   ({ id, kind, title, why, required, optionalNote, status, detail, action, recheck });
 
-// The finish-gate scenario: the one row that gates Finish, rendered the way
-// rt renders it before and after `setup waive`.
-const EXTENSION_ID = "tool.fast-browser-extension";
-// Mirrors FAST_BROWSER_LOAD_STEPS in lib/setup/validators/tools.ts.
 const FAST_BROWSER_STEPS = [
   "Install Fast Browser from the [Chrome Web Store](https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm)",
 ];
-const WAIVED_NOTE = "Skipped on this Mac: agents cannot capture screenshots or annotate evidence from your browser. Load it later from Settings.";
+
+// The finish-gate scenario: the extension row, which Finish waits on and no
+// one can skip, already loaded so Finish can open; and the Mission Control
+// row, which can be skipped, rendered the way rt renders it before and after
+// `setup waive`.
+const EXTENSION_ID = "tool.fast-browser-extension";
 function extensionRow() {
-  const waived = stateGet("waived") > 0;
   return {
     ...row(EXTENSION_ID, "tool", "Fast Browser extension", "Fast Browser drives your real Chrome session through this extension.", false,
-           "needs-you", "not loaded in Chrome",
-           { type: "steps", label: "Show steps…", steps: FAST_BROWSER_STEPS },
-           "on-activate", waived ? WAIVED_NOTE : "You load this into Chrome yourself; Install cannot do it for you."),
+           "ready", "Loaded and paired", FAST_BROWSER_ADD_ACTION, "on-activate"),
     finishGated: true,
+    waivable: false,
+    waived: false,
+  };
+}
+const MISSION_CONTROL_ID = "tool.mission-control";
+function missionControlRow() {
+  const waived = stateGet("waived") > 0;
+  return {
+    ...row(MISSION_CONTROL_ID, "tool", "Mission Control shortcut", "rt's nav picker uses Control+Up, which macOS binds to Mission Control by default.", false,
+           "needs-you", "Control+Up opens Mission Control, and rt's picker needs it",
+           { type: "open-settings", label: "Open Keyboard Settings…", target: "keyboard-shortcuts" },
+           "on-activate", waived ? WAIVED_NOTES[MISSION_CONTROL_ID]! : "Works without this; only matters if Control+Up doesn't reach rt's nav picker."),
+    finishGated: true,
+    waivable: true,
     waived,
   };
 }
@@ -217,7 +232,7 @@ function plan(): unknown {
   // is safe, not a runtime guess.
   if (installableScenario) { accounts[0]!.status = "ready"; accounts[0]!.detail = "token can see group acme"; tools[1]!.status = "ready"; tools[1]!.detail = "extension loaded"; }
   const gated: { id: string; status: string; waived?: boolean }[] =
-    scenario === "finish-gate" ? [extensionRow()]
+    scenario === "finish-gate" ? [extensionRow(), missionControlRow()]
     : scenario === "writing-style" ? [REAL_WRITING_STYLE ? realWritingStyleRow() : writingStyleRow()]
     : [];
   if (scenario === "join-team-accounts") {
@@ -341,7 +356,8 @@ else if (a0 === "setup" && a1 === "finish") {
   emit({ ok: true, finishedAt: at });
 }
 else if (a0 === "setup" && (a1 === "waive" || a1 === "unwaive")) {
-  if (a2 !== EXTENSION_ID) fail("not-finish-gated", `${a2} is not a finish-gated row; finish-gated rows: ${EXTENSION_ID}`);
+  if (a2 === undefined || !isFinishGatedRowId(a2)) fail("not-finish-gated", `${a2} is not a row that blocks Finish`);
+  if (a1 === "waive" && !WAIVABLE_ROW_IDS.includes(a2)) fail("not-waivable", `${a2} cannot be skipped. Rows that can: ${WAIVABLE_ROW_IDS.join(", ")}`);
   const wasWaived = stateGet("waived") > 0;
   stateSet("waived", a1 === "waive" ? 1 : 0);
   emit({ ok: true, id: a2, changed: wasWaived !== (a1 === "waive"), waived: a1 === "waive" ? [a2] : [] });

@@ -118,8 +118,8 @@ let doneModelChecks: [Check] = [
     },
     Check("finish gate copy is pinned byte for byte") { c in
         c.expectEqual(NeedBadge.beforeFinish.rawValue, "Before you finish")
-        c.expectEqual(FinishGate.skipSheetTitle, "Skip the Fast Browser extension?")
-        c.expectEqual(FinishGate.skipSheetBody, "Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings.")
+        c.expectEqual(FinishGate.skipRowButton, "Skip")
+        c.expectEqual(FinishGate.skipSheetTitle("Mission Control shortcut"), "Skip Mission Control shortcut?")
         c.expectEqual(FinishGate.skipSheetConfirm, "Skip for now")
         c.expectEqual(FinishGate.skipSheetCancel, "Cancel")
         c.expectEqual(FinishGate.headline(blocked: 1), "One step left before you finish")
@@ -351,11 +351,6 @@ let doneModelChecks: [Check] = [
             c.expectEqual(m.blockedRows.map(\.id), [])
             c.expectEqual(m.finishEnabled, true)
         }
-    },
-    Check("Done routes exactly the contract's DONE_ACTION_TYPES (lib/setup/contract.ts)") { c in
-        let sample = { (t: ActionType) in RowAction(type: t, label: "x", verb: ["a"], steps: ["s"], url: "https://example.com") }
-        let routed = Set(ActionType.allCases.filter { DoneActions.route(sample($0)) != nil })
-        c.expectEqual(routed, Set([ActionType.openURL, .steps, .run, .choose]))
     },
     Check("ChoiceClient: nil on success; the exit-2 envelope's message on refusal") { c in
         let rt = ScriptedRt()

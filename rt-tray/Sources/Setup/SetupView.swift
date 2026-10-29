@@ -31,7 +31,9 @@ struct SetupView: View {
                         ChecklistLoadingView(title: "Checking your team…")
                     } else {
                         ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
-                                        presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil) : .page(flow.page))
+                                        presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil)
+                                                                    : .page(flow.page, onSkip: { done.requestSkip($0) }))
+                            .sheet(item: $done.skipTarget) { row in SkipConfirmSheet(model: done, row: row) }
                             .transition(pushTransition)
                     }
                 case .install: InstallScreen(model: install).transition(pushTransition)
@@ -49,7 +51,7 @@ struct SetupView: View {
                             rowsConfirmed: done.hasConfirmedRows,
                             recheck: { await done.retryCheck() }))
                         .task { await done.checkPostInstall() }
-                        .sheet(item: $done.skipTarget) { _ in SkipConfirmSheet(model: done) }
+                        .sheet(item: $done.skipTarget) { row in SkipConfirmSheet(model: done, row: row) }
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier(AXID.doneScreen)
                         .transition(pushTransition)
