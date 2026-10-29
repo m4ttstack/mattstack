@@ -39,7 +39,9 @@ Success: a new member goes from invite to a working board in one pass, without a
 
 ## Decisions (Matt's)
 
-- **Order:** Full Disk Access, then Join and wait, then the checklist, then Install, then Almost done. 11 steps: Full Disk Access, Join, Your Mac, Accounts, Your repos, Agents and editors, Browser, rt on this Mac, Team and backup, Install, Almost done.
+- **Order:** Welcome, Full Disk Access, the team choice (create, join, just me), then for a joiner the Join page, then the checklist pages in today's order (Your Mac, Accounts, Access, Agents and editors, Browser, Your repos, rt on this Mac, Team and backup), then Install, then Almost done. The mocks' step numbers and "11" are illustrative; the counter follows the real page list.
+- **The Join page collects what joining needs:** the forge token for the team repo's host, then sets up the home repo and its age key, then redeems the invite and clones the team's settings, then waits. Full Disk Access is the only page before it that does anything.
+- **Who the rules cover:** every path (create, join, just me, restore) gets "every step expected, three can be skipped". There is one set of rules and no Optional section anywhere.
 - **While waiting:** nothing else. Setup holds on the waiting screen until the admin approves.
 - **Waiting copy:** "Waiting for your team admin to approve your request to join the team".
 - **Full Disk Access:** its button deep-links to Privacy & Security › Full Disk Access (`SystemSettingsLinks.fullDiskAccess`, already `...?Privacy_AllFiles`). Once it is on but the running app predates it (`fdaNeedsRelaunch`), a "Reopen mattstack" button relaunches through `AppRelaunch.relaunchInPlace(resumeAt:)` and setup resumes at Join.
@@ -128,6 +130,17 @@ Today → after. "Before Install" = `required`; "Before Finish" = `finishGated`;
 | Notifications | Optional | Must |
 | Mission Control shortcut | Optional | Can skip |
 | Push access, PATH precedence | Optional | Information only |
+
+## Calls made after the builder check (Claude's, check these)
+
+- **Full Disk Access applies to every path**, right after Welcome and before the team choice. "Before the app even tries to do anything" outranks "create keeps today's order"; the create path otherwise keeps its order.
+- **Approval signal:** this Mac's age key is a recipient in the org clone's `.sops.yaml` (which `rt team members sync` updates and every data-branch org has), not `board.json`, so an org with no Slack secret still resolves. `slackSecretWait` keeps its `not-shared` verdict for the Slack row only.
+- **Access page stays.** `access.team-repo` and `access.forge` keep their rows; the Join page's own token and clone satisfy them for a joiner. No page reordering.
+- **Board repo:** the first `board.projects` entry, matched to a tracked identity by its `<namespace>/<repo>` path (host ignored, a unique match required). When `board.projects` is unset, fall back to the first tracked repo, as today.
+- **Migration for members already set up:** rewrite `board.cwds` only when it is missing, points at a folder that does not exist, or points at a folder that is not a checkout of any tracked repo. A value pointing at a real checkout is left alone.
+- **The terminal walk (`rt setup install`)** keeps joining at Install and keeps `accounts.after-install`; the new required flags apply there only once the clone exists. The CLI gets no waiting page.
+- **A way out of the waiting page:** Back returns to the team choice. Joining again with a different invite replaces the pending join; no undo of the clone is needed beyond what a new join already does.
+- **PRs #952 and #954 are independent** of this work and land on their own.
 
 ## Left to the builder
 
