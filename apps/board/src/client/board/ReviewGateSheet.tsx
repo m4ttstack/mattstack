@@ -54,6 +54,7 @@ import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
   reserveDock,
+  ReviewTrack,
   RoundHeading,
   SheetEnd,
   SheetLost,
@@ -690,7 +691,13 @@ function ReviewGateSheet({
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" data-sheet="review">
           {review.round !== undefined && (
-            <RoundHeading round={review.round} summary={roundSummary} />
+            <RoundHeading
+              round={review.round}
+              summary={roundSummary}
+              aside={
+                review.round >= 2 && <ReviewTrack round={review.round} />
+              }
+            />
           )}
           <div
             className="tui-tab-strip tui-review-tabs"

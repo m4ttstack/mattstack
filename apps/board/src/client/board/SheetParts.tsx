@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { CheckCheck } from 'lucide-react';
+import { Check, CheckCheck } from 'lucide-react';
 import { domAnimation, LazyMotion, m, MotionConfig } from 'motion/react';
 
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
@@ -312,21 +312,54 @@ function RoundHeading({
 
 const RESPOND_PHASES = ['Plan', 'Fix', 'Post'] as const;
 
-/** Where a respond run is: you plan, the agent fixes, you post. */
-function PhaseTrack({ at }: { at: (typeof RESPOND_PHASES)[number] }) {
+/** Steps in order: the one at `at` lit, the ones before it done. */
+function StepTrack({
+  steps,
+  at,
+  label,
+}: {
+  steps: readonly string[];
+  at: number;
+  label: string;
+}) {
   return (
-    <ol className="tui-phase-track" aria-label="Respond steps">
-      {RESPOND_PHASES.map(p => (
+    <ol className="tui-phase-track" aria-label={label}>
+      {steps.map((step, i) => (
         <li
-          key={p}
+          key={step}
           className="tui-phase"
-          aria-current={p === at ? 'step' : undefined}
+          data-done={i < at || undefined}
+          aria-current={i === at ? 'step' : undefined}
         >
-          <span className="tui-phase-dot" aria-hidden />
-          {p}
+          <span className="tui-phase-dot" aria-hidden>
+            {i < at && <Check size={12} strokeWidth={3} />}
+          </span>
+          {step}
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Where a respond run is: you plan, the agent fixes, you post. */
+function PhaseTrack({ at }: { at: (typeof RESPOND_PHASES)[number] }) {
+  return (
+    <StepTrack
+      steps={RESPOND_PHASES}
+      at={RESPOND_PHASES.indexOf(at)}
+      label="Respond steps"
+    />
+  );
+}
+
+/** How a re-review got here: each earlier review and the author's response
+    to it, then this round's review. */
+function ReviewTrack({ round }: { round: number }) {
+  const steps = Array.from({ length: round }, (_, i) =>
+    i === 0 ? ['Review 1'] : ['Response', `Review ${i + 1}`]
+  ).flat();
+  return (
+    <StepTrack steps={steps} at={steps.length - 1} label="Review timeline" />
   );
 }
 
@@ -354,6 +387,7 @@ export {
   ProseContext,
   reserveDock,
   PhaseTrack,
+  ReviewTrack,
   RoundHeading,
   SheetLost,
   SheetRows,

@@ -3835,8 +3835,8 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-phase-dot {
   box-sizing: border-box;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border: 2px solid var(--border);
   border-radius: 50%;
   background: var(--card);
@@ -3847,7 +3847,22 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-phase[aria-current] .tui-phase-dot {
   border-color: var(--fill-accent);
-  background: radial-gradient(var(--on-fill-accent) 0 2.5px, var(--fill-accent) 3px);
+  background: radial-gradient(var(--on-fill-accent) 0 3px, var(--fill-accent) 3.5px);
+}
+.tui-phase-dot {
+  display: inline-grid;
+  place-items: center;
+}
+.tui-phase[data-done] {
+  color: var(--text-2);
+}
+.tui-phase[data-done] .tui-phase-dot {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--fill-accent) 16%, var(--card));
+  color: var(--text-accent);
+}
+.tui-phase[data-done] + .tui-phase::before {
+  background: color-mix(in srgb, var(--fill-accent) 40%, var(--border));
 }
 .tui-sheet-round + .tui-sheet-list-head {
   margin-top: 0;
