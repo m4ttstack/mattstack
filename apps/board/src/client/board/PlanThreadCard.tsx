@@ -155,7 +155,7 @@ export function PlanThreadCard({
               />
             ) : (
               <p className="tui-plan-later">
-                Agent drafts this reply next
+                Drafted at posting
               </p>
             )}
           </Answer>
