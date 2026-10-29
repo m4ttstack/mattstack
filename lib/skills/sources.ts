@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
-import { dirname, join, relative, sep } from "path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
@@ -116,12 +116,15 @@ export function installedVersionFor(list: PluginListEntry[], id: string): string
  * disabled outside its own repo, and rt still has to read it there.
  */
 function installRank(entry: PluginListEntry, cwd: string, home: string): number {
-  const pp = entry.projectPath;
+  const pp = entry.projectPath ? resolve(entry.projectPath) : null;
+  const inside = pp ? relative(pp, resolve(cwd)) : null;
   const appliesHere =
     (entry.scope === "project" || entry.scope === "local") &&
     !!pp &&
-    pp !== home &&
-    (cwd === pp || cwd.startsWith(pp.endsWith(sep) ? pp : pp + sep));
+    pp !== resolve(home) &&
+    inside !== null &&
+    !inside.startsWith("..") &&
+    !isAbsolute(inside);
   const scopeRank = appliesHere ? 2 : entry.scope === "user" ? 1 : 0;
   return scopeRank * 2 + (entry.enabled === false ? 0 : 1);
 }

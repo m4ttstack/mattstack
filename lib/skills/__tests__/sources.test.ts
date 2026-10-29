@@ -669,6 +669,21 @@ describe("buildPluginRoots", () => {
     expect(roots.byName.widgets).toEqual({ dir: userDir, version: "2.0.0" });
   });
 
+  test("a project install rooted at the home folder with a trailing slash is still the stale one", () => {
+    const { userDir, projectDir } = twoInstalls("rt-skills-plugin-stale-slash-");
+    const home = "/Users/acme";
+
+    const roots = buildPluginRoots(
+      [
+        { id: "widgets@acme", installPath: userDir, scope: "user", enabled: false },
+        { id: "widgets@acme", installPath: projectDir, scope: "project", enabled: true, projectPath: `${home}/` },
+      ],
+      { cwd: `${home}/code/gadgets`, home },
+    );
+
+    expect(roots.byName.widgets).toEqual({ dir: userDir, version: "2.0.0" });
+  });
+
   test("buildPluginRoots picks a project install whose project holds the cwd", () => {
     const { userDir, projectDir } = twoInstalls("rt-skills-plugin-project-");
     const home = "/Users/acme";
