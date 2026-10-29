@@ -71,6 +71,7 @@ import {
   Choices,
   KeyCap,
   Note,
+  PhaseTrack,
   ProseContext,
   reserveDock,
   RoundHeading,
@@ -825,7 +826,10 @@ function RespondSheetBody({
   return (
     <div className="tui-sheet-body">
       <section className="tui-sheet-main" data-sheet="respond">
-        <RoundHeading {...gateRounds(ctx, mr?.respond?.responseRound)} />
+        <RoundHeading
+          {...gateRounds(ctx, mr?.respond?.responseRound)}
+          aside={<PhaseTrack at={plan ? 'Plan' : 'Post'} />}
+        />
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
             {postThreads || perThread ? (

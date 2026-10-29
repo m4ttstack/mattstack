@@ -280,11 +280,14 @@ function RoundHeading({
   round,
   revise,
   summary,
+  aside,
 }: {
   round?: number;
   /** Re-adjudications past the round, shown after it. */
   revise?: number;
   summary?: string;
+  /** Held at the band's right edge. */
+  aside?: ReactNode;
 }) {
   const text = [
     round !== undefined ? `Round ${round}` : undefined,
@@ -294,12 +297,33 @@ function RoundHeading({
   ]
     .filter(Boolean)
     .join(' · ');
-  if (!text) return null;
+  if (!text && !aside) return null;
   return (
     <div className="tui-sheet-round">
-      <h2 className="tui-sheet-round-n">{text}</h2>
+      {text && <h2 className="tui-sheet-round-n">{text}</h2>}
       {summary && <span className="tui-sheet-round-summary">{summary}</span>}
+      {aside && <div className="tui-sheet-round-aside">{aside}</div>}
     </div>
+  );
+}
+
+const RESPOND_PHASES = ['Plan', 'Fix', 'Post'] as const;
+
+/** Where a respond run is: you plan, the agent fixes, you post. */
+function PhaseTrack({ at }: { at: (typeof RESPOND_PHASES)[number] }) {
+  return (
+    <ol className="tui-phase-track" aria-label="Respond steps">
+      {RESPOND_PHASES.map(p => (
+        <li
+          key={p}
+          className="tui-phase"
+          aria-current={p === at ? 'step' : undefined}
+        >
+          <span className="tui-phase-dot" aria-hidden />
+          {p}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -326,6 +350,7 @@ export {
   Note,
   ProseContext,
   reserveDock,
+  PhaseTrack,
   RoundHeading,
   SheetLost,
   SheetRows,
