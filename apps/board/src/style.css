@@ -1192,15 +1192,13 @@ body {
   border-top: 1px solid var(--border);
   padding-top: 0.7rem;
 }
-/* Each general MR comment sits in its own card, matching the thread cards above. */
-.tui-cd-comments .tui-cd-note {
+/* Each general MR comment's discussion sits in its own card, matching the
+   thread cards above. */
+.tui-cd-comment {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-top: 0.7rem;
-}
-.tui-cd-comments .tui-cd-note + .tui-cd-note {
-  border-top-color: var(--border);
 }
 .tui-comments-empty {
   color: var(--text-3);
