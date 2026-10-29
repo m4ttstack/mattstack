@@ -538,6 +538,14 @@ test('a switchboard peer whose review errored gets the switchboard follow-up rev
   expect(keys).not.toContain('latch-jo');
 });
 
+test('an errored peer review reads as a retry, not a follow-up review', () => {
+  const item = rowActions(
+    erroredReview,
+    actionEnvOf({ ...ownEnv, peers: ['jo'] }, erroredReview)
+  ).find(a => a.key === 'nudge-jo');
+  expect(item?.label).toBe("retry jo's agent review");
+});
+
 test("a reviewer off the switchboard whose review errored keeps the latch's follow-up review", () => {
   const keys = rowActions(
     erroredReview,
