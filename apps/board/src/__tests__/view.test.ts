@@ -19,7 +19,9 @@ import {
   groupMRs,
   groupOnLeavingSeat,
   hasStackDescendants,
+  activeOff,
   isOwnMr,
+  isOwnView,
   isPeered,
   NEEDS_ME_TAB,
   nestStacks,
@@ -1323,7 +1325,22 @@ describe('parseViewState', () => {
       sort: 'author',
       tab: '',
       off: DEFAULT_VIEW.off,
+      ownOff: DEFAULT_VIEW.off,
     });
+  });
+  test('your own view keeps its stored Show picks apart from the rest', () => {
+    const v = parseViewState(
+      '?off=notPosted',
+      { off: ['posted'], ownOff: ['authorTurn', 'posted'] },
+      members
+    );
+    expect(v.off).toEqual(['notPosted']);
+    expect(v.ownOff).toEqual(['posted', 'authorTurn']);
+  });
+  test('with no stored own picks, your view starts from the shared ones', () => {
+    expect(parseViewState('?off=myDrafts', null, members).ownOff).toEqual([
+      'myDrafts',
+    ]);
   });
   test('a pre-split sort value (oldest, progress) reads as the default', () => {
     expect(
@@ -1461,6 +1478,19 @@ describe('serializeViewState', () => {
       serializeViewState({ ...DEFAULT_VIEW, off: ['myDrafts', 'notPosted'] })
     ).toBe('?off=notPosted%2CmyDrafts');
     expect(serializeViewState(DEFAULT_VIEW)).toBe('');
+  });
+});
+
+describe('activeOff', () => {
+  const v = { off: ['notPosted' as const], ownOff: ['posted' as const] };
+  test('your own roster entry uses your own picks', () => {
+    expect(activeOff({ ...v, member: 'Alice' }, 'alice')).toEqual(['posted']);
+    expect(isOwnView({ member: 'alice' }, 'alice')).toBe(true);
+  });
+  test('All and teammates share the other picks', () => {
+    expect(activeOff({ ...v, member: 'all' }, 'alice')).toEqual(['notPosted']);
+    expect(activeOff({ ...v, member: 'bob' }, 'alice')).toEqual(['notPosted']);
+    expect(activeOff({ ...v, member: 'alice' }, null)).toEqual(['notPosted']);
   });
 });
 

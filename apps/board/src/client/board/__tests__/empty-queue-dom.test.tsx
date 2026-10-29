@@ -471,12 +471,41 @@ test('the roster counts only the rows the Show picks leave on the board', async 
       c => c.textContent
     );
   await mount(async container => {
-    expect(counts(container)[0]).toBe('3');
+    expect(counts(container)).toEqual(['3', '3']);
     await React.act(async () => chip(container, 'Not Posted').click());
     await React.act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    expect(counts(container)[0]).toBe('1');
+    // The board opens on your own entry, whose picks All does not share.
+    expect(counts(container)).toEqual(['3', '1']);
+    expect(rowCount(container)).toBe(1);
+  });
+});
+
+test('your own entry and All each remember their own Show picks', async () => {
+  servedData = withRows([
+    { ...needsMeMr(1), slack: { posted: true, reactions: [] } },
+    needsMeMr(2),
+    needsMeMr(3),
+  ]);
+  history.replaceState(null, '', '/?off=');
+  const pick = (container: HTMLElement, name: string) =>
+    [...container.querySelectorAll<HTMLElement>('.tui-sidebar button')]
+      .find(b => b.textContent?.includes(name))!
+      .click();
+  const settle = () =>
+    React.act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  await mount(async container => {
+    await React.act(async () => chip(container, 'Not Posted').click());
+    await settle();
+    expect(rowCount(container)).toBe(1);
+    await React.act(async () => pick(container, 'All'));
+    await settle();
+    expect(rowCount(container)).toBe(3);
+    await React.act(async () => pick(container, 'Robin'));
+    await settle();
     expect(rowCount(container)).toBe(1);
   });
 });
