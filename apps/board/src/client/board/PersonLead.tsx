@@ -20,8 +20,8 @@ export function PersonTag({
   );
 }
 
-/** A comment's name line: the person's invader framed in a circle like a
-    headshot, then their name. Without an id it is the name alone. */
+/** A comment's name line: the person's invader on a tile, then their name.
+    Without an id it is the name alone. */
 export function CommentAuthor({ id, name }: { id?: string; name: string }) {
   return (
     <span className="tui-comment-author">
