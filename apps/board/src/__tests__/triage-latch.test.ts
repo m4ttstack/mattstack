@@ -1570,7 +1570,7 @@ describe('error, retry and stuck', () => {
   test('retry blocked by budget shows the budget wait', async () => {
     const db = tempDb();
     putLatchRow(errorRow(), db);
-    const { deps, launches, uploads, calls, noteBodies } = harness({
+    const { deps, launches, uploads, calls, noteBodies, audits } = harness({
       db,
       memory: {
         identity: null,
@@ -1579,7 +1579,8 @@ describe('error, retry and stuck', () => {
       readReviewStates: () => new Map([[MR, failed]]),
       detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
     });
-    await runLatchPass(deps);
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(audits.find(a => a.action === 'error')?.reason).toBe('budget');
     expect(launches).toEqual([]);
     expect(uploads).toEqual(['latch-2317-error-retrying-budget.gif']);
     expect(calls).toEqual(['upload', 'updateNote:1']);
@@ -1589,6 +1590,145 @@ describe('error, retry and stuck', () => {
       wait: 'budget',
       failures: 1,
       variant: 'error-retrying-budget',
+    });
+  });
+
+  test('a stuck transition whose banner write throws still notifies, and the next pass finishes it', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    const upload = h.deps.gateway.uploadFile;
+    let broken = true;
+    h.deps.gateway.uploadFile = async (...args) => {
+      if (broken) {
+        broken = false;
+        throw new Error('gitlab 500');
+      }
+      return upload(...args);
+    };
+    expect((await runLatchPass(h.deps)).failed).toBe(1);
+    expect(h.stuckNotices).toHaveLength(1);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'error', stuck: true });
+
+    expect((await runLatchPass(h.deps)).repaired).toBe(1);
+    expect(h.calls).toEqual(['upload', 'updateNote:1', 'reply:d1']);
+    expect(h.noteBodies.get(1)).toStartWith(ERROR);
+    expect(h.replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(h.stuckNotices).toHaveLength(1);
+    expect(readLatchRow(MR, db)?.variant).toBe('error-stuck');
+
+    await runLatchPass(h.deps);
+    expect(h.replies).toHaveLength(1);
+    expect(h.stuckNotices).toHaveLength(1);
+  });
+
+  test('a relaunch mid-pass is not a failure', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW,
+    };
+    let reads = 0;
+    const { deps, calls, replies, stuckNotices } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? failed : reviewing]]),
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).stuck).toBe(0);
+    expect(calls).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(stuckNotices).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      failures: LATCH_MAX_FAILURES - 1,
+      stuck: false,
+    });
+  });
+
+  test('a launch error on a retry at two failures is stuck', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const { deps, replies, stuckNotices, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      launchReReview: async () => ({ kind: 'error', message: 'boom' }),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).stuck).toBe(1);
+    expect(replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(stuckNotices).toHaveLength(1);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: LATCH_MAX_FAILURES,
+      stuck: true,
+      variant: 'error-stuck',
+    });
+  });
+
+  test('a review starting on a retrying error row moves it to running', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, launches, noteBodies, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 1_000,
+      failures: 1,
+      stuck: false,
+    });
+    expect(audits.map(a => a.action)).toContain('recovered');
+  });
+
+  test('a queued lane recovers a stuck latch', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+      }),
+      db
+    );
+    const queuedLane: ReviewState = {
+      ...commented,
+      status: 'queued',
+      runStartedAt: NOW - 2_000,
+    };
+    const { deps, launches, noteBodies, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, queuedLane]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 2_000,
+      stuck: false,
+      failures: 3,
     });
   });
 });

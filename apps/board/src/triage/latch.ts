@@ -125,7 +125,8 @@ export interface LatchPassResult {
   resurrected: number;
   skipped: number;
   failed: number;
-  /** Failed follow-up attempts recorded this tick, stuck ones included. */
+  /** Error banners written this tick: failed attempts (stuck ones
+      included) and retry-wait changes. */
   errored: number;
   stuck: number;
 }
@@ -716,7 +717,15 @@ async function erroredLatch(t: Tick): Promise<void> {
     return;
   }
   if (t.row.stuck) {
-    t.result.skipped++;
+    // The stuck transition notifies before its GitLab writes, so a write cut
+    // short there leaves the banner and reply for this pass to finish.
+    if (t.row.variant === variantKey({ state: 'error-stuck' })) {
+      t.result.skipped++;
+      return;
+    }
+    await showStuck(t);
+    audit(t, 'repaired');
+    t.result.repaired++;
     return;
   }
   const m = memoryFor(t);
@@ -738,6 +747,8 @@ async function erroredLatch(t: Tick): Promise<void> {
     return;
   }
   await show(t, 'error', variant, 'keep');
+  audit(t, 'error', { reason: wait });
+  t.result.errored++;
 }
 
 /** The error strip has no review-in-flight wait: a run in flight would have
@@ -750,10 +761,18 @@ function retryingVariant(wait: WaitReason): BannerVariant {
 }
 
 /** One failed attempt: the run errored, or its pane never started. The cas
-    is on the phase this tick read, so only one writer records the attempt
-    and only that writer replies and notifies on the stuck transition. */
+    on the phase this tick read keeps a server write in between (a landing)
+    from being overwritten; the cron lock is what keeps two passes from both
+    recording the same attempt. */
 async function fail(t: Tick, message: string | undefined): Promise<void> {
   const { deps, rows, mr, canon, now } = t;
+  // A relaunch from the board mid-pass is the follow-up running again, not
+  // a failure: this tick's lane snapshot is older than that launch.
+  const lane = deps.readReviewStates().get(mr.mrUrl);
+  if (lane && (lane.status === 'queued' || lane.status === 'reviewing')) {
+    t.result.skipped++;
+    return;
+  }
   const failures = t.row.failures + 1;
   const stuck = failures >= LATCH_MAX_FAILURES;
   const { wait } = decide(t, memoryFor(t));
@@ -778,23 +797,31 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
     t.result.errored++;
     return;
   }
-  const variant: BannerVariant = { state: 'error-stuck' };
-  await show(t, 'error', variant, threadClosed(t));
-  await supersede(deps, mr, canon, t.carriers);
-  await deps.gateway.createNote(
-    mr.projectId,
-    mr.iid,
-    copyFor(variant).sentence,
-    canon.discussionId
-  );
-  audit(t, 'stuck', outcome);
+  // Stuck needs a person, and a stuck row never transitions again, so the
+  // notification goes before any GitLab write that could throw.
   await t.notifyStuck(
     `Follow-up review stuck on !${mr.iid}`,
     `It failed ${LATCH_MAX_FAILURES} times. Relaunch it from the board.`,
     mr.mrUrl
   );
+  audit(t, 'stuck', outcome);
   t.result.errored++;
   t.result.stuck++;
+  await showStuck(t);
+}
+
+/** The stuck banner, then the stuck reply. A row still showing another
+    variant has not had either, which is how a cut-short write is repaired. */
+async function showStuck(t: Tick): Promise<void> {
+  const variant: BannerVariant = { state: 'error-stuck' };
+  await show(t, 'error', variant, threadClosed(t));
+  await supersede(t.deps, t.mr, t.canon, t.carriers);
+  await t.deps.gateway.createNote(
+    t.mr.projectId,
+    t.mr.iid,
+    copyFor(variant).sentence,
+    t.canon.discussionId
+  );
 }
 
 async function queue(t: Tick, wait: WaitReason): Promise<void> {
