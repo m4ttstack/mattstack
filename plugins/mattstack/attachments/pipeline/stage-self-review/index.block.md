@@ -34,7 +34,7 @@ flowchart TB
     domain_review_gated{How did the domain review's own gate end?}
     git_log_shas[/git log --format=%h <branch-point>..HEAD/]
     run_field_set_commits[/"run_field_set {key: commits, value: <all shas, fixes included>, stage: self-review}"/]
-    run_field_set_review[/"run_field_set {key: review, value: <verdict; findings fixed, waived, or left open by name>, stage: self-review}"/]
+    run_field_set_review[/"run_field_set {key: review, value: <verdict; findings fixed, waived, or left open by name; the review's Unanswered rules line, when it wrote one>, stage: self-review}"/]
     run_stage_fail[/"run_stage {action: fail, stage: self-review, reason: blocking findings after 3 rounds}"/]
     stage_failed(((Stage failed)))
     held_domain_gate(((Held at the domain review's gate)))
