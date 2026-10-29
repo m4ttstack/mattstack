@@ -7,7 +7,7 @@
 import type { Database } from 'bun:sqlite';
 
 import type { MRDetail } from '@mattstack/glance';
-import { findLatches, hasArmedLatch } from './discussions.ts';
+import { findLatches, hasLiveLatch } from './discussions.ts';
 import { putLatchRow } from './latch-state.ts';
 import { postLatch, spendAllLatches, type LatchGateway } from './post.ts';
 
@@ -55,7 +55,7 @@ export async function applyReviewLatch(
   if (s.approvedBy.some(u => u.toLowerCase() === self)) return 'none';
   // A spent latch must never suppress a fresh post, or the feature disables
   // itself forever the first time a latch is ever spent.
-  if (hasArmedLatch(latches)) return 'none';
+  if (hasLiveLatch(latches)) return 'none';
   const { discussionId, rootNoteId } = await postLatch(
     s.gateway,
     s.projectId,
