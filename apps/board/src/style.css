@@ -4655,12 +4655,23 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-review-code-fold {
   display: inline-flex;
-  padding: 0;
+  margin: -3px;
+  padding: 3px;
   border: none;
+  border-radius: 4px;
   background: none;
   color: var(--text-3);
   cursor: pointer;
-  transition: transform 120ms;
+  transition:
+    transform 120ms,
+    background-color 120ms,
+    color 120ms;
+}
+@media (hover: hover) {
+  .tui-review-code-fold:hover {
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    color: var(--text-1);
+  }
 }
 .tui-review-code[data-folded] .tui-review-code-fold {
   transform: rotate(-90deg);
