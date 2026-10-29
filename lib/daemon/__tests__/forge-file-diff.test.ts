@@ -262,6 +262,10 @@ describe("forge:file-diff listing", () => {
     expect(await h["forge:file-diff"]!({ repoName: GL_REPO, iid: 812, path: "src/a.ts" })).toMatchObject({
       ok: true, data: { truncated: true, file: { newPath: "src/a.ts" } },
     });
+    // The unread pages may hold a second file by that name.
+    expect(await h["forge:file-diff"]!({ repoName: GL_REPO, iid: 812, path: "a.ts" })).toMatchObject({
+      ok: true, data: { truncated: true, file: null },
+    });
   });
 });
 

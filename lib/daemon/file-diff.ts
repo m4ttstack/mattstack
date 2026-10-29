@@ -214,8 +214,10 @@ export function createFileDiffReader(opts: { now?: () => number } = {}) {
     if (!listed.ok) return listed;
     // A respond thread names its file by basename alone, so a path with no
     // exact match takes the one changed file ending in it; two such files
-    // are ambiguous and match nothing.
-    const bySuffix = path.includes("/") ? [] : listed.files.filter((f) => f.newPath.endsWith(`/${path}`));
+    // are ambiguous and match nothing, and a truncated listing may hide a
+    // second one, so it matches nothing either.
+    const bySuffix =
+      path.includes("/") || listed.truncated ? [] : listed.files.filter((f) => f.newPath.endsWith(`/${path}`));
     const file =
       listed.files.find((f) => f.newPath === path) ??
       listed.files.find((f) => f.oldPath === path) ??
