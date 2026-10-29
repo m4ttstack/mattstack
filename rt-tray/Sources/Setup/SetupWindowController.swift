@@ -9,6 +9,7 @@ struct SetupEnvironment {
     let readiness: ReadinessModel
     let install: InstallRunModel
     let permissions: PermissionsService
+    let join: JoinPageModel
     let isDevBuild: Bool
     let bundleId: String
     let bundlePath: String
@@ -50,7 +51,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
         window.delegate = self
         let root = SetupView(flow: flow, team: team, readiness: environment.readiness, install: environment.install, done: done,
-                             permissions: environment.permissions, env: environment,
+                             join: environment.join, permissions: environment.permissions, env: environment,
                              onFinish: { [weak self] in self?.window?.close() })
         window.contentViewController = NSHostingController(rootView: root)
         window.setContentSize(NSSize(width: Self.width, height: 620))
@@ -63,6 +64,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         flow.entry = entry
         if let step { flow.jump(to: step, landing: step == .checklist && !flow.readOnly) }
         team.enter(entry, choice: choice, joinCode: joinCode)
+        if entry == .firstRun, !flow.readOnly, flow.step == .checklist { resumeAJoinStillWaiting() }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         applyStyle()
@@ -73,6 +75,19 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         if let o = activeObserver { NotificationCenter.default.removeObserver(o) }
         activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.environment.readiness.didBecomeActive() }
+        }
+    }
+
+    /// A Mac that joined and quit before approval reopens on the checklist,
+    /// whose team rows cannot settle yet, so it goes back to the wait.
+    private func resumeAJoinStillWaiting() {
+        let rt = environment.rt
+        Task { @MainActor [weak self] in
+            guard let status = await JoinPageModel.launchStatus(rt: rt), status.state == "waiting",
+                  let self, self.flow.step == .checklist else { return }
+            self.environment.join.adopt(status)
+            self.flow.joining = true
+            self.flow.jump(to: .join)
         }
     }
 

@@ -21,12 +21,20 @@ enum AXID {
     static let installScreen = "setup.install.screen"
     static let doneScreen = "setup.done.screen"
     static let fdaScreen = "setup.fullDiskAccess.screen"
+    static let checklistRows = "setup.checklist.rows"
 
     // Full Disk Access
     static let fdaOpen = "setup.fullDiskAccess.open"
     static let fdaReopen = "setup.fullDiskAccess.reopen"
     static let fdaLoadFailed = "setup.fullDiskAccess.loadFailed"
     static let fdaCheckAgain = "setup.fullDiskAccess.checkAgain"
+
+    // Join your team
+    static let joinScreen = "setup.join.screen"
+    static let joinRun = "setup.join.run"
+    static let joinCheckAgain = "setup.join.checkAgain"
+    static let joinWaiting = "setup.join.waiting"
+    static let joinApproved = "setup.join.approved"
 
     // Your team
     static let teamCardCreate = "setup.team.card.create"

@@ -312,9 +312,25 @@ async function apply() {
   line({ event: "done", ok: true, failedStep: null });
 }
 
+// The join scenario waits on the admin at its first check and is approved
+// from the second; every other joiner is approved at once, so the walks
+// that join never stop on the wait.
+function joinStatus(): unknown {
+  if (["create-happy", "restore", "solo"].includes(scenario)) fail("no-join", "This Mac has not joined a team");
+  const approved = scenario !== "join" || stateBump("join-status-calls") > 1;
+  return {
+    team: { slug: "acme", name: "Acme" },
+    state: approved ? "approved" : "waiting",
+    since: approved ? null : at,
+    uses: { repos: 2, accounts: 2, packs: 1 },
+    pull: { outcome: "pulled", detail: "Pulled the team's settings" },
+  };
+}
+
 const [a0, a1, a2] = args;
 if (a0 === "setup" && (a1 === "plan" || a1 === "status")) emit(plan());
 else if (a0 === "setup" && a1 === "apply") await apply();
+else if (a0 === "setup" && a1 === "join-status") emit(joinStatus());
 else if (a0 === "setup" && a1 === "github" && a2 === "status") emit({ integration: "github", status: "ready", detail: "gh authenticated as matt", scopesSeen: ["repo", "read:org"], handle: "matt", owners: ["matt", "acme"] });
 else if (a0 === "setup" && a1 === "intent" && a2 === "restore") emit({ ok: true, intent: "restore", repo: args[3] });
 else if (a0 === "setup" && a1 === "intent" && a2 === "solo") emit({ mode: "solo" });

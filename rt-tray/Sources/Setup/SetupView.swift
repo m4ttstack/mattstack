@@ -7,6 +7,7 @@ struct SetupView: View {
     @ObservedObject var readiness: ReadinessModel
     @ObservedObject var install: InstallRunModel
     @ObservedObject var done: DoneModel
+    @ObservedObject var join: JoinPageModel
     let permissions: PermissionsService
     let env: SetupEnvironment
     let onFinish: () -> Void
@@ -22,7 +23,9 @@ struct SetupView: View {
                 case .welcome: WelcomeScreen().transition(pushTransition)
                 case .fullDiskAccess: FullDiskAccessScreen(readiness: readiness).transition(pushTransition)
                 case .team: TeamScreen(model: team, showsSolo: flow.entry == .firstRun).transition(pushTransition)
-                case .join: EmptyView()
+                case .join:
+                    JoinScreen(model: join, readiness: readiness, permissions: permissions, rt: env.rt, needs: env.needs)
+                        .transition(pushTransition)
                 case .checklist:
                     ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
                                     presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil) : .page(flow.page))
@@ -67,9 +70,10 @@ struct SetupView: View {
         // deep link that opens straight into .checklist or .install still
         // loads/starts — onChange alone would silently no-op on first appear.
         .task(id: flow.step) {
-            if flow.step == .fullDiskAccess || flow.step == .checklist || flow.step == .done {
+            if flow.step == .fullDiskAccess || flow.step == .join || flow.step == .checklist || flow.step == .done {
                 if !flow.readinessIsVisible { flow.readinessIsVisible = true; readiness.becameVisible() }
-                if flow.step == .checklist { await readiness.load() }
+                // The join page reads the team repo row of the plan Your team just changed.
+                if flow.step == .checklist || flow.step == .join { await readiness.load() }
                 // The perm.fda row the page reads exists only once a plan has landed.
                 if flow.step == .fullDiskAccess { await readiness.loadIfNeeded() }
             } else if flow.readinessIsVisible {
@@ -146,7 +150,7 @@ struct SetupView: View {
         case .welcome: return true
         case .fullDiskAccess: return readiness.fullDiskAccessState == .on
         case .team: return team.canContinue
-        case .join: return false
+        case .join: return join.continueEnabled
         case .checklist:
             guard let page = flow.page, let group = readiness.groups.first(where: { $0.id == page }) else { return false }
             return PageGate.continueEnabled(blockers: PageGate.blockers(in: group).count,
@@ -163,6 +167,8 @@ struct SetupView: View {
         case .team:
             busy = true; defer { busy = false }
             if let err = await team.validateAndPrepare() { errorText = err; return }
+            flow.joining = team.choice == .join
+            if flow.joining { join.reset() }
             flow.next()
         case .done:
             onFinish()

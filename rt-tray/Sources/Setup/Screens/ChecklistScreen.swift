@@ -14,6 +14,8 @@ struct ChecklistScreen: View {
         /// `rowsConfirmed` is false while the model still holds the pre-install rows: the summary then shows its Overview alone.
         /// `recheck` replaces the model's own re-read: the summary's gate must see every re-read, or a second fetch would let its check confirm rows it never read.
         case sidebar(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool = true, recheck: (() async -> Void)? = nil)
+        /// Only these rows, in one card, on another setup page: no load states and no Re-check bar.
+        case rows([String])
     }
     var presentation: Presentation = .sidebar(overview: nil, onSkip: nil)
     private var scope: ReadinessModel.Scope { if case .accounts = presentation { return .accounts } else { return .all } }
@@ -36,39 +38,11 @@ struct ChecklistScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The Overview carries its own spinner and failure, so it never waits behind the load states.
-            switch showsOverviewOnly ? .loaded : model.loadState {
-            case .loading:
-                ChecklistLoadingView(title: scope == .all ? "Checking your setup…" : "Checking your accounts…")
-            case .failed(let message):
-                ChecklistLoadFailedView(title: scope == .all ? "Couldn't check your setup" : "Couldn't load your accounts",
-                                        message: message) { recheck() }
-            case .loaded:
-                if model.lastRefreshFailed, !showsOverviewOnly {
-                    // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
-                    Label(scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
-                                        : "Couldn't refresh your accounts. Re-check to try again.",
-                          systemImage: "exclamationmark.triangle")
-                        .font(.callout).foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20).padding(.top, 12)
-                }
-                switch presentation {
-                case .accounts: flatList
-                case .page(let id): pageBody(id)
-                case .sidebar(let overview, let onSkip, let rowsConfirmed, _):
-                    sidebarBody(overview: overview, onSkip: onSkip, rowsConfirmed: rowsConfirmed || overview == nil)
-                }
+            if case .rows(let ids) = presentation {
+                rowsCard(ids)
+            } else {
+                screenBody
             }
-            HStack(spacing: 6) {
-                if isRefreshing { ProgressView().controlSize(.small) }
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    Text(footerText(now: context.date)).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Re-check") { recheck() }.controlSize(.small).disabled(model.loadState == .loading).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
-            }
-            .padding(.horizontal, 20).padding(.vertical, 6)
         }
         .sheet(isPresented: Binding(get: { connect != nil }, set: { if !$0 { connect = nil } })) {
             if let c = connect {
@@ -100,7 +74,59 @@ struct ChecklistScreen: View {
         // (Re-check) reports THIS screen-level identifier instead of its own
         // -- same fix as InstallScreen's stepRow.
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(scope == .all ? AXID.checklistScreen : AXID.settingsAccountsScreen)
+        .accessibilityIdentifier(screenID)
+    }
+
+    private var screenID: String {
+        if case .rows = presentation { return AXID.checklistRows }
+        return scope == .all ? AXID.checklistScreen : AXID.settingsAccountsScreen
+    }
+
+    private func rowsCard(_ ids: [String]) -> some View {
+        let rows = ids.compactMap { model.row($0) }
+        return ChecklistCard {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                if index > 0 { Divider() }
+                SectionRow(row: row, badge: nil, context: nil, activity: activity, ids: .checklist, onSkip: nil, perform: perform)
+            }
+        }
+    }
+
+    @ViewBuilder private var screenBody: some View {
+        // The Overview carries its own spinner and failure, so it never waits behind the load states.
+        switch showsOverviewOnly ? .loaded : model.loadState {
+        case .loading:
+            ChecklistLoadingView(title: scope == .all ? "Checking your setup…" : "Checking your accounts…")
+        case .failed(let message):
+            ChecklistLoadFailedView(title: scope == .all ? "Couldn't check your setup" : "Couldn't load your accounts",
+                                    message: message) { recheck() }
+        case .loaded:
+            if model.lastRefreshFailed, !showsOverviewOnly {
+                // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
+                Label(scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
+                                    : "Couldn't refresh your accounts. Re-check to try again.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.top, 12)
+            }
+            switch presentation {
+            case .accounts: flatList
+            case .page(let id): pageBody(id)
+            case .sidebar(let overview, let onSkip, let rowsConfirmed, _):
+                sidebarBody(overview: overview, onSkip: onSkip, rowsConfirmed: rowsConfirmed || overview == nil)
+            case .rows: EmptyView()
+            }
+        }
+        HStack(spacing: 6) {
+            if isRefreshing { ProgressView().controlSize(.small) }
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(footerText(now: context.date)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Re-check") { recheck() }.controlSize(.small).disabled(model.loadState == .loading).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 6)
     }
 
     private var flatList: some View {
@@ -268,6 +294,7 @@ struct ChecklistScreen: View {
         case .sidebar(let overview, _, _, _):
             status = overview == nil ? ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
                                                             owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows)) : nil
+        case .rows: status = nil
         }
         return [note, status].compactMap { $0 }.joined(separator: " · ")
     }

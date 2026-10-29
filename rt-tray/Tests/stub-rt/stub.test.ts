@@ -427,3 +427,21 @@ test("join-team-accounts: the after-install note before Install, then Slack bloc
   expect(after.finishBlockedBy).toEqual(["account.slack"]);
   expect(after.requiredMissing).toContain("account.slack");
 });
+
+test("join-status answers waiting, then approved", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const first = await run("join", ["setup", "join-status", "--json"], "", dir);
+  expect(first.code).toBe(0);
+  expect(first.lines[0].state).toBe("waiting");
+  expect(typeof first.lines[0].since).toBe("string");
+  expect(first.lines[0].team).toEqual({ slug: "acme", name: "Acme" });
+  expect(first.lines[0].uses).toEqual({ repos: 2, accounts: 2, packs: 1 });
+  const second = await run("join", ["setup", "join-status", "--json"], "", dir);
+  expect(second.lines[0].state).toBe("approved");
+  expect(second.lines[0].since).toBeNull();
+  const happy = await run("join-happy", ["setup", "join-status", "--json"]);
+  expect(happy.lines[0].state).toBe("approved");
+  const creator = await run("create-happy", ["setup", "join-status", "--json"]);
+  expect(creator.code).toBe(2);
+  expect(creator.lines[0].error.code).toBe("no-join");
+});

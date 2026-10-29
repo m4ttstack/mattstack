@@ -21,6 +21,7 @@ final class SetupCoordinator {
     private let statusReadiness: ReadinessModel
     private let install: InstallRunModel
     private let statusInstall: InstallRunModel
+    private let join: JoinPageModel
     private let teamSettings: TeamSettingsModel
     private let devLogins: DevLoginsModel
     private let appsSettings: AppsSettingsModel
@@ -61,6 +62,7 @@ final class SetupCoordinator {
         // path through it can start — or, on the next start(), SIGTERM — a
         // live `rt setup apply` the onboarding window owns.
         statusInstall = InstallRunModel(stream: { _ in AsyncThrowingStream { $0.finish() } }, needs: needs)
+        join = JoinPageModel(rt: rt, needs: needs)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
         devLogins = DevLoginsModel(rt: rt)
         appsSettings = AppsSettingsModel(rt: rt)
@@ -86,7 +88,7 @@ final class SetupCoordinator {
     func showSetup(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
         if setupWindow == nil {
             let env = SetupEnvironment(rt: rt, needs: needs, readiness: readiness, install: install, permissions: permissions,
-                                       isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
+                                       join: join, isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
                                        bundlePath: Bundle.main.bundlePath)
             let wc = SetupWindowController(environment: env)
             wc.onClose = { [weak self, weak wc] entry in
@@ -132,7 +134,7 @@ final class SetupCoordinator {
     func openSetupStatus() {
         if statusWindow == nil {
             let env = SetupEnvironment(rt: rt, needs: needs, readiness: statusReadiness, install: statusInstall, permissions: permissions,
-                                       isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
+                                       join: join, isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
                                        bundlePath: Bundle.main.bundlePath, readOnly: true)
             let wc = SetupWindowController(environment: env)
             wc.allowsCloseAlways = true
