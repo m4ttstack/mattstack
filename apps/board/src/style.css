@@ -3776,11 +3776,12 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* The round is the context every card below is read in, so it stays pinned
-   while the column scrolls. The column drops its top padding rather than
-   the bar pulling over it with a negative top: WebKit pins a negative top
-   against the padding edge, leaving a strip where cards show through above
-   the bar. The side margins span the column's 28px padding; the bar stops
-   2px short of the left edge, where the sheet's own focus ring is drawn. */
+   while the column scrolls. The column drops its top padding so the bar
+   pins flush under the sheet head; the side margins span the column's 28px
+   padding, stopping 2px short of the left edge, where the sheet's own focus
+   ring is drawn. WebKit's backdrop blur samples cards scrolled past the
+   column's top edge and paints them as a sharp strip along the bar's top,
+   so the bar starts solid and fades into the frost. */
 @media (min-width: 721px) {
   .tui-sheet-main:has(> .tui-sheet-round:first-child) {
     padding-top: 0;
@@ -3797,7 +3798,9 @@ a.tui-id-card-ref:focus-visible {
   margin: 0 -28px 28px -26px;
   padding: 16px 28px 16px 26px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  background: color-mix(in srgb, var(--card) 72%, transparent);
+  background:
+    linear-gradient(var(--card) 12px, transparent 26px),
+    color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   box-shadow: 0 4px 10px -4px color-mix(in srgb, black 14%, transparent);
 }
