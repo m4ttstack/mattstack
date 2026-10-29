@@ -153,14 +153,12 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
         className={stacked ? 'tui-stacked-area' : undefined}
       >
         {p.check && <AgentCheck {...p.check} />}
-        {said ? (
-          <>
-            <SaidBox who={said.who!} whoId={said.whoId} text={said.text} />
-            <Answer>{field}</Answer>
-          </>
-        ) : (
-          field
+        {said && (
+          <SaidBox who={said.who!} whoId={said.whoId} text={said.text} />
         )}
+        <div className="tui-reply-band">
+          {said ? <Answer>{field}</Answer> : field}
+        </div>
       </CommentArea>
     </GateCard>
   );
