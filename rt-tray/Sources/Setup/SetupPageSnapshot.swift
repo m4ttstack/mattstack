@@ -18,8 +18,9 @@ enum SetupPageSnapshot {
         let out = URL(fileURLWithPath: args[i + 1])
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         _ = NSApplication.shared
-        let pages: [(String, AnyView)] = fdaStates.map { name, row, needsRelaunch in
-            (name, AnyView(FullDiskAccessPageBody(state: FullDiskAccessPage.state(row: row, needsRelaunch: needsRelaunch))))
+        let pages: [(String, AnyView)] = fdaStates.map { name, row, needsRelaunch, loadState in
+            (name, AnyView(FullDiskAccessPageBody(
+                display: FullDiskAccessPage.display(row: row, needsRelaunch: needsRelaunch, loadState: loadState), checkAgain: {})))
         }
         for (name, page) in pages {
             for scheme in ["light", "dark"] {
@@ -48,10 +49,12 @@ enum SetupPageSnapshot {
                 action: RowAction(type: .openSettings, label: "Open Full Disk Access Settings…", target: "fda"), recheck: .onActivate)
     }
 
-    private static let fdaStates: [(String, PlanRow?, Bool)] = [
-        ("fda-off", fdaRow(.needsYou, "Not granted"), false),
-        ("fda-needsReopen", fdaRow(.ready, "Granted"), true),
-        ("fda-on", fdaRow(.ready, "Granted"), false),
+    private static let fdaStates: [(String, PlanRow?, Bool, ChecklistLoadState)] = [
+        ("fda-checking", nil, false, .loading),
+        ("fda-failed", nil, false, .failed("rt setup plan exited 1: could not read ~/.mattstack/rt/setup-state.json")),
+        ("fda-off", fdaRow(.needsYou, "Not granted"), false, .loaded),
+        ("fda-needsReopen", fdaRow(.ready, "Granted"), true, .loaded),
+        ("fda-on", fdaRow(.ready, "Granted"), false, .loaded),
     ]
     #endif
 }

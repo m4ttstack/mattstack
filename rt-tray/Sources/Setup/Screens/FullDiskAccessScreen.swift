@@ -4,12 +4,20 @@ import MattstackCore
 
 struct FullDiskAccessScreen: View {
     @ObservedObject var readiness: ReadinessModel
-    var body: some View { FullDiskAccessPageBody(state: readiness.fullDiskAccessState) }
+    var body: some View {
+        FullDiskAccessPageBody(display: readiness.fullDiskAccessDisplay) { Task { await readiness.load() } }
+    }
 }
 
 /// The page itself, apart from the model, so the snapshot flag can draw each state.
 struct FullDiskAccessPageBody: View {
-    let state: FDAPageState
+    let display: FDAPageDisplay
+    let checkAgain: () -> Void
+
+    private var state: FDAPageState {
+        if case .state(let s) = display { return s }
+        return .off
+    }
 
     var body: some View {
         ScrollView {
@@ -26,17 +34,18 @@ struct FullDiskAccessPageBody: View {
                     }
                 }
                 ChecklistCard {
-                    stepRow(1, "Open Full Disk Access", done: state != .off) {
+                    stepRow(1, "Open Full Disk Access in System Settings", done: state != .off) {
                         if state == .off {
                             Button("Open Full Disk Access") { NSWorkspace.shared.open(SystemSettingsLinks.fullDiskAccess) }
                                 .buttonStyle(.borderedProminent)
+                                .disabled(display == .checking)
                                 .accessibilityIdentifier(AXID.fdaOpen)
                         }
                     }
                     Divider()
-                    stepRow(2, "Turn on mattstack", done: state != .off) { EmptyView() }
+                    stepRow(2, "Turn on mattstack in the list", done: state != .off) { EmptyView() }
                     Divider()
-                    stepRow(3, "Reopen mattstack", done: state == .on) {
+                    stepRow(3, "Reopen mattstack so it takes effect", done: state == .on) {
                         if state == .needsReopen {
                             Button { AppRelaunch.relaunchInPlace(resumeAt: .team) } label: {
                                 Label("Reopen mattstack", systemImage: "arrow.clockwise")
@@ -76,6 +85,25 @@ struct FullDiskAccessPageBody: View {
     }
 
     @ViewBuilder private var stateLine: some View {
+        switch display {
+        case .checking:
+            dotLine(.secondary, "Checking Full Disk Access")
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text(message).font(.callout).foregroundStyle(.secondary).lineLimit(4).textSelection(.enabled)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
+                }
+                .accessibilityIdentifier(AXID.fdaLoadFailed)
+                Button("Check again", action: checkAgain).accessibilityIdentifier(AXID.fdaCheckAgain)
+            }
+        case .state(let state):
+            stateLine(state)
+        }
+    }
+
+    @ViewBuilder private func stateLine(_ state: FDAPageState) -> some View {
         switch state {
         case .off:
             dotLine(.orange, "Not on yet, checked again when you come back")

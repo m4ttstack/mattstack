@@ -21,4 +21,16 @@ let fullDiskAccessPageChecks: [Check] = [
     Check("FullDiskAccessPage: granted at launch reads on") { c in
         c.expectEqual(FullDiskAccessPage.state(row: fdaRow(.ready), needsRelaunch: false), .on)
     },
+    Check("FullDiskAccessPage: no row while the plan loads reads checking, not off") { c in
+        c.expectEqual(FullDiskAccessPage.display(row: nil, needsRelaunch: false, loadState: .loading), .checking)
+    },
+    Check("FullDiskAccessPage: no row after a failed load carries the failure") { c in
+        c.expectEqual(FullDiskAccessPage.display(row: nil, needsRelaunch: false, loadState: .failed("rt exited 1")), .failed("rt exited 1"))
+    },
+    Check("FullDiskAccessPage: a present row reads its state whatever the load state") { c in
+        c.expectEqual(FullDiskAccessPage.display(row: fdaRow(.needsYou), needsRelaunch: false, loadState: .loaded), .state(.off))
+        c.expectEqual(FullDiskAccessPage.display(row: fdaRow(.ready), needsRelaunch: true, loadState: .failed("x")), .state(.needsReopen),
+                      "a later refresh failing keeps the row it already has")
+        c.expectEqual(FullDiskAccessPage.display(row: nil, needsRelaunch: false, loadState: .loaded), .state(.off))
+    },
 ]

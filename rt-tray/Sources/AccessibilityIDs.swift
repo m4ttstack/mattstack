@@ -25,6 +25,8 @@ enum AXID {
     // Full Disk Access
     static let fdaOpen = "setup.fullDiskAccess.open"
     static let fdaReopen = "setup.fullDiskAccess.reopen"
+    static let fdaLoadFailed = "setup.fullDiskAccess.loadFailed"
+    static let fdaCheckAgain = "setup.fullDiskAccess.checkAgain"
 
     // Your team
     static let teamCardCreate = "setup.team.card.create"
