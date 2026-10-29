@@ -309,7 +309,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "review.ruleSelector",
     type: "boolean",
-    scopes: ["org", "team", "user", "machine"],
+    scopes: ["team", "user", "machine"],
     default: false,
     merge: "replace",
     description: "Turns on the team pack's review rule selector. The pack's rule-selector fill reads it on every review.",
