@@ -282,7 +282,9 @@ test("each thread's card is named by its thread and holds one fix-or-reply switc
     ).toBe(`${label}: respond`);
     const groups = card.querySelectorAll('[role="group"]');
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.getAttribute('aria-label')).toBe('Fix or reply');
+    expect(groups[0]!.getAttribute('aria-label')).toBe(
+      `Fix or reply on ${label}`
+    );
     expect(
       [...groups[0]!.querySelectorAll('button')].map(b => b.textContent)
     ).toEqual(['Fix the code', 'Reply only']);

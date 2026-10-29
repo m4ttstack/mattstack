@@ -119,7 +119,7 @@ export function PlanThreadCard({
             <LabeledSeg
               soft
               className="tui-plan-switch"
-              legend="Fix or reply"
+              legend={`Fix or reply on ${label}`}
               options={[fix.value, reply.value]}
               labels={{
                 [fix.value]: (
