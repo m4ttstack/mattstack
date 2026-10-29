@@ -430,18 +430,21 @@ export async function runUninstall(ctx: ApplyContext, actions: UninstallAction[]
 /**
  * The kept ~/.mattstack still says setup finished, and mattstack.app reads
  * that at launch: a reinstalled app would skip setup on a Mac this run just
- * emptied. `lastApplyOk` goes with it, or setup would reopen at Done, and
- * `lastUpdate`, or a reinstall of the same version would skip its update run.
+ * emptied. `lastApplyOk` goes with it, or setup would reopen at Done;
+ * `lastUpdate`, or a reinstall of the same version would skip its update run;
+ * and `installRanAt`, or the reopened checklist would ask for rows only
+ * Install can set up.
  */
 function clearFinish(ctx: ApplyContext, lastId: UninstallActionId | undefined): void {
   try {
     const state = readSetupState(ctx.p);
-    if (!isSetupFinished(state) && state.lastApplyOk === undefined && state.lastUpdate === undefined) return;
+    if (!isSetupFinished(state) && state.lastApplyOk === undefined && state.lastUpdate === undefined && state.installRanAt === undefined) return;
     updateSetupState(ctx.p, (s) => {
       const next = { ...s };
       delete next.finishedAt;
       delete next.lastApplyOk;
       delete next.lastUpdate;
+      delete next.installRanAt;
       return next;
     });
   } catch (err) {
