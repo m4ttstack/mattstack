@@ -20,7 +20,8 @@ import {
 } from './GateParts.tsx';
 import { SeverityPill } from './RespondCards.tsx';
 
-const LATER_TIP = 'The agent drafts it in Fix. You edit it in Post';
+const LATER_TIP =
+  'Your reply will be drafted during the Post step. The agent writes the draft and you can edit it freely at that point.';
 
 /** One reviewer thread on the plan gate, in the review finding's card: the
     tick keeps it (unticked posts nothing and changes nothing), the code the
