@@ -171,6 +171,13 @@ let planModelsChecks: [Check] = [
         c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row(#","information":true"#).utf8)).information, true)
         c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row("").utf8)).information, false)
     },
+    Check("PlanModels: waitsForInstall decodes, and absent reads false") { c in
+        func row(_ extra: String) -> String {
+            #"{"id":"tool.daemon","kind":"tool","title":"t","why":"w","required":false,"status":"missing","recheck":"on-change""# + extra + "}"
+        }
+        c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row(#","waitsForInstall":true"#).utf8)).waitsForInstall, true)
+        c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row("").utf8)).waitsForInstall, false)
+    },
     Check("a place-repo row decodes with every field the Your repos row reads") { c in
         let json = Data(#"""
         { "id": "repos.place:gitlab.com/acme/widgets", "kind": "tool", "title": "widgets", "why": "gitlab.com/acme", "required": true,

@@ -1,5 +1,18 @@
 import Foundation
 
+/// The line above a wizard page's cards.
+public enum PageLead {
+    public static func text(for section: ChecklistLayout.Section) -> String {
+        let required = section.needsYou.filter(ChecklistSorting.blocksInstall).count
+        if required == 1 { return "One thing here needs you before Install can run." }
+        if required > 1 { return "\(required) things here need you before Install can run." }
+        let beforeFinish = section.needsYou.filter(\.finishGated).count
+        if beforeFinish == 1 { return "Nothing here blocks Install. One thing is needed before you finish." }
+        if beforeFinish > 1 { return "Nothing here blocks Install. \(beforeFinish) things are needed before you finish." }
+        return section.needsYou.isEmpty && section.canSkip.isEmpty ? "Nothing here needs you." : "Nothing here blocks Install."
+    }
+}
+
 public struct ChecklistLayout: Equatable, Sendable {
     public struct Attention: Equatable, Identifiable, Sendable {
         public let row: PlanRow

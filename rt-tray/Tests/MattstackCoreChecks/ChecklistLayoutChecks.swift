@@ -139,6 +139,19 @@ let checklistLayoutChecks: [Check] = [
             if kind != .skipped { c.expect(!ids.contains("w"), "\(kind) lists w") }
         }
     },
+    Check("PageLead: Install's blockers first, then the finish-gated rows under Needs you, counted") { c in
+        let lead = { (rows: [PlanRow], blocked: [String]) in
+            PageLead.text(for: ChecklistLayout.make([PlanGroup(id: "x", title: "X", rows: rows)], finishBlockedBy: blocked).sections[0])
+        }
+        c.expectEqual(lead([row("a", .missing, required: true)], []), "One thing here needs you before Install can run.")
+        c.expectEqual(lead([row("a", .missing, required: true), row("b", .missing, required: true)], []), "2 things here need you before Install can run.")
+        c.expectEqual(lead([row("s", .needsYou, finishGated: true)], ["s"]), "Nothing here blocks Install. One thing is needed before you finish.")
+        c.expectEqual(lead([row("s", .needsYou, finishGated: true), row("t", .needsYou, finishGated: true)], ["s", "t"]),
+                      "Nothing here blocks Install. 2 things are needed before you finish.")
+        c.expectEqual(lead([row("o", .needsYou, action: true)], []), "Nothing here blocks Install.")
+        c.expectEqual(lead([row("m", .needsYou, finishGated: true, waivable: true)], ["m"]), "Nothing here blocks Install.")
+        c.expectEqual(lead([row("a", .ready)], []), "Nothing here needs you.")
+    },
     Check("ChecklistLayout.activeFilter: a filter lasts while it has rows, and Needs you is never one") { c in
         let layout = ChecklistLayout.make(layoutSample, finishBlockedBy: blocked)
         c.expectEqual(layout.activeFilter(.skipped), .skipped)

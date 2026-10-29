@@ -380,6 +380,32 @@ test("a daemon row that needs you with no action, as in CI, still flips like any
   expect(flip("status").required).toBe(true);
 });
 
+test("before Install, a row only Install can make ready waits for Install; after it, none does", () => {
+  const rows = [
+    row({ id: "perm.login-items", kind: "permission", title: "Login Items", why: "x", required: false, status: "needs-you", detail: "d",
+          action: { type: "run", label: "Re-check", verb: ["setup", "status"] } }),
+    row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "missing", detail: "d",
+          action: { type: "run", label: "Register services", verb: ["setup", "apply", "--only", "services.register"] } }),
+    row({ id: "tool.plugins", kind: "tool", title: "Claude plugins", why: "x", required: false, status: "needs-you", detail: "d",
+          action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
+    row({ id: "pack.acme-skills", kind: "tool", title: "acme-skills", why: "x", required: false, status: "missing", detail: "d",
+          action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
+    row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "You choose this after Install" }),
+  ];
+  const flip = (mode: "plan" | "status") => applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows }], mode)[0]!.rows;
+  expect(flip("plan").map((r) => [r.id, r.waitsForInstall])).toEqual(rows.map((r) => [r.id, true]));
+  expect(flip("status").map((r) => r.waitsForInstall)).toEqual(rows.map(() => undefined));
+});
+
+test("a ready Install-satisfied row, and a writing-style row with a choice to make, do not wait for Install", () => {
+  const ready = row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "ready", detail: "Running" });
+  const choosing = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "Not chosen yet",
+                         action: { type: "choose", label: "Choose style…", verb: ["skills", "writing-style", "use"], options: [] } });
+  const unrelated = row({ id: "tool.proxy", kind: "tool", title: "Local proxy", why: "x", required: false, status: "missing", detail: "d" });
+  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [ready, choosing, unrelated] }], "plan")[0]!.rows;
+  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined, undefined]);
+});
+
 function gatedRow(status: Row["status"], id = "tool.fast-browser-extension"): Row {
   return row({
     id,

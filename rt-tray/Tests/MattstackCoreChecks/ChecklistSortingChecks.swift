@@ -2,10 +2,11 @@ import Foundation
 import MattstackCore
 
 private func row(_ id: String, _ status: RowStatus, required: Bool = false, action: ActionType? = nil,
-                 finishGated: Bool = false, waivable: Bool = false, waived: Bool = false, information: Bool = false) -> PlanRow {
+                 finishGated: Bool = false, waivable: Bool = false, waived: Bool = false, information: Bool = false,
+                 waitsForInstall: Bool = false) -> PlanRow {
     PlanRow(id: id, kind: .tool, title: id, why: "w", required: required, status: status,
             action: action.map { RowAction(type: $0, label: "Do") }, recheck: .manual, finishGated: finishGated,
-            waived: waived, waivable: waivable, information: information)
+            waived: waived, waivable: waivable, information: information, waitsForInstall: waitsForInstall)
 }
 
 let checklistSortingChecks: [Check] = [
@@ -56,6 +57,14 @@ let checklistSortingChecks: [Check] = [
         let r = row("tool.fast-browser-extension", .needsYou, action: .openURL, finishGated: true, waivable: false, waived: true)
         c.expectEqual(ChecklistSorting.section(for: r, finishBlockedBy: ["tool.fast-browser-extension"]), .needsYou)
         c.expectEqual(ChecklistSorting.section(for: r, finishBlockedBy: []), .needsYou, "a waiver rt does not honor settles nothing")
+    },
+    Check("ChecklistSorting: a row waiting for Install needs no action before Install") { c in
+        c.expectEqual(ChecklistSorting.section(for: row("tool.daemon", .missing, action: .run, waitsForInstall: true), finishBlockedBy: []), .noAction)
+        c.expectEqual(ChecklistSorting.section(for: row("perm.login-items", .needsYou, action: .run, waitsForInstall: true), finishBlockedBy: []), .noAction)
+        c.expectEqual(ChecklistSorting.section(for: row("skills.writing-style", .needsYou, finishGated: true, waitsForInstall: true),
+                                               finishBlockedBy: ["skills.writing-style"]), .noAction, "Finish still waits on it, but not before Install")
+        c.expectEqual(ChecklistSorting.section(for: row("x", .missing, required: true, waitsForInstall: true), finishBlockedBy: []), .needsYou,
+                      "a row that blocks Install is never filed away")
     },
     Check("ChecklistSorting: a ready row never blocks Install, and one Finish waits on still needs you") { c in
         c.expect(!ChecklistSorting.blocksInstall(row("a", .ready, required: true)))

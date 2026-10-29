@@ -314,15 +314,20 @@ struct SettledRow: View {
         }
     }
 
+    /// A finish-gated row waiting for Install is one the member finishes after it, and its own detail says so.
+    private var detail: String? {
+        row.waitsForInstall && !row.finishGated ? "Install does this" : row.detail
+    }
+
     private var plainRow: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 Text(row.title).font(.callout)
                 Spacer(minLength: 8)
-                if let d = row.detail, !d.isEmpty {
+                if let d = detail, !d.isEmpty {
                     Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                 }
-                if let action = row.action, action.type != .unknown {
+                if let action = row.action, action.type != .unknown, !row.waitsForInstall {
                     Button(action.label) { perform(row) }.controlSize(.small).disabled(isChecking)
                         .accessibilityIdentifier(AXID.checklistRowAction(row.id))
                 }

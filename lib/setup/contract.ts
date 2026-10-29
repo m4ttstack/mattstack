@@ -94,6 +94,8 @@ export interface Row {
   waivable?: boolean;
   /** Shown under "No action needed" whatever its state: never required and never finish-gated. */
   information?: true;
+  /** Plan mode only: nothing on this row is the member's to do until Install has run. Never emitted by `setup status`. */
+  waitsForInstall?: true;
 }
 
 export interface Group {

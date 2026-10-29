@@ -223,15 +223,18 @@ public struct PlanRow: Codable, Equatable, Identifiable, Sendable {
     public var waivable: Bool
     /// Shown under "No action needed" whatever its state; never a task.
     public var information: Bool
+    /// Before Install only: nothing on this row is the member's to do until Install has run.
+    public var waitsForInstall: Bool
     public init(id: String, kind: RowKind, title: String, why: String, required: Bool,
                 optionalNote: String? = nil, status: RowStatus, detail: String? = nil,
                 action: RowAction? = nil, recheck: RecheckPolicy, finishGated: Bool = false, waived: Bool = false,
-                waivable: Bool? = nil, information: Bool = false) {
+                waivable: Bool? = nil, information: Bool = false, waitsForInstall: Bool = false) {
         self.id = id; self.kind = kind; self.title = title; self.why = why; self.required = required
         self.optionalNote = optionalNote; self.status = status; self.detail = detail
         self.action = action; self.recheck = recheck; self.finishGated = finishGated; self.waived = waived
         self.waivable = waivable ?? finishGated
         self.information = information
+        self.waitsForInstall = waitsForInstall
     }
     /// `finishGated` and `waived` are newer than the rest of the contract: an
     /// rt that predates them omits the keys, and that must read as "not
@@ -250,6 +253,7 @@ public struct PlanRow: Codable, Equatable, Identifiable, Sendable {
         recheck = try c.decode(RecheckPolicy.self, forKey: .recheck)
         finishGated = try c.decodeIfPresent(Bool.self, forKey: .finishGated) ?? false
         information = try c.decodeIfPresent(Bool.self, forKey: .information) ?? false
+        waitsForInstall = try c.decodeIfPresent(Bool.self, forKey: .waitsForInstall) ?? false
         waived = try c.decodeIfPresent(Bool.self, forKey: .waived) ?? false
         // An rt that predates `waivable` offered Skip on every finish-gated row.
         waivable = try c.decodeIfPresent(Bool.self, forKey: .waivable) ?? finishGated

@@ -17,6 +17,7 @@ public enum ChecklistSorting {
 
     public static func section(for row: PlanRow, finishBlockedBy: Set<String>) -> RowSection {
         if row.information { return .noAction }
+        if row.waitsForInstall && !blocksInstall(row) { return .noAction }
         let settled = row.status == .ready || row.status == .skipped
         // rt honors a waiver only on a row it lets you skip.
         let skipped = row.waived && row.waivable

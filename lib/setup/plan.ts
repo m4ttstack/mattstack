@@ -35,6 +35,7 @@ import { forgeAccessRow } from "./validators/org-forge-access.ts";
 import { repoPlacementRows } from "./validators/repos.ts";
 import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
+import { WRITING_STYLE_ROW_ID } from "./validators/writing-style.ts";
 
 export interface PlanInputs {
   p: Probes;
@@ -159,15 +160,26 @@ function isInstallSatisfied(r: Row): boolean {
   return INSTALL_SATISFIED_IDS.has(r.id) || r.id.startsWith("pack.");
 }
 
-/** The id-keyed set of rows only Install itself can satisfy reads required:false pre-install (canInstall stays reachable) and required:true once `setup status` runs post-install. */
+/** The writing-style row before the home repo exists: no choice to offer until Install creates it. */
+function isWritingStyleBeforeInstall(r: Row): boolean {
+  return r.id === WRITING_STYLE_ROW_ID && r.status !== "ready" && r.action === null;
+}
+
+/**
+ * The id-keyed set of rows only Install itself can satisfy reads required:false pre-install (canInstall stays reachable) and required:true
+ * once `setup status` runs post-install. Pre-install, those not yet ready, and the writing-style row with nothing to choose yet, carry
+ * `waitsForInstall` so the app files them under No action needed instead of asking the member for them.
+ */
 export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "status"): Group[] {
   return groups.map((g) => ({
     ...g,
     rows: g.rows.map((r) => {
+      if (mode === "plan" && isWritingStyleBeforeInstall(r)) return { ...r, waitsForInstall: true as const };
       if (!isInstallSatisfied(r)) return r;
       // optionalNote reads as "works without this" downstream — false the moment required flips to true, so it's dropped rather than carried over.
       if (mode === "status") return { ...r, required: true, optionalNote: null };
-      return { ...r, required: false, optionalNote: r.optionalNote ?? INSTALLED_BY_INSTALL_NOTE };
+      const flipped = { ...r, required: false, optionalNote: r.optionalNote ?? INSTALLED_BY_INSTALL_NOTE };
+      return r.status === "ready" ? flipped : { ...flipped, waitsForInstall: true as const };
     }),
   }));
 }

@@ -244,6 +244,24 @@ let doneModelChecks: [Check] = [
             c.expectEqual(m.finishEnabled, true)
         }
     },
+    Check("skipping on a checklist page leaves the summary's check unconfirmed") { c in
+        let (m, readiness, rt, plans) = await doneFixture(
+            plans: [makeManualPlan(extensionStatus: .needsYou), makeManualPlan(extensionStatus: .needsYou, waived: true)],
+            answers: ["setup waive tool.fast-browser-extension --json": (0, #"{"contract":1,"at":"t","ok":true,"id":"tool.fast-browser-extension","waived":["tool.fast-browser-extension"]}"#)])
+        await readiness.recheckAll()
+        let row = try await MainActor.run { try c.requireSome(readiness.finishBlockedRows.first) }
+        await MainActor.run { m.requestSkip(row, onPage: true) }
+        await m.confirmSkip()
+        c.expectEqual(rt.calls.map(\.args), [["setup", "waive", "tool.fast-browser-extension", "--json"]])
+        c.expectEqual(plans.fetches, 2, "the page re-reads the plan")
+        await MainActor.run {
+            c.expectEqual(m.skipTarget?.id, nil, "the sheet closes on success")
+            c.expectEqual(readiness.finishBlockedBy, [], "the page shows the waived plan")
+            c.expectEqual(m.checkState, .unchecked)
+            c.expectEqual(m.hasConfirmedRows, false)
+            c.expectEqual(m.finishEnabled, false, "a pre-Install plan never opens the summary's gate")
+        }
+    },
     Check("a waive that fails leaves the sheet up with the error and the gate closed") { c in
         let (m, _, rt, plans) = await doneFixture(
             plans: [makeManualPlan(extensionStatus: .needsYou)],

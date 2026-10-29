@@ -198,7 +198,12 @@ public final class DoneModel: ObservableObject {
         checkState = readiness.lastRefreshFailed ? .failed(readiness.lastError ?? "unknown error") : .checked
     }
 
-    public func requestSkip(_ row: PlanRow) { skipError = nil; skipTarget = row }
+    /// A Skip asked from a checklist page re-reads the plan without
+    /// touching the summary's check: that plan is the pre-Install one, and
+    /// must never confirm the gate.
+    private var skipFromPage = false
+
+    public func requestSkip(_ row: PlanRow, onPage: Bool = false) { skipError = nil; skipFromPage = onPage; skipTarget = row }
     public func cancelSkip() { skipTarget = nil; skipError = nil }
 
     /// A verb failure keeps the sheet up with the message and the gate
@@ -216,6 +221,6 @@ public final class DoneModel: ObservableObject {
         skipTarget = nil
         skipError = nil
         isSkipping = false
-        await retryCheck()
+        if skipFromPage { await readiness.recheckAll() } else { await retryCheck() }
     }
 }

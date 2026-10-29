@@ -32,7 +32,7 @@ struct SetupView: View {
                     } else {
                         ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
                                         presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil)
-                                                                    : .page(flow.page, onSkip: { done.requestSkip($0) }))
+                                                                    : .page(flow.page, onSkip: { done.requestSkip($0, onPage: true) }))
                             .sheet(item: $done.skipTarget) { row in SkipConfirmSheet(model: done, row: row) }
                             .transition(pushTransition)
                     }

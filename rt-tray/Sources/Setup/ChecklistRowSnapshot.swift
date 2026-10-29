@@ -75,16 +75,15 @@ enum ChecklistRowSnapshot {
 
     private static let tools: [PlanRow] = [
         PlanRow(id: "tool.daemon", kind: .tool, title: "Daemon",
-                why: "The daemon watches your repos and backs MRs and notifications.", required: true,
+                why: "The daemon watches your repos and backs MRs and notifications.", required: false,
                 status: .missing, detail: "not registered yet", action: step("Register services", "services.register"),
-                recheck: .onActivate),
+                recheck: .onActivate, waitsForInstall: true),
         extensionRow(extensionID),
         extensionRow(waitingExtensionID),
         PlanRow(id: "tool.proxy", kind: .tool, title: "Local proxy",
                 why: "Serves apps on .localhost/.mattstack domains instead of raw ports.", required: false,
-                optionalNote: "Works without this; apps serve on their ports meanwhile.",
                 status: .missing, detail: "not installed", action: step("Install proxy", "proxy.install"),
-                recheck: .onActivate),
+                recheck: .onActivate, finishGated: true, waivable: false),
         PlanRow(id: "tool.shell", kind: .tool, title: "Shell integration",
                 why: "The rtcd alias and PATH precedence come from your shell rc file.", required: false,
                 status: .needsYou, detail: "shell integration not added yet", action: step("Add to shell", "path.link"),
@@ -92,7 +91,7 @@ enum ChecklistRowSnapshot {
         PlanRow(id: "pack.acme", kind: .tool, title: "acme pack",
                 why: "Installed by Install for the acme pack.", required: false,
                 status: .error, detail: "plugin install exited 1", action: step("Install plugins", "plugins.install"),
-                recheck: .onChange),
+                recheck: .onChange, waitsForInstall: true),
         PlanRow(id: "tool.git", kind: .tool, title: "Command line tools",
                 why: "git and python3 come from here.", required: true, status: .ready, detail: "git 2.50.1", recheck: .onChange),
         PlanRow(id: "tool.agents", kind: .tool, title: "Agent runner",
@@ -126,7 +125,7 @@ enum ChecklistRowSnapshot {
         pathPrecedence,
     ]
 
-    /// Settled rows only, so its No action needed card draws open: a skipped row with its note, and an information row.
+    /// Settled rows only, so its No action needed card draws open: a skipped row with its note, an information row, and two rows waiting for Install.
     private static let agents: [PlanRow] = [
         PlanRow(id: "skills.overrides", kind: .tool, title: "Skill overrides",
                 why: "Old slot keys in your own overrides file stop the mattstack skills from compiling.", required: false,
@@ -138,6 +137,13 @@ enum ChecklistRowSnapshot {
                 status: .ready, detail: "Read only: only admins push team settings", recheck: .onChange, information: true),
         PlanRow(id: "tool.claude", kind: .tool, title: "Claude Code",
                 why: "Runs the agents.", required: true, status: .ready, detail: "2.1.0", recheck: .onChange),
+        PlanRow(id: "tool.plugins", kind: .tool, title: "Claude plugins",
+                why: "The mattstack plugin and your team's packs.", required: false, status: .missing, detail: "not installed",
+                action: step("Install plugins", "plugins.install"), recheck: .onChange, waitsForInstall: true),
+        PlanRow(id: "skills.writing-style", kind: .tool, title: "Writing style",
+                why: "How the reviews, replies and PR descriptions agents post under your name read.", required: false,
+                status: .needsYou, detail: "You choose this after Install", recheck: .onChange,
+                finishGated: true, waivable: false, waitsForInstall: true),
     ]
 
     private struct Rows: View {
@@ -145,7 +151,7 @@ enum ChecklistRowSnapshot {
             let layout = ChecklistLayout.make([PlanGroup(id: "tools", title: "Tools", rows: tools),
                                                PlanGroup(id: "mac", title: "Your Mac", rows: mac),
                                                PlanGroup(id: "agents", title: "Agents and editors", rows: agents)],
-                                              finishBlockedBy: [extensionID, waitingExtensionID, missionControl.id])
+                                              finishBlockedBy: [extensionID, waitingExtensionID, "tool.proxy", missionControl.id, "skills.writing-style"])
             let activity = RowActivity(checking: ["tool.proxy"],
                                        waiting: ["tool.proxy": NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy,
                                                  waitingExtensionID: "Waiting for Chrome"])

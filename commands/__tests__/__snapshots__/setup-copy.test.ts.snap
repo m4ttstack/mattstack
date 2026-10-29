@@ -61,6 +61,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "recheck": "on-activate",
           "required": false,
           "status": "error",
+          "waitsForInstall": true,
         },
         {
           "action": null,
@@ -181,6 +182,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "recheck": "on-change",
           "required": false,
           "status": "error",
+          "waitsForInstall": true,
         },
         {
           "action": null,
@@ -190,6 +192,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "recheck": "on-change",
           "required": false,
           "status": "needs-you",
+          "waitsForInstall": true,
           "waivable": false,
         },
         {
@@ -359,6 +362,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "recheck": "on-activate",
           "required": false,
           "status": "missing",
+          "waitsForInstall": true,
         },
         {
           "action": null,

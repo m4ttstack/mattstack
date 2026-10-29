@@ -521,16 +521,6 @@ struct PageNoteView: View {
     }
 }
 
-enum PageLead {
-    static func text(for section: ChecklistLayout.Section) -> String {
-        let required = section.needsYou.filter(ChecklistSorting.blocksInstall).count
-        if required == 1 { return "One thing here needs you before Install can run." }
-        if required > 1 { return "\(required) things here need you before Install can run." }
-        if !section.needsYou.isEmpty { return "Nothing here blocks Install. One thing is needed before you finish." }
-        return section.canSkip.isEmpty ? "Nothing here needs you." : "Nothing here blocks Install."
-    }
-}
-
 struct SummaryGlyph: View {
     let kind: ChecklistLayout.SummaryKind
     /// A count that is on has a solid selection fill, which a glyph's own colour does not read against.
