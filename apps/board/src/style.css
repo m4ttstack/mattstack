@@ -7408,6 +7408,8 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-plan-later-info {
   display: inline-flex;
+  /* The text's ink sits below its line box's centre. */
+  translate: 0 1px;
   padding: 2px;
   border: 0;
   border-radius: 4px;
