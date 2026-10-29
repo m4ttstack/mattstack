@@ -1,8 +1,8 @@
 {
-  "id": "mattstack@0.32.31:writing-style-sparse",
+  "id": "mattstack@0.32.32:writing-style-sparse",
   "dir": "skills/writing-style-sparse",
   "covers": [
-    "mattstack@0.32.31:writing-style-sparse"
+    "mattstack@0.32.32:writing-style-sparse"
   ],
   "keys": {
     "writing-style-sparse/pr-description.md": "skills/writing-style-sparse/pr-description.md"
