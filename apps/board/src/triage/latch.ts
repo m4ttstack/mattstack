@@ -39,6 +39,7 @@ import {
   type LatchTarget,
 } from '../latch/post.ts';
 import {
+  copyFor,
   variantKey,
   variantOfKey,
   type BannerVariant,
@@ -53,7 +54,8 @@ import {
   type DispatchMemory,
   type MrMemory,
 } from './memory.ts';
-import { decideRequest, plainReason, type ReReviewRequest } from './nudge.ts';
+import { notifyEscalation } from './notify.ts';
+import { decideRequest, type ReReviewRequest } from './nudge.ts';
 
 export interface LatchMrFacts {
   mrUrl: string;
@@ -96,6 +98,9 @@ export interface LatchPassDeps {
   reReview: ReReviewConfig;
   appendAudit(entry: AuditEntry): void;
   notify(title: string, message: string, mrUrl: string): Promise<void>;
+  /** A stuck latch needs a person, so the default ignores `triage.notify`
+      and always sends the rt desktop notification. */
+  notifyStuck?(title: string, message: string, mrUrl: string): Promise<void>;
   now(): number;
   /** The board's state db; the default is the live one. */
   db?: Database;
@@ -115,12 +120,14 @@ export interface LatchPassResult {
   posted: number;
   dispatched: number;
   queued: number;
-  rejected: number;
   spent: number;
   repaired: number;
   resurrected: number;
   skipped: number;
   failed: number;
+  /** Failed follow-up attempts recorded this tick, stuck ones included. */
+  errored: number;
+  stuck: number;
 }
 
 /** How long a freshly-done review is left to the server before this pass will
@@ -132,8 +139,8 @@ export interface LatchPassResult {
     The same window guards the repair of a row the note has not caught up to. */
 export const LATCH_POST_GRACE_MS = 5 * 60_000;
 
-const refusalReply = (reason: string) =>
-  `Not yet: ${reason}. Resolve this thread again once that clears and I'll pick it up.`;
+/** Failed attempts in one request cycle before the latch stops retrying. */
+export const LATCH_MAX_FAILURES = 3;
 
 /** The wait a decision maps to, or null for a refusal that never clears by
     itself. */
@@ -186,8 +193,10 @@ interface Tick {
   canon: LatchRef;
   carriers: LatchRef[];
   row: LatchRow;
+  review: ReviewState | undefined;
   target: LatchTarget;
   policy: TriageConfig;
+  notifyStuck: NonNullable<LatchPassDeps['notifyStuck']>;
   dayStamp: string;
   now: number;
   result: LatchPassResult;
@@ -200,12 +209,13 @@ export async function runLatchPass(
     posted: 0,
     dispatched: 0,
     queued: 0,
-    rejected: 0,
     spent: 0,
     repaired: 0,
     resurrected: 0,
     skipped: 0,
     failed: 0,
+    errored: 0,
+    stuck: 0,
   };
   if (!deps.reReview.enabled) return result;
   // decideRequest refuses with "disabled" on cfg.enabled, which is the
@@ -220,6 +230,9 @@ export async function runLatchPass(
         casLatchIn(url, from, patch, at, deps.db, opts)),
     put: deps.putLatchRow ?? (row => putLatchRowIn(row, deps.db)),
   };
+  const notifyStuck =
+    deps.notifyStuck ??
+    ((title, message, url) => notifyEscalation(title, message, 'rt', { url }));
 
   const reviews = deps.readReviewStates();
   const pruned = deps.readPrunedReviewStates();
@@ -407,6 +420,7 @@ export async function runLatchPass(
         canon,
         carriers: requestCarriers(latches),
         row,
+        review,
         target: {
           projectId: mr.projectId,
           projectPath: mr.projectPath,
@@ -416,14 +430,17 @@ export async function runLatchPass(
           rootNoteId: canon.rootNoteId,
         },
         policy,
+        notifyStuck,
         dayStamp,
         now,
         result,
       };
       // Running and error rows are never a request, whatever the note shows:
       // they wait on the run landing.
-      if (row.phase === 'armed') await armedLatch(tick, review);
-      else if (row.phase === 'queued') await queuedLatch(tick, review);
+      if (row.phase === 'armed') await armedLatch(tick);
+      else if (row.phase === 'queued') await queuedLatch(tick);
+      else if (row.phase === 'running') await runningLatch(tick);
+      else if (row.phase === 'error') await erroredLatch(tick);
       else result.skipped++;
     } catch (err) {
       console.error(
@@ -524,30 +541,35 @@ function rowLane(
   };
 }
 
-async function armedLatch(
-  t: Tick,
-  review: ReviewState | undefined
-): Promise<void> {
+/** decideRequest over the row's synthetic commented lane. Its never-clearing
+    reasons cannot come back for a row-backed latch, so every non-dispatch
+    decision carries a wait. */
+function decide(t: Tick, m: MrMemory) {
+  const decision = decideRequest(
+    requestOf(t),
+    rowLane(t.mr, t.review),
+    m,
+    t.policy,
+    t.now
+  );
+  return { decision, wait: waitReasonOf(decision) ?? 'next-sweep' };
+}
+
+async function armedLatch(t: Tick): Promise<void> {
   if (t.canon.kind !== 'armed') return repairArmed(t);
   if (t.carriers.length === 0) {
     t.result.skipped++;
     return;
   }
   const m = memoryFor(t);
-  const lane = rowLane(t.mr, review);
-  const decision = decideRequest(requestOf(t), lane, m, t.policy, t.now);
+  const { decision, wait } = decide(t, m);
   auditDecision(t, decision, m);
   if (decision.action === 'dispatch') return dispatch(t, 'armed', m);
-  const wait = waitReasonOf(decision);
-  if (wait) return queue(t, wait);
-  return refuse(t, 'armed', decision.reason);
+  return queue(t, wait);
 }
 
-async function queuedLatch(
-  t: Tick,
-  review: ReviewState | undefined
-): Promise<void> {
-  const { rows, mr, canon, now } = t;
+async function queuedLatch(t: Tick): Promise<void> {
+  const { rows, mr, canon, now, review } = t;
   const guard = { discussionId: canon.discussionId };
   // The queued marker proves this read post-dates the pass's own rewrite, so
   // an open thread is the author taking the request back, even while a review
@@ -584,13 +606,10 @@ async function queuedLatch(
     return;
   }
   const m = memoryFor(t);
-  const lane = rowLane(mr, review);
-  const decision = decideRequest(requestOf(t), lane, m, t.policy, now);
-  const wait = decision.action === 'dispatch' ? null : waitReasonOf(decision);
-  if (decision.action === 'dispatch' || !wait) {
+  const { decision, wait } = decide(t, m);
+  if (decision.action === 'dispatch') {
     auditDecision(t, decision, m);
-    if (decision.action === 'dispatch') return dispatch(t, 'queued', m);
-    return refuse(t, 'queued', decision.reason);
+    return dispatch(t, 'queued', m);
   }
   const variant: BannerVariant = { state: 'queued', wait };
   if (variantKey(variant) === t.row.variant) {
@@ -631,23 +650,12 @@ function armedVariantOf(key: string | null): BannerVariant {
 
 async function dispatch(
   t: Tick,
-  from: 'armed' | 'queued',
+  from: 'armed' | 'queued' | 'error',
   m: MrMemory
 ): Promise<void> {
   const { deps, rows, mr, canon, now } = t;
   const launch = await deps.launchReReview(mr.mrUrl, mr.iid);
-  if (launch.kind === 'error') {
-    await deps.gateway.createNote(
-      mr.projectId,
-      mr.iid,
-      refusalReply('the pane failed to start'),
-      canon.discussionId
-    );
-    await rearm(t, from);
-    audit(t, 'launch-failed', { outcome: launch.message });
-    t.result.rejected++;
-    return;
-  }
+  if (launch.kind === 'error') return fail(t, launch.message);
 
   // The launch already happened, so the attempt is charged before the
   // follow-up GitLab writes run: a write failing here must still count
@@ -664,13 +672,129 @@ async function dispatch(
   );
   if (moved) await show(t, 'running', { state: 'running' }, threadClosed(t));
   await supersede(deps, mr, canon, t.carriers);
-  audit(t, 'dispatched');
+  audit(t, from === 'error' ? 'retried' : 'dispatched');
   await deps.notify(
     `Follow-up review started on !${mr.iid}`,
     'The author asked for a follow-up review',
     mr.mrUrl
   );
   t.result.dispatched++;
+}
+
+/** The run this latch waits on is alive while its lane is queued or
+    reviewing, however long a post gate parks it; only the lane reading
+    error (the closed-pane reconciler's verdict included) is a failure. */
+async function runningLatch(t: Tick): Promise<void> {
+  if (t.review?.status !== 'error') {
+    t.result.skipped++;
+    return;
+  }
+  return fail(t, t.review.message);
+}
+
+async function erroredLatch(t: Tick): Promise<void> {
+  const { rows, mr, canon, now, review } = t;
+  if (review && (review.status === 'queued' || review.status === 'reviewing')) {
+    const moved = rows.cas(
+      mr.mrUrl,
+      ['error'],
+      {
+        phase: 'running',
+        launchAt: runStamp(review),
+        wait: null,
+        stuck: false,
+      },
+      now,
+      { discussionId: canon.discussionId }
+    );
+    if (moved) {
+      await show(t, 'running', { state: 'running' }, threadClosed(t));
+      audit(t, 'recovered');
+    } else {
+      t.result.skipped++;
+    }
+    return;
+  }
+  if (t.row.stuck) {
+    t.result.skipped++;
+    return;
+  }
+  const m = memoryFor(t);
+  const { decision, wait } = decide(t, m);
+  if (decision.action === 'dispatch') {
+    auditDecision(t, decision, m);
+    return dispatch(t, 'error', m);
+  }
+  const variant = retryingVariant(wait);
+  if (variantKey(variant) === t.row.variant) {
+    t.result.skipped++;
+    return;
+  }
+  const moved = rows.cas(mr.mrUrl, ['error'], { wait }, now, {
+    discussionId: canon.discussionId,
+  });
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  await show(t, 'error', variant, 'keep');
+}
+
+/** The error strip has no review-in-flight wait: a run in flight would have
+    moved the latch to running instead. */
+function retryingVariant(wait: WaitReason): BannerVariant {
+  return {
+    state: 'error-retrying',
+    wait: wait === 'review-in-flight' ? 'next-sweep' : wait,
+  };
+}
+
+/** One failed attempt: the run errored, or its pane never started. The cas
+    is on the phase this tick read, so only one writer records the attempt
+    and only that writer replies and notifies on the stuck transition. */
+async function fail(t: Tick, message: string | undefined): Promise<void> {
+  const { deps, rows, mr, canon, now } = t;
+  const failures = t.row.failures + 1;
+  const stuck = failures >= LATCH_MAX_FAILURES;
+  const { wait } = decide(t, memoryFor(t));
+  const moved = rows.cas(
+    mr.mrUrl,
+    [t.row.phase],
+    stuck
+      ? { phase: 'error', failures, wait: null, stuck: true }
+      : { phase: 'error', failures, wait },
+    now,
+    { discussionId: canon.discussionId }
+  );
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  const outcome = message ? { outcome: message } : {};
+  if (!stuck) {
+    await show(t, 'error', retryingVariant(wait), threadClosed(t));
+    await supersede(deps, mr, canon, t.carriers);
+    audit(t, 'error', { reason: wait, ...outcome });
+    t.result.errored++;
+    return;
+  }
+  const variant: BannerVariant = { state: 'error-stuck' };
+  await show(t, 'error', variant, threadClosed(t));
+  await supersede(deps, mr, canon, t.carriers);
+  await deps.gateway.createNote(
+    mr.projectId,
+    mr.iid,
+    copyFor(variant).sentence,
+    canon.discussionId
+  );
+  audit(t, 'stuck', outcome);
+  await t.notifyStuck(
+    `Follow-up review stuck on !${mr.iid}`,
+    `It failed ${LATCH_MAX_FAILURES} times. Relaunch it from the board.`,
+    mr.mrUrl
+  );
+  t.result.errored++;
+  t.result.stuck++;
 }
 
 async function queue(t: Tick, wait: WaitReason): Promise<void> {
@@ -689,41 +813,6 @@ async function queue(t: Tick, wait: WaitReason): Promise<void> {
   await supersede(t.deps, t.mr, t.canon, t.carriers);
   audit(t, 'queued', { reason: wait });
   t.result.queued++;
-}
-
-/** A refusal that never clears by itself: say why, then hand the latch back. */
-async function refuse(
-  t: Tick,
-  from: 'armed' | 'queued',
-  reason: string
-): Promise<void> {
-  const { deps, mr, canon } = t;
-  await deps.gateway.createNote(
-    mr.projectId,
-    mr.iid,
-    refusalReply(reason),
-    canon.discussionId
-  );
-  await rearm(t, from);
-  await deps.notify(
-    `Follow-up review skipped on !${mr.iid}`,
-    plainReason(reason, t.policy),
-    mr.mrUrl
-  );
-  t.result.rejected++;
-}
-
-async function rearm(t: Tick, from: 'armed' | 'queued'): Promise<void> {
-  if (from === 'armed') return consume(t.deps, t.mr, t.canon, t.carriers);
-  const moved = t.rows.cas(
-    t.mr.mrUrl,
-    [from],
-    { phase: 'armed', wait: null },
-    t.now,
-    { discussionId: t.canon.discussionId }
-  );
-  if (moved) await show(t, 'armed', { state: 'armed' }, 'unresolve');
-  await supersede(t.deps, t.mr, t.canon, t.carriers);
 }
 
 /** Queued and running latches sit on a resolved thread; a request carried by
@@ -797,25 +886,6 @@ function auditDecision(
     reason: decision.reason,
     attempt: m.attemptsToday + 1,
   });
-}
-
-/** Rearm the canonical latch and spend every OTHER copy carrying the request.
-    Consuming the extras is what stops the request bit re-firing on the next
-    re-entry into scope. */
-async function consume(
-  deps: LatchPassDeps,
-  mr: LatchMrFacts,
-  canon: LatchRef,
-  carriers: LatchRef[]
-): Promise<void> {
-  if (canon.resolved) {
-    await deps.gateway.unresolveDiscussion(
-      mr.projectPath,
-      mr.iid,
-      canon.discussionId
-    );
-  }
-  await supersede(deps, mr, canon, carriers);
 }
 
 /** Spend every request carrier but the canon. "superseded", not approved: the

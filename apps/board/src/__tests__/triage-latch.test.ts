@@ -2,16 +2,19 @@ import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
 import {
+  casLatch as casLatchIn,
   putLatchRow,
   readLatchRow,
   type LatchRow,
 } from '../latch/latch-state.ts';
 import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
 import type { LatchGateway } from '../latch/post.ts';
+import { copyFor } from '../latch/variants.ts';
 import type { ReviewState } from '../review-state.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import {
+  LATCH_MAX_FAILURES,
   LATCH_POST_GRACE_MS,
   runLatchPass,
   runStamp,
@@ -55,6 +58,7 @@ const RUNNING = '<!-- mattstack:board re-review-latch v1 running -->';
 const QUEUED = '<!-- mattstack:board re-review-latch v1 queued -->';
 const ARMED = '<!-- mattstack:board re-review-latch v1 -->';
 const SPENT = '<!-- mattstack:board re-review-latch v1 spent -->';
+const ERROR = '<!-- mattstack:board re-review-latch v1 error -->';
 const queuedBody = () => latchBody('queued', IMG, 'queued');
 const runningBody = () => latchBody('running', IMG, 'running');
 const errorBody = () => latchBody('error', IMG, 'error');
@@ -147,6 +151,8 @@ function harness(
   const resurrects: string[] = [];
   const drops: string[] = [];
   const notifies: Array<{ title: string; message: string; mrUrl: string }> = [];
+  const stuckNotices: Array<{ title: string; message: string; mrUrl: string }> =
+    [];
   const deps: LatchPassDeps = {
     readReviewStates: () => new Map([[MR, commented]]),
     readPrunedReviewStates: () => new Map(),
@@ -175,6 +181,9 @@ function harness(
     notify: async (title, message, mrUrl) => {
       notifies.push({ title, message, mrUrl });
     },
+    notifyStuck: async (title, message, mrUrl) => {
+      stuckNotices.push({ title, message, mrUrl });
+    },
     now: () => NOW,
     db: tempDb(),
     ...over,
@@ -189,6 +198,7 @@ function harness(
     resurrects,
     drops,
     notifies,
+    stuckNotices,
     replies,
     audits,
   };
@@ -397,12 +407,13 @@ describe('the re-review switch is board.reReview, not board.triage', () => {
       posted: 0,
       dispatched: 0,
       queued: 0,
-      rejected: 0,
       spent: 0,
       repaired: 0,
       resurrected: 0,
       skipped: 0,
       failed: 0,
+      errored: 0,
+      stuck: 0,
     });
     expect(calls).toEqual([]);
     expect(launches).toEqual([]);
@@ -510,18 +521,21 @@ describe('step 3: armed and resolved', () => {
     expect(memory.mrs[MR]?.lastDispatchAt).toBe(NOW);
   });
 
-  test('a failed launch replies, consumes the request, and counts a rejection', async () => {
-    const { deps, calls, launches } = harness({
+  test('a failed launch never replies and supersedes the extra copy', async () => {
+    const db = tempDb();
+    const { deps, calls, replies } = harness({
+      db,
       detail: detail(
         disc('canon', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true),
         disc('extra', armedLatchBody(IMG), '2026-08-01T10:00:00Z', true)
       ),
       launchReReview: async () => ({ kind: 'error', message: 'boom' }),
     });
-    expect((await runLatchPass(deps)).rejected).toBe(1);
-    expect(launches).toEqual([]);
-    expect(calls).toContain('reply:canon');
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(replies).toEqual([]);
+    expect(calls.some(c => c.startsWith('reply:'))).toBe(false);
     expect(calls).toContain('resolve:extra');
+    expect(readLatchRow(MR, db)?.phase).toBe('error');
   });
 
   test('a dispatch notifies in plain words, pointing at the MR', async () => {
@@ -1196,26 +1210,6 @@ describe('the queue', () => {
     }
   });
 
-  // decideRequest has no reason left that never clears for a row-backed
-  // latch, so the pane failing to start is the hard refusal this pass meets.
-  test('a hard refusal still replies Not yet and reopens', async () => {
-    const db = tempDb();
-    putLatchRow(row({ updatedAt: NOW }), db);
-    const { deps, calls, replies } = harness({
-      db,
-      launchReReview: async () => ({ kind: 'error', message: 'boom' }),
-      detail: detail(
-        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
-      ),
-    });
-    expect((await runLatchPass(deps)).rejected).toBe(1);
-    expect(replies).toEqual([
-      "Not yet: the pane failed to start. Resolve this thread again once that clears and I'll pick it up.",
-    ]);
-    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
-    expect(readLatchRow(MR, db)?.phase).toBe('armed');
-  });
-
   test('an errored lane does not refuse an armed request', async () => {
     const db = tempDb();
     putLatchRow(row({ updatedAt: NOW }), db);
@@ -1362,6 +1356,240 @@ describe('the queue', () => {
     expect(launches).toEqual([]);
     expect(calls).toEqual([]);
     expect(readLatchRow(MR, db)?.discussionId).toBe('old');
+  });
+});
+
+describe('error, retry and stuck', () => {
+  const failed: ReviewState = {
+    ...commented,
+    status: 'error',
+    outcome: undefined,
+    message: 'pane closed',
+  };
+  const cooling = (): DispatchMemory => ({
+    identity: null,
+    mrs: {
+      [MR]: { ...emptyMrMemory('1970-01-12'), lastDispatchAt: NOW - 60_000 },
+    },
+  });
+  const runningRow = (over: Partial<LatchRow> = {}) =>
+    row({
+      phase: 'running',
+      launchAt: NOW - 60_000,
+      variant: 'running',
+      ...over,
+    });
+  const errorRow = (over: Partial<LatchRow> = {}) =>
+    row({
+      phase: 'error',
+      wait: 'next-sweep',
+      launchAt: NOW - 60 * 60_000,
+      failures: 1,
+      variant: 'error-retrying-next-sweep',
+      ...over,
+    });
+
+  test('review error moves running to error-retrying', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, calls, uploads, launches, noteBodies, replies, audits } =
+      harness({
+        db,
+        memory: cooling(),
+        readReviewStates: () => new Map([[MR, failed]]),
+        detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+      });
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(uploads).toEqual(['latch-2317-error-retrying-cooldown.gif']);
+    expect(noteBodies.get(1)).toStartWith(ERROR);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: 1,
+      stuck: false,
+      wait: 'cooldown',
+      variant: 'error-retrying-cooldown',
+    });
+    expect(audits.map(a => a.action)).toContain('error');
+  });
+
+  test('retry dispatch returns error to running and charges memory', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const { deps, launches, noteBodies, memory, replies, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(memory.mrs[MR]?.attemptsToday).toBe(1);
+    expect(memory.mrs[MR]?.lastDispatchAt).toBe(NOW);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW,
+      wait: null,
+      failures: 1,
+      variant: 'running',
+    });
+    expect(audits.map(a => a.action)).toContain('retried');
+  });
+
+  test('launch-failed counts as a failure', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const phases: string[] = [];
+    const { deps, calls, uploads, replies, memory, audits } = harness({
+      db,
+      launchReReview: async () => ({ kind: 'error', message: 'boom' }),
+      casLatch: (url, from, patch, at, opts) => {
+        if (patch.phase) phases.push(patch.phase);
+        return casLatchIn(url, from, patch, at, db, opts);
+      },
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(replies).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(uploads).toEqual(['latch-2317-error-retrying-next-sweep.gif']);
+    expect(phases).toEqual(['error']);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: 1,
+      wait: 'next-sweep',
+    });
+    expect(audits.find(a => a.action === 'error')?.outcome).toBe('boom');
+  });
+
+  test('third failure is stuck: one reply, one notifyStuck, no more launches', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    let note = runningBody();
+    const { deps, launches, uploads, replies, calls, stuckNotices, audits } =
+      harness({
+        db,
+        readReviewStates: () => new Map([[MR, failed]]),
+        readDetail: async () =>
+          detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+      });
+    expect((await runLatchPass(deps)).stuck).toBe(1);
+    expect(uploads).toEqual(['latch-2317-error-stuck.gif']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'reply:d1']);
+    expect(replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(stuckNotices).toEqual([
+      {
+        title: 'Follow-up review stuck on !2317',
+        message: 'It failed 3 times. Relaunch it from the board.',
+        mrUrl: MR,
+      },
+    ]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: 3,
+      stuck: true,
+      variant: 'error-stuck',
+    });
+    expect(audits.map(a => a.action)).toContain('stuck');
+
+    note = errorBody();
+    await runLatchPass(deps);
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(replies).toHaveLength(1);
+    expect(stuckNotices).toHaveLength(1);
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'error', stuck: true });
+  });
+
+  test('relaunch from the board clears stuck', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+      }),
+      db
+    );
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, launches, noteBodies, replies, memory, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(memory.mrs[MR]).toBeUndefined();
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 1_000,
+      stuck: false,
+      failures: 3,
+      variant: 'running',
+    });
+    expect(audits.map(a => a.action)).toContain('recovered');
+  });
+
+  test('long reviewing is still running', async () => {
+    const db = tempDb();
+    const sixHours = 6 * 60 * 60_000;
+    putLatchRow(runningRow({ launchAt: NOW - sixHours }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - sixHours,
+      updatedAt: NOW - sixHours,
+    };
+    const { deps, calls, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      updatedAt: 1,
+    });
+  });
+
+  test('retry blocked by budget shows the budget wait', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const { deps, launches, uploads, calls, noteBodies } = harness({
+      db,
+      memory: {
+        identity: null,
+        mrs: { [MR]: { ...emptyMrMemory('1970-01-12'), attemptsToday: 3 } },
+      },
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-error-retrying-budget.gif']);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(ERROR);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      wait: 'budget',
+      failures: 1,
+      variant: 'error-retrying-budget',
+    });
   });
 });
 
