@@ -20,6 +20,7 @@ import { APPROVAL_DEPENDENT_IDS, APPROVAL_WAIT_DETAIL, approvalState, type Appro
 import { applyExpectations } from "./expectations.ts";
 import { applyFinishGate, gateTeamAccounts, readWaived } from "./finish-gate.ts";
 import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
+import { isSetupFinished, readSetupState, type SetupState } from "./state.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
 import { readPackRequirements } from "./requirements.ts";
@@ -160,26 +161,33 @@ function isInstallSatisfied(r: Row): boolean {
   return INSTALL_SATISFIED_IDS.has(r.id) || r.id.startsWith("pack.");
 }
 
-/** The writing-style row before the home repo exists: no choice to offer until Install creates it. */
+/** A Mac that finished setup before `installRanAt` existed has run Install too. */
+function installHasRun(state: SetupState): boolean {
+  return state.installRanAt !== undefined || isSetupFinished(state);
+}
+
+/** The writing-style row before the home repo exists: no choice to offer until Install creates it. Its error row is a fault, never this. */
 function isWritingStyleBeforeInstall(r: Row): boolean {
-  return r.id === WRITING_STYLE_ROW_ID && r.status !== "ready" && r.action === null;
+  return r.id === WRITING_STYLE_ROW_ID && r.status === "needs-you" && r.finishGated === true && r.action === null;
 }
 
 /**
  * The id-keyed set of rows only Install itself can satisfy reads required:false pre-install (canInstall stays reachable) and required:true
- * once `setup status` runs post-install. Pre-install, those not yet ready, and the writing-style row with nothing to choose yet, carry
- * `waitsForInstall` so the app files them under No action needed instead of asking the member for them.
+ * once `setup status` runs post-install. Until a full Install has run on this Mac, those not yet ready, and the writing-style row with
+ * nothing to choose yet, carry `waitsForInstall` so the app files them under No action needed. The onboarding summary re-reads plan
+ * mode after Install, so a row Install could not finish must read as a task again there.
  */
-export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "status"): Group[] {
+export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "status", opts: { installRan?: boolean } = {}): Group[] {
+  const waits = mode === "plan" && opts.installRan !== true;
   return groups.map((g) => ({
     ...g,
     rows: g.rows.map((r) => {
-      if (mode === "plan" && isWritingStyleBeforeInstall(r)) return { ...r, waitsForInstall: true as const };
+      if (waits && isWritingStyleBeforeInstall(r)) return { ...r, waitsForInstall: true as const };
       if (!isInstallSatisfied(r)) return r;
       // optionalNote reads as "works without this" downstream — false the moment required flips to true, so it's dropped rather than carried over.
       if (mode === "status") return { ...r, required: true, optionalNote: null };
       const flipped = { ...r, required: false, optionalNote: r.optionalNote ?? INSTALLED_BY_INSTALL_NOTE };
-      return r.status === "ready" ? flipped : { ...flipped, waitsForInstall: true as const };
+      return r.status === "ready" || !waits ? flipped : { ...flipped, waitsForInstall: true as const };
     }),
   }));
 }
@@ -227,7 +235,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
 
   const waived = i.waived ?? readWaived();
   const wait = team.slug ? approvalState(i.p, team.slug) : { kind: "not-joined" as const };
-  const gated = applyApprovalWait(applyExpectations(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode), i.mode)), wait);
+  const gated = applyApprovalWait(applyExpectations(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode, { installRan: installHasRun(readSetupState(i.p)) }), i.mode)), wait);
   return finalizePlan(team, regroupTools(applyFinishGate(gated, i.mode, waived)), i.p.now(), waived);
 }
 

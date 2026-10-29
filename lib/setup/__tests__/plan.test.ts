@@ -15,6 +15,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { UserActionableError } from "../../errors.ts";
 import { writeIntent, type SetupIntent } from "../intent.ts";
+import { updateSetupState } from "../state.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
@@ -390,7 +391,8 @@ test("before Install, a row only Install can make ready waits for Install; after
           action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
     row({ id: "pack.acme-skills", kind: "tool", title: "acme-skills", why: "x", required: false, status: "missing", detail: "d",
           action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
-    row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "You choose this after Install" }),
+    row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "You choose this after Install",
+          finishGated: true }),
   ];
   const flip = (mode: "plan" | "status") => applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows }], mode)[0]!.rows;
   expect(flip("plan").map((r) => [r.id, r.waitsForInstall])).toEqual(rows.map((r) => [r.id, true]));
@@ -404,6 +406,38 @@ test("a ready Install-satisfied row, and a writing-style row with a choice to ma
   const unrelated = row({ id: "tool.proxy", kind: "tool", title: "Local proxy", why: "x", required: false, status: "missing", detail: "d" });
   const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [ready, choosing, unrelated] }], "plan")[0]!.rows;
   expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined, undefined]);
+});
+
+test("after Install has run, a row Install could not finish asks for it again", () => {
+  const register = { type: "run" as const, label: "Register services", verb: ["setup", "apply", "--only", "services.register"] };
+  const daemon = row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "needs-you", detail: "Not running", action: register });
+  const waiting = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you",
+                        detail: "You choose this after Install", finishGated: true });
+  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [daemon, waiting] }], "plan", { installRan: true })[0]!.rows;
+  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined]);
+  expect(flipped[0]!.action).toEqual(register);
+});
+
+test("composePlan reads whether Install has run from setup state, and a Mac that finished setup has run it", async () => {
+  const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+  const waiting = async () => (await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] })).groups
+    .flatMap((g) => g.rows).filter((r) => r.waitsForInstall).map((r) => r.id);
+  expect(await waiting()).toContain("skills.writing-style");
+  updateSetupState(p, (s) => ({ ...s, installRanAt: "2026-10-29T10:00:00.000Z" }));
+  expect(await waiting()).toEqual([]);
+
+  const finished = fakeProbes({ exec: readyExec, tray: grantedTray });
+  updateSetupState(finished, (s) => ({ ...s, finishedAt: "2026-09-01T10:00:00.000Z" }));
+  const plan = await composePlan({ p: finished, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
+  expect(plan.groups.flatMap((g) => g.rows).filter((r) => r.waitsForInstall)).toEqual([]);
+});
+
+test("a writing-style error is never folded as waiting for Install", () => {
+  const error = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "error",
+                      detail: "Could not read the writing style: boom", finishGated: false });
+  const unGated = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "d" });
+  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [error, unGated] }], "plan")[0]!.rows;
+  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined]);
 });
 
 function gatedRow(status: Row["status"], id = "tool.fast-browser-extension"): Row {

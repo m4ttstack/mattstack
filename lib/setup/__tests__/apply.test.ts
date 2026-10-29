@@ -205,6 +205,30 @@ describe("runApplyWith: lastApplyOk records whether the last whole run got throu
   });
 });
 
+describe("runApplyWith: installRanAt marks that Install has run on this Mac", () => {
+  const installRanAt = (ctx: ApplyContext) => readSetupState(ctx.p as ReturnType<typeof fakeProbes>).installRanAt;
+
+  test("a full apply stamps installRanAt; an --only run and an update run do not", async () => {
+    const full = testCtx().ctx;
+    let seenAtStart: string | undefined;
+    await runApplyWith([fakeStep("path.link", async () => { seenAtStart = installRanAt(full); return { state: "failed", detail: "boom" }; })], full);
+    expect(seenAtStart).toBeString();
+    expect(installRanAt(full)).toBe(seenAtStart);
+
+    const resumed = testCtx().ctx;
+    await runApplyWith([fakeStep("home.init", { state: "done" }), fakeStep("path.link", { state: "done" })], resumed, { from: "path.link" });
+    expect(installRanAt(resumed)).toBeString();
+
+    const only = testCtx().ctx;
+    await runApplyWith([fakeStep("services.register", { state: "done" })], only, { only: "services.register" });
+    expect(installRanAt(only)).toBeUndefined();
+
+    const update = testCtx().ctx;
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], update);
+    expect(installRanAt(update)).toBeUndefined();
+  });
+});
+
 describe("runApplyWith — happy path", () => {
   test("three done steps stream plan, running/done per step, then done ok:true", async () => {
     const { ctx, events } = testCtx();

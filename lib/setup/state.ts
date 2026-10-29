@@ -31,6 +31,8 @@ export interface SetupState {
   lastApplyOk?: boolean;
   /** When setup finished on this Mac. mattstack.app reads this file directly (rt-tray's SetupCompletion). */
   finishedAt?: string;
+  /** When a full `rt setup apply` (no `--only`, not an update) last started: from then on no plan row waits for Install. */
+  installRanAt?: string;
   /** Marketplace re-points the org.folder step started: written before `claude plugin marketplace remove` (which uninstalls the marketplace's plugins) so a run halted before the re-add finishes at the next one. */
   orgMarketplaceMoves?: PendingMarketplaceMove[];
   /** The `board.cwds` value rt wrote last: Install replaces that value, never one the member set by hand. */

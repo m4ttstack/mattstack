@@ -249,6 +249,15 @@ function settleLegacyFinish(ctx: ApplyContext): void {
   }
 }
 
+/** Written at the start, so a row Install failed to finish asks for it again even when the run dies partway. */
+function stampInstallRan(ctx: ApplyContext): void {
+  try {
+    updateSetupState(ctx.p, (s) => ({ ...s, installRanAt: ctx.p.now().toISOString() }));
+  } catch {
+    // persistTerminalState makes a state write at the end and reports a failure there.
+  }
+}
+
 /**
  * Runs an explicit step list against a context — the seam `runApply` closes
  * over `STEPS` for. `plan` lists every applicable step for this run, even
@@ -273,6 +282,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   const titleOf = (s: StepDef) => s.titleFor?.(ctx) ?? s.title;
   ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: titleOf(s), kind: s.kind })) });
   settleLegacyFinish(ctx);
+  if (opts.only === undefined && !ctx.update) stampInstallRan(ctx);
 
   let lastRanId: StepId | undefined;
   let result: { ok: boolean; failedStep?: StepId } = { ok: true };
