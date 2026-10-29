@@ -42,7 +42,16 @@ export function respondTargets(
   type Note = MRDetail['discussions'][number]['notes'][number];
   const candidates: Array<{ note: Note; answeredInThread: boolean }> = [];
   let authorLastOverviewAt = '';
+  const approvedAt = new Map<string, string>();
   for (const d of detail.discussions) {
+    for (const n of d.notes) {
+      const who = n.author?.username;
+      if (!n.system || !who) continue;
+      const body = (n.body ?? '').trim();
+      if (body === 'approved this merge request')
+        approvedAt.set(who, n.createdAt);
+      else if (body === 'unapproved this merge request') approvedAt.delete(who);
+    }
     const notes = d.notes.filter(n => !n.system);
     if (!notes.length || latchKindOf(notes[0]!.body ?? '')) continue;
     if (notes.some(n => n.resolvable)) continue;
@@ -68,6 +77,7 @@ export function respondTargets(
   for (const { note, answeredInThread } of candidates) {
     if (answeredInThread || note.createdAt < authorLastOverviewAt) continue;
     const a = note.author!;
+    if (note.createdAt <= (approvedAt.get(a.username!) ?? '')) continue;
     entry(a.username!, a.name ?? a.username!).openComments++;
   }
 

@@ -120,6 +120,47 @@ describe('respondTargets', () => {
     expect(respondTargets(d, AUTHOR)[0]?.openComments).toBe(1);
   });
 
+  test("John's approval answers his earlier Overview comment, not a later one", () => {
+    const approval = (
+      u: string,
+      at: string,
+      body = 'approved this merge request'
+    ) => ({
+      ...note(u, { resolvable: false, at, body }),
+      system: true,
+    });
+    const cleared = detail([
+      [overview('john', '2026-07-10T00:00:00Z')],
+      [approval('john', '2026-07-10T00:00:02Z')],
+    ]);
+    expect(respondTargets(cleared, AUTHOR)).toEqual([]);
+
+    const later = detail([
+      [approval('john', '2026-07-10T00:00:02Z')],
+      [overview('john', '2026-07-11T00:00:00Z')],
+    ]);
+    expect(respondTargets(later, AUTHOR)[0]?.openComments).toBe(1);
+
+    const revoked = detail([
+      [overview('john', '2026-07-10T00:00:00Z')],
+      [approval('john', '2026-07-10T00:00:02Z')],
+      [
+        approval(
+          'john',
+          '2026-07-10T00:00:05Z',
+          'unapproved this merge request'
+        ),
+      ],
+    ]);
+    expect(respondTargets(revoked, AUTHOR)[0]?.openComments).toBe(1);
+
+    const otherApprover = detail([
+      [overview('john', '2026-07-10T00:00:00Z')],
+      [approval('amy', '2026-07-10T00:00:02Z')],
+    ]);
+    expect(respondTargets(otherApprover, AUTHOR)[0]?.openComments).toBe(1);
+  });
+
   test('omits people with nothing open', () => {
     const d = detail([[note('john', { resolved: true })]]);
     expect(respondTargets(d, AUTHOR)).toEqual([]);
