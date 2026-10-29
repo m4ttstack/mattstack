@@ -22,6 +22,7 @@ import {
   requestCarriers,
   type LatchRef,
 } from '../latch/discussions.ts';
+import { landFollowUp, spendForApproval } from '../latch/land.ts';
 import {
   casLatch as casLatchIn,
   putLatchRow as putLatchRowIn,
@@ -33,7 +34,6 @@ import {
 import {
   postLatch,
   rewriteLatch,
-  spendAllLatches,
   spendLatch,
   type LatchGateway,
   type LatchTarget,
@@ -98,6 +98,10 @@ export interface LatchPassDeps {
   reReview: ReReviewConfig;
   appendAudit(entry: AuditEntry): void;
   notify(title: string, message: string, mrUrl: string): Promise<void>;
+  /** The reviewer's discussions on the MR created at or after `launchAt`,
+      fresh from GitLab; null when they cannot be read. Absent, a landing
+      shows the uncounted done banner. */
+  countNew?(mr: LatchMrFacts, launchAt: number): Promise<number | null>;
   /** A stuck latch needs a person, so the default ignores `triage.notify`
       and always sends the rt desktop notification. */
   notifyStuck?(title: string, message: string, mrUrl: string): Promise<void>;
@@ -125,6 +129,8 @@ export interface LatchPassResult {
   resurrected: number;
   skipped: number;
   failed: number;
+  /** Follow-ups this pass landed on their latch. */
+  landed: number;
   /** Error banners written this tick: failed attempts (stuck ones
       included) and retry-wait changes. */
   errored: number;
@@ -215,6 +221,7 @@ export async function runLatchPass(
     resurrected: 0,
     skipped: 0,
     failed: 0,
+    landed: 0,
     errored: 0,
     stuck: 0,
   };
@@ -391,6 +398,27 @@ export async function runLatchPass(
         continue;
       }
 
+      const target: LatchTarget = {
+        projectId: mr.projectId,
+        projectPath: mr.projectPath,
+        iid: mr.iid,
+        mrUrl: mr.mrUrl,
+        discussionId: canon.discussionId,
+        rootNoteId: canon.rootNoteId,
+      };
+
+      // The landing backstop runs before the approval spend, so a follow-up
+      // that approved shows done-approved, and before the error handling, so
+      // a finished run is never retried into a second review. Another
+      // reviewer's verdict aside, a standing approval still beats a comment.
+      if (
+        landable(row, review) &&
+        (review.outcome === 'approve' || !mr.approvedBySelf)
+      ) {
+        await landBackstop(deps, mr, row, review, target, latches, now, result);
+        continue;
+      }
+
       // Step 2: this reviewer's own approval spends from every phase, whether
       // it came through a review or GitLab; anyone else's approval leaves the
       // latch standing. Every own latch, not just canon: an armed-unresolved
@@ -402,7 +430,14 @@ export async function runLatchPass(
         mr.approvedBySelf ||
         (review?.status === 'done' && review.outcome === 'approve')
       ) {
-        await spendAll(deps, mr, latches);
+        await spendForApproval(
+          deps.gateway,
+          mr,
+          latches,
+          rows.read(mr.mrUrl),
+          deps.now(),
+          deps.db
+        );
         deps.appendAudit({
           ts: now,
           mrUrl: mr.mrUrl,
@@ -422,14 +457,7 @@ export async function runLatchPass(
         carriers: requestCarriers(latches),
         row,
         review,
-        target: {
-          projectId: mr.projectId,
-          projectPath: mr.projectPath,
-          iid: mr.iid,
-          mrUrl: mr.mrUrl,
-          discussionId: canon.discussionId,
-          rootNoteId: canon.rootNoteId,
-        },
+        target,
         policy,
         notifyStuck,
         dayStamp,
@@ -518,6 +546,74 @@ function trackCanon(
     : { mrUrl: mr.mrUrl, ...fresh, updatedAt: now };
 }
 
+/** A running or error row whose follow-up has finished: the lane reads done
+    for a run that started at or after the launch. A row with no launch stamp
+    (a first launch that failed) has no follow-up to land. */
+function landable(
+  row: LatchRow,
+  review: ReviewState | undefined
+): review is ReviewState {
+  return (
+    (row.phase === 'running' || row.phase === 'error') &&
+    review?.status === 'done' &&
+    row.launchAt !== null &&
+    runStamp(review) >= row.launchAt
+  );
+}
+
+async function landBackstop(
+  deps: LatchPassDeps,
+  mr: LatchMrFacts,
+  row: LatchRow,
+  review: ReviewState,
+  target: LatchTarget,
+  latches: LatchRef[],
+  now: number,
+  result: LatchPassResult
+): Promise<void> {
+  const outcome = review.outcome ?? null;
+  const launchAt = row.launchAt;
+  const landed = await landFollowUp(
+    {
+      target,
+      outcome,
+      reviewRunStartedAt: runStamp(review),
+      gateway: deps.gateway,
+      self: deps.self,
+      countNew: () =>
+        deps.countNew && launchAt !== null
+          ? deps.countNew(mr, launchAt)
+          : Promise.resolve(null),
+      now,
+    },
+    deps.db
+  );
+  // Another writer (the server's done signal) moved the row first.
+  if (landed !== 'landed') {
+    result.skipped++;
+    return;
+  }
+  if (outcome === 'approve') {
+    await spendForApproval(
+      deps.gateway,
+      mr,
+      latches.filter(l => l.discussionId !== target.discussionId),
+      null,
+      deps.now(),
+      deps.db
+    );
+  }
+  deps.appendAudit({
+    ts: now,
+    mrUrl: mr.mrUrl,
+    iid: mr.iid,
+    event: 'latch',
+    action: 'landed',
+    outcome: outcome ?? 'none',
+  });
+  result.landed++;
+}
+
 /** The lane decideRequest sees for a latch the row holds. The row is the
     record that a commented review existed, so a lane reading error, done with
     no outcome, or gone must not be refused as having none. A lane in flight
@@ -558,7 +654,7 @@ function decide(t: Tick, m: MrMemory) {
 
 async function armedLatch(t: Tick): Promise<void> {
   if (t.canon.kind !== 'armed') return repairArmed(t);
-  if (t.carriers.length === 0) {
+  if (t.carriers.length === 0 || insideRearmGrace(t)) {
     t.result.skipped++;
     return;
   }
@@ -638,6 +734,18 @@ async function repairArmed(t: Tick): Promise<void> {
   await show(t, 'armed', armedVariantOf(t.row.variant), 'unresolve');
   audit(t, 'repaired');
   t.result.repaired++;
+}
+
+/** A landing or a withdrawal re-arms the row, and a read from before that
+    move still shows the request it answered as armed and resolved. Only time
+    tells the two apart. A latch the row never moved past its post has no
+    older read to fear, so a quick resolve there is a request at once. */
+function insideRearmGrace(t: Tick): boolean {
+  if (t.now - t.row.updatedAt >= LATCH_POST_GRACE_MS) return false;
+  const posted = Date.parse(t.canon.createdAt);
+  return (
+    Number.isFinite(posted) && t.row.updatedAt - posted >= LATCH_POST_GRACE_MS
+  );
 }
 
 /** The armed banner the row last showed, so a done-comments count survives a
@@ -723,9 +831,12 @@ async function erroredLatch(t: Tick): Promise<void> {
       t.result.skipped++;
       return;
     }
-    await showStuck(t);
-    audit(t, 'repaired');
-    t.result.repaired++;
+    if (await showStuck(t)) {
+      audit(t, 'repaired');
+      t.result.repaired++;
+    } else {
+      t.result.skipped++;
+    }
     return;
   }
   const m = memoryFor(t);
@@ -811,10 +922,12 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
 }
 
 /** The stuck banner, then the stuck reply. A row still showing another
-    variant has not had either, which is how a cut-short write is repaired. */
-async function showStuck(t: Tick): Promise<void> {
+    variant has not had either, which is how a cut-short write is repaired.
+    False when a landing moved the row first and nothing was written. */
+async function showStuck(t: Tick): Promise<boolean> {
+  if (!t.rows.read(t.mr.mrUrl)?.stuck) return false;
   const variant: BannerVariant = { state: 'error-stuck' };
-  await show(t, 'error', variant, threadClosed(t));
+  if (!(await show(t, 'error', variant, threadClosed(t)))) return false;
   await supersede(t.deps, t.mr, t.canon, t.carriers);
   await t.deps.gateway.createNote(
     t.mr.projectId,
@@ -822,6 +935,7 @@ async function showStuck(t: Tick): Promise<void> {
     copyFor(variant).sentence,
     t.canon.discussionId
   );
+  return true;
 }
 
 async function queue(t: Tick, wait: WaitReason): Promise<void> {
@@ -848,13 +962,19 @@ function threadClosed(t: Tick): 'keep' | 'resolve' {
   return t.canon.resolved ? 'keep' : 'resolve';
 }
 
-function show(
+/** Writes the note only while the row still shows `phase` for this latch:
+    a landing that moved it since this tick read it owns the note. False when
+    it wrote nothing. */
+async function show(
   t: Tick,
   phase: LatchPhase,
   variant: BannerVariant,
   thread: 'resolve' | 'unresolve' | 'keep'
-): Promise<void> {
-  return rewriteLatch(
+): Promise<boolean> {
+  const cur = t.rows.read(t.mr.mrUrl);
+  if (cur?.phase !== phase || cur.discussionId !== t.target.discussionId)
+    return false;
+  await rewriteLatch(
     t.deps.gateway,
     t.target,
     phase,
@@ -863,6 +983,7 @@ function show(
     t.now,
     t.deps.db
   );
+  return true;
 }
 
 function memoryFor(t: Tick): MrMemory {
@@ -938,23 +1059,4 @@ async function supersede(
       deps.db
     );
   }
-}
-
-/** Terminal disposal of every copy of this reviewer's latch once they approve. */
-async function spendAll(
-  deps: LatchPassDeps,
-  mr: LatchMrFacts,
-  latches: LatchRef[]
-): Promise<void> {
-  await spendAllLatches(
-    deps.gateway,
-    mr.projectId,
-    mr.projectPath,
-    mr.mrUrl,
-    mr.iid,
-    latches,
-    { state: 'approved' },
-    deps.now(),
-    deps.db
-  );
 }

@@ -9,6 +9,7 @@ import {
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
 import {
   GitLabProvider,
+  MRDetailFetcher,
   NoteMutator,
   parseRepoId,
   ReadBackFailedError,
@@ -185,6 +186,8 @@ import {
 } from './herdr.ts';
 import { reviewerLatches } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
+import { countNewDiscussions } from './latch/land.ts';
+import { readLatchRow } from './latch/latch-state.ts';
 import {
   acceptedReReview,
   isStaleSignal,
@@ -395,6 +398,7 @@ import {
   parseTriageBlock,
   type TriageConfig,
 } from './triage/config.ts';
+import { runStamp } from './triage/latch.ts';
 import {
   attachStandDown,
   clearHandoffs,
@@ -4904,24 +4908,29 @@ async function handleAgentSignal(
       kickOutbox(pc);
     }
   }
-  // Arm a latch when a review lands with a comment outcome, spend it when
-  // one lands approved. Best-effort, like every other side effect here:
-  // the triage latch pass reconciles anything a down or throwing board
-  // misses, so a failure must never fail the agent's status write.
+  // Land the follow-up a running latch waits on, arm a latch when a review
+  // lands with a comment outcome, spend it when one lands approved.
+  // Best-effort, like every other side effect here: the triage latch pass
+  // reconciles anything a down or throwing board misses, so a failure must
+  // never fail the agent's status write.
   if (signal.kind === 'review' && signal.status === 'done' && gitlabToken) {
     try {
-      // Arming honours board.reReview; spending never does, since a latch
-      // left armed on a team that switched re-review off is a promise
-      // nothing keeps.
+      // Arming honours board.reReview; landing and spending never do, since
+      // a latch left running or armed on a team that switched re-review off
+      // is a promise nothing keeps.
       const outcome =
-        signal.outcome === 'approve'
-          ? 'approve'
-          : signal.outcome === 'comment' && loadReReviewConfig().enabled
-            ? 'comment'
-            : null;
-      const snapshot = outcome ? await cache.get() : null;
+        signal.outcome === 'approve' || signal.outcome === 'comment'
+          ? signal.outcome
+          : null;
+      const arm = loadReReviewConfig().enabled;
+      const row = readLatchRow(signal.mrUrl);
+      const landing =
+        !!row && (row.phase === 'running' || row.phase === 'error');
+      const acts =
+        landing || outcome === 'approve' || (outcome === 'comment' && arm);
+      const snapshot = acts ? await cache.get() : null;
       const mr = snapshot?.mrs.find(m => m.webUrl === signal.mrUrl);
-      if (outcome && mr) {
+      if (acts && mr) {
         // Latches belong to the reviewer whose token posted them. With no
         // resolvable identity this board cannot tell its own apart, so it
         // leaves the work to the triage pass rather than guess.
@@ -4934,13 +4943,30 @@ async function handleAgentSignal(
             `latch step skipped for ${signal.mrUrl}: no gitlab identity for this token`
           );
         } else if (detail) {
+          const projectId = parseRepoId(mr.repositoryId);
+          // A lane no longer reading done was relaunched after this signal
+          // was emitted: the signal cannot vouch for that run.
+          const lane = readReviewStates().get(signal.mrUrl);
           await applyReviewLatch({
             outcome,
+            arm,
+            reviewRunStartedAt: lane?.status === 'done' ? runStamp(lane) : null,
+            countNew: async launchAt => {
+              try {
+                const fresh = await new MRDetailFetcher(
+                  config.gitlabHost,
+                  gitlabToken
+                ).fetchDetail(projectId, mr.iid);
+                return countNewDiscussions(fresh, self, launchAt);
+              } catch {
+                return null;
+              }
+            },
             self,
             approvedBy: mr.reviews.approvedBy.map(r => r.username),
             detail,
             gateway: latchGateway(config.gitlabHost, gitlabToken),
-            projectId: parseRepoId(mr.repositoryId),
+            projectId,
             projectPath:
               projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
             mrUrl: signal.mrUrl,

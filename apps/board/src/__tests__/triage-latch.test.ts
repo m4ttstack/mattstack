@@ -412,6 +412,7 @@ describe('the re-review switch is board.reReview, not board.triage', () => {
       resurrected: 0,
       skipped: 0,
       failed: 0,
+      landed: 0,
       errored: 0,
       stuck: 0,
     });
@@ -1729,6 +1730,293 @@ describe('error, retry and stuck', () => {
       launchAt: NOW - 2_000,
       stuck: false,
       failures: 3,
+    });
+  });
+});
+
+describe('landing a follow-up from the pass', () => {
+  const LAUNCH = NOW - 60 * 60_000;
+  const lane = (over: Partial<ReviewState> = {}): ReviewState => ({
+    ...commented,
+    runStartedAt: LAUNCH + 60_000,
+    updatedAt: NOW - 60_000,
+    ...over,
+  });
+  const runningRow = (over: Partial<LatchRow> = {}) =>
+    row({ phase: 'running', launchAt: LAUNCH, variant: 'running', ...over });
+  const errorRow = (over: Partial<LatchRow> = {}) =>
+    row({
+      phase: 'error',
+      wait: 'next-sweep',
+      launchAt: LAUNCH,
+      failures: 1,
+      variant: 'error-retrying-next-sweep',
+      ...over,
+    });
+  // A day before NOW: a latch posted long before the row last moved.
+  const OLD = new Date(NOW - 24 * 60 * 60_000).toISOString();
+
+  test('a running row whose review finished lands with the count', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const asked: number[] = [];
+    const { deps, calls, uploads, launches, replies, audits, noteBodies } =
+      harness({
+        db,
+        readReviewStates: () => new Map([[MR, lane()]]),
+        countNew: async (_mr, launchAt) => {
+          asked.push(launchAt);
+          return 2;
+        },
+        detail: detail(disc('d1', runningBody(), OLD, true)),
+      });
+    const r = await runLatchPass(deps);
+    expect(r.landed).toBe(1);
+    expect(asked).toEqual([LAUNCH]);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-done-comments-2.gif']);
+    expect(calls).toEqual([
+      'upload',
+      'updateNote:1',
+      'unresolve:d1',
+      'reply:d1',
+    ]);
+    expect(noteBodies.get(1)).toStartWith(ARMED);
+    expect(replies).toEqual(['Follow-up review done: 2 new comments.']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      launchAt: null,
+      failures: 0,
+      variant: 'done-comments-2',
+    });
+    expect(audits).toContainEqual(
+      expect.objectContaining({ action: 'landed', outcome: 'comment' })
+    );
+  });
+
+  test('with no countNew the pass lands as Review posted', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, uploads, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(uploads).toEqual(['latch-2317-done-comments-none.gif']);
+    expect(replies).toEqual(['Follow-up review done.']);
+  });
+
+  test('a running row whose lane reads done approve spends done-approved', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, uploads, replies, noteBodies } = harness({
+      db,
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+      readReviewStates: () => new Map([[MR, lane({ outcome: 'approve' })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(uploads).toEqual(['latch-2317-done-approved.gif']);
+    expect(noteBodies.get(1)).toStartWith(SPENT);
+    expect(replies).toEqual(['Follow-up review done: approved.']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      variant: 'done-approved',
+    });
+  });
+
+  test('a stale read after an approve landing keeps done-approved', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ phase: 'spent', variant: 'done-approved' }), db);
+    const { deps, uploads } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ outcome: 'approve' })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(uploads).toEqual(['latch-2317-done-approved.gif']);
+    expect(readLatchRow(MR, db)?.variant).toBe('done-approved');
+  });
+
+  test('an abandoned follow-up re-arms quietly from the pass', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, calls, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ outcome: undefined })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'unresolve:d1']);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      variant: 'armed',
+    });
+  });
+
+  test('a retrying error row whose review finished lands instead of retrying', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const { deps, launches, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', errorBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]).toBeUndefined();
+    expect(readLatchRow(MR, db)?.phase).toBe('armed');
+  });
+
+  test('a stuck error row whose review finished lands', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+      }),
+      db
+    );
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', errorBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual(['Follow-up review done.']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      stuck: false,
+    });
+  });
+
+  test('an error row with no launch stamp is retried, never landed', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow({ launchAt: null }), db);
+    const { deps, launches, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ runStartedAt: NOW })]]),
+      detail: detail(disc('d1', errorBody(), OLD, true)),
+    });
+    const r = await runLatchPass(deps);
+    expect(r.landed).toBe(0);
+    expect(launches).toEqual([MR]);
+    expect(audits.some(a => a.action === 'landed')).toBe(false);
+  });
+
+  test('a review that started before the launch does not land a running row', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, calls } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, lane({ runStartedAt: LAUNCH - 1 })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(0);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('a landed latch ignores a stale armed resolved read inside the grace window', async () => {
+    const db = tempDb();
+    const landed = row({ variant: 'done-comments-2', updatedAt: NOW - 60_000 });
+    putLatchRow(landed, db);
+    const { deps, calls, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toEqual(landed);
+  });
+
+  test('an abandoned landing is guarded the same way', async () => {
+    const db = tempDb();
+    putLatchRow(row({ variant: 'armed', updatedAt: NOW - 60_000 }), db);
+    const { deps, calls, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ outcome: undefined })]]),
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test('past the grace window the same read is a request', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        variant: 'done-comments-2',
+        updatedAt: NOW - LATCH_POST_GRACE_MS,
+      }),
+      db
+    );
+    const { deps, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+  });
+
+  test('a request on a latch posted moments ago is not held', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW - 60_000 }), db);
+    const posted = new Date(NOW - 61_000).toISOString();
+    const { deps, launches } = harness({
+      db,
+      detail: detail(disc('d1', armedLatchBody(IMG), posted, true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+  });
+
+  test('the stuck repair skips once a landing moved the row', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-retrying-next-sweep',
+      }),
+      db
+    );
+    const failed: ReviewState = {
+      ...commented,
+      status: 'error',
+      outcome: undefined,
+    };
+    const { deps, calls, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      readDetail: async () => {
+        casLatchIn(
+          MR,
+          ['error'],
+          { phase: 'armed', stuck: false, variant: 'done-comments-1' },
+          NOW,
+          db
+        );
+        return detail(disc('d1', errorBody(), OLD, true));
+      },
+    });
+    await runLatchPass(deps);
+    expect(calls).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      variant: 'done-comments-1',
     });
   });
 });
