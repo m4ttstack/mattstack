@@ -174,7 +174,8 @@ running that one step outside a full pipeline.
 - **mattstack:stage-evidence** -- capture the before-state per the evidence
   plan, before implementation.
 - **mattstack:stage-implement** -- do the implementation under the TDD
-  floor (no props; pure methodology).
+  floor, then run the bound rule selector's optional `check:` once
+  (`rule-selector` prop).
 - **mattstack:stage-self-review** -- self-review checkpoint between
   implementation and ship.
 - **mattstack:stage-ship** -- publish the unit of work: push, open the

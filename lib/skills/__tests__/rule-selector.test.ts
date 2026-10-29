@@ -15,13 +15,18 @@ const seam = (verb: string) => `<!-- part: prop:${verb}/rule-selector.rule-selec
 const SELECT = /^#+ Select the rules$/m;
 const FAILS_TO_FINDINGS = /^#+ Failed rules become findings$/m;
 
-type Compiled = Record<(typeof ENGINES)[number], string>;
+const CHECK_LINE = "check: acme-rules check --base {base}";
+const edge = (a: string, b: string) => new RegExp(`\\b${a} -> ${b}\\b`);
+
+type Compiled = Record<(typeof ENGINES)[number] | "stage-implement", string>;
 
 let root = "";
 let seq = 0;
 
 function writeBindings(pack: string, bindings: Record<string, Record<string, string>>): void {
-  writeFileSync(join(pack, "pack", "skills.jsonc"), JSON.stringify({ version: 2, bindings }, null, 2));
+  const file = join(pack, "pack", "skills.jsonc");
+  const manifest = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(file, JSON.stringify({ ...manifest, bindings }, null, 2));
 }
 
 /** A scratch copy of the fixture pack, `shape` applied, and a mattstack home that points at this repo's real plugin. */
@@ -48,7 +53,7 @@ async function compilePack(shape?: (pack: string) => void): Promise<{ pack: stri
     const side = existsSync(join(pack, "skills", verb)) ? "skills" : "attachments";
     return readFileSync(join(pack, side, verb, "SKILL.md"), "utf8");
   };
-  return { pack, verbs: Object.fromEntries(ENGINES.map((v) => [v, read(v)])) as Compiled };
+  return { pack, verbs: Object.fromEntries([...ENGINES, "stage-implement"].map((v) => [v, read(v)])) as Compiled };
 }
 
 describe("rule selector slot", () => {
@@ -138,6 +143,42 @@ describe("rule selector slot", () => {
       expect(body).not.toMatch(/\bcode_changes_answer -> dispatch_adjudicator\b/);
       expect(body).not.toMatch(/\bcheck_verdicts\b/);
     });
+
+    test("the contract takes an optional check line and stays rule-selector@1", () => {
+      for (const verb of ENGINES) {
+        const body = compiled.verbs[verb];
+        expect(body).toContain(CHECK_LINE);
+        expect(body).toMatch(/optional fourth line,\s+`check: <command template>`/);
+        expect(body).toMatch(/The\s+review verbs never run it/);
+      }
+    });
+
+    test("stage-implement inlines the fill under its rule-selector prop", () => {
+      const body = compiled.verbs["stage-implement"];
+      expect(body).toContain(CHECK_LINE);
+      expect(body).toContain("<!-- part: prop:stage-implement/rule-selector.rule-selector ");
+      expect(body).toMatch(/^#+ Check the work against the team's rules$/m);
+    });
+
+    test("stage-implement graph runs the check between committing and recording the commits", () => {
+      const body = compiled.verbs["stage-implement"];
+      expect(body).toMatch(edge("next_move", "check_bound"));
+      expect(body).toMatch(edge("stop_implement_push", "check_bound"));
+      expect(body).toMatch(edge("check_bound", "check_rules"));
+      expect(body).toMatch(edge("check_rules", "check_result"));
+      expect(body).toMatch(edge("check_result", "fix_rule_breaks"));
+      expect(body).toMatch(edge("fix_rule_breaks", "git_log_shas"));
+      expect(body).not.toMatch(edge("next_move", "git_log_shas"));
+      const into = [...body.matchAll(/^\s*(\w+) -> git_log_shas\b/gm)].map((m) => m[1]).sort();
+      expect(into).toEqual(["check_bound", "check_result", "check_result", "fix_rule_breaks"]);
+    });
+
+    test("stage-implement: a failed check never fails the stage", () => {
+      const body = compiled.verbs["stage-implement"];
+      expect(body).not.toMatch(edge("check_result", "run_stage_fail"));
+      expect(body).not.toMatch(edge("fix_rule_breaks", "run_stage_fail"));
+      expect(body).toMatch(/check_result -> git_log_shas \[label="non-zero exit/);
+    });
   });
 
   test("unbound: no fill text, bodies still present", async () => {
@@ -147,6 +188,24 @@ describe("rule selector slot", () => {
       expect(body).not.toContain("acme-verdicts");
       expect(body).toMatch(SELECT);
     }
+  });
+
+  test("unbound stage-implement keeps the check step and its skip edge", async () => {
+    const unbound = await compilePack((pack) => writeBindings(pack, {}));
+    const body = unbound.verbs["stage-implement"];
+    expect(body).not.toContain("acme-rules");
+    expect(body).toMatch(/check_bound -> git_log_shas \[label="no: unbound, selector: none, or no check: line"\]/);
+  });
+
+  test("a fill without a check line compiles and leaves only the skip edge to take", async () => {
+    const noCheck = await compilePack((pack) => {
+      const fill = join(pack, "attachments", "acme-rule-selector", "SKILL.md");
+      writeFileSync(fill, readFileSync(fill, "utf8").replace(`${CHECK_LINE}\n`, "").replace("four lines", "three lines"));
+    });
+    const body = noCheck.verbs["stage-implement"];
+    expect(body).toContain(FILL_LINE);
+    expect(body).not.toContain(CHECK_LINE);
+    expect(body).toMatch(/check_bound -> git_log_shas \[label="no: unbound, selector: none, or no check: line"\]/);
   });
 
   test("a fill providing another contract is refused", async () => {

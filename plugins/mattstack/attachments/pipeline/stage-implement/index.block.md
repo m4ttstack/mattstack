@@ -33,6 +33,10 @@ flowchart TB
     commit_incrementally[Commit incrementally on branch, inside worktree]
     next_move{Next move once committed?}
     stop_implement_push[STOP: implement never pushes; ship owns the push]:::stop
+    check_bound{Does the rule selector resolve to a check line?}
+    check_rules
+    check_result{What did the check report?}
+    fix_rule_breaks
     git_log_shas[/git log --format=%h <branch-point>..HEAD/]
     run_field_set_commits[/"run_field_set {key: commits, value: <shas>, stage: implement}"/]
     run_stage_fail[/"run_stage {action: fail, stage: implement, reason}"/]
@@ -54,9 +58,16 @@ flowchart TB
     superpowers_chain --> commit_incrementally
     superpowers_chain -->|a failure the approach cannot get past| run_stage_fail
     commit_incrementally --> next_move
-    next_move -->|record the commits| git_log_shas
+    next_move -->|check the work, then record the commits| check_bound
     next_move -->|tempted to push| stop_implement_push
-    stop_implement_push --> git_log_shas
+    stop_implement_push --> check_bound
+    check_bound -->|no: unbound, selector: none, or no check: line| git_log_shas
+    check_bound -->|yes| check_rules
+    check_rules --> check_result
+    check_result -->|exit 0, nothing the change breaks| git_log_shas
+    check_result -->|exit 0, rules the change breaks| fix_rule_breaks
+    check_result -->|non-zero exit: noted for the return| git_log_shas
+    fix_rule_breaks --> git_log_shas
     git_log_shas --> run_field_set_commits
     run_field_set_commits --> implement_done
     run_stage_fail --> stage_failed

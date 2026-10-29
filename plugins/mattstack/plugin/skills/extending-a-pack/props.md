@@ -74,7 +74,7 @@ block. One fill may bind to any number of blocks.
 | MR preflight, fast checks, commit shape, description shape, labels | `stage-ship` and `ship`: the step blocks below, `domain-rules` |
 | CI job names, retry rules, triage | `stage-watch-ci` and `watch-ci`: `classify-triage-report`, `domain-rules`, `forge` |
 | what reviewers check | `review`, `self-review`, `receive-review`: `criteria` |
-| which written rules a review is checked against, one verdict per rule | `review`, `self-review`, `receive-review`: `rule-selector` |
+| which written rules a review is checked against, one verdict per rule; the check implement runs before self-review | `review`, `self-review`, `receive-review`, `stage-implement`: `rule-selector` |
 | how to answer review threads | `receive-review`: `reply-rules` |
 | fan-out rules for parallel agents | `shepherdr`: the root's `rules`, or a step block below |
 
@@ -94,7 +94,7 @@ default. The other props:
 | `work/sub-agent-tiering` | `tiering` | replace | `model-tiering@1` | nothing |
 | `review/criteria`, `self-review/criteria`, `receive-review/criteria` | `criteria` | replace | `review-criteria@1` | nothing |
 | `review/reviewer`, `self-review/reviewer`, `receive-review/reviewer` | `reviewer` | replace | `reviewer-dispatch@1` | nothing |
-| `review/rule-selector`, `self-review/rule-selector`, `receive-review/rule-selector` | `rule-selector` | replace | `rule-selector@1` | empty (no rule selection) |
+| `review/rule-selector`, `self-review/rule-selector`, `receive-review/rule-selector`, `stage-implement/rule-selector` | `rule-selector` | replace | `rule-selector@1` | empty (no rule selection) |
 | `receive-review/reply-rules` | `reply-rules` | replace | `reply-rules@1` | nothing |
 | `shepherdr` | `tiering` | replace | `model-tiering@1` | `mattstack:model-tiering` |
 | `shepherdr` | `strategy` | replace | `execution-strategy@1` | `mattstack:execution-strategy` |
@@ -103,6 +103,8 @@ default. The other props:
 A `rule-selector` fill resolves to `selector: none`, or three lines: `selector:`
 (a command with `{format}`), `verdicts:` (a command with `{selection}` and
 `{verdicts}`) and `fence:` (the info string of the reviewer's verdict block).
+It may add an optional fourth line, `check: <command template>` with `{base}`,
+which only `stage-implement` runs; still `rule-selector@1`, since it is additive.
 
 A `shepherdr` door compiles with nothing bound; bind one of its three
 replace props only to swap in the pack's own fill.
