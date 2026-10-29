@@ -158,7 +158,7 @@ function DecisionQueueModal({
         <Button
           type="button"
           variant="subtle"
-          intent="muted"
+          intent="accent"
           size="sm"
           disabled
           title="parked: answering this gate resumes its pane"
@@ -169,7 +169,7 @@ function DecisionQueueModal({
         <Button
           type="button"
           variant="subtle"
-          intent="muted"
+          intent="accent"
           size="sm"
           disabled={!form.originFocusable || form.focusBusy || paneGone}
           title={
