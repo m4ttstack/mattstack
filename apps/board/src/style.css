@@ -7375,15 +7375,17 @@ a.tui-id-card-ref:focus-visible {
    into the answer's name line. */
 .tui-plan-answer {
   position: relative;
+  /* Room for the click-to-edit chip, which rides 10px above the field. */
+  margin-top: 6px;
   padding-left: 28px;
 }
 .tui-plan-answer::before {
   content: '';
   position: absolute;
   left: 10px;
-  top: -12px;
+  top: -18px;
   width: 15px;
-  height: 32px;
+  height: 38px;
   border-left: 1.5px solid var(--border-control);
   border-bottom: 1.5px solid var(--border-control);
   border-bottom-left-radius: 8px;
@@ -7393,7 +7395,7 @@ a.tui-id-card-ref:focus-visible {
 /* Editing opens a heading row above the field; the elbow follows the
    field's name line down past it. */
 .tui-plan-answer:has(.tui-cte[data-editing])::before {
-  height: 57px;
+  height: 63px;
 }
 /* Your reply carries a faint accent wash so it reads apart from the
    reviewer's comment above it; editing turns it back into a plain field. */
