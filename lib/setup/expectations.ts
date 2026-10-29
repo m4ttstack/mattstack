@@ -12,8 +12,6 @@ export type Target = "install" | "finish" | "skip" | "info";
 export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "tool.editor": "install",
   "tool.chrome": "install",
-  "home.backup": "install",
-  "tool.state-backup": "install",
   "team.identity": "install",
   "perm.notifications": "install",
   "tool.herdr": "finish",
@@ -29,6 +27,8 @@ export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "team.sync": "finish",
   "team.marketplace": "finish",
   "account.board-peering": "finish",
+  "home.backup": "finish",
+  "tool.state-backup": "finish",
   "skills.overrides": "skip",
   "tool.chrome-signin": "skip",
   "tool.mission-control": "skip",

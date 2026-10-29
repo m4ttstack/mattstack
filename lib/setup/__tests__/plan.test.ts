@@ -185,7 +185,7 @@ describe("composePlan", () => {
       expect(tools.find((r) => r.id === "tool.fast-browser")).toMatchObject({ required: false, finishGated: true, waivable: false, optionalNote: null });
       expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);
       // Only steps expected before Install on every path, each with something to press; nothing team-shaped.
-      expect(plan.requiredMissing).toEqual(["tool.chrome", "tool.state-backup", "home.backup"]);
+      expect(plan.requiredMissing).toEqual(["tool.chrome"]);
       expect(plan.canInstall).toBe(false);
     } finally {
       closeStateDb();
@@ -334,7 +334,7 @@ describe("composePlan — install-satisfied flip", () => {
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
       // The fake home has no home repo, so skills.writing-style also blocks Finish here.
-      expect(plan.finishBlockedBy).toEqual(["tool.mission-control", "skills.writing-style", "tool.linear-mcp", "tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.shell"]);
+      expect(plan.finishBlockedBy).toEqual(["tool.mission-control", "skills.writing-style", "tool.linear-mcp", "tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.shell", "tool.state-backup", "home.backup"]);
       expect(plan.requiredMissing).not.toContain("tool.fast-browser-extension");
     }
   });
@@ -471,7 +471,7 @@ describe("finish gate", () => {
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
       const r = everyRow(plan).rows.find((r) => r.id === "tool.mission-control")!;
       expect(r.optionalNote).toBe(waivedNote("tool.mission-control"));
-      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.linear-mcp", "tool.proxy", "tool.shell"]);
+      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.linear-mcp", "tool.proxy", "tool.shell", "tool.state-backup", "home.backup"]);
     } finally {
       process.env.HOME = prevHome;
       rmSync(home, { recursive: true, force: true });

@@ -28,6 +28,8 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
     "tool.fast-browser",
     "tool.proxy",
     "tool.shell",
+    "tool.state-backup",
+    "home.backup",
   ],
   "groups": [
     {
@@ -384,11 +386,13 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "action": {
             "type": "steps",
           },
+          "finishGated": true,
           "id": "tool.state-backup",
           "kind": "tool",
           "recheck": "on-activate",
-          "required": true,
+          "required": false,
           "status": "needs-you",
+          "waivable": false,
         },
         {
           "action": {
@@ -400,11 +404,13 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
               "home.init",
             ],
           },
+          "finishGated": true,
           "id": "home.backup",
           "kind": "tool",
           "recheck": "on-activate",
-          "required": true,
+          "required": false,
           "status": "needs-you",
+          "waivable": false,
         },
       ],
     },
@@ -416,8 +422,6 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
     "tool.claude",
     "tool.chrome",
     "tool.app",
-    "tool.state-backup",
-    "home.backup",
   ],
   "team": {
     "mode": "none",
@@ -598,6 +602,8 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
     "tool.fast-browser",
     "tool.proxy",
     "tool.shell",
+    "tool.state-backup",
+    "home.backup",
   ],
   "groups": [
     {
@@ -954,11 +960,13 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "action": {
             "type": "steps",
           },
+          "finishGated": true,
           "id": "tool.state-backup",
           "kind": "tool",
           "recheck": "on-activate",
           "required": true,
           "status": "needs-you",
+          "waivable": false,
         },
         {
           "action": {
@@ -970,11 +978,13 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
               "home.init",
             ],
           },
+          "finishGated": true,
           "id": "home.backup",
           "kind": "tool",
           "recheck": "on-activate",
           "required": true,
           "status": "needs-you",
+          "waivable": false,
         },
       ],
     },
@@ -989,8 +999,6 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
     "tool.chrome",
     "tool.app",
     "tool.daemon",
-    "tool.state-backup",
-    "home.backup",
   ],
   "team": {
     "mode": "none",

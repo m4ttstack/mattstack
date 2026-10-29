@@ -220,7 +220,7 @@ async function context(p: Probes, events: ApplyEvent[], opts: { update?: true } 
  * tool but git and claude. Every other required row (the org, team, pack,
  * plugin and skills rows) must pass.
  */
-const MACHINE_ONLY_CHECKS = new Set(["perm.fda", "perm.login-items", "tool.macos", "tool.arch", "tool.herdr", "tool.claude", "tool.fast-browser", "tool.chrome", "tool.state-backup", "home.backup", "tool.app", "tool.daemon", "access.team-repo", "access.forge"]);
+const MACHINE_ONLY_CHECKS = new Set(["perm.fda", "perm.login-items", "tool.macos", "tool.arch", "tool.herdr", "tool.claude", "tool.fast-browser", "tool.chrome", "tool.app", "tool.daemon", "access.team-repo", "access.forge"]);
 
 /** No failed and no needs-you outcome; verify may fail only on the machine checks, read with verify's own inputs and its own member-task rule. */
 async function expectCleanRun(run: Awaited<ReturnType<typeof runUpdate>>, ctx: ApplyContext): Promise<void> {
