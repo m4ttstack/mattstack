@@ -4,6 +4,7 @@ import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
 import { ALL_TURN } from '../turn.ts';
 import {
+  activeOff,
   ageText,
   arrangeGroups,
   behindToken,
@@ -19,7 +20,6 @@ import {
   groupMRs,
   groupOnLeavingSeat,
   hasStackDescendants,
-  activeOff,
   isOwnMr,
   isOwnView,
   isPeered,

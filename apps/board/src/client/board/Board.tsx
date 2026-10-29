@@ -1676,9 +1676,7 @@ export function Board() {
   const toggleShow = (item: ShowItem) => {
     const turningOff = !off.includes(item);
     const nextOff = turningOff ? [...off, item] : off.filter(i => i !== item);
-    update(
-      isOwnView(state, self) ? { ownOff: nextOff } : { off: nextOff }
-    );
+    update(isOwnView(state, self) ? { ownOff: nextOff } : { off: nextOff });
     if (!(turningOff && item === 'notPosted' && data.local)) return;
     postAction('/slack/refresh', {}).then(result => {
       if (!result.ok)
