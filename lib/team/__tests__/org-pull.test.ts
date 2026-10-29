@@ -57,6 +57,13 @@ describe("pullOrgClone", () => {
     expect((await pullOrgClone(held, SLUG, noToken)).outcome).toBe("held");
   });
 
+  test("a running daemon with no instance for the slug: the direct pull runs", async () => {
+    const p = probes(git(), (cmd) => (cmd === "ping" ? { ok: true } : { ok: false, error: "no team", failure: { code: "no-team", message: "no team" } }));
+    const pull = await pullOrgClone(p, SLUG, noToken);
+    expect(pull.outcome).toBe("pulled");
+    expect(p.calls.exec.some((argv) => subcommand(argv, "fetch"))).toBe(true);
+  });
+
   test("no daemon: fetch, then fast-forward a clean clone", async () => {
     const p = probes(git());
     const pull = await pullOrgClone(p, SLUG, noToken);

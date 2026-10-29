@@ -89,7 +89,9 @@ export async function pullOrgClone(p: Probes, slug: string, seams: { token?: (p:
   try {
     if ((await p.daemon("ping")) !== null) {
       const res = (await p.daemon("team:pull", { slug }, PULL_TIMEOUT_MS)) as PullReply | null;
-      return res === null ? { outcome: "skipped", detail: "The pull is still running in the daemon" } : fromDaemon(slug, res);
+      if (res === null) return { outcome: "skipped", detail: "The pull is still running in the daemon" };
+      // No daemon instance owns this clone (sync turned off, or a clone the rescan has not seen), so nothing races a direct pull.
+      if (res.ok || res.failure?.code !== "no-team") return fromDaemon(slug, res);
     }
     return await pullDirect(p, slug, seams.token ?? storedForgeToken);
   } catch (err) {
