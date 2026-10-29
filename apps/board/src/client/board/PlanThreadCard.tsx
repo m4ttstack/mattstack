@@ -69,9 +69,10 @@ export function PlanThreadCard({
   useEffect(() => {
     if (picked === undefined && recommended)
       form.setSingle(q.name, recommended.value);
-    // Seeds once per thread; a thread with a pick keeps it.
+    // Seeds a thread with no pick, again after the dock's reset clears it;
+    // a thread with a pick keeps it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q.name]);
+  }, [q.name, picked === undefined]);
 
   const choose = (value: string) => form.setSingle(q.name, value);
   const kept = picked !== skip?.value;
