@@ -3592,7 +3592,7 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
-  padding: 14px 20px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
 }
 .tui-gate-sheet-lead {
