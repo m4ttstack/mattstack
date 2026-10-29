@@ -19,7 +19,6 @@ import {
   ThreadCode,
 } from './GateParts.tsx';
 import { SeverityPill } from './RespondCards.tsx';
-import { Note } from './SheetParts.tsx';
 
 /** One reviewer thread on the plan gate, in the review finding's card: the
     tick keeps it (unticked posts nothing and changes nothing), the code the
@@ -164,7 +163,6 @@ export function PlanThreadCard({
             )}
           </Answer>
         )}
-        <Note q={q} form={form} />
       </CommentArea>
     </GateCard>
   );
