@@ -173,7 +173,7 @@ describe("setupStatus Finish line", () => {
       const rows = cap.stdout().trimEnd().split("\n");
       const install = rows.findIndex((l) => l.includes("Install can run") || l.includes("Install is waiting on"));
       expect(install).toBeGreaterThan(0);
-      expect(rows[install + 1]).toBe("[needs you] Finish is waiting on  Mission Control shortcut, Writing style, Linear MCP, Fast Browser, Local proxy, Shell integration, State backup tools, Home repo backup");
+      expect(rows[install + 1]).toBe("[needs you] Finish is waiting on  Mission Control shortcut, Writing style, Linear MCP, Fast Browser, Local proxy, State backup tools, Home repo backup");
     } finally {
       cap.restore();
     }

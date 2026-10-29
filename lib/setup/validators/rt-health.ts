@@ -7,7 +7,7 @@
  * implementation.
  */
 
-import { join } from "path";
+import { basename, join } from "path";
 import { RT_BUNDLE_PATH } from "../../bundle-layout.ts";
 import type { DaemonResponse } from "../../daemon-client.ts";
 import { activeLaunchdLabel, isDaemonInstalled } from "../../daemon-config.ts";
@@ -345,7 +345,8 @@ function shellRow(p: Probes): Row {
     required: false,
     optionalNote: "Works without this; you can still run `rt cd` directly, just not the `rtcd` shell alias.",
   };
-  const shell = detectShellFrom(p.env.SHELL ?? "");
+  const shellEnv = p.env.SHELL ?? "";
+  const shell = detectShellFrom(shellEnv);
   const rc = shellRcPathFor(shell, p.home);
   if (rc) {
     const content = p.readFile(rc) ?? "";
@@ -360,7 +361,8 @@ function shellRow(p: Probes): Row {
     }
     return row({ ...base, status: "needs-you", detail: "Shell integration not added yet", action: ADD_TO_SHELL_ACTION });
   }
-  return row({ ...base, status: "needs-you", detail: "rt does not know this shell, so add the rtcd alias yourself" });
+  // rt has no integration to check for this shell, so nothing here can ever turn ready.
+  return row({ ...base, status: "skipped", detail: shellEnv ? `No shell integration for ${basename(shellEnv)}` : "No login shell set" });
 }
 
 async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {

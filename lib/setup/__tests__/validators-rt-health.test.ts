@@ -1,5 +1,6 @@
 import { afterEach, afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { MARKER } from "../../shell-integration.ts";
+import { applyExpectations } from "../expectations.ts";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -394,21 +395,21 @@ describe("rtHealthRows — tool.intercepts", () => {
 });
 
 describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
-  test("no SHELL set -> needs-you, honest 'can't write automatically' detail (finding #11)", async () => {
+  test("no SHELL set -> skipped, since there is no login shell to integrate with", async () => {
     const p = fakeProbes({ home: "/fake-home" });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
-    expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("rt does not know this shell");
-    expect(r.detail).not.toBe("shell integration not added yet");
+    expect(r.status).toBe("skipped");
+    expect(r.detail).toBe("No login shell set");
     expect(r.action).toBeNull();
-    expect(r.optionalNote).not.toBeNull();
   });
 
-  test("an unrecognized shell (e.g. tcsh) -> the same honest 'can't write automatically' detail", async () => {
+  test("an unrecognized shell is skipped, never a Finish gate", async () => {
     const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/tcsh" } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
-    expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("rt does not know this shell");
+    expect(r.status).toBe("skipped");
+    expect(r.detail).toBe("No shell integration for tcsh");
+    const gated = applyExpectations([{ id: "rt", title: "rt", rows: [r] }])[0]!.rows[0]!;
+    expect(gated.finishGated).not.toBe(true);
   });
 
   test("zsh rc file contains rtcd -> ready", async () => {

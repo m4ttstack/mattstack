@@ -27,7 +27,6 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
     "tool.linear-mcp",
     "tool.fast-browser",
     "tool.proxy",
-    "tool.shell",
     "tool.state-backup",
     "home.backup",
   ],
@@ -338,20 +337,12 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "status": "missing",
         },
         {
-          "action": {
-            "type": "run",
-            "verb": [
-              "setup",
-              "status",
-            ],
-          },
-          "finishGated": true,
+          "action": null,
           "id": "tool.shell",
           "kind": "tool",
           "recheck": "on-change",
           "required": false,
-          "status": "needs-you",
-          "waivable": false,
+          "status": "skipped",
         },
         {
           "action": {
@@ -569,8 +560,7 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "tool.rt.optionalNote": null,
   "tool.rt.title": "rt binary",
   "tool.rt.why": "rt itself must be on PATH before anything else can run.",
-  "tool.shell.action.label": "Re-check",
-  "tool.shell.detail": "rt does not know this shell, so add the rtcd alias yourself",
+  "tool.shell.detail": "No login shell set",
   "tool.shell.optionalNote": null,
   "tool.shell.title": "Shell integration",
   "tool.shell.why": "The rtcd alias and PATH precedence come from your shell rc file.",
@@ -601,7 +591,6 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
     "tool.linear-mcp",
     "tool.fast-browser",
     "tool.proxy",
-    "tool.shell",
     "tool.state-backup",
     "home.backup",
   ],
@@ -912,20 +901,12 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "status": "missing",
         },
         {
-          "action": {
-            "type": "run",
-            "verb": [
-              "setup",
-              "status",
-            ],
-          },
-          "finishGated": true,
+          "action": null,
           "id": "tool.shell",
           "kind": "tool",
           "recheck": "on-change",
-          "required": true,
-          "status": "needs-you",
-          "waivable": false,
+          "required": false,
+          "status": "skipped",
         },
         {
           "action": {
@@ -1146,8 +1127,7 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.rt.optionalNote": null,
   "tool.rt.title": "rt binary",
   "tool.rt.why": "rt itself must be on PATH before anything else can run.",
-  "tool.shell.action.label": "Re-check",
-  "tool.shell.detail": "rt does not know this shell, so add the rtcd alias yourself",
+  "tool.shell.detail": "No login shell set",
   "tool.shell.optionalNote": null,
   "tool.shell.title": "Shell integration",
   "tool.shell.why": "The rtcd alias and PATH precedence come from your shell rc file.",
