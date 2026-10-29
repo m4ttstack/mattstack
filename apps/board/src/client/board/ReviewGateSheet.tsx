@@ -614,21 +614,6 @@ function ReviewGateSheet({
   if (!data) return null;
   const { review } = data;
   const meta = reviewMeta(review);
-  const roundSummary = [
-    carryovers.length > 0
-      ? `${carryovers.length} earlier ${carryovers.length === 1 ? 'thread' : 'threads'}`
-      : null,
-    findings.length > 0
-      ? `${findings.length} new ${findings.length === 1 ? 'finding' : 'findings'}`
-      : carryovers.length > 0
-        ? 'nothing new'
-        : null,
-    skippedEntries.length > 0
-      ? `${skippedEntries.length} skipped earlier`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
 
   const contextCard = (
     <div className="tui-sheet-context-card">
@@ -693,7 +678,6 @@ function ReviewGateSheet({
           {review.round !== undefined && (
             <RoundHeading
               round={review.round}
-              summary={roundSummary}
               aside={
                 review.round >= 2 && <ReviewTrack round={review.round} />
               }
