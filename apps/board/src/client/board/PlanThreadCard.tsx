@@ -59,6 +59,9 @@ export function PlanThreadCard({
   const skip = by('skip:');
   const current = form.selections[q.name];
   const picked = typeof current === 'string' ? current : undefined;
+  // The agent's pick seeds the thread, skip included; re-ticking a skipped
+  // thread needs a direction, so it falls back past skip.
+  const seed = (q.choices.find(c => c.recommended) ?? fix ?? reply)?.value;
   const recommended =
     q.choices.find(c => c.recommended && c !== skip) ?? fix ?? reply;
   // Re-ticking a thread brings back the choice it had before it was
@@ -67,16 +70,15 @@ export function PlanThreadCard({
   if (picked && picked !== skip?.value) lastKept.current = picked;
 
   useEffect(() => {
-    if (picked === undefined && recommended)
-      form.setSingle(q.name, recommended.value);
+    if (picked === undefined && seed) form.setSingle(q.name, seed);
     // Seeds a thread with no pick, again after the dock's reset clears it;
     // a thread with a pick keeps it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.name, picked === undefined]);
 
   const choose = (value: string) => form.setSingle(q.name, value);
-  const kept = picked !== skip?.value;
-  const answer = picked ?? recommended?.value;
+  const answer = picked ?? seed;
+  const kept = answer !== skip?.value;
   const fixing = !!fix && answer === fix.value;
   const replying = !!reply && answer === reply.value;
   const call = THREAD_CALL[ctx.verdict.call];

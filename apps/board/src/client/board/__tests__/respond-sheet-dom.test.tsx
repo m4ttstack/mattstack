@@ -312,6 +312,30 @@ test('reset on the plan sheet puts every thread back on its recommended pick', a
   expect(submit().textContent).toBe('submit · 2 fixes');
 });
 
+test('a thread the agent recommends skipping opens skipped, and reset skips it again', async () => {
+  const gate = planGate();
+  const q2 = gate.questions[1]!;
+  gate.questions[1] = {
+    ...q2,
+    options: [
+      { value: 'reply:t2', label: 'reply' },
+      { value: 'fix:t2', label: 'fix' },
+      { value: 'skip:t2', label: 'skip (Recommended)' },
+    ],
+  };
+  await render(gate);
+  const tick = () =>
+    planCards()[1]!.querySelector(
+      '.tui-reply-head input[type="checkbox"]'
+    ) as HTMLInputElement;
+  expect(tick().checked).toBe(false);
+  expect(submit().textContent).toBe('submit · 1 fix · 1 skip');
+  await pick('fix:t2');
+  await click($('.tui-sheet-reset'));
+  expect(tick().checked).toBe(false);
+  expect(submit().textContent).toBe('submit · 1 fix · 1 skip');
+});
+
 async function pressSubmit() {
   await React.act(async () => {
     $('.tui-gate-sheet')!.dispatchEvent(
