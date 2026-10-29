@@ -63,17 +63,42 @@ creature and its indicator.
 
 Queued subtitles, by why the request is waiting: "Starts on the next
 sweep" (nothing blocks it), "Waiting out the cooldown", "Daily limit hit;
-starts tomorrow", "Waiting for the running review" (review or respond in
-flight).
+starts tomorrow", "Waiting for the running review" (`review-in-flight`).
+These are the only reasons `decideRequest` can give a latch request that
+clear by themselves; respond never blocks a latch.
 
-Done-comments takes N from the review's structured JSON report
-(`readReviewReportJson`) when the pane wrote one: "1 new comment", "N new
-comments" up to 20, "20+ new comments". With no JSON report, "New
-comments. Resolve when ready".
+Error, retrying names the wait the same way when a retry is blocked:
+"Retrying on the next sweep", "Retrying after the cooldown", "Daily limit
+hit; retrying tomorrow".
 
-The note body under the image keeps a plain sentence per state, so email
-notifications and blocked images still say what is happening. The current
-armed and spent copy stays; new states get one sentence each.
+Done-comments counts what actually landed: the reviewer's discussions on
+the MR created after the follow-up launched (the launch stamp, below).
+"1 new comment", "N new comments" up to 20, "20+ new comments". Zero, or a
+count the board cannot read, shows "Review posted. Resolve when ready".
+(My call: the report JSON's findings are the drafted set, and the
+reviewer can drop findings before posting.)
+
+The note body under the image keeps a plain sentence per state, so
+blocked images still say what is happening. The current armed and spent
+copy stays; new states get one sentence each.
+
+## Replies and notifications
+
+GitLab emails on a new note, not on an edit, so banner swaps are silent.
+The board posts a thread reply only when the author or reviewer needs to
+know (Matt's call):
+
+- the follow-up finished: one reply with the outcome (comments with the
+  count, or approved);
+- the latch is stuck: one reply saying the reviewer has been told.
+
+Queued, running, retries and wait-reason changes are banner edits only.
+Today's "Follow-up review started" reply goes away; the running banner
+replaces it. Hard refusals keep today's "Not yet" reply.
+
+A stuck latch always sends the reviewer the rt desktop notification, even
+when `triage.notify` is `badge-only` (Matt's call: it is rare and needs a
+person).
 
 The prototype GIFs and preview this design was reviewed from were rendered
 by a throwaway Chromium script; they are the visual reference for frame
@@ -86,9 +111,9 @@ timing and layout, not code to keep.
 2. The author resolves it. The next latch pass sees the request, rewrites
    the note to `queued` with the banner for the current wait reason, and
    leaves the thread resolved. It does not reply "Not yet" for a reason
-   that clears by itself (cooldown, budget, review or respond in flight).
-   Reasons that never clear (no earlier commented review, already
-   reviewed) keep today's refusal reply and reopen.
+   that clears by itself (cooldown, budget, review in flight). Reasons
+   that never clear (no earlier commented review, already reviewed) keep
+   today's refusal reply and reopen.
 3. Each pass re-decides every queued latch. When the decision becomes
    dispatch, it launches the review, rewrites to `running`, and charges
    cooldown and budget exactly as today. If the wait reason changes, the
@@ -102,14 +127,53 @@ timing and layout, not code to keep.
    resolved, and treat it as queued for the next pass. Retries obey
    cooldown and budget. A retry that launches flips it back to `running`.
 6. After three failed attempts in one request cycle, the latch stays
-   `error` with the stuck banner, retries stop, and the reviewer gets a
-   board notification. It leaves stuck only when that MR's review runs
+   `error` with the stuck banner, retries stop, the thread gets the stuck
+   reply, and the reviewer gets a desktop notification. It leaves stuck only when that MR's review runs
    again (the reviewer relaunches it from the board): the pass sees the
    review `reviewing` and flips the latch to `running`.
 
 Approvals keep today's precedence: the reviewer's own approval (via
 review or GitLab) spends every copy from any state, and spent still wins
 over everything in the pass.
+
+Edge cases (my calls):
+
+- **Any review satisfies the request.** A review that starts while the
+  latch is queued or error, even one the reviewer launched by hand from
+  the board, is the follow-up: the latch goes to `running` and lands like
+  any other. One ask never gets two reviews.
+- **A review parked at its post gate is running**, however long it waits;
+  the liveness check must not read a parked gate as dead.
+- **A follow-up that ends done with no outcome** (the reviewer abandoned
+  the post gate) consumed the request: back to the plain armed banner,
+  thread reopened, no reply.
+- **Retries count like launches.** A retry charges cooldown and budget
+  exactly as a first launch. A pane that fails to start counts as a
+  failure. Failures count per request cycle, across days, and reset when
+  a follow-up lands with an outcome.
+- **The author reopens a queued latch**: the request is withdrawn; back
+  to armed. Reopening a running or error latch changes nothing until the
+  run lands.
+- **The review step never posts a duplicate.** `applyReviewLatch` posts a
+  fresh armed latch only when this reviewer has no latch in any non-spent
+  kind.
+
+## Where the latch's state lives (my call)
+
+The note is what people see; the board's state db is the record. A new
+table keyed by MR and latch discussion holds the kind, the request cycle,
+the launch stamp of the follow-up the latch is waiting on, and the
+failure count. The cron pass (`bin/triage.ts`) and the board server both
+read and write it; every transition is a compare-and-set on the row's
+current kind, and the note is rewritten only after the row moves.
+
+This is what makes the daemon's stale discussion reads harmless: a
+stale note showing `queued` or `armed`+resolved after the row already
+says `running` is ignored, so it can never re-request or clobber the
+banner. The note's marker stays the fallback when no row exists (latches
+posted before this change, or a lost db), read exactly as today. The
+failure count lives in this row, not in the cron's dispatch memory file,
+because the server records errors and outcomes too.
 
 ## Markers
 
@@ -177,16 +241,16 @@ their next state change, then get the new banner.
 - `apps/board/src/latch/review-step.ts` and the server's latch step:
   done transitions from running, error transition on a review error.
 - `apps/board/scripts/build-latch-band.ts` and `assets/latch/`.
+- `apps/board/src/state/db.ts`: the latch state table.
+- `apps/board/src/triage/notify.ts` or its caller: the stuck
+  notification that ignores `triage.notify`.
 
 ## Calls the builder makes
 
 - The two-frame leg shuffle has to work for all 16 invadr creatures;
   derive it from the bottom rows generically and check every sprite in
   the build preview.
-- Where the three-failure count lives (dispatch memory per MR is the
-  obvious home) and when it resets (a launch that reaches `done`).
-- What a manual reopen of a queued latch means. Suggested: the author
-  withdrew the request, so rewrite to armed.
+- The latch table's exact schema and its `SCHEMA_VERSION` claim.
 - Audit entries for each new transition, in the existing `latch` event
   shape.
 - How the pass detects a dead running review: reuse the run liveness
