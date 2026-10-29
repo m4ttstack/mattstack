@@ -30,6 +30,7 @@ import {
 } from '../../selection.ts';
 import { ALL_TURN } from '../../turn.ts';
 import {
+  activeOff,
   arrangeGroups,
   dataAgeLabel,
   effectiveSeat,
@@ -41,6 +42,7 @@ import {
   GROUP_KEYS,
   groupOnLeavingSeat,
   isOwnMr,
+  isOwnView,
   NEEDS_ME_TAB,
   nestStacks,
   offeredShowItems,
@@ -1303,13 +1305,29 @@ export function Board() {
       turnCfg,
       self
     );
+    // Your own entry counts under your own view's picks, so it too matches
+    // the rows picking it shows.
+    const ownCount = (username: string) =>
+      filterByShow(
+        filterByMember(tabFiltered, username),
+        state.ownOff,
+        offeredFor(username),
+        turnCfg,
+        self
+      ).rows.length;
     const roster = (inferred ? inferRoster(tabFiltered) : data.members).map(
-      m => ({ ...m, count: byAuthor.get(m.username) ?? 0 })
+      m => ({
+        ...m,
+        count: isOwnView({ member: m.username }, self)
+          ? ownCount(m.username)
+          : (byAuthor.get(m.username) ?? 0),
+      })
     );
     const memberFiltered = filterByMember(tabFiltered, state.member);
+    const off = activeOff(state, self);
     const { rows: filtered, counts: showCounts } = filterByShow(
       memberFiltered,
-      state.off,
+      off,
       offered,
       turnCfg,
       self
@@ -1349,6 +1367,8 @@ export function Board() {
       roster,
       rosterTotal,
       offered,
+      off,
+      self,
       showCounts,
       memberFiltered,
       summary,
@@ -1526,6 +1546,8 @@ export function Board() {
     roster,
     rosterTotal,
     offered,
+    off,
+    self,
     showCounts,
     memberFiltered,
     summary,
@@ -1652,12 +1674,11 @@ export function Board() {
   // other items ride the regular poll. Quiet unless it fails: a toast on
   // every chip click reads like something went wrong.
   const toggleShow = (item: ShowItem) => {
-    const turningOff = !state.off.includes(item);
-    update({
-      off: turningOff
-        ? [...state.off, item]
-        : state.off.filter(i => i !== item),
-    });
+    const turningOff = !off.includes(item);
+    const nextOff = turningOff ? [...off, item] : off.filter(i => i !== item);
+    update(
+      isOwnView(state, self) ? { ownOff: nextOff } : { off: nextOff }
+    );
     if (!(turningOff && item === 'notPosted' && data.local)) return;
     postAction('/slack/refresh', {}).then(result => {
       if (!result.ok)
@@ -1690,7 +1711,7 @@ export function Board() {
       offered.length > 0
         ? {
             offered,
-            off: state.off,
+            off,
             counts: showCounts,
             // BoardData carries no board-wide channel; a row's resolved
             // slackChannel is the tab's override or the team's review channel.
