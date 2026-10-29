@@ -515,24 +515,36 @@ test('a reviewer the switchboard reaches keeps the switchboard ask, not the latc
   expect(keys).not.toContain('latch-kim');
 });
 
-test("a reviewer whose switchboard review errored keeps the latch's follow-up review", () => {
-  const errored = {
-    ...ownIdle,
-    peerReviews: [
-      {
-        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/231',
-        iid: ownIdle.iid,
-        reviewer: 'jo',
-        status: 'error',
-        updatedAt: 1,
-      },
-    ],
-    reviewerLatches: [{ reviewer: 'jo', discussionId: 'd9', requested: false }],
-  };
-  const keys = rowActions(errored, actionEnvOf(ownEnv, errored)).map(
-    a => a.key
-  );
+const erroredReview = {
+  ...ownIdle,
+  peerReviews: [
+    {
+      mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/231',
+      iid: ownIdle.iid,
+      reviewer: 'jo',
+      status: 'error',
+      updatedAt: 1,
+    },
+  ],
+  reviewerLatches: [{ reviewer: 'jo', discussionId: 'd9', requested: false }],
+};
+
+test('a switchboard peer whose review errored gets the switchboard follow-up review, not the latch', () => {
+  const keys = rowActions(
+    erroredReview,
+    actionEnvOf({ ...ownEnv, peers: ['jo'] }, erroredReview)
+  ).map(a => a.key);
+  expect(keys).toContain('nudge-jo');
+  expect(keys).not.toContain('latch-jo');
+});
+
+test("a reviewer off the switchboard whose review errored keeps the latch's follow-up review", () => {
+  const keys = rowActions(
+    erroredReview,
+    actionEnvOf({ ...ownEnv, peers: [] }, erroredReview)
+  ).map(a => a.key);
   expect(keys).toContain('latch-jo');
+  expect(keys).not.toContain('nudge-jo');
 });
 
 test('request review from… carries its picker; asks name their reviewer', () => {

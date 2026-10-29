@@ -465,7 +465,7 @@ export function rowActions(
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
       );
-    for (const latch of latchTargets(mrx))
+    for (const latch of latchTargets(mrx, env.peers))
       agent.push(
         item(
           'agent',

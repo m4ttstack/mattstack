@@ -122,8 +122,12 @@ const NUDGE_RETRYABLE = new Set<SentNudgeInfo['display']>([
   'failed',
 ]);
 
+const onSwitchboard = (reviewer: string, peers?: readonly string[]) =>
+  !peers || peers.includes(reviewer);
+
 /** Peers we can ask to look again: their review finished with comments (so
-    there's something to re-check) and no ask of ours is still outstanding. */
+    there's something to re-check) or errored (so asking again is the retry),
+    and no ask of ours is still outstanding. */
 function nudgeTargets(
   mrx: BoardMRWithReview,
   peers?: readonly string[]
@@ -131,22 +135,25 @@ function nudgeTargets(
   if (askOutstanding(mrx)) return [];
   return (mrx.peerReviews ?? []).filter(
     p =>
-      p.status === 'done' &&
-      p.outcome === 'comment' &&
-      (!peers || peers.includes(p.reviewer))
+      ((p.status === 'done' && p.outcome === 'comment') ||
+        p.status === 'error') &&
+      onSwitchboard(p.reviewer, peers)
   );
 }
 
 /** Reviewers to ask through their latch thread: an armed latch on the MR
     from someone the switchboard has said nothing about. A reviewer it has
     heard from is either a switchboard ask already or mid-review, unless
-    that report is an error: then the switchboard offers nothing and the
-    latch is the only way left to ask. */
-function latchTargets(mrx: BoardMRWithReview): ReviewerLatch[] {
+    that report is an error from a reviewer the switchboard no longer
+    reaches: then the latch is the only way left to ask. */
+function latchTargets(
+  mrx: BoardMRWithReview,
+  peers?: readonly string[]
+): ReviewerLatch[] {
   if (askOutstanding(mrx)) return [];
   const known = new Set(
     (mrx.peerReviews ?? [])
-      .filter(p => p.status !== 'error')
+      .filter(p => p.status !== 'error' || onSwitchboard(p.reviewer, peers))
       .map(p => p.reviewer.toLowerCase())
   );
   return (mrx.reviewerLatches ?? []).filter(
