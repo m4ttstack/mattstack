@@ -515,6 +515,26 @@ test('a reviewer the switchboard reaches keeps the switchboard ask, not the latc
   expect(keys).not.toContain('latch-kim');
 });
 
+test("a reviewer whose switchboard review errored keeps the latch's follow-up review", () => {
+  const errored = {
+    ...ownIdle,
+    peerReviews: [
+      {
+        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/231',
+        iid: ownIdle.iid,
+        reviewer: 'jo',
+        status: 'error',
+        updatedAt: 1,
+      },
+    ],
+    reviewerLatches: [{ reviewer: 'jo', discussionId: 'd9', requested: false }],
+  };
+  const keys = rowActions(errored, actionEnvOf(ownEnv, errored)).map(
+    a => a.key
+  );
+  expect(keys).toContain('latch-jo');
+});
+
 test('request review from… carries its picker; asks name their reviewer', () => {
   const actions = rowActions(failedLanes, actionEnvOf(failedEnv, failedLanes));
   expect(actions.find(a => a.key === 'request-review')).toMatchObject({
