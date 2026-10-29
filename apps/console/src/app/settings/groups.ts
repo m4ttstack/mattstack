@@ -70,6 +70,13 @@ export const GROUPS: Group[] = [
     match: prefix('rt.evidence.'),
   },
   {
+    id: 'review',
+    label: 'Reviews',
+    tier: 'rt',
+    blurb: 'How the team pack runs its reviews.',
+    match: prefix('review.'),
+  },
+  {
     id: 'notifications',
     label: 'Notifications & gates',
     tier: 'rt',
