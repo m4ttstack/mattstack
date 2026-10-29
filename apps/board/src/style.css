@@ -7389,6 +7389,9 @@ a.tui-id-card-ref:focus-visible {
   border-bottom-left-radius: 8px;
 }
 .tui-plan-later {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   align-self: flex-start;
   width: fit-content;
   margin: 0;
@@ -7399,6 +7402,19 @@ a.tui-id-card-ref:focus-visible {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-2);
+}
+.tui-plan-later-info {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-3);
+  cursor: help;
+}
+.tui-plan-later-info:hover,
+.tui-plan-later-info:focus-visible {
+  color: var(--text-1);
 }
 /* The name line inside a comment field, like the reviewer's name in theirs. */
 .tui-cte-lead {

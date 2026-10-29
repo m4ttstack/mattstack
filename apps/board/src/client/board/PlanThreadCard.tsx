@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { CornerDownRight, MessageSquare, Wrench } from 'lucide-react';
+import { CornerDownRight, Info, MessageSquare, Wrench } from 'lucide-react';
 
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
-import { LabeledSeg } from '@mattstack/tui-kit';
+import { LabeledSeg, Tooltip } from '@mattstack/tui-kit';
 import { commentState } from './CommentComposer.tsx';
 import type { ThreadCtx } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
@@ -19,6 +19,8 @@ import {
   ThreadCode,
 } from './GateParts.tsx';
 import { SeverityPill } from './RespondCards.tsx';
+
+const LATER_TIP = 'The agent drafts it in Fix. You edit it in Post';
 
 /** One reviewer thread on the plan gate, in the review finding's card: the
     tick keeps it (unticked posts nothing and changes nothing), the code the
@@ -156,6 +158,15 @@ export function PlanThreadCard({
             ) : (
               <p className="tui-plan-later">
                 Drafted at posting
+                <Tooltip tip={LATER_TIP}>
+                  <button
+                    type="button"
+                    className="tui-plan-later-info"
+                    aria-label={LATER_TIP}
+                  >
+                    <Info size={14} aria-hidden />
+                  </button>
+                </Tooltip>
               </p>
             )}
           </Answer>
