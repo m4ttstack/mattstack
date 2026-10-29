@@ -10,9 +10,9 @@ import type { FindingEntry, VerdictCall } from './gate-ctx.ts';
 import { CommentAuthor } from './PersonLead.tsx';
 import { CodeSection, CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 
-/** The parts every gate card is built from: a review finding, a re-review
-    thread, a respond plan thread and a respond post reply are the same
-    card with different contents. */
+// The parts every gate card is built from: a review finding, a re-review
+// thread, a respond plan thread and a respond post reply are the same card
+// with different contents.
 
 export type StatusHue = 'green' | 'amber' | 'accent' | 'muted';
 

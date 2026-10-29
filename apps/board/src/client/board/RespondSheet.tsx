@@ -140,17 +140,13 @@ function PostChoice({
 }
 
 /** A post-step thread drawn with its plan-step card; `children` are the
-    controls for what this gate does with its reply. `reply`, when given,
-    draws the reply in place of the card's read-only one. A reply-only
-    thread takes no controls: Gate 1 decided it, and it posts with this
-    step. */
+    controls for what this gate does with its reply. A reply-only thread
+    takes no controls: Gate 1 decided it, and it posts with this step. */
 function PostStepCard({
   j,
-  reply,
   children,
 }: {
   j: JoinedThread;
-  reply?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -175,16 +171,13 @@ function PostStepCard({
         replyEdited={Boolean(j.replyOnly?.edited)}
         ctx={{
           ...j.thread,
-          reply:
-            j.reply && !reply
-              ? { kind: 'verbatim', text: j.reply.text }
-              : j.replyOnly
-                ? { kind: 'verbatim', text: j.replyOnly.text }
-                : { kind: 'none' },
+          reply: j.reply
+            ? { kind: 'verbatim', text: j.reply.text }
+            : j.replyOnly
+              ? { kind: 'verbatim', text: j.replyOnly.text }
+              : { kind: 'none' },
         }}
-      >
-        {reply}
-      </ThreadCard>
+      ></ThreadCard>
       {j.reply
         ? children
         : !j.replyOnly && (

@@ -114,8 +114,8 @@ export function ClickToEditField({
   /** Controls in a strip along the field's bottom, inside its border and
       outside the text, so a click there never opens the field. */
   footer?: ReactNode;
-  /** A line inside the box above the text, such as who is writing ("You:");
-      it is not part of the click target. */
+  /** A line inside the box above the text, such as who is writing ("You:").
+      A click on it edits the field like a click on the text. */
   lead?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);

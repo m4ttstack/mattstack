@@ -160,16 +160,6 @@ function ThreadOutcome({
   );
 }
 
-/** A thread's outcome inside its composer strip, for a thread whose
-    composer is its whole card. */
-function StripOutcome({ verb }: { verb: 'reply' | 'fix' | 'skip' }) {
-  return (
-    <span className="tui-composer-status" data-outcome={verb}>
-      {OUTCOME_TEXT[verb]}
-    </span>
-  );
-}
-
 /** A respond-post reply option's label: where the reply lands, whether it
     rides a pushed fix, and the full text that will be posted. `children`
     joins the label row (the recommended chip). `showFile` is false where
@@ -321,7 +311,6 @@ export {
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
-  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 };
