@@ -37,7 +37,11 @@ function readSubBlocks(b: Uint8Array, p: number): [Uint8Array, number] {
   return [Uint8Array.from(parts), p + 1];
 }
 
-function lzwDecode(data: Uint8Array, minSize: number, count: number): Uint8Array {
+function lzwDecode(
+  data: Uint8Array,
+  minSize: number,
+  count: number
+): Uint8Array {
   const out = new Uint8Array(count);
   const clear = 1 << minSize;
   const end = clear + 1;
@@ -84,7 +88,8 @@ function parseGif(b: Uint8Array): Gif {
   const palette: [number, number, number][] = [];
   if (packed & 0x80) {
     const n = 1 << ((packed & 7) + 1);
-    for (let i = 0; i < n; i++, p += 3) palette.push([b[p]!, b[p + 1]!, b[p + 2]!]);
+    for (let i = 0; i < n; i++, p += 3)
+      palette.push([b[p]!, b[p + 1]!, b[p + 2]!]);
   }
   const frames: GifFrame[] = [];
   let delay = 0;
@@ -112,7 +117,7 @@ function parseGif(b: Uint8Array): Gif {
 
 function rgbAt(gif: Gif, frame: number, x: number, y: number): string {
   const [r, g, b] = gif.palette[gif.frames[frame]!.pixels[y * gif.width + x]!]!;
-  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+  return `#${[r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
 const cache = new Map<string, Uint8Array>();
@@ -139,12 +144,12 @@ const FRAMES: Record<BannerVariant['state'], number> = {
 };
 
 function toGrid(rows: readonly string[]): boolean[][] {
-  return rows.map((row) => [...row].map((c) => c === '#'));
+  return rows.map(row => [...row].map(c => c === '#'));
 }
 
 /** Centre of sprite cell (col, row) at rest, for the 11-wide creatures. */
 function cellCentre(col: number, row: number): [number, number] {
-  return [28 + (2 + col) * 6 + 3, 31 + row * 6 + 3];
+  return [28 + (2 + col) * 6 + 3, 32 + row * 6 + 3];
 }
 
 describe('latchBannerGif', () => {
@@ -178,18 +183,22 @@ describe('latchBannerGif', () => {
 
   test('deterministic for one MR', () => {
     const again = latchBannerGif(MR_A, { state: 'running' });
-    expect(Buffer.from(again).equals(Buffer.from(gifFor('running')))).toBe(true);
+    expect(Buffer.from(again).equals(Buffer.from(gifFor('running')))).toBe(
+      true
+    );
   });
 
   test('differs between MRs', () => {
     expect(
-      Buffer.from(gifFor('running', MR_B)).equals(Buffer.from(gifFor('running')))
+      Buffer.from(gifFor('running', MR_B)).equals(
+        Buffer.from(gifFor('running'))
+      )
     ).toBe(false);
   });
 
   test('paints the creature in the variant accent', () => {
     const { grid, accent } = resolveInvadr(MR_A, { accent: true });
-    const row = grid.findIndex((r) => r.some(Boolean));
+    const row = grid.findIndex(r => r.some(Boolean));
     const col = grid[row]!.findIndex(Boolean);
     const [ex, ey] = accent!.cells[0]!;
     for (const key of ['armed', 'running', 'done-approved']) {
@@ -203,14 +212,14 @@ describe('latchBannerGif', () => {
 
   test('lights the queued dots beside the title', () => {
     const gif = parseGif(gifFor('queued-cooldown'));
-    const { dotsX, dotsY } = (LAYOUT as Record<string, { dotsX: number; dotsY: number }>)[
-      'queued-cooldown'
-    ]!;
+    const { dotsX, dotsY } = (
+      LAYOUT as Record<string, { dotsX: number; dotsY: number }>
+    )['queued-cooldown']!;
     const dot = (i: number, frame: number) =>
       rgbAt(gif, frame, dotsX + i * (DOT_PX + DOT_GAP_PX) + 4, dotsY + 4);
-    expect([0, 1, 2].map((i) => dot(i, 0))).toEqual(Array(3).fill('#2a2638'));
-    expect([0, 1, 2].map((i) => dot(i, 3))).toEqual(Array(3).fill('#e6b860'));
-    expect(gif.frames.map((f) => f.delay)).toEqual(Array(8).fill(420));
+    expect([0, 1, 2].map(i => dot(i, 0))).toEqual(Array(3).fill('#2a2638'));
+    expect([0, 1, 2].map(i => dot(i, 3))).toEqual(Array(3).fill('#e6b860'));
+    expect(gif.frames.map(f => f.delay)).toEqual(Array(8).fill(420));
   });
 
   test('moves the running ring head clockwise', () => {

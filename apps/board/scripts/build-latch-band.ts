@@ -26,8 +26,6 @@ import {
 const W = 520;
 const H = 64;
 const SCALE = 2;
-const DOTS_GAP = 6;
-const DOTS_SPAN = (DOT_PX * 3 + DOT_GAP_PX * 2) / SCALE;
 const OUT = join(import.meta.dir, '..', 'assets', 'latch');
 
 const escape = (s: string) =>
@@ -42,8 +40,12 @@ const html = `<!doctype html><meta charset="utf-8">
           gap: 10px; padding: 0 24px 0 14px; background: #2a2638; }
   .sprite { width: 45px; height: 33px; flex: none; }
   .copy { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+  /* The title row lays the dots out as the approved prototype did: flex
+     children 4px apart, bottom-aligned 2px above the title's line box. */
+  .titlerow { display: flex; align-items: flex-end; gap: ${DOT_GAP_PX / SCALE}px; }
   .title { font-family: 'Silkscreen'; font-size: 18px; letter-spacing: 1px; color: #ece8f4;
-           line-height: 1; white-space: nowrap; align-self: flex-start; }
+           line-height: 1; white-space: nowrap; }
+  .dot { width: ${DOT_PX / SCALE}px; height: ${DOT_PX / SCALE}px; margin-bottom: 2px; flex: none; }
   .sub { font-family: 'IBM Plex Mono'; font-size: 13px; color: #b7b0c8; line-height: 1;
          white-space: nowrap; }
   .ring { width: 22px; height: 22px; flex: none; }
@@ -67,12 +69,14 @@ const fontsOk = await page.evaluate(async () => {
   const silkscreen = await fonts.load("18px 'Silkscreen'");
   const plex = await fonts.load("13px 'IBM Plex Mono'");
   return [silkscreen, plex].every(
-    (faces) => faces.length > 0 && faces.every((f) => f.status === 'loaded')
+    faces => faces.length > 0 && faces.every(f => f.status === 'loaded')
   );
 });
 if (!fontsOk) {
   await browser.close();
-  throw new Error('Google Fonts did not load; refusing to render strips with fallback fonts');
+  throw new Error(
+    'Google Fonts did not load; refusing to render strips with fallback fonts'
+  );
 }
 
 mkdirSync(OUT, { recursive: true });
@@ -82,40 +86,47 @@ const layout: Record<string, { dotsX: number; dotsY: number }> = {};
 for (const key of keys) {
   const copy = copyFor(variantOfKey(key)!);
   const inner = `<div class="sprite"></div>
-    <div class="copy"><div class="title">${escape(copy.title.toUpperCase())}</div>
+    <div class="copy"><div class="titlerow"><div class="title">${escape(
+      copy.title.toUpperCase()
+    )}</div>${'<div class="dot"></div>'.repeat(3)}</div>
     <div class="sub">${escape(copy.sub)}</div></div>${
       copy.indicator === 'ring' ? '<div class="ring"></div>' : ''
     }`;
-  const m = await page.evaluate((markup) => {
+  const m = await page.evaluate(markup => {
     const doc = (globalThis as unknown as { document: any }).document;
     const band = doc.getElementById('band');
     band.innerHTML = markup;
-    const box = (sel: string) => band.querySelector(sel).getBoundingClientRect();
+    const box = (sel: string) =>
+      band.querySelector(sel).getBoundingClientRect();
     const copyBox = box('.copy');
-    const title = box('.title');
+    const dots = [...band.querySelectorAll('.dot')].map((d: any) =>
+      d.getBoundingClientRect()
+    );
     const sub = box('.sub');
     return {
       copyRight: copyBox.right,
-      titleRight: title.right,
-      titleMid: title.top + title.height / 2,
+      dotsLeft: dots[0].left,
+      dotsTop: dots[0].top,
+      dotsRight: dots[2].right,
       subRight: sub.right,
     };
   }, inner);
 
-  const limit = m.copyRight - (copy.indicator === 'dots' ? DOTS_GAP + DOTS_SPAN : 0);
-  if (m.titleRight > limit || m.subRight > m.copyRight) {
+  if (m.dotsRight > m.copyRight || m.subRight > m.copyRight) {
     throw new Error(`${key}: copy overflows its box`);
   }
   layout[key] = {
-    dotsX: Math.round((m.titleRight + DOTS_GAP) * SCALE),
-    dotsY: Math.round(m.titleMid * SCALE - DOT_PX / 2),
+    dotsX: Math.round(m.dotsLeft * SCALE),
+    dotsY: Math.round(m.dotsTop * SCALE),
   };
   await page.locator('#band').screenshot({ path: join(OUT, `${key}.png`) });
 }
 await browser.close();
 
 writeFileSync(join(OUT, 'layout.json'), `${JSON.stringify(layout, null, 2)}\n`);
-const imports = keys.map((k, i) => `import s${i} from './${k}.png' with { type: 'file' };`);
+const imports = keys.map(
+  (k, i) => `import s${i} from './${k}.png' with { type: 'file' };`
+);
 const entries = keys.map((k, i) => `  '${k}': s${i},`);
 writeFileSync(
   join(OUT, 'index.ts'),
@@ -131,4 +142,6 @@ writeFileSync(
     '',
   ].join('\n')
 );
-console.log(`wrote ${keys.length} strips to assets/latch (${W * SCALE}x${H * SCALE})`);
+console.log(
+  `wrote ${keys.length} strips to assets/latch (${W * SCALE}x${H * SCALE})`
+);

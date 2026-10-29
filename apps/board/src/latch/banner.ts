@@ -28,7 +28,9 @@ const CELL = 6;
 const BOX_X = 28;
 const BOX_W = 90;
 const BOX_H = 66;
-const BOX_Y = (GIF_H - BOX_H) / 2;
+/** The approved prototype centred the 33px CSS box at y 15.5, which Chromium
+    painted from device row 32, one below the arithmetic centre. */
+const BOX_Y = (GIF_H - BOX_H) / 2 + 1;
 
 const RING_X = 948;
 const RING_Y = (GIF_H - 44) / 2;
@@ -136,7 +138,7 @@ function framesFor(state: BannerVariant['state']): Frame[] {
 
 /** The second leg pose: the bottom two rows step one column toward the centre. */
 export function legShuffle(grid: boolean[][]): boolean[][] {
-  const out = grid.map((row) => [...row]);
+  const out = grid.map(row => [...row]);
   for (let y = Math.max(0, grid.length - 2); y < grid.length; y++) {
     const row = grid[y]!;
     const w = row.length;
@@ -167,7 +169,7 @@ class Canvas {
     for (let y = Math.max(0, y0); y < Math.min(GIF_H, y0 + h); y++) {
       for (let x = Math.max(0, x0); x < Math.min(GIF_W, x0 + w); x++) {
         const i = (y * GIF_W + x) << 2;
-        const c: Rgb = [0, 1, 2].map((k) =>
+        const c: Rgb = [0, 1, 2].map(k =>
           Math.round(colour[k]! * alpha + this.data[i + k]! * (1 - alpha))
         ) as Rgb;
         this.data[i] = c[0];
@@ -180,23 +182,44 @@ class Canvas {
   }
 }
 
-export function latchBannerGif(mrUrl: string, variant: BannerVariant): Uint8Array {
+/** A creature to paint: its two leg poses and its eye cells as [col, row]. */
+export interface Creature {
+  frames: [boolean[][], boolean[][]];
+  eyes: [number, number][];
+}
+
+export function latchBannerGif(
+  mrUrl: string,
+  variant: BannerVariant
+): Uint8Array {
+  const { grid, accent } = resolveInvadr(mrUrl, { accent: true });
+  return renderBannerGif(
+    { frames: [grid, legShuffle(grid)], eyes: accent?.cells ?? [] },
+    variant
+  );
+}
+
+export function renderBannerGif(
+  creature: Creature,
+  variant: BannerVariant
+): Uint8Array {
   const key = variantKey(variant);
   const copy = copyFor(variant);
   const strip = PNG.sync.read(readFileSync(STRIPS[key]!));
-  const layout = (LAYOUT as Record<string, { dotsX: number; dotsY: number }>)[key]!;
-  const { grid, accent } = resolveInvadr(mrUrl, { accent: true });
-  const shuffled = legShuffle(grid);
+  const layout = (LAYOUT as Record<string, { dotsX: number; dotsY: number }>)[
+    key
+  ]!;
+  const [grid, shuffled] = creature.frames;
   const body = hex(copy.accent);
   const eye = hex(EYE);
 
   const spriteW = grid[0]!.length * CELL;
   const restX = BOX_X + Math.floor((BOX_W - spriteW) / CELL / 2) * CELL;
-  const restY = Math.round((GIF_H - grid.length * CELL) / 2);
+  const restY = BOX_Y;
 
   const plan = framesFor(variant.state);
   const exact = new Map<string, Rgb>();
-  const frames = plan.map((f) => {
+  const frames = plan.map(f => {
     const canvas = new Canvas(new Uint8Array(strip.data));
     const cells = f.legs ? shuffled : grid;
     const ox = Math.min(
@@ -209,9 +232,9 @@ export function latchBannerGif(mrUrl: string, variant: BannerVariant): Uint8Arra
         if (on) canvas.rect(ox + x * CELL, oy + y * CELL, CELL, CELL, body);
       })
     );
-    // accent.cells holds every enclosed hole, mouths included; only the
-    // upper-half ones are eyes, so only those close on a blink.
-    for (const [x, y] of accent?.cells ?? []) {
+    // invadrs' accent cells hold every enclosed hole, mouths included; only
+    // the upper-half ones are eyes, so only those close on a blink.
+    for (const [x, y] of creature.eyes) {
       if (cells[y]?.[x]) continue;
       const shut = f.blink && y < grid.length / 2;
       canvas.rect(ox + x * CELL, oy + y * CELL, CELL, CELL, shut ? body : eye);
@@ -233,8 +256,10 @@ export function latchBannerGif(mrUrl: string, variant: BannerVariant): Uint8Arra
         const x = RING_X + cx * RING_PITCH;
         const y = RING_Y + cy * RING_PITCH;
         if (d === 0) canvas.rect(x, y, RING_CELL, RING_CELL, body);
-        else if (d === 1) canvas.rect(x, y, RING_CELL, RING_CELL, body, 0xe0 / 255);
-        else if (d === 2) canvas.rect(x, y, RING_CELL, RING_CELL, body, 0xb0 / 255);
+        else if (d === 1)
+          canvas.rect(x, y, RING_CELL, RING_CELL, body, 0xe0 / 255);
+        else if (d === 2)
+          canvas.rect(x, y, RING_CELL, RING_CELL, body, 0xb0 / 255);
         else canvas.rect(x, y, RING_CELL, RING_CELL, hex(RING_UNLIT));
       });
     }
