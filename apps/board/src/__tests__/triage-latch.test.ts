@@ -1951,6 +1951,87 @@ describe('landing a follow-up from the pass', () => {
     expect(calls).toEqual([]);
   });
 
+  // A follow-up requested, run and landed within minutes of the post is
+  // still a move after the post.
+  test('a landing three minutes after the post still guards a stale read', async () => {
+    const db = tempDb();
+    const posted = NOW - 4 * 60_000;
+    const landed = row({
+      variant: 'done-comments-1',
+      updatedAt: posted + 3 * 60_000,
+    });
+    putLatchRow(landed, db);
+    const { deps, calls, launches, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), new Date(posted).toISOString(), true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(memory.mrs[MR]).toBeUndefined();
+    expect(readLatchRow(MR, db)).toEqual(landed);
+  });
+
+  test("the landing stamp is the pass's clock at the landing, not the tick start", async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    let clock = NOW;
+    const { deps } = harness({
+      db,
+      now: () => clock++,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(readLatchRow(MR, db)!.updatedAt).toBeGreaterThan(NOW);
+  });
+
+  test('a GitLab approval beats a commented follow-up: plain Approved, no reply', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, uploads, replies, audits } = harness({
+      db,
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    const r = await runLatchPass(deps);
+    expect(r.landed).toBe(0);
+    expect(r.spent).toBe(1);
+    expect(uploads).toEqual(['latch-2317-approved.gif']);
+    expect(replies).toEqual([]);
+    expect(audits.some(a => a.action === 'landed')).toBe(false);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      variant: 'approved',
+    });
+  });
+
+  test('the armed repair skips once another writer moved the row', async () => {
+    const db = tempDb();
+    putLatchRow(row({ variant: 'done-comments-1', updatedAt: 1 }), db);
+    const { deps, calls, audits } = harness({
+      db,
+      readDetail: async () => {
+        casLatchIn(
+          MR,
+          ['armed'],
+          { phase: 'queued', wait: 'cooldown' },
+          NOW,
+          db
+        );
+        return detail(disc('d1', runningBody(), OLD, true));
+      },
+    });
+    const r = await runLatchPass(deps);
+    expect(r.repaired).toBe(0);
+    expect(calls).toEqual([]);
+    expect(audits.some(a => a.action === 'repaired')).toBe(false);
+  });
+
   test('past the grace window the same read is a request', async () => {
     const db = tempDb();
     putLatchRow(

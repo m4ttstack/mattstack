@@ -200,6 +200,21 @@ describe('landFollowUp', () => {
     expect(h.counted()).toBe(1);
   });
 
+  // The server's signal and the pass overlap: B lands while A waits on its
+  // GitLab count, and A's move then finds the row already armed.
+  test('an interleaved second landing writes nothing', async () => {
+    const h = harness();
+    const b: string[] = [];
+    h.input.countNew = async () => {
+      b.push(await landFollowUp({ ...h.input, countNew: async () => 3 }, h.db));
+      return 3;
+    };
+    expect(await h.land()).toBe('none');
+    expect(b).toEqual(['landed']);
+    expect(h.calls.filter(c => c.startsWith('updateNote'))).toHaveLength(1);
+    expect(h.replies).toEqual(['Follow-up review done: 3 new comments.']);
+  });
+
   test('a review whose runStartedAt is before launchAt does not land', async () => {
     const h = harness({ reviewRunStartedAt: 999 });
     expect(await h.land()).toBe('not-mine');
@@ -239,10 +254,44 @@ describe('landFollowUp', () => {
     });
   });
 
-  test('an abandoned review keeps the failure count for the cycle', async () => {
+  // The abandoned run consumed the request, so the next one is a new cycle.
+  test('an abandoned review resets the failure count', async () => {
     const h = harness({ outcome: null });
     await h.land();
-    expect(readLatchRow(MR, h.db)?.failures).toBe(2);
+    expect(readLatchRow(MR, h.db)?.failures).toBe(0);
+  });
+
+  test('an approve landing spends the other copies approved', async () => {
+    const extra = {
+      discussionId: 'extra',
+      rootNoteId: 2,
+      kind: 'armed' as const,
+      resolved: false,
+      createdAt: '2026-09-01T10:00:00Z',
+      body: armedLatchBody(IMG),
+    };
+    const self = {
+      ...extra,
+      discussionId: 'd1',
+      rootNoteId: 1,
+      kind: 'running' as const,
+    };
+    const h = harness({ outcome: 'approve', latches: [self, extra] });
+    expect(await h.land()).toBe('landed');
+    expect(h.uploads).toEqual([
+      'latch-2317-done-approved.gif',
+      'latch-2317-approved.gif',
+    ]);
+    expect(h.calls).toEqual([
+      'upload',
+      'updateNote:1',
+      'resolve:d1',
+      'reply:d1',
+      'upload',
+      'updateNote:2',
+      'resolve:extra',
+    ]);
+    expect(h.noteBodies.get(2)).toStartWith(SPENT);
   });
 
   test('a row tracking another latch is not this one to land', async () => {

@@ -11,7 +11,7 @@ import { getStateDb } from '../state/index.ts';
 import { findLatches, hasLiveLatch } from './discussions.ts';
 import { landFollowUp, spendForApproval } from './land.ts';
 import { putLatchRow, readLatchRow } from './latch-state.ts';
-import { postLatch, spendAllLatches, type LatchGateway } from './post.ts';
+import { postLatch, type LatchGateway } from './post.ts';
 
 export interface ReviewLatchStep {
   /** null: the review ended done with no verdict (an abandoned post gate). */
@@ -72,25 +72,11 @@ export async function applyReviewLatch(
         countNew: () =>
           launchAt === null ? Promise.resolve(null) : s.countNew(launchAt),
         now,
+        latches,
       },
       db
     );
-    if (landed === 'landed') {
-      if (s.outcome === 'approve') {
-        await spendAllLatches(
-          s.gateway,
-          s.projectId,
-          s.projectPath,
-          s.mrUrl,
-          s.iid,
-          latches.filter(l => l.discussionId !== row.discussionId),
-          { state: 'approved' },
-          now,
-          db
-        );
-      }
-      return 'landed';
-    }
+    if (landed === 'landed') return 'landed';
   }
   if (s.outcome === 'approve') {
     // Every copy, not just the canonical one: an armed duplicate left behind

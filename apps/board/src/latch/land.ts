@@ -36,6 +36,10 @@ export interface LandInput {
       GitLab; null when they cannot be read. */
   countNew: () => Promise<number | null>;
   now: number;
+  /** Every latch copy of this reviewer's found on the MR. An approve landing
+      spends all but the target as approved, so an extra cannot strand live
+      once the canon is spent. */
+  latches?: LatchRef[];
 }
 
 export type LandResult = 'landed' | 'not-mine' | 'none';
@@ -85,8 +89,7 @@ export async function landFollowUp(
       ? { phase: 'spent', variant: key }
       : {
           phase: 'armed',
-          // Failures reset only when a follow-up lands with an outcome.
-          ...(i.outcome === 'comment' ? { failures: 0 } : {}),
+          failures: 0,
           stuck: false,
           wait: null,
           launchAt: null,
@@ -150,6 +153,19 @@ export async function landFollowUp(
       target.iid,
       finishedReply(i.outcome, count),
       target.discussionId
+    );
+  }
+  if (i.outcome === 'approve') {
+    await spendAllLatches(
+      i.gateway,
+      target.projectId,
+      target.projectPath,
+      target.mrUrl,
+      target.iid,
+      (i.latches ?? []).filter(l => l.discussionId !== target.discussionId),
+      { state: 'approved' },
+      now,
+      db
     );
   }
   return 'landed';

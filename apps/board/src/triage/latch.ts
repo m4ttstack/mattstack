@@ -409,13 +409,14 @@ export async function runLatchPass(
 
       // The landing backstop runs before the approval spend, so a follow-up
       // that approved shows done-approved, and before the error handling, so
-      // a finished run is never retried into a second review. Another
-      // reviewer's verdict aside, a standing approval still beats a comment.
+      // a finished run is never retried into a second review. This
+      // reviewer's standing GitLab approval still beats a comment or
+      // abandoned outcome: step 2 spends that as a plain approval.
       if (
         landable(row, review) &&
         (review.outcome === 'approve' || !mr.approvedBySelf)
       ) {
-        await landBackstop(deps, mr, row, review, target, latches, now, result);
+        await landBackstop(deps, mr, row, review, target, latches, result);
         continue;
       }
 
@@ -568,9 +569,11 @@ async function landBackstop(
   review: ReviewState,
   target: LatchTarget,
   latches: LatchRef[],
-  now: number,
   result: LatchPassResult
 ): Promise<void> {
+  // The tick's clock may be minutes old by now; the landing stamp is what
+  // the re-arm grace measures from.
+  const now = deps.now();
   const outcome = review.outcome ?? null;
   const launchAt = row.launchAt;
   const landed = await landFollowUp(
@@ -585,6 +588,7 @@ async function landBackstop(
           ? deps.countNew(mr, launchAt)
           : Promise.resolve(null),
       now,
+      latches,
     },
     deps.db
   );
@@ -592,16 +596,6 @@ async function landBackstop(
   if (landed !== 'landed') {
     result.skipped++;
     return;
-  }
-  if (outcome === 'approve') {
-    await spendForApproval(
-      deps.gateway,
-      mr,
-      latches.filter(l => l.discussionId !== target.discussionId),
-      null,
-      deps.now(),
-      deps.db
-    );
   }
   deps.appendAudit({
     ts: now,
@@ -731,10 +725,18 @@ async function repairArmed(t: Tick): Promise<void> {
     t.result.skipped++;
     return;
   }
-  await show(t, 'armed', armedVariantOf(t.row.variant), 'unresolve');
+  if (!(await show(t, 'armed', armedVariantOf(t.row.variant), 'unresolve'))) {
+    t.result.skipped++;
+    return;
+  }
   audit(t, 'repaired');
   t.result.repaired++;
 }
+
+/** How far the board's clock may run ahead of GitLab's. Both post paths
+    stamp the row with a clock read before the post, so a row that never
+    moved after it sits at or before the latch's createdAt. */
+const LATCH_CLOCK_SKEW_MS = 60_000;
 
 /** A landing or a withdrawal re-arms the row, and a read from before that
     move still shows the request it answered as armed and resolved. Only time
@@ -744,7 +746,7 @@ function insideRearmGrace(t: Tick): boolean {
   if (t.now - t.row.updatedAt >= LATCH_POST_GRACE_MS) return false;
   const posted = Date.parse(t.canon.createdAt);
   return (
-    Number.isFinite(posted) && t.row.updatedAt - posted >= LATCH_POST_GRACE_MS
+    Number.isFinite(posted) && t.row.updatedAt - posted > LATCH_CLOCK_SKEW_MS
   );
 }
 

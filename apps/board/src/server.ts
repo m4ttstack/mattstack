@@ -4945,12 +4945,16 @@ async function handleAgentSignal(
         } else if (detail) {
           const projectId = parseRepoId(mr.repositoryId);
           // A lane no longer reading done was relaunched after this signal
-          // was emitted: the signal cannot vouch for that run.
+          // was emitted, and one done with another outcome is a later run
+          // than this replayed event: either way the signal cannot vouch for
+          // the run the latch waits on.
           const lane = readReviewStates().get(signal.mrUrl);
+          const vouched =
+            lane?.status === 'done' && (lane.outcome ?? null) === outcome;
           await applyReviewLatch({
             outcome,
             arm,
-            reviewRunStartedAt: lane?.status === 'done' ? runStamp(lane) : null,
+            reviewRunStartedAt: vouched ? runStamp(lane) : null,
             countNew: async launchAt => {
               try {
                 const fresh = await new MRDetailFetcher(
