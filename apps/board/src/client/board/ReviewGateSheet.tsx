@@ -30,6 +30,7 @@ import {
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
 import { mrRef, onGitHub } from './MrLinks.tsx';
+import { usePeople } from './people.ts';
 import {
   attachDraftEdits,
   draftEdits,
@@ -51,7 +52,6 @@ import {
   FindingAnchor,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
-import { usePeople } from './people.ts';
 import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,

@@ -30,7 +30,6 @@ import type { DiffPin } from './DiffView.tsx';
 import type { FindingEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { CardBody, CommentArea, DraftField } from './GateParts.tsx';
-import { CommentAuthor } from './PersonLead.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
@@ -38,6 +37,7 @@ import {
   FileGlyph,
   UndoGlyph,
 } from './icons.tsx';
+import { CommentAuthor } from './PersonLead.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
 
 /** A diff that fails to load or render leaves the file header standing. */

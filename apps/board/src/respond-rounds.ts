@@ -81,7 +81,10 @@ export function readRespondOutcomes(
 export function attachRespondRounds<T extends { webUrl?: string | null }>(
   mrs: T[],
   rounds: Map<string, Record<string, number>>,
-  outcomes: Map<string, Record<string, Array<ReviewerOutcome | null>>> = new Map()
+  outcomes: Map<
+    string,
+    Record<string, Array<ReviewerOutcome | null>>
+  > = new Map()
 ): Array<
   T & {
     respondRounds?: Record<string, number>;

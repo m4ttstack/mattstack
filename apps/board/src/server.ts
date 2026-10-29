@@ -7,14 +7,14 @@ import {
   type EventBridgeRule,
 } from '@mattstack/app-server/event-bridge';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
-import { getReviewDisplayState } from '@mattstack/glance';
-import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
+  getReviewDisplayState,
   GitLabProvider,
   NoteMutator,
   parseRepoId,
   ReadBackFailedError,
 } from '@mattstack/glance';
+import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   eventsHead,
   eventsList,
