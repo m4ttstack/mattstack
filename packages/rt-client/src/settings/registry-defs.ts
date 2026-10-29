@@ -307,6 +307,14 @@ const ROWS: readonly SettingDef[] = [
     description: "Fold each case's screenshots in the evidence section rt writes into an MR or PR description, behind a summary that names the case, so reviewers scroll past them to the approvals and pipeline.",
   },
   {
+    key: "review.ruleSelector",
+    type: "boolean",
+    scopes: ["org", "team", "user", "machine"],
+    default: false,
+    merge: "replace",
+    description: "Turns on the team pack's review rule selector. The pack's rule-selector fill reads it on every review.",
+  },
+  {
     key: "rt.logLevel",
     type: "string",
     scopes: ["machine", "user"],

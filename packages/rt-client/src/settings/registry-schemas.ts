@@ -122,6 +122,7 @@ const sdmResourceEntry = z.looseObject({
 
 export const SCHEMAS = {
   "rt.roles": z.record(z.string(), role),
+  "review.ruleSelector": z.boolean(),
   "rt.intercepts": z.array(z.looseObject({ command: z.string().min(1), matches: z.array(interceptMatch) })),
   "rt.worktrees": z.looseObject({
     onDeck: z.number().optional(),
