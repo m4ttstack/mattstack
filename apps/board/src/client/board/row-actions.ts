@@ -22,6 +22,7 @@ import {
   respondAskTarget,
   respondChoiceLabel,
   respondChoices,
+  reviewedBy,
   reviewLogged,
   reviewMenuItems,
   roundSuffix,
@@ -229,7 +230,7 @@ export function rowActions(
     const reviewItems = reviewMenuItems(
       mrx.review?.status,
       laneInterrupted(mrx.orphan, mrx.review),
-      reviewLogged(mrx),
+      own ? reviewLogged(mrx) : reviewedBy(mrx, env.self),
       mrx.review?.rounds
     );
     const followUpOffered = reviewItems.some(it => it.kind === 'follow-up');
