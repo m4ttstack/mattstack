@@ -2,12 +2,12 @@
 name: "wrap-up"
 description: "Use when wrapping up a session, checking in before continuing, ending a turn with open decisions, when the user asks what you need from them, what decisions are open, or what the next steps are, when they invoke wrap-up or check-in, or when a pipeline gate needs its decision presented as a form."
 metadata:
-  compiled: "mattstack@0.32.31"
+  compiled: "mattstack@0.32.32"
 ---
 
 <!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
 
-<!-- part: block:wrap-up-form source=mattstack:wrap-up-form version=0.32.31 path=attachments/wrap-up-form/index.block.md lines=7-33 -->
+<!-- part: block:wrap-up-form source=mattstack:wrap-up-form version=0.32.32 path=attachments/wrap-up-form/index.block.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

@@ -16,6 +16,7 @@ names must be a path inside this repo.
 | `hooks/spill-read-note.sh` | `SessionStart` | adds one line of context: read a tool result Claude Code saved to a file with the Read tool, because a Bash read of that folder (`sed`, `cat`, `head`) asks the user for permission once per call |
 | `hooks/agent-effort-note.sh` | `SessionStart` | adds one line of context: an Agent call that sets a model also sets an effort from the model-tiering table, so the agent knows the rule before `agent-effort-guard.sh` blocks it |
 | `hooks/relocation-announce.sh` | `PreToolUse` on `EnterWorktree` | hands the hook's stdin to `rt worktree announce-relocation` so the daemon can accept this pane's relocation dialog; fails open on every error |
+| `hooks/enter-worktree-check.ts` | `tool.check` on `EnterWorktree` (a hooks module under `modules`) | turns Claude Code's ask before entering a tree outside `.claude/worktrees` into an allow when `rt worktree is-registered` says the path is an rt worktree; any other path, or any failure to ask rt, keeps the ask |
 | `hooks/agent-effort-guard.sh` | `PreToolUse` on `Agent` | blocks an Agent call that names a model but no effort (exit 2), so the agent retries with the effort from the model-tiering table; a fork passes, and it fails open on every error |
 
 **`herdr-doorbell.sh` is hand-installed** by symlink into
