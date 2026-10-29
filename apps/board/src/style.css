@@ -7395,6 +7395,12 @@ a.tui-id-card-ref:focus-visible {
 .tui-plan-answer:has(.tui-cte[data-editing])::before {
   height: 57px;
 }
+/* Your reply carries a faint accent wash so it reads apart from the
+   reviewer's comment above it; editing turns it back into a plain field. */
+.tui-plan-answer .tui-cte:not([data-editing]) {
+  border-color: color-mix(in srgb, var(--fill-accent) 22%, var(--border));
+  background: color-mix(in srgb, var(--fill-accent) 5%, var(--card));
+}
 .tui-plan-later {
   display: flex;
   align-items: center;
