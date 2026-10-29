@@ -460,7 +460,9 @@ export function rowActions(
         item(
           'agent',
           `nudge-${peer.reviewer}`,
-          `ask ${people.short(peer.reviewer)}'s agent for a follow-up review`,
+          peer.status === 'error'
+            ? `retry ${people.short(peer.reviewer)}'s agent review`
+            : `ask ${people.short(peer.reviewer)}'s agent for a follow-up review`,
           AGENT_CLOUD,
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
