@@ -17,14 +17,18 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 }
 
+// Only the verb's own stdout word settles it: an rt too old for the verb, or
+// one not set up, also exits nonzero, so anything else tries the next rt.
 async function isRtWorktree($: EngineInterface, path: string): Promise<boolean> {
   const home = await $.env.get('HOME')
   for (const rt of ['rt', `${home ?? ''}/.local/bin/rt`]) {
     try {
-      const { exitCode } = await $.process.run([rt, 'worktree', 'is-registered', path], { timeoutMs: 10_000 })
-      return exitCode === 0
+      const { stdout } = await $.process.run([rt, 'worktree', 'is-registered', path], { timeoutMs: 10_000 })
+      const word = stdout.trim()
+      if (word === 'registered') return true
+      if (word === 'unregistered') return false
     } catch {
-      // rt not found under this name; try the next
+      // rt not found under this name
     }
   }
   return false

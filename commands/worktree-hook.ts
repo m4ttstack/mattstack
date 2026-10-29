@@ -291,9 +291,11 @@ export function isRegisteredWorktreePath(
   return deps.treeByPath(path) !== null || deps.treeByPath(real) !== null;
 }
 
-/** Never call directly: the mattstack plugin's EnterWorktree `tool.check` mod runs it and reads only the exit code (0 registered, 1 not). */
+/** Never call directly: the mattstack plugin's EnterWorktree `tool.check` mod runs it. The mod trusts only this stdout word, since an older rt without the verb, or one not set up, exits nonzero too. */
 export async function isRegisteredCommand(args: string[]): Promise<void> {
-  process.exit(isRegisteredWorktreePath(args[0]) ? 0 : 1);
+  const registered = isRegisteredWorktreePath(args[0]);
+  out.payload(registered ? "registered\n" : "unregistered\n");
+  process.exit(registered ? 0 : 1);
 }
 
 /**
