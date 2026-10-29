@@ -1,6 +1,11 @@
 import { closeStateDb } from "../../state/index.ts";
 import { describe, test, expect } from "bun:test";
-import { applyInstallSatisfiedFlip, composePlan, pendingJoinTeam } from "../plan.ts";
+import { applyApprovalWait, applyInstallSatisfiedFlip, composePlan, pendingJoinTeam } from "../plan.ts";
+import { APPROVAL_DEPENDENT_IDS, APPROVAL_WAIT_DETAIL } from "../../team/approval.ts";
+import { teamLocalPath } from "../../team/team-local.ts";
+import { orgDirUnder } from "../../rt-paths.ts";
+import { renderSopsYamlRules } from "../../home/age-key.ts";
+import { TEAM_PATH_REGEX } from "../../secrets/team-store.ts";
 import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
 import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
 import { markDeferred } from "../repo-placement.ts";
@@ -599,5 +604,94 @@ describe("a join asks for the team's Slack and repos whether or not the app rela
       expect(status.requiredMissing).toContain("account.slack");
       expect(rowsToChecks(status, { ci: false }).find((c) => c.name === "account.slack")).toMatchObject({ status: "fail", severity: "critical" });
     });
+  });
+});
+
+describe("approval wait", () => {
+  const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
+  const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
+  const DEPENDENT = new Set<string>(APPROVAL_DEPENDENT_IDS);
+
+  async function withSlackTeam(fn: () => Promise<void>): Promise<void> {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-approval-"));
+    closeStateDb();
+    process.env.HOME = home;
+    try {
+      const teamPath = sharedStorePath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, JSON.stringify({ "mattstack.integrations": { slack: { clientId: "abc" } } }));
+      await fn();
+    } finally {
+      closeStateDb();
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  function joinedProbes(members: string[]) {
+    return fakeProbes({
+      exec: readyExec,
+      tray: grantedTray,
+      files: {
+        [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ joinedByRt: true, joinedAt: "2026-10-29T09:00:00.000Z", agePublicKey: MINE }),
+        [join(orgDirUnder("/fake-home", "acme"), ".sops.yaml")]: renderSopsYamlRules([{ pathRegex: TEAM_PATH_REGEX, recipients: members }]),
+      },
+    });
+  }
+
+  const dependentRows = (plan: { groups: Group[] }) => plan.groups.flatMap((g) => g.rows).filter((r) => DEPENDENT.has(r.id));
+
+  test("while waiting, Slack, team sync, org secrets and board peering show the wait, never their own error", async () => {
+    await withSlackTeam(async () => {
+      const p = joinedProbes([OWNER]);
+      writeIntent(p, joinIntent());
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      const rows = dependentRows(plan);
+      expect(rows.map((r) => r.id)).toContain("account.slack");
+      for (const r of rows) {
+        expect(r).toMatchObject({
+          status: "needs-you",
+          detail: APPROVAL_WAIT_DETAIL,
+          action: { type: "run", label: "Check again", verb: ["setup", "join-status"] },
+          required: false,
+          finishGated: true,
+          waivable: false,
+        });
+      }
+    });
+  });
+
+  test("once approved the four rows are the validators' own", async () => {
+    await withSlackTeam(async () => {
+      const p = joinedProbes([OWNER, MINE]);
+      writeIntent(p, joinIntent());
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      expect(dependentRows(plan).map((r) => r.id)).toContain("account.slack");
+      expect(dependentRows(plan).some((r) => r.detail === APPROVAL_WAIT_DETAIL)).toBe(false);
+      expect(applyApprovalWait(plan.groups, { kind: "approved" })).toEqual(plan.groups);
+    });
+  });
+
+  test("the redeem cleared the intent: a joined clone with no intent still waits", async () => {
+    await withSlackTeam(async () => {
+      const p = joinedProbes([OWNER]);
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      const rows = dependentRows(plan);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const r of rows) expect(r.detail).toBe(APPROVAL_WAIT_DETAIL);
+    });
+  });
+
+  test("only the dependent rows change, and only while waiting", () => {
+    const own = row({ id: "account.slack", kind: "account", title: "Slack", why: "w", required: true, status: "error", detail: "own error" });
+    const other = row({ id: "tool.git", kind: "tool", title: "git", why: "w", required: true, status: "missing", detail: "no git" });
+    const groups: Group[] = [{ id: "accounts", title: "Accounts", rows: [own, other] }];
+    for (const wait of [{ kind: "not-joined" as const }, { kind: "approved" as const }, { kind: "unreadable" as const, path: "/x", reason: "is missing" }]) {
+      expect(applyApprovalWait(groups, wait)).toEqual(groups);
+    }
+    const waited = applyApprovalWait(groups, { kind: "waiting", since: null });
+    expect(waited[0]!.rows[0]).toMatchObject({ id: "account.slack", status: "needs-you", detail: APPROVAL_WAIT_DETAIL, required: false });
+    expect(waited[0]!.rows[1]).toEqual(other);
   });
 });

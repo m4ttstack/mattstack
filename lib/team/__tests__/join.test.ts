@@ -926,6 +926,12 @@ describe("joinRedeem", () => {
     expect(readTeamLocal(p, POINTER.team).joinedByRt).toBe(true);
   });
 
+  test("a redeem stamps joinedAt beside joinedByRt", async () => {
+    const p = redeemProbes();
+    await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+    expect(readTeamLocal(p, POINTER.team).joinedAt).toBe(p.now().toISOString());
+  });
+
   const posting = (fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[]) =>
     redeemProbes({
       fetch: async (url, init) => {
@@ -1323,7 +1329,7 @@ describe("joinRedeem", () => {
       const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
       expect(result.peering).toBe("unavailable");
-      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: FAKE_PUBLIC_KEY, forgeUsername: "dev2" });
+      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, joinedAt: p.now().toISOString(), rtMayManageMembership: false, agePublicKey: FAKE_PUBLIC_KEY, forgeUsername: "dev2" });
     });
 
     test("applied and idle peering carry no fix", async () => {

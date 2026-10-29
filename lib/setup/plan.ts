@@ -16,6 +16,7 @@ import { regroupTools } from "./regroup.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { activeTeamFor } from "../team/active-team.ts";
+import { APPROVAL_DEPENDENT_IDS, APPROVAL_WAIT_DETAIL, approvalState, type ApprovalState } from "../team/approval.ts";
 import { applyFinishGate, gateTeamAccounts, readWaived } from "./finish-gate.ts";
 import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
@@ -212,7 +213,23 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
   ]);
 
   const waived = i.waived ?? readWaived();
-  return finalizePlan(team, regroupTools(applyFinishGate(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode), i.mode), i.mode, waived)), i.p.now(), waived);
+  const wait = team.slug ? approvalState(i.p, team.slug) : { kind: "not-joined" as const };
+  const gated = applyApprovalWait(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode), i.mode), wait);
+  return finalizePlan(team, regroupTools(applyFinishGate(gated, i.mode, waived)), i.p.now(), waived);
+}
+
+const CHECK_APPROVAL_ACTION = { type: "run" as const, label: "Check again", verb: ["setup", "join-status"] };
+
+/** Until the admin approves, these rows cannot read the team's secrets, so their own verdicts are noise: each shows the one wait instead, blocking Finish and never Install. */
+export function applyApprovalWait(groups: Group[], wait: ApprovalState): Group[] {
+  if (wait.kind !== "waiting") return groups;
+  const dependent = new Set<string>(APPROVAL_DEPENDENT_IDS);
+  return groups.map((g) => ({
+    ...g,
+    rows: g.rows.map((r) => (dependent.has(r.id)
+      ? { ...r, status: "needs-you" as const, detail: APPROVAL_WAIT_DETAIL, action: CHECK_APPROVAL_ACTION, required: false, optionalNote: null, finishGated: true, waivable: false }
+      : r)),
+  }));
 }
 
 /**

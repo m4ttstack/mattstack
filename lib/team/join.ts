@@ -592,7 +592,7 @@ export async function joinRedeem(
   // A machine that created this team is redeeming a code for its own repo
   // (the `alreadyCloned` branch below, matching origin), so it must stay a
   // pusher, so this stamp is skipped rather than flipping it pull-only.
-  if (!priorLocal.createdByRt) updateTeamLocal(p, pointer.team, { joinedByRt: true });
+  if (!priorLocal.createdByRt) updateTeamLocal(p, pointer.team, { joinedByRt: true, joinedAt: p.now().toISOString() });
 
   // The same confirmed-host gate the dry-run applies: `pointer.remote` is
   // attacker-controlled, so the stored token is offered only to an
