@@ -6,11 +6,11 @@ import { describe, expect, test } from 'bun:test';
 import {
   cachedUpload,
   casLatch,
-  type LatchRow,
   putLatchRow,
   readLatchRow,
   readLatchRows,
   rememberUpload,
+  type LatchRow,
 } from '../latch/latch-state.ts';
 import { openStateDb } from '../state/db.ts';
 
@@ -64,6 +64,20 @@ describe('latch state', () => {
     expect(after.updatedAt).toBe(200);
   });
 
+  test('casLatch guarded by another discussion does not move the row', () => {
+    const db = openStateDb(tempPath());
+    putLatchRow(row({ phase: 'armed', discussionId: 'disc-1' }), db);
+    const patch = { phase: 'spent' as const };
+    expect(
+      casLatch(MR, ['armed'], patch, 200, db, { discussionId: 'disc-2' })
+    ).toBe(false);
+    expect(readLatchRow(MR, db)!.phase).toBe('armed');
+    expect(
+      casLatch(MR, ['armed'], patch, 200, db, { discussionId: 'disc-1' })
+    ).toBe(true);
+    expect(readLatchRow(MR, db)!.phase).toBe('spent');
+  });
+
   test('casLatch clears a field patched to null and ignores a missing row', () => {
     const db = openStateDb(tempPath());
     putLatchRow(row({ phase: 'error', wait: 'budget', launchAt: 5 }), db);
@@ -73,7 +87,13 @@ describe('latch state', () => {
     expect(after.wait).toBeNull();
     expect(after.launchAt).toBeNull();
     expect(
-      casLatch('https://gitlab.example/none', ['armed'], { phase: 'spent' }, 1, db)
+      casLatch(
+        'https://gitlab.example/none',
+        ['armed'],
+        { phase: 'spent' },
+        1,
+        db
+      )
     ).toBe(false);
   });
 

@@ -1,7 +1,4 @@
-import { mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
 import { readLatchRow } from '../latch/latch-state.ts';
@@ -11,13 +8,9 @@ import {
   applyReviewLatch,
   type ReviewLatchStep,
 } from '../latch/review-step.ts';
-import { openStateDb } from '../state/db.ts';
+import { removeTempDbs, tempDb } from './latch-temp-db.ts';
 
-function tempDb() {
-  return openStateDb(
-    join(mkdtempSync(join(tmpdir(), 'board-latch-step-')), 'state.db')
-  );
-}
+afterAll(removeTempDbs);
 
 const MR = 'https://gitlab.com/acme/web/-/merge_requests/2317';
 const IMG = '![re-review latch](/uploads/ab12/latch-2317.png)';

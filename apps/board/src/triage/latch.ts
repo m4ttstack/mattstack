@@ -249,6 +249,7 @@ export async function runLatchPass(
             mr.iid,
             canon,
             { state: 'approved' },
+            now,
             deps.db
           );
           deps.appendAudit({
@@ -431,6 +432,7 @@ async function consume(
       mr.iid,
       c,
       { state: 'superseded' },
+      deps.now(),
       deps.db
     );
   }
@@ -450,6 +452,7 @@ async function spendAll(
     mr.iid,
     latches,
     { state: 'approved' },
+    deps.now(),
     deps.db
   );
 }

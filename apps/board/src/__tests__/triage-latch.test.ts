@@ -1,14 +1,10 @@
-import { mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
-import { readLatchRow } from '../latch/latch-state.ts';
+import { putLatchRow, readLatchRow } from '../latch/latch-state.ts';
 import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import type { ReviewState } from '../review-state.ts';
-import { openStateDb } from '../state/db.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import {
   runLatchPass,
@@ -16,12 +12,9 @@ import {
   type LatchPassDeps,
 } from '../triage/latch.ts';
 import { emptyMrMemory, type DispatchMemory } from '../triage/memory.ts';
+import { removeTempDbs, tempDb } from './latch-temp-db.ts';
 
-function tempDb() {
-  return openStateDb(
-    join(mkdtempSync(join(tmpdir(), 'board-latch-step-')), 'state.db')
-  );
-}
+afterAll(removeTempDbs);
 
 const NOW = 1_000_000_000;
 const MR = 'https://gitlab.com/acme/web/-/merge_requests/2317';
@@ -294,6 +287,39 @@ describe('step 2: armed and unresolved', () => {
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
     expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:d1']);
+  });
+
+  test("the spend stamps the row with the pass's clock", async () => {
+    const db = tempDb();
+    putLatchRow(
+      {
+        mrUrl: MR,
+        discussionId: 'd1',
+        rootNoteId: 1,
+        phase: 'armed',
+        wait: null,
+        launchAt: null,
+        failures: 0,
+        stuck: false,
+        variant: 'armed',
+        updatedAt: 1,
+      },
+      db
+    );
+    const approved: ReviewState = { ...commented, outcome: 'approve' };
+    const { deps } = harness({
+      db,
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
+      ),
+      readReviewStates: () => new Map([[MR, approved]]),
+    });
+    await runLatchPass(deps);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      variant: 'approved',
+      updatedAt: NOW,
+    });
   });
 
   // Step 2 must spend every duplicate, not just the canonical latch.

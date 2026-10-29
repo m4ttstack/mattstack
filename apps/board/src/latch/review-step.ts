@@ -43,6 +43,7 @@ export async function applyReviewLatch(
       s.iid,
       latches,
       { state: 'approved' },
+      Date.now(),
       s.db
     );
     return 'spent';

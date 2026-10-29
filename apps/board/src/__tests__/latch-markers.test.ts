@@ -90,8 +90,6 @@ describe('imageMarkdownOf', () => {
     expect(imageMarkdownOf(armedLatchBody(img))).toBe(img);
   });
 
-  // The spend reuses the already-uploaded banner rather than uploading again,
-  // so it has to read the path back out of the armed body.
   test('round-trips the image out of an armed body', () => {
     expect(imageMarkdownOf(armedLatchBody(IMG))).toBe(IMG);
   });

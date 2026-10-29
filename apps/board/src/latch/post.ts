@@ -10,7 +10,6 @@ import type { LatchRef } from './discussions.ts';
 import {
   cachedUpload,
   casLatch,
-  readLatchRow,
   rememberUpload,
   type LatchPhase,
 } from './latch-state.ts';
@@ -104,15 +103,6 @@ async function writeNote(
   await gw.updateNote(t.projectId, t.iid, t.rootNoteId, body);
 }
 
-/** The row tracks one latch per MR; a duplicate's write must never move it. */
-function tracksLatch(
-  mrUrl: string,
-  discussionId: string,
-  db: Database
-): boolean {
-  return readLatchRow(mrUrl, db)?.discussionId === discussionId;
-}
-
 /**
  * Show `phase` on the note with `variant`'s banner, then change the thread.
  * Body first: a crash between the two leaves the phase visible on the note,
@@ -124,17 +114,13 @@ export async function rewriteLatch(
   phase: LatchPhase,
   variant: BannerVariant,
   thread: 'resolve' | 'unresolve' | 'keep',
+  now: number = Date.now(),
   db: Database = getStateDb()
 ): Promise<void> {
   await writeNote(gw, t, phase, variant, db);
-  if (tracksLatch(t.mrUrl, t.discussionId, db))
-    casLatch(
-      t.mrUrl,
-      [phase],
-      { variant: variantKey(variant) },
-      Date.now(),
-      db
-    );
+  casLatch(t.mrUrl, [phase], { variant: variantKey(variant) }, now, db, {
+    discussionId: t.discussionId,
+  });
   if (thread === 'resolve')
     await gw.resolveDiscussion(t.projectPath, t.iid, t.discussionId);
   else if (thread === 'unresolve')
@@ -182,6 +168,7 @@ export async function spendLatch(
   iid: number,
   latch: LatchRef,
   variant: BannerVariant,
+  now: number = Date.now(),
   db: Database = getStateDb()
 ): Promise<void> {
   if (latch.kind === 'spent') {
@@ -191,17 +178,18 @@ export async function spendLatch(
       await gw.resolveDiscussion(projectPath, iid, latch.discussionId);
     return;
   }
-  if (tracksLatch(mrUrl, latch.discussionId, db)) {
-    const key = variantKey(variant);
-    const moved = casLatch(
-      mrUrl,
-      ['armed', 'queued', 'running', 'error'],
-      { phase: 'spent', variant: key },
-      Date.now(),
-      db
-    );
-    if (!moved) casLatch(mrUrl, ['spent'], { variant: key }, Date.now(), db);
-  }
+  // The guard keeps a duplicate's spend off the row, which tracks one latch.
+  const key = variantKey(variant);
+  const guard = { discussionId: latch.discussionId };
+  const moved = casLatch(
+    mrUrl,
+    ['armed', 'queued', 'running', 'error'],
+    { phase: 'spent', variant: key },
+    now,
+    db,
+    guard
+  );
+  if (!moved) casLatch(mrUrl, ['spent'], { variant: key }, now, db, guard);
   await writeNote(
     gw,
     { projectId, iid, mrUrl, rootNoteId: latch.rootNoteId },
@@ -224,6 +212,7 @@ export async function spendAllLatches(
   iid: number,
   latches: LatchRef[],
   variant: BannerVariant,
+  now: number = Date.now(),
   db: Database = getStateDb()
 ): Promise<void> {
   const seen = new Set<string>();
@@ -238,6 +227,7 @@ export async function spendAllLatches(
       iid,
       latch,
       variant,
+      now,
       db
     );
   }

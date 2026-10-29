@@ -1,7 +1,4 @@
-import { mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { LatchRef } from '../latch/discussions.ts';
 import {
@@ -19,16 +16,13 @@ import {
   type LatchGateway,
   type LatchTarget,
 } from '../latch/post.ts';
-import { openStateDb } from '../state/db.ts';
+import { removeTempDbs, tempDb } from './latch-temp-db.ts';
+
+afterAll(removeTempDbs);
 
 const MR = 'https://gitlab.com/acme/web/-/merge_requests/2317';
+const NOW = 1_700_000_000_000;
 const OLD_IMG = '![re-review latch](/uploads/ab12/latch-2317.png)';
-
-function tempDb() {
-  return openStateDb(
-    join(mkdtempSync(join(tmpdir(), 'board-latch-post-')), 'state.db')
-  );
-}
 
 function gateway() {
   const calls: string[] = [];
@@ -156,6 +150,7 @@ describe('rewriteLatch', () => {
       'armed',
       { state: 'done-comments', count: 3 },
       'unresolve',
+      NOW,
       db
     );
     expect(calls).toEqual([
@@ -176,9 +171,18 @@ describe('rewriteLatch', () => {
       'running',
       { state: 'running' },
       'resolve',
+      NOW,
       db
     );
-    await rewriteLatch(gw, target, 'running', { state: 'running' }, 'keep', db);
+    await rewriteLatch(
+      gw,
+      target,
+      'running',
+      { state: 'running' },
+      'keep',
+      NOW,
+      db
+    );
     expect(calls).toEqual([
       'upload:latch-2317-running.gif',
       'updateNote:1',
@@ -197,9 +201,13 @@ describe('rewriteLatch', () => {
       'queued',
       { state: 'queued', wait: 'budget' },
       'keep',
+      NOW,
       db
     );
-    expect(readLatchRow(MR, db)?.variant).toBe('queued-budget');
+    expect(readLatchRow(MR, db)).toMatchObject({
+      variant: 'queued-budget',
+      updatedAt: NOW,
+    });
   });
 });
 
@@ -227,6 +235,7 @@ describe('spendLatch', () => {
       2317,
       armed,
       { state: 'approved' },
+      NOW,
       db
     );
     expect(calls).toEqual([
@@ -250,6 +259,7 @@ describe('spendLatch', () => {
       2317,
       { ...armed, kind: 'spent', resolved: true },
       { state: 'approved' },
+      NOW,
       db
     );
     expect(calls).toEqual([]);
@@ -267,6 +277,7 @@ describe('spendLatch', () => {
       2317,
       { ...armed, kind: 'spent', resolved: false },
       { state: 'approved' },
+      NOW,
       db
     );
     expect(calls).toEqual(['resolve:d1']);
@@ -283,6 +294,7 @@ describe('spendLatch', () => {
       2317,
       armed,
       { state: 'superseded' },
+      NOW,
       db
     );
     expect(bodies[0]).toContain('Superseded by a newer latch on this MR');
@@ -301,11 +313,13 @@ describe('spendLatch', () => {
       2317,
       armed,
       { state: 'approved' },
+      NOW,
       db
     );
     const r = readLatchRow(MR, db);
     expect(r?.phase).toBe('spent');
     expect(r?.variant).toBe('approved');
+    expect(r?.updatedAt).toBe(NOW);
   });
 
   test("spending a duplicate leaves the canonical latch's row alone", async () => {
@@ -320,6 +334,7 @@ describe('spendLatch', () => {
       2317,
       armed,
       { state: 'superseded' },
+      NOW,
       db
     );
     const r = readLatchRow(MR, db);
@@ -340,6 +355,7 @@ describe('spendLatch', () => {
       2317,
       armed,
       { state: 'done-approved' },
+      NOW,
       db
     );
     expect(calls).toEqual([
@@ -373,6 +389,7 @@ describe('spendAllLatches', () => {
       2317,
       [armed, other, armed],
       { state: 'approved' },
+      NOW,
       db
     );
     expect(calls).toEqual([
@@ -396,6 +413,7 @@ describe('spendAllLatches', () => {
       2317,
       [armed, other],
       { state: 'superseded' },
+      NOW,
       db
     );
     expect(
