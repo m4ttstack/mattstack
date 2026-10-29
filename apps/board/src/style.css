@@ -7410,7 +7410,7 @@ a.tui-id-card-ref:focus-visible {
   border-radius: 4px;
   background: none;
   color: var(--text-3);
-  cursor: help;
+  cursor: pointer;
 }
 .tui-plan-later-info:hover,
 .tui-plan-later-info:focus-visible {
