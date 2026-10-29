@@ -225,7 +225,7 @@ test('each verdict call renders its own word and data-call', async () => {
   ).toEqual(calls.map(c => [...c]));
 });
 
-test('reply kinds: verbatim and direction label their box, none renders no box', async () => {
+test('reply kinds: verbatim labels its box, a direction reads as the reply after the fix, none renders neither', async () => {
   await renderGate(
     gate({
       questions: [
@@ -250,14 +250,16 @@ test('reply kinds: verbatim and direction label their box, none renders no box',
   expect(cards[0]!.querySelector('.tui-composer-k')!.textContent).toBe(
     'will post as reply'
   );
-  expect(
-    cards[1]!.querySelector('.tui-composer')!.getAttribute('data-kind')
-  ).toBe('direction');
-  expect(cards[1]!.querySelector('.tui-composer-k')!.textContent).toBe(
-    'reply direction'
+  expect(cards[1]!.querySelector('.tui-composer')).toBeNull();
+  const direction = cards[1]!.querySelector('.tui-thread-direction')!;
+  expect(direction.querySelector('.tui-thread-direction-k')!.textContent).toBe(
+    'Reply after the fix'
   );
-  expect(cards[1]!.textContent).toContain('Explain the retry contract');
+  expect(
+    direction.querySelector('.tui-thread-direction-text')!.textContent
+  ).toContain('Explain the retry contract');
   expect(cards[2]!.querySelector('.tui-composer')).toBeNull();
+  expect(cards[2]!.querySelector('.tui-thread-direction')).toBeNull();
 });
 
 test("the fix option's description renders as its choice subtitle", async () => {

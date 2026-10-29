@@ -1481,9 +1481,9 @@ test('a reply pick with no drafted words says it is drafted at posting', async (
   expect(card.querySelector('.tui-cte')).toBeNull();
   const later = card.querySelector('.tui-plan-later')!;
   expect(later.textContent).toBe('Drafted at posting');
-  expect(
-    later.querySelector('button')!.getAttribute('aria-label')
-  ).toContain('drafted during the Post step');
+  expect(later.querySelector('button')!.getAttribute('aria-label')).toContain(
+    'drafted during the Post step'
+  );
 });
 
 test('a held post-step reply folds its card; posting it again opens the reply', async () => {
