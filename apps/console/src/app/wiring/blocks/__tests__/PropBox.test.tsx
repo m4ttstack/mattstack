@@ -1,4 +1,8 @@
+import '../../../icons';
+
+import type { ReactElement } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -7,6 +11,16 @@ import type {
   PayloadSegment,
 } from '../../../../server/blocksPayload';
 import { PropBox } from '../PropBox';
+
+/** The editor links read the editor setting through react-query. */
+function render(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return renderWithProviders(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
 
 type Prop = PayloadBlock['props'][number];
 
@@ -29,8 +43,8 @@ const seg = (layer: string, color: PayloadSegment['color'], text: string) => ({
 });
 
 describe('PropBox', () => {
-  it('shows one card labelled default when a cleared override fell back', () => {
-    renderWithProviders(
+  it("shows a fallen-back default as mattstack's, ruled grey", () => {
+    render(
       <PropBox
         prop={prop({
           fromDefault: true,
@@ -39,26 +53,55 @@ describe('PropBox', () => {
               layer: 'default',
               color: 'mattstack',
               binding: 'mattstack:model-tiering',
-              path: 'p',
+              path: '/plugins/mattstack/skills/model-tiering/SKILL.md',
               lines: 1,
             },
           ],
         })}
         segments={[seg('default', 'mattstack', 'Use the tiering skill.')]}
+        layerName={() => 'mattstack'}
       />
     );
-    const cards = screen.getAllByTestId('prop-card');
-    expect(cards).toHaveLength(1);
-    expect(within(cards[0]).getByText('default')).toBeInTheDocument();
-    expect(cards[0]).toHaveAttribute('data-layer', 'mattstack');
-    expect(screen.queryByText('org')).not.toBeInTheDocument();
+    const bands = screen.getAllByTestId('prop-card');
+    expect(bands).toHaveLength(1);
+    expect(bands[0]).toHaveAttribute('data-layer', 'mattstack');
     expect(
-      screen.getByText('replace · default mattstack:model-tiering')
+      within(bands[0]).getByText("Tiering: mattstack's default")
+    ).toBeInTheDocument();
+    expect(
+      within(bands[0]).getByText('model-tiering/SKILL.md')
     ).toBeInTheDocument();
   });
 
-  it('shows org then team cards for an add prop', () => {
-    renderWithProviders(
+  it('titles a replacing value Set by its layer', () => {
+    render(
+      <PropBox
+        prop={prop({
+          default: '',
+          values: [
+            {
+              layer: 'pack',
+              color: 'team',
+              binding: 'b/y',
+              path: 'p',
+              lines: 1,
+            },
+          ],
+        })}
+        segments={[seg('pack', 'team', 'Team tiering.')]}
+        layerName={() => 'widgets'}
+      />
+    );
+    const band = screen.getByTestId('prop-card');
+    expect(band).toHaveAttribute('data-layer', 'team');
+    expect(within(band).getByText('Set by widgets')).toBeInTheDocument();
+    expect(
+      within(band).getByText("replaces mattstack's default (none)")
+    ).toBeInTheDocument();
+  });
+
+  it('shows org then team bands for an add prop, each with its source', () => {
+    render(
       <PropBox
         prop={prop({
           name: 'rules',
@@ -87,19 +130,20 @@ describe('PropBox', () => {
         ]}
       />
     );
-    const cards = screen.getAllByTestId('prop-card');
-    expect(cards.map(c => c.getAttribute('data-layer'))).toEqual([
+    const bands = screen.getAllByTestId('prop-card');
+    expect(bands.map(band => band.getAttribute('data-layer'))).toEqual([
       'org',
       'team',
     ]);
-    expect(within(cards[0]).getByText('acme')).toBeInTheDocument();
-    expect(within(cards[0]).getByText('a/x')).toBeInTheDocument();
-    expect(within(cards[1]).getByText('Team rule.')).toBeInTheDocument();
-    expect(screen.getByText('add')).toBeInTheDocument();
+    expect(
+      within(bands[0]).getByText('Rules added by acme')
+    ).toBeInTheDocument();
+    expect(within(bands[0]).getByText('a/x')).toBeInTheDocument();
+    expect(within(bands[1]).getByText('Team rule.')).toBeInTheDocument();
   });
 
   it('says nothing passed for an empty add prop', () => {
-    renderWithProviders(
+    render(
       <PropBox
         prop={prop({ name: 'rules', merge: 'add', default: '' })}
         segments={[]}
@@ -110,7 +154,7 @@ describe('PropBox', () => {
   });
 
   it('renders backticks as code', () => {
-    renderWithProviders(
+    render(
       <PropBox
         prop={prop({})}
         segments={[
@@ -118,7 +162,9 @@ describe('PropBox', () => {
         ]}
       />
     );
-    expect(screen.getByText('mattstack:model-tiering').tagName).toBe('CODE');
+    expect(
+      screen.getByText('mattstack:model-tiering', { selector: 'code' })
+    ).toBeInTheDocument();
     expect(screen.queryByText(/`/)).not.toBeInTheDocument();
   });
 });

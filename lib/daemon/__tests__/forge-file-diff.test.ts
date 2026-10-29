@@ -113,6 +113,20 @@ describe("forge:file-diff on GitLab", () => {
     });
   });
 
+  test("a bare file name takes the one changed file ending in it", async () => {
+    const { rest } = fakeRest({ [GL_MR]: glMr, [glDiffs(1)]: () => json([glRow("src/map/useMapCenter.ts"), glRow("src/a.ts")]) });
+    const h = handlers({ [GL_REPO]: { forge: "gitlab", projectPath: "acme/radar", rest } });
+    const res = await h["forge:file-diff"]!({ repoName: GL_REPO, iid: 812, path: "useMapCenter.ts" });
+    expect((res as { data: ForgeFileDiffData }).data.file).toMatchObject({ newPath: "src/map/useMapCenter.ts" });
+  });
+
+  test("a bare file name two changed files end in matches neither", async () => {
+    const { rest } = fakeRest({ [GL_MR]: glMr, [glDiffs(1)]: () => json([glRow("src/a/index.ts"), glRow("src/b/index.ts")]) });
+    const h = handlers({ [GL_REPO]: { forge: "gitlab", projectPath: "acme/radar", rest } });
+    const res = await h["forge:file-diff"]!({ repoName: GL_REPO, iid: 812, path: "index.ts" });
+    expect((res as { data: ForgeFileDiffData }).data.file).toBeNull();
+  });
+
   test("a GitLab error comes back as the call's error", async () => {
     const { rest } = fakeRest({ [GL_MR]: glMr, [glDiffs(1)]: () => new Response("boom", { status: 500, statusText: "Internal Server Error" }) });
     const h = handlers({ [GL_REPO]: { forge: "gitlab", projectPath: "acme/radar", rest } });
@@ -247,6 +261,10 @@ describe("forge:file-diff listing", () => {
     });
     expect(await h["forge:file-diff"]!({ repoName: GL_REPO, iid: 812, path: "src/a.ts" })).toMatchObject({
       ok: true, data: { truncated: true, file: { newPath: "src/a.ts" } },
+    });
+    // The unread pages may hold a second file by that name.
+    expect(await h["forge:file-diff"]!({ repoName: GL_REPO, iid: 812, path: "a.ts" })).toMatchObject({
+      ok: true, data: { truncated: true, file: null },
     });
   });
 });

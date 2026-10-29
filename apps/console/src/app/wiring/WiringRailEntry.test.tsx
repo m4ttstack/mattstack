@@ -1,3 +1,5 @@
+import '../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, waitFor } from '@testing-library/react';
@@ -107,7 +109,7 @@ describe('WiringRailEntry: the drift badge', () => {
 
     // The rail entry itself is what proves the tree rendered -- without it
     // the absent badge below would pass on an empty document.
-    expect(await screen.findByLabelText('Wiring')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Packs')).toBeInTheDocument();
     await waitFor(() => expect(checkGet).toHaveBeenCalled());
     expect(screen.queryByTestId('drift-badge')).toBeNull();
   });
@@ -117,12 +119,12 @@ describe('WiringRailEntry: the drift badge', () => {
     renderRail(CHECK_TWO_DRIFTED);
 
     const badge = await screen.findByTestId('drift-badge');
-    expect(screen.getByLabelText('Wiring')).toHaveAttribute('href', '/wiring');
+    expect(screen.getByLabelText('Packs')).toHaveAttribute('href', '/packs');
 
     await user.click(badge);
 
     expect(window.location.pathname + window.location.search).toBe(
-      '/wiring?attention=1'
+      '/packs?tab=config&attention=1'
     );
   });
 });

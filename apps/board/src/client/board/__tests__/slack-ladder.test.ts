@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { slackLadder } from '../slack-ladder.ts';
+import { marksTip, reactorsOf, slackLadder } from '../slack-ladder.ts';
 
 const MARKS = [
   { emoji: 'eyes', stage: 'looking' as const },
@@ -48,4 +48,51 @@ test('reactions on an unposted message count for nothing', () => {
 
 test('unknown reactions are ignored', () => {
   expect(stageOf(['tada'])).toBeNull();
+});
+
+const APPROVED = { word: 'approved' };
+const LOOKING = { word: 'looking' };
+
+test('marksTip says whether you or someone else left the furthest mark', () => {
+  expect(marksTip(APPROVED, { you: true, others: [] })).toBe(
+    'You marked this approved in Slack'
+  );
+  expect(marksTip(APPROVED, { you: false, others: ['U1'] })).toBe(
+    'Someone else marked this approved in Slack'
+  );
+  expect(marksTip(APPROVED, { you: true, others: ['U1'] })).toBe(
+    'You and 1 other marked this approved in Slack'
+  );
+  expect(marksTip(LOOKING, { you: false, others: ['U1', 'U2'] })).toBe(
+    '2 others marked this looking in Slack'
+  );
+});
+
+test('marksTip says Someone before the board knows who, and nothing without a mark', () => {
+  expect(marksTip(APPROVED, undefined)).toBe(
+    'Someone marked this approved in Slack'
+  );
+  expect(marksTip(null, undefined)).toBeNull();
+});
+
+test('marksTip across several posts counts the channels that reached it', () => {
+  expect(
+    marksTip(APPROVED, { you: true, others: [] }, { reached: 2, posts: 3 })
+  ).toBe('You marked this approved in 2 of 3 Slack channels');
+});
+
+test('reactorsOf merges who left one emoji across posts', () => {
+  expect(
+    reactorsOf(
+      [
+        { reactedBy: { white_check_mark: { you: false, others: ['U1'] } } },
+        {
+          reactedBy: { white_check_mark: { you: true, others: ['U1', 'U2'] } },
+        },
+        {},
+      ],
+      'white_check_mark'
+    )
+  ).toEqual({ you: true, others: ['U1', 'U2'] });
+  expect(reactorsOf([{}], 'eyes')).toBeUndefined();
 });

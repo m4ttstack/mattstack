@@ -13,7 +13,7 @@
  */
 import type { ChatPane, PaneSendResult, RtResponse } from "../packages/rt-client/src/index.ts";
 import { BG_PREFIX, paneAccounts as paneAccountsRt, paneDirectories as paneDirectoriesRt, paneFocus as paneFocusRt, paneList as paneListRt, panePeek as panePeekRt, paneSend as paneSendRt, paneSpawn as paneSpawnRt } from "../packages/rt-client/src/index.ts";
-import { selfPaneRef } from "../lib/self-pane.ts";
+import { liveSelfPaneRef, selfPaneRef } from "../lib/self-pane.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
 
@@ -152,16 +152,17 @@ export async function paneSend(args: string[]): Promise<void> {
   const rawText = flagValue(args, "--text");
   if (!target || rawText === undefined) fail("usage: rt pane send <pane|self> --text <text> [--then <text>]  (--text - reads stdin)");
   const text = rawText === "-" ? await new Response(Bun.stdin.stream()).text() : rawText;
-  const own = selfPaneRef();
+  const own = target === SELF_TARGET ? selfPaneRef() : await liveSelfPaneRef();
   // The daemon refuses a callerPane equal to the target, so `self` is the one
   // spelling that reaches this pane: it sends the own ref as the target and no
   // callerPane. A literal copy of the own id keeps the guard.
   const paneId = target === SELF_TARGET ? (own ?? fail(NOT_IN_PANE)) : target;
   const callerPane = target === SELF_TARGET ? undefined : own;
+  const selfSession = target === SELF_TARGET ? process.env.CLAUDE_CODE_SESSION_ID : undefined;
   const continuation = flagValue(args, "--then");
   if (args.includes("--then") && !continuation) fail("--then needs a body");
   const data = unwrap(
-    await paneSendRt({ paneId, text, ...(callerPane ? { callerPane } : {}), ...(continuation !== undefined ? { continuation } : {}) }, opts(args)),
+    await paneSendRt({ paneId, text, ...(callerPane ? { callerPane } : {}), ...(continuation !== undefined ? { continuation } : {}), ...(selfSession ? { selfSession } : {}) }, opts(args)),
     "pane send",
   );
   const { continuation: then, ...first } = data;

@@ -30,13 +30,15 @@ export interface ClosedPaneReport {
 }
 
 /** A teammate's in-flight review with a gone executor reports error.
-    The review lane stays unchanged and resumable. */
+    The review lane stays unchanged and resumable. A pane gone since before
+    the run began is a re-review resuming that agent, not yet re-attached. */
 export function closedPaneReports(input: {
   reviews: Map<string, ClosedPaneLane>;
   executors: ReadonlyArray<{
     agentId: string;
     sessionId: string;
     state: string;
+    since: number;
   }>;
   authorOf: (mrUrl: string) => string | undefined;
   self: string;
@@ -59,6 +61,7 @@ export function closedPaneReports(input: {
       if (seen.has(mrUrl)) continue;
       seen.add(mrUrl);
       const lane = input.reviews.get(mrUrl)!;
+      if (executor.since < (lane.runStartedAt ?? 0)) continue;
       const author = input.authorOf(mrUrl);
       if (!author || canonicalUsername(author) === me) continue;
       const runStartedAt = lane.runStartedAt ?? 0;
@@ -95,7 +98,12 @@ interface ClosedPaneIO {
   current: () => { self: string; client: SwitchboardClient } | undefined;
   readReviews: () => Map<string, ClosedPaneLane>;
   fetchExecutors: () => Promise<
-    ReadonlyArray<{ agentId: string; sessionId: string; state: string }>
+    ReadonlyArray<{
+      agentId: string;
+      sessionId: string;
+      state: string;
+      since: number;
+    }>
   >;
   fetchAuthors: () => Promise<ReadonlyMap<string, string>>;
   readNudges: () => readonly NudgeState[];
@@ -144,7 +152,14 @@ export async function clearClosedPeerReviews(
           io,
           current,
           reviews,
-          [{ agentId, sessionId: sessionId ?? '', state: 'gone' }],
+          [
+            {
+              agentId,
+              sessionId: sessionId ?? '',
+              state: 'gone',
+              since: Date.now(),
+            },
+          ],
           authors,
           db
         );

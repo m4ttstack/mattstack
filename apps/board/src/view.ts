@@ -621,6 +621,26 @@ function ageBucket(
   return { label: 'Older', order: 9 };
 }
 
+/** Whether a person approved the MR: listed among its approvers, or an
+    assigned reviewer whose state reads approved. Someone who approved
+    without being assigned shows only in the approvers, and GitHub's
+    reviewers never carry a state. */
+export function personApproved(
+  mr:
+    | {
+        reviews?: Partial<Pick<BoardMR['reviews'], 'approvedBy' | 'reviewers'>>;
+      }
+    | undefined,
+  person: string
+): boolean {
+  const who = person.toLowerCase();
+  const reviews = mr?.reviews;
+  if (reviews?.approvedBy?.some(u => u.username.toLowerCase() === who))
+    return true;
+  const r = reviews?.reviewers?.find(x => x.username.toLowerCase() === who);
+  return getReviewDisplayState(r?.reviewState ?? null) === 'approved';
+}
+
 /** Every assigned reviewer has approved. */
 function allReviewersApproved(mr: BoardMR): boolean {
   const reviewers = mr.reviews.reviewers ?? [];
@@ -871,6 +891,9 @@ export interface ViewState {
   sort: SortKey;
   tab: string;
   off: ShowItem[];
+  /** The Show picks on your own roster entry, kept apart from `off` so your
+      own view and the team's each remember theirs. Stored, never in the URL. */
+  ownOff: ShowItem[];
 }
 
 /** A fresh board shows only what went to the team channel, grouped by
@@ -884,7 +907,24 @@ export const DEFAULT_VIEW: ViewState = {
   sort: 'age',
   tab: '',
   off: ['notPosted', 'authorTurn', 'myDrafts'],
+  ownOff: ['notPosted', 'authorTurn', 'myDrafts'],
 };
+
+/** Whether the board is on your own roster entry, where `ownOff` applies. */
+export function isOwnView(
+  v: Pick<ViewState, 'member'>,
+  seat: string | null
+): boolean {
+  return v.member !== 'all' && isOwnMr({ author: { username: v.member } }, seat);
+}
+
+/** The Show picks in force: your own view's, or everyone else's. */
+export function activeOff(
+  v: Pick<ViewState, 'member' | 'off' | 'ownOff'>,
+  seat: string | null
+): ShowItem[] {
+  return isOwnView(v, seat) ? v.ownOff : v.off;
+}
 
 /** The grouping a tab other than the seat tab opens with, given the one you
     had before the seat tab switched you to `needs`. */
@@ -926,6 +966,7 @@ export function parseViewState(
   validTabs: string[] = []
 ): ViewState {
   const params = new URLSearchParams(search);
+  const off = resolveOff(params, stored);
   const members = ['all', ...validMembers];
   const memberFallback = members.includes(defaultMember)
     ? defaultMember
@@ -953,7 +994,11 @@ export function parseViewState(
       ? DEFAULT_VIEW.sort
       : resolve('sort', SORT_KEYS, DEFAULT_VIEW.sort),
     tab: resolve('tab', validTabs, validTabs[0] ?? ''),
-    off: resolveOff(params, stored),
+    off,
+    // Before the split, one set served every view; it seeds yours.
+    ownOff: Array.isArray(stored?.ownOff)
+      ? SHOW_ITEMS.filter(i => stored.ownOff!.includes(i))
+      : [...off],
   };
 }
 

@@ -22,6 +22,7 @@ import {
   respondAskTarget,
   respondChoiceLabel,
   respondChoices,
+  reviewedBy,
   reviewLogged,
   reviewMenuItems,
   roundSuffix,
@@ -229,7 +230,7 @@ export function rowActions(
     const reviewItems = reviewMenuItems(
       mrx.review?.status,
       laneInterrupted(mrx.orphan, mrx.review),
-      reviewLogged(mrx),
+      own ? reviewLogged(mrx) : reviewedBy(mrx, env.self),
       mrx.review?.rounds
     );
     const followUpOffered = reviewItems.some(it => it.kind === 'follow-up');
@@ -459,7 +460,7 @@ export function rowActions(
         item(
           'agent',
           `nudge-${peer.reviewer}`,
-          `ask ${people.short(peer.reviewer)}'s agent to re-review`,
+          `ask ${people.short(peer.reviewer)}'s agent for a follow-up review`,
           AGENT_CLOUD,
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
@@ -469,7 +470,7 @@ export function rowActions(
         item(
           'agent',
           `latch-${latch.reviewer}`,
-          `ask ${people.short(latch.reviewer)}'s agent to re-review`,
+          `ask ${people.short(latch.reviewer)}'s agent for a follow-up review`,
           AGENT_CLOUD,
           {
             kind: 'resolve-latch',

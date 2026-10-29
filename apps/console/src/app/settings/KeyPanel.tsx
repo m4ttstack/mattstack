@@ -17,7 +17,6 @@ import {
   Menu,
   Popover,
   SegmentedControl,
-  Skeleton,
   Stack,
   Table,
   Text,
@@ -34,6 +33,7 @@ import { rowKind, type SchemaIssue } from '@mattstack/settings-kit/shapes';
 import { analyzeChain, shortValue } from '../config/chain';
 import { useAgentModels } from '../config/useSettings';
 import { useEditorHref } from '../editorHref';
+import { StepLoader, useStepLoading } from '../StepLoader';
 import { DivergedPanel } from './DivergedPanel';
 import { DraftEditor } from './DraftEditor';
 import { editorKind, formOf } from './formShape';
@@ -716,7 +716,7 @@ function RepoSection({
         )}
       </Group>
       {loading && rows.length === 0 ? (
-        <Skeleton h={38} />
+        <StepLoader steps={[]} />
       ) : (
         // The section header already names the repo, so each line's badge
         // names only the store.
@@ -778,6 +778,9 @@ function WhereTab({
   const explained = useKeyExplain(storeDef.key, repo, externalWrites);
   const [pruneError, setPruneError] = useState<string | null>(null);
   const { refresh, rows, loading } = explained;
+  const { show: layersHeld, bind: layersBind } = useStepLoading(
+    loading && rows.length === 0
+  );
   // A settled explain read is fresher than a store loaded when the page
   // mounted; while a re-read runs, the store already holds the write.
   // settings-kit 0.5.0's /explain route never sets `repos`, `issues` or
@@ -902,14 +905,15 @@ function WhereTab({
         <Alert color="bad" variant="light" mt="md">
           <Text fz={12}>{explained.error}</Text>
         </Alert>
-      ) : loading && rows.length === 0 ? (
-        // Skeletons only before the first read: a re-read after a write
+      ) : layersHeld ? (
+        // The loader only before the first read: a re-read after a write
         // keeps the layers on screen.
-        <Stack gap={10} pt={12}>
-          {[0, 1, 2].map(i => (
-            <Skeleton key={i} h={36} />
-          ))}
-        </Stack>
+        <Box pt={12}>
+          <StepLoader
+            {...layersBind}
+            steps={[`reading where ${def.key} is set`]}
+          />
+        </Box>
       ) : (
         <LayerTable>
           {rows.filter(shown).map(r => (

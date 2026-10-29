@@ -98,6 +98,45 @@ test('on an own MR, follow-up review and review both sit under sessions', () => 
   expect(redo).toMatchObject({ label: 'redo review', redo: 'review' });
 });
 
+test("a teammate's MR someone else reviewed offers a plain review, no follow-up", () => {
+  const mr = mrx(1430, {
+    author: { username: 'kim', name: 'Kim' },
+    reviews: {
+      isApproved: false,
+      required: 4,
+      given: 1,
+      approvedBy: [
+        {
+          id: 'gitlab:fabian',
+          username: 'fabian',
+          name: 'Fabian',
+          avatarUrl: null,
+        },
+      ],
+      reviewers: [],
+    },
+  });
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  expect(actions.find(a => a.key === 're-review')).toBeUndefined();
+  expect(actions.find(a => a.key === 'review')).toMatchObject({
+    section: 'agent',
+    label: 'review',
+  });
+  const mine = {
+    ...mr,
+    reviews: {
+      ...mr.reviews,
+      approvedBy: [
+        { id: 'gitlab:pat', username: 'pat', name: 'Pat', avatarUrl: null },
+      ],
+    },
+  };
+  expect(
+    rowActions(mine, actionEnvOf(ownEnv, mine)).find(a => a.key === 're-review')
+      ?.section
+  ).toBe('agent');
+});
+
 test('each lane shows exactly one primary row in agent, in every state; an own MR keeps only a running review there', () => {
   const REVIEW = new Set(['review', 're-review', 'focus-review']);
   const RESPOND = new Set(['respond', 'focus-respond']);
@@ -447,7 +486,7 @@ test("a latch from a reviewer the switchboard hasn't heard from offers the re-re
     'request-review',
   ]);
   expect(agent.find(a => a.key === 'latch-jo')).toMatchObject({
-    label: "ask jo's agent to re-review",
+    label: "ask jo's agent for a follow-up review",
     glyph: { kind: 'agent-cloud' },
     request: { kind: 'resolve-latch', reviewer: 'jo', discussionId: 'd9' },
   });

@@ -2,7 +2,7 @@ import type { BlocksPayload } from '../../../../server/blocksPayload';
 import type { Dot } from './blockFacts';
 import type { BlockMap, MapLink, MapNode } from './blockMap';
 import type { LayoutEdge, LayoutInput, LayoutNode } from './elkGraph';
-import { shortLabel } from './labels';
+import { exitLabel, shortLabel } from './labels';
 
 type Graph = BlocksPayload['graphs'][number];
 
@@ -16,13 +16,17 @@ export const CARD = {
   badge: 20,
   badgeGap: 9,
   padRight: 14,
+  /** The › a card that opens a block ends with, a flex gap after the
+      label. */
+  goGap: 9,
+  go: 12,
   dotsGap: 9,
   dot: 6,
   dotGap: 4,
   pillsGap: 8,
 } as const;
 
-export const PILL = { padX: 10, gap: 5, icon: 11, between: 6 } as const;
+export const PILL = { padX: 10, gap: 6, icon: 12 } as const;
 
 export const SPLIT = { size: 10, pillsGap: 9 } as const;
 
@@ -170,14 +174,31 @@ export function cardWidth(
       CARD.badgeGap +
       measure(label, 13, 500) +
       dotsWidth +
+      CARD.goGap +
+      CARD.go +
       CARD.padRight
   );
 }
 
-export function pillWidth(pill: Pill, measure: Measure): number {
-  const label = pill.label ? measure(pill.label, 11, 400) + PILL.gap : 0;
+/** What a card's chip says when it jumps more than once: the count, and
+    which way when every jump goes the same way. */
+export function jumpsLabel(pills: Pick<Pill, 'direction'>[]): string {
+  const way = pills.every(pill => pill.direction === 'back')
+    ? ' back'
+    : pills.every(pill => pill.direction === 'forward')
+      ? ' ahead'
+      : '';
+  return `${pills.length} jumps${way}`;
+}
+
+/** One jump is a pill naming its target; several are one chip that lists
+    them when opened. */
+export function pillsWidth(pills: Pill[], measure: Measure): number {
+  if (pills.length === 0) return 0;
+  const text = pills.length === 1 ? pills[0]!.target : jumpsLabel(pills);
+  const caret = pills.length === 1 ? 0 : PILL.gap + PILL.icon;
   return Math.ceil(
-    2 * PILL.padX + label + PILL.icon + PILL.gap + measure(pill.target, 11, 500)
+    2 * PILL.padX + PILL.icon + PILL.gap + measure(text, 12, 500) + caret
   );
 }
 
@@ -197,6 +218,8 @@ export function mapLayout(
   const pillsOf = new Map<string, Pill[]>();
   for (const link of map.links) {
     if (link.kind === 'line') continue;
+    // A jump back onto its own card goes nowhere a reader can follow.
+    if (link.to.length === 1 && link.to[0] === link.from) continue;
     pillsOf.set(link.from, [
       ...(pillsOf.get(link.from) ?? []),
       {
@@ -232,16 +255,14 @@ export function mapLayout(
     const { dots, width: own } = natural.get(node.id)!;
     const width = split ? SPLIT.size : onMain.has(node.id) ? mainWidth : own;
     const pills = pillsOf.get(node.id) ?? [];
-    const pillsWidth =
+    const jumpsWidth =
       pills.length === 0
         ? 0
-        : (split ? SPLIT.pillsGap : CARD.pillsGap) +
-          pills.reduce((sum, pill) => sum + pillWidth(pill, measure), 0) +
-          PILL.between * (pills.length - 1);
+        : (split ? SPLIT.pillsGap : CARD.pillsGap) + pillsWidth(pills, measure);
     boxes.set(node.id, { node, dots, width, pills, main: onMain.has(node.id) });
     nodes.push({
       id: node.id,
-      width: width + pillsWidth,
+      width: width + jumpsWidth,
       height: split ? SPLIT.size : CARD.height,
       anchorX: width / 2,
     });
@@ -329,8 +350,10 @@ export function mapLayout(
         ...(edge.label
           ? {
               label: {
-                text: edge.label,
-                width: Math.ceil(measure(edge.label, 11, 400) + 2 * CHIP.padX),
+                text: exitLabel(edge.label),
+                width: Math.ceil(
+                  measure(exitLabel(edge.label), 11, 400) + 2 * CHIP.padX
+                ),
                 height: CHIP.height,
               },
             }

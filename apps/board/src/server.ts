@@ -7,13 +7,13 @@ import {
   type EventBridgeRule,
 } from '@mattstack/app-server/event-bridge';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
-import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   GitLabProvider,
   NoteMutator,
   parseRepoId,
   ReadBackFailedError,
 } from '@mattstack/glance';
+import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   eventsHead,
   eventsList,
@@ -282,8 +282,10 @@ import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
   deleteRespondRound,
+  readRespondOutcomes,
   readRespondRounds,
   recordRespondRound,
+  reviewerOutcome,
 } from './respond-rounds.ts';
 import {
   attachResponds,
@@ -301,7 +303,7 @@ import {
 } from './respond-state.ts';
 import { respondTargets } from './respond-targets.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
-import { dropRounds, latestRounds } from './review-rounds.ts';
+import { dropRounds, latestRounds, roundOutcomes } from './review-rounds.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -329,7 +331,11 @@ import {
   ownerSteps,
   ringText,
 } from './run-owner.ts';
-import { canonicalReactions } from './slack-emoji.ts';
+import {
+  canonicalReactedBy,
+  canonicalReactions,
+  type ReactedBy,
+} from './slack-emoji.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -1114,16 +1120,35 @@ function canonical(reactions: string[]): string[] {
   );
 }
 
+function canonicalMarks<
+  T extends { reactions?: string[]; reactedBy?: ReactedBy },
+>(post: T): T {
+  return {
+    ...post,
+    ...(post.reactions ? { reactions: canonical(post.reactions) } : {}),
+    ...(post.reactedBy
+      ? {
+          reactedBy: canonicalReactedBy(
+            post.reactedBy,
+            config.slack.emoji,
+            config.slack.emojiAliases
+          ),
+        }
+      : {}),
+  };
+}
+
 async function withRowState(mrs: BoardMR[]) {
   const reconciler = await fetchReconcilerView();
   const doctorTabsMemo = new Map<string, string[]>();
   const withReviewState = attachDoctors(
     attachRespondRounds(
       attachResponds(
-        attachReviews(mrs, readReviewStates(), latestRounds()),
+        attachReviews(mrs, readReviewStates(), latestRounds(), roundOutcomes()),
         readRespondStates()
       ),
-      readRespondRounds()
+      readRespondRounds(),
+      readRespondOutcomes()
     ),
     readDoctorStates()
   );
@@ -1160,15 +1185,9 @@ async function withRowState(mrs: BoardMR[]) {
   const rows = attachActiveRuns(attachHandoffs(joined, memory), runOwners).map(
     mr => ({
       ...mr,
-      ...(mr.slack
-        ? { slack: { ...mr.slack, reactions: canonical(mr.slack.reactions) } }
-        : {}),
+      ...(mr.slack ? { slack: canonicalMarks(mr.slack) } : {}),
       ...(mr.ownerPosts
-        ? {
-            ownerPosts: mr.ownerPosts.map(p =>
-              p.reactions ? { ...p, reactions: canonical(p.reactions) } : p
-            ),
-          }
+        ? { ownerPosts: mr.ownerPosts.map(canonicalMarks) }
         : {}),
       gates: joinGateExecutors(mr.gates, reconciler.executors),
       doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
@@ -2784,7 +2803,13 @@ const httpServer = Bun.serve({
             return new Response(dedup.reason, { status: 409 });
         }
         const responseRound = person
-          ? recordRespondRound(parsed.mrUrl, person)
+          ? recordRespondRound(
+              parsed.mrUrl,
+              person,
+              undefined,
+              undefined,
+              reviewerOutcome(mr, person)
+            )
           : undefined;
         const statePath = respondFilePath(parsed.mrUrl);
         writeRespondState(statePath, {
@@ -4453,7 +4478,10 @@ const httpServer = Bun.serve({
           return new Response(
             JSON.stringify({
               ok: true,
-              reactions: canonical(ref.reactions ?? []),
+              ...canonicalMarks({
+                reactions: ref.reactions ?? [],
+                reactedBy: ref.reactedBy,
+              }),
             }),
             {
               headers: { 'content-type': 'application/json' },

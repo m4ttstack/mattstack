@@ -171,7 +171,7 @@ Base text can pick the attachment by team value: `{{pack.path:{{team.gates-fill}
 
 A team's `pack/sections/*.md` text and `pack/params.jsonc` values may use `{{pack.path:<attachment>/<file>}}` and `{{verb.path:<verb>}}` too. Compile puts the team text into the base text first. It then fills in the path the way that text fills in its own. In a compiled skill, the path points at its `references/` copy. In a copied base attachment, it gets the path a base attachment gets. Compile and `rt skills check` stop on a hand-typed path in a section or a value. The error names the section file and line, or the `params.jsonc` line.
 
-`rt skills check` also reads the pack's hand-written skills, which compile never reads. It fails on each path out of a skill's folder that points at no file.
+`rt skills check` also reads the pack's standard skills, the ones compile never builds. It fails on each path out of a skill's folder that points at no file.
 
 ## Pointers in compiled skills
 
@@ -203,7 +203,7 @@ A fill is text compiled into a verb. A file a skill opens while it runs (a refer
 - **Where it lands:** the same path under the team pack's `attachments/`. Each copied folder gets a `compiled.json` naming the base, its version and the files compile wrote. That file marks the folder as compile's output: the next successful compile rewrites it, and `rt skills check` reports it as drift when it no longer matches the base.
 - **Placeholders:** in a copied `.md` file, `{{pack.name}}` becomes the team pack's plugin name, so a base attachment names a team verb as `{{pack.name}}:ship`. `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` resolve in the team pack, and `{{team.*}}` markers take the team's values (see [Team values in shared fills](#team-values-in-shared-fills)). Any other `{{...}}` text, and every file that is not `.md`, is copied as it is.
 - **The team's own folder wins:** compile leaves the team pack's own `attachments/<name>/` alone and copies nothing for that name. A folder is the team's own when it has no `compiled.json` that compile wrote. A data file of that name in another shape does not count. To override a base attachment, delete the copied folder and write your own in its place.
-- **Clashes stop the compile:** a base attachment named like one of the team's verbs, one of its hand-written skills, or one of its attachments at another path is an error that names both. Rename one of them.
+- **Clashes stop the compile:** a base attachment named like one of the team's verbs, one of its standard skills, or one of its attachments at another path is an error that names both. Rename one of them.
 - **Cleanup:** compile removes a copied folder when the base drops that attachment, or when the pack stops extending a base.
 
 Compile writes and removes nothing when any verb fails to compile, so the copies change only on a compile that succeeds.

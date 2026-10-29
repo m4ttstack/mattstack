@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-import { SelectBox } from '@mattstack/tui-kit';
+import { SelectBox, Tooltip } from '@mattstack/tui-kit';
 import type { BoardMR } from '../../data.ts';
 import { extractTicketId, ticketUrl } from '../../ticket.ts';
 import {
@@ -24,7 +24,12 @@ import { mrRef } from './MrLinks.tsx';
 import { useBoardPeople, usePeople } from './people.ts';
 import { rowStatus, statusPhrase, statusReasons } from './row-status.ts';
 import { RowNote } from './RowNote.tsx';
-import { furthestAcross, slackLadder } from './slack-ladder.ts';
+import {
+  furthestAcross,
+  marksTip,
+  reactorsOf,
+  slackLadder,
+} from './slack-ladder.ts';
 import { slackPosts } from './slack-posts.ts';
 import { StatusDot } from './StatusDot.tsx';
 import { StatusLine } from './StatusLine.tsx';
@@ -107,19 +112,11 @@ function SlackMarks({
   // its count says how many channels reached it.
   const across = several ? furthestAcross(posts, getSlackMarks()) : null;
   const mark = across ? across.mark : team.mark;
-  const markTitle =
-    mark && across
-      ? `${mark.title} · ${across.count} of ${posts.length} channels`
-      : mark?.title;
   const permalink = posts[0]?.permalink;
   const marks = (
     <>
       {mark && (
-        <span
-          className="tui-mark"
-          data-slack-stage={mark.stage}
-          title={markTitle}
-        >
+        <span className="tui-mark" data-slack-stage={mark.stage}>
           {mark.glyph}
         </span>
       )}
@@ -137,21 +134,28 @@ function SlackMarks({
   // stay the plain marks they were.
   if (!permalink)
     return (
-      <span className="tui-row-marks" title="posted in slack">
-        {marks}
-      </span>
+      <Tooltip tip="posted in slack">
+        <span className="tui-row-marks" title="">
+          {marks}
+        </span>
+      </Tooltip>
     );
-  return (
+  const tip = marksTip(
+    mark,
+    mark
+      ? reactorsOf(several ? posts : posts.slice(0, 1), mark.emoji)
+      : undefined,
+    across ? { reached: across.count, posts: posts.length } : undefined
+  );
+  // The empty title keeps the row's native "right-click for actions" from
+  // showing over the kit tooltip.
+  const button = (
     <button
       type="button"
       className="tui-row-marks tui-copy-inline"
       data-active={open ? '' : undefined}
-      title={[
-        markTitle,
-        several ? `open in slack · ${posts.length} posts` : 'open in slack',
-      ]
-        .filter(Boolean)
-        .join(' · ')}
+      title=""
+      aria-label={tip ?? 'open in slack'}
       onClick={e => {
         e.stopPropagation();
         if (several) onChoose!(mr);
@@ -161,6 +165,7 @@ function SlackMarks({
       {marks}
     </button>
   );
+  return tip ? <Tooltip tip={tip}>{button}</Tooltip> : button;
 }
 
 /** The facts line's right rail: the thread count (the drawer's entry) and

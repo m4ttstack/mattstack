@@ -928,7 +928,13 @@ export interface Commands {
     payload: { cwd: string; account?: string; model?: string; effort?: string; prompt?: string; workspace?: string };
     data: { pane: ChatPane; ready: boolean };
   };
-  "pane:send": { payload: { paneId: string; text: string; callerPane?: string; continuation?: string }; data: PaneSendResult };
+  /** `selfSession` (a self send's CLAUDE_CODE_SESSION_ID) retargets the send
+      to the pane running that session; `paneId` is the fallback, since a
+      HERDR_PANE_ID inherited across a herdr renumber names a stale pane. */
+  "pane:send": { payload: { paneId: string; text: string; callerPane?: string; continuation?: string; selfSession?: string }; data: PaneSendResult };
+  /** The live ref of the pane running `sessionId`; `paneId` (the caller's
+      HERDR_PANE_ID) is checked first and is the fallback, null without one. */
+  "pane:self": { payload: { sessionId: string; paneId?: string }; data: { paneId: string | null } };
   /** `callerWorkspace` (HERDR_WORKSPACE_ID) is required only for a `bg:`
       ref, whose focus opens an attend tab in the caller's own workspace. */
   "pane:focus": { payload: { paneId: string; callerWorkspace?: string }; data: PaneFocusResult };
@@ -1291,6 +1297,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "pane:directories",
   "pane:spawn",
   "pane:send",
+  "pane:self",
   "pane:focus",
   "pane:announce-relocation",
 

@@ -17,6 +17,8 @@ import { LAYOUT_TIMEOUT_MS } from '../useGraphLayout';
 import { shipPayload } from './blocksFixture';
 import { labelClashes, labelsOutside } from './flowGeometry';
 
+const TRAIL = [{ key: 'skill', label: 'ship' }];
+
 type Graph = BlocksPayload['graphs'][number];
 
 const graph = shipPayload.graphs.find(each => each.blockId === 'ship/flow')!;
@@ -53,7 +55,7 @@ function renderMap(
   } = {}
 ) {
   const onSelect = vi.fn();
-  const onClose = vi.fn();
+  const onUp = vi.fn();
   const onView = vi.fn();
   renderWithProviders(
     <BlockMap
@@ -62,11 +64,15 @@ function renderMap(
       highlight={null}
       onSelect={onSelect}
       onView={onView}
-      onClose={onClose}
+      trail={[
+        { key: 'skill', label: 'ship', onClick: onUp },
+        { key: 'graph', label: 'Diagram' },
+      ]}
+      title="Ship"
       engine={overrides.engine ?? engine}
     />
   );
-  return { onSelect, onClose, onView };
+  return { onSelect, onUp, onView };
 }
 
 const cardNamed = (label: string) =>
@@ -101,7 +107,9 @@ describe('BlockMap', () => {
 
     const blocks = map.nodes.filter(node => node.blockId !== null).length;
     expect(
-      screen.getByText(`${blocks} blocks · ${map.foldedSteps} steps folded`)
+      screen.getByText(
+        `Diagram · ${blocks} blocks · ${map.foldedSteps} steps folded`
+      )
     ).toBeInTheDocument();
     await screen.findAllByTestId('map-card', {}, LAID_OUT);
   }, 20_000);
@@ -123,7 +131,7 @@ describe('BlockMap', () => {
     expect(direct).toHaveAttribute('stroke-width', '1.5');
   }, 20_000);
 
-  it('jump pills show the exit label and the target ("iterate", "Domain steps")', async () => {
+  it('a jump pill shows its target and names its exit only to a reader ("Domain steps", "iterate")', async () => {
     renderMap();
     await screen.findAllByTestId('map-card', {}, LAID_OUT);
 
@@ -131,13 +139,14 @@ describe('BlockMap', () => {
       .getAllByTestId('map-box')
       .find(each => within(each).queryByText('Ship gate'))!;
     const pill = within(box).getByTestId('jump-pill');
-    expect(within(pill).getByText('iterate')).toBeInTheDocument();
-    expect(within(pill).getByText('Domain steps')).toBeInTheDocument();
+    expect(pill).toHaveTextContent('Domain steps');
+    expect(pill).not.toHaveTextContent('iterate');
+    expect(pill).toHaveAccessibleName('iterate: back to Domain steps');
     expect(
       screen
         .getAllByTestId('jump-pill')
-        .map(each => each.textContent)
-        .filter(text => text === 'GitHubCapture')
+        .map(each => each.getAttribute('aria-label'))
+        .filter(name => name?.startsWith('GitHub:'))
     ).toHaveLength(1);
   }, 20_000);
 
@@ -167,7 +176,9 @@ describe('BlockMap', () => {
       const box = laidOut.nodes[id]!;
       return box.x + layout.boxes.get(id)!.width / 2;
     };
-    expect(new Set(main.map(centre)).size).toBe(1);
+    // A card of odd width centres on a half pixel, a split dot on a whole one.
+    const centres = main.map(centre);
+    expect(Math.max(...centres) - Math.min(...centres)).toBeLessThanOrEqual(1);
     const tops = main.map(id => laidOut.nodes[id]!.y);
     expect(tops).toEqual([...tops].sort((a, b) => a - b));
     expect(laidOut.nodes[main[0]!]!.y).toBe(
@@ -255,7 +266,8 @@ describe('BlockMap', () => {
       highlight: null,
       onSelect: vi.fn(),
       onView: vi.fn(),
-      onClose: vi.fn(),
+      trail: TRAIL,
+      title: 'Ship',
       engine: slowAfterFirst,
     };
     const { rerender } = renderWithProviders(
@@ -288,7 +300,7 @@ describe('BlockMap', () => {
     renderMap({ engine: () => new Promise(() => {}) });
 
     expect(
-      screen.getByRole('status', { name: 'Laying out the map' })
+      screen.getByRole('status', { name: 'laying out the map' })
     ).toBeInTheDocument();
   });
 
@@ -310,7 +322,8 @@ describe('BlockMap', () => {
         highlight,
         onSelect: vi.fn(),
         onView: vi.fn(),
-        onClose: vi.fn(),
+        trail: TRAIL,
+        title: 'Ship',
         engine,
       };
       const view = renderWithProviders(<BlockMap {...props} />);
@@ -363,7 +376,8 @@ describe('BlockMap', () => {
         highlight: null,
         onSelect: vi.fn(),
         onView: vi.fn(),
-        onClose: vi.fn(),
+        trail: TRAIL,
+        title: 'Ship',
         engine,
       };
       const { rerender } = renderWithProviders(<BlockMap {...props} />);
@@ -412,11 +426,15 @@ describe('BlockMap', () => {
     );
   });
 
-  it('Close calls onClose', () => {
-    const { onClose } = renderMap({ engine: () => new Promise(() => {}) });
+  it('names the page for its block, under a trail back up to the skill', () => {
+    const { onUp } = renderMap({ engine: () => new Promise(() => {}) });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByRole('heading', { name: 'Ship' })).toBeInTheDocument();
+    const trail = screen.getByTestId('graph-trail');
+    expect(trail).toHaveTextContent('ship');
+    expect(trail).toHaveTextContent('Diagram');
+    fireEvent.click(within(trail).getByText('ship'));
 
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onUp).toHaveBeenCalledOnce();
   });
 });

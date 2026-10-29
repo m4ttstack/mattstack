@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Flex, ScrollArea } from '@mantine/core';
 import type {
   ContainerProps,
@@ -127,7 +128,17 @@ export const Content = ({
   // on by default only in scroll mode. An explicit prop still wins.
   const withContentContainer = contentContainer ?? !scrollClamp;
 
-  const topNotchUI = topNotch && <TopNotchSlot notch={topNotch} />;
+  // A notch over this column takes its height from the column's children,
+  // as the root's docked notch takes it from the whole body row.
+  const [notchHeight, setNotchHeight] = useState(0);
+  const topNotchUI = topNotch && (
+    <TopNotchSlot notch={topNotch} onHeight={setNotchHeight} />
+  );
+  const notchTaken = topNotch?.opened ? notchHeight : 0;
+  const childHeight =
+    notchTaken > 0 && height !== 'auto'
+      ? `calc(${height} - ${notchTaken}px)`
+      : height;
 
   // The opener normally lives in the header; with no header it floats here
   // so a drawer-collapsed sidebar always stays reachable.
@@ -145,7 +156,7 @@ export const Content = ({
   );
 
   const renderedChildren =
-    typeof children === 'function' ? children(height) : children;
+    typeof children === 'function' ? children(childHeight) : children;
 
   if (scrollClamp) {
     return (
@@ -186,7 +197,7 @@ export const Content = ({
       {...scrollAreaProps}
     >
       {topNotchUI}
-      <Flex direction="column" flex={1} mih={height}>
+      <Flex direction="column" flex={1} mih={childHeight}>
         <Wrapper
           contentContainer={withContentContainer}
           contentContainerProps={contentContainerProps}

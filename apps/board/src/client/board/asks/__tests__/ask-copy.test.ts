@@ -16,14 +16,14 @@ describe('ask copy', () => {
       askedPhrase('respond'),
     ]).toEqual([
       'asked for a review',
-      'asked for a re-review',
+      'asked for a follow-up review',
       'asked your agent to respond',
     ]);
     expect([
       verbLabel('review'),
       verbLabel('re-review'),
       verbLabel('respond'),
-    ]).toEqual(['Review', 'Re-review', 'Respond']);
+    ]).toEqual(['Review', 'Follow-up review', 'Respond']);
     expect([verbLane('re-review'), verbLane('respond')]).toEqual([
       'review',
       'respond',
@@ -37,7 +37,7 @@ describe('ask copy', () => {
       tone: 'ok',
     });
     expect(h({ result: 'launched', reason: 'accepted' }, 're-review')).toEqual({
-      text: 're-reviewed',
+      text: 'followed up',
       tone: 'ok',
     });
     expect(h({ result: 'launched', reason: 'accepted' }, 'respond')).toEqual({

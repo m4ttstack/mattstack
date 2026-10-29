@@ -83,13 +83,16 @@ describe('AroundGraph', () => {
     );
   }, 20_000);
 
-  it('lights the focus', async () => {
+  it('lights the focus, which opens nothing: it is the page already open', async () => {
     await renderAround();
 
-    expect(screen.getByRole('button', { name: 'Fast checks' })).toHaveAttribute(
-      'data-hot',
-      'true'
-    );
+    const focus = screen
+      .getAllByTestId('map-card')
+      .find(card => card.textContent === 'Fast checks')!;
+    expect(focus).toHaveAttribute('data-hot', 'true');
+    expect(
+      screen.queryByRole('button', { name: 'Fast checks' })
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Commit named' })
     ).not.toHaveAttribute('data-hot');
@@ -118,7 +121,7 @@ describe('AroundGraph', () => {
     const { onViewWholeGraph } = await renderAround();
 
     expect(screen.getByText('Opens a block')).toBeInTheDocument();
-    expect(screen.getByText('Graph step only')).toBeInTheDocument();
+    expect(screen.getByText('A step with no block')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'View whole graph' }));
 
     expect(onViewWholeGraph).toHaveBeenCalledOnce();

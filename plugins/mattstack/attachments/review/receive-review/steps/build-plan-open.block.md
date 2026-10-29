@@ -12,8 +12,9 @@ from the verdict report.
 The gate (`respond-plan`, gate 1; `respond-post` is gate 2) carries
 structured context per gate-protocol's
 `## Structured context (gate-ctx@1)` and its sidecar
-`structured-context.txt`. Make one scratch
-directory, `<dir>`, inside this session's scratchpad (the Claude Code temp
+`structured-context.txt`. Reuse the scratch
+directory Select the rules made as `<dir>`; with none, make one inside
+this session's scratchpad (the Claude Code temp
 root, the only place `gate_open` reads `sourcePath` and writes `outPath`),
 never `mktemp -d`, and spell its path out literally from then on. Write
 `<dir>/respond-plan.source.json`:

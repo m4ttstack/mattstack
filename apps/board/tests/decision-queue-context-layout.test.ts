@@ -207,7 +207,7 @@ test('laptop: a respond gate lists every thread at full height beside a docked s
       document: { querySelectorAll(s: string): ArrayLike<Measured> };
     };
     return Array.from(
-      document.querySelectorAll('.tui-respond-list .tui-thread-card')
+      document.querySelectorAll('.tui-respond-list > .tui-plan-card')
     ).map(c => c.scrollHeight <= c.clientHeight + 1);
   });
   expect(cards.length).toBeGreaterThan(1);
@@ -269,36 +269,42 @@ test('queue nav: previous is disabled at the first gate and walks back from the 
   await page.context().close();
 }, 30_000);
 
-test('the recommended choice is highlighted only until something in its question is picked', async () => {
+test("a plan card opens on the agent's pick as the switch's lit tile, and a click moves the tile", async () => {
   const page = await openQueue(LAPTOP);
   await nextUntil(page, '.tui-respond-sheet');
-  const tinted = () =>
-    page.evaluate(() => {
+  const SWITCH =
+    '.tui-respond-list > .tui-plan-card:first-child [data-part="segmented-option"]';
+  const tiles = () =>
+    page.evaluate(selector => {
       const { document } = globalThis as unknown as {
-        document: { querySelectorAll(s: string): ArrayLike<unknown> };
+        document: {
+          querySelectorAll(
+            s: string
+          ): ArrayLike<{ hasAttribute(a: string): boolean }>;
+        };
       };
       const win = globalThis as unknown as {
         getComputedStyle(el: unknown): { backgroundColor: string };
       };
-      return Array.from(
-        document.querySelectorAll(
-          '.tui-respond-list > .tui-gate-question:first-child .tui-gate-choice[data-recommended]'
-        )
-      ).map(
-        c => win.getComputedStyle(c).backgroundColor !== 'rgba(0, 0, 0, 0)'
-      );
-    });
-  expect(await tinted()).toEqual([true]);
-  await page
-    .locator(
-      '.tui-respond-list > .tui-gate-question:first-child .tui-gate-choice:not([data-recommended])'
-    )
-    .first()
-    .click();
-  // The choice background transitions, so wait out the fade before reading.
-  for (let i = 0; i < 20 && (await tinted())[0]; i++)
+      return Array.from(document.querySelectorAll(selector)).map(c => ({
+        active: c.hasAttribute('data-active'),
+        lit: win.getComputedStyle(c).backgroundColor !== 'rgba(0, 0, 0, 0)',
+      }));
+    }, SWITCH);
+  const before = await tiles();
+  expect(before).toHaveLength(2);
+  expect(before.filter(t => t.active)).toHaveLength(1);
+  const idle = before.findIndex(t => !t.active);
+  await page.locator(SWITCH).nth(idle).click();
+  // The tile's background transitions, so wait out the fade before reading.
+  let after = await tiles();
+  for (let i = 0; i < 20 && (!after[idle]!.lit || after[1 - idle]!.lit); i++) {
     await page.waitForTimeout(50);
-  expect(await tinted()).toEqual([false]);
+    after = await tiles();
+  }
+  expect(after.map(t => t.active)).toEqual(before.map(t => !t.active));
+  expect(after[idle]!.lit).toBe(true);
+  expect(after[1 - idle]!.lit).toBe(false);
   await page.context().close();
 }, 30_000);
 

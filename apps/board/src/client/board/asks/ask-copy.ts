@@ -2,25 +2,25 @@ import type { AskCardData, AskKind } from '../../types.ts';
 
 const ASKED: Record<AskKind, string> = {
   review: 'asked for a review',
-  're-review': 'asked for a re-review',
+  're-review': 'asked for a follow-up review',
   respond: 'asked your agent to respond',
 };
 
 const VERB: Record<AskKind, string> = {
   review: 'Review',
-  're-review': 'Re-review',
+  're-review': 'Follow-up review',
   respond: 'Respond',
 };
 
 const DONE: Record<AskKind, string> = {
   review: 'reviewed',
-  're-review': 're-reviewed',
+  're-review': 'followed up',
   respond: 'responded',
 };
 
 const DOING: Record<AskKind, string> = {
   review: 'is reviewing',
-  're-review': 'is re-reviewing',
+  're-review': 'is following up on',
   respond: 'is responding on',
 };
 

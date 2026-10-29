@@ -9,6 +9,7 @@ import {
   respondAskTarget,
   respondChoiceLabel,
   respondChoices,
+  reviewedBy,
   reviewLogged,
   reviewMenuItems,
   roundSuffix,
@@ -138,6 +139,47 @@ test('reviewLogged: an approval, a reviewer thread, or a reviewer state counts; 
       },
       reviewerComments: 0,
     } as never)
+  ).toBe(false);
+});
+
+test('reviewedBy: only that person approving, holding a reviewer state, or opening a thread counts', () => {
+  const base = {
+    reviews: {
+      isApproved: false,
+      required: 2,
+      given: 1,
+      approvedBy: [{ username: 'fabian' }],
+      reviewers: [{ username: 'tom', reviewState: 'REQUESTED_CHANGES' }],
+    },
+    reviewerComments: 3,
+  } as never;
+  expect(reviewedBy(base, 'pat')).toBe(false);
+  expect(reviewedBy(base, null)).toBe(false);
+  expect(reviewedBy(base, 'fabian')).toBe(true);
+  expect(reviewedBy(base, 'tom')).toBe(true);
+  expect(
+    reviewedBy(
+      {
+        ...(base as object),
+        myThreads: { awaiting: 0, replied: 1, resolved: 0 },
+      } as never,
+      'pat'
+    )
+  ).toBe(true);
+  expect(
+    reviewedBy(
+      {
+        reviews: {
+          isApproved: false,
+          required: 2,
+          given: 0,
+          reviewers: [{ username: 'pat', reviewState: 'UNREVIEWED' }],
+        },
+        reviewerComments: 0,
+        myThreads: { awaiting: 0, replied: 0, resolved: 0 },
+      } as never,
+      'pat'
+    )
   ).toBe(false);
 });
 

@@ -441,8 +441,8 @@ describe('step 3: armed and resolved', () => {
     await runLatchPass(deps);
     expect(notifies).toEqual([
       {
-        title: 'Re-review started on !2317',
-        message: 'The author asked for another look',
+        title: 'Follow-up review started on !2317',
+        message: 'The author asked for a follow-up review',
         mrUrl: MR,
       },
     ]);
@@ -464,7 +464,7 @@ describe('step 3: armed and resolved', () => {
     await runLatchPass(deps);
     expect(notifies).toEqual([
       {
-        title: 'Re-review skipped on !2317',
+        title: 'Follow-up review skipped on !2317',
         message: "Hit today's limit of 3 automatic runs",
         mrUrl: MR,
       },

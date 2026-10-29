@@ -105,6 +105,16 @@ describe('App routes', () => {
       'board.agent.model'
     );
   });
+
+  it('sends an old /wiring link to /packs, keeping its query', async () => {
+    window.history.pushState(null, '', '/wiring?pack=acme&tab=config');
+    gatesGet.mockResolvedValue(ok({ gates: [] }));
+
+    renderWithProviders(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/packs'));
+    expect(window.location.search).toBe('?pack=acme&tab=config');
+  });
 });
 
 describe('App bar', () => {

@@ -27,36 +27,36 @@
 }
 
 .cell {
-  padding: 0 8px 0 0;
+  padding: 0 12px 0 0;
   vertical-align: middle;
 }
 
 .cell:first-child {
-  padding-left: 12px;
+  padding-left: 14px;
 }
 
 /* The file takes the room the others leave; built with fits an engine's
    name and version on one line. */
 .builtColumn {
-  width: 120px;
+  width: 168px;
 }
 
 .installedColumn {
-  width: 88px;
+  width: 120px;
 }
 
 .statusColumn {
-  width: 96px;
+  width: 120px;
 }
 
 /* Each body row's rule straddles the edge above it, as the board draws it,
    so the header row ends half a pixel into the first rule. */
 .head > tr {
-  height: 27.5px;
+  height: 34px;
 }
 
 .rows > tr {
-  height: 38px;
+  height: 52px;
 }
 
 .changed {
@@ -68,7 +68,7 @@
 }
 
 .note {
-  padding: 10px 12px;
+  padding: 12px 14px;
 }
 
 .staleRow {

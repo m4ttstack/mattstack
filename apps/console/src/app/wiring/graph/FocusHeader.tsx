@@ -2,9 +2,9 @@ import type { ReactNode, Ref } from 'react';
 import {
   Alert,
   Badge,
+  CopyActionIcon,
   Group,
   Paper,
-  Skeleton,
   Stack,
   Text,
   Title,
@@ -16,6 +16,7 @@ import { pluginOf } from '../outline';
 import type { SkillsAnatomy } from '../useWiring';
 import classes from './graph.module.css';
 import { workTypeOf, type FocusItem } from './model/focusModel';
+import { splitDescription } from './model/skillDescription';
 import { STATUS_TONE, type StatusTone } from './model/statusTone';
 import { countOf, type TemplateView } from './model/templateModel';
 
@@ -39,7 +40,9 @@ export function kindOf(item: FocusItem, pipeline: FocusItem | null): string {
   if (pipeline && workType && item.key === pipeline.key)
     return `${workType} pipeline · ${countOf(pipeline.children.length, 'stage', 'stages')}`;
   if (pipeline && workType && item.step !== null)
-    return `stage ${item.step} of ${pipeline.children.length} · ${pipeline.skill} · ${workType}`;
+    return pipeline.command
+      ? `stage ${item.step} of ${pipeline.children.length} · run by /${pipeline.command}`
+      : `stage ${item.step} of ${pipeline.children.length} · ${pipeline.skill} · ${workType}`;
   if (item.icon === 'layoutDashboard') return 'board skill';
   return item.icon === 'lock' ? 'internal verb' : 'public verb';
 }
@@ -79,29 +82,77 @@ export function statusOf(
   }
 }
 
-/** A block's own kind chip names only the kinds a graph gives it. */
-const BLOCK_KIND_ICON: Partial<
-  Record<PayloadBlock['kind'], 'circle' | 'diamond' | 'flag'>
-> = { step: 'circle', question: 'diamond', gate: 'flag' };
+const BLOCK_KIND_ICON: Record<
+  PayloadBlock['kind'],
+  'circle' | 'diamond' | 'flag' | 'fileText' | 'package'
+> = {
+  step: 'circle',
+  question: 'diamond',
+  gate: 'flag',
+  note: 'fileText',
+  shared: 'package',
+};
+
+/** A tree's top reached through `{{include:…}}`, which rt kinds `shared`,
+    is named for the include that brings it in. */
+const KIND_WORD: Record<PayloadBlock['kind'], string> = {
+  step: 'step',
+  question: 'question',
+  gate: 'gate',
+  note: 'note',
+  shared: 'include',
+};
+
+/** What the skill is for, then the phrases that call it, when rt's
+    description has that shape; otherwise the description whole. */
+function Description({ text, inline }: { text: string; inline: boolean }) {
+  const { purpose, asks } = splitDescription(text);
+  return (
+    <Stack gap={6}>
+      <Text
+        fz={inline ? 15 : 13}
+        lh={inline ? 1.5 : 'normal'}
+        c={inline ? 'var(--tk-text-2)' : MUTED}
+        data-parity="desc"
+      >
+        {purpose}
+      </Text>
+      {asks.length > 0 && (
+        <div className={classes.asks} data-testid="description-asks">
+          <span className={classes.asksLabel}>Asked as</span>
+          {asks.map(ask => (
+            <span key={ask} className={classes.ask}>
+              “{ask}”
+            </span>
+          ))}
+        </div>
+      )}
+    </Stack>
+  );
+}
 
 function BlockChips({ block }: { block: HeaderBlock }) {
-  const icon = BLOCK_KIND_ICON[block.kind];
+  const blocks =
+    block.blocks === undefined
+      ? null
+      : `${block.blocks} ${block.blocks === 1 ? 'block' : 'blocks'}`;
   return (
     <>
-      {icon && (
-        <Badge
-          variant="quiet"
-          classNames={{ root: classes.pill, section: classes.pillIcon }}
-          leftSection={<Icon name={icon} size={10} />}
-          data-testid="block-kind"
-        >
-          {block.kind}
-        </Badge>
-      )}
+      <Badge
+        variant="panel-outline"
+        classNames={{ root: classes.chip, section: classes.pillIcon }}
+        leftSection={<Icon name={BLOCK_KIND_ICON[block.kind]} size={10} />}
+        data-hue={block.kind}
+        data-testid="block-kind"
+      >
+        {blocks
+          ? `${KIND_WORD[block.kind]} · ${blocks}`
+          : KIND_WORD[block.kind]}
+      </Badge>
       {block.hasProps && (
         <Badge
-          variant="quiet"
-          classNames={{ root: classes.pill, section: classes.pillIcon }}
+          variant="panel-outline"
+          classNames={{ root: classes.chip, section: classes.pillIcon }}
           leftSection={<Icon name="plug" size={10} />}
           data-testid="block-has-props"
         >
@@ -112,21 +163,28 @@ function BlockChips({ block }: { block: HeaderBlock }) {
   );
 }
 
-export type HeaderBlock = { kind: PayloadBlock['kind']; hasProps: boolean };
+export type HeaderBlock = {
+  kind: PayloadBlock['kind'];
+  hasProps: boolean;
+  /** A parent's count of the blocks inside it. */
+  blocks?: number;
+};
 
 export function FocusHeader({
   ref,
   title,
   kind,
   description,
-  loading,
   status,
   checkError = null,
   block = null,
   actions = null,
   inline = false,
   meta = null,
+  command = null,
 }: {
+  /** The title is this command in full, as typed in Claude Code. */
+  command?: string | null;
   /** A line under the description: the block view's pack and counts. */
   meta?: ReactNode;
   ref?: Ref<HTMLDivElement>;
@@ -134,7 +192,6 @@ export function FocusHeader({
   /** The skill's kind in words; null on a block, which shows `block`'s chips. */
   kind: string | null;
   description: string | null;
-  loading: boolean;
   status: HeaderStatus | null;
   /** Why `rt skills check` failed; the status it would have given is then
       unknown, so none is drawn. */
@@ -187,15 +244,33 @@ export function FocusHeader({
             gap={10}
             className={inline ? classes.inlineTitleRow : undefined}
           >
-            <Title order={3} fz={inline ? 24 : 20} lh="normal">
-              <Text span inherit c="var(--tk-text-1)" data-parity="title">
-                {title}
-              </Text>
-            </Title>
+            <Group gap={6} wrap="nowrap" align="center">
+              <Title
+                order={3}
+                fz={inline ? (command ? 22 : 24) : 20}
+                fw={command ? 500 : undefined}
+                lh="normal"
+                ff={command ? 'monospace' : undefined}
+                lts={command ? -0.3 : undefined}
+              >
+                <Text span inherit c="var(--tk-text-1)" data-parity="title">
+                  {title}
+                </Text>
+              </Title>
+              {command && (
+                <CopyActionIcon
+                  value={command}
+                  size="sm"
+                  iconSize={14}
+                  c="var(--tk-text-3)"
+                  data-testid="copy-command"
+                />
+              )}
+            </Group>
             {kind !== null && (
               <Badge
-                variant="quiet"
-                classNames={{ root: classes.pill }}
+                variant={inline ? 'panel-outline' : 'quiet'}
+                classNames={{ root: inline ? classes.chip : classes.pill }}
                 data-parity="badge"
                 attributes={{ label: { 'data-parity': 'l' } }}
               >
@@ -208,17 +283,8 @@ export function FocusHeader({
           {actions ?? statusBadge}
         </Group>
         {description ? (
-          <Text
-            fz={inline ? 14 : 13}
-            lh={inline ? 1.5 : 'normal'}
-            c={MUTED}
-            data-parity="desc"
-          >
-            {description}
-          </Text>
-        ) : (
-          loading && <Skeleton height={16} width={420} />
-        )}
+          <Description text={description} inline={inline} />
+        ) : null}
         {meta}
         {checkError !== null && (
           <Alert

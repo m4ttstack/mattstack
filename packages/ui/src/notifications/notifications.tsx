@@ -20,7 +20,9 @@ export type ShowNotificationProps = Omit<NotificationData, 'message'> & {
   countdown?: number;
 };
 
-const ICON_SIZE = 11;
+const ICON_SIZE = 13;
+/** Heavier than the registry's default, so the mark holds on the dark card. */
+const ICON_STROKE = 2.75;
 
 // Per-type icon (registry name) and color:
 //  - success -> check / green
@@ -46,6 +48,16 @@ const TYPE_COLOR: Record<NotificationType, string> = {
 // Mantine's provider default unless overridden (or unless `countdown` is
 // set, which forces the ring to own the timing). `color`/`icon` can still
 // be overridden per call.
+/** The icon's colour on the dark card: a palette name takes its bright
+    step, `name.N` that shade, and any other CSS colour stands as given. */
+function brightOf(color: string): string {
+  if (/^[a-z][a-z0-9-]*$/i.test(color))
+    return `var(--mantine-color-${color}-4)`;
+  const shade = /^([a-z][a-z0-9-]*)\.(\d)$/i.exec(color);
+  if (shade) return `var(--mantine-color-${shade[1]}-${shade[2]})`;
+  return color;
+}
+
 function show(props: ShowNotificationProps) {
   const {
     type = 'info',
@@ -62,7 +74,17 @@ function show(props: ShowNotificationProps) {
   const notificationId = id ?? `notification-${notificationCounter++}`;
   const resolvedColor = color ?? TYPE_COLOR[type];
   const baseIcon = icon ?? (
-    <Icon name={TYPE_ICON_NAME[type]} size={ICON_SIZE} />
+    <Icon
+      name={TYPE_ICON_NAME[type]}
+      size={ICON_SIZE}
+      strokeWidth={ICON_STROKE}
+      // The card is dark in both schemes, so the mark takes the hue's bright
+      // step rather than its filled one.
+      color={brightOf(resolvedColor)}
+      // A triangle's weight sits low in its box; lift it to the optical
+      // centre of the disc.
+      style={type === 'warning' ? { marginTop: -1.5 } : undefined}
+    />
   );
 
   return mantineNotifications.show({

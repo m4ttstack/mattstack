@@ -62,6 +62,32 @@ export function insideSharedTop(
   };
 }
 
+const shapesOf = new WeakMap<BlocksPayload, Map<string, string>>();
+
+/** The glyph a block shows: its own kind, except inside a shared tree,
+    where rt kinds every block `shared` whatever it does, so its node's
+    shape in a graph says (a diamond asks a question), a block no graph
+    draws is a note, and the tree's top stays `shared`. */
+export function glyphOf(payload: BlocksPayload, block: PayloadBlock): Glyph {
+  if (block.kind !== 'shared') return block.kind;
+  let shapes = shapesOf.get(payload);
+  if (!shapes) {
+    shapes = new Map();
+    // A block drawn in several graphs asks a question if any draws it so.
+    for (const graph of payload.graphs) {
+      for (const node of graph.nodes) {
+        if (!node.blockId || shapes.get(node.blockId) === 'diamond') continue;
+        shapes.set(node.blockId, node.shape);
+      }
+    }
+    shapesOf.set(payload, shapes);
+  }
+  const shape = shapes.get(block.id);
+  if (shape !== undefined) return shape === 'diamond' ? 'question' : 'step';
+  const parent = payload.blocks.find(each => each.id === block.parentId);
+  return parent?.kind === 'shared' ? 'note' : 'shared';
+}
+
 /** A segment's layer by its pack's name (`widgets`, `acme-base`), as the
     boards name them; mattstack's own value stays `default`. */
 export function layerName(payload: BlocksPayload, label: string): string {

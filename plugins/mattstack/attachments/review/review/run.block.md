@@ -35,6 +35,7 @@ compaction or resume, read a counter you cannot remember with
 |---|---|---|
 | `target-clarify` | 2 | the target clarify gate returns typed text |
 | `verify-rounds:<depth>` | 2 | a verify round at that depth leaves a blocking finding unverified |
+| `verdict-rounds:<depth>` | 2 | a verdict check at that depth leaves problems |
 | `post-open-fix` | 2 | a posting-gate refusal names a field (the first charge fixes it) |
 | `bad-anchors` | 2 | the submit answers bad-anchors (the first charge moves them) |
 

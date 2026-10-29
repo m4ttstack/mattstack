@@ -16,8 +16,8 @@ describe('sectionsAt', () => {
     const bands = sectionsAt(withInclude(), { level: 'skill' });
     expect(bands.map(b => [b.id, b.title, b.glyph])).toEqual([
       ['mini/run', 'Run', 'step'],
-      ['notes', 'Notes', 'note'],
-      ['shared', 'Shared', 'shared'],
+      ['notes', 'Other blocks', 'note'],
+      ['shared', 'Includes', 'shared'],
     ]);
     expect(bands[2]!.rows.map(r => [r.id, r.summary])).toEqual([
       ['mini/gate-protocol', 'How a gate asks.'],
@@ -28,7 +28,7 @@ describe('sectionsAt', () => {
     const bands = at(null);
     expect(bands.map(b => [b.id, b.title, b.blockCount])).toEqual([
       ['mini/run', 'Run', 2],
-      ['notes', 'Notes', 2],
+      ['notes', 'Other blocks', 2],
     ]);
     expect(bands[1]!.rows.map(r => r.id)).toEqual(['mini/gate', 'mini/notes']);
   });
@@ -77,7 +77,7 @@ describe('sectionsAt', () => {
 
   it('keeps the skill bands for a top-level leaf and marks it', () => {
     const bands = at('mini/gate');
-    expect(bands.map(b => b.title)).toEqual(['Run', 'Notes']);
+    expect(bands.map(b => b.title)).toEqual(['Run', 'Other blocks']);
     expect(bands[1]!.rows[0]!.selected).toBe(true);
   });
 
@@ -112,8 +112,8 @@ describe('sectionsAt', () => {
     expect(bands.map(b => [b.title, b.icon])).toEqual([
       ['Run', 'entry'],
       ['Flow', 'graph'],
-      ['Notes', 'note'],
-      ['Shared', 'shared'],
+      ['Other blocks', 'note'],
+      ['Includes', 'shared'],
     ]);
     expect(at(null).map(b => b.icon)).toEqual(['step', 'note']);
   });

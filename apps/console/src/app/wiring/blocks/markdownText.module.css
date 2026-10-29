@@ -1,0 +1,122 @@
+/* GitHub's stylesheet picks its colours from the OS scheme; these take them
+   from the kit's tokens instead, so the text follows the console's own
+   light or dark. */
+.body:global(.markdown-body) {
+  --fgColor-default: var(--tk-text-1);
+  --fgColor-muted: var(--tk-text-2);
+  --fgColor-accent: var(--tk-text-accent);
+  --bgColor-default: transparent;
+  --bgColor-muted: var(--tk-panel);
+  --bgColor-neutral-muted: var(--tk-inset);
+  --borderColor-default: var(--tk-border);
+  --borderColor-muted: var(--tk-border-soft);
+  --borderColor-neutral-muted: var(--tk-border-soft);
+  --fontStack-monospace: var(--mantine-font-family-monospace);
+
+  background-color: transparent;
+  font-family: var(--mantine-font-family);
+  font-size: 14px;
+}
+
+/* GitHub's stylesheet also sets color-scheme from the OS, which paints a
+   code block's scrollbar dark on a light console. */
+:where([data-mantine-color-scheme='light']) .body:global(.markdown-body) {
+  color-scheme: light;
+}
+
+:where([data-mantine-color-scheme='dark']) .body:global(.markdown-body) {
+  color-scheme: dark;
+}
+
+/* A graph's source, folded under one line that says what it is. */
+.graphFold {
+  border: 1px solid var(--tk-border);
+  border-radius: 8px;
+  background-color: var(--tk-panel);
+}
+
+/* The fold's margins sit on a plain div: WebKit lays out a closed
+   <details> without its own margin until it is first opened. github-markdown
+   zeroes a first or last child's margins with !important, so these need the
+   same weight and a stronger selector than `.markdown-body > *:first-child`. */
+.body:global(.markdown-body) > .graphFoldSpace {
+  margin-top: 16px !important;
+  margin-bottom: 16px !important;
+}
+
+.graphFold > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.graphFold > summary::-webkit-details-marker {
+  display: none;
+}
+
+@media (hover: hover) {
+  .graphFold > summary:hover {
+    background-color: var(--tk-raised);
+  }
+}
+
+.foldIcon {
+  flex: none;
+  color: var(--tk-text-2);
+}
+
+.foldName {
+  color: var(--tk-text-1);
+  font-weight: 600;
+}
+
+.foldMeta {
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.foldAction {
+  margin-left: auto;
+  color: var(--tk-text-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.foldAction::before {
+  content: 'Show';
+}
+
+.graphFold[open] .foldAction::before {
+  content: 'Hide';
+}
+
+.foldChevron {
+  flex: none;
+  color: var(--tk-text-accent);
+}
+
+.graphFold[open] .foldChevron {
+  transform: rotate(180deg);
+}
+
+.graphFold[open] > summary {
+  border-bottom: 1px solid var(--tk-border-soft);
+  border-radius: 8px 8px 0 0;
+}
+
+.graphFold > pre {
+  margin: 0;
+  border-radius: 0 0 6px 6px;
+}
+
+/* A front-matter value keeps its own lines and wraps a long one. */
+.frontValue {
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

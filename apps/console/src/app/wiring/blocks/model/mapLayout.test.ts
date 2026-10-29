@@ -143,6 +143,8 @@ describe('cards', () => {
           CARD.badge +
           CARD.badgeGap +
           measure('Stash them', 13) +
+          CARD.goGap +
+          CARD.go +
           CARD.padRight
       )
     );

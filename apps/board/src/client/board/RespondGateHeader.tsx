@@ -99,6 +99,25 @@ export function respondPerson(
     : ctx.reviewer;
 }
 
+/** The person's own response round for this gate: the live run's round
+    when the gate opened during that run for that person, else the highest
+    round recorded for them. Never the agent's per-run round, which counts
+    revises (see apps/board/AGENTS.md, "Respond rounds"). */
+export function personRound(
+  openedAt: number,
+  person: string,
+  mr?: BoardMRWithReview
+): number | undefined {
+  const run = mr?.respond;
+  if (
+    run?.person === person &&
+    openedAt >= (run.startedAt ?? 0) &&
+    run.responseRound != null
+  )
+    return run.responseRound;
+  return mr?.respondRounds?.[person];
+}
+
 /** The label a respond gate gives a plain Overview comment's question. */
 export const OVERVIEW_LABEL = 'Overview comment';
 

@@ -257,13 +257,26 @@ export function dropPrunedReviewState(
 export function attachReviews<T extends { webUrl?: string | null }>(
   mrs: T[],
   reviews: Map<string, ReviewState>,
-  latestRounds: ReadonlyMap<string, number> = new Map()
-): Array<T & { review?: ReviewState & { rounds?: number } }> {
+  latestRounds: ReadonlyMap<string, number> = new Map(),
+  roundOutcomes: ReadonlyMap<string, ReviewOutcome[]> = new Map()
+): Array<
+  T & {
+    review?: ReviewState & { rounds?: number; outcomes?: ReviewOutcome[] };
+  }
+> {
   return mrs.map(mr => {
     const review = mr.webUrl ? reviews.get(mr.webUrl) : undefined;
     if (!review) return mr;
     const rounds = latestRounds.get(mr.webUrl!);
-    return { ...mr, review: rounds ? { ...review, rounds } : review };
+    const outcomes = roundOutcomes.get(mr.webUrl!);
+    return {
+      ...mr,
+      review: {
+        ...review,
+        ...(rounds ? { rounds } : {}),
+        ...(outcomes ? { outcomes } : {}),
+      },
+    };
   });
 }
 

@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 
+import type { ReactedBy } from './slack-emoji.ts';
 import {
   getKvValue,
   getStateDb,
@@ -50,6 +51,7 @@ export interface SlackRef {
   permalink?: string;
   /** Emoji names currently on the target message (of the ones we care about). */
   reactions?: string[];
+  reactedBy?: ReactedBy;
   checkedAt: number;
 }
 
@@ -257,10 +259,21 @@ export async function syncIndex(
   return index;
 }
 
+interface SlackReaction {
+  name: string;
+  users?: string[];
+}
+
 interface ReactedMessage {
   ts: string;
   reply_count?: number;
-  reactions?: Array<{ name: string }>;
+  reactions?: SlackReaction[];
+}
+
+/** A message's reaction names and who added each. */
+export interface MessageReactions {
+  reactions: string[];
+  reactedBy: ReactedBy;
 }
 
 const selfIds = new Map<string, Promise<string | undefined>>();
@@ -278,34 +291,54 @@ function selfUserId(token: string): Promise<string | undefined> {
   return id;
 }
 
-/** A message's reaction names, plus those on the token user's own replies in
+/** A message's reactions, plus those on the token user's own replies in
     its thread: a nudge like "need review here" is where reviewers react. */
 async function signalReactions(
   token: string,
   channelId: string,
   message: ReactedMessage
-): Promise<string[]> {
-  const names = (message.reactions ?? []).map(r => r.name);
-  if (!message.reply_count) return names;
-  const self = await selfUserId(token);
-  if (!self) return names;
-  for (const reply of await threadReplies(token, channelId, message.ts))
-    if (reply.user === self) names.push(...reply.reactions);
-  return [...new Set(names)];
+): Promise<MessageReactions> {
+  const self = await selfUserId(token).catch(() => undefined);
+  const all = [...(message.reactions ?? [])];
+  if (message.reply_count && self)
+    for (const reply of await threadReplies(token, channelId, message.ts))
+      if (reply.user === self) all.push(...reply.rawReactions);
+  return {
+    reactions: [...new Set(all.map(r => r.name))],
+    reactedBy: reactedByOf(all, self),
+  };
 }
 
-/** Current reaction emoji names on a message and its token user's replies. */
+/** Who added each reaction, with the token user's own id read as `you`. */
+export function reactedByOf(
+  reactions: SlackReaction[],
+  self: string | undefined
+): ReactedBy {
+  const out: ReactedBy = {};
+  for (const r of reactions) {
+    const entry = (out[r.name] ??= { you: false, others: [] });
+    for (const user of r.users ?? []) {
+      if (user === self) entry.you = true;
+      else if (!entry.others.includes(user)) entry.others.push(user);
+    }
+  }
+  return out;
+}
+
+/** Current reactions on a message and its token user's replies. */
 export async function messageReactions(
   token: string,
   channelId: string,
   ts: string
-): Promise<string[]> {
+): Promise<MessageReactions> {
   const data = await call('reactions.get', token, {
     channel: channelId,
     timestamp: ts,
   });
   const message = data.message as ReactedMessage | undefined;
-  return message ? signalReactions(token, channelId, message) : [];
+  return message
+    ? signalReactions(token, channelId, message)
+    : { reactions: [], reactedBy: {} };
 }
 
 /** Add a reaction; treats an already-reacted response as success. */
@@ -353,7 +386,9 @@ async function threadReplies(
   token: string,
   channelId: string,
   parentTs: string
-): Promise<Array<SlackMessage & { reactions: string[] }>> {
+): Promise<
+  Array<SlackMessage & { reactions: string[]; rawReactions: SlackReaction[] }>
+> {
   const data = await call('conversations.replies', token, {
     channel: channelId,
     ts: parentTs,
@@ -364,7 +399,7 @@ async function threadReplies(
       ts: string;
       user?: string;
       text?: string;
-      reactions?: Array<{ name: string }>;
+      reactions?: SlackReaction[];
     }>
   )
     .filter(m => m.ts !== parentTs)
@@ -373,6 +408,7 @@ async function threadReplies(
       user: m.user ?? '',
       text: m.text ?? '',
       reactions: (m.reactions ?? []).map(r => r.name),
+      rawReactions: m.reactions ?? [],
     }));
 }
 
@@ -498,6 +534,7 @@ export interface OwnerPost {
   postedAt: number;
   /** Absent until the sweep first reads the message. */
   reactions?: string[];
+  reactedBy?: ReactedBy;
   checkedAt?: number;
 }
 
@@ -616,6 +653,7 @@ export function attachOwnerPosts<T extends { webUrl?: string | null }>(
         permalink: post.permalink,
         postedAt: post.postedAt,
         ...(post.reactions ? { reactions: post.reactions } : {}),
+        ...(post.reactedBy ? { reactedBy: post.reactedBy } : {}),
       }))
       .sort((a, b) => a.postedAt - b.postedAt);
     return posts.length ? { ...mr, ownerPosts: posts } : mr;
@@ -627,6 +665,7 @@ export interface OwnerPostLink {
   permalink: string;
   postedAt: number;
   reactions?: string[];
+  reactedBy?: ReactedBy;
 }
 
 export function writeOwnerPostsLeft(
@@ -700,6 +739,7 @@ export function attachSlack<T extends { webUrl?: string | null }>(
       status: SlackRef['status'];
       permalink?: string;
       reactions: string[];
+      reactedBy?: ReactedBy;
       posted: boolean;
       checkedAt: number;
     };
@@ -714,6 +754,7 @@ export function attachSlack<T extends { webUrl?: string | null }>(
         status: ref.status,
         permalink: ref.permalink,
         reactions: ref.reactions ?? [],
+        ...(ref.reactedBy ? { reactedBy: ref.reactedBy } : {}),
         // "In slack" is the found status alone: a multi-MR ref has no
         // messageTs until its first reaction reifies the threaded reply,
         // and that reaction anchor must not gate display.
@@ -760,7 +801,7 @@ export async function resolveSlackRef(
       ...base,
       messageTs: msg.ts,
       permalink: buildPermalink(index.teamDomain, index.channelId, msg.ts),
-      reactions: await messageReactions(token, index.channelId, msg.ts),
+      ...(await messageReactions(token, index.channelId, msg.ts)),
     };
     writeSlackRef(ref, db);
     return ref;
@@ -786,9 +827,9 @@ export async function resolveSlackRef(
           msg.ts
         )
       : buildPermalink(index.teamDomain, index.channelId, msg.ts),
-    reactions: reply
+    ...(reply
       ? await messageReactions(token, index.channelId, reply.ts)
-      : [],
+      : { reactions: [], reactedBy: {} }),
   };
   writeSlackRef(ref, db);
   return ref;
@@ -877,7 +918,7 @@ async function liveMessage(
   token: string,
   channelId: string,
   ts: string
-): Promise<{ reactions: string[] } | null> {
+): Promise<MessageReactions | null> {
   const data = await call('conversations.history', token, {
     channel: channelId,
     oldest: ts,
@@ -889,7 +930,7 @@ async function liveMessage(
     data.messages as Array<ReactedMessage & { subtype?: string }>
   ).find(m => m.ts === ts);
   if (!found || found.subtype === 'tombstone') return null;
-  return { reactions: await signalReactions(token, channelId, found) };
+  return signalReactions(token, channelId, found);
 }
 
 /**
@@ -923,6 +964,7 @@ export async function refreshOwnerPosts(
           posts[channel] = {
             ...post,
             reactions: live.reactions,
+            reactedBy: live.reactedBy,
             checkedAt: now,
           };
           changed = true;
@@ -984,7 +1026,9 @@ export async function verifyFoundRefs(
             ...ref,
             // A multi-MR ref's reactions sit on its own reply, not the
             // parent read here.
-            ...(ts === ref.messageTs ? { reactions: live.reactions } : {}),
+            ...(ts === ref.messageTs
+              ? { reactions: live.reactions, reactedBy: live.reactedBy }
+              : {}),
             checkedAt: now,
           },
           db
@@ -1035,7 +1079,10 @@ export async function reactToMR(
   }
   if (!next.messageTs) throw new Error('no target message for reaction');
   await addReaction(token, ref.channelId, next.messageTs, emoji);
-  next.reactions = await messageReactions(token, ref.channelId, next.messageTs);
+  Object.assign(
+    next,
+    await messageReactions(token, ref.channelId, next.messageTs)
+  );
   next.checkedAt = now;
   writeSlackRef(next, db, true);
   return next;
@@ -1059,7 +1106,7 @@ export async function unreactFromMR(
   await removeReaction(token, ref.channelId, ref.messageTs, emoji);
   const next = {
     ...ref,
-    reactions: await messageReactions(token, ref.channelId, ref.messageTs),
+    ...(await messageReactions(token, ref.channelId, ref.messageTs)),
     checkedAt: now,
   };
   writeSlackRef(next, db);

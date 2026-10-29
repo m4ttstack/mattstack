@@ -565,6 +565,92 @@ test("pane:send with a continuation after a refused first line schedules nothing
   expect(scheduled).toHaveLength(0);
 });
 
+// A shell that outlived a herdr renumber still carries the old HERDR_PANE_ID,
+// so a self send names its session and the daemon finds the pane running it.
+function selfSendHarness(processSession: Record<string, string>, snapshotPanes = SNAPSHOT.snapshot.panes) {
+  const root = mkdtempSync(join(tmpdir(), "pane-self-"));
+  const pids = new Map<string, number>();
+  let pid = 5000;
+  for (const [paneId, sessionId] of Object.entries(processSession)) {
+    pids.set(paneId, ++pid);
+    writeFileSync(join(root, `${pid}.json`), JSON.stringify({ pid, sessionId }));
+  }
+  const claude = (id: string, status: string) => ({ type: "agent_info", agent: { pane_id: id, agent: "claude", agent_status: status } });
+  return harness(
+    (method, params) => {
+      const p = params as { pane_id?: string; target?: string };
+      if (method === "session.snapshot") return { ...SNAPSHOT, snapshot: { ...SNAPSHOT.snapshot, panes: snapshotPanes } };
+      if (method === "pane.process_info") {
+        const group = pids.get(p.pane_id!);
+        return { process_info: { pane_id: p.pane_id, shell_pid: 1, foreground_process_group_id: group ?? null, foreground_processes: [] } };
+      }
+      if (method === "agent.get") return claude(p.target!, "idle");
+      if (method === "agent.prompt") return { type: "agent_prompted", agent: claude(p.target!, "working").agent };
+      return new HerdrFakeError("invalid_request", method);
+    },
+    { claudeRegistryRoots: [root] },
+  );
+}
+
+test("pane:send with selfSession targets the pane running that session, not the stale env id", async () => {
+  const { pane, seen } = selfSendHarness({ "w1:p2": "sess-moved" });
+  const res = await pane["pane:send"]({ paneId: "w14H:pE", selfSession: "sess-moved", text: "/compact" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p2", delivered: "accepted" } });
+  expect(seen.find((s) => s.method === "agent.prompt")?.params.target).toBe("w1:p2");
+});
+
+test("pane:send with selfSession trusts the pane's process over herdr's recorded session", async () => {
+  const { pane, seen } = selfSendHarness({ "w1:p1": "other", "w1:p2": "sess-signed" });
+  const res = await pane["pane:send"]({ paneId: "w1:p1", selfSession: "sess-signed", text: "x" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p2", delivered: "accepted" } });
+  expect(seen.find((s) => s.method === "agent.prompt")?.params.target).toBe("w1:p2");
+});
+
+test("pane:send with selfSession falls back to herdr's recorded session when no process names it", async () => {
+  const { pane } = selfSendHarness({});
+  const res = await pane["pane:send"]({ paneId: "w14H:pE", selfSession: "sess-signed", text: "x" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
+});
+
+test("pane:send with selfSession ignores herdr's recorded session when the pane's process names another", async () => {
+  const { pane, seen } = selfSendHarness({ "w1:p1": "other" });
+  const res = await pane["pane:send"]({ paneId: "w1:p3", selfSession: "sess-signed", text: "x" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p3", delivered: "accepted" } });
+  expect(seen.find((s) => s.method === "agent.prompt")?.params.target).toBe("w1:p3");
+});
+
+test("pane:send with selfSession keeps the given pane when no pane runs that session", async () => {
+  const { pane, seen } = selfSendHarness({});
+  const res = await pane["pane:send"]({ paneId: "w1:p3", selfSession: "sess-nowhere", text: "x" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p3", delivered: "accepted" } });
+  expect(seen.find((s) => s.method === "agent.prompt")?.params.target).toBe("w1:p3");
+});
+
+test("pane:self keeps the given pane when its process runs the session, with no snapshot", async () => {
+  const { pane, seen } = selfSendHarness({ "w1:p1": "sess-1" });
+  const res = await pane["pane:self"]({ sessionId: "sess-1", paneId: "w1:p1" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p1" } });
+  expect(seen.some((s) => s.method === "session.snapshot")).toBe(false);
+});
+
+test("pane:self finds the pane running the session when the given pane is stale", async () => {
+  const { pane } = selfSendHarness({ "w1:p2": "sess-moved" });
+  const res = await pane["pane:self"]({ sessionId: "sess-moved", paneId: "w14H:pE" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p2" } });
+});
+
+test("pane:self finds the session's pane with no pane given", async () => {
+  const { pane } = selfSendHarness({ "w1:p2": "sess-moved" });
+  const res = await pane["pane:self"]({ sessionId: "sess-moved" });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p2" } });
+});
+
+test("pane:self falls back to the given pane, or null, when no pane runs the session", async () => {
+  const { pane } = selfSendHarness({});
+  expect(await pane["pane:self"]({ sessionId: "sess-nowhere", paneId: "w1:p3" })).toEqual({ ok: true, data: { paneId: "w1:p3" } });
+  expect(await pane["pane:self"]({ sessionId: "sess-nowhere" })).toEqual({ ok: true, data: { paneId: null } });
+});
+
 // pane:focus routes to the tray (which owns the herdr focus + native window
 // raise), never to herdr directly, so these fake the tray, not herdr.
 function fakeTray(reply: TrayReply, seen?: Array<{ path: string; method: string; body: unknown }>): TrayClient {

@@ -170,11 +170,9 @@ export const baseTheme = /* @__PURE__ */ createTheme({
       // Two extra input variants beyond Mantine's own (see the CSS module):
       // `variant="underline"` and `variant="borderless"`.
       TextInput: { classNames: { input: classes.input } },
-      // pop-top-* is the built-in pop family's downward direction (the name
-      // suffix is the origin corner): with position 'bottom' + offset 10 the
-      // tooltip pops DOWN out of the hovered element. The multiline/maw pair
-      // keeps long labels wrapping inside a readable column, and the padding
-      // pair gives them room to breathe.
+      // Below the hovered element by default, 10px off. The multiline/maw
+      // pair keeps long labels wrapping inside a readable column, and the
+      // padding pair gives them room to breathe.
       Tooltip: {
         defaultProps: {
           withArrow: true,
@@ -186,13 +184,19 @@ export const baseTheme = /* @__PURE__ */ createTheme({
           maw: 400,
           p: 'sm',
           px: 'md',
-          transitionProps: { transition: 'pop-top-left', duration: 400 },
+          // A fade, not a pop: a tooltip flips to whichever side has room,
+          // so a direction would be wrong some of the time.
+          transitionProps: {
+            transition: 'fade',
+            duration: 200,
+            timingFunction: 'ease-out',
+          },
         },
       },
       // A group of tooltips (a rail) waits as long as one tooltip does before
       // its first opens; the rest then open at once.
       TooltipGroup: { defaultProps: { openDelay: 750 } },
-      // Menus share the tooltip's pop-in; dropdown surfaces carry a shadow so
+      // Menus pop in from the corner they open from; dropdown surfaces carry a shadow so
       // floating layers separate from the page the same way everywhere.
       Menu: {
         defaultProps: {

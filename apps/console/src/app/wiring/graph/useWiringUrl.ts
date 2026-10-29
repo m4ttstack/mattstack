@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useSearch } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
-export type WiringTab = 'graph' | 'surface' | 'health';
+export type WiringTab = 'graph' | 'config' | 'history';
 export type WiringView = 'template' | 'rendered';
 /** The block view's two graphs, as `select` names them: the block map and
     Every step. */
@@ -18,7 +18,12 @@ export type WiringUrl = {
   block: string | null;
 };
 
-const TABS: readonly WiringTab[] = ['graph', 'surface', 'health'];
+const TABS: readonly WiringTab[] = ['graph', 'config', 'history'];
+/** Tabs folded into Config, so their old links still land there. */
+const FOLDED_TABS: Readonly<Record<string, WiringTab>> = {
+  surface: 'config',
+  health: 'config',
+};
 const VIEWS: readonly WiringView[] = ['template', 'rendered'];
 
 const DEFAULT_TAB: WiringTab = 'graph';
@@ -61,7 +66,11 @@ export function parseWiringUrl(search: string): WiringUrl {
   const params = new URLSearchParams(search);
   const text = (key: string) => params.get(key) || null;
   return {
-    tab: oneOf(TABS, params.get('tab'), DEFAULT_TAB),
+    tab: oneOf(
+      TABS,
+      FOLDED_TABS[params.get('tab') ?? ''] ?? params.get('tab'),
+      DEFAULT_TAB
+    ),
     pack: text('pack'),
     focus: text('focus'),
     select: text('select'),
@@ -126,11 +135,15 @@ function otherParams(search: string): string {
  * Where-you-are keys push so Back retraces them; in-place view state replaces
  * so Back does not step through every row click.
  */
+/** Every move between skills, blocks and their graphs is a page of its
+    own, so Back retraces it; a fold or a filter replaces in place. */
 function pushes(current: WiringUrl, next: WiringUrl): boolean {
   return (
     current.tab !== next.tab ||
     current.pack !== next.pack ||
-    current.focus !== next.focus
+    current.focus !== next.focus ||
+    current.block !== next.block ||
+    current.select !== next.select
   );
 }
 

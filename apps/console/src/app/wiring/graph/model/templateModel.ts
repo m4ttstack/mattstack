@@ -36,6 +36,22 @@ export type LineRange = [number, number];
  * is the bare line for the first row at that line, which keeps an older
  * `row:<line>` link resolving.
  */
+/** Where a block's row sits in its skill's tree, for folding. */
+export type BlockRowInfo = {
+  /** rt's block id, which the block view opens at. */
+  id: string;
+  /** 0 for the root, 1 for a section, more for a block inside one. */
+  depth: number;
+  /** The section a block inside one sits under; null for the root and a
+      section. */
+  section: string | null;
+  /** A shared block pasted in (`root`), or a block inside one (`inner`). */
+  shared: 'root' | 'inner' | null;
+  /** The rows a fold hides under this one: a section's blocks, or a shared
+      block's inner blocks. */
+  count: number;
+};
+
 export type TemplateRow =
   | {
       id: string;
@@ -45,6 +61,8 @@ export type TemplateRow =
       label: string;
       templateLines: LineRange | null;
       renderedLines: LineRange | null;
+      /** Null for a skill that is not a tree of blocks. */
+      block: BlockRowInfo | null;
     }
   | {
       id: string;
@@ -67,6 +85,8 @@ export type TemplateRow =
       resolveError: string | null;
       /** Which layer chose the binding: `pack`, `override` or `base:<name>`. */
       layer: string | null;
+      /** The block whose text holds the placeholder, by block id. */
+      block: string | null;
     };
 
 export type InputCard = {
@@ -74,8 +94,9 @@ export type InputCard = {
   rowId: string;
   title: string;
   subtitle: string;
-  /** `fileX` for a prop rt could not load a fill file for. */
-  icon: 'fileText' | 'cpu' | 'fileX';
+  /** `fileX` for a prop rt could not load a fill file for; `copy` for a
+      shared block pasted in. */
+  icon: 'fileText' | 'cpu' | 'fileX' | 'copy';
   path: string | null;
   subtitleTone: 'dimmed' | 'accent' | 'warn' | 'bad';
   state: RowState;
@@ -86,6 +107,9 @@ export type InputCard = {
   owner?: Owner;
   /** The team sections a prop's fill renders, in rendered order. */
   sections: SectionCard[];
+  /** The block the block view opens at for this card; null where the skill
+      is not a tree of blocks. */
+  block: string | null;
 };
 
 export type SectionCard = {
@@ -189,7 +213,7 @@ const OWN_TEXT_ID = 'text';
     `own` marks the skill's own part, which a card words as "its template". */
 const STALE_CHANGES: [DriftCause, { what: string; own: boolean }][] = [
   ['source', { what: 'template', own: true }],
-  ['include', { what: 'a pasted file', own: false }],
+  ['include', { what: 'an included file', own: false }],
   ['fill', { what: 'pack text', own: true }],
   ['team', { what: 'team values', own: false }],
   ['frontmatter', { what: 'header', own: true }],
@@ -388,6 +412,105 @@ export function isBlockTree(anatomy: SkillsAnatomy): boolean {
 }
 
 const lastSegment = (id: string) => id.split('/').pop() ?? id;
+
+/**
+ * Each block part's place in the tree, by block id. A block's id is its
+ * path under the root's; any other id is a shared block, pasted in by the
+ * section of the last own block before it.
+ */
+export function blockRowsOf(anatomy: SkillsAnatomy): Map<string, BlockRowInfo> {
+  const rows = new Map<string, BlockRowInfo>();
+  const names = anatomy.parts.flatMap(part =>
+    part.kind === 'block' && part.name ? [part.name] : []
+  );
+  const root = names[0];
+  if (root === undefined) return rows;
+  let section: string | null = null;
+  let sectionDepth = 1;
+  for (const id of names) {
+    if (id === root) {
+      rows.set(id, { id, depth: 0, section: null, shared: null, count: 0 });
+      continue;
+    }
+    if (id.startsWith(`${root}/`)) {
+      const path = id.slice(root.length + 1).split('/');
+      const depth = path.length;
+      if (depth === 1) section = id;
+      sectionDepth = depth;
+      rows.set(id, {
+        id,
+        depth,
+        section: depth === 1 ? null : `${root}/${path[0]}`,
+        shared: null,
+        count: 0,
+      });
+      continue;
+    }
+    const inner = id.includes('/');
+    rows.set(id, {
+      id,
+      depth: sectionDepth + 1 + (inner ? id.split('/').length - 1 : 0),
+      section,
+      shared: inner ? 'inner' : 'root',
+      count: 0,
+    });
+  }
+  for (const row of rows.values()) {
+    const owner =
+      row.shared === 'inner'
+        ? rows.get(row.id.split('/')[0]!)
+        : row.shared === null && row.depth >= 2 && row.section
+          ? rows.get(row.section)
+          : undefined;
+    if (owner) owner.count += 1;
+  }
+  return rows;
+}
+
+/** Whether a fold hides the row: a section's own blocks while it is shut,
+    and every block inside a shared block, which the block view opens. */
+export function foldedAway(
+  row: TemplateRow,
+  open: ReadonlySet<string>
+): boolean {
+  if (row.kind !== 'text' || !row.block) return false;
+  if (row.block.shared === 'inner') return true;
+  if (row.block.shared === 'root' || row.block.section === null) return false;
+  return !open.has(row.block.section);
+}
+
+/** A section's own blocks straight under its row, ahead of the
+    placeholders in its text, so unfolding a section opens where it was
+    clicked. */
+function sectionBlocksFirst(rows: TemplateRow[]): TemplateRow[] {
+  const ownOf = (row: TemplateRow) =>
+    row.kind === 'text' && row.block?.shared === null
+      ? row.block.section
+      : null;
+  const bySection = new Map<string, TemplateRow[]>();
+  for (const row of rows) {
+    const section = ownOf(row);
+    if (section)
+      bySection.set(section, [...(bySection.get(section) ?? []), row]);
+  }
+  const out: TemplateRow[] = [];
+  for (const row of rows) {
+    if (ownOf(row)) continue;
+    out.push(row);
+    if (row.kind === 'text' && row.block)
+      out.push(...(bySection.get(row.block.id) ?? []));
+  }
+  return out;
+}
+
+/** The block whose text holds a placeholder: rt names it for a
+    composition placeholder, and a prop's id leads with it. */
+function holderOf(part: RowSource): string | null {
+  if (part.block) return part.block;
+  if (part.kind === 'prop' && part.name?.includes('.'))
+    return part.name.slice(0, part.name.lastIndexOf('.'));
+  return null;
+}
 
 /**
  * The block a file of the skill's tree holds, by rt's block id: the root's
@@ -665,6 +788,7 @@ export function buildTemplateView(input: {
       .map(change => propKey(blockOf(change.engineRef), change.slot))
   );
 
+  const tree = blockRowsOf(anatomy);
   const rows: TemplateRow[] = [];
   const inputs: InputCard[] = [];
   const links: LinkCard[] = [];
@@ -700,6 +824,10 @@ export function buildTemplateView(input: {
       : `rendered ${gutterOf(anchor)}`;
 
     if (part.kind === 'text' || part.kind === 'block') {
+      const block =
+        part.kind === 'block' && part.name
+          ? (tree.get(part.name) ?? null)
+          : null;
       rows.push({
         id,
         line,
@@ -707,11 +835,26 @@ export function buildTemplateView(input: {
         gutter,
         label:
           part.kind === 'block' && part.name
-            ? `${lastSegment(part.name)} · ${countOf(spanOf(anchor), 'line', 'lines')}`
+            ? `${block?.shared === 'root' ? part.name : lastSegment(part.name)} · ${countOf(spanOf(anchor), 'line', 'lines')}`
             : textLabel(spanOf(anchor), textNoun),
         templateLines: part.templateLines,
         renderedLines: part.renderedLines,
+        block,
       });
+      if (block?.shared === 'root')
+        inputs.push({
+          id: cardIdFor(`shared:${block.id}`, id),
+          rowId: id,
+          title: block.id,
+          subtitle: `shared block · ${countOf(block.count + 1, 'block', 'blocks')}`,
+          icon: 'copy',
+          path: null,
+          subtitleTone: 'dimmed',
+          state: 'ok',
+          usedBy: 0,
+          sections: [],
+          block: block.id,
+        });
       continue;
     }
 
@@ -739,6 +882,7 @@ export function buildTemplateView(input: {
       boundTo: facts?.boundTo ?? null,
       resolveError: facts?.resolveError ?? null,
       layer: facts?.layer ?? null,
+      block: holderOf(part),
     });
 
     if (part.kind === 'verb.path') {
@@ -770,6 +914,7 @@ export function buildTemplateView(input: {
             ? fillUses(facts.boundTo)
             : 0,
       sections: [],
+      block: tree.size > 0 ? holderOf(part) : null,
     };
     inputs.push(card);
     if (part.kind === 'prop') prop = { part, card };
@@ -783,7 +928,7 @@ export function buildTemplateView(input: {
     skill: anatomy.skill,
     templateFile: fileLabelOf(anatomy.template.path),
     templateMeta: templateMeta(anatomy, links.length > 0),
-    rows,
+    rows: tree.size > 0 ? sectionBlocksFirst(rows) : rows,
     inputs,
     links,
     output:

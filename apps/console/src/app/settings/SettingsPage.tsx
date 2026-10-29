@@ -11,7 +11,6 @@ import {
   NavLink,
   PageShell,
   SegmentedControl,
-  Skeleton,
   Stack,
   Text,
   TextInput,
@@ -26,6 +25,7 @@ import {
 import { Icons } from '@mattstack/app-kit/icons';
 import { useSearchParams } from 'wouter';
 
+import { StepLoader, useStepLoading } from '../StepLoader';
 import { useOpenRow } from './explainParam';
 import { TIER_LABEL, type Tier } from './groups';
 import { SettingsSeedRepoContext } from './RowProject';
@@ -157,6 +157,9 @@ export function SettingsPage() {
   // The list reads no project: a per-project row picks its own, and a link
   // naming one (?repo=, from a Fix) only seeds the row it opens.
   const store = useConsoleSettings(null, '', viewTeam);
+  const { show: listHeld, bind: listBind } = useStepLoading(
+    store.loading && store.defs.length === 0
+  );
   const other = viewTeam !== null && viewTeam !== store.ownTeam;
   const [needsFixingOnly, setNeedsFixingOnly] = useState(false);
   const [pickedScope, setScope] = useState<ScopeFilter>('any');
@@ -431,20 +434,15 @@ export function SettingsPage() {
                             >{`No setting named ${missing}.`}</Text>
                           </Alert>
                         )}
-                        {/* Skeletons only before the first list: a repo switch keeps the
+                        {/* The loader only before the first list: a repo switch keeps the
                   list it has on screen until the new one arrives. */}
-                        {store.loading && store.defs.length === 0 ? (
-                          <Stack gap="md" pt={28}>
-                            {[220, 280, 180, 240].map(w => (
-                              <Group key={w} justify="space-between">
-                                <Stack gap={8}>
-                                  <Skeleton h={12} w={w} />
-                                  <Skeleton h={10} w={w + 160} />
-                                </Stack>
-                                <Skeleton h={30} w={200} />
-                              </Group>
-                            ))}
-                          </Stack>
+                        {listHeld ? (
+                          <Box pt={28}>
+                            <StepLoader
+                              {...listBind}
+                              steps={['reading the settings stores']}
+                            />
+                          </Box>
                         ) : visible.length === 0 && total > 0 ? (
                           <Stack align="center" gap={10} py={48}>
                             <Icons.search size={24} color={text.muted} />

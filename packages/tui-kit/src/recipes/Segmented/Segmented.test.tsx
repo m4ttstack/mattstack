@@ -209,6 +209,35 @@ describe("LabeledSeg (browser)", () => {
     expect(seen).toEqual(["light"]);
   });
 
+  it("renders a ReactNode label as given: an icon beside its words, still one button", async () => {
+    const seen: Array<"fix" | "reply"> = [];
+    const screen = await renderWithTheme(
+      <LabeledSeg
+        legend="fix or reply"
+        options={["fix", "reply"] as const}
+        labels={{
+          fix: (
+            <>
+              <svg data-testid="fix-icon" aria-hidden="true" />
+              Fix the code
+            </>
+          ),
+          reply: "Reply only",
+        }}
+        value="fix"
+        onChange={(v) => seen.push(v)}
+      />,
+    );
+
+    const buttons = options(screen.container);
+    expect(buttons.map((b) => b.textContent)).toEqual(["Fix the code", "Reply only"]);
+    expect(buttons[0]?.querySelector('svg[data-testid="fix-icon"]')).not.toBeNull();
+    expect(buttons[1]?.querySelector("svg")).toBeNull();
+
+    await buttons[1]?.click();
+    expect(seen).toEqual(["reply"]);
+  });
+
   it("is labelled by `legend`, and carries the text-mode modifier the CSS keys on", async () => {
     const screen = await renderWithTheme(
       <LabeledSeg

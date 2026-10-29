@@ -5,6 +5,7 @@ import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
+import type { ReactedBy } from '../slack-emoji.ts';
 import type { SlackTemplates } from '../template.ts';
 import type { Handoff, HandoffKind } from '../triage/memory.ts';
 import type { TurnConfig } from '../turn.ts';
@@ -59,6 +60,8 @@ export interface ReviewInfo {
   noPack?: boolean;
   /** The highest review round the board has recorded for this MR. */
   rounds?: number;
+  /** What each recorded round posted, in round order. */
+  outcomes?: Array<'comment' | 'approve'>;
 }
 export interface RespondInfo {
   status: RespondStatus;
@@ -114,6 +117,7 @@ export interface SlackInfo {
   status: 'found' | 'notfound';
   permalink?: string;
   reactions: string[];
+  reactedBy?: ReactedBy;
   posted: boolean;
   /** When the board last looked for the thread (ms). */
   checkedAt?: number;
@@ -196,6 +200,7 @@ export type BoardMRWithReview = BoardMR & {
     permalink: string;
     postedAt: number;
     reactions?: string[];
+    reactedBy?: ReactedBy;
   }>;
   /** The other teams that own a Code Owner section on this MR, on the seat's
       own MRs once the server has read its approval rules. */
@@ -440,4 +445,4 @@ export type CommentThread = {
   status: ThreadStatus;
   notes: CommentNote[];
 };
-export type GeneralComment = CommentNote;
+export type GeneralComment = CommentNote & { discussionId: string };

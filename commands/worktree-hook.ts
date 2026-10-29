@@ -22,7 +22,7 @@ import { decideCreate, decideRemove, stockWorktreeAdd } from "../lib/worktree/cl
 import { loadWorktreeAppConfig } from "../lib/worktree/config.ts";
 import { explainError } from "./worktree.ts";
 import { findTreeByPath } from "../lib/worktree/registry.ts";
-import { selfPaneRef } from "../lib/self-pane.ts";
+import { liveSelfPaneRef, selfPaneRef } from "../lib/self-pane.ts";
 import { rtCommand } from "../packages/rt-client/src/index.ts";
 import type { Commands } from "../packages/rt-client/src/index.ts";
 
@@ -266,6 +266,8 @@ export async function announceRelocation(_args: string[]): Promise<void> {
   const stdin = process.stdin.isTTY ? "" : await Bun.stdin.text();
   const payload = buildRelocationAnnouncement(stdin, process.env);
   if (!payload) return;
+  const paneId = await liveSelfPaneRef(process.env);
+  if (paneId) payload.paneId = paneId;
   try {
     await rtCommand("pane:announce-relocation", payload, { timeoutMs: 3_000 });
   } catch {
@@ -338,7 +340,7 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
   }
   if (decision.kind === "provisioned" && parsed.sessionId) {
     const announce: RelocationAnnouncement = { sessionId: parsed.sessionId, tool: "EnterWorktree", path: decision.path, cwd: parsed.cwd };
-    const paneId = selfPaneRef(process.env);
+    const paneId = await liveSelfPaneRef(process.env);
     if (paneId) announce.paneId = paneId;
     try {
       await rtCommand("pane:announce-relocation", announce, { timeoutMs: 3_000 });
