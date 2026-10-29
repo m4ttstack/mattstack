@@ -29,7 +29,7 @@ there? Read its rule file first.
 | `.claude/rules/output-agent-verbs.md` | Frozen bytes for chat, herd, pane, agent and the agent-only verbs; `rt cd` and `rt nav` | `commands/chat.ts`, `commands/herd.ts`, `commands/pane.ts`, more in the file |
 | `.claude/rules/output-setup-and-services.md` | The setup emitter, streamed child output, daemon and service verb output | `lib/setup/**`, `commands/setup.ts`, `commands/uninstall.ts`, more in the file |
 | `.claude/rules/command-tree.md` | Plain-language descriptions, the module registry, `omitBehavior` | `lib/command-tree*.ts`, `lib/module-registry.ts`, `scripts/lib/picker-conformance.ts`, more in the file |
-| `.claude/rules/daemon.md` | Logging seams, the relocation prompt parser | `lib/daemon/**`, `lib/daemon.ts`, `lib/daemon-logger.ts`, more in the file |
+| `.claude/rules/daemon.md` | Logging seams, the EnterWorktree check, the trust dialog parser | `lib/daemon/**`, `lib/daemon.ts`, `lib/daemon-logger.ts`, more in the file |
 | `.claude/rules/mcp-and-gates.md` | `rt_verb`, the tool roster and its guards, decision gates, baseline permissions | `lib/mcp/**`, `commands/mcp.ts`, `commands/gate.ts`, more in the file |
 | `.claude/rules/team-switchboard.md` | Invite, join, peer and the board-peering row | `lib/team/**`, `packages/rt-client/src/switchboard.ts`, `lib/setup/validators/accounts.ts`, more in the file |
 | `.claude/rules/setup.md` | Writing-style presets, checklist rows, setup after an update, migrations | `lib/setup/**`, `lib/skills/writing-style.ts`, `commands/setup.ts`, more in the file |

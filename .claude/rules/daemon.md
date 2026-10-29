@@ -6,7 +6,7 @@ paths:
   - "rt-tray/Sources/TrayLog.swift"
   - "rt-tray/Sources/TrayServer.swift"
   - "commands/worktree-hook.ts"
-  - "plugins/mattstack/hooks/relocation-announce.sh"
+  - "plugins/mattstack/hooks/enter-worktree-check.ts"
 ---
 
 # Daemon
@@ -28,32 +28,22 @@ Logging is structural, not per-feature. Outcomes are logged at central seams; fe
 
 **The catch policy:** never swallow errors in a seam. Below a logged seam, an empty catch is acceptable only for genuinely expected conditions (socket already closed, file already gone). Anything else logs at `warn` with `{ err }`.
 
-## The relocation prompt parser reads a real capture, not a hand-drawn one
+## EnterWorktree into an rt tree is allowed by the plugin, not the daemon
 
-`lib/daemon/trust-dialog.ts` parses Claude Code's EnterWorktree
-"permission-root relocation" prompt (RT-200, RT-257), the only relocation
-dialog Claude Code paints (ExitWorktree paints none on 2.1.283). Three seams
-drive it, all behind the machine setting `panes.relocationAutoAccept`
-(default on) and all accepting only a path in rt's worktree registry: the
-herd watchdog for herd worker panes, the reconciler for other unattended
-panes, and `lib/daemon/relocation-announce.ts` for attended herdr panes. The
-last two stand down on a herd pane and share `createPaneDriveGuard`, so no
-two seams press keys on one pane at once. An attended pane is driven only
-after a `pane:announce-relocation` naming its session, sent by the mattstack
-plugin's `PreToolUse` hook on EnterWorktree (through the hidden
-`rt worktree announce-relocation`) or by the WorktreeCreate hook once it
-provisions a tree, and only inside the watcher's 8-second window and for the
-announced path.
+Claude Code asks before `EnterWorktree` moves a session into a tree outside
+`.claude/worktrees`, as a safety check no allow rule or classic hook can
+answer. The mattstack plugin's `tool.check` hooks module
+(`plugins/mattstack/hooks/enter-worktree-check.ts`) answers it: it turns the
+ask into an allow only when the hidden `rt worktree is-registered <path>`
+prints `registered`, stops on `unregistered`, and on any other output tries
+the next `rt`, then leaves the ask for the person. The exit code settles
+nothing, since an rt without the verb, or one not set up, also exits
+nonzero; a change to either word must change the mod with it. The daemon reads and presses nothing
+on that dialog. Do not bring back a screen-reading accept for it: the last
+one matched Claude Code 2.1.281's drawing, and 2.1.312's redraw left it
+accepting nothing while every pane waited on a person.
 
-Claude Code 2.1.281 draws the dialog under a full-width rule with a
-" Tool use" heading, an "   Entering worktree(<path>)" echo and a
-" │ permission-root relocation to ..." gutter line; the parser matches those
-markers by column, never rejoins a path the terminal split across rows, and
-refuses a dialog whose rule is narrower than any other line (a fake painted by
-a command). Every fixture in `lib/daemon/__tests__/trust-dialog.test.ts` that
-claims to be the real dialog is pasted from a gate's captured screen; when a
-Claude Code update changes the drawing, capture the new screen from a stalled
-pane, add it as a fixture, and only then touch the regexes. A parser that
-"fails closed" here reads as a pane that never starts, so RT-263 tracks the
-residue and every change needs the Bash-spoof, MCP-spoof and painted-dialog
-fixtures still passing.
+`lib/daemon/trust-dialog.ts` still parses the folder-trust dialog for spawn
+paths. Its fixtures that claim to be the real dialog are pasted from captured
+screens; when Claude Code changes the drawing, capture the new screen first,
+add it as a fixture, and only then touch the regexes.

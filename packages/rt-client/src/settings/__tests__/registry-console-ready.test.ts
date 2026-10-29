@@ -60,7 +60,6 @@ const NO_SCHEMA_YET: readonly string[] = [
   "herd.watchdog.shepherdFastMins",
   "mattstack.activeTeam",
   "mattstack.appPath",
-  "panes.relocationAutoAccept",
   "rt.apiPort",
   "rt.daemonPath",
   "rt.gates.escalationTtlMinutes",
