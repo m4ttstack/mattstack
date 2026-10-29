@@ -3892,6 +3892,14 @@ a.tui-id-card-ref:focus-visible {
 .tui-phase[data-done] + .tui-phase::before {
   background: color-mix(in srgb, var(--fill-accent) 40%, var(--border));
 }
+/* A new round starts past a divider, not a connector. */
+.tui-phase[data-group-start]::before,
+.tui-phase[data-done] + .tui-phase[data-group-start]::before {
+  width: 1px;
+  height: 16px;
+  margin: 0 12px;
+  background: var(--border);
+}
 .tui-sheet-round + .tui-sheet-list-head {
   margin-top: 0;
 }

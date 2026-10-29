@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { Check, CheckCheck } from 'lucide-react';
+import {
+  Check,
+  CheckCheck,
+  CornerUpLeft,
+  MessageSquare,
+  ThumbsUp,
+} from 'lucide-react';
 import { domAnimation, LazyMotion, m, MotionConfig } from 'motion/react';
 
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
@@ -315,29 +321,40 @@ function RoundHeading({
 
 const RESPOND_PHASES = ['Plan', 'Fix', 'Post'] as const;
 
-/** Steps in order: the one at `at` lit, the ones before it done. */
+interface Step {
+  label: string;
+  /** Shown in a done step's dot in place of the check. */
+  icon?: ReactNode;
+}
+
+/** Steps in order: the one at `at` lit, the ones before it done. `groups`
+    splits them into runs that belong together, set apart by a divider. */
 function StepTrack({
-  steps,
+  groups,
   at,
   label,
 }: {
-  steps: readonly string[];
+  groups: Step[][];
   at: number;
   label: string;
 }) {
+  const steps = groups.flatMap((g, gi) =>
+    g.map((step, si) => ({ ...step, starts: gi > 0 && si === 0 }))
+  );
   return (
     <ol className="tui-phase-track" aria-label={label}>
       {steps.map((step, i) => (
         <li
-          key={step}
+          key={i}
           className="tui-phase"
           data-done={i < at || undefined}
+          data-group-start={step.starts || undefined}
           aria-current={i === at ? 'step' : undefined}
         >
           <span className="tui-phase-dot" aria-hidden>
-            {i < at && <Check size={12} strokeWidth={3} />}
+            {i < at && (step.icon ?? <Check size={12} strokeWidth={3} />)}
           </span>
-          {step}
+          {step.label}
         </li>
       ))}
     </ol>
@@ -348,21 +365,48 @@ function StepTrack({
 function PhaseTrack({ at }: { at: (typeof RESPOND_PHASES)[number] }) {
   return (
     <StepTrack
-      steps={RESPOND_PHASES}
+      groups={[RESPOND_PHASES.map(p => ({ label: p }))]}
       at={RESPOND_PHASES.indexOf(at)}
       label="Respond steps"
     />
   );
 }
 
-/** How a re-review got here: each earlier review and the author's response
-    to it, then this round's review. */
-function ReviewTrack({ round }: { round: number }) {
-  const steps = Array.from({ length: round }, (_, i) =>
-    i === 0 ? ['Review 1'] : ['Response', `Review ${i + 1}`]
-  ).flat();
+const STEP_ICON = { size: 11, strokeWidth: 2.5 } as const;
+
+/** How a review got here, one group per round: the review, with what it
+    posted, and the author's response to it; an approval needs no response.
+    This round's group ends on the response still to come.
+    `outcomes` are the recorded rounds' posts in round order; a round with
+    none recorded shows a plain check. */
+function ReviewTrack({
+  round,
+  outcomes = [],
+}: {
+  round: number;
+  outcomes?: readonly string[];
+}) {
+  const groups = Array.from({ length: round }, (_, i): Step[] => {
+    const review = `Review ${i + 1}`;
+    if (i === round - 1) return [{ label: review }, { label: 'Response' }];
+    const outcome = outcomes[i];
+    if (outcome === 'approve')
+      return [{ label: review, icon: <ThumbsUp {...STEP_ICON} /> }];
+    return [
+      {
+        label: review,
+        icon:
+          outcome === 'comment' ? <MessageSquare {...STEP_ICON} /> : undefined,
+      },
+      { label: 'Response', icon: <CornerUpLeft {...STEP_ICON} /> },
+    ];
+  });
   return (
-    <StepTrack steps={steps} at={steps.length - 1} label="Review timeline" />
+    <StepTrack
+      groups={groups}
+      at={groups.flat().length - 2}
+      label="Review timeline"
+    />
   );
 }
 

@@ -675,15 +675,16 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" data-sheet="review">
-          {review.round !== undefined && (
-            <RoundHeading
-              round={review.round}
-              noun="Review Round"
-              aside={
-                review.round >= 2 && <ReviewTrack round={review.round} />
-              }
-            />
-          )}
+          <RoundHeading
+            round={review.round ?? 1}
+            noun="Review Round"
+            aside={
+              <ReviewTrack
+                round={review.round ?? 1}
+                outcomes={mr?.review?.outcomes}
+              />
+            }
+          />
           <div
             className="tui-tab-strip tui-review-tabs"
             role="tablist"

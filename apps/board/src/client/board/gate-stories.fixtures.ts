@@ -420,7 +420,11 @@ const N1 = {
     was a fair pushback, the evidence is still missing, and one small new
     finding turned up. */
 export const reviewReReview: StoryGate = {
-  mr: { ...TILE_MR, diff: { additions: 213, deletions: 44, filesChanged: 6 } },
+  mr: {
+    ...TILE_MR,
+    diff: { additions: 213, deletions: 44, filesChanged: 6 },
+    review: { status: 'done', rounds: 1, outcomes: ['comment'] },
+  },
   diffs: reviewFirstRound.diffs!,
   gate: {
     gateId: 'story-review-re-review',

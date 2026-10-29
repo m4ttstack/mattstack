@@ -301,7 +301,7 @@ import {
 } from './respond-state.ts';
 import { respondTargets } from './respond-targets.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
-import { dropRounds, latestRounds } from './review-rounds.ts';
+import { dropRounds, latestRounds, roundOutcomes } from './review-rounds.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -1120,7 +1120,7 @@ async function withRowState(mrs: BoardMR[]) {
   const withReviewState = attachDoctors(
     attachRespondRounds(
       attachResponds(
-        attachReviews(mrs, readReviewStates(), latestRounds()),
+        attachReviews(mrs, readReviewStates(), latestRounds(), roundOutcomes()),
         readRespondStates()
       ),
       readRespondRounds()
