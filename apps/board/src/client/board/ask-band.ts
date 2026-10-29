@@ -40,17 +40,17 @@ const REQUESTED: Record<Kind, string> = {
 };
 const RUNNING: Record<Kind, string> = {
   review: 'reviewing',
-  're-review': 're-reviewing',
+  're-review': 'following up',
   respond: 'responding',
 };
 const DONE: Record<Kind, string> = {
   review: 'reviewed',
-  're-review': 're-reviewed',
+  're-review': 'followed up',
   respond: 'responded',
 };
 const TITLE: Record<Kind, string> = {
   review: 'Review',
-  're-review': 'Re-review',
+  're-review': 'Follow-up review',
   respond: 'Response',
 };
 

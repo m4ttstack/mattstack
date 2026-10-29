@@ -486,7 +486,7 @@ test("a latch from a reviewer the switchboard hasn't heard from offers the re-re
     'request-review',
   ]);
   expect(agent.find(a => a.key === 'latch-jo')).toMatchObject({
-    label: "ask jo's agent to re-review",
+    label: "ask jo's agent for a follow-up review",
     glyph: { kind: 'agent-cloud' },
     request: { kind: 'resolve-latch', reviewer: 'jo', discussionId: 'd9' },
   });

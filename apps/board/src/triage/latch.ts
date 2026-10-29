@@ -89,7 +89,7 @@ export interface LatchPassResult {
 export const LATCH_POST_GRACE_MS = 5 * 60_000;
 
 const DISPATCH_REPLY =
-  "Re-review started. I'll comment again when the pass is done, and this latch is armed for next time.";
+  "Follow-up review started. I'll comment again when the pass is done, and this latch is armed for next time.";
 const refusalReply = (reason: string) =>
   `Not yet: ${reason}. Resolve this thread again once that clears and I'll pick it up.`;
 
@@ -320,7 +320,7 @@ export async function runLatchPass(
         );
         await consume(deps, mr, canon, carriers);
         await deps.notify(
-          `Re-review skipped on !${mr.iid}`,
+          `Follow-up review skipped on !${mr.iid}`,
           plainReason(decision.reason, policy),
           mr.mrUrl
         );
@@ -363,8 +363,8 @@ export async function runLatchPass(
       );
       await consume(deps, mr, canon, carriers);
       await deps.notify(
-        `Re-review started on !${mr.iid}`,
-        'The author asked for another look',
+        `Follow-up review started on !${mr.iid}`,
+        'The author asked for a follow-up review',
         mr.mrUrl
       );
       result.dispatched++;

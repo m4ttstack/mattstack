@@ -518,8 +518,8 @@ describe('runNudgePass notification copy', () => {
     await runNudgePass(d);
     expect(d.notifyCalls).toEqual([
       {
-        title: 'Re-review started on !1',
-        message: 'alice asked for another look',
+        title: 'Follow-up review started on !1',
+        message: 'alice asked for a follow-up review',
         mrUrl: nudge.mrUrl,
       },
     ]);
@@ -557,7 +557,7 @@ describe('runNudgePass notification copy', () => {
     await runNudgePass(d);
     expect(d.notifyCalls).toEqual([
       {
-        title: 'Re-review request skipped on !1',
+        title: 'Follow-up review request skipped on !1',
         message: 'alice asked; no earlier review to follow up on',
         mrUrl: nudge.mrUrl,
       },
@@ -571,7 +571,7 @@ describe('runNudgePass notification copy', () => {
     await runNudgePass(d);
     expect(d.notifyCalls).toEqual([
       {
-        title: 'Re-review request skipped on !1',
+        title: 'Follow-up review request skipped on !1',
         message: 'alice asked; the ask is over 48 hours old',
         mrUrl: nudge.mrUrl,
       },

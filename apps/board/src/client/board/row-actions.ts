@@ -460,7 +460,7 @@ export function rowActions(
         item(
           'agent',
           `nudge-${peer.reviewer}`,
-          `ask ${people.short(peer.reviewer)}'s agent to re-review`,
+          `ask ${people.short(peer.reviewer)}'s agent for a follow-up review`,
           AGENT_CLOUD,
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
@@ -470,7 +470,7 @@ export function rowActions(
         item(
           'agent',
           `latch-${latch.reviewer}`,
-          `ask ${people.short(latch.reviewer)}'s agent to re-review`,
+          `ask ${people.short(latch.reviewer)}'s agent for a follow-up review`,
           AGENT_CLOUD,
           {
             kind: 'resolve-latch',
