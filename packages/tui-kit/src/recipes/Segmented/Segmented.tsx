@@ -1,5 +1,5 @@
 import type { StylesApiProps, UniversalStyleProps } from "@soribashi/core";
-import type { ReactElement, Ref } from "react";
+import type { ReactElement, ReactNode, Ref } from "react";
 import { defineGenericComponent } from "../../builders.ts";
 import { ICONS } from "../Icon/Icon.tsx";
 import classes from "./Segmented.module.css";
@@ -136,7 +136,7 @@ export interface LabeledSegOwnProps<T extends string> {
   soft?: boolean;
   legend: string;
   options: readonly T[];
-  labels: Record<T, string>;
+  labels: Record<T, ReactNode>;
   value: T;
   onChange: (v: T) => void;
 }

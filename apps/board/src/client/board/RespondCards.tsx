@@ -103,12 +103,14 @@ function ThreadCard({
         <ReplyBlock text={reply.text} edited={replyEdited} />
       )}
       {reply.kind === 'direction' && (
-        <CommentFrame
-          kind="direction"
-          kicker="reply direction"
-          held
-          text={reply.text}
-        />
+        <div className="tui-thread-direction">
+          <span className="tui-thread-direction-k">Reply after the fix</span>
+          <div className="tui-thread-direction-text">
+            <Markdown unstyled linkTargetBlank>
+              {reply.text}
+            </Markdown>
+          </div>
+        </div>
       )}
       {children}
     </div>
@@ -154,16 +156,6 @@ function ThreadOutcome({
       data-outcome={heldBack ? `${verb}-held` : verb}
     >
       {heldBack ? `${verb} held` : OUTCOME_TEXT[verb]}
-    </span>
-  );
-}
-
-/** A thread's outcome inside its composer strip, for a thread whose
-    composer is its whole card. */
-function StripOutcome({ verb }: { verb: 'reply' | 'fix' | 'skip' }) {
-  return (
-    <span className="tui-composer-status" data-outcome={verb}>
-      {OUTCOME_TEXT[verb]}
     </span>
   );
 }
@@ -319,7 +311,6 @@ export {
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
-  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 };

@@ -110,6 +110,22 @@ export function latestRounds(db: Database = getStateDb()): Map<string, number> {
   return new Map(rows.map(r => [r.mr_url, r.round]));
 }
 
+/** What each MR's recorded rounds posted, in round order. */
+export function roundOutcomes(
+  db: Database = getStateDb()
+): Map<string, ReviewOutcome[]> {
+  const rows = db
+    .query('SELECT mr_url, outcome FROM review_rounds ORDER BY mr_url, round')
+    .all() as Array<{ mr_url: string; outcome: string }>;
+  const out = new Map<string, ReviewOutcome[]>();
+  for (const r of rows) {
+    const list = out.get(r.mr_url) ?? [];
+    list.push(r.outcome as ReviewOutcome);
+    out.set(r.mr_url, list);
+  }
+  return out;
+}
+
 /** What a later round needs: every finding skipped so far that no round has
     brought back, and every thread confirmed fixed and left to the author. */
 export function ledgerView(rounds: ReviewRound[]): LedgerView {

@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'motion/react';
 
-import { Modal, Popover } from '@mattstack/tui-kit';
+import { Button, ICONS, Modal, Popover } from '@mattstack/tui-kit';
 import { ClickToEditField } from './ClickToEditField.tsx';
 import { commentState, resetToWrite } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
@@ -29,14 +29,15 @@ import {
 import type { DiffPin } from './DiffView.tsx';
 import type { FindingEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
+import { CardBody, CommentArea, DraftField } from './GateParts.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
   ChevronGlyph,
   FileGlyph,
-  InfoGlyph,
   UndoGlyph,
 } from './icons.tsx';
+import { CommentAuthor } from './PersonLead.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
 
 /** A diff that fails to load or render leaves the file header standing. */
@@ -279,7 +280,7 @@ function changesLink(
     diff, the header stands alone. The snippet and "view full diff" open
     the whole file's diff. A diff the forge holds back, or one that failed
     to load, says so under the header and links to it on the forge. */
-function CodeSection({
+export function CodeSection({
   mrUrl,
   mrRef,
   mrRevision,
@@ -305,6 +306,7 @@ function CodeSection({
       fetchedDiff.patch.trim() === '');
   const diff = fetchedDiff && !heldBack && DiffView ? fetchedDiff : null;
   const error = state.status === 'error' && DiffView ? state.message : null;
+  const loading = DiffView !== null && state.status === 'loading';
   const openable = diff !== null;
   const forgeLink =
     heldBack && fetchedDiff.webUrl
@@ -342,13 +344,10 @@ function CodeSection({
             <ChevronGlyph />
           </button>
           <FileGlyph />
-          <span className="tui-review-code-path">
-            {path}
-            {line !== undefined && (
-              <span className="tui-review-code-line">:{line}</span>
-            )}
-          </span>
-          {finding.body && <FindingInfo body={finding.body} />}
+          <CodePath path={path} line={line} />
+          {finding.body && (
+            <FindingInfo body={finding.body} fix={finding.fix} />
+          )}
           {forgeLink && (
             <a
               className="tui-review-section-link tui-review-code-more"
@@ -401,6 +400,7 @@ function CodeSection({
                     {error}
                   </p>
                 )}
+                {loading && <CodeLoading />}
                 {snippet && DiffView && (
                   <div
                     className="tui-review-code-snippet"
@@ -424,11 +424,12 @@ function CodeSection({
                     }}
                   >
                     <DiffBoundary key={snippet}>
-                      <Suspense fallback={null}>
+                      <Suspense fallback={<CodeLoading />}>
                         <DiffView
                           patch={snippet}
                           anchor={line}
                           separators="simple"
+                          pending={<CodeLoading />}
                         />
                       </Suspense>
                     </DiffBoundary>
@@ -455,7 +456,7 @@ function CodeSection({
 }
 
 /** "edited · reset to draft", or who wrote the text. */
-function DraftMeta({
+export function DraftMeta({
   edited,
   label,
   onReset,
@@ -495,7 +496,7 @@ function DraftMeta({
 /** A comment that reads rendered and opens raw on a click, with its
     blank-edit hint, in a part that `DraftMeta`'s reset finds by
     `data-draft-part`. */
-function CommentEditor({
+export function CommentEditor({
   label,
   draft,
   value,
@@ -506,6 +507,8 @@ function CommentEditor({
   heading,
   actions,
   badge,
+  footer,
+  lead,
 }: {
   label: string;
   draft: string;
@@ -517,6 +520,8 @@ function CommentEditor({
   heading?: string;
   actions?: ReactNode;
   badge?: ReactNode;
+  footer?: ReactNode;
+  lead?: ReactNode;
 }) {
   const { text, empty } = commentState(draft, value, true);
   const hintId = useId();
@@ -535,6 +540,8 @@ function CommentEditor({
         heading={heading}
         actions={actions}
         badge={badge}
+        footer={footer}
+        lead={lead}
       />
       {empty && (
         <span className="tui-gate-error" id={hintId}>
@@ -545,9 +552,47 @@ function CommentEditor({
   );
 }
 
+/** Holds the snippet's space while its diff or highlighter loads: about
+    the seven lines a three-line window shows, so the card neither
+    collapses under the file bar nor jumps when the code lands. */
+function CodeLoading() {
+  return (
+    <div className="tui-review-code-loading" aria-hidden="true">
+      {[62, 48, 71, 55, 40, 66, 34].map((w, i) => (
+        <span key={i} style={{ width: `${w}%` }} />
+      ))}
+    </div>
+  );
+}
+
+/** A file path that fits its bar: the folders give way first, losing
+    their start to an ellipsis, while the file name and line stay whole.
+    The full path is the hover title. */
+function CodePath({ path, line }: { path: string; line?: number }) {
+  const cut = path.lastIndexOf('/') + 1;
+  return (
+    <span
+      className="tui-review-code-path"
+      title={line !== undefined ? `${path}:${line}` : path}
+    >
+      {cut > 0 && (
+        <span className="tui-review-code-dir">
+          <span dir="ltr">{path.slice(0, cut)}</span>
+        </span>
+      )}
+      <span className="tui-review-code-name">
+        {path.slice(cut)}
+        {line !== undefined && (
+          <span className="tui-review-code-line">:{line}</span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 /** The agent's finding behind an info mark in the code's file bar: the
     comment already says it to the author, so it stays a click away. */
-function FindingInfo({ body }: { body: string }) {
+function FindingInfo({ body, fix }: { body: string; fix?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <Popover
@@ -558,18 +603,33 @@ function FindingInfo({ body }: { body: string }) {
       sideOffset={6}
       ariaLabel="Agent finding"
       trigger={
-        <button
+        <Button
           type="button"
+          variant="subtle"
+          intent="accent"
+          size="sm"
           className="tui-review-info"
-          aria-label="Agent finding"
         >
-          <InfoGlyph />
-        </button>
+          Agent finding
+          <span
+            className="tui-reply-check-chevron"
+            data-open={open || undefined}
+            aria-hidden
+          >
+            {ICONS['chevron-right']}
+          </span>
+        </Button>
       }
     >
       <div className="tui-review-info-card">
         <span className="tui-review-info-title">Agent finding</span>
         <CommentMarkdown>{body}</CommentMarkdown>
+        {fix && (
+          <div className="tui-review-info-fix">
+            <span className="tui-review-info-title">Suggested fix</span>
+            <CommentMarkdown>{fix}</CommentMarkdown>
+          </div>
+        )}
       </div>
     </Popover>
   );
@@ -587,7 +647,7 @@ function FindingSection({ finding: f }: { finding: FindingEntry }) {
       {f.file && (
         <div className="tui-review-code-file">
           <FileGlyph />
-          <span className="tui-review-code-path">{f.file}</span>
+          <CodePath path={f.file} />
         </div>
       )}
       <div className="tui-review-finding-said">
@@ -600,53 +660,27 @@ function FindingSection({ finding: f }: { finding: FindingEntry }) {
 function CommentSection({
   finding,
   form,
+  you,
 }: {
   finding: FindingEntry;
   form: GateFormState;
+  you?: string;
 }) {
   const key = commentKey(finding.id);
   const label = `Comment on ${finding.title}`;
   const { edited } = commentState(finding.comment!, form.texts[key], true);
   return (
-    <section
-      className="tui-review-section"
-      data-section="comment"
-      data-draft-part=""
-      data-edited={edited || undefined}
-      aria-label="Comment"
-    >
-      <CommentEditor
+    <CommentArea label="Comment" edited={edited}>
+      <DraftField
         label={label}
         draft={finding.comment!}
         value={form.texts[key]}
-        variant="plain"
         heading="Editing comment"
-        actions={
-          edited && (
-            <DraftMeta
-              edited
-              label={label}
-              onReset={() => form.clearText(key)}
-            />
-          )
-        }
-        badge={
-          edited && (
-            <>
-              <span className="tui-cte-badge-state">Edited</span>
-              <span className="tui-cte-badge-sep" aria-hidden="true" />
-              <DraftMeta
-                edited
-                label={label}
-                resetText="Reset"
-                onReset={() => form.clearText(key)}
-              />
-            </>
-          )
-        }
+        lead={<CommentAuthor id={you} name="You:" />}
         onChange={t => form.setText(key, t)}
+        onReset={() => form.clearText(key)}
       />
-    </section>
+    </CommentArea>
   );
 }
 
@@ -662,6 +696,7 @@ export function FindingCard({
   mrRef,
   mrRevision,
   pins,
+  you,
 }: {
   finding: FindingEntry;
   checked: boolean;
@@ -671,6 +706,8 @@ export function FindingCard({
   mrRef?: string;
   mrRevision?: string;
   pins: FilePin[];
+  /** The reviewer's username, for the avatar beside the comment. */
+  you?: string;
 }) {
   return (
     <article
@@ -678,39 +715,20 @@ export function FindingCard({
       data-off={checked ? undefined : ''}
     >
       {head}
-      <LazyMotion features={domAnimation}>
-        <AnimatePresence initial={false}>
-          {checked && (
-            <m.div
-              key="body"
-              className="tui-review-card-body"
-              // Clips only while easing: open, the body must let the
-              // finding's info card, which renders in place, spill out.
-              initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
-              animate={{
-                height: 'auto',
-                opacity: 1,
-                transitionEnd: { overflow: 'visible' },
-              }}
-              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
-              transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-            >
-              {hasDiffLine(f) ? (
-                <CodeSection
-                  mrUrl={mrUrl}
-                  mrRef={mrRef}
-                  mrRevision={mrRevision}
-                  finding={f}
-                  pins={pins}
-                />
-              ) : (
-                <FindingSection finding={f} />
-              )}
-              <CommentSection finding={f} form={form} />
-            </m.div>
-          )}
-        </AnimatePresence>
-      </LazyMotion>
+      <CardBody open={checked}>
+        {hasDiffLine(f) ? (
+          <CodeSection
+            mrUrl={mrUrl}
+            mrRef={mrRef}
+            mrRevision={mrRevision}
+            finding={f}
+            pins={pins}
+          />
+        ) : (
+          <FindingSection finding={f} />
+        )}
+        <CommentSection finding={f} form={form} you={you} />
+      </CardBody>
     </article>
   );
 }
@@ -759,7 +777,7 @@ export function SummaryCard({
         label="Summary line"
         draft={draft}
         value={form.texts[key]}
-        variant="filled"
+        variant="plain"
         onChange={t => form.setText(key, t)}
       />
     </section>

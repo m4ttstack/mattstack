@@ -621,6 +621,26 @@ function ageBucket(
   return { label: 'Older', order: 9 };
 }
 
+/** Whether a person approved the MR: listed among its approvers, or an
+    assigned reviewer whose state reads approved. Someone who approved
+    without being assigned shows only in the approvers, and GitHub's
+    reviewers never carry a state. */
+export function personApproved(
+  mr:
+    | {
+        reviews?: Partial<Pick<BoardMR['reviews'], 'approvedBy' | 'reviewers'>>;
+      }
+    | undefined,
+  person: string
+): boolean {
+  const who = person.toLowerCase();
+  const reviews = mr?.reviews;
+  if (reviews?.approvedBy?.some(u => u.username.toLowerCase() === who))
+    return true;
+  const r = reviews?.reviewers?.find(x => x.username.toLowerCase() === who);
+  return getReviewDisplayState(r?.reviewState ?? null) === 'approved';
+}
+
 /** Every assigned reviewer has approved. */
 function allReviewersApproved(mr: BoardMR): boolean {
   const reviewers = mr.reviews.reviewers ?? [];

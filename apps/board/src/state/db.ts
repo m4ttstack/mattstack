@@ -8,7 +8,7 @@ import { getKvValue } from './kv-blob.ts';
 import { importLegacyState } from './legacy-import.ts';
 
 export type DbFlavor = 'server' | 'cli';
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const BUSY_TIMEOUT_MS: Record<DbFlavor, number> = { server: 250, cli: 5000 };
 const MIGRATION_BUSY_TIMEOUT_MS = 5000;
@@ -154,6 +154,15 @@ const MIGRATIONS: Migration[] = [
   // v5: one row per response round to one person, so each person's round
   // count survives the MR's single respond lane being rewritten per launch.
   db => db.run(V5_SCHEMA),
+  // v6: what the person had posted when a response round began (comment or
+  // approve), so the respond gate can list each earlier round's review.
+  db => {
+    const cols = db.query('PRAGMA table_info(respond_rounds)').all() as Array<{
+      name: string;
+    }>;
+    if (!cols.some(c => c.name === 'outcome'))
+      db.run('ALTER TABLE respond_rounds ADD COLUMN outcome TEXT');
+  },
 ];
 
 // SCHEMA_VERSION is the public constant other modules reason about;

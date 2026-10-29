@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { Reply } from 'lucide-react';
 
 import {
   CODE_CHANGES_QUESTION_ID,
@@ -18,15 +19,22 @@ import {
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
 import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
-import { approvalSlots } from '../../view.ts';
+import { approvalSlots, personApproved } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
-import { CommentComposer } from './CommentComposer.tsx';
-import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
+import {
+  parseGateCtx,
+  type PlanCtx,
+  type PostCtx,
+  type ThreadCtx,
+} from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
+import { THREAD_CALL } from './GateParts.tsx';
+import { GateTimeline, type RoundEntry } from './GateTimeline.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
-import { PersonLead, PersonTag } from './PersonLead.tsx';
+import { PersonLead } from './PersonLead.tsx';
+import { PlanThreadCard } from './PlanThreadCard.tsx';
 import {
   joinPlan,
   planThreadOrder,
@@ -47,15 +55,14 @@ import {
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
-  StripOutcome,
   ThreadCard,
   ThreadOutcome,
 } from './RespondCards.tsx';
 import {
-  gateRounds,
   itemMix,
   itemNoun,
   leadVerb,
+  personRound,
   RespondCtxFacts,
   respondPerson,
   subjectRef,
@@ -68,13 +75,15 @@ import {
   Note,
   ProseContext,
   reserveDock,
-  RoundHeading,
+  SheetEnd,
+  SheetHeading,
   SheetLost,
   SheetRows,
   SUBMIT_KEYS,
   type RowChip,
   type SheetRow,
 } from './SheetParts.tsx';
+import { ThreadReplyCard } from './ThreadReplyCard.tsx';
 
 /** A post-step thread's decision: post its final reply or hold it. Both
     write the replies checklist the gate answers with. */
@@ -131,17 +140,13 @@ function PostChoice({
 }
 
 /** A post-step thread drawn with its plan-step card; `children` are the
-    controls for what this gate does with its reply. `reply`, when given,
-    draws the reply in place of the card's read-only one. A reply-only
-    thread takes no controls: Gate 1 decided it, and it posts with this
-    step. */
+    controls for what this gate does with its reply. A reply-only thread
+    takes no controls: Gate 1 decided it, and it posts with this step. */
 function PostStepCard({
   j,
-  reply,
   children,
 }: {
   j: JoinedThread;
-  reply?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -166,16 +171,13 @@ function PostStepCard({
         replyEdited={Boolean(j.replyOnly?.edited)}
         ctx={{
           ...j.thread,
-          reply:
-            j.reply && !reply
-              ? { kind: 'verbatim', text: j.reply.text }
-              : j.replyOnly
-                ? { kind: 'verbatim', text: j.replyOnly.text }
-                : { kind: 'none' },
+          reply: j.reply
+            ? { kind: 'verbatim', text: j.reply.text }
+            : j.replyOnly
+              ? { kind: 'verbatim', text: j.replyOnly.text }
+              : { kind: 'none' },
         }}
-      >
-        {reply}
-      </ThreadCard>
+      ></ThreadCard>
       {j.reply
         ? children
         : !j.replyOnly && (
@@ -437,6 +439,36 @@ function MrStatusCard({ mr }: { mr: BoardMRWithReview }) {
   );
 }
 
+/** The rounds behind a respond gate: what the reviewer had posted when each
+    round began, and your reply to each round before this one. */
+function respondHistory(
+  round: number,
+  outcomes: ReadonlyArray<'comment' | 'approve' | null>,
+  reviewer: { id: string; name: string },
+  you: string | undefined,
+  now: string
+): RoundEntry[] {
+  const posted = (i: number) => ({
+    id: reviewer.id,
+    text: `${reviewer.name} ${
+      outcomes[i] === 'approve'
+        ? 'approved'
+        : outcomes[i] === 'comment'
+          ? 'commented'
+          : 'reviewed'
+    }`,
+  });
+  return Array.from({ length: round }, (_, i) => ({
+    round: i + 1,
+    events: [
+      posted(i),
+      i === round - 1
+        ? { id: you, text: now, now: 'response' as const }
+        : { id: you, text: 'You replied' },
+    ],
+  }));
+}
+
 /** A respond gate in the full-screen sheet: the respond header and every
     thread (or reply) in the main column, each decided on its own card; the
     rail shows what the submit will do, the MR's status, and docks the
@@ -625,28 +657,71 @@ function RespondSheetBody({
     const v = form.selections[p.name];
     return Array.isArray(v) && v.includes(p.post);
   };
-  // `framed`: the composer is the thread's whole card, so its strip names
-  // the thread and its outcome.
-  const editableReply = (p: PostPick, framed = false) => {
+  // A reply card: the header's tick posts, the reviewer's comment reads
+  // above the reply when the plan gate's thread is known.
+  const replyCard = (p: PostPick, thread?: ThreadCtx) => {
     const live = postingPick(p);
+    const reply = p.reply!;
     return (
-      <CommentComposer
-        label={`Reply on ${p.label}`}
-        noun="reply"
-        heldKicker="drafted reply · not posting"
-        {...(framed
-          ? {
-              where: p.label,
-              status: <StripOutcome verb={p.reply!.verb} />,
-              heldMeta: 'not posting',
-            }
-          : { kicker: 'will post as reply' })}
-        draft={p.reply!.text}
+      <ThreadReplyCard
+        key={p.name}
+        label={p.label}
+        status={
+          reply.verb === 'fix'
+            ? { text: 'Fixed', hue: 'green' }
+            : { text: 'Reply only', hue: 'muted' }
+        }
+        sha={reply.sha}
+        tag={thread && <SeverityPill severity={thread.severity} />}
+        layout="stacked"
+        mr={
+          mr
+            ? {
+                url: mr.webUrl ?? undefined,
+                ref: mrRef(mr),
+                revision: mr.updatedAt ?? undefined,
+              }
+            : undefined
+        }
+        check={(() => {
+          // A reply-only thread's call was settled on the plan gate.
+          const verdict =
+            reply.verb === 'fix' &&
+            thread &&
+            THREAD_CALL[thread.verdict.call].check;
+          return verdict && thread.verdict.note
+            ? { note: thread.verdict.note, verdict }
+            : undefined;
+        })()}
+        messages={
+          thread?.claim.summary
+            ? [
+                {
+                  who: people.short(thread.author),
+                  whoId: thread.author,
+                  text: thread.claim.summary,
+                },
+              ]
+            : []
+        }
+        selfId={mr?.author.username}
+        draft={reply.text}
         value={live ? form.texts[p.name] : undefined}
-        canEdit={live}
+        posting={live}
+        onPosting={on => form.toggleMulti(p.name, p.post, on)}
+        resolve={
+          p.resolve
+            ? {
+                on: (() => {
+                  const v = form.selections[p.name];
+                  return Array.isArray(v) && v.includes(p.resolve!);
+                })(),
+                onChange: on => form.toggleMulti(p.name, p.resolve!, on),
+              }
+            : undefined
+        }
         onChange={text => form.setText(p.name, text)}
         onReset={() => form.clearText(p.name)}
-        controls={<PostResolveChoice pick={p} form={form} />}
       />
     );
   };
@@ -711,7 +786,7 @@ function RespondSheetBody({
         : mainQs.map(q => q.prompt)
   );
   const person = respondPerson(ctx, gate.openedAt, mr);
-  const personTag = <PersonTag id={person} name={people.short(person)} />;
+  const ownRound = personRound(gate.openedAt, person, mr);
   const dockPick = dockQs
     .map(q => {
       const v = form.selections[q.name];
@@ -782,21 +857,44 @@ function RespondSheetBody({
 
   return (
     <div className="tui-sheet-body">
-      <section className="tui-sheet-main">
-        <RoundHeading {...gateRounds(ctx, mr?.respond?.responseRound)} />
+      <section className="tui-sheet-main" data-sheet="respond">
+        <SheetHeading
+          icon={<Reply size={18} aria-hidden />}
+          title={`Respond to ${people.short(person)}`}
+          aside={
+            <GateTimeline
+              round={ownRound ?? ctx.round ?? 1}
+              review={{
+                id: person,
+                label: `${people.short(person)} ${personApproved(mr, person) ? 'approved' : 'reviewed'}`,
+                outcome: personApproved(mr, person) ? 'approve' : 'comment',
+              }}
+              response={{ label: 'Your response', at: plan ? 'Plan' : 'Post' }}
+              history={
+                ownRound !== undefined
+                  ? respondHistory(
+                      ownRound,
+                      mr?.respondOutcomes?.[person] ?? [],
+                      { id: person, name: people.short(person) },
+                      mr?.author.username,
+                      plan ? 'You, planning' : 'You, posting'
+                    )
+                  : undefined
+              }
+            />
+          }
+        />
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
             {postThreads || perThread ? (
               <>
                 Post replies on {listCount} {itemNoun(listCount, mix)}
-                {frame === undefined && <> from {personTag}</>}
               </>
             ) : repliesQ ? (
               repliesQ.prompt
             ) : (
               <>
-                Respond to {mainQs.length} {itemNoun(mainQs.length, mix)} from{' '}
-                {personTag}
+                {mainQs.length} {itemNoun(mainQs.length, mix)}
               </>
             )}
           </span>
@@ -810,16 +908,19 @@ function RespondSheetBody({
                   : `${threadsDecided} of ${mainQs.length} decided`}
           </span>
         </div>
+        {!postThreads && !perThread && !repliesQ && (
+          <p className="tui-sheet-list-lede">
+            Choose how to answer each comment: fix the code or just reply.
+            Untick one to skip it.
+          </p>
+        )}
         <div className="tui-respond-list">
           {threadJoin
             ? threadJoin.map(j => {
                 const pick = picks.find(p => p.threadId === j.threadId);
+                if (pick?.reply) return replyCard(pick, j.thread);
                 return (
-                  <PostStepCard
-                    key={j.threadId}
-                    j={j}
-                    reply={pick?.reply ? editableReply(pick) : undefined}
-                  >
+                  <PostStepCard key={j.threadId} j={j}>
                     {pick && !pick.reply && (
                       <PostResolveChoice pick={pick} form={form} />
                     )}
@@ -836,19 +937,7 @@ function RespondSheetBody({
                   );
                 const p = item.pick;
                 const display = displayOf(p.name);
-                if (p.reply)
-                  return (
-                    <section
-                      key={p.name}
-                      className="tui-gate-question"
-                      data-gate-ctx="thread"
-                      data-step="post"
-                      data-frame="composer"
-                      aria-label={p.label}
-                    >
-                      {editableReply(p, true)}
-                    </section>
-                  );
+                if (p.reply) return replyCard(p);
                 return (
                   <section
                     key={p.name}
@@ -877,44 +966,41 @@ function RespondSheetBody({
             .map(q => {
               const qctx = questionCtx.get(q.name);
               const pr = planReplyList.find(r => r.name === q.name);
-              const replying = !!pr && form.selections[q.name] === pr.value;
+              if (!q.multiple && qctx?.shape === 'thread@1')
+                return (
+                  <PlanThreadCard
+                    key={q.name}
+                    q={q}
+                    ctx={qctx}
+                    form={form}
+                    reviewer={people.short(qctx.author)}
+                    reviewerId={qctx.author}
+                    selfId={mr?.author.username}
+                    draft={pr?.draft}
+                    mr={
+                      mr
+                        ? {
+                            url: mr.webUrl ?? undefined,
+                            ref: mrRef(mr),
+                            revision: mr.updatedAt ?? undefined,
+                          }
+                        : undefined
+                    }
+                  />
+                );
               if (!q.multiple)
                 return (
                   <section
                     key={q.name}
                     className="tui-gate-question"
-                    data-gate-ctx={
-                      qctx?.shape === 'thread@1' ? 'thread' : undefined
-                    }
                     aria-label={q.prompt}
                   >
                     <div className="tui-gate-question-head">
                       <span className="tui-gate-question-label">
                         {q.prompt}
                       </span>
-                      {qctx?.shape === 'thread@1' && (
-                        <SeverityPill severity={qctx.severity} />
-                      )}
                     </div>
-                    {qctx?.shape === 'thread@1' && pr ? (
-                      <ThreadCard ctx={{ ...qctx, reply: { kind: 'none' } }}>
-                        <CommentComposer
-                          label={`Reply on ${q.prompt}`}
-                          noun="reply"
-                          kicker="will post as reply"
-                          heldKicker="drafted reply"
-                          draft={pr.draft}
-                          value={replying ? form.texts[q.name] : undefined}
-                          canEdit={replying}
-                          onChange={t => form.setText(q.name, t)}
-                          onReset={() => form.clearText(q.name)}
-                        />
-                      </ThreadCard>
-                    ) : qctx?.shape === 'thread@1' ? (
-                      <ThreadCard ctx={qctx} />
-                    ) : (
-                      <ProseContext q={q} structured={qctx != null} />
-                    )}
+                    <ProseContext q={q} structured={qctx != null} />
                     <Choices q={q} form={form} />
                     <Note q={q} form={form} />
                   </section>
@@ -955,6 +1041,7 @@ function RespondSheetBody({
               );
             })}
         </div>
+        <SheetEnd>You've reached the end of the threads.</SheetEnd>
       </section>
       <aside className="tui-sheet-rail">
         {form.lost ? (

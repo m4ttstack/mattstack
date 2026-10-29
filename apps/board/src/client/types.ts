@@ -59,6 +59,8 @@ export interface ReviewInfo {
   noPack?: boolean;
   /** The highest review round the board has recorded for this MR. */
   rounds?: number;
+  /** What each recorded round posted, in round order. */
+  outcomes?: Array<'comment' | 'approve'>;
 }
 export interface RespondInfo {
   status: RespondStatus;

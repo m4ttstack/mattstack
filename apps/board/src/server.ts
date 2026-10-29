@@ -7,13 +7,13 @@ import {
   type EventBridgeRule,
 } from '@mattstack/app-server/event-bridge';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
-import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   GitLabProvider,
   NoteMutator,
   parseRepoId,
   ReadBackFailedError,
 } from '@mattstack/glance';
+import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   eventsHead,
   eventsList,
@@ -282,8 +282,10 @@ import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
   deleteRespondRound,
+  readRespondOutcomes,
   readRespondRounds,
   recordRespondRound,
+  reviewerOutcome,
 } from './respond-rounds.ts';
 import {
   attachResponds,
@@ -301,7 +303,7 @@ import {
 } from './respond-state.ts';
 import { respondTargets } from './respond-targets.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
-import { dropRounds, latestRounds } from './review-rounds.ts';
+import { dropRounds, latestRounds, roundOutcomes } from './review-rounds.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -1120,10 +1122,11 @@ async function withRowState(mrs: BoardMR[]) {
   const withReviewState = attachDoctors(
     attachRespondRounds(
       attachResponds(
-        attachReviews(mrs, readReviewStates(), latestRounds()),
+        attachReviews(mrs, readReviewStates(), latestRounds(), roundOutcomes()),
         readRespondStates()
       ),
-      readRespondRounds()
+      readRespondRounds(),
+      readRespondOutcomes()
     ),
     readDoctorStates()
   );
@@ -2784,7 +2787,13 @@ const httpServer = Bun.serve({
             return new Response(dedup.reason, { status: 409 });
         }
         const responseRound = person
-          ? recordRespondRound(parsed.mrUrl, person)
+          ? recordRespondRound(
+              parsed.mrUrl,
+              person,
+              undefined,
+              undefined,
+              reviewerOutcome(mr, person)
+            )
           : undefined;
         const statePath = respondFilePath(parsed.mrUrl);
         writeRespondState(statePath, {

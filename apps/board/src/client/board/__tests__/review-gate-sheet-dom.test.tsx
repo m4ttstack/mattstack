@@ -606,12 +606,16 @@ test("a malformed report.json renders the sheet without throwing and skips the r
   const labels = [
     ...container.querySelectorAll('.tui-review-record-label'),
   ].map(l => l.textContent);
-  // strengths and notes are dropped whole (not arrays); the checks show in
-  // the Report tab's card as well as the rail's.
-  expect(labels).toEqual(['depth', 'checks']);
+  // strengths and notes are dropped whole (not arrays); the checks leave
+  // the record for their own card, in the Report tab as in the rail.
+  expect(labels).toEqual(['depth']);
   // The one malformed check entry (missing `text`) is dropped, the
-  // well-typed one stays and shows up in the rail card.
-  expect(container.textContent).toContain('real check');
+  // well-typed one stays in the Report tab's checks card.
+  const checks = container.querySelector('.tui-sheet-main .tui-review-checks')!;
+  expect(checks.textContent).toContain('real check');
+  expect(checks.querySelector('.tui-review-checks-tally')!.textContent).toBe(
+    '1 fail'
+  );
   expect(container.textContent).not.toContain('not an array');
 });
 
@@ -1006,25 +1010,42 @@ describe('a later round', () => {
     return { container, submitted };
   }
 
+  const fileFor = (call: string) => EARLIER[earlierIndex(call)]!.file;
+
   const cardFor = (scope: Element, call: string) =>
-    scope
-      .querySelector(`[data-call="${call}"]`)!
-      .closest<HTMLElement>('[data-step="carryover"]')!;
+    scope.querySelector<HTMLElement>(
+      `article.tui-reply-card[aria-label="${fileFor(call)}"]`
+    )!;
+
+  const tickFor = (scope: Element, call: string, value: 'post' | 'resolve') =>
+    cardFor(scope, call).querySelector<HTMLInputElement>(
+      `input[aria-label="${fileFor(call)}: ${
+        value === 'post' ? 'post reply' : 'resolve thread'
+      }"]`
+    );
+
+  const earlierCards = (scope: Element) => [
+    ...scope.querySelectorAll<HTMLElement>(
+      '.tui-respond-list > article.tui-reply-card'
+    ),
+  ];
 
   async function untick(
     scope: Element,
     call: string,
     value: 'post' | 'resolve'
   ) {
-    const box = cardFor(scope, call).querySelector<HTMLInputElement>(
-      `input[value="${value}"]`
-    )!;
+    const box = tickFor(scope, call, value)!;
     if (!box.checked) throw new Error(`${call} ${value} is not ticked`);
     await React.act(async () => box.click());
   }
 
   async function editReply(scope: Element, call: string, text: string) {
-    const box = cardFor(scope, call).querySelector<HTMLTextAreaElement>(
+    const card = cardFor(scope, call);
+    await React.act(async () => {
+      card.querySelector<HTMLElement>('.tui-cte-view')!.click();
+    });
+    const box = card.querySelector<HTMLTextAreaElement>(
       'textarea.tui-composer-input'
     )!;
     await React.act(async () => {
@@ -1066,29 +1087,43 @@ describe('a later round', () => {
     await click(box);
   }
 
-  test('the main column opens with the round and what it holds', () => {
+  test('the main column opens with the review heading, its round on the timeline', () => {
     const { container } = renderSheet(roundThreeGate());
     const heading = container.querySelector('.tui-sheet-round')!;
     expect(heading.querySelector('.tui-sheet-round-n')!.textContent).toBe(
-      'Round 3'
+      "Review Paul's MR"
     );
+    const chip = heading.querySelector('.tui-tl-round-chip')!;
+    expect(chip.textContent).toBe('Round 3');
+    expect(chip.hasAttribute('data-menu')).toBe(true);
     expect(
-      heading.querySelector('.tui-sheet-round-summary')!.textContent
-    ).toMatch(/earlier threads? · \d+ new finding/);
+      [...heading.querySelectorAll('.tui-tl-step')].map(li => [
+        li.textContent,
+        li.getAttribute('data-state'),
+      ])
+    ).toEqual([
+      ['Your review', 'current'],
+      ["Paul's response", 'next'],
+    ]);
+    expect(heading.querySelector('.tui-sheet-round-summary')).toBeNull();
   });
 
   test('each earlier thread is a card naming who acts', () => {
     const { container } = renderSheet(roundThreeGate());
-    const cards = [...container.querySelectorAll('[data-step="carryover"]')];
-    expect(cards.length).toBeGreaterThan(0);
-    const chips = cards.map(
-      c => c.querySelector('.tui-thread-outcome')!.textContent
+    const cards = earlierCards(container);
+    expect(cards.map(c => c.getAttribute('aria-label'))).toEqual(
+      EARLIER.map(c => c.file)
     );
-    for (const chip of chips) expect(chip).not.toMatch(/open|unresolved/i);
-    expect(chips).toContain('fixed by author');
-    expect(chips).toContain('waiting on author');
-    expect(chips).toContain('author pushed back · accept');
-    expect(chips).toContain('author pushed back · hold firm');
+    const marks = cards.map(
+      c => c.querySelector('.tui-reply-head .tui-reply-status')!.textContent
+    );
+    for (const mark of marks) expect(mark).not.toMatch(/open|unresolved/i);
+    expect(marks).toEqual([
+      'Fixed',
+      'Waiting on author',
+      'Pushback accepted',
+      'Holding firm',
+    ]);
   });
 
   test('neither the round heading nor the earlier threads heading says open or unresolved', () => {
@@ -1099,46 +1134,41 @@ describe('a later round', () => {
     ].find(h =>
       h
         .querySelector('.tui-sheet-list-title')
-        ?.textContent?.startsWith('Your earlier threads')
+        ?.textContent?.startsWith('Earlier threads')
     )!.textContent!;
     expect(round).toContain('Round 3');
-    expect(earlier).toContain(`Your earlier threads (${EARLIER.length})`);
+    expect(earlier).toContain(`Earlier threads (${EARLIER.length})`);
     for (const text of [round, earlier])
       expect(text).not.toMatch(/open|unresolved/i);
   });
 
   test('a thread the author never answered says so', () => {
     const { container } = renderSheet(roundThreeGate({ dropAuthorReplyOn: 0 }));
-    expect(container.querySelector('.tui-thread-nothing')!.textContent).toBe(
-      "The author hasn't replied in this thread."
-    );
     const silent = cardFor(container, EARLIER[0]!.call);
-    expect([...silent.querySelectorAll('.tui-thread-nothing')]).toHaveLength(1);
-    const answered = [
-      ...container.querySelectorAll('[data-step="carryover"]'),
-    ].filter(c => c !== silent);
+    const said = [...silent.querySelectorAll('.tui-reply-silence')];
+    expect(said).toHaveLength(1);
+    expect(said[0]!.textContent).toBe('No reply from author');
+    const answered = earlierCards(container).filter(c => c !== silent);
     expect(answered).toHaveLength(EARLIER.length - 1);
     for (const card of answered)
-      expect(card.querySelector('.tui-thread-nothing')).toBeNull();
+      expect(card.querySelector('.tui-reply-silence')).toBeNull();
   });
 
   test('a fixed thread starts with post and resolve ticked; a waiting one with post only', () => {
     const { container } = renderSheet(roundThreeGate());
-    const ticks = (call: string) => {
-      const card = container
-        .querySelector(`[data-call="${call}"]`)!
-        .closest('[data-step="carryover"]')!;
-      return [
-        ...card.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
-      ].map(i => [i.value, i.checked]);
-    };
+    const ticks = (call: string) =>
+      [
+        ...cardFor(container, call).querySelectorAll<HTMLInputElement>(
+          'input[type="checkbox"]'
+        ),
+      ].map(i => [i.getAttribute('aria-label'), i.checked]);
     expect(ticks('fixed')).toEqual([
-      ['post', true],
-      ['resolve', true],
+      [`${fileFor('fixed')}: post reply`, true],
+      [`${fileFor('fixed')}: resolve thread`, true],
     ]);
     expect(ticks('not-fixed')).toEqual([
-      ['post', true],
-      ['resolve', false],
+      [`${fileFor('not-fixed')}: post reply`, true],
+      [`${fileFor('not-fixed')}: resolve thread`, false],
     ]);
   });
 
@@ -1593,11 +1623,14 @@ describe('a gate whose poster honors edited drafts', () => {
     expect(container.querySelector('.tui-review-summary')).toBeNull();
   });
 
-  test('on a later round the tabs lead, then the round band, then the findings list', async () => {
+  test('the heading leads, then the tabs, then the findings list', async () => {
     await render(draftsGate({ round: 2 }));
     const main = container.querySelector('.tui-sheet-main')!;
-    expect(main.firstElementChild?.getAttribute('role')).toBe('tablist');
-    expect(main.children[1]?.className).toBe('tui-sheet-round');
+    expect(main.firstElementChild?.className).toBe('tui-sheet-round');
+    expect(
+      main.firstElementChild?.querySelector('.tui-tl-round-chip')?.textContent
+    ).toBe('Round 2');
+    expect(main.children[1]?.getAttribute('role')).toBe('tablist');
     expect(
       main.children[2]?.querySelector('.tui-sheet-list-title')?.textContent
     ).toBe('Post which findings to !31?');
@@ -1615,25 +1648,18 @@ describe('a gate whose poster honors edited drafts', () => {
     ).toBeNull();
   });
 
-  test('a no-diff-line finding wears an in-summary badge in its head, with no code and a comment of its own', async () => {
+  test('a no-diff-line finding shows what it found in place of code, with a comment of its own and no in-summary chip', async () => {
     await render(draftsGate());
     const item = itemFor('Inconsistent error wording');
     expect(item.querySelector('[data-section="code"]')).toBeNull();
-    const badge = item.querySelector(
-      '.tui-review-card-head .tui-review-in-summary'
-    )!;
-    expect(badge.textContent).toBe('in summary');
-    expect(badge.getAttribute('title')).toBeTruthy();
     expect(
-      badge.compareDocumentPosition(item.querySelector('.tui-review-sev')!) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+      item.querySelector('[data-section="finding"] .tui-review-finding-said')!
+        .textContent
+    ).toBe(
+      'Inconsistent error wording: the full finding text, never truncated.'
+    );
     expect(item.querySelector('.tui-review-code-file')).toBeNull();
-    expect(
-      itemFor('SQL built from unsanitized input').querySelector(
-        '.tui-review-in-summary'
-      )
-    ).toBeNull();
+    expect(container.querySelector('.tui-review-in-summary')).toBeNull();
     expect(valueOf(sectionOf(item, 'Comment'))).toContain(COMMENT.f3);
     expect(
       container.querySelector('.tui-review-dock-summary')!.textContent

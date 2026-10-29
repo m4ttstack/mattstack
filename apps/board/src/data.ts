@@ -57,6 +57,9 @@ export type BoardMR = MRDashboardProps & {
   respondTargets?: RespondTarget[];
   /** Highest respond round per username, from the rounds table. */
   respondRounds?: Record<string, number>;
+  /** What each person had posted when each of their response rounds began,
+      in round order; null for a round recorded before this was kept. */
+  respondOutcomes?: Record<string, Array<'comment' | 'approve' | null>>;
   pipelineState: PipelineState;
   /** Draft (unfinished) MR. Only your own drafts reach the board, so this also
       means "yours, and not marked ready yet" -- see buildBoard. */

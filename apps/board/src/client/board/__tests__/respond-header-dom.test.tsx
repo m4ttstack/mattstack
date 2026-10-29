@@ -134,32 +134,54 @@ const planAtRound = (round: number) =>
 const withRespond = (respond: Record<string, unknown>) =>
   ({ ...MR, respond }) as unknown as BoardMRWithReview;
 
-test('the sheet heading splits the wrapper round like the header: response round, then revises', async () => {
+const roundChip = () => $('.tui-tl .tui-tl-round-chip')!;
+
+test('the sheet heading names the person; its timeline carries the response round, the rail the revises', async () => {
   await renderModal(
     planAtRound(3),
     withRespond({ status: 'triaging', person: 'john', responseRound: 2 })
   );
-  expect($('.tui-sheet-round-n')!.textContent).toBe('Round 2 \u00b7 revise 1');
+  expect($('.tui-sheet-round-n')!.textContent).toBe('Respond to john');
+  expect(roundChip().textContent).toBe('Round 2');
   expect($('.tui-sheet-context-meta')!.textContent).toContain(
     'round 2 \u00b7 revise 1'
   );
 });
 
-test('the sheet heading stays out of a first round with no revises, and shows revises alone', async () => {
-  const first = withRespond({
-    status: 'triaging',
-    person: 'john',
-    responseRound: 1,
-  });
-  await renderModal(planAtRound(1), first);
-  expect($('.tui-sheet-round-n')).toBeNull();
-  await renderModal(planAtRound(2), first);
-  expect($('.tui-sheet-round-n')!.textContent).toBe('Revise 1');
+test('the round chip opens the earlier rounds only once there is more than one', async () => {
+  await renderModal(
+    planAtRound(2),
+    withRespond({ status: 'triaging', person: 'john', responseRound: 1 })
+  );
+  expect(roundChip().tagName).toBe('SPAN');
+  expect(roundChip().textContent).toBe('Round 1');
+  await renderModal(
+    planAtRound(1),
+    withRespond({ status: 'triaging', person: 'john', responseRound: 2 })
+  );
+  expect(roundChip().tagName).toBe('BUTTON');
+  expect(roundChip().hasAttribute('data-menu')).toBe(true);
+  expect(roundChip().textContent).toBe('Round 2');
 });
 
-test('the sheet heading reads the wrapper round when no response round is known', async () => {
+test('the timeline reads the wrapper round when no response round is known', async () => {
   await renderModal(planAtRound(3), withRespond({ status: 'triaging' }));
-  expect($('.tui-sheet-round-n')!.textContent).toBe('Round 3');
+  expect(roundChip().textContent).toBe('Round 3');
+});
+
+test('a plan gate sits on Plan in the timeline: the review done, then your response', async () => {
+  await renderModal(planAtRound(1), withRespond({ status: 'triaging' }));
+  const steps = [...document.body.querySelectorAll('.tui-tl .tui-tl-step')].map(
+    li => [li.textContent, li.getAttribute('data-state')]
+  );
+  expect(steps).toEqual([
+    ['renee reviewed', 'done'],
+    ['Plan', 'current'],
+    ['Fix', 'next'],
+    ['Post', 'next'],
+  ]);
+  expect($('.tui-tl-response-label')!.textContent).toBe('Your response');
+  expect($('.tui-sheet-main .tui-phase')).toBeNull();
 });
 
 test('an open plan@1 gate opens the respond sheet: threads left; MR card, decision context, status and responses right', async () => {
@@ -186,12 +208,15 @@ test('an open plan@1 gate opens the respond sheet: threads left; MR card, decisi
   expect($('.tui-sheet-main .tui-mr-card')).toBeNull();
   expect($('.tui-sheet-rail [data-card="responses"]')).not.toBeNull();
   expect($('.tui-sheet-rail [data-card="mr-status"]')).not.toBeNull();
+  expect($('.tui-sheet-main .tui-sheet-round-n')!.textContent).toBe(
+    'Respond to renee'
+  );
   expect(
     document.body.querySelectorAll(
-      '.tui-sheet-main .tui-respond-list > .tui-gate-question'
+      '.tui-sheet-main .tui-respond-list > .tui-plan-card'
     )
   ).toHaveLength(1);
-  expect($('.tui-sheet-main .tui-thread-card')).not.toBeNull();
+  expect($('.tui-sheet-main .tui-plan-said')).not.toBeNull();
   expect($('.tui-triage-sheet')).toBeNull();
   const text = document.body.textContent ?? '';
   expect(text).not.toContain('gate-ctx');
