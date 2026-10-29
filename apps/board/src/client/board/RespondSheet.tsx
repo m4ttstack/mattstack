@@ -34,7 +34,7 @@ import { GateTimeline, type RoundEntry } from './GateTimeline.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
-import { PersonLead, PersonTag } from './PersonLead.tsx';
+import { PersonLead } from './PersonLead.tsx';
 import { PlanThreadCard } from './PlanThreadCard.tsx';
 import {
   joinPlan,
@@ -803,7 +803,6 @@ function RespondSheetBody({
         : mainQs.map(q => q.prompt)
   );
   const person = respondPerson(ctx, gate.openedAt, mr);
-  const personTag = <PersonTag id={person} name={people.short(person)} />;
   const dockPick = dockQs
     .map(q => {
       const v = form.selections[q.name];
@@ -902,14 +901,12 @@ function RespondSheetBody({
             {postThreads || perThread ? (
               <>
                 Post replies on {listCount} {itemNoun(listCount, mix)}
-                {frame === undefined && <> from {personTag}</>}
               </>
             ) : repliesQ ? (
               repliesQ.prompt
             ) : (
               <>
-                Respond to {mainQs.length} {itemNoun(mainQs.length, mix)} from{' '}
-                {personTag}
+                {mainQs.length} {itemNoun(mainQs.length, mix)}
               </>
             )}
           </span>

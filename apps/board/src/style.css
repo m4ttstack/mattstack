@@ -4683,7 +4683,7 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-finding .tui-review-section[data-section='comment'] {
   position: relative;
   padding: 16px 14px 14px;
-  background: var(--panel);
+  background: var(--card-well);
 }
 .tui-review-finding .tui-review-section[data-section='comment']:last-child {
   border-radius: 0 0 7px 7px;
@@ -4694,7 +4694,7 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-card .tui-review-section[data-section='comment'] {
   position: relative;
   padding: 16px 14px 14px;
-  background: var(--panel);
+  background: var(--card-well);
   border-radius: 0 0 7px 7px;
 }
 .tui-reply-head {
@@ -7154,6 +7154,8 @@ a.tui-id-card-ref:focus-visible {
 /* The review and respond sheets' main column sits a step lighter than the page, so its
    white cards separate softly. */
 .tui-sheet-main:is([data-sheet='review'], [data-sheet='respond']) {
+  /* A card's lower well sits a step darker than the page around it. */
+  --card-well: color-mix(in srgb, var(--fg) 4.5%, var(--card));
   background: var(--panel);
 }
 /* On a wide display the findings stop at a readable measure, centred in
@@ -7625,9 +7627,10 @@ a.tui-id-card-ref:focus-visible {
 .tui-plan-answer:has(.tui-cte[data-editing])::before {
   height: 63px;
 }
-/* Your reply carries a faint accent wash so it reads apart from the
-   reviewer's comment above it; editing turns it back into a plain field. */
-.tui-plan-answer .tui-cte:not([data-editing]) {
+/* Your words carry a faint accent wash so they read apart from the
+   reviewer's; editing turns the field back into a plain one. */
+:is(.tui-plan-answer, .tui-review-section[data-section='comment'])
+  .tui-cte:not([data-editing]) {
   border-color: color-mix(in srgb, var(--fill-accent) 22%, var(--border));
   background: color-mix(in srgb, var(--fill-accent) 5%, var(--card));
 }
