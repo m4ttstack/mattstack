@@ -67,7 +67,9 @@
     mrUrl: string; discussionId: string; rootNoteId: number;
     phase: LatchPhase; wait: WaitReason | null;
     launchAt: number | null;   // ms; the follow-up this latch waits on started at or after this
-    failures: number; stuck: boolean; updatedAt: number;
+    failures: number; stuck: boolean;
+    variant: string | null;    // variantKey of the banner last written to the note
+    updatedAt: number;
   }
   readLatchRow(mrUrl: string, db?: Database): LatchRow | null
   readLatchRows(db?: Database): LatchRow[]
@@ -78,7 +80,7 @@
   cachedUpload(mrUrl: string, variantKey: string, db?: Database): string | null
   rememberUpload(mrUrl: string, variantKey: string, markdown: string, db?: Database): void
   ```
-- Tables: `latch_state (mr_url TEXT PRIMARY KEY, discussion_id TEXT NOT NULL, root_note_id INTEGER NOT NULL, phase TEXT NOT NULL, wait TEXT, launch_at INTEGER, failures INTEGER NOT NULL DEFAULT 0, stuck INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)` and `latch_uploads (mr_url TEXT NOT NULL, variant TEXT NOT NULL, markdown TEXT NOT NULL, PRIMARY KEY (mr_url, variant))`. One row per MR: this board is one reviewer.
+- Tables: `latch_state (mr_url TEXT PRIMARY KEY, discussion_id TEXT NOT NULL, root_note_id INTEGER NOT NULL, phase TEXT NOT NULL, wait TEXT, launch_at INTEGER, failures INTEGER NOT NULL DEFAULT 0, stuck INTEGER NOT NULL DEFAULT 0, variant TEXT, updated_at INTEGER NOT NULL)` and `latch_uploads (mr_url TEXT NOT NULL, variant TEXT NOT NULL, markdown TEXT NOT NULL, PRIMARY KEY (mr_url, variant))`. One row per MR: this board is one reviewer.
 
 - [ ] **Step 1: Write failing tests** (temp db the way `state-db.test.ts` does): `casLatch moves only from a listed phase` (row `queued`, `casLatch(..., ['armed'], {phase:'running'})` returns false and phase stays `queued`; with `['queued']` returns true); `two cas racing from the same phase, only one wins`; `upload cache round-trips per variant`; `migration takes a v6 db to v7` (user_version 7, both tables exist).
 - [ ] **Step 2: Run** `bun test src/__tests__/latch-state.test.ts` from `apps/board`. Expected: FAIL.
@@ -112,8 +114,8 @@
 
 - [ ] **Step 1: Write failing tests**: `variantKey` is unique across `allVariantKeys()`; each copy row matches the spec strings above; `allVariantKeys()` has every queued and error wait, done-comments 1..20, `20plus` and `none`; indicator is `dots` for queued and error-retrying, `ring` for running, else `none`.
 - [ ] **Step 2: Run** `bun test src/__tests__/latch-variants.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement** `variants.ts`; rewrite `build-latch-band.ts` to loop `allVariantKeys()` and screenshot each 520x64 strip at `deviceScaleFactor: 2` into `assets/latch/<key>.png`, leaving the creature box (x 14..59) and, for `dots`, the 3 dot slots after the title, and for `ring`, a 22x22 box at the right padding empty. Record the dot slot origin per key by measuring the title's right edge in the page and writing `assets/latch/layout.json` (`{ [key]: { dotsX: number, dotsY: number } }`, in 2x px).
-- [ ] **Step 4: Run** `bun run scripts/build-latch-band.ts` (needs network for Google Fonts) then the test. Expected: PASS; `assets/latch/` holds one PNG per key plus `layout.json`.
+- [ ] **Step 3: Implement** `variants.ts`; rewrite `build-latch-band.ts` to loop `allVariantKeys()` and screenshot each 520x64 strip at `deviceScaleFactor: 2` into `assets/latch/<key>.png`, leaving the creature box (x 14..59) and, for `dots`, the 3 dot slots after the title, and for `ring`, a 22x22 box at the right padding empty. Record the dot slot origin per key by measuring the title's right edge in the page and writing `assets/latch/layout.json` (`{ [key]: { dotsX: number, dotsY: number } }`, in 2x px). The board ships as a `bun build --compile` binary, and a `with { type: 'file' }` import embeds one file, never a directory, so the script also generates `assets/latch/index.ts`: one `import s<n> from './<key>.png' with { type: 'file' };` per key, `export const STRIPS: Record<string, string> = { '<key>': s<n>, ... }`, and `export { default as LAYOUT } from './layout.json';`. Add a test `every variant key has an embedded strip` (`allVariantKeys()` all present in `STRIPS` and `LAYOUT`).
+- [ ] **Step 4: Run** `bun run scripts/build-latch-band.ts` (needs network for Google Fonts) then the test. Expected: PASS; `assets/latch/` holds one PNG per key plus `layout.json` and `index.ts`.
 - [ ] **Step 5: Commit** `board: latch banner variants and their committed text strips`.
 
 ### Task 4: The animated GIF compositor
@@ -139,7 +141,7 @@ Frame plans (delay ms; `legs` 0 = grid, 1 = `legShuffle(grid)`; `dx`/`dy` in spr
 
 - [ ] **Step 1: Write failing tests**: `encodes a 1040x128 GIF for every variant key` (parse width/height from GIF bytes 6..9 little-endian); `frame count matches the plan` (count `0x2C` image descriptors via a small parser, or `gifenc` frame log); `every GIF is under 80 KB`; `deterministic for one MR`; `differs between MRs`; `legShuffle changes the bottom rows of all 16 INVADR_SPRITES and nothing above them`; `paints the creature in the variant accent` (decode frame 0 with a minimal LZW-free check: sample the palette index at a known creature cell and compare its palette colour).
 - [ ] **Step 2: Run** `bun test src/__tests__/latch-banner.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement**: read the variant's strip with pngjs once per call; per frame copy it, paint creature cells (6x6 px each, origin x 28 + (2+dx)*6, y centred in 128 minus dy*6), eye cells from `accent.cells`, dots (8x8 px, 4 px apart, at `layout.json`'s origin), ring (as above); `quantize` one global 256-colour palette from all frames concatenated; `applyPalette` per frame; `GIFEncoder().writeFrame(index, GIF_W, GIF_H, { palette (first frame only), delay, repeat: 0 })`. Keep the existing `with { type: 'file' }` import pattern for the asset directory so the compiled binary embeds it; remove `latchBannerPng`, `BAND_W`, `BAND_H` and `assets/latch-band.png`.
+- [ ] **Step 3: Implement**: read the variant's strip with pngjs once per call; per frame copy it, paint creature cells (6x6 px each, origin x 28 + (2+dx)*6, y centred in 128 minus dy*6), eye cells from `accent.cells`, dots (8x8 px, 4 px apart, at `layout.json`'s origin), ring (as above); `quantize` one global 256-colour palette from all frames concatenated; `applyPalette` per frame; `GIFEncoder().writeFrame(index, GIF_W, GIF_H, { palette (first frame only), delay, repeat: 0 })`. Read strips only through Task 3's `STRIPS[variantKey(v)]` and `LAYOUT` (never a path built from `import.meta.dir`), so the compiled binary finds them. If a GIF misses the 80 KB bound, give unchanged pixels a transparent index with `dispose: 1` rather than dropping frames. Remove `latchBannerPng`, `BAND_W`, `BAND_H` and `assets/latch-band.png`.
 - [ ] **Step 4: Run** the test. Expected: PASS. Run `bun run board:typecheck` from the repo root. Expected: clean.
 - [ ] **Step 5: Commit** `board: animated latch banner GIFs from committed strips`.
 
@@ -161,7 +163,7 @@ Frame plans (delay ms; `legs` 0 = grid, 1 = `legShuffle(grid)`; `dx`/`dy` in spr
   rewriteLatch(gw: LatchGateway, t: LatchTarget, phase: LatchPhase, variant: BannerVariant, thread: 'resolve' | 'unresolve' | 'keep'): Promise<void>
   interface LatchTarget { projectId: number; projectPath: string; iid: number; mrUrl: string; discussionId: string; rootNoteId: number }
   ```
-  `postLatch` keeps its signature, posts the `armed` variant through `bannerMarkdown`, and returns `{ discussionId, rootNoteId }`. `spendLatch` keeps rewrite-before-resolve ordering and takes a `BannerVariant` (`approved`, `done-approved` or `superseded`).
+  `postLatch` keeps its signature, posts the `armed` variant through `bannerMarkdown`, and returns `{ discussionId, rootNoteId }`; every caller (the pass's step 0 and `applyReviewLatch`) then writes the row with `putLatchRow` (phase `armed`, variant `armed`), so a second writer sees the post before the daemon's discussion store does. `spendLatch(gw, projectId, projectPath, mrUrl, iid, latch, variant)` and `spendAllLatches(gw, projectId, projectPath, mrUrl, iid, latches, variant)` gain `mrUrl` (for the banner upload) and take a `BannerVariant` (`approved`, `done-approved` or `superseded`) in place of `SpentReason`; they keep rewrite-before-resolve ordering. Spending the canonical latch also moves the row: `casLatch(mrUrl, ['armed','queued','running','error'], { phase: 'spent', variant })`. Every write that changes the note records its `variantKey` in the row's `variant`.
 - `rewriteLatch` ordering: rewrite the body first, then change the thread; a crash between leaves the phase visible on the note and the row decides recovery.
 
 - [ ] **Step 1: Write failing tests**: `latchBody` puts each phase's marker on line 1 and `latchKindOf` reads it back; `imageMarkdownOf` finds `![x](/uploads/a/b.gif){width=520}` and the old `![re-review latch](/uploads/a/b.png)`; `bannerMarkdown uploads once per variant` (second call with the same key makes no `uploadFile` call); `rewriteLatch writes the note before unresolving` (recorded gateway call order).
@@ -179,17 +181,18 @@ Frame plans (delay ms; `legs` 0 = grid, 1 = `legShuffle(grid)`; `dx`/`dy` in spr
 
 **Interfaces:**
 - Consumes: Tasks 2, 3, 5.
-- Produces: `LatchPassDeps` gains `readLatchRow`, `casLatch`, `putLatchRow` (default to the Task 2 functions in `bin/triage.ts`). `waitReasonOf(decisionReason: string): WaitReason | null` (`cooldown` → cooldown, `budget-exhausted` → budget, `review-in-flight` → review-in-flight, else null).
+- Produces: `LatchPassDeps` gains `readLatchRow`, `casLatch`, `putLatchRow` (default to the Task 2 functions in `bin/triage.ts`). `waitReasonOf(decision: { action: string; reason: string }): WaitReason | null` (`dispatch` → next-sweep, `cooldown` → cooldown, `budget-exhausted` → budget, `review-in-flight` → review-in-flight, else null). `runStamp(r: ReviewState): number` = `r.runStartedAt ?? r.updatedAt` (`startedAt` is the lane's first-ever write and never resets, so it must not be used for a run).
 
-Per MR, after the existing spent and approval steps (which still win, from every phase, using `approved` strip):
-1. No row but a live latch on the note: adopt it with `putLatchRow` from the note's kind.
+Per MR, after the existing spent and approval steps (which still win, from every phase, using the `approved` strip, and move the row to `spent` per Task 5):
+1. No row but a latch on the note: adopt it with `putLatchRow` from the note's kind (a `spent` note writes a `spent` row).
 2. Row `armed`, note shows a request: `decideRequest` as today. `dispatch` → launch, `casLatch(['armed'], {phase:'running', launchAt: now, wait: null})`, `rewriteLatch(..., 'running', 'keep')`, charge memory as today, no reply. Wait-able reason → `casLatch(['armed'], {phase:'queued', wait})`, rewrite to the queued variant for that wait, keep resolved, no reply, no notify. Other reasons → today's refusal path unchanged.
-3. Row `queued`: if the review is `queued` or `reviewing` → `casLatch(['queued'], {phase:'running', launchAt: review.startedAt})` and rewrite (any review satisfies). Else re-decide: dispatch as in 2 from `['queued']`; a changed wait reason rewrites the strip; same reason touches nothing. Note reopened by the author → `casLatch(['queued'], {phase:'armed'})`, rewrite armed, no reply.
+3. Row `queued`: if the review is `queued` or `reviewing` → `casLatch(['queued'], {phase:'running', launchAt: runStamp(review)})` and rewrite (any review satisfies). Else re-decide: dispatch as in 2 from `['queued']`; a changed wait reason rewrites the strip; the same variant as `row.variant` touches nothing. Withdrawal is the note carrying the `queued` marker AND unresolved (the marker proves the read post-dates the pass's own rewrite; an `armed` unresolved note is a stale pre-request read and is ignored) → `casLatch(['queued'], {phase:'armed'})`, rewrite armed, no reply.
 4. Row `running`, `error` or `queued` is never a request, whatever the note shows.
-5. `consume`'s duplicate spends (`reason 'duplicate'`) use the `superseded` variant; approval spends use `approved`.
-6. The pass's scope check widens: an MR with a row in `queued`, `running` or `error` is processed whatever its review status (today only `done` states are).
+5. Repair: row `armed` and the note's kind is `queued`, `running` or `error` is the crash shape (row moved, note rewrite never landed; a stale read cannot produce a forward-dated note). Rewrite the body to `armed` with `row.variant` (so a done-comments count survives) and unresolve; audit `repaired`.
+6. `consume`'s duplicate spends (`reason 'duplicate'`) use the `superseded` variant; approval spends use `approved`.
+7. The pass's scope check widens: an MR with a row in `queued`, `running` or `error` is processed whatever its review status (today only `done` states are).
 
-- [ ] **Step 1: Write failing tests**: `cooldown queues instead of replying Not yet` (no `createNote`; note rewritten with the queued marker and `queued-cooldown` upload; row `queued`); `queued dispatches when the block clears` (row `running`, one launch, no reply); `wait reason change swaps the strip`; `a hand-launched review satisfies a queued request` (review `reviewing`, no launch, row `running`); `stale note never re-requests a running latch` (row `running`, note armed+resolved: no launch, no rewrite); `author reopening a queued latch withdraws it`; `pre-change latch with no row is adopted`; `own approval spends from every phase` (queued, running, error rows; `approved` strip; no launch); `no-commented-review still refuses with Not yet`.
+- [ ] **Step 1: Write failing tests**: `cooldown queues instead of replying Not yet` (no `createNote`; note rewritten with the queued marker and `queued-cooldown` upload; row `queued`); `queued dispatches when the block clears` (row `running`, one launch, no reply); `wait reason change swaps the strip`; `a hand-launched review satisfies a queued request` (review `reviewing`, no launch, row `running`); `stale note never re-requests a running latch` (row `running`, note armed+resolved: no launch, no rewrite); `author reopening a queued latch withdraws it` (queued marker, unresolved); `a stale armed unresolved read does not withdraw a queued latch`; `crash shape is repaired` (row armed, note running: rewritten armed with `row.variant`, unresolved); `pre-change latch with no row is adopted`; `own approval spends from every phase` (queued, running, error rows; `approved` strip; row phase `spent`; no launch); `no-commented-review still refuses with Not yet`.
 - [ ] **Step 2: Run** `bun test src/__tests__/triage-latch.test.ts`. Expected: new tests FAIL.
 - [ ] **Step 3: Implement** in `runLatchPass`; keep the per-MR try/catch and audit entries (`event: 'latch'`, actions `queued`, `dispatched`, `withdrawn`, `adopted`).
 - [ ] **Step 4: Run** the file plus `latch-discussions.test.ts`. Expected: PASS.
@@ -206,9 +209,11 @@ Per MR, after the existing spent and approval steps (which still win, from every
 - Produces: `LatchPassDeps.notifyStuck(title: string, message: string, mrUrl: string): Promise<void>`; `export const LATCH_MAX_FAILURES = 3`.
 
 Rules:
-- Row `running` and review `error`, or launch returned `kind: 'error'` → failures + 1. Below 3: `casLatch(['running', 'queued', 'armed', 'error'], {phase:'error', failures, wait})`, rewrite `error-retrying` with the current wait, keep resolved, no reply. At 3: also `stuck: true`, rewrite `error-stuck`, post the stuck reply (`variants` sentence for error-stuck), call `notifyStuck` once.
+- Dead-pane detection already exists: the server's closed-pane reconciler settles the review lane to `status: 'error', message: 'pane closed'` (`server.ts` ~3793). "Review `error`" is the liveness contract; add no timeout.
+- The error transition is pass-only by design (a banner lag of at most one sweep); the server's latch step handles `done` only (Task 8).
+- Row `running` and review `error`, or launch returned `kind: 'error'` → failures + 1. Below 3: `casLatch(['running', 'queued', 'armed', 'error'], {phase:'error', failures, wait})` where `wait = waitReasonOf(decideRequest(...))` run that tick, rewrite `error-retrying` for that wait, keep resolved, no reply. At 3: also `stuck: true`, rewrite `error-stuck`, post the stuck reply (`variants` sentence for error-stuck), call `notifyStuck` once.
 - Row `error`, not stuck: re-decide like queued; dispatch → `running` (retry), a launch charges memory like any launch.
-- Row `error`, stuck: never dispatch; if the review becomes `queued` or `reviewing` → `running` with `launchAt: review.startedAt`, `stuck: false` (failures kept until it lands).
+- Row `error`, stuck: never dispatch; if the review becomes `queued` or `reviewing` → `running` with `launchAt: runStamp(review)`, `stuck: false` (failures kept until it lands).
 - Review `reviewing` for any length of time is running (post gate parks count as alive).
 
 - [ ] **Step 1: Write failing tests**: `review error moves running to error-retrying` (no reply); `retry dispatch returns error to running and charges memory`; `launch-failed counts as a failure`; `third failure is stuck: one reply, one notifyStuck, no more launches` (run the pass twice more: still no launch, no second reply); `relaunch from the board clears stuck`; `long reviewing is still running` (review `reviewing`, `startedAt` 6 h ago: row stays `running`, no rewrite); `retry blocked by budget shows the budget wait`.
@@ -232,17 +237,18 @@ Rules:
   ```ts
   export interface LandInput {
     target: LatchTarget; outcome: 'comment' | 'approve' | null;
-    reviewStartedAt: number; gateway: LatchGateway; self: string;
+    reviewRunStartedAt: number;   // runStamp(review) from Task 6
+    gateway: LatchGateway; self: string;
     countNew: () => Promise<number | null>;   // reviewer's discussions created at or after launchAt, fresh from GitLab
     now: number;
   }
   landFollowUp(i: LandInput): Promise<'landed' | 'not-mine' | 'none'>
   ```
-- Rules: only when the row is `running` (or `error` with a review that reached done) and `reviewStartedAt >= row.launchAt`. `comment` → `casLatch(['running','error'], {phase:'armed', failures:0, stuck:false, wait:null, launchAt:null})`, rewrite `done-comments` with `count`, unresolve, post the finished reply (`Follow-up review done: N new comments.` / `Follow-up review done.` when count is 0 or null). `approve` → cas to `spent`, `spendLatch` with `done-approved`, finished reply `Follow-up review done: approved.`. `null` (abandoned) → cas to `armed`, rewrite plain `armed`, unresolve, no reply. A lost cas returns `'none'` and writes nothing.
+- Rules: only when the row is `running` (or `error` with a review that reached done) and `reviewRunStartedAt >= row.launchAt`; a `spent` row never lands. `comment` → `casLatch(['running','error'], {phase:'armed', failures:0, stuck:false, wait:null, launchAt:null, variant})`, rewrite `done-comments` with `count`, unresolve, post the finished reply (`Follow-up review done: N new comments.` / `Follow-up review done.` when count is 0 or null). `approve` → cas to `spent`, `spendLatch` with `done-approved`, finished reply `Follow-up review done: approved.`. `null` (abandoned) → cas to `armed`, rewrite plain `armed`, unresolve, no reply. A lost cas returns `'none'` and writes nothing.
 - `countNew` in the server and in `bin/triage.ts` uses `new MRDetailFetcher(host, token).fetchDetail(projectId, iid)` and counts discussions whose root note author is `self`, created at or after `launchAt`, excluding latch discussions and system notes.
 - `applyReviewLatch` posts a fresh armed latch only when `!hasLiveLatch(latches)` and no row is live; a done review with a `running` row goes through `landFollowUp` instead.
 
-- [ ] **Step 1: Write failing tests**: `comment lands as done-comments with the count and reopens`; `count null shows Review posted`; `approve spends with done-approved and one reply`; `abandoned review re-arms quietly`; `landFollowUp is idempotent across server and pass` (call twice with the same row: one rewrite, one reply, second returns `'none'`); `a review that started before launchAt does not land`; `review step never posts a duplicate beside a queued latch`.
+- [ ] **Step 1: Write failing tests**: `comment lands as done-comments with the count and reopens`; `count null shows Review posted`; `approve spends with done-approved and one reply`; `abandoned review re-arms quietly`; `landFollowUp is idempotent across server and pass` (call twice with the same row: one rewrite, one reply, second returns `'none'`); `a review whose runStartedAt is before launchAt does not land`; `a spent row never lands` (approval spent it first: no rewrite, no reopen); `review step never posts a duplicate beside a queued latch`.
 - [ ] **Step 2: Run** both files. Expected: FAIL.
 - [ ] **Step 3: Implement** `land.ts`; call it from the server's latch step for `status === 'done'` (with or without outcome) and from the pass when it sees a `running` row whose review is `done`.
 - [ ] **Step 4: Run** both files and `triage-latch.test.ts`. Expected: PASS.
