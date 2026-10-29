@@ -10,9 +10,10 @@ through the working tree, uncommitted changes and untracked files
 included, built read-only:
 
 1. `git diff <merge base>`: the commits and the uncommitted changes.
-2. Then, for each path `git ls-files --others --exclude-standard` prints,
-   append `git diff --no-index /dev/null <path>`. It exits 1 when it prints
-   a diff; that is not a failure.
+2. Then read the NUL-separated paths `git ls-files -z --others
+   --exclude-standard` prints, and for each one append `git diff --no-index
+   -- /dev/null <path>`. It exits 1 when it prints a diff; that is not a
+   failure.
 
-Ignored files stay out. Nothing is staged and no file changes: never `git
-add` or `git add -N` to make a new file show up.
+Ignored files stay out. Nothing is staged and no file changes:
+never `git add` or `git add -N` to make a new file show up.

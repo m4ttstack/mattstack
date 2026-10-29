@@ -11,5 +11,6 @@ dispatch, never skipped, however small the change.
 The commit range (merge base to HEAD) covers commits only. When the tree
 has uncommitted changes or untracked files, write the self-review diff to
 `self-review.diff` in the review scratch dir (one new directory in this
-session's scratchpad, made here when none exists yet) and pass its path as
-a setup observation: the reviewer judges that file, not the range.
+session's scratchpad, made here when none exists yet) and hand it to the
+dispatch as the diff file (Review dispatch's Standard blocks), so the
+reviewer judges that file, not the range.

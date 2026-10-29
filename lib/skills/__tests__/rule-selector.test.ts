@@ -117,9 +117,11 @@ describe("rule selector slot", () => {
     });
     test("self-review's diff takes in untracked files without staging them", () => {
       const body = compiled.verbs["self-review"];
-      expect(body).toContain("git ls-files --others --exclude-standard");
-      expect(body).toContain("git diff --no-index /dev/null <path>");
+      expect(body).toMatch(/`git ls-files -z --others\s+--exclude-standard`/);
+      expect(body).toMatch(/`git diff --no-index\s+-- \/dev\/null <path>`/);
+      expect(body).toContain("never `git add` or `git add -N` to make a new file show up");
       expect(body).toContain("`self-review.diff`");
+      expect(body).toContain("## The diff to review");
     });
 
     test("receive-review: every edge into the adjudicator passes select_rules", () => {
