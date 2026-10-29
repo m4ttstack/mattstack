@@ -23,6 +23,7 @@ export function MemberInvadr({
   className?: string;
 }) {
   const look = useMemberLook(id);
+  className = className ? `tui-invadr ${className}` : 'tui-invadr';
   return look ? (
     <Invadr
       id={id}
