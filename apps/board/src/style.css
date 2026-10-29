@@ -4771,9 +4771,18 @@ a.tui-id-card-ref:focus-visible {
   padding-right: 14px;
 }
 .tui-reply-title[data-file] {
+  display: flex;
+  align-items: center;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 400;
+}
+.tui-reply-title .tui-review-code-path {
+  font-size: inherit;
+  color: inherit;
+}
+.tui-reply-title[data-file] > .tui-reply-round {
+  flex: none;
 }
 .tui-reply-card[data-off] .tui-reply-title {
   color: var(--text-3);
