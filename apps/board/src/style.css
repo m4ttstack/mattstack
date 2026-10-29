@@ -3824,6 +3824,13 @@ a.tui-id-card-ref:focus-visible {
 .tui-sheet-list-title {
   font-weight: 700;
 }
+.tui-sheet-list-head:has(+ .tui-sheet-list-lede) {
+  margin-bottom: 4px;
+}
+.tui-sheet-list-lede {
+  margin: 0 0 12px;
+  color: var(--text-2);
+}
 .tui-sheet-list-tally {
   color: var(--text-3);
   font-size: var(--gate-font-meta);

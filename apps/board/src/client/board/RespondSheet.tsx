@@ -852,6 +852,12 @@ function RespondSheetBody({
                   : `${threadsDecided} of ${mainQs.length} decided`}
           </span>
         </div>
+        {!postThreads && !perThread && !repliesQ && (
+          <p className="tui-sheet-list-lede">
+            Choose how to answer each comment: fix the code or just reply.
+            Untick one to skip it.
+          </p>
+        )}
         <div className="tui-respond-list">
           {threadJoin
             ? threadJoin.map(j => {
