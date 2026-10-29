@@ -24,6 +24,7 @@ export interface CronLog {
 }
 
 const DEFAULT_DEBOUNCE_MS = 5000;
+const STDERR_TAIL_LINES = 20;
 
 export function parseCronConfig(value: unknown): CronConfig {
   const raw = (value ?? {}) as { triggers?: unknown };
@@ -86,9 +87,15 @@ function defaultRunCommand(argv: string[], trigger: CronTrigger, log: CronLog): 
     // strands the PATH the daemon overlays onto process.env at boot
     // (lib/daemon.ts resolveUserPath) and leaves any non-absolute argv[0]
     // (a "#!/usr/bin/env node" shebang, "pnpm", ...) unresolvable.
-    const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", env: { ...process.env } });
+    const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "pipe", env: { ...process.env } });
     log.info(`cron ${trigger.name}: spawned "${argv.join(" ")}" (pid ${proc.pid})`);
-    void proc.exited.then((code) => log.info(`cron ${trigger.name}: exited ${code}`));
+    // stderr is drained as the command runs, so a chatty pass never fills the
+    // pipe and blocks; only a failure's tail reaches the log.
+    void Promise.all([proc.exited, new Response(proc.stderr).text()]).then(([code, stderr]) => {
+      if (code === 0) return log.info(`cron ${trigger.name}: exited 0`);
+      const tail = stderr.trimEnd().split("\n").slice(-STDERR_TAIL_LINES).join("\n");
+      log.warn(`cron ${trigger.name}: exited ${code}${tail ? `: ${tail}` : ""}`);
+    });
   } catch (err) {
     // A failed spawn is a log line, nothing more; the next matching event
     // tries again. No retry policy here by design.
