@@ -1,12 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import {
-  Check,
-  CheckCheck,
-  CornerUpLeft,
-  MessageSquare,
-  ThumbsUp,
-} from 'lucide-react';
+import { CheckCheck } from 'lucide-react';
 import { domAnimation, LazyMotion, m, MotionConfig } from 'motion/react';
 
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
@@ -283,130 +277,25 @@ function SheetLost({
   );
 }
 
-/** The round a review or respond gate is on, as the first thing the main
-    column says, with a one-line account of what this round holds. */
-function RoundHeading({
-  round,
-  noun = 'Round',
-  revise,
-  summary,
+/** A review or respond sheet's sticky band: what the gate asks of you on
+    the left, where it sits in the review loop at the right edge. */
+function SheetHeading({
+  icon,
+  title,
   aside,
 }: {
-  round?: number;
-  /** What the round is called ahead of its number. */
-  noun?: string;
-  /** Re-adjudications past the round, shown after it. */
-  revise?: number;
-  summary?: string;
-  /** Held at the band's right edge. */
+  icon: ReactNode;
+  title: string;
   aside?: ReactNode;
 }) {
-  const text = [
-    round !== undefined ? `${noun} ${round}` : undefined,
-    revise !== undefined
-      ? `${round !== undefined ? 'revise' : 'Revise'} ${revise}`
-      : undefined,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  if (!text && !aside) return null;
   return (
     <div className="tui-sheet-round">
-      {text && <h2 className="tui-sheet-round-n">{text}</h2>}
-      {summary && <span className="tui-sheet-round-summary">{summary}</span>}
+      <h2 className="tui-sheet-round-n">
+        {icon}
+        {title}
+      </h2>
       {aside && <div className="tui-sheet-round-aside">{aside}</div>}
     </div>
-  );
-}
-
-const RESPOND_PHASES = ['Plan', 'Fix', 'Post'] as const;
-
-interface Step {
-  label: string;
-  /** Shown in a done step's dot in place of the check. */
-  icon?: ReactNode;
-}
-
-/** Steps in order: the one at `at` lit, the ones before it done. `groups`
-    splits them into runs that belong together, set apart by a divider. */
-function StepTrack({
-  groups,
-  at,
-  label,
-}: {
-  groups: Step[][];
-  at: number;
-  label: string;
-}) {
-  const steps = groups.flatMap((g, gi) =>
-    g.map((step, si) => ({ ...step, starts: gi > 0 && si === 0 }))
-  );
-  return (
-    <ol className="tui-phase-track" aria-label={label}>
-      {steps.map((step, i) => (
-        <li
-          key={i}
-          className="tui-phase"
-          data-done={i < at || undefined}
-          data-group-start={step.starts || undefined}
-          aria-current={i === at ? 'step' : undefined}
-        >
-          <span className="tui-phase-dot" aria-hidden>
-            {i < at && (step.icon ?? <Check size={12} strokeWidth={3} />)}
-          </span>
-          {step.label}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-/** Where a respond run is: you plan, the agent fixes, you post. */
-function PhaseTrack({ at }: { at: (typeof RESPOND_PHASES)[number] }) {
-  return (
-    <StepTrack
-      groups={[RESPOND_PHASES.map(p => ({ label: p }))]}
-      at={RESPOND_PHASES.indexOf(at)}
-      label="Respond steps"
-    />
-  );
-}
-
-const STEP_ICON = { size: 11, strokeWidth: 2.5 } as const;
-
-/** How a review got here, one group per round: the review, with what it
-    posted, and the author's response to it; an approval needs no response.
-    This round's group ends on the response still to come.
-    `outcomes` are the recorded rounds' posts in round order; a round with
-    none recorded shows a plain check. */
-function ReviewTrack({
-  round,
-  outcomes = [],
-}: {
-  round: number;
-  outcomes?: readonly string[];
-}) {
-  const groups = Array.from({ length: round }, (_, i): Step[] => {
-    const review = `Review ${i + 1}`;
-    if (i === round - 1) return [{ label: review }, { label: 'Response' }];
-    const outcome = outcomes[i];
-    if (outcome === 'approve')
-      return [{ label: review, icon: <ThumbsUp {...STEP_ICON} /> }];
-    return [
-      {
-        label: review,
-        icon:
-          outcome === 'comment' ? <MessageSquare {...STEP_ICON} /> : undefined,
-      },
-      { label: 'Response', icon: <CornerUpLeft {...STEP_ICON} /> },
-    ];
-  });
-  return (
-    <StepTrack
-      groups={groups}
-      at={groups.flat().length - 2}
-      label="Review timeline"
-    />
   );
 }
 
@@ -433,9 +322,7 @@ export {
   Note,
   ProseContext,
   reserveDock,
-  PhaseTrack,
-  ReviewTrack,
-  RoundHeading,
+  SheetHeading,
   SheetLost,
   SheetRows,
   SUBMIT_KEYS,

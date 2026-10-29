@@ -3786,7 +3786,7 @@ a.tui-id-card-ref:focus-visible {
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 4px 12px;
   margin: -22px -28px 28px -26px;
   padding: 16px 28px 16px 26px;
@@ -3810,95 +3810,181 @@ a.tui-id-card-ref:focus-visible {
   align-self: center;
   margin-left: auto;
 }
-.tui-phase-track {
+.tui-sheet-round-n {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tui-sheet-round-n > svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+/* Where a gate sits in the review loop. A step's colour says what it was:
+   accent for a review that commented, ok for an approval, purple for the
+   response (the board's commented, approved and comments-resolved pills).
+   A line takes the colour of the step it leaves. */
+.tui-tl,
+.tui-tl-response-steps {
   display: flex;
   align-items: center;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.tui-phase {
+.tui-tl:has(.tui-tl-response) {
+  align-items: flex-end;
+}
+.tui-tl:has(.tui-tl-response) > li:not(.tui-tl-response) {
+  margin-bottom: 8px;
+}
+.tui-tl > li,
+.tui-tl-response-steps > li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  min-height: 26px;
   font-size: 12.5px;
   font-weight: 500;
+  white-space: nowrap;
   color: var(--text-3);
 }
-.tui-phase + .tui-phase::before {
+.tui-tl > li + li::before,
+.tui-tl-response-steps > li + li::before {
   content: '';
-  width: 40px;
+  width: 24px;
   height: 2px;
-  margin: 0 8px;
+  margin: 0 3px;
   border-radius: 1px;
-  background: color-mix(in srgb, var(--border) 75%, transparent);
+  background: var(--border-soft);
 }
-.tui-phase-dot {
+.tui-tl-response-steps > li + li::before {
+  width: 20px;
+}
+.tui-tl > li + .tui-tl-response {
+  position: relative;
+  margin-left: 30px;
+}
+.tui-tl > li + .tui-tl-response::before {
+  position: absolute;
+  right: 100%;
+  top: calc(50% + 5px);
+  margin: 0 3px;
+}
+.tui-tl-round {
+  padding: 0 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, var(--card));
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tui-tl-mark {
   box-sizing: border-box;
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--border);
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--border);
   border-radius: 50%;
   background: var(--card);
 }
-.tui-phase[aria-current] {
+.tui-tl-step[data-state='done'] {
+  color: var(--text-1);
+}
+.tui-tl-step[aria-current] {
   font-weight: 700;
-  color: var(--text-accent-small);
+  color: var(--tl-text);
 }
-/* A "you are here" marker, not a control: a solid dot in a soft halo
-   that breathes outward. */
-.tui-phase[aria-current] .tui-phase-dot {
+.tui-tl-step[data-phase='review'] {
+  --tl-fill: var(--fill-accent);
+  --tl-text: var(--text-accent);
+}
+.tui-tl-step[data-outcome='approve'] {
+  --tl-fill: var(--fill-ok);
+  --tl-text: var(--text-ok);
+}
+.tui-tl-step[data-phase='response'] {
+  --tl-fill: var(--fill-purple);
+  --tl-text: var(--text-purple);
+}
+.tui-tl-step[data-phase='review'] .tui-tl-mark {
+  width: 26px;
+  height: 26px;
+}
+.tui-tl-step[data-phase='review']:is([data-state='done'], [aria-current])
+  .tui-tl-mark {
+  border: 1px solid color-mix(in srgb, var(--tl-fill) 28%, transparent);
+  background: color-mix(in srgb, var(--tl-fill) 18%, var(--card));
+  color: var(--tl-text);
+}
+.tui-tl-step[data-phase='response']:is([data-state='done'], [aria-current])
+  .tui-tl-mark {
+  border-color: color-mix(in srgb, var(--tl-fill) 45%, transparent);
+  color: var(--tl-text);
+}
+.tui-tl-response-steps > [data-state='next'] .tui-tl-mark {
+  border-color: color-mix(in srgb, var(--fill-purple) 35%, transparent);
+}
+.tui-tl-mark > span {
+  width: 45%;
+  height: 45%;
+  border-radius: 50%;
+  background: var(--tl-fill);
+}
+.tui-tl-step[aria-current] .tui-tl-mark {
   position: relative;
-  border: 0;
-  background: radial-gradient(
-    var(--fill-accent) 0 4.5px,
-    color-mix(in srgb, var(--fill-accent) 22%, var(--card)) 5px
-  );
 }
-.tui-phase[aria-current] .tui-phase-dot::after {
+.tui-tl-step[aria-current] .tui-tl-mark::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -1px;
   border-radius: 50%;
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--fill-accent) 35%, transparent);
-  animation: tui-phase-here 2.4s ease-out infinite;
+  animation: tui-tl-here 2.4s ease-out infinite;
 }
-@keyframes tui-phase-here {
+@keyframes tui-tl-here {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--fill-accent) 35%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--tl-fill) 35%, transparent);
   }
   70%,
   100% {
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--fill-accent) 0%, transparent);
+    box-shadow: 0 0 0 6px transparent;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tui-phase[aria-current] .tui-phase-dot::after {
+  .tui-tl-step[aria-current] .tui-tl-mark::after {
     animation: none;
   }
 }
-.tui-phase-dot {
-  display: inline-grid;
-  place-items: center;
+.tui-tl-step[data-outcome='comment'] + li::before {
+  background: var(--fill-accent);
 }
-.tui-phase[data-done] {
-  color: var(--text-2);
+.tui-tl-step[data-outcome='approve'] + li::before {
+  background: var(--fill-ok);
 }
-.tui-phase[data-done] .tui-phase-dot {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--fill-accent) 16%, var(--card));
-  color: var(--text-accent);
+.tui-tl-response-steps > [data-state='done'] + li::before {
+  background: var(--fill-purple);
 }
-.tui-phase[data-done] + .tui-phase::before {
-  background: color-mix(in srgb, var(--fill-accent) 40%, var(--border));
+/* Plan, Fix and Post are one phase: a purple wash, named on its top edge. */
+.tui-tl-response {
+  position: relative;
+  padding: 18px 12px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fill-purple) 10%, transparent);
 }
-/* A new round starts past a divider, not a connector. */
-.tui-phase[data-group-start]::before,
-.tui-phase[data-done] + .tui-phase[data-group-start]::before {
-  width: 1px;
-  height: 16px;
-  margin: 0 12px;
-  background: var(--border);
+.tui-tl-response-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  translate: -50% -50%;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--fill-purple) 35%, transparent);
+  border-radius: 4px;
+  background: var(--card);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-purple);
 }
 .tui-sheet-round + .tui-sheet-list-head {
   margin-top: 0;

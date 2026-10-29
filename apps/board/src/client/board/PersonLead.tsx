@@ -21,9 +21,8 @@ export function PersonTag({
   );
 }
 
-/** A comment's name line: the person's invader on a tile, then their name.
-    Without an id it is the name alone. */
-export function CommentAuthor({ id, name }: { id?: string; name: string }) {
+/** A person's invader on a tile washed in its own colour. */
+export function AvatarTile({ id }: { id: string }) {
   const tile = useRef<HTMLSpanElement>(null);
   // The tile's wash takes the invader's own colour, which invadrs settles
   // inside the svg (a roster look or its hashed pick), so it is read back.
@@ -32,12 +31,18 @@ export function CommentAuthor({ id, name }: { id?: string; name: string }) {
     if (fill) tile.current!.style.setProperty('--avatar-hue', fill);
   }, [id]);
   return (
+    <span ref={tile} className="tui-comment-avatar">
+      <MemberInvadr id={id} />
+    </span>
+  );
+}
+
+/** A comment's name line: the person's avatar tile, then their name.
+    Without an id it is the name alone. */
+export function CommentAuthor({ id, name }: { id?: string; name: string }) {
+  return (
     <span className="tui-comment-author">
-      {id && (
-        <span ref={tile} className="tui-comment-avatar">
-          <MemberInvadr id={id} />
-        </span>
-      )}
+      {id && <AvatarTile id={id} />}
       {name}
     </span>
   );

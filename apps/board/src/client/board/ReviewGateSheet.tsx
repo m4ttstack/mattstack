@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChartColumn, ListChecks } from 'lucide-react';
+import { ChartColumn, ListChecks, ScanSearch } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -22,13 +22,14 @@ import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { Disposition, FindingEntry, FindingSeverity } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
+import { GateTimeline } from './GateTimeline.tsx';
 import {
   CircleCheckFilledIcon,
   PencilLineIcon,
   SearchCheckIcon,
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
-import { mrRef } from './MrLinks.tsx';
+import { mrRef, onGitHub } from './MrLinks.tsx';
 import {
   attachDraftEdits,
   draftEdits,
@@ -50,13 +51,13 @@ import {
   FindingAnchor,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
+import { usePeople } from './people.ts';
 import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
   reserveDock,
-  ReviewTrack,
-  RoundHeading,
   SheetEnd,
+  SheetHeading,
   SheetLost,
   SUBMIT_KEYS,
 } from './SheetParts.tsx';
@@ -336,6 +337,7 @@ function ReviewGateSheet({
   const skippedName = skippedQuestion?.id;
   const outcomeName = outcomeQuestion?.id;
   const [mainTab, setMainTab] = useState<'findings' | 'report'>('findings');
+  const people = usePeople(mr);
   const skippedEntries = useMemo(
     () =>
       (skippedQuestion?.options ?? []).flatMap(o => {
@@ -613,6 +615,7 @@ function ReviewGateSheet({
 
   if (!data) return null;
   const { review } = data;
+  const author = mr ? people.short(mr.author.username) : 'the author';
   const meta = reviewMeta(review);
 
   const contextCard = (
@@ -675,13 +678,17 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" data-sheet="review">
-          <RoundHeading
-            round={review.round ?? 1}
-            noun="Review Round"
+          <SheetHeading
+            icon={<ScanSearch size={18} aria-hidden />}
+            title={`Review ${author}'s ${mr && onGitHub(mr) ? 'PR' : 'MR'}`}
             aside={
-              <ReviewTrack
+              <GateTimeline
                 round={review.round ?? 1}
-                outcomes={mr?.review?.outcomes}
+                review={{ id: review.reviewer, label: 'Your review' }}
+                response={{
+                  id: mr?.author.username,
+                  label: `${author}'s response`,
+                }}
               />
             }
           />

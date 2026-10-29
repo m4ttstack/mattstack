@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { Reply } from 'lucide-react';
 
 import {
   CODE_CHANGES_QUESTION_ID,
@@ -16,6 +17,7 @@ import {
   type GateSelections,
 } from '@mattstack/gate-kit';
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
+import { getReviewDisplayState } from '@mattstack/glance';
 import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { approvalSlots } from '../../view.ts';
@@ -28,6 +30,7 @@ import {
 } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { THREAD_CALL } from './GateParts.tsx';
+import { GateTimeline } from './GateTimeline.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
@@ -57,7 +60,6 @@ import {
   ThreadOutcome,
 } from './RespondCards.tsx';
 import {
-  gateRounds,
   itemMix,
   itemNoun,
   leadVerb,
@@ -71,10 +73,9 @@ import {
   Choices,
   KeyCap,
   Note,
-  PhaseTrack,
   ProseContext,
   reserveDock,
-  RoundHeading,
+  SheetHeading,
   SheetEnd,
   SheetLost,
   SheetRows,
@@ -451,6 +452,16 @@ function MrStatusCard({ mr }: { mr: BoardMRWithReview }) {
     submit. On a respond-plan gate the code-changes question never shows:
     any fix pick implies `approve`, none implies the gate's sentinel, and
     `revise` is its own action with a required reason. */
+/** Whether the person a respond gate answers approved the MR, as GitLab
+    reports their review state now. */
+function reviewerApproved(
+  mr: BoardMRWithReview | undefined,
+  person: string
+): boolean {
+  const r = mr?.reviews.reviewers.find(x => x.username === person);
+  return getReviewDisplayState(r?.reviewState ?? null) === 'approved';
+}
+
 function RespondSheetBody({
   gate,
   mr,
@@ -834,9 +845,20 @@ function RespondSheetBody({
   return (
     <div className="tui-sheet-body">
       <section className="tui-sheet-main" data-sheet="respond">
-        <RoundHeading
-          {...gateRounds(ctx, mr?.respond?.responseRound)}
-          aside={<PhaseTrack at={plan ? 'Plan' : 'Post'} />}
+        <SheetHeading
+          icon={<Reply size={18} aria-hidden />}
+          title={`Respond to ${people.short(person)}`}
+          aside={
+            <GateTimeline
+              round={mr?.respond?.responseRound ?? ctx.round ?? 1}
+              review={{
+                id: person,
+                label: `${people.short(person)} ${reviewerApproved(mr, person) ? 'approved' : 'reviewed'}`,
+                outcome: reviewerApproved(mr, person) ? 'approve' : 'comment',
+              }}
+              response={{ label: 'Your response', at: plan ? 'Plan' : 'Post' }}
+            />
+          }
         />
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
