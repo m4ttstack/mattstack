@@ -3802,6 +3802,10 @@ a.tui-id-card-ref:focus-visible {
   background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   box-shadow: 0 4px 10px -4px color-mix(in srgb, black 14%, transparent);
+  /* WebKit draws the blurred backdrop past the bar's top edge, over the
+     sheet head's border. The clip cuts only that edge: the shadow and the
+     round chip's history popover, rendered in place, spill below. */
+  clip-path: inset(0 -100vw -100vh -100vw);
 }
 .tui-sheet-round-n {
   margin: 0;
