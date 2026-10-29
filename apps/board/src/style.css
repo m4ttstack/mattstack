@@ -4701,7 +4701,8 @@ a.tui-id-card-ref:focus-visible {
    reply does; the field on it stays a plain card. */
 .tui-reply-band {
   margin: 0 -14px -14px;
-  padding: 12px 14px 14px;
+  /* Room above the field for the edit chip that rides its top edge. */
+  padding: 18px 14px 14px;
   border-radius: 0 0 7px 7px;
   background: color-mix(in srgb, var(--fg) 3%, var(--card));
 }
@@ -4710,11 +4711,11 @@ a.tui-id-card-ref:focus-visible {
   margin-top: 0;
 }
 .tui-reply-band > .tui-plan-answer::before {
-  top: -25px;
-  height: 45px;
+  top: -31px;
+  height: 51px;
 }
 .tui-reply-band > .tui-plan-answer:has(.tui-cte[data-editing])::before {
-  height: 70px;
+  height: 76px;
 }
 .tui-reply-head {
   padding: 0;
