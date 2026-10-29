@@ -915,7 +915,9 @@ export function isOwnView(
   v: Pick<ViewState, 'member'>,
   seat: string | null
 ): boolean {
-  return v.member !== 'all' && isOwnMr({ author: { username: v.member } }, seat);
+  return (
+    v.member !== 'all' && isOwnMr({ author: { username: v.member } }, seat)
+  );
 }
 
 /** The Show picks in force: your own view's, or everyone else's. */
