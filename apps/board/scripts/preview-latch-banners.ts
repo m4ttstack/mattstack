@@ -68,6 +68,16 @@ mkdirSync(join(out, 'gifs'));
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** The markdown the note bodies use: blank-line paragraphs and bold. */
+function markdown(s: string): string {
+  return s
+    .split(/\n\s*\n/)
+    .map(
+      p => `<p>${esc(p).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`
+    )
+    .join('\n  ');
+}
+
 function write(name: string, bytes: Uint8Array): string {
   writeFileSync(join(out, 'gifs', name), bytes);
   return `gifs/${name}`;
@@ -78,7 +88,7 @@ function card(src: string, sentence: string, caption?: string): string {
   ${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}
   <div class="note-head"><span class="avatar"></span><b>Board reviewer</b> <span class="muted">@reviewer, just now</span></div>
   <img src="${src}" width="520" alt="">
-  <p>${esc(sentence)}</p>
+  ${markdown(sentence)}
 </figure>`;
 }
 
@@ -130,6 +140,7 @@ function page(scheme: keyof typeof SCHEMES): string {
     background: ${c.card}; border: 1px solid ${c.border}; border-radius: 4px; }
   .card img { display: block; width: 520px; height: auto; margin: 8px 0; }
   .card p { margin: 0; }
+  .card p + p { margin-top: 8px; }
   figcaption { font: 600 11px/1 ui-monospace, monospace; color: ${c.muted}; margin-bottom: 8px; }
   .note-head { display: flex; align-items: center; gap: 6px; }
   .avatar { width: 24px; height: 24px; border-radius: 50%; background: ${c.border}; }
