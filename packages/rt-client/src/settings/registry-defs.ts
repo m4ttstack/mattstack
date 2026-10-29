@@ -639,10 +639,10 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "board.triage",
     type: "object",
-    scopes: ["user"],
+    scopes: ["user", "team", "org"],
     default: { enabled: false, cooldownMinutes: 30, dailyAttemptBudget: 3, fixClasses: { retryFlake: true, inheritedNoteDraft: true, cleanApiRebase: false, mechanicalLint: false, codeFix: false }, tier: "api", notify: "rt" },
     merge: "deep",
-    description: "This developer's triage user-intent flags (which triage sweeps run automatically); a sibling flat key of board.triage.doctorSkill, not its container — the board reader assembles the two independently.",
+    description: "Which triage sweeps run automatically (the org or team can set a default each developer overrides); a sibling flat key of board.triage.doctorSkill, not its container — the board reader assembles the two independently.",
   },
   {
     key: "board.reReview",
@@ -692,7 +692,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "board.agent.model",
     type: "string",
-    scopes: ["user", "machine"],
+    scopes: ["user", "team", "org", "machine"],
     defaultNote: "Left out, so Claude uses its own.",
     merge: "replace",
     description: "Default --model for the board's review/respond/doctor panes; unset omits the flag.",
@@ -700,7 +700,7 @@ const ROWS: readonly SettingDef[] = [
   {
     key: "board.agent.effort",
     type: "string",
-    scopes: ["user", "machine"],
+    scopes: ["user", "team", "org", "machine"],
     defaultNote: "Left out, so Claude uses its own.",
     merge: "replace",
     description: "Default --effort for the board's review/respond/doctor panes; unset omits the flag.",
