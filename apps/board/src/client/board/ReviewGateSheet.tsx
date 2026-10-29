@@ -881,7 +881,7 @@ function ReviewGateSheet({
               skippedEntries.length === 0 ? (
                 <SheetEmpty>
                   {(review.round ?? 1) > 1
-                    ? `Clear skies. Nothing new in round ${review.round}.`
+                    ? `Clear Skies! All findings resolved and nothing new found in Round ${review.round}.`
                     : 'Clear skies. Nothing to flag.'}
                 </SheetEmpty>
               ) : (
