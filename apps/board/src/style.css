@@ -7507,6 +7507,12 @@ a.tui-id-card-ref:focus-visible {
       0 -10px 0 0 var(--surface-wash-fg-4-card),
       0 18px 0 0 var(--surface-wash-fg-4-card);
   }
+  /* What follows the button (revise, errors, text actions) paints over the
+     lower band, which otherwise covers it whenever the dock is scrolled to
+     its end. Stuck, those rows sit below the dock's frame anyway. */
+  .tui-sheet-dock .tui-sheet-submit ~ * {
+    position: relative;
+  }
 }
 
 /* The snippet's stand-in while it loads: seven quiet bars at the diff's
