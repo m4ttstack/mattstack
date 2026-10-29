@@ -10,13 +10,20 @@
 export const LATCH_MARKER = "<!-- mattstack:board re-review-latch v1 -->";
 export const LATCH_MARKER_SPENT = "<!-- mattstack:board re-review-latch v1 spent -->";
 
-export type LatchKind = "armed" | "spent";
+export const LATCH_MARKER_QUEUED = "<!-- mattstack:board re-review-latch v1 queued -->";
+export const LATCH_MARKER_RUNNING = "<!-- mattstack:board re-review-latch v1 running -->";
+export const LATCH_MARKER_ERROR = "<!-- mattstack:board re-review-latch v1 error -->";
+
+export type LatchKind = "armed" | "queued" | "running" | "error" | "spent";
 
 /** Which latch a note body is, or null if it is not a latch this reader knows.
     An unrecognized version (v2 from a newer board) is null, not armed. */
 export function latchKindOf(body: string): LatchKind | null {
   const firstLine = body.split(/\r?\n/, 1)[0];
   if (firstLine === LATCH_MARKER_SPENT) return "spent";
+  if (firstLine === LATCH_MARKER_QUEUED) return "queued";
+  if (firstLine === LATCH_MARKER_RUNNING) return "running";
+  if (firstLine === LATCH_MARKER_ERROR) return "error";
   if (firstLine === LATCH_MARKER) return "armed";
   return null;
 }

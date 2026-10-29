@@ -5,12 +5,22 @@
 
 import {
   LATCH_MARKER,
+  LATCH_MARKER_ERROR,
+  LATCH_MARKER_QUEUED,
+  LATCH_MARKER_RUNNING,
   LATCH_MARKER_SPENT,
   latchKindOf,
   type LatchKind,
 } from '@mattstack/rt-client';
 
-export { LATCH_MARKER, LATCH_MARKER_SPENT, latchKindOf };
+export {
+  LATCH_MARKER,
+  LATCH_MARKER_ERROR,
+  LATCH_MARKER_QUEUED,
+  LATCH_MARKER_RUNNING,
+  LATCH_MARKER_SPENT,
+  latchKindOf,
+};
 export type { LatchKind };
 
 const ARMED_COPY = [
