@@ -3592,6 +3592,11 @@ a.tui-id-card-ref:focus-visible {
   flex-shrink: 0;
   padding: 8px 20px;
   border-bottom: 1px solid var(--border);
+  /* A whole-pixel height: from a fractional edge WebKit rounds the scroll
+     column and its pinned round bar apart, leaving a hairline of cards
+     showing between them. */
+  box-sizing: border-box;
+  height: 48px;
   /* WebKit lets a backdrop-filtered sticky bar in the column below paint
      past the column's top edge; the head sits above it to cover that. */
   position: relative;
@@ -6221,6 +6226,7 @@ a.tui-id-card-ref:focus-visible {
      lead keeps its width and the tag gives way. */
   .tui-gate-sheet-head {
     grid-template-columns: minmax(max-content, 1fr) auto minmax(40px, 1fr);
+    height: 56px;
     padding: 12px 16px;
   }
   /* Filling its column, not sizing to its content, is what lets the tag
@@ -6340,6 +6346,7 @@ a.tui-id-card-ref:focus-visible {
     grid-template-columns: minmax(0, max-content) minmax(40px, 1fr);
     grid-template-areas: 'lead trail' 'nav nav';
     row-gap: 10px;
+    height: auto;
   }
   .tui-gate-sheet-lead {
     grid-area: lead;
