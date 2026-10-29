@@ -4694,7 +4694,9 @@ a.tui-id-card-ref:focus-visible {
 .tui-reply-card .tui-review-section[data-section='comment'] {
   position: relative;
   padding: 16px 14px 14px;
-  background: var(--card-well);
+  /* The reply band takes the accent wash, as GitLab's does; the field on it
+     stays a plain card. */
+  background: color-mix(in srgb, var(--fill-accent) 5%, var(--card));
   border-radius: 0 0 7px 7px;
 }
 .tui-reply-head {
@@ -7630,8 +7632,7 @@ a.tui-id-card-ref:focus-visible {
 /* Your reply carries a faint accent wash so it reads apart from what it
    answers; editing turns the field back into a plain one. A finding's own
    comment, with its code, stays plain. */
-:is(.tui-plan-answer, .tui-reply-card [data-section='comment'])
-  .tui-cte:not([data-editing]) {
+.tui-plan-card .tui-plan-answer .tui-cte:not([data-editing]) {
   border-color: color-mix(in srgb, var(--fill-accent) 22%, var(--border));
   background: color-mix(in srgb, var(--fill-accent) 5%, var(--card));
 }
