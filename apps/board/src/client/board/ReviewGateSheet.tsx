@@ -56,6 +56,7 @@ import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
   reserveDock,
+  SheetEmpty,
   SheetEnd,
   SheetHeading,
   SheetLost,
@@ -875,7 +876,17 @@ function ReviewGateSheet({
                   }
                 />
               )}
-              <SheetEnd>You've reached the end of the findings.</SheetEnd>
+              {carryovers.length === 0 &&
+              !findingsQuestion &&
+              skippedEntries.length === 0 ? (
+                <SheetEmpty>
+                  {(review.round ?? 1) > 1
+                    ? `Clear skies. Nothing new in round ${review.round}.`
+                    : 'Clear skies. Nothing to flag.'}
+                </SheetEmpty>
+              ) : (
+                <SheetEnd>You've reached the end of the findings.</SheetEnd>
+              )}
             </>
           )}
           {mainTab === 'report' && (

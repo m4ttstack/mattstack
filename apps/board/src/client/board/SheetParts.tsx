@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { CheckCheck } from 'lucide-react';
+import { CheckCheck, Sun } from 'lucide-react';
 import { domAnimation, LazyMotion, m, MotionConfig } from 'motion/react';
 
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
@@ -339,9 +339,7 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-/** A sheet list's last line. It rises in as it scrolls into view, the check
-    popping a beat after, and resets when it leaves, so every arrival at
-    the bottom plays it again. */
+/** A sheet list's last line, shown only once the list scrolls. */
 export function SheetEnd({ children }: { children: ReactNode }) {
   const slot = useRef<HTMLDivElement | null>(null);
   // Shown only when the list overflows their scroller; the line's own
@@ -374,46 +372,65 @@ export function SheetEnd({ children }: { children: ReactNode }) {
   return (
     <div ref={slot}>
       {overflows && (
-        <LazyMotion features={domAnimation}>
-          <MotionConfig reducedMotion="user">
-            <m.div
-              className="tui-sheet-end"
-              initial="away"
-              whileInView="here"
-              viewport={{ amount: 0.8 }}
-              variants={{
-                away: { opacity: 0, y: 14 },
-                here: {
-                  opacity: 1,
-                  y: 0,
-                  transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] },
-                },
-              }}
-            >
-              <m.span
-                className="tui-sheet-end-icon"
-                aria-hidden
-                variants={{
-                  away: { scale: 0.4, opacity: 0 },
-                  here: {
-                    scale: 1,
-                    opacity: 1,
-                    transition: {
-                      type: 'spring',
-                      stiffness: 520,
-                      damping: 18,
-                      delay: 0.12,
-                    },
-                  },
-                }}
-              >
-                <CheckCheck size={18} />
-              </m.span>
-              <p>{children}</p>
-            </m.div>
-          </MotionConfig>
-        </LazyMotion>
+        <SheetMarker icon={<CheckCheck size={18} />}>{children}</SheetMarker>
       )}
     </div>
+  );
+}
+
+/** Stands in for an empty sheet list, in the end line's look. */
+export function SheetEmpty({ children }: { children: ReactNode }) {
+  return <SheetMarker icon={<Sun size={18} />}>{children}</SheetMarker>;
+}
+
+/** Rises in as it scrolls into view, the icon popping a beat after, and
+    resets when it leaves, so every arrival plays it again. */
+function SheetMarker({
+  icon,
+  children,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <LazyMotion features={domAnimation}>
+      <MotionConfig reducedMotion="user">
+        <m.div
+          className="tui-sheet-end"
+          initial="away"
+          whileInView="here"
+          viewport={{ amount: 0.8 }}
+          variants={{
+            away: { opacity: 0, y: 14 },
+            here: {
+              opacity: 1,
+              y: 0,
+              transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] },
+            },
+          }}
+        >
+          <m.span
+            className="tui-sheet-end-icon"
+            aria-hidden
+            variants={{
+              away: { scale: 0.4, opacity: 0 },
+              here: {
+                scale: 1,
+                opacity: 1,
+                transition: {
+                  type: 'spring',
+                  stiffness: 520,
+                  damping: 18,
+                  delay: 0.12,
+                },
+              },
+            }}
+          >
+            {icon}
+          </m.span>
+          <p>{children}</p>
+        </m.div>
+      </MotionConfig>
+    </LazyMotion>
   );
 }
