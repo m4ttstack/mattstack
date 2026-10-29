@@ -34,8 +34,11 @@ Claude Code asks before `EnterWorktree` moves a session into a tree outside
 `.claude/worktrees`, as a safety check no allow rule or classic hook can
 answer. The mattstack plugin's `tool.check` hooks module
 (`plugins/mattstack/hooks/enter-worktree-check.ts`) answers it: it turns the
-ask into an allow when the hidden `rt worktree is-registered <path>` exits 0,
-and leaves it for the person otherwise. The daemon reads and presses nothing
+ask into an allow only when the hidden `rt worktree is-registered <path>`
+prints `registered`, stops on `unregistered`, and on any other output tries
+the next `rt`, then leaves the ask for the person. The exit code settles
+nothing, since an rt without the verb, or one not set up, also exits
+nonzero; a change to either word must change the mod with it. The daemon reads and presses nothing
 on that dialog. Do not bring back a screen-reading accept for it: the last
 one matched Claude Code 2.1.281's drawing, and 2.1.312's redraw left it
 accepting nothing while every pane waited on a person.
