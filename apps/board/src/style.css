@@ -4001,8 +4001,9 @@ a.tui-id-card-ref:focus-visible {
   border-color: color-mix(in srgb, var(--fill-purple) 35%, transparent);
 }
 .tui-tl-mark > span {
-  width: 45%;
-  height: 45%;
+  /* Even, so it sits whole pixels in from either edge of an even mark. */
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--tl-fill);
 }
