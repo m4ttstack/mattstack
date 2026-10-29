@@ -7403,6 +7403,9 @@ a.tui-id-card-ref:focus-visible {
   line-height: 1.5;
   color: var(--text-2);
 }
+.tui-plan-later > [data-part='tooltip'] {
+  display: flex;
+}
 .tui-plan-later-info {
   display: inline-flex;
   padding: 2px;
