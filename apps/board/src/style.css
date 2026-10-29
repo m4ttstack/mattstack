@@ -3603,6 +3603,13 @@ a.tui-id-card-ref:focus-visible {
   z-index: 3;
   background: var(--card);
 }
+/* WebKit re-rasterises an inline svg avatar, coarse then sharp, whenever
+   the area around it repaints (hovering a diff flickers every one); its own
+   layer keeps it drawn once. Scoped to the sheets: the board's lists hold
+   too many avatars for a layer each. */
+.tui-gate-sheet .tui-invadr {
+  will-change: transform;
+}
 .tui-gate-sheet-lead {
   display: flex;
   align-items: center;
