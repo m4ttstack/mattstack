@@ -3658,7 +3658,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-gate-queue-pos {
   line-height: 1.2;
-  font-size: var(--gate-font-meta);
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
   white-space: nowrap;
