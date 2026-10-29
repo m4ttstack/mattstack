@@ -94,7 +94,10 @@ know (Matt's call):
 
 Queued, running, retries and wait-reason changes are banner edits only.
 Today's "Follow-up review started" reply goes away; the running banner
-replaces it. Hard refusals keep today's "Not yet" reply.
+replaces it. No latch gets today's "Not yet" reply: the pass gives every
+latch it acts on a row (adopting one from the note when none exists), the
+row proves a commented review, so no reason that never clears can reach
+it, and a pane that fails to start is a counted failure (step 5).
 
 A stuck latch always sends the reviewer the rt desktop notification, even
 when `triage.notify` is `badge-only` (Matt's call: it is rare and needs a
@@ -108,16 +111,18 @@ timing and layout, not code to keep.
 
 1. A review lands with comments and no latch exists: post an armed latch
    (unchanged trigger, new banner).
-2. The author resolves it. The next latch pass sees the request, rewrites
-   the note to `queued` with the banner for the current wait reason, and
-   leaves the thread resolved. It does not reply "Not yet" for a reason
-   that clears by itself (cooldown, budget, review in flight). Reasons
-   that never clear (no earlier commented review, already reviewed) keep
-   today's refusal reply and reopen.
+2. The author resolves it. The next latch pass sees the request and
+   decides it. A decision to dispatch launches straight from armed (step
+   3's launch, no queued hop). Otherwise the pass stamps the request time
+   on the row, rewrites the note to `queued` with the banner for the
+   current wait reason (cooldown, budget, review in flight), and leaves
+   the thread resolved. Queued shows only when the request must wait.
 3. Each pass re-decides every queued latch. When the decision becomes
-   dispatch, it launches the review, rewrites to `running`, and charges
-   cooldown and budget exactly as today. If the wait reason changes, the
-   banner changes with it.
+   dispatch, it re-reads the review lane, launches the review, rewrites to
+   `running`, and charges cooldown and budget exactly as today. A review
+   found in flight on that re-read is adopted instead (see "Any review
+   satisfies the request"). If the wait reason changes, the banner changes
+   with it.
 4. The review lands (server signal, with the pass as backstop):
    - comments: rewrite to `armed` with the done-comments banner, reopen
      the thread. The next resolve starts again at step 2.
@@ -141,16 +146,21 @@ Edge cases (my calls):
 - **Any review satisfies the request.** A review that starts while the
   latch is queued or error, even one the reviewer launched by hand from
   the board, is the follow-up: the latch goes to `running` and lands like
-  any other. One ask never gets two reviews.
+  any other. One ask never gets two reviews. The review must start at or
+  after the row's stamp (the request for a queued latch, the last launch
+  for an error one). A review already running when the author resolved
+  cannot have seen the fixes, so the request waits it out ("Waiting for
+  the running review") and is decided again once it ends.
 - **A review parked at its post gate is running**, however long it waits;
   the liveness check must not read a parked gate as dead.
 - **A follow-up that ends done with no outcome** (the reviewer abandoned
   the post gate) consumed the request: back to the plain armed banner,
-  thread reopened, no reply.
+  thread reopened, no reply. The next resolve is a new request cycle, so
+  the failure count resets.
 - **Retries count like launches.** A retry charges cooldown and budget
   exactly as a first launch. A pane that fails to start counts as a
   failure. Failures count per request cycle, across days, and reset when
-  a follow-up lands with an outcome.
+  a follow-up lands, with an outcome or abandoned.
 - **The author reopens a queued latch**: the request is withdrawn; back
   to armed. Reopening a running or error latch changes nothing until the
   run lands.
@@ -162,8 +172,8 @@ Edge cases (my calls):
 
 The note is what people see; the board's state db is the record. A new
 table keyed by MR and latch discussion holds the kind, the request cycle,
-the launch stamp of the follow-up the latch is waiting on, and the
-failure count. The cron pass (`bin/triage.ts`) and the board server both
+the stamp a follow-up must start at or after (the request while queued,
+the launch once running), and the failure count. The cron pass (`bin/triage.ts`) and the board server both
 read and write it; every transition is a compare-and-set on the row's
 current kind, and the note is rewritten only after the row moves.
 
@@ -171,7 +181,9 @@ This is what makes the daemon's stale discussion reads harmless: a
 stale note showing `queued` or `armed`+resolved after the row already
 says `running` is ignored, so it can never re-request or clobber the
 banner. The note's marker stays the fallback when no row exists (latches
-posted before this change, or a lost db), read exactly as today. The
+posted before this change, or a lost db), read exactly as today; a
+queued, running or error note adopted that way takes its post time as the
+stamp, so the review that armed it can never land as the follow-up. The
 failure count lives in this row, not in the cron's dispatch memory file,
 because the server records errors and outcomes too.
 
