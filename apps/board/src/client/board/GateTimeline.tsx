@@ -55,7 +55,11 @@ function RoundChip({
             <ul>
               {entry.events.map((e, i) => (
                 <li key={i} data-now={e.now}>
-                  {e.id && <AvatarTile id={e.id} />}
+                  {e.id ? (
+                    <AvatarTile id={e.id} />
+                  ) : (
+                    <span className="tui-tl-history-blank" aria-hidden />
+                  )}
                   {e.text}
                 </li>
               ))}

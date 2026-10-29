@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   attachRespondRounds,
   deleteRespondRound,
+  readRespondOutcomes,
   readRespondRounds,
   recordRespondRound,
 } from '../respond-rounds.ts';
@@ -29,6 +30,21 @@ describe('respond rounds', () => {
   test('first round for a person is 1, then 2', () => {
     expect(recordRespondRound(URL_A, 'john', 1, db)).toBe(1);
     expect(recordRespondRound(URL_A, 'john', 2, db)).toBe(2);
+  });
+
+  test('outcomes come back in round order, null where none was recorded', () => {
+    recordRespondRound(URL_A, 'john', 1, db);
+    recordRespondRound(URL_A, 'john', 2, db, 'comment');
+    recordRespondRound(URL_A, 'john', 3, db, 'approve');
+    const out = readRespondOutcomes(db);
+    expect(out.get(URL_A)).toEqual({ john: [null, 'comment', 'approve'] });
+    expect(
+      attachRespondRounds([{ webUrl: URL_A }], readRespondRounds(db), out)[0]
+    ).toEqual({
+      webUrl: URL_A,
+      respondRounds: { john: 3 },
+      respondOutcomes: { john: [null, 'comment', 'approve'] },
+    });
   });
 
   test('rounds are per person', () => {

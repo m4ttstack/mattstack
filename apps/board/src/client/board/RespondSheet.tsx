@@ -30,7 +30,7 @@ import {
 } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { THREAD_CALL } from './GateParts.tsx';
-import { GateTimeline } from './GateTimeline.tsx';
+import { GateTimeline, type RoundEntry } from './GateTimeline.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
@@ -462,6 +462,36 @@ function reviewerApproved(
   return getReviewDisplayState(r?.reviewState ?? null) === 'approved';
 }
 
+/** The rounds behind a respond gate: what the reviewer had posted when each
+    round began, and your reply to each round before this one. */
+function respondHistory(
+  round: number,
+  outcomes: ReadonlyArray<'comment' | 'approve' | null>,
+  reviewer: { id: string; name: string },
+  you: string | undefined,
+  now: string
+): RoundEntry[] {
+  const posted = (i: number) => ({
+    id: reviewer.id,
+    text: `${reviewer.name} ${
+      outcomes[i] === 'approve'
+        ? 'approved'
+        : outcomes[i] === 'comment'
+          ? 'commented'
+          : 'reviewed'
+    }`,
+  });
+  return Array.from({ length: round }, (_, i) => ({
+    round: i + 1,
+    events: [
+      posted(i),
+      i === round - 1
+        ? { id: you, text: now, now: 'response' as const }
+        : { id: you, text: 'You replied' },
+    ],
+  }));
+}
+
 function RespondSheetBody({
   gate,
   mr,
@@ -857,6 +887,13 @@ function RespondSheetBody({
                 outcome: reviewerApproved(mr, person) ? 'approve' : 'comment',
               }}
               response={{ label: 'Your response', at: plan ? 'Plan' : 'Post' }}
+              history={respondHistory(
+                mr?.respond?.responseRound ?? ctx.round ?? 1,
+                mr?.respondOutcomes?.[person] ?? [],
+                { id: person, name: people.short(person) },
+                mr?.author.username,
+                plan ? 'You, planning' : 'You, posting'
+              )}
             />
           }
         />

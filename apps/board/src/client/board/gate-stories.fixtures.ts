@@ -814,6 +814,9 @@ export const respondPost: StoryGate = {
   // card shows the reviewer's comment above it.
   mr: {
     ...PIN_MR,
+    // A second response to Renee: her first review commented.
+    respond: { status: 'drafting', responseRound: 2 },
+    respondOutcomes: { renee: ['comment', 'comment'] },
     gates: [
       {
         ...respondPlan.gate,

@@ -7,6 +7,7 @@ import {
   type EventBridgeRule,
 } from '@mattstack/app-server/event-bridge';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
+import { getReviewDisplayState } from '@mattstack/glance';
 import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   GitLabProvider,
@@ -282,6 +283,7 @@ import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
   deleteRespondRound,
+  readRespondOutcomes,
   readRespondRounds,
   recordRespondRound,
 } from './respond-rounds.ts';
@@ -1123,7 +1125,8 @@ async function withRowState(mrs: BoardMR[]) {
         attachReviews(mrs, readReviewStates(), latestRounds(), roundOutcomes()),
         readRespondStates()
       ),
-      readRespondRounds()
+      readRespondRounds(),
+      readRespondOutcomes()
     ),
     readDoctorStates()
   );
@@ -2784,7 +2787,18 @@ const httpServer = Bun.serve({
             return new Response(dedup.reason, { status: 409 });
         }
         const responseRound = person
-          ? recordRespondRound(parsed.mrUrl, person)
+          ? recordRespondRound(
+              parsed.mrUrl,
+              person,
+              undefined,
+              undefined,
+              getReviewDisplayState(
+                mr.reviews.reviewers.find(r => r.username === person)
+                  ?.reviewState ?? null
+              ) === 'approved'
+                ? 'approve'
+                : 'comment'
+            )
           : undefined;
         const statePath = respondFilePath(parsed.mrUrl);
         writeRespondState(statePath, {
