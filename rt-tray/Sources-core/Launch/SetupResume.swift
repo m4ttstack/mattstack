@@ -7,7 +7,8 @@ public enum SetupResume {
     public static let flag = "--resume-setup"
 
     private static let names: [SetupStep: String] = [
-        .welcome: "welcome", .team: "team", .checklist: "checklist", .install: "install", .done: "done",
+        .welcome: "welcome", .fullDiskAccess: "full-disk-access", .team: "team", .join: "join",
+        .checklist: "checklist", .install: "install", .done: "done",
     ]
 
     /// Passthrough arguments with any earlier resume pair removed and, when a

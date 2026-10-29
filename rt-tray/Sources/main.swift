@@ -19,6 +19,7 @@ if MainActor.assumeIsolated({ WorktreeSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ ChecklistRowSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ TeamPaneSnapshot.runIfRequested() }) { exit(0) }
 if MainActor.assumeIsolated({ NotificationsPaneSnapshot.runIfRequested() }) { exit(0) }
+if MainActor.assumeIsolated({ SetupPageSnapshot.runIfRequested() }) { exit(0) }
 #endif
 
 installTrayCrashHandlers()

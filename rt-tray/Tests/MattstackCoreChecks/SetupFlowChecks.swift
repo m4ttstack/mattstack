@@ -12,27 +12,29 @@ private let flowGroups = [
 
 let setupFlowChecks: [Check] = [
     Check("SetupStep order and titles") { c in
-        c.expectEqual(SetupStep.allCases.map(\.rawValue), [0, 1, 2, 3, 4])
+        c.expectEqual(SetupStep.allCases, [.welcome, .fullDiskAccess, .team, .join, .checklist, .install, .done])
+        c.expectEqual(SetupStep.fullDiskAccess.title, "Full Disk Access")
         c.expectEqual(SetupStep.team.title, "Your team")
+        c.expectEqual(SetupStep.join.title, "Join your team")
         c.expectEqual(SetupStep.checklist.title, "Before we begin")
         c.expectEqual(SetupStep.done.title, "Summary")
     },
     Check("flow header: a wizard page is named after its group and counted among every page") { c in
         await MainActor.run {
             let wizard = SetupFlowModel()
-            c.expectEqual(wizard.headerIndicator, "Step 1 of 5", "before a plan there is one checklist page")
+            c.expectEqual(wizard.headerIndicator, "Step 1 of 6", "before a plan there is one checklist page")
             wizard.jump(to: .checklist)
             c.expectEqual(wizard.headerTitle, "Before we begin")
-            c.expectEqual(wizard.headerIndicator, "Step 3 of 5")
+            c.expectEqual(wizard.headerIndicator, "Step 4 of 6")
             wizard.setPages(flowGroups)
             c.expectEqual(wizard.page, "mac")
             c.expectEqual(wizard.headerTitle, "Your Mac")
-            c.expectEqual(wizard.headerIndicator, "Step 3 of 7")
-            c.expectEqual(wizard.progress?.current, 3); c.expectEqual(wizard.progress?.total, 7)
+            c.expectEqual(wizard.headerIndicator, "Step 4 of 8")
+            c.expectEqual(wizard.progress?.current, 4); c.expectEqual(wizard.progress?.total, 8)
             wizard.next()
-            c.expectEqual(wizard.headerTitle, "Accounts"); c.expectEqual(wizard.headerIndicator, "Step 4 of 7")
+            c.expectEqual(wizard.headerTitle, "Accounts"); c.expectEqual(wizard.headerIndicator, "Step 5 of 8")
             wizard.jump(to: .done)
-            c.expectEqual(wizard.headerIndicator, "Step 7 of 7")
+            c.expectEqual(wizard.headerIndicator, "Step 8 of 8")
             let status = SetupFlowModel(readOnly: true)
             status.jump(to: .checklist); status.setPages(flowGroups)
             c.expectEqual(status.headerTitle, "Setup status", "nothing is about to begin on a Mac that is already set up")
@@ -45,6 +47,7 @@ let setupFlowChecks: [Check] = [
             let f = SetupFlowModel()
             c.expectEqual(f.step, .welcome); c.expectEqual(f.canGoBack, false); c.expectEqual(f.windowMayClose, false)
             f.back(); c.expectEqual(f.step, .welcome)
+            f.next(); c.expectEqual(f.step, .fullDiskAccess); c.expectEqual(f.canGoBack, true)
             f.next(); c.expectEqual(f.step, .team); c.expectEqual(f.canGoBack, true)
             f.next(); c.expectEqual(f.step, .checklist)
             f.setPages(flowGroups)
@@ -105,13 +108,13 @@ let setupFlowChecks: [Check] = [
             f.jump(to: .install)
             f.next()
             c.expectEqual(f.step, .done)
-            c.expectEqual(f.headerIndicator, "Step 5 of 5")
+            c.expectEqual(f.headerIndicator, "Step 6 of 6")
         }
     },
     Check("flow: setup entered again in the same session opens the checklist on its first page") { c in
         await MainActor.run {
             let f = SetupFlowModel()
-            f.next(); f.next(); f.setPages(flowGroups)
+            f.next(); f.next(); f.next(); f.setPages(flowGroups)
             f.next(); f.next(); f.next(); f.next()
             c.expectEqual(f.step, .done)
             f.jump(to: .team); f.next()
@@ -136,7 +139,7 @@ let setupFlowChecks: [Check] = [
         await MainActor.run {
             let f = SetupFlowModel()
             f.jump(to: .checklist); f.setPages([flowGroups[0]])
-            c.expectEqual(f.continueTitle, "Install"); c.expectEqual(f.headerIndicator, "Step 3 of 5")
+            c.expectEqual(f.continueTitle, "Install"); c.expectEqual(f.headerIndicator, "Step 4 of 6")
             f.back(); c.expectEqual(f.step, .team)
         }
     },
@@ -180,6 +183,63 @@ let setupFlowChecks: [Check] = [
             c.expectEqual(f.canGoBack, false)
             f.next()
             c.expectEqual(f.canGoBack, true, "Back from the checklist to the team screen stays")
+        }
+    },
+    Check("SetupFlow: first run walks Welcome, Full Disk Access, Your team") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            c.expectEqual(f.steps, [.welcome, .fullDiskAccess, .team, .checklist, .install, .done])
+            f.next(); c.expectEqual(f.step, .fullDiskAccess); c.expectEqual(f.headerTitle, "Full Disk Access")
+            f.next(); c.expectEqual(f.step, .team)
+            f.back(); c.expectEqual(f.step, .fullDiskAccess, "Back from the team choice returns to Full Disk Access")
+            f.back(); c.expectEqual(f.step, .welcome)
+        }
+    },
+    Check("SetupFlow: an upgrade entry has no Full Disk Access step") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            f.entry = .upgrade
+            c.expectEqual(f.steps, [.welcome, .team, .checklist, .install, .done])
+            f.jump(to: .team)
+            c.expectEqual(f.headerIndicator, "Step 2 of 5")
+            f.next(); c.expectEqual(f.step, .checklist)
+            f.back(); c.expectEqual(f.step, .team)
+        }
+    },
+    Check("SetupFlow: the counter follows the real step list") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            f.setPages(flowGroups)
+            c.expectEqual(f.headerIndicator, "Step 1 of 8")
+            f.next(); c.expectEqual(f.headerIndicator, "Step 2 of 8")
+            f.next(); c.expectEqual(f.headerIndicator, "Step 3 of 8")
+            f.next(); c.expectEqual(f.headerIndicator, "Step 4 of 8")
+            f.next(); f.next(); c.expectEqual(f.headerIndicator, "Step 6 of 8")
+            f.next(); c.expectEqual(f.step, .install); c.expectEqual(f.headerIndicator, "Step 7 of 8")
+            f.next(); c.expectEqual(f.headerIndicator, "Step 8 of 8")
+        }
+    },
+    Check("SetupFlow: joining adds the Join step to the count") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            f.setPages(flowGroups)
+            f.joining = true
+            c.expectEqual(f.steps, [.welcome, .fullDiskAccess, .team, .join, .checklist, .install, .done])
+            c.expectEqual(f.headerIndicator, "Step 1 of 9")
+            f.jump(to: .team); f.next()
+            c.expectEqual(f.step, .join); c.expectEqual(f.headerTitle, "Join your team"); c.expectEqual(f.headerIndicator, "Step 4 of 9")
+            f.next(); c.expectEqual(f.step, .checklist); c.expectEqual(f.page, "mac"); c.expectEqual(f.headerIndicator, "Step 5 of 9")
+            f.back(); c.expectEqual(f.step, .join)
+            f.jump(to: .install); c.expectEqual(f.headerIndicator, "Step 8 of 9")
+            f.joining = false
+            c.expectEqual(f.headerIndicator, "Step 7 of 8")
+        }
+    },
+    Check("SetupResume: full-disk-access and join round-trip") { c in
+        for (step, name) in [(SetupStep.fullDiskAccess, "full-disk-access"), (.join, "join")] {
+            let args = SetupResume.relaunchArguments(passthrough: [], resumeAt: step)
+            c.expectEqual(args, ["--resume-setup", name])
+            c.expectEqual(SetupResume.step(from: ["mattstack"] + args), step)
         }
     },
 ]

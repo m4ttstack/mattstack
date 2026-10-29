@@ -20,7 +20,9 @@ struct SetupView: View {
             ZStack {
                 switch flow.step {
                 case .welcome: WelcomeScreen().transition(pushTransition)
+                case .fullDiskAccess: FullDiskAccessScreen(readiness: readiness).transition(pushTransition)
                 case .team: TeamScreen(model: team, showsSolo: flow.entry == .firstRun).transition(pushTransition)
+                case .join: EmptyView()
                 case .checklist:
                     ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs,
                                     presentation: flow.readOnly ? .sidebar(overview: nil, onSkip: nil) : .page(flow.page))
@@ -65,9 +67,11 @@ struct SetupView: View {
         // deep link that opens straight into .checklist or .install still
         // loads/starts — onChange alone would silently no-op on first appear.
         .task(id: flow.step) {
-            if flow.step == .checklist || flow.step == .done {
+            if flow.step == .fullDiskAccess || flow.step == .checklist || flow.step == .done {
                 if !flow.readinessIsVisible { flow.readinessIsVisible = true; readiness.becameVisible() }
                 if flow.step == .checklist { await readiness.load() }
+                // The perm.fda row the page reads exists only once a plan has landed.
+                if flow.step == .fullDiskAccess { await readiness.loadIfNeeded() }
             } else if flow.readinessIsVisible {
                 flow.readinessIsVisible = false
                 readiness.becameHidden()
@@ -140,7 +144,9 @@ struct SetupView: View {
         guard !flow.primaryClosesWindow else { return true }
         switch flow.step {
         case .welcome: return true
+        case .fullDiskAccess: return readiness.fullDiskAccessState == .on
         case .team: return team.canContinue
+        case .join: return false
         case .checklist:
             guard let page = flow.page, let group = readiness.groups.first(where: { $0.id == page }) else { return false }
             return PageGate.continueEnabled(blockers: PageGate.blockers(in: group).count,
