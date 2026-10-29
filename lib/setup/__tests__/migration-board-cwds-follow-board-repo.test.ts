@@ -15,6 +15,7 @@ import { fakeProbes } from "./fakes.ts";
 
 const WIDGETS = "gitlab.example.com/acme/widgets";
 const GADGETS = "gitlab.example.com/acme/gadgets";
+const SPROCKETS = "gitlab.example.com/acme/sprockets";
 const all = (path: string) => ({ review: path, respond: path, doctor: path });
 
 describe("2026-10-29-board-cwds-follow-board-repo", () => {
@@ -35,7 +36,7 @@ describe("2026-10-29-board-cwds-follow-board-repo", () => {
   });
 
   afterEach(() => {
-    for (const identity of [WIDGETS, GADGETS]) removeIndexRow(serializeIdentity({ kind: "remote", id: identity }));
+    for (const identity of [WIDGETS, GADGETS, SPROCKETS]) removeIndexRow(serializeIdentity({ kind: "remote", id: identity }));
     setSettingsNoticeSink(previousSink);
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
@@ -151,6 +152,36 @@ describe("2026-10-29-board-cwds-follow-board-repo", () => {
     team();
     expect(await run().outcome).toEqual({ state: "skipped", detail: "widgets is not on this Mac yet" });
     expect(storedValue<unknown>("board.cwds")).toBeUndefined();
+  });
+
+  test("a board repo not on this Mac yet: the old uniform value is recorded as rt's", async () => {
+    team();
+    const gadgets = await register(GADGETS, "gadgets");
+    setSetting("board.cwds", all(gadgets), "machine");
+    const { p, outcome } = run();
+    expect(await outcome).toEqual({ state: "skipped", detail: "widgets is not on this Mac yet" });
+    expect(storedValue<unknown>("board.cwds")).toEqual(all(gadgets));
+    expect(readSetupState(p).boardCwdsWritten).toEqual(all(gadgets));
+    expect(restarts).toBe(0);
+  });
+
+  test("a board repo not on this Mac yet: differing values on real checkouts are not recorded", async () => {
+    team({ "mattstack.tracking": { repos: { [GADGETS]: {}, [SPROCKETS]: {}, [WIDGETS]: {} } }, "board.projects": ["acme/widgets"] });
+    const gadgets = await register(GADGETS, "gadgets");
+    const sprockets = await register(SPROCKETS, "sprockets");
+    setSetting("board.cwds", { review: gadgets, respond: sprockets, doctor: sprockets }, "machine");
+    const { p, outcome } = run();
+    expect(await outcome).toEqual({ state: "skipped", detail: "widgets is not on this Mac yet" });
+    expect(readSetupState(p).boardCwdsWritten).toBeUndefined();
+  });
+
+  test("no board repo: a broken value is recorded as rt's", async () => {
+    team({ "mattstack.tracking": { repos: { [GADGETS]: {} } }, "board.projects": ["acme/widgets"] });
+    const broken = { review: join(home, "gone"), respond: join(home, "gone") };
+    setSetting("board.cwds", broken, "machine");
+    const first = run();
+    expect(await first.outcome).toEqual({ state: "skipped", detail: "None of the team's repos is the board's" });
+    expect(readSetupState(first.p).boardCwdsWritten).toEqual(broken);
   });
 
   test("a restart that fails still records the write, with the note to restart by hand", async () => {

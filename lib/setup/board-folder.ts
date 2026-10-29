@@ -29,7 +29,7 @@ function sameCwds(a: Partial<BoardCwds> | undefined, b: Partial<BoardCwds> | und
   return a !== undefined && b !== undefined && KEYS.every((k) => a[k] === b[k]);
 }
 
-function isEmpty(cwds: Partial<BoardCwds> | undefined): boolean {
+export function isEmptyCwds(cwds: Partial<BoardCwds> | undefined): boolean {
   return cwds === undefined || KEYS.every((k) => !cwds[k]);
 }
 
@@ -39,14 +39,23 @@ function isUniform(cwds: Partial<BoardCwds> | undefined): boolean {
 }
 
 /**
- * Install replaces only an empty value or the one rt wrote last, so a value
- * the member set by hand stays. The migration has no record of what rt
- * wrote, so it replaces only a value that cannot work (missing, gone, or not
- * a checkout of a tracked repo) or one in the shape the old step wrote.
+ * A value that cannot work (a field missing, gone, or not a checkout of a
+ * tracked repo) or one in the shape the old setup step wrote. The migration
+ * has no record of what rt wrote, so this is how it tells rt's value from
+ * the member's.
  */
+export function isOldRtValue(current: Partial<BoardCwds> | undefined, exists: (path: string) => boolean, isTrackedCheckout: (path: string) => boolean): boolean {
+  const broken = KEYS.some((k) => {
+    const path = current?.[k];
+    return !path || !exists(path) || !isTrackedCheckout(path);
+  });
+  return broken || isUniform(current);
+}
+
+/** Install replaces only an empty value or the one rt wrote last, so a value the member set by hand stays. */
 export function planBoardCwds(i: {
   current: Partial<BoardCwds> | undefined;
-  rtWrote: BoardCwds | undefined;
+  rtWrote: Partial<BoardCwds> | undefined;
   target: string | null;
   mode: "install" | "migration";
   exists: (path: string) => boolean;
@@ -57,11 +66,7 @@ export function planBoardCwds(i: {
   if (sameCwds(i.current, write)) return { leave: "current" };
 
   if (i.mode === "install") {
-    return isEmpty(i.current) || sameCwds(i.current, i.rtWrote) ? { write } : { leave: "hand-set" };
+    return isEmptyCwds(i.current) || sameCwds(i.current, i.rtWrote) ? { write } : { leave: "hand-set" };
   }
-  const broken = KEYS.some((k) => {
-    const path = i.current?.[k];
-    return !path || !i.exists(path) || !i.isTrackedCheckout(path);
-  });
-  return broken || isUniform(i.current) ? { write } : { leave: "hand-set" };
+  return isOldRtValue(i.current, i.exists, i.isTrackedCheckout) ? { write } : { leave: "hand-set" };
 }

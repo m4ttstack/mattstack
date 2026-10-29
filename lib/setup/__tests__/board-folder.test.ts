@@ -34,6 +34,11 @@ describe("planBoardCwds", () => {
     expect(install({ current: all("/old/widgets"), rtWrote: all("/old/widgets") })).toEqual({ write: all(TARGET) });
   });
 
+  test("install: an old value the migration recorded as rt's is replaced, a partial one too", () => {
+    expect(install({ current: all("/Users/jane/code/gadgets"), rtWrote: all("/Users/jane/code/gadgets") })).toEqual({ write: all(TARGET) });
+    expect(install({ current: { review: "/gone", respond: "/gone" }, rtWrote: { review: "/gone", respond: "/gone" } })).toEqual({ write: all(TARGET) });
+  });
+
   test("install: a value set by hand is left alone", () => {
     expect(install({ current: all("/custom"), rtWrote: all("/old/widgets") })).toEqual({ leave: "hand-set" });
     expect(install({ current: all("/custom") })).toEqual({ leave: "hand-set" });

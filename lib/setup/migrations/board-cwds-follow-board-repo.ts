@@ -4,10 +4,10 @@ import { serializeIdentity } from "../../settings/identity.ts";
 import { storedValue } from "../../settings/presence.ts";
 import { currentOrg } from "../../settings/stores.ts";
 import type { StepOutcome } from "../apply.ts";
-import { planBoardCwds, type BoardCwds } from "../board-folder.ts";
+import { isEmptyCwds, isOldRtValue, planBoardCwds, type BoardCwds } from "../board-folder.ts";
 import type { Probes } from "../probes.ts";
 import { tildify } from "../repo-placement.ts";
-import { updateSetupState } from "../state.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 import { repoBasename } from "../steps/repos.ts";
 import { writable, writeBoardCwds } from "../steps/skills.ts";
 import { readTeamSnapshot } from "../team-settings.ts";
@@ -35,20 +35,27 @@ export function makeBoardCwdsFollowBoardRepoMigration(seams: BoardCwdsFollowBoar
       const org = currentOrg();
       if (org === null) return { state: "skipped", detail: "This Mac has no team" };
       const snapshot = readTeamSnapshot(p, org);
-      const identity = snapshot.boardRepo ?? null;
-      if (identity === null) return { state: "skipped", detail: "None of the team's repos is the board's" };
-
       const indexed = new Map<string, string>();
       for (const tracked of snapshot.trackingIdentities) {
         const path = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: tracked }));
         if (path !== null) indexed.set(tracked, path);
       }
-      const target = indexed.get(identity) ?? null;
-      if (target === null) return { state: "skipped", detail: `${repoBasename(identity)} is not on this Mac yet` };
-      if (!writable(ctx, "board.cwds", migrationEventId(ID))) return { state: "skipped", detail: "This rt doesn't know the board.cwds setting" };
-
       const checkouts = new Set(indexed.values());
       const current = storedValue<Partial<BoardCwds>>("board.cwds");
+
+      /** This migration is recorded and never runs again, so a later Install must be able to tell rt's old value from the member's. */
+      const skipClaimingOldValue = (detail: string): StepOutcome => {
+        const claim = readSetupState(p).boardCwdsWritten === undefined && !isEmptyCwds(current) && isOldRtValue(current, (path) => p.exists(path), (path) => checkouts.has(path));
+        if (claim) updateSetupState(p, (s) => ({ ...s, boardCwdsWritten: current }));
+        return { state: "skipped", detail };
+      };
+
+      const identity = snapshot.boardRepo ?? null;
+      if (identity === null) return skipClaimingOldValue("None of the team's repos is the board's");
+      const target = indexed.get(identity) ?? null;
+      if (target === null) return skipClaimingOldValue(`${repoBasename(identity)} is not on this Mac yet`);
+      if (!writable(ctx, "board.cwds", migrationEventId(ID))) return { state: "skipped", detail: "This rt doesn't know the board.cwds setting" };
+
       const plan = planBoardCwds({
         current,
         rtWrote: undefined,
