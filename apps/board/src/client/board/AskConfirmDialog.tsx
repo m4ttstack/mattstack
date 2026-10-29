@@ -5,10 +5,10 @@ import type { AskKind } from '../types.ts';
 import { AskGlyph } from './ask-glyph.tsx';
 import { verbLane } from './asks/ask-copy.ts';
 
-const TITLE_VERB: Record<AskKind, string> = {
-  review: 'review',
-  're-review': 're-review',
-  respond: 'respond on',
+const TITLE_ASK: Record<AskKind, string> = {
+  review: 'to review',
+  're-review': 'for a follow-up review of',
+  respond: 'to respond on',
 };
 
 /** Every ask confirms here before it goes: what it does on the teammate's
@@ -40,7 +40,7 @@ export function AskConfirmDialog({
       open={open}
       intent={verbLane(kind) === 'respond' ? 'ok' : 'accent'}
       confirmVariant="filled"
-      title={`Ask ${who}'s agent to ${TITLE_VERB[kind]} ${subject}?`}
+      title={`Ask ${who}'s agent ${TITLE_ASK[kind]} ${subject}?`}
       confirmLabel={
         <>
           <AskGlyph name="send" size={13} />

@@ -168,7 +168,7 @@ test("runOne ask prefers the server's refusal text, and says when it queued", as
   const a = fakeDeps(() => fail(409, 'kim has no board on the switchboard'));
   await runOne({ kind: 'ask', ask: 'review', reviewer: 'kim' }, mr(7), a.deps);
   expect(a.events).toEqual([
-    'toast requesting review of !7 from kim…',
+    'toast requesting a review of !7 from kim…',
     `post /nudge {"mrUrl":"${mr(7).webUrl}","iid":7,"reviewer":"kim","kind":"review"}`,
     'fail kim has no board on the switchboard',
   ]);
@@ -193,9 +193,9 @@ test("runOne resolve-latch resolves the reviewer's latch thread and reloads fres
   const a = fakeDeps();
   await runOne(req, target, a.deps);
   expect(a.events).toEqual([
-    "toast asking kim's agent to re-review !7 through the MR thread…",
+    "toast asking kim's agent for a follow-up review of !7 through the MR thread…",
     'post /discussions/resolve {"repo":"gitlab.example.com/acme/webapp","iid":7,"discussionId":"d1","author":"rae","resolved":true}',
-    "done asked kim's agent to re-review !7 through the MR thread",
+    "done asked kim's agent for a follow-up review of !7 through the MR thread",
     'reload true',
   ]);
   const b = fakeDeps(() => fail(403, 'not your thread'));

@@ -162,7 +162,7 @@ describe('ask notification', () => {
         '!1388 debounce the claim search input\nYour agent waits for your go ahead.',
     });
     expect(askNotice({ iid: 1391 }, 'Tom Clearwater').title).toBe(
-      'Tom Clearwater asked for a re-review'
+      'Tom Clearwater asked for a follow-up review'
     );
     expect(askNotice({ kind: 'respond', iid: 1366 }, 'Bea Finch')).toEqual({
       title: 'Bea Finch asked your agent to respond',

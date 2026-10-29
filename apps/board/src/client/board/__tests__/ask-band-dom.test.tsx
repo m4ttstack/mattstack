@@ -102,7 +102,7 @@ test('hovering the band opens nothing; clicking its trigger opens the trail, cli
   expect(trigger.getAttribute('aria-expanded')).toBe('false');
   await React.act(async () => trigger.click());
   const card = document.querySelector('.tui-ask-trail')!;
-  expect(card.textContent).toContain('Re-review from Grace');
+  expect(card.textContent).toContain('Follow-up review from Grace');
   expect(card.textContent).toContain('Requested');
   expect(trigger.getAttribute('aria-expanded')).toBe('true');
   await React.act(async () => trigger.click());

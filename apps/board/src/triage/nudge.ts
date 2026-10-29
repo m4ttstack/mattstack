@@ -149,9 +149,9 @@ const ASK_COPY: Record<
     asked: 'asked for a review',
   },
   're-review': {
-    noun: 'Re-review',
-    started: 'Re-review started',
-    asked: 'asked for another look',
+    noun: 'Follow-up review',
+    started: 'Follow-up review started',
+    asked: 'asked for a follow-up review',
   },
   respond: {
     noun: 'Reply',

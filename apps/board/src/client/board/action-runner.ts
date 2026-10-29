@@ -5,7 +5,7 @@
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
 import type { ActionResult } from '../api.ts';
-import type { ActiveRun } from '../types.ts';
+import type { ActiveRun, AskKind } from '../types.ts';
 import type { ToastHandle } from './launch-flow.ts';
 import { mrRef } from './MrLinks.tsx';
 import { NO_PEOPLE, type People } from './people.ts';
@@ -83,6 +83,12 @@ interface Wording {
 }
 
 const NAMED = 4;
+
+const ASK_NOUN: Record<AskKind, string> = {
+  review: 'a review',
+  're-review': 'a follow-up review',
+  respond: 'replies',
+};
 
 /** A toast's MR list: the first few by number, the rest as a count. */
 function iids(mrs: readonly BoardMR[]): string {
@@ -226,7 +232,7 @@ function postSpec(req: PostRequest, people: People): PostSpec {
       };
     case 'resolve-latch': {
       const what = (mr: BoardMR) =>
-        `${people.short(req.reviewer)}'s agent to re-review ${mrRef(mr)} through the MR thread`;
+        `${people.short(req.reviewer)}'s agent for a follow-up review of ${mrRef(mr)} through the MR thread`;
       return {
         path: '/discussions/resolve',
         payload: mr => ({
@@ -243,8 +249,8 @@ function postSpec(req: PostRequest, people: People): PostSpec {
             (r.body as { error?: string } | null)?.error ?? (r.text || r.status)
           }`,
         fresh: true,
-        manyDone: done => `asked for re-reviews on ${on(done)}`,
-        manyFail: list => `couldn't ask for re-reviews on ${list}`,
+        manyDone: done => `asked for follow-up reviews on ${on(done)}`,
+        manyFail: list => `couldn't ask for follow-up reviews on ${list}`,
       };
     }
     case 'ask': {
@@ -259,7 +265,8 @@ function postSpec(req: PostRequest, people: People): PostSpec {
           kind: req.ask,
           ...(req.note ? { note: req.note } : {}),
         }),
-        pending: mr => `requesting ${req.ask} of ${mrRef(mr)} from ${name}…`,
+        pending: mr =>
+          `requesting ${ASK_NOUN[req.ask]} of ${mrRef(mr)} from ${name}…`,
         done: (_mr, r) =>
           r.body?.queued
             ? `switchboard unreachable... queued the ask to ${name}`
@@ -268,7 +275,7 @@ function postSpec(req: PostRequest, people: People): PostSpec {
         // whole point of the failure, so it wins over the status.
         fail: (mr, r) =>
           r.text.trim() ||
-          `couldn't request ${req.ask} for ${mrRef(mr)} (${r.status})`,
+          `couldn't request ${ASK_NOUN[req.ask]} for ${mrRef(mr)} (${r.status})`,
         fresh: false,
         manyDone: done => `asked ${name} on ${on(done)}`,
         manyFail: list => `couldn't ask ${name} on ${list}`,

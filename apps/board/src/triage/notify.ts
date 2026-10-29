@@ -21,7 +21,7 @@ export function boardAskLink(boardUrl: string, askId: string): string {
 
 const ASKED: Record<AskKind, string> = {
   review: 'asked for a review',
-  're-review': 'asked for a re-review',
+  're-review': 'asked for a follow-up review',
   respond: 'asked your agent to respond',
 };
 

@@ -59,7 +59,7 @@ describe('askBandModel', () => {
       icon: 'send',
       name: 'Grace',
       who: "Grace's agent",
-      title: 'Re-review from Grace',
+      title: 'Follow-up review from Grace',
       label: 're-review requested',
       note: `Sent ${clock(NOW - 3 * 60 * MIN, NOW)}`,
       actions: [],
@@ -95,7 +95,7 @@ describe('askBandModel', () => {
       expect(m.actions).toEqual(['dismiss']);
     }
     expect(askBandModel(sent({ display: 'launched' })).label).toBe(
-      're-reviewing'
+      'following up'
     );
     expect(
       askBandModel(sent({ display: 'launched', kind: 'respond' })).label
@@ -114,7 +114,7 @@ describe('askBandModel', () => {
     expect(m).toMatchObject({
       tone: 'ok',
       icon: 'check',
-      label: 're-reviewed: comments',
+      label: 'followed up: comments',
       actions: ['dismiss'],
     });
   });
@@ -126,7 +126,7 @@ describe('askBandModel', () => {
     expect(word('approve', 'review')).toBe('reviewed: approved');
     expect(word('comment', 'review')).toBe('reviewed: comments');
     expect(word(undefined, 'respond')).toBe('responded');
-    expect(word(undefined)).toBe('re-reviewed');
+    expect(word(undefined)).toBe('followed up');
   });
 
   test('failed: bad tone, retry, the reason when there is one', () => {
@@ -285,7 +285,7 @@ describe('askBandModel', () => {
     );
     expect(m.name).toBe('Grace');
     expect(m.who).toBe("Grace's agent");
-    expect(m.title).toBe('Re-review from Grace');
+    expect(m.title).toBe('Follow-up review from Grace');
     expect(model(sent({ reviewer: 'ghop2' })).name).toBe('ghop2');
   });
 
