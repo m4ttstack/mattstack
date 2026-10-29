@@ -3594,6 +3594,11 @@ a.tui-id-card-ref:focus-visible {
   flex-shrink: 0;
   padding: 8px 20px;
   border-bottom: 1px solid var(--border);
+  /* WebKit lets a backdrop-filtered sticky bar in the column below paint
+     past the column's top edge; the head sits above it to cover that. */
+  position: relative;
+  z-index: 3;
+  background: var(--card);
 }
 .tui-gate-sheet-lead {
   display: flex;
@@ -3779,9 +3784,7 @@ a.tui-id-card-ref:focus-visible {
    while the column scrolls. The column drops its top padding so the bar
    pins flush under the sheet head; the side margins span the column's 28px
    padding, stopping 2px short of the left edge, where the sheet's own focus
-   ring is drawn. WebKit's backdrop blur samples cards scrolled past the
-   column's top edge and paints them as a sharp strip along the bar's top,
-   so the bar starts solid and fades into the frost. */
+   ring is drawn. */
 @media (min-width: 721px) {
   .tui-sheet-main:has(> .tui-sheet-round:first-child) {
     padding-top: 0;
@@ -3798,9 +3801,7 @@ a.tui-id-card-ref:focus-visible {
   margin: 0 -28px 28px -26px;
   padding: 16px 28px 16px 26px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  background:
-    linear-gradient(var(--card) 12px, transparent 26px),
-    color-mix(in srgb, var(--card) 72%, transparent);
+  background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
   box-shadow: 0 4px 10px -4px color-mix(in srgb, black 14%, transparent);
 }
