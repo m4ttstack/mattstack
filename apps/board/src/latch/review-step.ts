@@ -4,8 +4,11 @@
  * read or touched, so reviewers on the same MR never block or spend each
  * other's.
  */
+import type { Database } from 'bun:sqlite';
+
 import type { MRDetail } from '@mattstack/glance';
 import { findLatches, hasArmedLatch } from './discussions.ts';
+import { putLatchRow } from './latch-state.ts';
 import { postLatch, spendAllLatches, type LatchGateway } from './post.ts';
 
 export interface ReviewLatchStep {
@@ -19,6 +22,8 @@ export interface ReviewLatchStep {
   projectPath: string;
   mrUrl: string;
   iid: number;
+  /** The board's state db; the default is the live one. */
+  db?: Database;
 }
 
 export async function applyReviewLatch(
@@ -34,8 +39,11 @@ export async function applyReviewLatch(
       s.gateway,
       s.projectId,
       s.projectPath,
+      s.mrUrl,
       s.iid,
-      latches
+      latches,
+      { state: 'approved' },
+      s.db
     );
     return 'spent';
   }
@@ -47,6 +55,28 @@ export async function applyReviewLatch(
   // A spent latch must never suppress a fresh post, or the feature disables
   // itself forever the first time a latch is ever spent.
   if (hasArmedLatch(latches)) return 'none';
-  await postLatch(s.gateway, s.projectId, s.projectPath, s.mrUrl, s.iid);
+  const { discussionId, rootNoteId } = await postLatch(
+    s.gateway,
+    s.projectId,
+    s.projectPath,
+    s.mrUrl,
+    s.iid,
+    s.db
+  );
+  putLatchRow(
+    {
+      mrUrl: s.mrUrl,
+      discussionId,
+      rootNoteId,
+      phase: 'armed',
+      wait: null,
+      launchAt: null,
+      failures: 0,
+      stuck: false,
+      variant: 'armed',
+      updatedAt: Date.now(),
+    },
+    s.db
+  );
   return 'posted';
 }

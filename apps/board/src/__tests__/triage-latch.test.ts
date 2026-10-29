@@ -1,9 +1,14 @@
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
+import { readLatchRow } from '../latch/latch-state.ts';
 import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import type { ReviewState } from '../review-state.ts';
+import { openStateDb } from '../state/db.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import {
   runLatchPass,
@@ -11,6 +16,12 @@ import {
   type LatchPassDeps,
 } from '../triage/latch.ts';
 import { emptyMrMemory, type DispatchMemory } from '../triage/memory.ts';
+
+function tempDb() {
+  return openStateDb(
+    join(mkdtempSync(join(tmpdir(), 'board-latch-step-')), 'state.db')
+  );
+}
 
 const NOW = 1_000_000_000;
 const MR = 'https://gitlab.com/acme/web/-/merge_requests/2317';
@@ -132,6 +143,7 @@ function harness(
       notifies.push({ title, message, mrUrl });
     },
     now: () => NOW,
+    db: tempDb(),
     ...over,
   };
   return {
@@ -152,6 +164,25 @@ describe('step 0: no latch', () => {
     const r = await runLatchPass(deps);
     expect(r.posted).toBe(1);
     expect(calls).toEqual(['upload', 'createDiscussion']);
+  });
+
+  // A second writer must see the post before the daemon's discussion store does.
+  test('records the posted latch as an armed row', async () => {
+    const db = tempDb();
+    const { deps } = harness({ detail: detail(), db });
+    await runLatchPass(deps);
+    expect(readLatchRow(MR, db)).toEqual({
+      mrUrl: MR,
+      discussionId: 'new',
+      rootNoteId: 1,
+      phase: 'armed',
+      wait: null,
+      launchAt: null,
+      failures: 0,
+      stuck: false,
+      variant: 'armed',
+      updatedAt: NOW,
+    });
   });
 
   test('posts nothing on an approve-outcome state', async () => {
@@ -262,7 +293,7 @@ describe('step 2: armed and unresolved', () => {
       readReviewStates: () => new Map([[MR, approved]]),
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
-    expect(calls).toEqual(['updateNote:1', 'resolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:d1']);
   });
 
   // Step 2 must spend every duplicate, not just the canonical latch.
@@ -347,7 +378,7 @@ describe('step 3: armed and resolved', () => {
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
     expect(launches).toEqual([]);
-    expect(calls).toEqual(['updateNote:1', 'resolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:d1']);
   });
 
   // Spending only canon and the resolved carriers would strand an
@@ -698,7 +729,7 @@ describe('tombstone resurrection', () => {
     const result = await runLatchPass(deps);
     expect(resurrects).toEqual([MR]);
     expect(result.spent).toBe(1);
-    expect(calls).toEqual(['updateNote:1', 'resolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:d1']);
   });
 
   test('an unreadable detail leaves the tombstone in place for the next tick', async () => {
@@ -788,7 +819,7 @@ describe('one latch per reviewer', () => {
       fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
-    expect(calls).toEqual(['updateNote:1', 'resolve:mine']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:mine']);
   });
 
   test('posts nothing for a reviewer who already approved in GitLab', async () => {

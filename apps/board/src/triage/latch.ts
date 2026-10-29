@@ -6,6 +6,8 @@
  * read back as a human request, whatever the MR's approval state does
  * afterwards.
  */
+import type { Database } from 'bun:sqlite';
+
 import type { MRDetail } from '@mattstack/glance';
 import {
   canonicalLatch,
@@ -14,6 +16,7 @@ import {
   requestCarriers,
   type LatchRef,
 } from '../latch/discussions.ts';
+import { putLatchRow } from '../latch/latch-state.ts';
 import {
   postLatch,
   spendAllLatches,
@@ -67,6 +70,8 @@ export interface LatchPassDeps {
   appendAudit(entry: AuditEntry): void;
   notify(title: string, message: string, mrUrl: string): Promise<void>;
   now(): number;
+  /** The board's state db; the default is the live one. */
+  db?: Database;
 }
 
 export interface LatchPassResult {
@@ -196,12 +201,28 @@ export async function runLatchPass(
           !mr.approvedBySelf &&
           now - review.updatedAt >= LATCH_POST_GRACE_MS
         ) {
-          await postLatch(
+          const { discussionId, rootNoteId } = await postLatch(
             deps.gateway,
             mr.projectId,
             mr.projectPath,
             mr.mrUrl,
-            mr.iid
+            mr.iid,
+            deps.db
+          );
+          putLatchRow(
+            {
+              mrUrl: mr.mrUrl,
+              discussionId,
+              rootNoteId,
+              phase: 'armed',
+              wait: null,
+              launchAt: null,
+              failures: 0,
+              stuck: false,
+              variant: 'armed',
+              updatedAt: now,
+            },
+            deps.db
           );
           deps.appendAudit({
             ts: now,
@@ -224,8 +245,11 @@ export async function runLatchPass(
             deps.gateway,
             mr.projectId,
             mr.projectPath,
+            mr.mrUrl,
             mr.iid,
-            canon
+            canon,
+            { state: 'approved' },
+            deps.db
           );
           deps.appendAudit({
             ts: now,
@@ -396,16 +420,18 @@ async function consume(
   }
   for (const c of carriers) {
     if (c.discussionId === canon.discussionId) continue;
-    // "duplicate", not the approved default: the canon is being rearmed for
-    // another cycle here, not approved, so this extra copy is going defunct
-    // rather than recording a verdict that did not happen.
+    // "superseded", not approved: the canon is being rearmed for another
+    // cycle here, not approved, so this extra copy is going defunct rather
+    // than recording a verdict that did not happen.
     await spendLatch(
       deps.gateway,
       mr.projectId,
       mr.projectPath,
+      mr.mrUrl,
       mr.iid,
       c,
-      'duplicate'
+      { state: 'superseded' },
+      deps.db
     );
   }
 }
@@ -420,7 +446,10 @@ async function spendAll(
     deps.gateway,
     mr.projectId,
     mr.projectPath,
+    mr.mrUrl,
     mr.iid,
-    latches
+    latches,
+    { state: 'approved' },
+    deps.db
   );
 }

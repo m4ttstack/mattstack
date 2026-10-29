@@ -1,12 +1,23 @@
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
+import { readLatchRow } from '../latch/latch-state.ts';
 import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import {
   applyReviewLatch,
   type ReviewLatchStep,
 } from '../latch/review-step.ts';
+import { openStateDb } from '../state/db.ts';
+
+function tempDb() {
+  return openStateDb(
+    join(mkdtempSync(join(tmpdir(), 'board-latch-step-')), 'state.db')
+  );
+}
 
 const MR = 'https://gitlab.com/acme/web/-/merge_requests/2317';
 const IMG = '![re-review latch](/uploads/ab12/latch-2317.png)';
@@ -73,6 +84,7 @@ function step(over: Partial<ReviewLatchStep>) {
     projectPath: 'acme/web',
     mrUrl: MR,
     iid: 2317,
+    db: tempDb(),
     ...over,
   };
   return { s, calls };
@@ -85,6 +97,20 @@ describe('applyReviewLatch', () => {
     });
     expect(await applyReviewLatch(s)).toBe('posted');
     expect(calls).toEqual(['upload', 'createDiscussion']);
+  });
+
+  test('a post records the latch as an armed row', async () => {
+    const db = tempDb();
+    const { s } = step({ db });
+    await applyReviewLatch(s);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'new',
+      rootNoteId: 1,
+      phase: 'armed',
+      variant: 'armed',
+      failures: 0,
+      stuck: false,
+    });
   });
 
   test('a comment posts nothing while this reviewer has an armed latch', async () => {
@@ -122,6 +148,6 @@ describe('applyReviewLatch', () => {
       ),
     });
     expect(await applyReviewLatch(s)).toBe('spent');
-    expect(calls).toEqual(['updateNote:1', 'resolve:mine']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:mine']);
   });
 });

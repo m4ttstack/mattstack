@@ -29,33 +29,51 @@ export const ARMED_COPY = [
   "Leave it open while there's still work in flight.",
 ].join('\n');
 
-/** Why a latch was spent -- the wording differs because only one of these is
-    a real reviewer verdict. "approved" is the terminal outcome; "duplicate"
-    is an extra copy going defunct because another latch on the same MR
-    already carries the live state, which must never read as an approval
-    that did not happen. */
-export type SpentReason = 'approved' | 'duplicate';
-
 export const SPENT_COPY =
   'Approved, so this latch is spent. Nothing further to do here.';
 export const DUPLICATE_COPY =
   'Superseded by a newer latch on this MR; nothing to do here.';
 
-export function armedLatchBody(imageMarkdown: string): string {
-  return `${LATCH_MARKER}\n\n${imageMarkdown}\n\n${ARMED_COPY}\n`;
-}
+// Typed by LatchKind, not latch-state's LatchPhase: the client bundle reaches
+// this file, and latch-state pulls in bun:sqlite.
+const PHASE_MARKER: Record<LatchKind, string> = {
+  armed: LATCH_MARKER,
+  queued: LATCH_MARKER_QUEUED,
+  running: LATCH_MARKER_RUNNING,
+  error: LATCH_MARKER_ERROR,
+  spent: LATCH_MARKER_SPENT,
+};
 
-export function spentLatchBody(
+export function latchBody(
+  phase: LatchKind,
   imageMarkdown: string,
-  reason: SpentReason = 'approved'
+  sentence: string
 ): string {
-  const copy = reason === 'duplicate' ? DUPLICATE_COPY : SPENT_COPY;
-  return `${LATCH_MARKER_SPENT}\n\n${imageMarkdown}\n\n${copy}\n`;
+  return `${PHASE_MARKER[phase]}\n\n${imageMarkdown}\n\n${sentence}\n`;
 }
 
-/** The banner's markdown image, pulled back out of a latch body so the spend
-    can reuse the uploaded path instead of uploading the banner a second time. */
+export function armedLatchBody(imageMarkdown: string): string {
+  return latchBody('armed', imageMarkdown, ARMED_COPY);
+}
+
+export function spentLatchBody(imageMarkdown: string): string {
+  return latchBody('spent', imageMarkdown, SPENT_COPY);
+}
+
+/** GitLab stretches an unsized image to the column; 520 CSS px shows the
+    1040 px banner at 2x. */
+export function imageMarkdownFor(
+  title: string,
+  markdownFromUpload: string
+): string {
+  const url =
+    markdownFromUpload.match(/\]\(([^)]+)\)/)?.[1] ?? markdownFromUpload;
+  return `![${title}](${url}){width=520}`;
+}
+
+/** The banner's markdown image, pulled back out of a latch body. Matches the
+    sized GIF form and the older unsized PNG. */
 export function imageMarkdownOf(body: string): string | null {
-  const m = body.match(/!\[[^\]]*\]\([^)]+\)/);
+  const m = body.match(/!\[[^\]]*\]\([^)]+\)(?:\{width=\d+\})?/);
   return m ? m[0] : null;
 }
