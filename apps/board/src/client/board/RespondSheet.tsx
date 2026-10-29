@@ -75,6 +75,7 @@ import {
   ProseContext,
   reserveDock,
   RoundHeading,
+  SheetEnd,
   SheetLost,
   SheetRows,
   SUBMIT_KEYS,
@@ -987,6 +988,7 @@ function RespondSheetBody({
               );
             })}
         </div>
+        <SheetEnd>You've reached the end of the threads.</SheetEnd>
       </section>
       <aside className="tui-sheet-rail">
         {form.lost ? (

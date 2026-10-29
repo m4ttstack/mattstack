@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChartColumn, CheckCheck, ListChecks } from 'lucide-react';
-import { domAnimation, LazyMotion, m, MotionConfig } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChartColumn, ListChecks } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -56,6 +55,7 @@ import {
   KeyCap,
   reserveDock,
   RoundHeading,
+  SheetEnd,
   SheetLost,
   SUBMIT_KEYS,
 } from './SheetParts.tsx';
@@ -218,95 +218,6 @@ function severityGroups(
       [...items.filter(hasDiffLine), ...items.filter(f => !hasDiffLine(f))],
     ] as [FindingSeverity, FindingEntry[]];
   }).filter(([, items]) => items.length > 0);
-}
-
-/** The findings' last line. It rises in as it scrolls into view, the check
-    popping a beat after, and resets when it leaves, so every arrival at
-    the bottom plays it again. */
-/** The nearest ancestor that scrolls: the findings column on a wide
-    screen, the whole sheet once it stacks. */
-function scrollParent(el: HTMLElement): HTMLElement | null {
-  for (let p = el.parentElement; p; p = p.parentElement) {
-    const y = getComputedStyle(p).overflowY;
-    if (y === 'auto' || y === 'scroll') return p;
-  }
-  return null;
-}
-
-function FindingsEnd() {
-  const slot = useRef<HTMLDivElement | null>(null);
-  // Shown only when the findings overflow their scroller; the line's own
-  // height is left out of that sum, so it never shows just to scroll to
-  // itself.
-  const [overflows, setOverflows] = useState(false);
-  useEffect(() => {
-    const el = slot.current;
-    const scroller = el && scrollParent(el);
-    if (!el || !scroller) return;
-    const measure = () =>
-      setOverflows(
-        scroller.scrollHeight - el.offsetHeight > scroller.clientHeight + 1
-      );
-    const sizes = new ResizeObserver(measure);
-    const watch = () => {
-      sizes.disconnect();
-      sizes.observe(scroller);
-      for (const child of scroller.children) sizes.observe(child);
-    };
-    const children = new MutationObserver(watch);
-    children.observe(scroller, { childList: true });
-    watch();
-    measure();
-    return () => {
-      sizes.disconnect();
-      children.disconnect();
-    };
-  }, []);
-  return (
-    <div ref={slot}>
-      {overflows && (
-        <LazyMotion features={domAnimation}>
-          <MotionConfig reducedMotion="user">
-            <m.div
-              className="tui-sheet-end"
-              initial="away"
-              whileInView="here"
-              viewport={{ amount: 0.8 }}
-              variants={{
-                away: { opacity: 0, y: 14 },
-                here: {
-                  opacity: 1,
-                  y: 0,
-                  transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] },
-                },
-              }}
-            >
-              <m.span
-                className="tui-sheet-end-icon"
-                aria-hidden
-                variants={{
-                  away: { scale: 0.4, opacity: 0 },
-                  here: {
-                    scale: 1,
-                    opacity: 1,
-                    transition: {
-                      type: 'spring',
-                      stiffness: 520,
-                      damping: 18,
-                      delay: 0.12,
-                    },
-                  },
-                }}
-              >
-                <CheckCheck size={18} />
-              </m.span>
-              <p>You've reached the end of the findings.</p>
-            </m.div>
-          </MotionConfig>
-        </LazyMotion>
-      )}
-    </div>
-  );
 }
 
 /** The drafts the poster falls back to, or null when the gate does not
@@ -915,7 +826,7 @@ function ReviewGateSheet({
                   }
                 />
               )}
-              <FindingsEnd />
+              <SheetEnd>You've reached the end of the findings.</SheetEnd>
             </>
           )}
           {mainTab === 'report' && (
