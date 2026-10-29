@@ -34,7 +34,7 @@ export const NEED_LABEL: Record<Need, string> = {
   unstick: 'unstick',
   respond: 'respond',
   fix: 'fix',
-  're-review': 're-review',
+  're-review': 'follow-up review',
   review: 'review',
   merge: 'merge',
 };
