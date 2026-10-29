@@ -25,11 +25,18 @@ flowchart TB
     requirements_answer{Requirements source answer?}
     print_depth_block
     run_depth_checks
+    select_rules
     repro_browser{Self-review repro takes a browser screenshot?}
     capture_repro
     who_judges{Who forms the self-review judgment?}
     stop_no_inline_judging[STOP: never judge your own diff inline; dispatch the fresh reviewer]:::stop
     dispatch_reviewer
+    check_verdicts
+    verdict_problems{Verdict problems left?}
+    run_budget_verdict_rounds[/"run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}"/]
+    verdict_rounds_spent{verdict-rounds:<depth> spent?}
+    repair_verdicts
+    fails_to_findings
     open_off_script_gate
     off_script_answer{Self-review off-script answer?}
     make_recorded_move
@@ -86,7 +93,8 @@ flowchart TB
     requirements_answer -->|a source picked| print_depth_block
     requirements_answer -->|hold| run_hold
     print_depth_block --> run_depth_checks
-    run_depth_checks --> repro_browser
+    run_depth_checks --> select_rules
+    select_rules --> repro_browser
     repro_browser -->|yes| capture_repro
     repro_browser -->|no: read or verify depth, or the domain's own method| who_judges
     capture_repro -->|Board ready or Not drawn| who_judges
@@ -100,7 +108,15 @@ flowchart TB
     off_script_answer -->|hold| run_hold
     off_script_answer -->|hand back| own_run_close_abandoned
     make_recorded_move --> assemble_draft
-    dispatch_reviewer --> assemble_draft
+    dispatch_reviewer --> check_verdicts
+    check_verdicts --> verdict_problems
+    verdict_problems -->|none, or no selection| fails_to_findings
+    verdict_problems -->|yes| run_budget_verdict_rounds
+    run_budget_verdict_rounds --> verdict_rounds_spent
+    verdict_rounds_spent -->|no| repair_verdicts
+    repair_verdicts --> check_verdicts
+    verdict_rounds_spent -->|yes: unanswered in the Assessment| fails_to_findings
+    fails_to_findings --> assemble_draft
     assemble_draft --> gate_fix_and_next
     gate_fix_and_next --> next_answer
     next_answer -->|proceed| fix_answer

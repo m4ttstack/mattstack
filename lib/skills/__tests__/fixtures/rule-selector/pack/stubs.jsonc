@@ -1,0 +1,7 @@
+{
+  "verbs": {
+    "review": { "engine": "review", "description": "Review a teammate's MR" },
+    "self-review": { "engine": "self-review", "description": "Self-review the current branch" },
+    "receive-review": { "engine": "receive-review", "description": "Act on review feedback on your MR" }
+  }
+}

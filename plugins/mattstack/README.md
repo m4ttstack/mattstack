@@ -193,25 +193,28 @@ The review cluster: a shared engine plus the protocols around it.
 `review-posting` and `subagent-review-loop` are model-visible; `review`,
 `self-review`, and `receive-review` are hidden via `disable-model-invocation`
 and reached only as a pack's compiled verbs. The review skills plug into
-domain packs via the `review-criteria@1`, `reviewer-dispatch@1`, and
-`reply-rules@1` contracts, while `subagent-review-loop` is a standalone
+domain packs via the `review-criteria@1`, `reviewer-dispatch@1`,
+`rule-selector@1`, and `reply-rules@1` contracts, while `subagent-review-loop` is a standalone
 one-off with no props.
 
-- The review flow lives in five internal include bodies
+- The review flow lives in seven internal include bodies
   (`review-core-body`, `review-core-body-after`, `review-core-body-tail`,
-  `review-dispatch-body`, `review-dispatch-body-after`) that the compiler
-  inlines into `review`, `self-review`, and `receive-review`; not for direct
+  `review-dispatch-body`, `review-dispatch-body-after`,
+  `review-rules-select-body`, `review-rules-verdicts-body`) that the
+  compiler inlines into `review`, `self-review`, and `receive-review`
+  (`receive-review` takes only the rule select body); not for direct
   invocation.
 - **mattstack:review** -- review someone else's MR/PR before it merges, from
   a pasted link, a bare `!iid`/`#number`, or a ticket id: resolve the
   target, dispatch the judgment to a fresh context, return the structured
-  draft (`criteria` + `reviewer` props).
+  draft (`criteria`, `reviewer` and `rule-selector` props).
 - **mattstack:self-review** -- review this session's own work on the
   current branch before shipping; the bias gate against grading your own
-  homework (provides `self-review-domain@1`, the stage's default adapter).
+  homework (`criteria`, `reviewer` and `rule-selector` props; provides
+  `self-review-domain@1`, the stage's default adapter).
 - **mattstack:receive-review** -- process the feedback on your own MR/PR
-  with technical rigor instead of performative agreement (`criteria` +
-  `reply-rules` props).
+  with technical rigor instead of performative agreement (`criteria`,
+  `reply-rules` and `rule-selector` props).
 - **mattstack:review-posting** -- executes a decided `{findings | levels,
   disposition}` selection against the MR/PR: inline threads for what was
   selected, one summary comment, then the disposition; it never decides

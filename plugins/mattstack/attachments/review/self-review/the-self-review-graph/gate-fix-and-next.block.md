@@ -8,7 +8,8 @@ label: Fix and next
 
 Run gate-protocol's Runs integration with `gate_ask {questions, kind:
 self-review, context, runDb, stage}`, `context` quoting the draft's
-Issues, and two questions, each its own:
+Issues and, when the Assessment has one, its `Unanswered rules:` line, and
+two questions, each its own:
 
 - `fix` (write-in): **Fix the blocking findings now** (`blocking`: Critical
   and Important; recommended when any exists) / **Fix the minors too**

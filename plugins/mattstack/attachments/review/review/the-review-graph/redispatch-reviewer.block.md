@@ -6,4 +6,6 @@ node: redispatch_reviewer
 
 One fresh-context dispatch, same template, naming each failed check
 verbatim and asking it to
-confirm each finding with a corrected anchor or withdraw it.
+confirm each finding with a corrected anchor or withdraw it. It carries no
+rule selection text and no verdict request: rule findings go to it like any
+other finding.

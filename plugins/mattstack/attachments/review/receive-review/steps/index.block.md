@@ -47,6 +47,7 @@ flowchart TB
     read_pr_threads_gh
     keep_unresolved_human
     any_unresolved{Any unresolved human threads?}
+    select_rules
     dispatch_adjudicator
     draft_verdict_table
     build_plan_open
@@ -207,7 +208,8 @@ flowchart TB
     mr_threads_unresolved -->|an error: fail, quoting it| own_run_failed_or_abandoned
     read_pr_threads_gh --> keep_unresolved_human
     keep_unresolved_human --> any_unresolved
-    any_unresolved -->|yes| dispatch_adjudicator
+    any_unresolved -->|yes| select_rules
+    select_rules --> dispatch_adjudicator
     any_unresolved -->|none: say so| report_outcome
     dispatch_adjudicator --> draft_verdict_table
     draft_verdict_table --> build_plan_open
@@ -243,7 +245,7 @@ flowchart TB
     gate_record_plan -->|its rows| rewrite_report_rows
     rewrite_report_rows --> code_changes_answer
     code_changes_answer -->|approve, or skip| next_report_row
-    code_changes_answer -->|revise: a fresh dispatch; a handed plan is spent| dispatch_adjudicator
+    code_changes_answer -->|revise: a fresh dispatch; a handed plan is spent| select_rules
     next_report_row -->|fix, code-changes approve, not yet on the branch| implement_fix
     next_report_row -->|fix already committed on the branch| commit_fix
     next_report_row -->|override| redraft_override

@@ -4,7 +4,8 @@ node: write_post_extras
 
 # Write review-post.extras.json
 
-Make one new directory in this session's scratchpad (the Claude Code temp
+Use the review scratch dir `select_rules` made, when it made one; otherwise
+make one new directory in this session's scratchpad (the Claude Code temp
 root, where `gate_open` reads and writes), never `mktemp -d`, and write its
 path out literally from then on. Write `<dir>/review-post.extras.json`:
 

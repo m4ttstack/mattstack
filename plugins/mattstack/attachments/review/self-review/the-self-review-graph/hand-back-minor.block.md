@@ -6,4 +6,5 @@ node: hand_back_minor
 
 Ship as is: hand back to the calling flow with the Minor findings listed
 for the record, plus every finding left open or not reproduced; an
-unfixed Critical or Important counts as left open.
+unfixed Critical or Important counts as left open. The draft's
+`Unanswered rules:` line, when it has one, goes with them.

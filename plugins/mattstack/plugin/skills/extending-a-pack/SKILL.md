@@ -384,7 +384,7 @@ metadata:
 ```
 
 `provides` is the prop's contract when it has one (`criteria` takes
-`review-criteria@1`); a `rules` prop has none, so any `provides` binds.
+`review-criteria@1`, `rule-selector` takes `rule-selector@1`); a `rules` prop has none, so any `provides` binds.
 
 The body: the rule, its reason, and the decision it changes. The stage
 keeps its own flow; the fill carries only what the team adds.

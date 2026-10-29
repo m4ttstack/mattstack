@@ -32,6 +32,7 @@ the counted event, and its `<key> spent?` diamond reads `exhausted`:
 | Key | Limit | Charged when |
 |---|---|---|
 | `fix:<finding id>:<round>` | 3 | a fix attempt fails; `<round>` is 1, then 2 after the finding's reopened gate |
+| `verdict-rounds:<depth>` | 2 | a verdict check at that depth leaves problems |
 | `reopen:<finding id>` | 2 | the finding's fix budget is spent: the first charge opens the reopened gate, the second leaves the finding open |
 
 <HARD-GATE>
