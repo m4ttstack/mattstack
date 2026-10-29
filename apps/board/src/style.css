@@ -7627,9 +7627,10 @@ a.tui-id-card-ref:focus-visible {
 .tui-plan-answer:has(.tui-cte[data-editing])::before {
   height: 63px;
 }
-/* Your words carry a faint accent wash so they read apart from the
-   reviewer's; editing turns the field back into a plain one. */
-:is(.tui-plan-answer, .tui-review-section[data-section='comment'])
+/* Your reply carries a faint accent wash so it reads apart from what it
+   answers; editing turns the field back into a plain one. A finding's own
+   comment, with its code, stays plain. */
+:is(.tui-plan-answer, .tui-reply-card [data-section='comment'])
   .tui-cte:not([data-editing]) {
   border-color: color-mix(in srgb, var(--fill-accent) 22%, var(--border));
   background: color-mix(in srgb, var(--fill-accent) 5%, var(--card));
