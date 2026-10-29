@@ -1259,14 +1259,6 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Remove", flag: "--remove", type: "boolean", default: false, hint: "Handle a WorktreeRemove event (courtesy guarded dispose)" },
         ],
       },
-      "announce-relocation": {
-        description: "Claude Code EnterWorktree PreToolUse hook endpoint (stdin JSON in, nothing out); never call directly",
-        module: "./commands/worktree-hook.ts",
-        fn: "announceRelocation",
-        hidden: true,
-        omitBehavior: { exempt: "agent-facing; driven by Claude Code over stdin, never interactively" },
-        args: [],
-      },
       "is-registered": {
         description: "Claude Code EnterWorktree permission check endpoint (exit 0 when the path is an rt worktree); never call directly",
         module: "./commands/worktree-hook.ts",
