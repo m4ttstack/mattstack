@@ -1267,6 +1267,14 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: { exempt: "agent-facing; driven by Claude Code over stdin, never interactively" },
         args: [],
       },
+      "is-registered": {
+        description: "Claude Code EnterWorktree permission check endpoint (exit 0 when the path is an rt worktree); never call directly",
+        module: "./commands/worktree-hook.ts",
+        fn: "isRegisteredCommand",
+        hidden: true,
+        omitBehavior: { exempt: "agent-facing; run by the mattstack plugin's EnterWorktree check, never interactively" },
+        args: [{ name: "Path", type: "text", placeholder: "/abs/path/to/tree", hint: "Absolute path of the worktree" }],
+      },
       hook: {
         description: "Set up Claude Code to use rt worktrees",
         subcommands: {
