@@ -20,6 +20,17 @@ export function PersonTag({
   );
 }
 
+/** A comment's name line: the person's invader cropped to a ringed circle,
+    then their name. Without an id it is the name alone. */
+export function CommentAuthor({ id, name }: { id?: string; name: string }) {
+  return (
+    <span className="tui-comment-author">
+      {id && <MemberInvadr id={id} className="tui-comment-avatar" />}
+      {name}
+    </span>
+  );
+}
+
 /** A card's lead line about a person: who, then what they did ("opened !12
     into main", "reviewed your merge request"), with anything `trailing`
     (the MR's links) held to the right edge. */

@@ -7356,6 +7356,22 @@ a.tui-id-card-ref:focus-visible {
   font-size: 13px;
   font-weight: 600;
 }
+.tui-comment-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+/* The invader cropped to a circle, ringed with a hairline gap. */
+.tui-comment-avatar {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1.5px var(--card),
+    0 0 0 2.5px var(--border-control);
+}
 .tui-plan-fix {
   display: flex;
   align-items: flex-start;

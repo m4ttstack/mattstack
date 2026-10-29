@@ -18,6 +18,7 @@ import {
   THREAD_CALL,
   ThreadCode,
 } from './GateParts.tsx';
+import { CommentAuthor } from './PersonLead.tsx';
 import { SeverityPill } from './RespondCards.tsx';
 
 const LATER_TIP =
@@ -34,6 +35,8 @@ export function PlanThreadCard({
   ctx,
   form,
   reviewer,
+  reviewerId,
+  selfId,
   draft,
   mr,
 }: {
@@ -42,6 +45,9 @@ export function PlanThreadCard({
   form: GateFormState;
   /** The reviewer's name as the sheet shows people. */
   reviewer: string;
+  /** The usernames the reviewer's and your invaders are generated from. */
+  reviewerId?: string;
+  selfId?: string;
   /** The drafted reply's exact words, when the agent drafted one. */
   draft?: string;
   mr?: { url?: string; ref?: string; revision?: string };
@@ -135,6 +141,7 @@ export function PlanThreadCard({
         </div>
         <SaidBox
           who={reviewer}
+          whoId={reviewerId}
           text={ctx.claim.summary}
           points={ctx.claim.points}
         />
@@ -152,7 +159,7 @@ export function PlanThreadCard({
                 draft={draft}
                 value={value}
                 heading="Editing reply"
-                lead="You:"
+                lead={<CommentAuthor id={selfId} name="You:" />}
                 onChange={t => form.setText(q.name, t)}
                 onReset={() => form.clearText(q.name)}
               />

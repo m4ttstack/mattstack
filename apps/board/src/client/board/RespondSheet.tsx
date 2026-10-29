@@ -671,9 +671,16 @@ function RespondSheetBody({
         })()}
         messages={
           thread?.claim.summary
-            ? [{ who: people.short(thread.author), text: thread.claim.summary }]
+            ? [
+                {
+                  who: people.short(thread.author),
+                  whoId: thread.author,
+                  text: thread.claim.summary,
+                },
+              ]
             : []
         }
+        selfId={mr?.author.username}
         draft={reply.text}
         value={live ? form.texts[p.name] : undefined}
         posting={live}
@@ -923,6 +930,8 @@ function RespondSheetBody({
                     ctx={qctx}
                     form={form}
                     reviewer={people.short(qctx.author)}
+                    reviewerId={qctx.author}
+                    selfId={mr?.author.username}
                     draft={pr?.draft}
                     mr={
                       mr

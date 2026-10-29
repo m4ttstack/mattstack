@@ -16,10 +16,13 @@ import {
   type AgentVerdict,
   type StatusHue,
 } from './GateParts.tsx';
+import { CommentAuthor } from './PersonLead.tsx';
 
 export interface ThreadMessage {
   /** Absent on the viewer's own message, which needs no name. */
   who?: string;
+  /** The username their invader is generated from. */
+  whoId?: string;
   text: string;
 }
 
@@ -40,6 +43,8 @@ export interface ThreadReplyCardProps {
   /** The MR, for the code a file:line thread was left on. */
   mr?: { url?: string; ref?: string; revision?: string };
   messages: ThreadMessage[];
+  /** Your username, for the invader beside your reply. */
+  selfId?: string;
   /** Said in place of the other side's message when they never replied. */
   silence?: string;
   check?: { note: string; verdict: AgentVerdict };
@@ -91,7 +96,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
       draft={p.draft}
       value={p.value}
       heading="Editing reply"
-      lead={stacked ? 'You:' : undefined}
+      lead={stacked ? <CommentAuthor id={p.selfId} name="You:" /> : undefined}
       footer={p.resolve && <ResolveTick label={p.label} resolve={p.resolve} />}
       onChange={p.onChange}
       onReset={p.onReset}
@@ -150,7 +155,7 @@ export function ThreadReplyCard(p: ThreadReplyCardProps) {
         {p.check && <AgentCheck {...p.check} />}
         {said ? (
           <>
-            <SaidBox who={said.who!} text={said.text} />
+            <SaidBox who={said.who!} whoId={said.whoId} text={said.text} />
             <Answer>{field}</Answer>
           </>
         ) : (

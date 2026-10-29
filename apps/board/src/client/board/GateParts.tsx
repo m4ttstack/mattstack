@@ -7,6 +7,7 @@ import { commentState } from './CommentComposer.tsx';
 import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { Disclosure } from './Disclosure.tsx';
 import type { FindingEntry, VerdictCall } from './gate-ctx.ts';
+import { CommentAuthor } from './PersonLead.tsx';
 import { CodeSection, CommentEditor, DraftMeta } from './ReviewDraftCard.tsx';
 
 /** The parts every gate card is built from: a review finding, a re-review
@@ -249,16 +250,21 @@ export function DraftField({
     that answers it: who wrote it, then their words. */
 export function SaidBox({
   who,
+  whoId,
   text,
   points = [],
 }: {
   who: string;
+  /** The username their invader is generated from. */
+  whoId?: string;
   text: string;
   points?: string[];
 }) {
   return (
     <div className="tui-plan-said">
-      <span className="tui-plan-said-who">{who}</span>
+      <span className="tui-plan-said-who">
+        <CommentAuthor id={whoId} name={who} />
+      </span>
       <CommentMarkdown>{text}</CommentMarkdown>
       {points.length > 0 && (
         <ul className="tui-thread-points">
