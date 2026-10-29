@@ -9,8 +9,9 @@ metadata:
 # acme rule selector
 
 Resolve to `selector: none` when the `ACME_RULES` environment variable is
-`off`. Otherwise resolve to these three lines:
+`off`. Otherwise resolve to these four lines:
 
 selector: acme-rules select --format {format}
 verdicts: acme-rules verdicts --selection {selection} --verdicts {verdicts}
 fence: acme-verdicts
+check: acme-rules check --base {base}
