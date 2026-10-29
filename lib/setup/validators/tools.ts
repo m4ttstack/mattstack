@@ -82,8 +82,8 @@ export function named(name: string, version: string): string {
   return version ? `${name} ${version}` : name;
 }
 
-function provisionedInstallAction(tool: string, hasBrew: boolean, label: "Install" | "Upgrade" = "Install"): Action {
-  return { type: "install", label, tool, via: hasBrew ? "brew" : "vendor" };
+function provisionedInstallAction(tool: string, label: "Install" | "Upgrade" = "Install"): Action {
+  return { type: "install", label, tool, via: "vendor" };
 }
 
 function exec(p: Probes, argv: string[], timeoutMs = PROBE_TIMEOUT_MS): Promise<ExecResult> {
@@ -110,17 +110,17 @@ function parseHerdrClaudeState(stdout: string): { known: boolean; installed: boo
   return { known: true, installed: state.toLowerCase().startsWith("current"), state };
 }
 
-async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
+async function herdrRow(p: Probes): Promise<Row> {
   const base = { id: "tool.herdr", kind: "tool" as const, title: "herdr", why: "Drives Herdr panes for remote-control and multi-agent workflows.", required: true };
 
   const versionRes = await exec(p, ["herdr", "--version"]);
-  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr is not installed", action: provisionedInstallAction("herdr", opts.hasBrew) });
+  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr is not installed", action: provisionedInstallAction("herdr") });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "herdr did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})` });
 
   const version = extractVersion(versionRes.stdout);
   if (!atLeast(version, HERDR_FLOOR)) {
-    return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", "Upgrade") });
   }
 
   const integrationRes = await exec(p, ["herdr", "integration", "status"]);
@@ -143,11 +143,11 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
 
 // ─── tool.claude ───────────────────────────────────────────────────────────
 
-async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
+async function claudeRow(p: Probes): Promise<Row> {
   const base = { id: "tool.claude", kind: "tool" as const, title: "Claude Code", why: "Runs the agent sessions rt drives and hands work off to.", required: true, recheck: "on-activate" as const };
 
   const versionRes = await exec(p, ["claude", "--version"]);
-  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Claude Code is not installed", action: provisionedInstallAction("claude", opts.hasBrew) });
+  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Claude Code is not installed", action: provisionedInstallAction("claude") });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "Claude Code did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Claude Code (exit ${versionRes.code})` });
   const version = extractVersion(versionRes.stdout);
@@ -784,8 +784,8 @@ export async function toolRows(
   const fastBrowser = await probeFastBrowser(p, seams);
   const solo = opts.solo === true;
   const rows: Row[] = [
-    await herdrRow(p, opts),
-    await claudeRow(p, opts),
+    await herdrRow(p),
+    await claudeRow(p),
     fastBrowserRow(fastBrowser, solo),
     fastBrowserExtensionRow(p, fastBrowser, solo),
     editorRow(seams),
