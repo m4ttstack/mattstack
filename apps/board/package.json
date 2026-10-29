@@ -26,6 +26,7 @@
     "@mattstack/settings-kit": "workspace:*",
     "@mattstack/tui-kit": "workspace:*",
     "@pierre/diffs": "catalog:",
+    "gifenc": "catalog:",
     "invadrs": "^1.3.1",
     "lucide-react": "catalog:",
     "motion": "14.2.0",

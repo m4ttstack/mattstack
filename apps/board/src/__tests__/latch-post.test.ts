@@ -53,7 +53,7 @@ describe('postLatch', () => {
   test('uploads the banner then creates a resolvable discussion', async () => {
     const { gw, calls, bodies } = gateway();
     await postLatch(gw, 42, 'acme/web', MR, 2317);
-    expect(calls).toEqual(['upload:latch-2317.png', 'createDiscussion']);
+    expect(calls).toEqual(['upload:latch-2317-armed.gif', 'createDiscussion']);
     expect(latchKindOf(bodies[0]!)).toBe('armed');
     expect(bodies[0]).toContain(IMG);
   });

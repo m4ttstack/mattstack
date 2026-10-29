@@ -2,7 +2,7 @@
  * The latch's GitLab writes, behind one injected gateway so the pass and the
  * server share them and tests need no network.
  */
-import { latchBannerPng } from './banner.ts';
+import { latchBannerGif } from './banner.ts';
 import type { LatchRef } from './discussions.ts';
 import {
   armedLatchBody,
@@ -55,12 +55,12 @@ export async function postLatch(
   mrUrl: string,
   iid: number
 ): Promise<void> {
-  const png = latchBannerPng(mrUrl);
+  const gif = latchBannerGif(mrUrl, { state: 'armed' });
   const up = await gw.uploadFile(
     projectId,
-    `latch-${iid}.png`,
-    png,
-    'image/png'
+    `latch-${iid}-armed.gif`,
+    gif,
+    'image/gif'
   );
   await gw.createDiscussion(projectId, iid, armedLatchBody(up.markdown));
 }
