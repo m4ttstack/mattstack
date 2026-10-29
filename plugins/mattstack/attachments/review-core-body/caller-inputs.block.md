@@ -6,7 +6,8 @@ order: 1
 
 - The diff source, already confirmed to resolve. With no named base: the
   branch point (`git merge-base origin/HEAD HEAD`, falling back to the
-  default branch by name), plus uncommitted changes for own-branch flows.
+  default branch by name), plus uncommitted changes and untracked files
+  for own-branch flows.
 - The requirements, from the ticket or task description.
 - A human-readable label for the change.
 

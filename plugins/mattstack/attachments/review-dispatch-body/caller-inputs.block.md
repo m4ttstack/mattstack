@@ -11,3 +11,7 @@ order: 2
 - the requirements or acceptance criteria the change is judged against
 - optional: an already-filled domain addendum block
 - optional: setup observations already gathered (commands run, values seen)
+- optional, reviewer only: a diff file, when the change reaches past the
+  commit range (uncommitted changes or untracked files)
+- optional: the rule selection text, plus a verdict request naming the
+  `fence` value when the caller asks for one (an adjudicator never does)
