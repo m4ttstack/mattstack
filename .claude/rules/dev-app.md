@@ -37,6 +37,16 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   `scripts/build-apps.ts` from `apps/gitq/mattstack.deck.json`'s
   `bundle.build` recipe, and deck never serves it (root `AGENTS.md`,
   "Monorepo layout"), so its changes ship at the next release.
+- **The board also runs from the bundle, so a board state db schema bump
+  needs a dev app rebuild.** Only the served board (port 11006) runs from
+  source. `rt cron`'s `board-triage` and `board-peer` triggers, and the
+  status writers the board hands launched panes (`review-status`,
+  `respond-status`, `doctor-status`, `gate`), run the compiled
+  `Contents/Helpers/board` (the daemon resolves `tool: "board"` through
+  `deps.lock`). After a deploy that bumps `SCHEMA_VERSION` in
+  `apps/board/src/state/db.ts`, that older binary refuses the migrated
+  `~/.mattstack/board/state.db` ("newer than this board understands") until
+  the dev app is rebuilt from the merged ref.
 - **Manifest keys in `mattstack.deck.json` are read only at register or
   adopt.** After a manifest change, run `deck register --dir <absolute path>`.
 - **Tray and shim changes need a dev app rebuild**: in a scratch tree at the
