@@ -1152,6 +1152,7 @@ exports[`the setup plan's shape and copy Your repos: one row per tracked repo, a
   "rows": [
     {
       "action": {
+        "awaitsRun": false,
         "board": "The board starts here",
         "checkoutPath": null,
         "clonePath": "/fake-home/Documents/GitHub/widgets",
@@ -1176,6 +1177,7 @@ exports[`the setup plan's shape and copy Your repos: one row per tracked repo, a
     },
     {
       "action": {
+        "awaitsRun": false,
         "board": null,
         "checkoutPath": null,
         "clonePath": "/fake-home/Documents/GitHub/acme-api",

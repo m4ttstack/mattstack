@@ -61,6 +61,8 @@ export type Action =
       segmentRecords: boolean;
       // The board's repo only: the line saying the board's agents start there.
       board: string | null;
+      // The member's answer is recorded and only a run is left to land it.
+      awaitsRun: boolean;
     }
   // The app appends the picked id and --json to verb; "other" collects a free-text id for the same verb.
   // other.suggestions is the app's only source of completions for a typed id; it never scans the filesystem.

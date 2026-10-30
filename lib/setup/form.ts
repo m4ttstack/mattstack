@@ -543,9 +543,11 @@ export interface ThisMacInputs {
   repoRoot: { configured: string | null; staged: string | null; candidate: string | null };
 }
 
+/** An answer only the run is left to land is done here: Set up this Mac starts that run. */
 function placeRow(r: Row): FormRow {
-  const board = r.action?.type === "place-repo" ? r.action.board : null;
-  return { id: r.id, title: r.title, subtext: board ?? r.why, state: r.status === "ready" ? "done" : "todo", detail: r.detail, action: r.action, waiting: null, watch: false, optional: false };
+  const place = r.action?.type === "place-repo" ? r.action : null;
+  const done = r.status === "ready" || place?.awaitsRun === true;
+  return { id: r.id, title: r.title, subtext: place?.board ?? r.why, state: done ? "done" : "todo", detail: r.detail, action: r.action, waiting: null, watch: false, optional: false };
 }
 
 function repoRootRow(i: ThisMacInputs): FormRow {

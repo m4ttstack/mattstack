@@ -17,9 +17,11 @@ function r(id: string, status: Row["status"], detail: string, over: Partial<Row>
   return row({ id, kind: "tool", title: id, why: `why ${id}`, required: true, status, detail, ...over });
 }
 
-function placeAction(identity: string, board: string | null): Action {
+type PlaceRepo = Extract<Action, { type: "place-repo" }>;
+
+function placeAction(identity: string, board: string | null, over: Partial<PlaceRepo> = {}): PlaceRepo {
   const repo = identity.split("/").pop()!;
-  return {
+  const base: PlaceRepo = {
     type: "place-repo",
     label: "Choose…",
     identity,
@@ -33,7 +35,15 @@ function placeAction(identity: string, board: string | null): Action {
     oneClick: null,
     segmentRecords: true,
     board,
+    awaitsRun: false,
   };
+  return { ...base, ...over };
+}
+
+/** A repo Install left for the member, as repos.ts emits it: gated until the repo lands. */
+function deferredRow(identity: string, detail: string, over: Partial<PlaceRepo>): Row {
+  const repo = identity.split("/").pop()!;
+  return r(`repos.place:${identity}`, "needs-you", detail, { title: repo, why: "gitlab.com/acme", finishGated: true, waivable: false, action: placeAction(identity, null, { note: detail, ...over }) });
 }
 
 function placeRow(identity: string, status: Row["status"], board: string | null = null): Row {
@@ -94,6 +104,30 @@ describe("thisMacRows", () => {
     const blocked = placeRow(ACME_API, "needs-you");
     const list = thisMacRows(inputs({ plan: plan([placeRow(WIDGETS, "ready"), blocked]) }));
     expect(pick(list, `repos.place:${ACME_API}`)).toMatchObject({ state: "todo", action: blocked.action });
+    expect(startReady(list)).toBe(false);
+  });
+
+  test("an answered deferred repo is done and lets Set up this Mac start", () => {
+    const answered = deferredRow(ACME_API, "rt clones it to ~/work/acme-api next", { clonePath: "/fake-home/work/acme-api", awaitsRun: true });
+    const list = thisMacRows(inputs({ plan: plan([placeRow(WIDGETS, "ready"), answered]) }));
+    expect(pick(list, `repos.place:${ACME_API}`)).toMatchObject({ state: "done", detail: "rt clones it to ~/work/acme-api next", action: answered.action });
+    expect(startReady(list)).toBe(true);
+  });
+
+  test("an unanswered deferred repo holds Set up this Mac", () => {
+    const unanswered = deferredRow(ACME_API, "Choose where your repos go", { oneClick: { label: "Clone here", mode: "clone", path: "/fake-home/code/acme-api" } });
+    const list = thisMacRows(inputs({ plan: plan([placeRow(WIDGETS, "ready"), unanswered]) }));
+    expect(pick(list, `repos.place:${ACME_API}`)).toMatchObject({ state: "todo", action: unanswered.action });
+    expect(startReady(list)).toBe(false);
+  });
+
+  test("a failed clone holds Set up this Mac with its Retry", () => {
+    const failure = "The last clone failed: fatal: repository not found (git exited 128)";
+    const failed = deferredRow(ACME_API, failure, { problem: failure, oneClick: { label: "Retry", mode: "clone", path: "/fake-home/work/acme-api" } });
+    const list = thisMacRows(inputs({ plan: plan([placeRow(WIDGETS, "ready"), failed]) }));
+    const row = pick(list, `repos.place:${ACME_API}`);
+    expect(row).toMatchObject({ state: "todo", detail: failure });
+    expect(row.action).toMatchObject({ oneClick: { label: "Retry" } });
     expect(startReady(list)).toBe(false);
   });
 

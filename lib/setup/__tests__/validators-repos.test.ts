@@ -53,7 +53,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
 
     expect(rows.map((r) => r.id)).toEqual([`repos.place:${WIDGETS}`, `repos.place:${ACME_API}`]);
     expect(byId(rows, WIDGETS)).toMatchObject({ kind: "tool", title: "widgets", why: "gitlab.com/acme", required: true, recheck: "on-activate", status: "ready", detail: "Found your widgets checkout" });
-    expect(action(byId(rows, WIDGETS))).toMatchObject({ type: "place-repo", label: "Locate…", identity: WIDGETS, repo: "widgets", mode: "checkout", checkoutPath: widgets, problem: null, then: null, oneClick: null, segmentRecords: true });
+    expect(action(byId(rows, WIDGETS))).toMatchObject({ type: "place-repo", label: "Locate…", identity: WIDGETS, repo: "widgets", mode: "checkout", checkoutPath: widgets, problem: null, then: null, oneClick: null, segmentRecords: true, awaitsRun: false });
     // The other segment never offers the checkout's own folder as a clone location.
     expect(action(byId(rows, WIDGETS)).clonePath).toBe(join(home, "Documents", "GitHub", "widgets"));
 
@@ -72,6 +72,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
       oneClick: null,
       segmentRecords: true,
       board: null,
+      awaitsRun: false,
     });
     expect(rows.every((r) => !r.finishGated)).toBe(true);
   });
@@ -161,7 +162,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([ACME_API])), ACME_API);
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, waivable: false, detail: "Choose where your repos go" });
-    expect(action(r)).toMatchObject({ then: THEN, note: "Choose where your repos go", oneClick: { label: "Clone here", mode: "clone", path: join(home, "code", "acme-api") } });
+    expect(action(r)).toMatchObject({ then: THEN, note: "Choose where your repos go", oneClick: { label: "Clone here", mode: "clone", path: join(home, "code", "acme-api") }, awaitsRun: false });
   });
 
   test("unanswered, but the shown location is another repo's: the problem, and no Clone here", async () => {
@@ -172,7 +173,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot(["gitlab.com/a/api", "github.com/b/api"])), "github.com/b/api");
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, detail: "~/code/api is where api goes. Choose another folder." });
-    expect(action(r)).toMatchObject({ note: "Choose where your repos go", problem: "~/code/api is where api goes. Choose another folder.", oneClick: null });
+    expect(action(r)).toMatchObject({ note: "Choose where your repos go", problem: "~/code/api is where api goes. Choose another folder.", oneClick: null, awaitsRun: false });
   });
 
   test("a recorded answer wins over the index, as it does for repos.clone", async () => {
@@ -195,7 +196,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([ACME_API])), ACME_API);
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, waivable: false, detail: "rt clones it to ~/work/acme-api next" });
-    expect(action(r)).toMatchObject({ mode: "clone", clonePath: join(home, "work", "acme-api"), oneClick: null, then: THEN });
+    expect(action(r)).toMatchObject({ mode: "clone", clonePath: join(home, "work", "acme-api"), oneClick: null, then: THEN, awaitsRun: true });
   });
 
   test("after a failed clone: the reason, and Retry with the recorded answer", async () => {
@@ -209,6 +210,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, detail: "The last clone failed: fatal: repository not found (git exited 128)" });
     expect(action(r).oneClick).toEqual({ label: "Retry", mode: "clone", path: join(home, "work", "acme-api") });
     expect(action(r).problem).toBe("The last clone failed: fatal: repository not found (git exited 128)");
+    expect(action(r).awaitsRun).toBe(false);
   });
 
   test("once the repo is in the index it reads ready", async () => {

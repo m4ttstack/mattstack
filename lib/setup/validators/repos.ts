@@ -47,6 +47,7 @@ interface RowState {
   problem: string | null;
   oneClick: PlaceRepo["oneClick"];
   gated: boolean;
+  awaitsRun: boolean;
 }
 
 export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: TeamSnapshot): Promise<Row[]> {
@@ -84,7 +85,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
     const base = repoBasename(identity);
     const clonePath = placement.mode === "clone" ? placement.path : cloneAlternative(identity, placement.path);
     const checkoutPath = placement.mode === "checkout" ? placement.path : null;
-    const shape = { mode: placement.mode, checkoutPath, clonePath, problem: null, oneClick: null, gated: false };
+    const shape = { mode: placement.mode, checkoutPath, clonePath, problem: null, oneClick: null, gated: false, awaitsRun: false };
     const indexed = await indexedCheckout(p, identity);
     const found = `Found your ${base} checkout`;
 
@@ -100,7 +101,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
       const lastFailure = failed[identity];
       if (lastFailure !== undefined) return { ...gated, note: lastFailure, problem: lastFailure, oneClick: { label: "Retry", mode: recorded.mode, path: recorded.path } };
       const where = tildify(p.home, recorded.path);
-      return { ...gated, note: recorded.mode === "clone" ? `rt clones it to ${where} next` : `rt uses your checkout at ${where} next` };
+      return { ...gated, awaitsRun: true, note: recorded.mode === "clone" ? `rt clones it to ${where} next` : `rt uses your checkout at ${where} next` };
     }
 
     // A recorded answer comes before the index, the order `repos.clone` follows.
@@ -134,6 +135,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         oneClick: s.oneClick,
         segmentRecords: !installed,
         board: identity === boardRepo ? BOARD_LINE : null,
+        awaitsRun: s.awaitsRun,
       };
       return row({
         id: `${REPO_PLACE_ROW_PREFIX}${identity}`,
