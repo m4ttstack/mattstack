@@ -70,6 +70,7 @@ import {
   ensureAgeKey,
   importAgeKey,
   keyExport,
+  PRIVATE_KEY_PREFIX,
   renderSopsYaml,
   sopsYamlRecipient,
   type AgeKeySeam,
@@ -95,7 +96,7 @@ import { unwritten } from "../lib/settings/presence.ts";
 import { readIntent as readIntentFromDisk, type SetupIntent } from "../lib/setup/intent.ts";
 import { deckHelperLabel } from "../lib/setup/need.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
-import { homeRepoCloneUrl, RESTORE_USAGE, runHomeRestore } from "../lib/home/restore.ts";
+import { homeRepoCloneUrl, RESTORE_USAGE, runHomeRestore, type KeyOutcome } from "../lib/home/restore.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { exitWithUserError } from "../lib/setup/user-failure.ts";
@@ -960,8 +961,6 @@ function truncateKey(key: string): string {
  * pasted, not a guess — a wrong paste that happens to parse still gets
  * caught here before the operator believes their secrets are decryptable.
  */
-/** The unmistakable prefix of a pasted age private key — never a legitimate flag or value for anything else this command takes. */
-const AGE_PRIVATE_KEY_PREFIX = "AGE-SECRET-KEY-1";
 
 export async function homeKeyImport(
   args: string[],
@@ -975,7 +974,7 @@ export async function homeKeyImport(
   // already landed in the operator's shell history and rt's own CLI log
   // (dispatch() logs every command's args) — refuse outright rather than
   // silently proceeding as if the leak never happened.
-  const pastedKeyArg = args.find((a) => a.startsWith(AGE_PRIVATE_KEY_PREFIX));
+  const pastedKeyArg = args.find((a) => a.startsWith(PRIVATE_KEY_PREFIX));
   if (pastedKeyArg !== undefined) {
     refuse(
       "rt will not import a key passed as a positional argument",
@@ -1039,8 +1038,18 @@ export interface HomeRestoreDeps {
 }
 
 export function realHomeRestoreDeps(): HomeRestoreDeps {
-  return { probes: createRealProbes(), ageKeySeam: createRealAgeKeySeam(), input: defaultAgeKeyInputSeam(), json: (v) => out.json(v), exit: process.exit };
+  const input: AgeKeyInputSeam = {
+    fromStdin: () => readStdinTrimmed(),
+    fromPrompt: () => promptSecret("Paste your recovery key").then((value) => value.trim()),
+  };
+  return { probes: createRealProbes(), ageKeySeam: createRealAgeKeySeam(), input, json: (v) => out.json(v), exit: process.exit };
 }
+
+const KEY_ENDING: Record<KeyOutcome, string> = {
+  imported: "Saved your recovery key to the keychain",
+  kept: "Your recovery key was already on this Mac",
+  replaced: "Replaced the recovery key that could not open your settings",
+};
 
 async function readRecoveryKey(args: string[], input: AgeKeyInputSeam): Promise<string> {
   try {
@@ -1056,9 +1065,9 @@ export async function homeRestore(args: string[], _ctx: CommandContext = {}, dep
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
   try {
-    if (args.some((a) => a.startsWith(AGE_PRIVATE_KEY_PREFIX))) {
+    if (args.some((a) => a.startsWith(PRIVATE_KEY_PREFIX))) {
       throw new UserActionableError("key-on-argv", "rt will not take a recovery key on the command line", {}, {
-        why: "It is in your shell history and rt's log now, so treat it as leaked.",
+        why: "It is in your shell history now, so treat it as leaked.",
         next: RESTORE_USAGE,
       });
     }
@@ -1076,8 +1085,9 @@ export async function homeRestore(args: string[], _ctx: CommandContext = {}, dep
       return;
     }
     out.print(
-      out.line("done", result.key === "kept" ? "Your recovery key was already on this Mac" : "Saved your recovery key to the keychain"),
+      out.line("done", KEY_ENDING[result.key]),
       out.line("done", "Brought your settings over", result.homeRepo),
+      out.callout("next", "Open mattstack.app to finish setting up this Mac"),
     );
   } catch (err) {
     if (err instanceof UserActionableError) return exitWithUserError(err, json, { json: deps.json, exit: deps.exit, now: () => deps.probes.now() });

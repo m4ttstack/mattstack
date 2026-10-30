@@ -409,7 +409,7 @@ describe("home.restore", () => {
     const outcome = await homeRestoreStep.run(ctx);
     expect(outcome.state).toBe("failed");
     expect((outcome as { remedy?: string }).remedy).toBe(
-      "Run rt home restore acme/mattstack-home and paste your recovery key, then Retry",
+      "Bring your settings over with your recovery key, then Retry: rt home restore acme/mattstack-home",
     );
   });
 
@@ -418,6 +418,17 @@ describe("home.restore", () => {
       home: "/fake-home",
       dirs: { "/fake-home/.mattstack/user/.git": [] },
       files: { "/fake-home/.mattstack/user/.git": "gitdir", "/fake-home/.mattstack/user/.git/config": '[remote "origin"]\n\turl = https://github.com/someone-else/other.git\n' },
+    });
+    const { ctx } = makeCtx(p, { intent: restoreIntent, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect((await homeRestoreStep.run(ctx)).state).toBe("failed");
+  });
+
+  test("an origin that only contains the repo's name is a different repo", async () => {
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { "/fake-home/.mattstack/user/.git": [] },
+      files: { "/fake-home/.mattstack/user/.git": "gitdir", "/fake-home/.mattstack/user/.git/config": '[remote "origin"]\n\turl = https://github.com/acme/mattstack-home-old.git\n' },
     });
     const { ctx } = makeCtx(p, { intent: restoreIntent, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
 

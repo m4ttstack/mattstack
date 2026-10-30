@@ -402,7 +402,7 @@ describe("homeInit", () => {
 
     expect(exitCode).toBeUndefined();
     const cloneCall = seam.calls.find((c) => c.kind === "run") as { kind: string; arg: string[] } | undefined;
-    expect(cloneCall?.arg).toEqual(["git", "clone", TEST_URL, "user"]);
+    expect(cloneCall?.arg).toEqual(["git", "clone", "--", TEST_URL, "user"]);
     expect(ageKeySeam.calls.some((c) => c[1] === "find-generic-password")).toBe(true);
     expect(ageKeySeam.calls.some((c) => c[0] === "age-keygen")).toBe(true);
     expect(sopsYamlSeam.files.get(SOPS_YAML_PATH)).toBe(renderSopsYaml(FAKE_PUBLIC_KEY));
@@ -420,7 +420,7 @@ describe("homeInit", () => {
     await runHomeInit(fakeProbes({}), seam, new FakeAgeKeySeam(), ["--url", TEST_URL]);
 
     const cloneCall = seam.calls.find((c) => c.kind === "run") as { kind: string; arg: string[] } | undefined;
-    expect(cloneCall?.arg).toEqual(["git", "clone", TEST_URL, "user"]);
+    expect(cloneCall?.arg).toEqual(["git", "clone", "--", TEST_URL, "user"]);
   });
 
   test("no url anywhere: git-inits a local-only repo and commits its initial tree, never silently substituting a built-in default repo", async () => {
@@ -825,7 +825,7 @@ describe("homeInit", () => {
 
       expect(exitCode).toBeUndefined();
       const cloneCall = cloneAwareSeam.calls.find((c) => c.kind === "run") as { kind: string; arg: string[] } | undefined;
-      expect(cloneCall?.arg).toEqual(["git", "clone", TEST_URL, "user"]);
+      expect(cloneCall?.arg).toEqual(["git", "clone", "--", TEST_URL, "user"]);
       expect(cloneAwareSeam.calls).toContainEqual({ kind: "writeFile", arg: { path: "machine-key", content: "desktop" } });
     });
 

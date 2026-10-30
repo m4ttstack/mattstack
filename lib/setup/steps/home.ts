@@ -8,6 +8,7 @@
 
 import { join } from "path";
 import { readAgeKey } from "../../home/age-key.ts";
+import { originNames } from "../../home/home-repo.ts";
 import { INIT_OUTPUT_CAPTION, INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -196,7 +197,7 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
   const homeRepo = ctx.intent?.restore?.homeRepo;
   const cloned = p.exists(homeGitDir(p.home));
   const gitConfig = cloned ? p.readFile(join(homeGitDir(p.home), "config")) : null;
-  const originMatches = homeRepo !== undefined && gitConfig !== null && gitConfig.includes(homeRepo);
+  const originMatches = homeRepo !== undefined && originNames(gitConfig, homeRepo);
   const keyStatus = await checkLocalKey(ctx);
 
   if (cloned && originMatches && keyStatus.status === "present") {
@@ -218,7 +219,7 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
   return {
     state: "failed",
     detail: `Could not confirm the home repo or its age key at ${join(p.home, ".mattstack", "user")}`,
-    remedy: `Run rt home restore ${homeRepo ?? "<owner>/<repo>"} and paste your recovery key, then Retry`,
+    remedy: `Bring your settings over with your recovery key, then Retry: rt home restore ${homeRepo ?? "<owner>/<repo>"}`,
   };
 }
 

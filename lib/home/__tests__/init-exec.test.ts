@@ -89,7 +89,7 @@ describe("executeInitPlan", () => {
     const result = await executeInitPlan(steps, seam, noopLog);
 
     expect(result).toEqual({ ok: true });
-    expect(seam.calls).toEqual([{ kind: "run", cmd: ["git", "clone", REPO_URL, "user"], cwd: undefined }]);
+    expect(seam.calls).toEqual([{ kind: "run", cmd: ["git", "clone", "--", REPO_URL, "user"], cwd: undefined }]);
   });
 
   test("cloneUserRepo: a failing clone aborts and reports it", async () => {
@@ -294,7 +294,7 @@ describe("executeInitPlan", () => {
       expect(result.stderr).toContain("not found");
     }
     // writeGitignore and writeMachineKey never ran.
-    expect(seam.calls).toEqual([{ kind: "run", cmd: ["git", "clone", REPO_URL, "user"], cwd: undefined }]);
+    expect(seam.calls).toEqual([{ kind: "run", cmd: ["git", "clone", "--", REPO_URL, "user"], cwd: undefined }]);
   });
 });
 

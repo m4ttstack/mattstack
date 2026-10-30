@@ -88,7 +88,7 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
     }
     case "cloneUserRepo": {
       log(`Cloning ${step.url}`);
-      await run(exec, ["git", "clone", step.url, "user"]);
+      await run(exec, ["git", "clone", "--", step.url, "user"]);
       return;
     }
     case "initUserRepo": {

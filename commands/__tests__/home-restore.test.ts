@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { homeRestore, type AgeKeyInputSeam, type HomeRestoreDeps } from "../home.ts";
-import { homeRepoTarget, runHomeRestore } from "../../lib/home/restore.ts";
+import { homeRepoTarget, runHomeRestore, type HomeRestoreInput, type HomeRestoreProbes } from "../../lib/home/restore.ts";
+import { originNames } from "../../lib/home/home-repo.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
@@ -14,7 +17,10 @@ const INTENT = `${HOME}/.mattstack/rt/setup-intent.json`;
 // Obvious placeholders: no real age key is ever in a fixture.
 const PASTED_KEY = "AGE-SECRET-KEY-1PLACEHOLDERPASTED";
 const OTHER_KEY = "AGE-SECRET-KEY-1PLACEHOLDEROTHER";
+/** Parses as a key by its prefix, but age cannot read it. */
+const DAMAGED_KEY = "AGE-SECRET-KEY-1PLACEHOLDERDAMAGED";
 const RECIPIENTS: Record<string, string> = { [PASTED_KEY]: "age1placeholderpasted", [OTHER_KEY]: "age1placeholderother" };
+const SOPS = `${HOME}/.mattstack/user/.sops.yaml`;
 
 const REPO = "janedoe/mattstack-home";
 const URL = "https://github.com/janedoe/mattstack-home.git";
@@ -45,6 +51,11 @@ class FakeKeychain implements AgeKeySeam {
       this.events.push("key-stored");
       return { code: 0, stdout: "", stderr: "" };
     }
+    if (cmd[1] === "delete-generic-password") {
+      this.stored = null;
+      this.events.push("key-removed");
+      return { code: 0, stdout: "", stderr: "" };
+    }
     throw new Error(`FakeKeychain: unexpected call ${cmd[0]} ${cmd[1]}`);
   }
 
@@ -56,7 +67,17 @@ class FakeKeychain implements AgeKeySeam {
 type InitBehavior = "ok" | "clone-fails" | "profile-fails";
 
 /** Stands in for the `rt home init` subprocess: what it leaves on disk is what the real one would. */
-function world(opts: { keychain?: string | null; locked?: boolean; init?: InitBehavior[]; files?: Record<string, string>; dirs?: Record<string, string[]> } = {}) {
+function world(
+  opts: {
+    keychain?: string | null;
+    locked?: boolean;
+    init?: InitBehavior[];
+    files?: Record<string, string>;
+    dirs?: Record<string, string[]>;
+    /** The recipient the cloned secrets are locked to; init then fails when the keychain's key is not it, as the real one does. */
+    sopsLockedTo?: string;
+  } = {},
+) {
   const events: string[] = [];
   const initCalls: string[][] = [];
   const behaviors = [...(opts.init ?? ["ok"])];
@@ -75,15 +96,24 @@ function world(opts: { keychain?: string | null; locked?: boolean; init?: InitBe
       if (!p.exists(GIT_DIR)) {
         p.mkdirp(GIT_DIR);
         p.writeFile(`${GIT_DIR}/config`, `[remote "origin"]\n\turl = ${args[args.indexOf("--url") + 1]}\n`);
+        if (opts.sopsLockedTo) p.writeFile(SOPS, `creation_rules:\n  - path_regex: secrets/.*\n    age: ${opts.sopsLockedTo}\n`);
       }
       if (behavior === "profile-fails") {
         return { code: 1, stdout: "", stderr: "That machine profile will not work\nwhy: This Mac's default profile name already belongs to another Mac's profile.\n" };
       }
       if (!p.exists(MACHINE_KEY)) p.writeFile(MACHINE_KEY, "this-mac");
+      if (opts.sopsLockedTo && RECIPIENTS[keychain.stored ?? ""] !== opts.sopsLockedTo) {
+        return { code: 1, stdout: "", stderr: "This Mac's key does not match your secrets\nwhy: They are locked to age1placeholder…\n" };
+      }
       return { code: 0, stdout: "[ok] This Mac is set up\n", stderr: "" };
     },
   });
   return { p, keychain, events, initCalls };
+}
+
+/** No ioreg read in a test: this Mac's hardware id is whatever the test says. */
+function restore(p: HomeRestoreProbes, seam: AgeKeySeam, input: HomeRestoreInput, machineId: string | null = null) {
+  return runHomeRestore(p, seam, input, { machineId: async () => machineId });
 }
 
 function intentOf(p: ReturnType<typeof fakeProbes>): unknown {
@@ -140,6 +170,18 @@ describe("homeRepoTarget", () => {
     }
   });
 
+  test("a value git would read as one of its options is refused", () => {
+    for (const bad of ["-uX@github.com:janedoe/mattstack-home", "--upload-pack=x", "ssh://-oProxyCommand=x@github.com/janedoe/mattstack-home.git"]) {
+      expect(() => homeRepoTarget(bad)).toThrow(UserActionableError);
+    }
+  });
+
+  test("only https, ssh and scp addresses clone; http and git:// are refused", () => {
+    for (const bad of ["http://github.com/janedoe/mattstack-home.git", "git://github.com/janedoe/mattstack-home.git"]) {
+      expect(() => homeRepoTarget(bad)).toThrow("rt brings settings over https or ssh only");
+    }
+  });
+
   test("a URL carrying a password is refused without echoing it", () => {
     try {
       homeRepoTarget("https://janedoe:hunter2@github.com/janedoe/mattstack-home.git");
@@ -151,10 +193,30 @@ describe("homeRepoTarget", () => {
   });
 });
 
+describe("originNames", () => {
+  const config = (url: string) => `[core]\n\tbare = false\n[remote "origin"]\n\turl = ${url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`;
+
+  test("matches the origin's owner/repo exactly, not as a substring", () => {
+    expect(originNames(config(URL), REPO)).toBe(true);
+    expect(originNames(config("https://github.com/janedoe/mattstack-home-old.git"), REPO)).toBe(false);
+    expect(originNames(config("https://github.com/notjanedoe/mattstack-home.git"), REPO)).toBe(false);
+  });
+
+  test("reads ssh and scp origins, and ignores case the way forges do", () => {
+    expect(originNames(config("git@github.com:JaneDoe/mattstack-home.git"), REPO)).toBe(true);
+    expect(originNames(config("ssh://git@gitlab.example.com/acme/janedoe/mattstack-home"), REPO)).toBe(true);
+  });
+
+  test("a config with no origin names nothing", () => {
+    expect(originNames('[remote "upstream"]\n\turl = https://github.com/janedoe/mattstack-home.git\n', REPO)).toBe(false);
+    expect(originNames(null, REPO)).toBe(false);
+  });
+});
+
 describe("runHomeRestore", () => {
   test("a fresh Mac: the key goes in first, init clones into a new profile, the intent is recorded last", async () => {
     const { p, keychain, events, initCalls } = world();
-    const result = await runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
+    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
 
     expect(result).toEqual({ url: URL, homeRepo: REPO, key: "imported" });
     expect(keychain.stored).toBe(PASTED_KEY);
@@ -166,7 +228,7 @@ describe("runHomeRestore", () => {
 
   test("the same key already in the keychain is kept, never written again", async () => {
     const { p, keychain } = world({ keychain: PASTED_KEY });
-    const result = await runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
+    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
     expect(result.key).toBe("kept");
     expect(keychain.writes).toBe(0);
     expect(intentOf(p)).not.toBeNull();
@@ -174,7 +236,7 @@ describe("runHomeRestore", () => {
 
   test("a different key in the keychain is refused with a next, and nothing else runs", async () => {
     const { p, keychain, initCalls } = world({ keychain: OTHER_KEY });
-    const err = await failure(runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
     expect(err.code).toBe("other-key");
     expect(err.next).toBe("rt home key import --force");
     expect(err.thenRun).toBe(`rt home restore ${REPO} --stdin`);
@@ -188,7 +250,7 @@ describe("runHomeRestore", () => {
   test("something that is not a recovery key is refused before the keychain is read", async () => {
     const { p, keychain, initCalls } = world();
     for (const bad of ["not a key", "AGE-SECRET-KEY-1PLACEHOLDERGARBLED"]) {
-      const err = await failure(runHomeRestore(p, keychain, { repo: REPO, privateKey: bad }));
+      const err = await failure(restore(p, keychain, { repo: REPO, privateKey: bad }));
       expect(err.code).toBe("bad-key");
       expect([err.message, err.why].join(" ")).not.toContain("GARBLED");
     }
@@ -198,7 +260,7 @@ describe("runHomeRestore", () => {
 
   test("a locked keychain stops the restore with nothing written", async () => {
     const { p, keychain, initCalls } = world({ locked: true });
-    const err = await failure(runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
     expect(err.code).toBe("keychain");
     expect(keychain.writes).toBe(0);
     expect(initCalls).toEqual([]);
@@ -207,7 +269,7 @@ describe("runHomeRestore", () => {
 
   test("a bad host is refused before the key is touched", async () => {
     const { p, keychain, initCalls } = world();
-    const err = await failure(runHomeRestore(p, keychain, { repo: "bad_host.com/janedoe/mattstack-home", privateKey: PASTED_KEY }));
+    const err = await failure(restore(p, keychain, { repo: "bad_host.com/janedoe/mattstack-home", privateKey: PASTED_KEY }));
     expect(err.code).toBe("bad-host");
     expect(keychain.calls).toEqual([]);
     expect(initCalls).toEqual([]);
@@ -218,7 +280,7 @@ describe("runHomeRestore", () => {
       dirs: { [GIT_DIR]: [] },
       files: { [`${GIT_DIR}/config`]: '[remote "origin"]\n\turl = https://github.com/janedoe/other-home.git\n' },
     });
-    const err = await failure(runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
     expect(err.code).toBe("other-home-repo");
     expect(keychain.writes).toBe(0);
     expect(initCalls).toEqual([]);
@@ -226,14 +288,15 @@ describe("runHomeRestore", () => {
 
   test("retry after the clone failed: the key is kept, the clone runs again, the intent lands", async () => {
     const { p, keychain, initCalls } = world({ init: ["clone-fails", "ok"] });
-    const err = await failure(runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
     expect(err.code).toBe("init-failed");
     expect(err.message).toBe("rt could not clone your home repo: fatal: repository not found");
+    expect(err.why).toBe("Run gh auth login, then Retry");
     expect(err.next).toBe(`rt home restore ${REPO} --stdin`);
     expect(keychain.stored).toBe(PASTED_KEY);
     expect(intentOf(p)).toBeNull();
 
-    const result = await runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
+    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
     expect(result.key).toBe("kept");
     expect(keychain.writes).toBe(1);
     expect(initCalls).toHaveLength(2);
@@ -242,12 +305,12 @@ describe("runHomeRestore", () => {
 
   test("retry after init stopped at the profile choice: a named profile finishes it", async () => {
     const { p, keychain, initCalls } = world({ init: ["profile-fails", "ok"] });
-    const err = await failure(runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
     expect(err.code).toBe("profile");
     expect(err.next).toBe(`rt home restore ${REPO} --stdin --profile <name>`);
     expect(intentOf(p)).toBeNull();
 
-    await runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY, profile: "janes-new-mac" });
+    await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY, profile: "janes-new-mac" });
     expect(initCalls[1]).toEqual(["home", "init", "--url", URL, "--no-materialize", "--profile", "janes-new-mac", "--new-profile"]);
     expect(intentOf(p)).not.toBeNull();
   });
@@ -258,16 +321,98 @@ describe("runHomeRestore", () => {
       dirs: { [GIT_DIR]: [] },
       files: { [`${GIT_DIR}/config`]: `[remote "origin"]\n\turl = ${URL}\n`, [MACHINE_KEY]: "this-mac" },
     });
-    const result = await runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY, profile: "ignored" });
+    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY, profile: "ignored" });
     expect(result.key).toBe("kept");
     expect(initCalls).toEqual([["home", "init", "--url", URL, "--no-materialize"]]);
     expect(intentOf(p)).not.toBeNull();
   });
 
+  test("this same Mac set up before: its own profile, named by its hardware id, is adopted", async () => {
+    const id = "0000aaaa-placeholder";
+    const { p, keychain, initCalls } = world({ init: ["profile-fails", "ok"], files: { [`${HOME}/.mattstack/user/local/${id}/settings.local.jsonc`]: "{}" } });
+    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }, id);
+    expect(result.key).toBe("imported");
+    expect(initCalls).toEqual([
+      ["home", "init", "--url", URL, "--no-materialize", "--new-profile"],
+      ["home", "init", "--url", URL, "--no-materialize", "--profile", id],
+    ]);
+    expect(intentOf(p)).not.toBeNull();
+  });
+
+  test("a profile stop with no profile of this Mac's own still asks for a name", async () => {
+    const { p, keychain, initCalls } = world({ init: ["profile-fails"] });
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }, "0000aaaa-placeholder"));
+    expect(err.code).toBe("profile");
+    expect(initCalls).toHaveLength(1);
+  });
+
+  test("a wrong key this run imported is taken back, so the right one goes in on the retry", async () => {
+    const { p, keychain, events } = world({ sopsLockedTo: RECIPIENTS[PASTED_KEY] });
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: OTHER_KEY }));
+    expect(err.code).toBe("wrong-key");
+    expect(err.message).toBe("That recovery key can't open these settings");
+    expect(err.next).toBe(`rt home restore ${REPO} --stdin`);
+    expect(mentionsKey(err)).toBe(false);
+    expect(keychain.stored).toBeNull();
+    expect(events).toEqual(["key-stored", "init", "key-removed"]);
+    expect(intentOf(p)).toBeNull();
+
+    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
+    expect(result.key).toBe("imported");
+    expect(keychain.stored).toBe(PASTED_KEY);
+    expect(intentOf(p)).not.toBeNull();
+  });
+
+  test("a wrong key it did not import stays in the keychain", async () => {
+    const { p, keychain, events } = world({ keychain: OTHER_KEY, sopsLockedTo: RECIPIENTS[PASTED_KEY] });
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: OTHER_KEY }));
+    expect(err.code).toBe("wrong-key");
+    expect(keychain.stored).toBe(OTHER_KEY);
+    expect(events).not.toContain("key-removed");
+  });
+
+  test("with the clone here, a key that opens none of its secrets is refused before the keychain is read", async () => {
+    const { p, keychain, initCalls } = world({
+      dirs: { [GIT_DIR]: [] },
+      files: { [`${GIT_DIR}/config`]: `[remote "origin"]\n\turl = ${URL}\n`, [SOPS]: `creation_rules:\n  - path_regex: secrets/.*\n    age: ${RECIPIENTS[PASTED_KEY]}\n` },
+    });
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: OTHER_KEY }));
+    expect(err.code).toBe("wrong-key");
+    expect(keychain.calls.some((c) => c[1] === "find-generic-password")).toBe(false);
+    expect(initCalls).toEqual([]);
+  });
+
+  test("a stored key that opens none of the cloned secrets is replaced by a pasted key that does", async () => {
+    const { p, keychain } = world({
+      keychain: OTHER_KEY,
+      sopsLockedTo: RECIPIENTS[PASTED_KEY],
+      dirs: { [GIT_DIR]: [] },
+      files: {
+        [`${GIT_DIR}/config`]: `[remote "origin"]\n\turl = ${URL}\n`,
+        [SOPS]: `creation_rules:\n  - path_regex: secrets/.*\n    age: ${RECIPIENTS[PASTED_KEY]}\n`,
+        [MACHINE_KEY]: "this-mac",
+      },
+    });
+    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
+    expect(result.key).toBe("replaced");
+    expect(keychain.stored).toBe(PASTED_KEY);
+    expect(keychain.calls.some((c) => c[1] === "add-generic-password" && c.includes("-U"))).toBe(true);
+    expect(intentOf(p)).not.toBeNull();
+  });
+
+  test("a stored key age cannot read gets its own refusal, not an unlock", async () => {
+    const { p, keychain } = world({ keychain: DAMAGED_KEY });
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    expect(err.code).toBe("stored-key");
+    expect(err.next).toBe("rt home key import --force");
+    expect([err.message, err.why].join(" ")).not.toMatch(/unlock/i);
+    expect(keychain.stored).toBe(DAMAGED_KEY);
+  });
+
   test("a second run after a full restore changes nothing but the intent's time", async () => {
     const { p, keychain, initCalls } = world();
-    await runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
-    const again = await runHomeRestore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
+    await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
+    const again = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
     expect(again).toEqual({ url: URL, homeRepo: REPO, key: "kept" });
     expect(keychain.writes).toBe(1);
     expect(initCalls[1]).toEqual(["home", "init", "--url", URL, "--no-materialize"]);
@@ -336,6 +481,23 @@ describe("rt home restore", () => {
     const { deps } = cliDeps(w, PASTED_KEY);
     await homeRestore(["--profile", "janes-new-mac", REPO, "--stdin", "--json"], {}, deps);
     expect(w.initCalls[0]).toEqual(["home", "init", "--url", URL, "--no-materialize", "--profile", "janes-new-mac", "--new-profile"]);
+  });
+
+  test("a person's success output names the next step", async () => {
+    const w = world();
+    const { deps } = cliDeps(w, PASTED_KEY);
+    const io = captureOut();
+    io.reset();
+    out.__test__.setHuman(() => false);
+    try {
+      await homeRestore([REPO, "--stdin"], {}, deps);
+      expect(io.stdout()).toContain("Saved your recovery key to the keychain");
+      expect(io.stdout()).toContain("Brought your settings over");
+      expect(io.stdout()).toContain("Open mattstack.app to finish setting up this Mac");
+      expect(io.stdout() + io.stderr()).not.toContain("PLACEHOLDER");
+    } finally {
+      io.restore();
+    }
   });
 
   test("no repo asks which one", async () => {
