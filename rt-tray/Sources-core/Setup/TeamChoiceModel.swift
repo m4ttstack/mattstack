@@ -69,7 +69,7 @@ public final class TeamChoiceModel: ObservableObject {
     private var restoredRepo: String?
     // The code the shown join verdict belongs to, so a re-check of the same
     // code keeps its note on screen while a new code clears the old one.
-    private var verdictCode: String?
+    @Published private var verdictCode: String?
     // Bumped by every join check; a check that is no longer the newest writes nothing.
     private var checkGeneration = 0
 
@@ -84,6 +84,9 @@ public final class TeamChoiceModel: ObservableObject {
         if let requested { choice = requested } else if entry == .upgrade, choice == .solo { choice = .create }
         if let joinCode { choice = .join; inviteCode = joinCode }
     }
+
+    /// The current code's dry run passed, so Join need not wait on display copy.
+    public var hasGoodVerdict: Bool { verdictCode != nil }
 
     /// The dry run's `owner` is the inviter: rt keeps it as the joined team's `invitedBy`.
     public var inviteLine: String? {

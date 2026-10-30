@@ -397,17 +397,29 @@ let teamChoiceChecks: [Check] = [
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
         await MainActor.run { m.choice = .join }
         c.expectEqual(await MainActor.run { m.inviteLine }, nil, "nothing read yet")
+        c.expect(await MainActor.run { !m.hasGoodVerdict })
         await MainActor.run { m.inviteCode = completeInviteCode }
         await m.previewInvite()
         c.expectEqual(await MainActor.run { m.inviteLine }, "Mithrandir, invited by Jane Doe", "a token still to connect is a good read")
+        c.expect(await MainActor.run { m.hasGoodVerdict })
         await MainActor.run { m.inviteCode = "ABCD" }
         await m.previewInvite()
         c.expectEqual(await MainActor.run { m.inviteLine }, nil, "an edited code drops the old team's line")
+        c.expect(await MainActor.run { !m.hasGoodVerdict }, "an edited code needs a new read")
+
+        let deferred = ScriptedRt()
+        deferred.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"mithrandir","name":"Mithrandir","owner":""},"access":"deferred","intent":"written","message":"rt could not confirm access yet."}"#)
+        let unnamed = await MainActor.run { TeamChoiceModel(rt: deferred, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { unnamed.choice = .join; unnamed.inviteCode = completeInviteCode }
+        await unnamed.previewInvite()
+        c.expectEqual(await MainActor.run { unnamed.inviteLine }, "Mithrandir", "a deferred read is good, and an empty owner leaves the team name alone")
+        c.expect(await MainActor.run { unnamed.hasGoodVerdict })
 
         let bad = ScriptedRt(); bad.answers["team join --dry-run"] = (2, #"{"contract":1,"error":{"code":"invite-unknown","message":""}}"#)
         let failed = await MainActor.run { TeamChoiceModel(rt: bad, pasteboard: FakePasteboard(nil)) }
         await MainActor.run { failed.choice = .join; failed.inviteCode = completeInviteCode }
         await failed.previewInvite()
         c.expectEqual(await MainActor.run { failed.inviteLine }, nil, "a failed read names no team")
+        c.expect(await MainActor.run { !failed.hasGoodVerdict })
     },
 ]

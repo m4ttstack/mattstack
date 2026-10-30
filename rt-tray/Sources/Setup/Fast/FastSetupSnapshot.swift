@@ -109,9 +109,10 @@ enum FastSetupSnapshot {
     private static func invitePages() -> [(String, AnyView)] {
         let code = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
         let line = "Mithrandir, invited by Jane Doe"
-        func page(_ code: String, line: String? = nil, failure: String? = nil, checking: Bool = false,
-                  rows: [FormRow] = [], waiting: [String: String] = [:]) -> AnyView {
-            let enabled = FastSetupFlow.joinEnabled(verdictOK: line != nil, rows: rows)
+        /// `hasGoodVerdict` is what the container reads from `TeamChoiceModel.hasGoodVerdict`.
+        func page(_ code: String, hasGoodVerdict: Bool = false, line: String? = nil, failure: String? = nil, checking: Bool = false,
+                  rows: [FormRow]? = nil, waiting: [String: String] = [:]) -> AnyView {
+            let enabled = FastSetupFlow.joinEnabled(verdictOK: hasGoodVerdict, rows: rows)
             return AnyView(InviteScreenBody(code: .constant(code), inviteLine: line, failure: failure, isChecking: checking,
                                             rows: rows, waiting: waiting, errors: [:], joinEnabled: enabled,
                                             onPaste: {}, onAction: { _, _, _ in }, onBack: {}, onJoin: {}))
@@ -120,10 +121,11 @@ enum FastSetupSnapshot {
             ("invite-empty", page("")),
             ("invite-checking", page(code, checking: true)),
             ("invite-failed", page(code, failure: "Invite not recognized or expired: ask Jane Doe for a new one.")),
-            ("invite-read", page(code, line: line, rows: [Rows.gitlabToken])),
-            ("invite-clt-busy", page(code, line: line, rows: [Rows.cltInstalling, Rows.gitlabTokenConnected])),
-            ("invite-clt-todo", page(code, line: line, rows: [Rows.clt, Rows.githubToken])),
-            ("invite-ready", page(code, line: line, rows: [Rows.gitlabTokenConnected])),
+            ("invite-read-no-section", page(code, hasGoodVerdict: true, line: line)),
+            ("invite-read", page(code, hasGoodVerdict: true, line: line, rows: [Rows.gitlabToken])),
+            ("invite-clt-busy", page(code, hasGoodVerdict: true, line: line, rows: [Rows.cltInstalling, Rows.gitlabTokenConnected])),
+            ("invite-clt-todo", page(code, hasGoodVerdict: true, line: line, rows: [Rows.clt, Rows.githubToken])),
+            ("invite-ready", page(code, hasGoodVerdict: true, line: line, rows: [Rows.gitlabTokenConnected])),
         ]
     }
 
@@ -134,7 +136,7 @@ enum FastSetupSnapshot {
         static let cltInstalling = FormRow(id: "tool.clt", title: "Command Line Tools", subtext: "Git and the build tools setup needs",
                                            state: .busy, detail: "Installing Command Line Tools…", watch: true)
         static let gitlabToken = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
-                                         state: .todo, detail: "",
+                                         state: .todo, detail: "No GitLab account connected yet",
                                          action: RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: [
                                              ActionField(name: "token", label: "GitLab token", secret: true, hint: "api"),
                                          ], create: ActionLink(label: "Create token",
@@ -142,7 +144,7 @@ enum FastSetupSnapshot {
         static let gitlabTokenConnected = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                                   state: .done, detail: "Connected as janedoe")
         static let githubToken = FormRow(id: "forge.token", title: "GitHub", subtext: "Lets mattstack reach the team's repo and open PRs",
-                                         state: .todo, detail: "",
+                                         state: .todo, detail: "No GitHub account connected yet",
                                          action: RowAction(type: .connect, label: "Connect", integration: "github", fields: [
                                              ActionField(name: "token", label: "GitHub token", secret: true, hint: "repo, read:org"),
                                          ], create: ActionLink(label: "Create token",

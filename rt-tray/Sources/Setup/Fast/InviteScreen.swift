@@ -9,7 +9,8 @@ struct InviteScreenBody: View {
     let inviteLine: String?
     let failure: String?
     let isChecking: Bool
-    let rows: [FormRow]
+    /// nil until rt's invite section arrives.
+    let rows: [FormRow]?
     let waiting: [String: String]
     let errors: [String: String]
     let joinEnabled: Bool
@@ -26,7 +27,7 @@ struct InviteScreenBody: View {
                     codeField
                     verdict
                 }
-                if !rows.isEmpty {
+                if let rows, !rows.isEmpty {
                     FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, onAction: onAction)
                 }
             }

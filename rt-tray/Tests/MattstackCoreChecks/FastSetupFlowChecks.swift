@@ -216,6 +216,7 @@ let fastSetupFlowChecks: [Check] = [
         c.expect(!FastSetupFlow.joinEnabled(verdictOK: false, rows: done), "no good read, no Join")
         c.expect(!FastSetupFlow.joinEnabled(verdictOK: false, rows: []), "an empty section never stands in for a read")
         c.expect(FastSetupFlow.joinEnabled(verdictOK: true, rows: []), "gh signed in and git present: nothing to wait on")
+        c.expect(!FastSetupFlow.joinEnabled(verdictOK: true, rows: nil), "a good read before rt's invite section arrives holds Join")
         for state in [FormRowState.todo, .busy, .waiting] {
             c.expect(!FastSetupFlow.joinEnabled(verdictOK: true, rows: [macosRow("tool.clt", state), macosRow("forge.token", .done)]),
                      "Command Line Tools \(state) holds Join")

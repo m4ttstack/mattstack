@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import MattstackCore
 
@@ -47,13 +48,24 @@ private struct PathCardLabel: View {
     let title: String
     let symbol: String
 
+    private static func isDark(_ appearance: NSAppearance) -> Bool {
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+    /// The plain accent reads deep blue on a dark tile, so dark mode lifts it toward white.
+    private static let glyph = NSColor(name: nil) { appearance in
+        isDark(appearance) ? NSColor.controlAccentColor.blended(withFraction: 0.35, of: .white) ?? .controlAccentColor : .controlAccentColor
+    }
+    private static let tile = NSColor(name: nil) { appearance in
+        NSColor.controlAccentColor.withAlphaComponent(isDark(appearance) ? 0.24 : 0.14)
+    }
+
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: symbol)
                 .font(.system(size: 17))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color(nsColor: Self.glyph))
                 .frame(width: 36, height: 36)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.12)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: Self.tile)))
             Text(title).font(.body.weight(.medium))
             Spacer(minLength: 8)
             Image(systemName: "chevron.right").font(.callout.weight(.semibold)).foregroundStyle(.tertiary)
