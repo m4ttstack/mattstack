@@ -2792,6 +2792,13 @@ export const TREE: Record<string, CommandNode> = {
         hidden: true,
         args: [SETUP_JSON_ARG],
       },
+      form: {
+        description: "Show the questions setup still needs answered",
+        module: "./commands/setup-form.ts",
+        fn: "setupForm",
+        hidden: true,
+        args: [SETUP_JSON_ARG, { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, connect or this-mac" }],
+      },
       waive: {
         description: "Skip a finish-gated checklist row on this Mac so setup can finish without it",
         module: "./commands/setup.ts",
