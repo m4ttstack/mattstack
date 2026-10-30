@@ -63,7 +63,7 @@ import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, 
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
-import { assertRemoteUrl, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
+import { assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
@@ -903,11 +903,12 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
     if (!deps.probes.exists(homeGitDir(deps.probes.home))) {
       stageHomeRemote(deps.probes, input);
       if (json) deps.json(envelope({ staged: true, url: url ?? null, created: false, pushed: false }, deps.probes.now()));
-      else out.print(out.line("done", "Saved. Install pushes your settings there", url ?? "A new private repo"));
+      else out.print(out.line("done", "Install pushes your settings there", url ?? "A new private repo"));
       return;
     }
 
     const result = await setHomeRemote(deps.probes, input);
+    markHomeRemoteApplied(deps.probes, result);
     if (json) deps.json(envelope({ url: result.url, remote: result.remote, pushed: result.pushed, created: result.created }, deps.probes.now()));
     else out.print(out.line("done", result.created ? "Created a private repo and pushed your home repo to it" : "Pushed your home repo", result.url));
   } catch (err) {

@@ -9,7 +9,7 @@ import { UserActionableError } from "../errors.ts";
 import { hasUrlCredentials, withoutUrls } from "../team/redact.ts";
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState, type HomeBackupChoice } from "./state.ts";
-import { homeGitDir } from "./steps/home.ts";
+import { homeGitDir } from "./home-paths.ts";
 
 export type { HomeBackupChoice } from "./state.ts";
 
@@ -47,7 +47,7 @@ export function assertRemoteUrl(url: string): void {
  * and its message passes through `withoutUrls`: git echoes the remote
  * (credentials included) in its own messages.
  */
-export async function setHomeRemote(p: Probes, input: HomeRemoteInput): Promise<HomeRemoteResult> {
+export async function setHomeRemote(p: Probes, input: HomeRemoteInput, hooks: { onCreated?: (url: string) => void } = {}): Promise<HomeRemoteResult> {
   let url = input.url;
   if (url) assertRemoteUrl(url);
 
@@ -68,6 +68,7 @@ export async function setHomeRemote(p: Probes, input: HomeRemoteInput): Promise<
     url = printed.endsWith(".git") ? printed : `${printed}.git`;
     assertRemoteUrl(url);
     created = true;
+    hooks.onCreated?.(url);
   }
 
   const existing = await p.exec(["git", "-C", repoDir, "remote", "get-url", "origin"]);
@@ -111,18 +112,17 @@ export function writeHomeBackup(p: StateProbes, mode: "local" | "remote"): HomeB
   return choice;
 }
 
-/** A staged remote home.init has not pushed to yet: one to create, or a url the home repo's git config does not name. */
+/** A staged remote no push has landed on yet. */
 export function pendingHomeRemote(p: Pick<Probes, "readFile" | "exists" | "home" | "now">): HomeRemoteInput | null {
   const choice = readSetupState(p).homeBackup;
-  if (choice?.mode !== "remote") return null;
+  if (choice?.mode !== "remote" || choice.appliedAt !== undefined) return null;
   const { url, create, name } = choice;
+  if (url !== undefined) return { url };
   if (create) return { create, ...(name !== undefined ? { name } : {}) };
-  if (url === undefined) return null;
-  const config = p.readFile(join(homeGitDir(p.home), "config"));
-  return config !== null && config.includes(url) ? null : { url };
+  return null;
 }
 
-/** Records what was pushed, so the remote is no longer staged. */
+/** Written only after a push lands, so the remote is no longer staged. */
 export function markHomeRemoteApplied(p: StateProbes, result: HomeRemoteResult): void {
-  updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", url: result.url } }));
+  updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", url: result.url, appliedAt: p.now().toISOString() } }));
 }

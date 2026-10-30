@@ -11,16 +11,15 @@ import { readAgeKey } from "../../home/age-key.ts";
 import { INIT_OUTPUT_CAPTION, INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { ApplyContext } from "../apply.ts";
-import { markHomeRemoteApplied, pendingHomeRemote, setHomeRemote } from "../home-remote.ts";
+import { homeGitDir } from "../home-paths.ts";
+import { markHomeRemoteApplied, pendingHomeRemote, setHomeRemote, stageHomeRemote } from "../home-remote.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 /** `rt home init` itself, self-invoked as a subprocess, does a lot (clone, then its own materialize phase) — generous but bounded so a stalled clone/network call surfaces as a real failure instead of hanging the whole Install button. */
 const HOME_INIT_TIMEOUT_MS = 180_000;
 
-export function homeGitDir(home: string): string {
-  return join(home, ".mattstack", "user", ".git");
-}
+export { homeGitDir };
 
 type KeyStatus = { status: "present" } | { status: "absent" } | { status: "unreachable"; message: string };
 
@@ -109,7 +108,9 @@ async function pushToStagedRemote(ctx: ApplyContext, created: StepOutcome & { st
   const staged = pendingHomeRemote(ctx.p);
   if (staged === null) return created;
   try {
-    markHomeRemoteApplied(ctx.p, await setHomeRemote(ctx.p, staged));
+    // A created repo is restaged by its url first, so a Retry after a failed push never creates a second one.
+    const result = await setHomeRemote(ctx.p, staged, { onCreated: (url) => stageHomeRemote(ctx.p, { url }) });
+    markHomeRemoteApplied(ctx.p, result);
     return created;
   } catch (err) {
     if (!(err instanceof UserActionableError)) throw err;

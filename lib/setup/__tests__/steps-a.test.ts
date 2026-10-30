@@ -239,7 +239,56 @@ describe("home.init", () => {
     const calls = p.calls.exec.map((a) => a.join(" "));
     expect(calls).toContain(`git -C /fake-home/.mattstack/user remote add origin ${url}`);
     expect(calls).toContain("git -C /fake-home/.mattstack/user push -u origin HEAD");
-    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", url });
+    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", url, appliedAt: p.now().toISOString() });
+    expect(await homeInitStep.satisfied!(makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) }).ctx)).toBe(true);
+  });
+
+  test("a staged url whose push failed on a fresh origin is retried on the next run", async () => {
+    const url = "https://github.com/janedoe/mattstack-home.git";
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    let pushes = 0;
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { [gitDir]: [] },
+      files: { [`${gitDir}/config`]: `[remote "origin"]\n\turl = ${url}\n` },
+      exec: async (argv) => {
+        if (argv.includes("get-url")) return { code: 2, stdout: "", stderr: "error: No such remote 'origin'" };
+        if (argv.includes("push")) return ++pushes === 1 ? { code: 128, stdout: "", stderr: "remote: Permission denied" } : ok();
+        return ok();
+      },
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", url } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await homeInitStep.run(ctx)).toMatchObject({ state: "partial" });
+    expect(await homeInitStep.satisfied!(ctx)).toBe(false);
+    expect(await homeInitStep.run(ctx)).toEqual({ state: "done", detail: "Already set up" });
+    expect(pushes).toBe(2);
+  });
+
+  test("a created repo whose push failed is pushed to again on Retry, never created twice", async () => {
+    const created = "https://github.com/janedoe/mattstack-home";
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    let pushes = 0;
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { [gitDir]: [] },
+      exec: async (argv) => {
+        if (argv[0] === "gh") return ok(`${created}\n`);
+        if (argv.includes("get-url")) return { code: 2, stdout: "", stderr: "" };
+        if (argv.includes("push")) return ++pushes === 1 ? { code: 128, stdout: "", stderr: "remote: Permission denied" } : ok();
+        return ok();
+      },
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", create: true } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await homeInitStep.run(ctx)).toMatchObject({ state: "partial" });
+    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", url: `${created}.git` });
+    expect(await homeInitStep.run(ctx)).toMatchObject({ state: "done" });
+
+    expect(p.calls.exec.filter((a) => a[0] === "gh")).toHaveLength(1);
+    expect(readSetupState(p).homeBackup).toMatchObject({ mode: "remote", url: `${created}.git`, appliedAt: p.now().toISOString() });
   });
 
   test("a staged remote that fails leaves home.init partial and the choice in place", async () => {
