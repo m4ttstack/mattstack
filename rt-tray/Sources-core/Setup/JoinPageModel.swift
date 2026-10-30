@@ -67,8 +67,8 @@ public final class JoinPageModel: ObservableObject {
     private var generation = 0
     private var checksInFlight = 0
 
-    public init(rt: RtRunning, needs: NeedBroker, clock: @escaping @Sendable () -> Date = Date.init) {
-        self.rt = rt; self.needs = needs; self.clock = clock
+    public init(rt: RtRunning, needs: NeedBroker, clock: @escaping @Sendable () -> Date = Date.init, pollInterval: TimeInterval = 15) {
+        self.rt = rt; self.needs = needs; self.clock = clock; self.pollInterval = pollInterval
     }
 
     public var continueEnabled: Bool {
@@ -210,8 +210,9 @@ public final class JoinPageModel: ObservableObject {
         return .joined(status)
     }
 
-    public func startPolling(every seconds: TimeInterval = 15) {
+    public func startPolling(every interval: TimeInterval? = nil) {
         stopPolling()
+        let seconds = interval ?? pollInterval
         pollInterval = seconds
         pollTask = Task { [weak self] in
             while !Task.isCancelled {

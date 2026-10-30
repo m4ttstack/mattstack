@@ -158,6 +158,7 @@ struct FormRowFields: View {
     let action: RowAction
     let onAction: FormRowPerform
     @State private var values: [String: String]
+    @Environment(\.openSetupLink) private var openLink
 
     static func collects(_ action: RowAction) -> Bool {
         [.connect, .form, .ownerOnce].contains(action.type) && !(action.fields ?? []).isEmpty
@@ -191,7 +192,7 @@ struct FormRowFields: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         if index == fields.count - 1, let create, let url = URL(string: create.url) {
-                            Button(create.label) { NSWorkspace.shared.open(url) }
+                            Button(create.label) { openLink(url) }
                                 .buttonStyle(.link).fixedSize()
                                 .accessibilityIdentifier(AXID.fastRowAction(row.id, "link"))
                         }

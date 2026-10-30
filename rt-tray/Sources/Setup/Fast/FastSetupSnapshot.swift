@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages, containerPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages, containerPages, testDrivePages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))

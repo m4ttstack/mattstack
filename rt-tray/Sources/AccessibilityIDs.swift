@@ -181,6 +181,12 @@ enum AXID {
     static let trayOpenCrashLog = "tray.openCrashLog"
     static let trayResumeSetup = "tray.resumeSetup"
     static let traySetupStatus = "tray.setupStatus"
+    static let trayTestDrive = "tray.testDrive"
+    static let testDriveBanner = "testDrive.banner"
+    static let testDriveReset = "testDrive.reset"
+    static let testDriveScenarios = "testDrive.scenarios"
+    static let testDriveShow = "testDrive.show"
+    static func testDriveScenario(_ id: String) -> String { "testDrive.scenario.\(id)" }
     static let traySettings = "tray.settings"
     static let trayStartAtLogin = "tray.startAtLogin"
     static let trayCheckForUpdates = "tray.checkForUpdates"

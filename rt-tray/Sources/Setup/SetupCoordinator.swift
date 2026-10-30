@@ -1,9 +1,11 @@
 import AppKit
 import Combine
+import SwiftUI
 import MattstackCore
 
 /// Owns the Setup and Settings windows and the models behind them. One
-/// instance per process, created by AppDelegate after the services exist.
+/// real instance per process, created by AppDelegate after the services
+/// exist; each test drive makes another on a `SetupHost` of its own.
 ///
 /// Fast setup's models live here, not in the window, so closing it never
 /// stops the join's approval check or a run. rt's whole read is the only
@@ -28,7 +30,9 @@ final class SetupCoordinator {
     private let team: TeamChoiceModel
     private let status = FastSetupStatus()
     private let attendedRun = AttendedRun()
-    private lazy var actions = FormActionRunner(rt: rt, needs: needs, effects: AppFormEffects(permissions: permissions),
+    private let host: SetupHost
+    private lazy var actions = FormActionRunner(rt: rt, needs: needs,
+                                                effects: host.effects(permissions, { [weak self] in await self?.refreshSection() }),
                                                 reload: { [weak self] in await self?.refreshSection() })
     private let teamSettings: TeamSettingsModel
     private let devLogins: DevLoginsModel
@@ -62,26 +66,33 @@ final class SetupCoordinator {
     /// `PermissionsService` even under stub mode.
     init(rt: RtRunning, permissions: PermissionsService, permissionProbe: PermissionProbing? = nil,
          needs: NeedBroker, updater: UpdaterController, notify: @escaping @MainActor (SetupNotice) -> Void,
-         registerLoginItem: @escaping @MainActor () -> Void) {
+         registerLoginItem: @escaping @MainActor () -> Void, host: SetupHost = .real) {
         self.rt = rt; self.permissions = permissions; self.needs = needs; self.updater = updater; self.notify = notify
         self.registerLoginItem = registerLoginItem
+        self.host = host
         readiness = ReadinessModel(plans: RtPlanSource(rt: rt, verb: ["setup", "plan", "--json"]),
                                    permissions: permissionProbe ?? permissions, ticker: MainTicker())
         form = SetupFormModel(rt: rt)
         let attended = attendedRun
         install = InstallRunModel(stream: FastSetupLaunch.installStream(rt: rt, attended: { attended.take() }), needs: needs)
         prepare = PrepareRunner(rt: rt)
-        join = JoinPageModel(rt: rt, needs: needs)
-        team = TeamChoiceModel(rt: rt, pasteboard: SystemPasteboard())
+        join = JoinPageModel(rt: rt, needs: needs, pollInterval: host.joinPollInterval)
+        team = TeamChoiceModel(rt: rt, pasteboard: host.pasteboard)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
         devLogins = DevLoginsModel(rt: rt)
         appsSettings = AppsSettingsModel(rt: rt)
-        appsSettings.onAppsChanged = { NotificationCenter.default.post(name: .rtAppsChanged, object: nil) }
+        if !host.isTestDrive {
+            appsSettings.onAppsChanged = { NotificationCenter.default.post(name: .rtAppsChanged, object: nil) }
+        }
         settingsRefresher = SettingsRefresher(team: teamSettings, apps: appsSettings)
         wire()
     }
 
-    var setupIsComplete: Bool { SetupSession.isFinished }
+    var setupIsComplete: Bool {
+        guard host.isTestDrive else { return SetupSession.isFinished }
+        return SetupCompletion.isFinished(home: host.home, readFile: { FileManager.default.contents(atPath: $0) },
+                                          fileExists: { FileManager.default.fileExists(atPath: $0) })
+    }
 
     // MARK: - Entries
 
@@ -140,7 +151,8 @@ final class SetupCoordinator {
                                     pausedAction: { [weak self] in self?.pausedAction($0) },
                                     openHome: { [weak self] in self?.openHome() },
                                     readAgain: { [weak self] in Task { await self?.landOnRtStage() } }))
-        let wc = SetupWindowController(flow: flow, root: view)
+        let wc = SetupWindowController(flow: flow, root: host.decorate(AnyView(view)), title: host.windowTitle,
+                                       tracksSession: !host.isTestDrive, chromeHeight: host.chromeHeight)
         wc.onClose = { [weak self] in self?.windowClosed() }
         setupWindow = wc
         return wc
@@ -165,6 +177,7 @@ final class SetupCoordinator {
 
     /// Updates wait while a run or a background install is live, window or not.
     private func markRunInFlight() {
+        guard !host.isTestDrive else { return }
         SetupSession.setRunInFlight(install.isRunning || !prepare.running.isEmpty, for: ObjectIdentifier(self))
     }
 
@@ -280,7 +293,7 @@ final class SetupCoordinator {
     /// Full Disk Access takes effect on the next launch, and P1 promises mattstack reopens itself.
     /// The probe re-reports the grant every tick, and a second relaunch would start a second app.
     private func relaunchForFullDiskAccess() {
-        guard !relaunching, flow.screen == .macos, setupWindow?.isVisible == true else { return }
+        guard !host.isTestDrive, !relaunching, flow.screen == .macos, setupWindow?.isVisible == true else { return }
         relaunching = true
         AppRelaunch.relaunchInPlace(resumeScreen: .macos)
     }
@@ -404,7 +417,7 @@ final class SetupCoordinator {
     /// rt's whole read says a run is due or live: this app attaches to it, or resumes it.
     private func startBarIfNeeded(stage: FormStage) {
         guard FastSetupLaunch.startsRun(stage: stage, runLive: install.isRunning) else { return }
-        let state = FileManager.default.contents(atPath: SetupCompletion.statePath(home: AppHome.current))
+        let state = FileManager.default.contents(atPath: SetupCompletion.statePath(home: host.home))
         status.runStartedAt = FastSetupLaunch.runStartedAt(stateJSON: state) ?? Date()
         install.start()
     }
@@ -470,20 +483,14 @@ final class SetupCoordinator {
 
     private func openHome() {
         finishSetup()
-        if let home = form.form?.home ?? form.whole?.home, let url = URL(string: home.url) {
-            if BundleFlavor.isStubActive {
-                TrayLog.info("open \(url.host ?? home.url) skipped (stub mode)")
-            } else {
-                NSWorkspace.shared.open(url)
-            }
-        }
+        if let home = form.form?.home ?? form.whole?.home, let url = URL(string: home.url) { host.openHome(url) }
         setupWindow?.close()
     }
 
     /// P7's finish path, the one place closing on it or pressing its button records Finish.
     private func finishSetup() {
         guard finish.settle() else { return }
-        SetupSession.markFinished()
+        if !host.isTestDrive { SetupSession.markFinished() }
         registerLoginItem()
         recordFinish()
     }
@@ -493,8 +500,22 @@ final class SetupCoordinator {
         stopProbing()
         // Closing on P7 records Finish only: a closed window never opens a browser tab.
         if flow.screen == .ready { finishSetup() }
+        host.windowClosed(flow.screen)
+        guard !host.isTestDrive else { return }
         let entry = flow.entry, applied = flow.screen == .ready
         Task { @MainActor in await settingsRefresher.setupWindowClosed(entry: entry, applied: applied) }
+    }
+
+    /// A test drive's Reset: nothing this coordinator started keeps polling once a new one takes over,
+    /// and closing its window this way records no Finish.
+    func shutDown() {
+        setupWindow?.onClose = nil
+        setupWindow?.close()
+        join.stopPolling()
+        form.stopWatching()
+        stopProbing()
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        activeObserver = nil
     }
 
     /// Until this lands on disk the next launch reopens setup, so a failure

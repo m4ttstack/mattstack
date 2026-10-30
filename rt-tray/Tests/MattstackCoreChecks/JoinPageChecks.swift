@@ -318,6 +318,18 @@ let joinPageChecks: [Check] = [
         c.expectEqual(await MainActor.run { log.teams }, ["acme"])
         c.expectEqual(rt.calls.count, 4, "a hidden wait asks until approved, then stops")
     },
+    Check("JoinPage: polling with no interval given keeps the one the model was made with") { c in
+        let rt = ScriptedRt()
+        let waitingAnswer: (Int32, String) = (0, statusJSON("waiting"))
+        rt.sequences = ["setup join-status --json": [waitingAnswer, (0, statusJSON("approved", since: nil))]]
+        let m = await MainActor.run {
+            JoinPageModel(rt: rt, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged()), pollInterval: 0.01)
+        }
+        let waiting = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("waiting").utf8))
+        await MainActor.run { m.adopt(waiting); m.startPolling() }
+        let ended = await waitUntil({ !m.isPolling }, tries: 100)
+        c.expect(ended, "a 0.01 s model reaches approval within a second, where the default 15 s would not")
+    },
     Check("JoinPage: relaunching onto an approved join never announces it again") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup join-status --json": (0, statusJSON("approved", since: nil))]

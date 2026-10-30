@@ -66,6 +66,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var deckLifecycle: DeckLifecycle?
     private var needBroker: NeedBroker!
     private var coordinator: SetupCoordinator?
+    /// Made on first use, and only where `TestDrive.isAvailable` offers it.
+    private var testDrive: TestDriveController?
     private var rtClient: RtClient?
     // `mattstackWindow` holds the controller strongly: `WindowModel.controller`
     // is weak, so an unretained controller deallocates and every show()/open()
@@ -863,6 +865,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @objc private func showSettingsAccounts() { Task { @MainActor in coordinator?.showSettings(pane: .accounts) } }
     @objc private func appsChanged() { Task { @MainActor in await windowModel?.invalidateCatalog() } }
 
+    private static var isDebugBuild: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor
+    private func showTestDrive() {
+        let controller = testDrive ?? TestDriveController(permissions: permissionsService, updater: updater)
+        testDrive = controller
+        controller.showPicker()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         statusTimer?.invalidate()
         notificationTimer?.invalidate()
@@ -979,6 +996,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     NotificationCenter.default.post(name: .rtShowSetupStatus, object: nil)
                 })
             }
+        }
+        if TestDrive.isAvailable(isDevBuild: BundleFlavor.isDevBuild, isDebugBuild: Self.isDebugBuild) {
+            menu.addItem(ActionMenuItem("Test drive setup…", axid: AXID.trayTestDrive) { [weak self] in
+                MainActor.assumeIsolated { self?.showTestDrive() }
+            })
         }
         menu.addItem(troubleshootMenuItem())
         menu.addItem(.separator())
