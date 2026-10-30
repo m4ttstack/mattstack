@@ -307,20 +307,37 @@ let joinPageChecks: [Check] = [
     },
     Check("JoinPage: polling with no page on screen still reports approval") { c in
         let rt = ScriptedRt()
-        rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
+        let waitingAnswer: (Int32, String) = (0, statusJSON("waiting"))
+        rt.sequences = ["setup join-status --json": [waitingAnswer, waitingAnswer, waitingAnswer, (0, statusJSON("approved", since: nil))]]
         let m = await makeModel(rt)
         let log = await MainActor.run { listen(m) }
         let waiting = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("waiting").utf8))
         await MainActor.run { m.adopt(waiting); m.startPolling(every: 0.01) }
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        c.expect(rt.calls.count > 1, "a hidden wait keeps asking; got \(rt.calls.count) checks")
-        c.expectEqual(await MainActor.run { log.teams }, [])
-        rt.answers = ["setup join-status --json": (0, statusJSON("approved", since: nil))]
-        try? await Task.sleep(nanoseconds: 120_000_000)
+        let ended = await waitUntil({ !m.isPolling }, tries: 500)
+        c.expect(ended, "approval ends the polling")
         c.expectEqual(await MainActor.run { log.teams }, ["acme"])
-        c.expect(await MainActor.run { !m.isPolling }, "approval ends the polling")
-        let stopped = rt.calls.count
-        try? await Task.sleep(nanoseconds: 60_000_000)
-        c.expectEqual(rt.calls.count, stopped, "no checks after approval")
+        c.expectEqual(rt.calls.count, 4, "a hidden wait asks until approved, then stops")
+    },
+    Check("JoinPage: relaunching onto an approved join never announces it again") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup join-status --json": (0, statusJSON("approved", since: nil))]
+        let m = await makeModel(rt)
+        let log = await MainActor.run { listen(m) }
+        let approved = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("approved", since: nil).utf8))
+        await MainActor.run { m.adopt(approved) }
+        await m.check()
+        c.expectEqual(await MainActor.run { log.teams }, [], "the approval landed before this launch")
+    },
+    Check("JoinPage: polling stops once the join is gone") { c in
+        let rt = ScriptedRt()
+        let noJoin = #"{"contract":1,"at":"2026-10-29T10:05:00.000Z","error":{"code":"no-join","message":"This Mac has not joined a team"}}"#
+        rt.sequences = ["setup join-status --json": [(0, statusJSON("waiting")), (2, noJoin)]]
+        let m = await makeModel(rt)
+        let waiting = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("waiting").utf8))
+        await MainActor.run { m.adopt(waiting); m.startPolling(every: 0.01) }
+        let ended = await waitUntil({ !m.isPolling }, tries: 500)
+        c.expect(ended, "a failed page has nothing left to ask")
+        guard case .failed = await MainActor.run(body: { m.phase }) else { c.fail("expected failed, got \(await MainActor.run { m.phase })"); return }
+        c.expectEqual(rt.calls.count, 2)
     },
 ]

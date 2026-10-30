@@ -212,7 +212,10 @@ public final class JoinPageModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
                 if self.isAwaitingApproval { await self.check() }
-                if case .approved = self.phase { self.pollTask = nil; return }
+                switch self.phase {
+                case .approved, .failed: self.pollTask = nil; return
+                default: break
+                }
             }
         }
     }

@@ -48,15 +48,12 @@ private struct PathCardLabel: View {
     let title: String
     let symbol: String
 
-    private static func isDark(_ appearance: NSAppearance) -> Bool {
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    }
     /// The plain accent reads deep blue on a dark tile, so dark mode lifts it toward white.
     private static let glyph = NSColor(name: nil) { appearance in
-        isDark(appearance) ? NSColor.controlAccentColor.blended(withFraction: 0.35, of: .white) ?? .controlAccentColor : .controlAccentColor
+        FastAppearance.isDark(appearance) ? NSColor.controlAccentColor.blended(withFraction: 0.35, of: .white) ?? .controlAccentColor : .controlAccentColor
     }
     private static let tile = NSColor(name: nil) { appearance in
-        NSColor.controlAccentColor.withAlphaComponent(isDark(appearance) ? 0.24 : 0.14)
+        NSColor.controlAccentColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.24 : 0.14)
     }
 
     var body: some View {

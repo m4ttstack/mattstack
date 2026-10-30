@@ -12,7 +12,7 @@ struct WaitingScreenBody: View {
     let onHide: () -> Void
 
     static func title(admin: String?) -> String {
-        let who = admin.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? "your team admin"
+        let who = admin.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? "your team admin"
         return "Waiting for \(who) to confirm your membership"
     }
 
@@ -48,11 +48,8 @@ struct WaitingScreenBody: View {
 }
 
 private struct WaitingTile: View {
-    private static func isDark(_ appearance: NSAppearance) -> Bool {
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    }
     private static let tile = NSColor(name: nil) { appearance in
-        NSColor.labelColor.withAlphaComponent(isDark(appearance) ? 0.12 : 0.06)
+        NSColor.labelColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.12 : 0.06)
     }
 
     var body: some View {
