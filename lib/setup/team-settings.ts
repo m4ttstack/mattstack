@@ -23,6 +23,7 @@ import { logCliEvent } from "../cli-logger.ts";
 import { parseStoreText } from "../settings/stores.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { parseRemoteUrl } from "../enrich.ts";
+import { isValidHostname } from "./host-validate.ts";
 import { activeTeam } from "../../packages/rt-client/src/settings/active-team.ts";
 import { directoryEntry, type TeamDirectory } from "../../packages/rt-client/src/settings/team-directory.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
@@ -113,10 +114,18 @@ export function legacyDeclaredForge(p: Pick<Probes, "home" | "readFile">, slug: 
   const raw = p.readFile(file);
   if (raw === null) return null;
   const integrations = parseStoreText(file, raw).global["mattstack.integrations"] as { forge?: unknown } | undefined;
-  const forge = integrations?.forge;
+  return validDeclaredForge(integrations?.forge);
+}
+
+/**
+ * A team's declared forge is free text its admin wrote, and rt both fetches
+ * against its host and names it in copy, so a host that is not a bare
+ * hostname reads as no declared forge at all.
+ */
+export function validDeclaredForge(forge: unknown): TeamIntegrations["forge"] | null {
   if (forge === null || typeof forge !== "object" || Array.isArray(forge)) return null;
   const { host, provider } = forge as Record<string, unknown>;
-  if (typeof host !== "string" || host.trim() === "" || (provider !== "github" && provider !== "gitlab")) return null;
+  if (typeof host !== "string" || !isValidHostname(host) || (provider !== "github" && provider !== "gitlab")) return null;
   return { host, provider };
 }
 
@@ -124,7 +133,9 @@ export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: Setting
   const warn = opts.warn ?? defaultWarn;
   const read = opts.read ?? defaultReader(warn);
 
-  const { linear: _retired, ...declared } = read<TeamIntegrations>("mattstack.integrations") ?? {};
+  const { linear: _retired, forge: declaredForge, ...rest } = read<TeamIntegrations>("mattstack.integrations") ?? {};
+  const forge = validDeclaredForge(declaredForge);
+  const declared: TeamIntegrations = forge ? { ...rest, forge } : rest;
   const team = opts.team !== undefined ? opts.team : activeTeam().team;
   const linearTeam = directoryEntry(read<TeamDirectory>("mattstack.directory"), team)?.linear?.team;
   const integrations: TeamIntegrations = linearTeam ? { ...declared, linear: { teamKey: linearTeam } } : declared;

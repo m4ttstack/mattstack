@@ -120,7 +120,7 @@ export const FORM_COPY = {
     connect: "Connect",
     connectedAs: (login: string) => `Connected as ${login}`,
     connected: "Connected",
-    confirmHost: (host: string) => `Connect ${host} from the terminal first`,
+    confirmHost: (forge: { provider: Forge; host: string }) => `Connect ${isValidHostname(forge.host) ? forge.host : `your team's ${TITLES[forge.provider]}`} from the terminal first`,
     join: "Join",
   },
   connect: {
@@ -282,7 +282,7 @@ function forgeAccountRow(o: ForgeAccountInputs): FormRow {
   return {
     ...base,
     state: "todo",
-    detail: trusted ? (o.account?.detail ?? "") : c.confirmHost(o.forge.host),
+    detail: trusted ? (o.account?.detail ?? "") : c.confirmHost(o.forge),
     action: {
       type: "connect",
       label: c.connect,

@@ -25,6 +25,7 @@ import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
 import { readPackRequirements } from "./requirements.ts";
 import { readStagedSecret } from "./staging.ts";
+import { isValidHostname } from "./host-validate.ts";
 import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { accessRows } from "./validators/access.ts";
 import { accountRows, BOARD_PEERING_ROW_ID, teamDeclaresIntegration, type SecretPresence } from "./validators/accounts.ts";
@@ -76,7 +77,9 @@ export function enrichSnapshotForge(snapshot: TeamSnapshot, intent: SetupIntent 
   if (snapshot.integrations.forge) return snapshot;
 
   const pointerForge = intent?.mode === "join" ? intent.join?.pointer.forge : undefined;
+  // The pointer is the inviter's free text: a host that is not a bare hostname is no declared forge.
   if (pointerForge) {
+    if (!isValidHostname(pointerForge)) return snapshot;
     const forge = { host: pointerForge, provider: (pointerForge === "github.com" ? "github" : "gitlab") as "github" | "gitlab" };
     return { ...snapshot, integrations: { ...snapshot.integrations, forge } };
   }
@@ -84,7 +87,7 @@ export function enrichSnapshotForge(snapshot: TeamSnapshot, intent: SetupIntent 
   const remote = intent?.mode === "create" ? intent.team?.remote : intent?.mode === "join" ? intent.join?.pointer.remote : null;
   if (!remote) return snapshot;
   const forge = forgeFromRemote(remote);
-  if (!forge) return snapshot;
+  if (!forge || !isValidHostname(forge.host)) return snapshot;
   return { ...snapshot, integrations: { ...snapshot.integrations, forge } };
 }
 
