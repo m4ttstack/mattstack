@@ -42,7 +42,7 @@ describe('bodies', () => {
 });
 
 describe('latchBody', () => {
-  const GIF = '![Follow-up review queued](/uploads/a/b.gif){width=520}';
+  const GIF = '![Follow-up review queued](/uploads/a/b.gif)';
   const MARKERS: Record<LatchPhase, string> = {
     armed: LATCH_MARKER,
     queued: LATCH_MARKER_QUEUED,
@@ -67,20 +67,32 @@ describe('latchBody', () => {
 });
 
 describe('imageMarkdownFor', () => {
-  test('titles the upload and sizes it to 520 px', () => {
+  test('titles the upload and leaves it unsized, so GitLab fills the column', () => {
     expect(
       imageMarkdownFor(
         'Follow-up review running',
         '![latch-7-running.gif](/uploads/c0ffee/latch-7-running.gif)'
       )
-    ).toBe(
-      '![Follow-up review running](/uploads/c0ffee/latch-7-running.gif){width=520}'
-    );
+    ).toBe('![Follow-up review running](/uploads/c0ffee/latch-7-running.gif)');
+  });
+
+  test('drops the width from an older sized banner', () => {
+    expect(
+      imageMarkdownFor(
+        'Follow-up review running',
+        '![Follow-up review running](/uploads/c0ffee/latch-7-running.gif){width=520}'
+      )
+    ).toBe('![Follow-up review running](/uploads/c0ffee/latch-7-running.gif)');
   });
 });
 
 describe('imageMarkdownOf', () => {
-  test('matches a gif with a width suffix', () => {
+  test('matches an unsized gif', () => {
+    const img = '![x](/uploads/a/b.gif)';
+    expect(imageMarkdownOf(latchBody('queued', img, 'Queued.'))).toBe(img);
+  });
+
+  test('still matches an older gif with a width suffix', () => {
     const img = '![x](/uploads/a/b.gif){width=520}';
     expect(imageMarkdownOf(latchBody('queued', img, 'Queued.'))).toBe(img);
   });

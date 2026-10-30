@@ -85,7 +85,7 @@ export async function bannerMarkdown(
 ): Promise<string> {
   const key = variantKey(variant);
   const cached = cachedUpload(mrUrl, key, db);
-  if (cached) return cached;
+  if (cached) return imageMarkdownFor(copyFor(variant).title, cached);
   const up = await gw.uploadFile(
     projectId,
     `latch-${iid}-${key}.gif`,

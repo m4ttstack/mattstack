@@ -60,19 +60,18 @@ export function spentLatchBody(imageMarkdown: string): string {
   return latchBody('spent', imageMarkdown, SPENT_COPY);
 }
 
-/** GitLab stretches an unsized image to the column; 520 CSS px shows the
-    1040 px banner at 2x. */
+/** Unsized on purpose: GitLab stretches the image to the comment column. */
 export function imageMarkdownFor(
   title: string,
   markdownFromUpload: string
 ): string {
   const url =
     markdownFromUpload.match(/\]\(([^)]+)\)/)?.[1] ?? markdownFromUpload;
-  return `![${title}](${url}){width=520}`;
+  return `![${title}](${url})`;
 }
 
-/** The banner's markdown image, pulled back out of a latch body. Matches the
-    sized GIF form and the older unsized PNG. */
+/** The banner's markdown image, pulled back out of a latch body. Also matches
+    the older `{width=N}` GIF form. */
 export function imageMarkdownOf(body: string): string | null {
   const m = body.match(/!\[[^\]]*\]\([^)]+\)(?:\{width=\d+\})?/);
   return m ? m[0] : null;
