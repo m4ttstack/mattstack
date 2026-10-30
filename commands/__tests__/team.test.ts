@@ -148,6 +148,17 @@ describe("teamCreate", () => {
     expect(humanProbes.calls.fetch).toEqual([]);
   });
 
+  test("--forge github takes no --host but github.com", async () => {
+    const probes = fakeProbes({ home: "/home/x", files: adminFiles });
+    const asked: string[] = [];
+    const deps = baseDeps({ probes, forgeToken: async (_p, at) => (asked.push(at), "glpat-sekrit") });
+    expect(await runExpectingProcessExit(() => teamCreate(["Acme", "--forge", "github", "--group", "acme", "--host", "gitlab.com", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("usage");
+    expect(asked).toEqual([]);
+    expect(probes.calls.fetch).toEqual([]);
+    expect(probes.calls.exec.some((argv) => argv[0] === "gh")).toBe(false);
+  });
+
   test("--forge names GitHub or GitLab", async () => {
     const deps = baseDeps();
     expect(await runExpectingProcessExit(() => teamCreate(["Acme", "--forge", "bitbucket", "--group", "acme", "--json"], {}, deps))).toBe(2);

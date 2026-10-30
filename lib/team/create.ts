@@ -28,9 +28,9 @@ import { UserActionableError } from "../errors.ts";
 import { readIntent, writeIntent } from "../setup/intent.ts";
 import { gitUsable } from "../setup/home-git.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
-import { forgeFromRemote, parseOriginUrl, probeUserSettingsReader, readUserIntegrationOverrides, stripUserinfo } from "../setup/team-settings.ts";
+import { forgeFromHost, forgeFromRemote, parseOriginUrl, probeUserSettingsReader, readUserIntegrationOverrides, stripUserinfo } from "../setup/team-settings.ts";
 import { mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
-import { createForgeRepo } from "./create-repo.ts";
+import { createForgeRepo, githubTokenLogin, hostMismatch } from "./create-repo.ts";
 import { withoutUrls } from "./redact.ts";
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
@@ -286,7 +286,8 @@ function cachedRemoteFromIntent(p: Probes, slug: string): string | null {
 const teamRepoName = (slug: string) => `mattstack-team-${slug}`;
 
 /** A token goes only to github.com, gitlab.com, or the host `rt setup gitlab connect --host` confirmed. */
-async function createOnForge(p: Probes, slug: string, forge: NonNullable<CreateTeamOpts["forgeRepo"]>, seams: CreateTeamSeams): Promise<string> {
+async function createOnForge(p: Probes, slug: string, name: string, forge: NonNullable<CreateTeamOpts["forgeRepo"]>, seams: CreateTeamSeams): Promise<string> {
+  if (forgeFromHost(forge.host)?.provider !== forge.provider) throw hostMismatch(forge.host, forge.provider, `rt team create ${name} --forge ${forge.provider} --group ${forge.namespace}`);
   const confirmedHost = readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }).forgeHost;
   const token = mayOfferTokenToHost(forge.host, confirmedHost) ? await seams.forgeToken(p, tokenLookupRemoteForHost(forge.host)) : null;
   if (!token) {
@@ -296,7 +297,7 @@ async function createOnForge(p: Probes, slug: string, forge: NonNullable<CreateT
       next: forge.host === "gitlab.com" ? "rt setup gitlab connect" : `rt setup gitlab connect --host ${forge.host}`,
     });
   }
-  const login = forge.provider === "github" ? await seams.forgeLogin(p, "github", forge.host, token) : null;
+  const login = forge.provider === "github" ? await githubTokenLogin(p, token) : null;
   return (await createForgeRepo(p, { ...forge, name: teamRepoName(slug), token, login })).remote;
 }
 
@@ -307,7 +308,7 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts, seam
   if (cached) return cached;
 
   let url: string;
-  if (opts.forgeRepo) url = await createOnForge(p, slug, opts.forgeRepo, seams);
+  if (opts.forgeRepo) url = await createOnForge(p, slug, opts.name, opts.forgeRepo, seams);
   else if (opts.createRepoOwner) url = await createWithGh(p, slug, opts.createRepoOwner);
   else {
     throw new UserActionableError("remote-required", "The team needs a repo", {}, {

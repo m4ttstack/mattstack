@@ -284,9 +284,11 @@ function forgeRepoArgs(args: string[], json: boolean, deps: TeamDeps): CreateTea
   if (!args.includes("--forge")) return undefined;
   const provider = flagValue(args, "--forge");
   if (provider !== "github" && provider !== "gitlab") usageError(deps, json, "Pick where the team's repo goes: github or gitlab", FORGE_CREATE_USAGE);
+  const host = flagValue(args, "--host");
+  if (provider === "github" && host !== undefined && host !== DEFAULT_FORGE_HOST.github) usageError(deps, json, "A GitHub team repo lives on github.com, so leave out --host", FORGE_CREATE_USAGE);
   const namespace = flagValue(args, "--group");
   if (!namespace || namespace.startsWith("--")) usageError(deps, json, "Which group or account should the team repo go in?", FORGE_CREATE_USAGE);
-  return { provider, host: flagValue(args, "--host") ?? DEFAULT_FORGE_HOST[provider], namespace };
+  return { provider, host: host ?? DEFAULT_FORGE_HOST[provider], namespace };
 }
 
 export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {

@@ -51,6 +51,15 @@ function unseen(i: ForgeRepoRequest, step: string, res: Reply): UserActionableEr
   });
 }
 
+/** A token is chosen by its host's forge, so a host of the other forge would send it to the wrong API. */
+export function hostMismatch(host: string, provider: "github" | "gitlab", next?: string): UserActionableError {
+  const other = provider === "github" ? "gitlab" : "github";
+  return new UserActionableError("create-repo-host-mismatch", `${host} is a ${TITLES[other]} host, not ${TITLES[provider]}`, {}, {
+    why: provider === "github" ? "A GitHub team repo lives on github.com. Leave out the host." : "Leave out the host for gitlab.com, or name your own GitLab's host.",
+    ...(next ? { next } : {}),
+  });
+}
+
 function exists(i: ForgeRepoRequest, url: string): UserActionableError {
   return new UserActionableError("create-repo-exists", `${TITLES[i.provider]} already has a repo with this team's name`, {}, {
     why: `It is ${url}. Point rt at it instead of creating a new one.`,
@@ -96,13 +105,29 @@ async function createOnGitlab(p: Probes, i: ForgeRepoRequest): Promise<{ remote:
   return remoteFrom(i, step, res, "http_url_to_repo");
 }
 
+const GITHUB_API_HOST = "github.com";
+
+function githubHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "rt-setup" };
+}
+
+/** The token's own account. A failed read throws rather than guess, since a wrong login turns the member's account into an org request. */
+export async function githubTokenLogin(p: Probes, token: string): Promise<string> {
+  const res = await p.fetch("https://api.github.com/user", { headers: githubHeaders(token), timeoutMs: FORGE_API_TIMEOUT_MS });
+  const login = res.status === 200 ? parsed(res.body)?.["login"] : undefined;
+  if (typeof login === "string" && login !== "") return login;
+  if (res.status === 0) throw new UserActionableError("create-repo-failed", "rt could not reach GitHub to create the team repo", {}, { log: "GitHub user lookup got no answer" });
+  throw new UserActionableError("create-repo-failed", "GitHub did not say whose token this is", {}, { log: withoutUrls(`GitHub user lookup answered ${res.status}: ${res.body}`) });
+}
+
 async function createOnGithub(p: Probes, i: ForgeRepoRequest): Promise<{ remote: string }> {
+  if (i.host !== GITHUB_API_HOST) throw hostMismatch(i.host, "github");
   const own = i.login !== null && sameUser(i.namespace, i.login);
   const step = own ? "GitHub repo create" : "GitHub org repo create";
   const url = own ? "https://api.github.com/user/repos" : `https://api.github.com/orgs/${encodeURIComponent(i.namespace)}/repos`;
   const res = await p.fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${i.token}`, Accept: "application/vnd.github+json", "User-Agent": "rt-setup", "Content-Type": "application/json" },
+    headers: { ...githubHeaders(i.token), "Content-Type": "application/json" },
     body: JSON.stringify({ name: i.name, private: true }),
     timeoutMs: FORGE_API_TIMEOUT_MS,
   });

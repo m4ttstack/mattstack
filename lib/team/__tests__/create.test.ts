@@ -303,6 +303,61 @@ describe("createTeam", () => {
     expect(p.calls.fetch).toEqual([]);
   });
 
+  test("a GitHub create on a GitLab host never reads or sends the GitLab token", async () => {
+    for (const host of ["gitlab.com", "gitlab.example.com"]) {
+      const execOpts: unknown[] = [];
+      const p = gitAwareFakeProbes("/home/x", (argv, opts) => (execOpts.push(opts), undefined));
+      p.writeFile(USER_SETTINGS, JSON.stringify({ "rt.integrations": { forgeHost: "gitlab.example.com" } }));
+      const asked: string[] = [];
+      const tokenSeams = { forgeLogin: async () => "janedoe", forgeToken: async (_p: unknown, at: string) => (asked.push(at), "glpat-sekrit") };
+
+      await expect(
+        createTeam(p, { name: "Acme", remote: null, forgeRepo: { provider: "github", host, namespace: "acme" }, others: false }, new FakeAgeKeySeam(), tokenSeams),
+      ).rejects.toMatchObject({ code: "create-repo-host-mismatch", message: `${host} is a GitLab host, not GitHub` });
+      expect(asked).toEqual([]);
+      expect(p.calls.fetch).toEqual([]);
+      expect(JSON.stringify([p.calls.exec, execOpts])).not.toContain("glpat-sekrit");
+      expect(p.calls.exec.some((argv) => argv[0] === "gh" || argv[0] === "glab")).toBe(false);
+    }
+  });
+
+  test("a GitLab create on github.com never reads or sends the GitHub token", async () => {
+    const execOpts: unknown[] = [];
+    const p = gitAwareFakeProbes("/home/x", (argv, opts) => (execOpts.push(opts), undefined));
+    const asked: string[] = [];
+    const tokenSeams = { forgeLogin: async () => "janedoe", forgeToken: async (_p: unknown, at: string) => (asked.push(at), "ghp_sekrit") };
+
+    await expect(
+      createTeam(p, { name: "Acme", remote: null, forgeRepo: { provider: "gitlab", host: "github.com", namespace: "acme" }, others: false }, new FakeAgeKeySeam(), tokenSeams),
+    ).rejects.toMatchObject({ code: "create-repo-host-mismatch", message: "github.com is a GitHub host, not GitLab", next: "rt team create Acme --forge gitlab --group acme" });
+    expect(asked).toEqual([]);
+    expect(p.calls.fetch).toEqual([]);
+    expect(JSON.stringify([p.calls.exec, execOpts])).not.toContain("ghp_sekrit");
+  });
+
+  test("--forge github with a stored token reads the login from the API, never gh", async () => {
+    const p = gitAwareFakeProbes("/home/x", undefined, async (url) => {
+      if (url === "https://api.github.com/user") return { status: 200, body: JSON.stringify({ login: "janedoe" }), headers: {} };
+      return { status: 201, body: JSON.stringify({ clone_url: "https://github.com/janedoe/mattstack-team-acme.git" }), headers: {} };
+    });
+    const tokenSeams = { forgeLogin: async () => "someone-else", forgeToken: async () => "ghp_sekrit" };
+
+    const result = await createTeam(p, { name: "Acme", remote: null, forgeRepo: { provider: "github", host: "github.com", namespace: "janedoe" }, others: false }, new FakeAgeKeySeam(), tokenSeams);
+
+    expect(result.remote).toBe("https://github.com/janedoe/mattstack-team-acme.git");
+    expect(p.calls.fetch).toEqual(["https://api.github.com/user", "https://api.github.com/user/repos"]);
+    expect(p.calls.fetchInits[0]!.init?.headers).toMatchObject({ Authorization: "Bearer ghp_sekrit" });
+    expect(p.calls.exec.some((argv) => argv[0] === "gh")).toBe(false);
+  });
+
+  test("a GitHub login the API will not give is a failed create, never an org guess", async () => {
+    const p = gitAwareFakeProbes("/home/x", undefined, async () => ({ status: 401, body: JSON.stringify({ message: "Bad credentials" }), headers: {} }));
+    await expect(
+      createTeam(p, { name: "Acme", remote: null, forgeRepo: { provider: "github", host: "github.com", namespace: "janedoe" }, others: false }, new FakeAgeKeySeam(), { ...seams, forgeToken: async () => "ghp_sekrit" }),
+    ).rejects.toMatchObject({ code: "create-repo-failed" });
+    expect(p.calls.fetch).toEqual(["https://api.github.com/user"]);
+  });
+
   test("--forge github with no stored token creates the repo through the gh sign-in", async () => {
     const p = gitAwareFakeProbes("/home/x", (argv) => (argv[0] === "gh" ? { code: 0, stdout: "https://github.com/acme/mattstack-team-acme\n", stderr: "" } : undefined));
     const result = await createTeam(p, { name: "Acme", remote: null, forgeRepo: { provider: "github", host: "github.com", namespace: "acme" }, others: false }, new FakeAgeKeySeam(), seams);

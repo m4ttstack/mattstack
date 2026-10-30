@@ -88,6 +88,13 @@ describe("createForgeRepo", () => {
     expect(unseenOrg.message).toBe("This token cannot see acme on GitHub");
   });
 
+  test("GitHub refuses any host but github.com before the token leaves", async () => {
+    const p = probes(() => json(201, { clone_url: "https://github.com/acme/mattstack-team-acme.git" }));
+    const refused = await failure(createForgeRepo(p, { ...GITHUB, host: "gitlab.com", namespace: "acme" }));
+    expect(refused.code).toBe("create-repo-host-mismatch");
+    expect(p.calls.fetch).toEqual([]);
+  });
+
   test("any other answer is a failed create with the forge's words in the log", async () => {
     const github = probes(() => json(401, { message: "Bad credentials", documentation_url: "https://docs.github.com/rest" }));
     const denied = await failure(createForgeRepo(github, { ...GITHUB, namespace: "janedoe" }));
