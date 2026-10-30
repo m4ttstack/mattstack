@@ -468,7 +468,7 @@ host_turn() {
 HAND_AFTER=5; JOIN_HAND_WAIT_S=600
 join_page ready
 check "Join: with no mint HOME the page waits for a hand approval, then Continues" \
-  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = checklist ] && grep -q "approve this join by hand" "$AX_LOG"'
+  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = checklist ] && grep -q "approve this join by hand" "$AX_LOG" && grep -q "rt team members sync, then rt team publish" "$AX_LOG"'
 HAND_AFTER=-1; JOIN_HAND_WAIT_S=30
 join_page ready
 check "Join: a hand approval that never comes fails within its bound, naming the hand approval" \

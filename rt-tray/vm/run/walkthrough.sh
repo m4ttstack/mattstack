@@ -194,7 +194,7 @@ approve_watcher() {
   until [ -e "$VM_RUN_DIR/in/join-waiting.req" ]; do sleep 1; done
   rm -f "$VM_RUN_DIR/in/join-waiting.req"
   if [ -z "$MINT_HOME" ] || [ -z "$RT_FOR_MINT" ]; then
-    echo "no mint HOME (not a --fresh-team-repo join): the team's owner must approve it by hand with rt team members sync on their Mac" >> "$VM_RUN_DIR/logs/approve.log"
+    echo "no mint HOME (not a --fresh-team-repo join): the team's owner must approve it by hand on their Mac: rt team members sync, then rt team publish" >> "$VM_RUN_DIR/logs/approve.log"
     : > "$VM_RUN_DIR/in/join-approve.manual"; return
   fi
   key=$(vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "/Applications/mattstack.app/Contents/Helpers/jq -r '.agePublicKey // empty' \$HOME/.mattstack/rt/teams/$SLUG.json" 2>>"$VM_RUN_DIR/logs/approve.log")
@@ -207,10 +207,17 @@ approve_watcher() {
 }
 
 # The watcher and any approve-join.sh it started share one process group;
-# both are gone before the mint HOME they use is deleted.
+# both are gone before the mint HOME they use is deleted. A stopped group
+# never acts on SIGTERM, and a process may ignore it, so after 10s the group
+# is woken and killed: the wait below must never block for good.
 stop_approve_watcher() {
   [ -n "$APPROVE_PID" ] || return 0
-  kill -- -"$APPROVE_PID" 2>/dev/null || kill "$APPROVE_PID" 2>/dev/null
+  local n=0
+  kill -TERM -- -"$APPROVE_PID" 2>/dev/null || kill -TERM "$APPROVE_PID" 2>/dev/null
+  kill -CONT -- -"$APPROVE_PID" 2>/dev/null || true
+  while [ "$n" -lt 10 ] && kill -0 "$APPROVE_PID" 2>/dev/null \
+      && [ "$(ps -o stat= -p "$APPROVE_PID" 2>/dev/null | cut -c1)" != Z ]; do sleep 1; n=$((n+1)); done
+  kill -KILL -- -"$APPROVE_PID" 2>/dev/null || kill -KILL "$APPROVE_PID" 2>/dev/null
   wait "$APPROVE_PID" 2>/dev/null
   APPROVE_PID=""
 }
@@ -252,8 +259,18 @@ FB_EXTENSION_ID=$(fb_extension_id)
 # rt names the extension only by its store link; this is the Chrome Web
 # Store's own update URL, which ExtensionInstallForcelist needs beside the id.
 CHROME_STORE_UPDATE_URL="https://clients2.google.com/service/update2/crx"
-# The repo the minted team tracks: the team-minimal fixture's, unless overridden.
-TRACK_REPO="${MATTSTACK_VMTEST_TRACK_REPO:-$(jq -r '."mattstack.tracking".repos | keys[0] // empty' "$VM_ROOT/fixtures/team-minimal/settings.team.json" 2>/dev/null)}"
+# The repo the minted team tracks, on the run's own forge so the joiner's
+# token can clone it: MATTSTACK_VMTEST_TRACK_REPO, else the team-minimal
+# fixture's when it lives there.
+TRACK_REPO=""
+if [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ]; then
+  TRACK_HOST=github.com; [ "$FORGE" = gitlab ] && TRACK_HOST=gitlab.com
+  TRACK_REPO="${MATTSTACK_VMTEST_TRACK_REPO:-$(jq -r '."mattstack.tracking".repos | keys[0] // empty' "$VM_ROOT/fixtures/team-minimal/settings.team.json" 2>/dev/null)}"
+  case "$TRACK_REPO" in
+    "$TRACK_HOST"/*) ;;
+    *) vm_phase_end preflight fail "the minted team needs a repo on $TRACK_HOST to track (the joiner's token clones it); the fixture's is ${TRACK_REPO:-missing}: set MATTSTACK_VMTEST_TRACK_REPO=$TRACK_HOST/<owner>/<repo>"; exit 1;;
+  esac
+fi
 if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
   [ -n "${!PAT_ENV:-}" ] || { vm_phase_end preflight fail "--fresh-team-repo needs \$$PAT_ENV set — an empty token can fall back to the operator's own stored forge credentials"; exit 1; }
   FRESH_NAME="mattstack-vmtest-team-$(date +%Y%m%d-%H%M%S)-$$"
@@ -420,8 +437,10 @@ if [ "$SCENARIO" = headless ]; then
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "open -a /Applications/mattstack.app; sleep 8" >>"$VM_RUN_DIR/logs/screens.log" 2>&1 || true
 else
   CODE_ARG=""; [ -n "$CODE_FILE" ] && { cp "$CODE_FILE" "$VM_RUN_DIR/in/invite-code.txt"; CODE_ARG="--invite-code-file '$GUEST_RUN/in/invite-code.txt'"; }
-  if [ "$SCENARIO" = join ]; then set -m; approve_watcher & APPROVE_PID=$!; set +m; fi
-  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  # Job control hands a background job the walkthrough's stdin, a terminal
+  # on an attended run; a read from it would stop the watcher's group.
+  if [ "$SCENARIO" = join ]; then set -m; approve_watcher </dev/null & APPROVE_PID=$!; set +m; fi
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' JOIN_HAND_WAIT_S='${JOIN_HAND_WAIT_S:-1800}' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   rc=$?
   stop_approve_watcher
   mint_detach; drop_mint_home

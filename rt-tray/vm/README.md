@@ -67,6 +67,9 @@ Facts a join run depends on:
   names another. The mint also makes the team track one repo (`--track`: the
   `fixtures/team-minimal` repo, or `MATTSTACK_VMTEST_TRACK_REPO`), committed
   in the clone before the publish, so the joiner has a board repo to place.
+  The repo must live on the run's forge (github.com or gitlab.com) so the
+  joiner's token can clone it; preflight refuses one that does not. The
+  fixture's repo is on gitlab.com, so a `--forge github` run sets the variable.
   The HOME is kept until the screens phase ends (the approval reuses it), the code lands in
   `mint/invite-code.txt` (0600, redacted from `logs/mint.log`), and teardown
   deletes the repo as for create. Invitee and owner are the same account, so
@@ -87,7 +90,9 @@ Facts a join run depends on:
   a mint HOME; any other join (`--invite-code-file`) gets
   `in/join-approve.manual`, and the page then waits up to
   `JOIN_HAND_WAIT_S` (default 1800s) for the team's owner to run
-  `rt team members sync` on their Mac by hand, naming that in `drive.log`.
+  `rt team members sync`, then `rt team publish`, on their Mac by hand, naming that in `drive.log`.
+  Both waits (`JOIN_HAND_WAIT_S` here, `FB_EXTENSION_WAIT_S` below) are read
+  from the host's environment and passed to the guest's driver.
   The host's side is in `logs/approve.log`; the watcher and any
   approve-join.sh it started share one process group, stopped before the
   mint HOME is deleted.

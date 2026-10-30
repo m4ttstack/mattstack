@@ -13,6 +13,7 @@ t "common.test.sh"               bash lib/__tests__/common.test.sh
 # runs here, so this and a VM walkthrough are the only two checks of it.
 # /bin/bash, not the PATH's: the guest has only the system bash.
 t "wizard-pages.test.sh"         /bin/bash run/helpers/__tests__/wizard-pages.test.sh
+t "approve-watcher.test.sh"      /bin/bash run/helpers/__tests__/approve-watcher.test.sh
 t "appcast-server.test.ts"       bun test run/helpers/__tests__/appcast-server.test.ts
 t "launchctl-print.test.ts"      bun test run/helpers/__tests__/launchctl-print.test.ts
 t "catalog.test.ts"              bun test run/helpers/__tests__/catalog.test.ts
@@ -49,9 +50,9 @@ t "walkthrough usage"            bash -c '! bash run/walkthrough.sh >/dev/null 2
 t "walkthrough --fresh-team-repo --dry-run creates nothing" bash -c \
   'out=$(env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --fresh-team-repo --dry-run 2>&1) && ! printf "%s" "$out" | grep -q "unknown arg"'
 t "walkthrough --fresh-team-repo --dry-run takes join with no code file" bash -c \
-  'env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --dry-run >/dev/null 2>&1'
+  'env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --forge gitlab --dry-run >/dev/null 2>&1'
 t "walkthrough --fresh-team-repo join ledgers the invite phase" bash -c \
-  'rm -rf /tmp/vmcheck-art-inv; env VM_ARTIFACTS=/tmp/vmcheck-art-inv bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --dry-run >/dev/null 2>&1 \
+  'rm -rf /tmp/vmcheck-art-inv; env VM_ARTIFACTS=/tmp/vmcheck-art-inv bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --forge gitlab --dry-run >/dev/null 2>&1 \
    && grep -q "\"phase\":\"invite\",\"status\":\"skip\"" /tmp/vmcheck-art-inv/*/phases.jsonl; rc=$?; rm -rf /tmp/vmcheck-art-inv; exit $rc'
 t "walkthrough --fresh-team-repo refuses solo" bash -c \
   '! env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario solo --fresh-team-repo --dry-run >/dev/null 2>&1'
@@ -74,7 +75,7 @@ t "mint-invite.sh usage (missing args)" bash -c \
 t "approve-join.sh usage (missing args)" bash -c \
   'out=$(bash run/host/approve-join.sh 2>&1); rc=$?; [ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "Usage: approve-join.sh"'
 t "walkthrough answers the guest's join request with approve-join.sh" bash -c \
-  'grep -q "approve_watcher & APPROVE_PID" run/walkthrough.sh && grep -q "run/host/approve-join.sh" run/walkthrough.sh \
+  'grep -q "approve_watcher </dev/null & APPROVE_PID" run/walkthrough.sh && grep -q "run/host/approve-join.sh" run/walkthrough.sh \
    && grep -q "join-waiting.req" run/guest/screens.sh && grep -q "join-approve.failed" run/guest/screens.sh'
 # A join with no mint HOME (an --invite-code-file run) is approved by the
 # team's owner by hand: the watcher says so and never fails the page.
@@ -83,10 +84,10 @@ t "approve_watcher with no mint HOME asks for a hand approval, never a failure" 
   src=$(sed -n "/^approve_watcher()/,/^}/p" run/walkthrough.sh)
   VM_RUN_DIR=/tmp/vmcheck-aw MINT_HOME= RT_FOR_MINT= SLUG=vmtest bash -c "$src""; approve_watcher"
   rc=0; [ -e /tmp/vmcheck-aw/in/join-approve.manual ] && [ ! -e /tmp/vmcheck-aw/in/join-approve.failed ] \
-    && grep -q "approve it by hand" /tmp/vmcheck-aw/logs/approve.log || rc=1
+    && grep -q "approve it by hand on their Mac: rt team members sync, then rt team publish" /tmp/vmcheck-aw/logs/approve.log || rc=1
   rm -rf /tmp/vmcheck-aw; exit $rc'
 t "walkthrough stops the approval watcher with its whole process group before dropping the mint HOME" bash -c '
-  kill=$(grep -n "kill -- -\"\$APPROVE_PID\"" run/walkthrough.sh | tail -1 | cut -d: -f1)
+  kill=$(grep -n "kill -KILL -- -\"\$APPROVE_PID\"" run/walkthrough.sh | tail -1 | cut -d: -f1)
   drop=$(grep -n "^  mint_detach; drop_mint_home$" run/walkthrough.sh | tail -1 | cut -d: -f1)
   [ -n "$kill" ] && [ -n "$drop" ] && [ "$kill" -lt "$drop" ] && grep -q "wait \"\$APPROVE_PID\"" run/walkthrough.sh'
 # The clean room gets Chrome and the extension the way a member's Mac has

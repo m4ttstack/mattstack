@@ -85,7 +85,7 @@ case "$1 $2" in
 esac
 exit 0
 `);
-  stub("glab", `echo "glab $*" >> "$ROOT/calls"\nexit 0\n`);
+  stub("glab", `echo "glab $*" >> "$ROOT/calls"\n[ "$1 $2" = "api user" ] && echo '{"username":"vmtest-joiner"}'\nexit 0\n`);
   // The host mint's rt runs under env -i, so it finds ROOT only through the
   // path baked into it here.
   stub("rt-mint", `echo "rt-mint $* HOME=$HOME" >> "$ROOT/calls"
@@ -116,6 +116,7 @@ esac
       VM_SSH_KEY: join(root, "key"),
       MATTSTACK_VMTEST_PAT: "test-token",
       MATTSTACK_VMTEST_GITLAB_GROUP: "vmtest-group",
+      ...(scenario === "join" && forge === "github" ? { MATTSTACK_VMTEST_TRACK_REPO: "github.com/acme/widgets" } : {}),
       // A dropped screens ssh waits for the guest's own exit code until the
       // phase deadline; the stub guest never reports one.
       VM_PHASE_LIMIT_SCREENS: "3",
@@ -331,9 +332,35 @@ describe("walkthrough.sh --scenario join --fresh-team-repo mints the invite on t
     expect(readFileSync(join(runDir(w), "in", "invite-code.txt"), "utf8").trim()).toBe("VMTEST-CODE");
     const driver = calls(w).split("\n").find((l) => l.includes("drive-setup.sh join"));
     expect(driver).toContain("--invite-code-file");
+    expect(driver).toContain("JOIN_HAND_WAIT_S='1800'");
+    expect(driver).toContain("FB_EXTENSION_WAIT_S='300'");
     expect(phase(w, "screens")?.status).toBe("fail");
     expectTornDown(w);
     expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-vmtest-team-\S+ --yes/);
+  }, RUN_MS);
+
+  test("the guest's waits come from the host's environment", async () => {
+    const w = world({ screens: "drop", scenario: "join", env: { JOIN_HAND_WAIT_S: "42", FB_EXTENSION_WAIT_S: "7" } });
+    await walk(w);
+    const driver = calls(w).split("\n").find((l) => l.includes("drive-setup.sh join"));
+    expect(driver).toContain("JOIN_HAND_WAIT_S='42'");
+    expect(driver).toContain("FB_EXTENSION_WAIT_S='7'");
+  }, RUN_MS);
+
+  test("a github join refuses a tracked repo on another forge before minting anything", async () => {
+    const w = world({ screens: "drop", scenario: "join", env: { MATTSTACK_VMTEST_TRACK_REPO: "gitlab.com/acme/widgets" } });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.status).toBe("fail");
+    expect(phase(w, "preflight")?.reason).toContain("needs a repo on github.com");
+    expect(calls(w)).not.toContain("rt-mint ");
+  }, RUN_MS);
+
+  test("a gitlab join tracks the fixture's repo with no override", async () => {
+    const w = world({ screens: "drop", scenario: "join", forge: "gitlab" });
+    await walk(w);
+    expect(phase(w, "invite")?.status).toBe("pass");
+    expect(calls(w)).toMatch(/rt-mint settings set mattstack\.tracking \{"repos":\{"gitlab\.com\/[^"]+"/);
   }, RUN_MS);
 
   test("a failed mint fails the invite phase before any guest is cloned, and still deletes the repo", async () => {

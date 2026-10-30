@@ -185,13 +185,13 @@ screen_join() {
     until ax_find setup.join.approved >/dev/null 2>&1; do
       [ -e "$GUEST_RUN/in/join-approve.failed" ] && ax_fail "the host could not approve the join (logs/approve.log)"
       # The host minted no team (an --invite-code-file join), so the team's
-      # owner has to run rt team members sync on their own Mac.
+      # owner has to run rt team members sync, then rt team publish, on their own Mac.
       if [ "$by_hand" = 0 ] && [ -e "$GUEST_RUN/in/join-approve.manual" ]; then
         by_hand=1; deadline=$((SECONDS + hand_wait))
-        ax_log "join: the host cannot approve this join; approve this join by hand within ${hand_wait}s: on the team owner's Mac run rt team members sync"
+        ax_log "join: the host cannot approve this join; approve this join by hand within ${hand_wait}s: on the team owner's Mac run rt team members sync, then rt team publish"
       fi
       if [ "$SECONDS" -ge "$deadline" ]; then
-        [ "$by_hand" = 1 ] && ax_fail "the Join page was not approved by hand within ${hand_wait}s (the owner runs rt team members sync)"
+        [ "$by_hand" = 1 ] && ax_fail "the Join page was not approved by hand within ${hand_wait}s (the owner runs rt team members sync, then rt team publish)"
         ax_fail "the Join page was not approved within 300s of asking the host"
       fi
       sleep 3
