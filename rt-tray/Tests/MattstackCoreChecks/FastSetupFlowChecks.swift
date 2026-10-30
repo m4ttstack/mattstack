@@ -226,6 +226,17 @@ let fastSetupFlowChecks: [Check] = [
         c.expect(FastSetupFlow.joinEnabled(verdictOK: true, rows: [macosRow("tool.clt", .done), macosRow("extra", .todo, optional: true)]),
                  "an optional row never holds Join")
     },
+    Check("FastSetupFlow: Create team waits for Command Line Tools") { c in
+        c.expect(!FastSetupFlow.createEnabled(nameAndGroup: true, rows: [macosRow("tool.clt", .busy), macosRow("forge.token", .done)]),
+                 "a busy Command Line Tools row holds Create team")
+        for state in [FormRowState.todo, .busy, .waiting] {
+            c.expect(!FastSetupFlow.createEnabled(nameAndGroup: true, rows: [macosRow("tool.clt", .done), macosRow("forge.token", state)]),
+                     "the token \(state) holds Create team")
+        }
+        c.expect(FastSetupFlow.createEnabled(nameAndGroup: true, rows: [macosRow("tool.clt", .done), macosRow("forge.token", .done)]))
+        c.expect(FastSetupFlow.createEnabled(nameAndGroup: true, rows: [macosRow("forge.token", .done), macosRow("extra", .todo, optional: true)]),
+                 "an optional row never holds Create team")
+    },
 ]
 
 private func macosRow(_ id: String, _ state: FormRowState, optional: Bool = false) -> FormRow {

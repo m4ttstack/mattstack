@@ -422,4 +422,58 @@ let teamChoiceChecks: [Check] = [
         c.expectEqual(await MainActor.run { failed.inviteLine }, nil, "a failed read names no team")
         c.expect(await MainActor.run { !failed.hasGoodVerdict })
     },
+    Check("TeamChoice: create on GitLab sends forge and group") { c in
+        let rt = ScriptedRt()
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        rt.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"widgets","name":"Widgets"},"remote":"ok"}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run {
+            c.expectEqual(m.forge, "gitlab", "GitLab is the default")
+            m.choice = .create; m.teamName = "Widgets"; m.group = " acme/platform "
+        }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.last?.args, ["team", "create", "Widgets", "--forge", "gitlab", "--group", "acme/platform", "--others", "--json"])
+        await MainActor.run { m.group = "acme" }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.filter { $0.args.prefix(2) == ["team", "create"] }.count, 2, "a changed group re-runs team create")
+
+        let noGh = ScriptedRt()
+        noGh.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        noGh.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"widgets","name":"Widgets"},"remote":"ok"}"#)
+        let token = await MainActor.run { TeamChoiceModel(rt: noGh, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { token.choice = .create; token.teamName = "Widgets"; token.forge = "github"; token.group = "acme" }
+        c.expect(await token.validateAndPrepare() == nil)
+        c.expectEqual(noGh.calls.last?.args, ["team", "create", "Widgets", "--forge", "github", "--group", "acme", "--others", "--json"],
+                      "GitHub without a gh sign-in creates the repo with the token")
+    },
+    Check("TeamChoice: create on GitHub with gh keeps create-repo") { c in
+        let rt = ScriptedRt()
+        rt.answers["setup github status"] = (0, #"{"contract":1,"status":"ready","handle":"janedoe","owners":["janedoe","acme"]}"#)
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        rt.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"widgets","name":"Widgets"},"remote":"ok"}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await m.loadGitHubStatus()
+        await MainActor.run { m.choice = .create; m.teamName = "Widgets"; m.forge = "github"; m.group = "acme" }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.last?.args, ["team", "create", "Widgets", "--create-repo", "acme", "--others", "--json"])
+    },
+    Check("TeamChoice: Create team needs a name and a group") { c in
+        let m = await MainActor.run { TeamChoiceModel(rt: ScriptedRt(), pasteboard: FakePasteboard(nil)) }
+        await MainActor.run {
+            c.expect(!m.canCreateTeam, "nothing typed")
+            m.teamName = "Widgets"
+            c.expect(!m.canCreateTeam, "no group")
+            m.group = "   "
+            c.expect(!m.canCreateTeam, "a blank group is no group")
+            m.group = "acme"
+            c.expect(m.canCreateTeam)
+            m.teamName = "!!"
+            c.expect(!m.canCreateTeam, "a name with no letters makes no slug")
+        }
+        let done = [FormRow(id: "forge.token", title: "GitLab", subtext: "", state: .done, detail: "Connected")]
+        c.expect(FastSetupFlow.createEnabled(nameAndGroup: true, rows: done))
+        c.expect(!FastSetupFlow.createEnabled(nameAndGroup: false, rows: done), "the name and group hold Create team")
+        c.expect(!FastSetupFlow.createEnabled(nameAndGroup: true, rows: nil), "an unread create section holds Create team")
+        c.expect(FastSetupFlow.createEnabled(nameAndGroup: true, rows: []), "gh signed in and git present: nothing to wait on")
+    },
 ]

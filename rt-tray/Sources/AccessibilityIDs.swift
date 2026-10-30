@@ -113,6 +113,10 @@ enum AXID {
     static let fastInvitePaste = "setup.fast.invite.paste"
     static let fastInviteLine = "setup.fast.invite.line"
     static let fastInviteFailure = "setup.fast.invite.failure"
+    static let fastCreateName = "setup.fast.create-team.name"
+    static let fastCreateForge = "setup.fast.create-team.forge"
+    static let fastCreateGroup = "setup.fast.create-team.group"
+    static let fastCreateFailure = "setup.fast.create-team.failure"
 
     // Install
     static func installStep(_ id: String) -> String { "setup.install.step.\(id)" }

@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -129,6 +129,28 @@ enum FastSetupSnapshot {
         ]
     }
 
+    @MainActor
+    private static func createPages() -> [(String, AnyView)] {
+        /// `canCreateTeam` is what the container reads from `TeamChoiceModel.canCreateTeam`.
+        func page(name: String = "", forge: String = "gitlab", group: String = "", rows: [FormRow]?,
+                  creating: Bool = false, failure: String? = nil) -> AnyView {
+            let canCreateTeam = !Slug.make(name).isEmpty && !group.trimmingCharacters(in: .whitespaces).isEmpty
+            let enabled = FastSetupFlow.createEnabled(nameAndGroup: canCreateTeam, rows: rows)
+            return AnyView(CreateTeamScreenBody(name: .constant(name), forge: .constant(forge), group: .constant(group), rows: rows,
+                                                waiting: [:], errors: [:], isCreating: creating, failure: failure, createEnabled: enabled,
+                                                onAction: { _, _, _ in }, onBack: {}, onCreate: {}))
+        }
+        return [
+            ("create-empty", page(rows: [Rows.gitlabToken])),
+            ("create-clt-busy", page(name: "Widgets", group: "acme", rows: [Rows.cltInstalling, Rows.gitlabToken])),
+            ("create-github", page(name: "Widgets", forge: "github", group: "acme", rows: [Rows.githubToken])),
+            ("create-filled", page(name: "Widgets", group: "acme", rows: [Rows.gitlabTokenCreated])),
+            ("create-creating", page(name: "Widgets", group: "acme", rows: [Rows.gitlabTokenCreated], creating: true)),
+            ("create-error", page(name: "Widgets", group: "acme", rows: [Rows.gitlabTokenCreated],
+                                  failure: "This token cannot see acme on GitLab")),
+        ]
+    }
+
     enum Rows {
         static let clt = FormRow(id: "tool.clt", title: "Command Line Tools", subtext: "Git and the build tools setup needs",
                                  state: .todo, detail: "Not installed yet",
@@ -143,6 +165,8 @@ enum FastSetupSnapshot {
                                                                url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features")))
         static let gitlabTokenConnected = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                                   state: .done, detail: "Connected as janedoe")
+        static let gitlabTokenCreated = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
+                                                state: .done, detail: "Connected")
         static let githubToken = FormRow(id: "forge.token", title: "GitHub", subtext: "Lets mattstack reach the team's repo and open PRs",
                                          state: .todo, detail: "No GitHub account connected yet",
                                          action: RowAction(type: .connect, label: "Connect", integration: "github", fields: [

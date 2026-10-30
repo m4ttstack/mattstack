@@ -49,6 +49,13 @@ public final class FastSetupFlow: ObservableObject {
         return allDone(rows)
     }
 
+    /// Create team waits on the screen's name and group, then on rt's create rows.
+    /// Before rt's create section arrives (nil) nothing says whether git or a token is still missing.
+    public nonisolated static func createEnabled(nameAndGroup: Bool, rows: [FormRow]?) -> Bool {
+        guard nameAndGroup, let rows else { return false }
+        return allDone(rows)
+    }
+
     /// What moves P1 on. Before the first read, or with nothing to show, P1 stays put.
     public nonisolated static func macosReady(_ rows: [FormRow]?) -> Bool {
         guard let rows, !rows.isEmpty else { return false }

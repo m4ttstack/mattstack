@@ -40,6 +40,10 @@ public final class TeamChoiceModel: ObservableObject {
     @Published public private(set) var ghOwners: [String] = []
     @Published public private(set) var ghHandle: String?
     @Published public var remoteURL = ""
+    /// Where the new team's settings live: "gitlab" or "github".
+    @Published public var forge: String = "gitlab"
+    /// The forge group or account the team repo goes under.
+    @Published public var group = ""
     @Published public var inviteCode = ""
     @Published public var restoreRepo = ""
     @Published public var restoreAgeKey = ""
@@ -106,6 +110,24 @@ public final class TeamChoiceModel: ObservableObject {
         inviteCode = code
     }
 
+    /// What Create team needs from the screen's own fields; rt's create rows gate the rest.
+    public var canCreateTeam: Bool { !slugPreview.isEmpty && !trimmedGroup.isEmpty }
+
+    private var trimmedGroup: String { group.trimmingCharacters(in: .whitespaces) }
+
+    /// The fast screen names a forge and a group. GitHub with a gh sign-in keeps `--create-repo`,
+    /// and the old checklist card, which has no group, still sends its remote or gh owner.
+    var createArguments: [String] {
+        var args = ["team", "create", teamName]
+        if !trimmedGroup.isEmpty {
+            args += forge == "github" && ghHandle != nil ? ["--create-repo", trimmedGroup] : ["--forge", forge, "--group", trimmedGroup]
+        } else {
+            args += useGhRepo ? ["--create-repo", ghOwner ?? ghHandle ?? ""] : ["--remote", remoteURL.trimmingCharacters(in: .whitespaces)]
+        }
+        if othersWillJoin { args.append("--others") }
+        return args + ["--json"]
+    }
+
     public var canContinue: Bool {
         switch choice {
         case .create:
@@ -149,11 +171,7 @@ public final class TeamChoiceModel: ObservableObject {
             switch choice {
             case .create:
                 if let e = await homeInitCheck() { return e }
-                var args = ["team", "create", teamName]
-                args += useGhRepo ? ["--create-repo", ghOwner ?? ghHandle ?? ""] : ["--remote", remoteURL.trimmingCharacters(in: .whitespaces)]
-                if othersWillJoin { args.append("--others") }
-                args.append("--json")
-                let r = try await rt.run(args, stdin: nil)
+                let r = try await rt.run(createArguments, stdin: nil)
                 if let e = r.userError { return e.message }
                 guard r.exitCode == 0 else { return r.failureCopy(verb: "team create") }
                 preparedFingerprint = fingerprint
@@ -262,7 +280,7 @@ public final class TeamChoiceModel: ObservableObject {
     private func preparationFingerprint() -> String? {
         switch choice {
         case .create:
-            return ["create", teamName, "\(othersWillJoin)", "\(useGhRepo)", ghOwner ?? "", remoteURL].joined(separator: "\u{1}")
+            return ["create", teamName, "\(othersWillJoin)", "\(useGhRepo)", ghOwner ?? "", remoteURL, forge, trimmedGroup].joined(separator: "\u{1}")
         case .join:
             return nil
         case .restore:
