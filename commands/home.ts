@@ -969,11 +969,10 @@ export async function homeKeyImport(
   sopsYamlSeam: SopsYamlSeam = defaultSopsYamlSeam(),
   input: AgeKeyInputSeam = defaultAgeKeyInputSeam(),
 ): Promise<void> {
-  // The key must arrive via --stdin or the hidden interactive prompt — never
+  // The key must arrive via --stdin or the hidden interactive prompt, never
   // as a positional argument. By the time it shows up here as one, it has
-  // already landed in the operator's shell history and rt's own CLI log
-  // (dispatch() logs every command's args) — refuse outright rather than
-  // silently proceeding as if the leak never happened.
+  // already landed in the operator's shell history (rt's CLI log redacts it),
+  // so refuse outright rather than proceed as if the leak never happened.
   const pastedKeyArg = args.find((a) => a.startsWith(PRIVATE_KEY_PREFIX));
   if (pastedKeyArg !== undefined) {
     refuse(
