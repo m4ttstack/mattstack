@@ -66,7 +66,7 @@ esac
 for a; do last="$a"; done
 case "$last" in
   *drive-setup.sh*)
-    printf '%s\\n' "19:36:56 clicked setup.checklist.row.account.github.action" "19:37:13 filled setup.checklist.connect.field.token" >> "$VM_RUN_DIR/logs/drive.log"
+    printf '%s\\n' "19:36:56 clicked setup.fast.path.card.join" "19:37:13 filled setup.fast.row.forge.token.field" >> "$VM_RUN_DIR/logs/drive.log"
     case "$(cat "$ROOT/screens")" in
       hang) sleep ${marker} & echo $! > "$ROOT/driver.pid"; wait;;
       drop) echo "Timeout, server 127.0.0.1 not responding." >&2; exit 255;;
@@ -201,7 +201,7 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
     expect(ms).toBeLessThan(60_000);
     const screens = phase(w, "screens");
     expect(screens?.status).toBe("fail");
-    expect(screens?.reason).toMatch(/^screens timed out after \d+s \(limit 2s\); last lines of logs\/drive\.log: .*filled setup\.checklist\.connect\.field\.token$/);
+    expect(screens?.reason).toMatch(/^screens timed out after \d+s \(limit 2s\); last lines of logs\/drive\.log: .*filled setup\.fast\.row\.forge\.token\.field$/);
     expect(readFileSync(join(runDir(w), "report.md"), "utf8")).toContain("screens timed out after");
     expectTornDown(w);
     expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-vmtest-team-\d{8}-\d{6}-\d+ --yes/);

@@ -10,10 +10,15 @@ Every run's deliverable is `artifacts/<run-id>/` (screenshots, logs,
 | Layer | Verifies | Cannot verify / not automated |
 |---|---|---|
 | (a) `scripts/e2e-cleanroom.sh` (same recipe as the release workflow's "Clean-room install + verify" step) | artifact extracts; Gatekeeper accepts the app with `com.apple.quarantine` stamped on the way a browser download would; `rt --post-install` installs `~/.local/bin/rt`, the app, the daemon config; `rt verify --ci` exit 0; every bundled helper runs from inside the signed bundle | anything needing a GUI session or approval (daemon boot is a warn under CI); Gatekeeper **where the xattr cannot be written** — that prints `Gatekeeper path NOT exercised` and the run still passes, so a green run is not proof it was tested |
-| (b) `run/walkthrough.sh` (Tart clone of a golden image) | real DMG → /Applications → first launch under Gatekeeper; every setup screen (Welcome, Full Disk Access, Your team, the Join page on a join, the checklist pages, Install, the summary); FDA + Login Items + Notifications dances; `rt verify --json` green; tray.sock `/version`; Sparkle vN→vN+1 and daemon restart; screenshots per screen | the **"Background Items Added" notification** (a banner, not a dialog — it is neither clicked nor asserted; the Login Items row is asserted through `GET /services` / `rt setup status` instead); the **FDA relaunch** is driven (the Full Disk Access page's own "Reopen mattstack" button) but the OS applying FDA is asserted only via the app's probe row; notarisation/stapling of Matt's signing (a locally built DMG is unnotarised → run with `--no-quarantine`, reported in the ledger) |
+| (b) `run/walkthrough.sh` (Tart clone of a golden image) | real DMG → /Applications → first launch under Gatekeeper; every fast setup screen (the three macOS rows, the path cards, the invite and the wait for approval on a join or Create a team on a create, Connect, this Mac, the running bar, This Mac is ready); the FDA, Notifications and Fancy URLs dances; `rt verify --json` green; tray.sock `/version`; Sparkle vN→vN+1 and daemon restart; screenshots per screen | the **"Background Items Added" notification** (a banner, not a dialog — it is neither clicked nor asserted; the Login Items row is asserted through `GET /services` / `rt setup status` instead); the **FDA relaunch** is driven (the driver quits and reopens the app with its own launch env and args) but the OS applying FDA is asserted only via the app's `perm.fda` row; notarisation/stapling of Matt's signing (a locally built DMG is unnotarised → run with `--no-quarantine`, reported in the ledger) |
 | (c) `run/second-user.sh` | layer (a) under a second real macOS user on Matt's Mac, with a live GUI session so SMAppService registration is real | nothing about the setup screens; the user must be created and logged in once by Matt |
 
 ## Status
+
+The runs named below drove the setup wizard that fast setup replaced. The
+fast setup drivers (`run/guest/screens.sh`) pass their model test
+(`run/helpers/__tests__/wizard-pages.test.sh`) but have not yet run against a
+golden image.
 
 `--scenario create` is green end to end on the `mattstack-golden-26` image
 on GitHub (run `20260901-232641`) and GitLab (run `20260902-110714`):
@@ -74,25 +79,25 @@ Facts a join run depends on:
   `mint/invite-code.txt` (0600, redacted from `logs/mint.log`), and teardown
   deletes the repo as for create. Invitee and owner are the same account, so
   a `skipped` forge grant still clones.
-- The driven join asserts the Join card's note (the green "Joining ..."
-  summary or `setup.team.join.warning`) is on the Team screen before
-  Continue. The Join page comes next (`screen_join` in
-  `run/guest/screens.sh`): it connects the token when the page shows the
-  `access.team-repo` row, presses `setup.join.run`, waits for
-  `setup.join.waiting`, shoots `02b-join-waiting` and writes
+- The driven join types the code into `setup.fast.invite.code` and requires
+  the invite screen's team line (`setup.fast.invite.line`) before it answers
+  the screen's rows (git, the forge token) and presses Join. The waiting
+  screen comes next (`screen_waiting` in `run/guest/screens.sh`): it waits
+  for `setup.fast.waiting`, shoots `04-waiting` and writes
   `in/join-waiting.req` to the share. `walkthrough.sh` answers it with
   `run/host/approve-join.sh`, which runs `rt team members sync` and
   `rt team publish` under the mint's HOME (kept from the invite phase until
   the screens phase ends) and fails unless the joiner's age key, read from
   the guest's `~/.mattstack/rt/teams/<slug>.json`, is a recipient in the
-  clone's `.sops.yaml`. The page then has 300s to read `setup.join.approved`
-  (`02c-join-approved`) before Continue. Only a `--fresh-team-repo` join has
-  a mint HOME; any other join (`--invite-code-file`) gets
-  `in/join-approve.manual`, and the page then waits up to
-  `JOIN_HAND_WAIT_S` (default 1800s) for the team's owner to run
+  clone's `.sops.yaml`. The window then has 300s to move on to
+  `setup.fast.connect` by itself; Hide is never pressed. Only a
+  `--fresh-team-repo` join has a mint HOME; any other join
+  (`--invite-code-file`) gets `in/join-approve.manual`, and the screen then
+  waits up to `JOIN_HAND_WAIT_S` (default 1800s) for the team's owner to run
   `rt team members sync`, then `rt team publish`, on their Mac by hand, naming that in `drive.log`.
-  Both waits (`JOIN_HAND_WAIT_S` here, `FB_EXTENSION_WAIT_S` below) are read
-  from the host's environment and passed to the guest's driver.
+  Every wait (`JOIN_HAND_WAIT_S` here, `FB_EXTENSION_WAIT_S`,
+  `CONNECT_WAIT_S` and `RUN_WAIT_S` below) is read from the host's
+  environment and passed to the guest's driver.
   The host's side is in `logs/approve.log`; the watcher and any
   approve-join.sh it started share one process group, stopped before the
   mint HOME is deleted.
@@ -104,9 +109,10 @@ Facts a join run depends on:
   to be the placed checkout of the board's repo (`--board-repo`, the tracked
   repo, on a `--fresh-team-repo` run), and fails a team that tracks no repo
   rather than passing it unchecked.
-- The checklist's Your repos rows hold Install now: `screen_readiness`
-  accepts each unplaced `repos.place:*` row's one-click location before
-  pressing the page's button.
+- The this-Mac screen's repo rows hold Set up this Mac: `screen_this_mac`
+  takes the suggested folder for `repos.root` and each unplaced
+  `repos.place:*` row's one-click location, then presses Set up this Mac
+  only while it reads so.
 - The golden image has no Chrome, and Install needs it. The `chrome` phase,
   after the app is copied and before it launches, runs
   `run/guest/install-chrome.sh` as admin (the same sudo path the install
@@ -117,14 +123,21 @@ Facts a join run depends on:
   `lib/setup/validators/tools.ts`) and the Chrome Web Store update URL.
   Then, as tester, it opens Chrome once and waits for the extension to land
   in the profile (`logs/chrome.log`). Headless runs skip it.
-- The summary can only finish when nothing it cannot skip is left. The Fast
-  Browser extension can never be skipped: the summary waits up to
-  `FB_EXTENSION_WAIT_S` (default 300s) for its row to read ready, bringing
-  the app back to the front to re-check it, and fails by name after that. A step you can skip (Skill
-  overrides, Chrome sign-in, Mission Control shortcut) is skipped through
-  `setup.done.skip.<id>` and the confirm sheet, and written to
-  `logs/finish-gate.txt` as `<id>=skipped`; `assert-installed.sh` then
-  requires each in `setup.waived` and nothing else there.
+- Connect's Continue unlocks once each row is connected. The driver types
+  the forge token, installs Claude Code, and waits up to
+  `FB_EXTENSION_WAIT_S` (default 300s) for the policy-installed Fast Browser
+  row to read done, bringing the app back to the front to re-check it; Add
+  to Chrome is never pressed. Sign in to Claude finishes in a browser no
+  script can drive, so the driver logs a FINDING and waits up to
+  `CONNECT_WAIT_S` (default 900s) for the operator to sign in by hand in the
+  guest window; a row it has no answer for (Slack, Linear, a team sign-in) is
+  logged once and left. Continue still off at the bound fails, listing every
+  row and its state.
+- The running bar (P6) runs by itself for up to `RUN_WAIT_S` (default
+  1800s). An admin dialog there is logged as a FINDING and answered; a
+  paused run (P6b) opens Show log for `07-paused-log` and fails. Fast setup
+  skips nothing, so `screen_ready` writes `open` to `logs/finish-gate.txt`
+  and `assert-installed.sh` requires `setup.waived` to hold nothing.
 - One PAT per run, the joiner's own, through `--pat-env`; `--forge gitlab`
   when the invite is not derivable from a remote. Invite codes come from
   `team-load.sh` (`--out <dir>/code-<handle>.txt`) or, for the bare
@@ -156,23 +169,22 @@ Facts a create run depends on:
   reports the untrusted-certificate `needs-you` row, and a
   `/privileged/proxy-trust` call through the tray clears it
   (`--expect-untrusted` on `assert-installed.sh` asserts all of that).
-- Every driven scenario takes the proxy through the checklist's Local proxy
-  row before Install (`screen_proxy_row` in `run/guest/screens.sh`): its
-  "Install proxy" button must raise the macOS admin dialog within 90s,
-  Cancel on that dialog must leave the row settled with a
-  `setup.checklist.row.tool.proxy.error` message rather than a spinner, and
-  a second click answered with the admin credentials must reach `ready`
-  (`needs-you` under `--decline-trust`). The row is skipped only when it is
-  already ready. Screenshots: `03-proxy-admin-dialog`, `03-proxy-cancelled`,
-  `03-proxy-installed`.
-- The checklist is a wizard of pages, one per plan group, and a page's
-  Continue stays off until its required rows are ready. `screen_readiness`
-  answers the rows it knows on each page in the wizard's own order, logs every
-  row's status on the page (`checklist page <group>: ...` in `drive.log`),
-  shoots `03-readiness-<group>`, then presses the page's button, which is
-  Install on the last page. A page it cannot clear fails by name.
-  `run/helpers/__tests__/wizard-pages.test.sh` runs that paging against a
-  model of the wizard, with no VM.
+- Every driven scenario takes the proxy through P1's Fancy URLs row
+  (`screen_row_fancy_urls` in `run/guest/screens.sh`): its Allow must raise
+  the macOS admin dialog within 90s, Cancel on that dialog must leave the
+  row settled with a `setup.fast.row.mac.fancy-urls.error` message rather
+  than a spinner, and a second click answered with the admin credentials
+  must finish the row. The row is skipped only when it is already done.
+  P1 moves on to the path cards by itself once its three rows are done.
+  Screenshots: `01d-fancy-urls-admin-dialog`, `01d-fancy-urls-cancelled`,
+  `01d-fancy-urls-admin-auth`.
+- Each screen with rows (invite, Create a team, Connect, this Mac) is driven
+  by `screen_answer_rows`: it answers each row it knows once, rereads the
+  rows on every pass (rt's section can land after the screen), and waits
+  for `setup.fast.<screen>.primary` to enable. A screen it cannot clear
+  fails with every row's state. `run/helpers/__tests__/wizard-pages.test.sh`
+  runs every screen in drive order against a model of the setup window,
+  with no VM.
 
 `run/xcuitest.sh` (layer (b) via XCUITest instead of AppleScript) is in the
 tree and runnable today; it self-gates at runtime rather than depending on
@@ -185,7 +197,8 @@ brew, and Gatekeeper-as-shipped so `xcodebuild` can run, and
 `verify-golden.sh` skips the `no CLT`/`no brew`/`Gatekeeper enabled` checks
 against it (see Golden images below). The XCUITest phase drives the same
 stub-driven suite the host build uses (`XCUIApplication()` + `RT_STUB_PATH`,
-per L3's `SetupFlowUITests.swift`) against the sources staged into the
+`SettingsUITests.swift`, which holds only the uninstall-from-Settings test;
+the setup screens are `walkthrough.sh`'s) against the sources staged into the
 guest — not the DMG the `install` phase copies into `/Applications`; driving
 the *installed* bundle from XCUITest is future L3-side work.
 
@@ -221,7 +234,7 @@ rt-tray/vm/
   run/guest/install-app.sh       guest: quarantine DMG, mount, copy to /Applications (admin) , launch as tester with env
   run/guest/install-chrome.sh    guest: Google Chrome into /Applications + the extension force-install policy (admin), first open (tester)
   run/guest/ax.sh                guest: osascript helpers (find by AXIdentifier, click, type, wait, admin-auth, notification prompts)
-  run/guest/drive-setup.sh       guest: every setup screen, Full Disk Access and the Join page included, + Login Items/Notifications dances, screenshot hooks
+  run/guest/drive-setup.sh       guest: every fast setup screen in drive order (functions in run/guest/screens.sh), + FDA/Notifications/Fancy URLs dances, screenshot hooks
   run/guest/assert-installed.sh  guest: rt verify --json, tray.sock /version, daemon pid/label, symlink target, served apps, every .mattstack route
   run/guest/trigger-update.sh    guest: loopback appcast server, POST /update/check, drive Sparkle, assert vN+1 + daemon restart + served apps
   run/guest/served-apps.sh       guest: sourced by both; deck's served set from the bundle's deps.lock, every .mattstack route
@@ -271,7 +284,7 @@ run/second-user.sh run --artifact ~/Downloads/mattstack-2.9.0.zip
 ```
 Today, the first line's `screens` phase and both lines' `update` phase report `fail`/`skip` honestly (see Status above). `--scenario headless` (line 2) is no longer blocked by anything known, but no scenario has yet been run end to end against a golden image, so none is *known* green either. `--dry-run` exercises the whole orchestrator (phase ledger, report) against any golden name without Tart or a real DMG/app.
 
-Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · chrome · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `01b-full-disk-access`, `01c-fda-toggled`, `01d-fda-reopen`, `02-team-*`, `02a-join-token`, `02b-join-waiting`, `02c-join-approved`, `03-readiness-*`, `04-install-*`, `05-done`, `05-skip-<id>`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
+Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · chrome · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-macos`, `01b-fda-toggled`, `01c-fda-relaunched`, `01d-fancy-urls-*`, `02-path`, `03-invite` or `03-create-team`, `04-waiting`, `05-connect`, `06-this-mac`, `07-running`, `07-paused` and `07-paused-log` on a paused run, `08-ready`, `clt-installed`, `claude-installed`, `upgrade-*` for the team-upgrade leg, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
 
 Every host-to-guest ssh sends keepalives (`ServerAliveInterval=10`, `ServerAliveCountMax=3`), so a session whose guest end vanished fails its phase in about 30s as `ssh to the guest failed or dropped after <n>s in <phase> (exit 255)`. The screens, team-upgrade and update scripts run through `vm_guest_run`, which writes their output and exit code into the share (`logs/screens.log`, `logs/upgrade.log`, `logs/update.log`, each with a `.rc` beside it): when only the channel drops, the phase waits for the script's own code instead, and fails as a drop only if none arrives by the phase limit. Each phase also has a wall-clock limit: 20 minutes by default, 90 for screens, 60 for team-upgrade, 30 for update, 10 for the invite mint and for teardown's log collection; `VM_PHASE_LIMIT_<PHASE>=<seconds>` overrides one (dashes become underscores). A phase that reaches it fails as `<phase> timed out after <n>s (limit <n>s)`. Both reasons end with the last lines of the phase's log (`logs/drive.log` for the driven screens). Teardown runs after either, and after SIGINT, SIGTERM or SIGHUP, which ledger the phase they interrupted as failed: it collects guest logs, stops and deletes the guest, deletes the `--fresh-team-repo` repo, and records anything it left behind in its own `teardown` row.
 
@@ -292,8 +305,8 @@ The release walkthrough (`rt:release`, `walkthrough.sh --scenario create`) runs 
 
 ## What is not automated (and how the scripts treat it)
 
-- **"Background Items Added" banner**: not clicked, not asserted (it is a notification). The design (once `run/guest/drive-setup.sh` lands, T6) is: the Login Items row is asserted through `GET /services` / `rt setup status`; if SMAppService returns `.requiresApproval`, the driver opens Login Items and toggles the app (admin auth as a standard user).
-- **FDA relaunch**: the Full Disk Access page comes right after Welcome, on first run only (`screen_full_disk_access`). The driver presses "Open Full Disk Access" (`setup.fullDiskAccess.open`), toggles mattstack in System Settings, brings the app back to the front, then presses "Reopen mattstack" (`setup.fullDiskAccess.reopen`) and waits for the window to return at Your team (the app re-execs with its own args + env, so the appcast override survives; if it does not come back the driver relaunches it with the same `--env`/`--arg`). A page that offers neither Reopen nor Continue after the toggle is logged as a FINDING, quit and reopened. FDA taking effect is asserted only through the app's probe row (`perm.fda` = ready on Your Mac). No `tccutil` is used in the guest.
+- **"Background Items Added" banner**: not clicked, not asserted (it is a notification). Fast setup asks nothing about Login Items, so the screens never drive it; the Login Items row is asserted through `GET /services` / `rt setup status`.
+- **FDA relaunch**: Full Disk Access is P1's first row, on first run only (`screen_row_fda`). The driver presses Open settings (`setup.fast.row.perm.fda.action`), toggles mattstack in System Settings and brings the app back to the front. A running app only sees the grant after a relaunch, so when the row is still open 20s later the driver quits the app and relaunches it with the same `--env`/`--arg` (the appcast override survives), and the window comes back on P1 with the row done. FDA taking effect is asserted only through that row. No `tccutil` is used in the guest.
 - **Gatekeeper with unnotarised builds**: real today, in `run/guest/install-app.sh`. A locally built DMG is quarantined by default to exercise the real path; it will be blocked (`launch fail`, screenshot of the dialog). Use `--no-quarantine` for local builds and say so in the ticket.
 - **Apple CLT install** in the clean room is real (Apple's dialog, network, minutes) once T6 lands; the driver clicks Install/Agree and waits up to 20 min.
 - **Sparkle update** needs L4's signed zip + appcast, L3's `MATTSTACK_APPCAST_URL` hook (prod builds honour it only when launched with `--allow-appcast-override`), and `run/guest/trigger-update.sh` (T8); until all three land the phase is `skip` with that reason. The appcast is served on **loopback inside the guest** to stay clear of macOS 15's Local Network Privacy prompt; the real feed is the GitHub Release asset `https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml`. `CFBundleVersion` follows L4's `major*1000000+minor*1000+patch`.

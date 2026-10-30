@@ -8,9 +8,9 @@ for f in lib/common.sh golden/*.sh run/*.sh run/guest/*.sh run/host/*.sh ../../s
   t "bash -n $f" bash -n "$f"
 done
 t "common.test.sh"               bash lib/__tests__/common.test.sh
-# The walkthrough's paging against a model of the wizard: the order of its
-# presses, that Install is pressed once and last, that every loop ends. No VM
-# runs here, so this and a VM walkthrough are the only two checks of it.
+# The fast setup drivers against a model of the setup window: the order of
+# the screens and presses, Set up this Mac pressed once, every wait ends. No
+# VM runs here, so this and a VM walkthrough are the only two checks of it.
 # /bin/bash, not the PATH's: the guest has only the system bash.
 t "wizard-pages.test.sh"         /bin/bash run/helpers/__tests__/wizard-pages.test.sh
 t "approve-watcher.test.sh"      /bin/bash run/helpers/__tests__/approve-watcher.test.sh
@@ -107,9 +107,11 @@ t "screens.sh waits for the Fast Browser row to read ready, never skips it" bash
 t "walkthrough has the minted team track a repo and names it to the board assert" bash -c \
   'grep -qF -- "--track \"\$TRACK_REPO\"" run/walkthrough.sh && grep -qF -- "--board-repo" run/walkthrough.sh \
    && grep -q -- "--board-repo)" run/guest/assert-installed.sh && grep -q "jq/board-cwds.jq" run/guest/assert-installed.sh'
-t "drive-setup.sh walks Full Disk Access before Your team, and the Join page after it" bash -c \
-  'grep -q "^screen_welcome; screen_full_disk_access; screen_team$" run/guest/drive-setup.sh \
-   && grep -q "then screen_join; fi" run/guest/drive-setup.sh'
+t "drive-setup.sh walks the fast setup screens in drive order" bash -c \
+  'grep -q "^screen_macos; screen_path$" run/guest/drive-setup.sh \
+   && grep -q "^  join) screen_invite; screen_waiting ;;$" run/guest/drive-setup.sh \
+   && grep -q "^  create) screen_create_team ;;$" run/guest/drive-setup.sh \
+   && grep -q "^screen_connect; screen_this_mac; screen_running; screen_ready$" run/guest/drive-setup.sh'
 t "xcuitest.sh usage (missing args)" bash -c \
   'out=$(bash run/xcuitest.sh 2>&1); rc=$?; [ "$rc" -ne 0 ] && printf "%s" "$out" | grep -q "usage: xcuitest.sh"'
 # --ver 99 keeps this deterministic: no ghcr image maps to 99, so no real -xcode golden can
@@ -194,7 +196,7 @@ t "gatekeeper-check answers the automation consent prompt" bash -c \
 # The "no syntax error" half of this assertion is load-bearing, not decoration: osascript exits 1
 # on both a clean "not found" runtime error and a broken-script compile error alike, so an
 # exit-code-only check can green-light a walk() AppleScript that never even compiles.
-t "ax.sh sources + fails clean against no app"    env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && ! ax_wait_window x 1 && ! ax_find setup.welcome.screen >/dev/null 2>&1 && ! ax_wait_screen welcome 1 && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+t "ax.sh sources + fails clean against no app"    env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && ! ax_wait_window x 1 && ! ax_find setup.fast.macos >/dev/null 2>&1 && ! ax_wait_screen macos 1 && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
 t "ax_shot skips instantly under --no-graphics"   env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c 'source run/guest/ax.sh; s=$SECONDS; ax_shot probe >/dev/null; [ $((SECONDS-s)) -le 3 ] && grep -q "skipped (--no-graphics)" "$AX_LOG"'
 # On a host there is no SecurityAgent process, so this probe pays its full
 # osascript-miss cost (measured 3.26-3.28s across three runs here) instead of
@@ -203,59 +205,31 @@ t "ax_shot skips instantly under --no-graphics"   env GUEST_RUN=/tmp/vmcheck-ax 
 # of the tick boundary the miss happened to land -- millisecond timing plus
 # 10s of headroom still catches a genuine hang without being a coin flip.
 t "ax_admin_auth_once returns fast with no SecurityAgent" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c 'source run/guest/ax.sh; s=$SECONDS; ax_admin_auth_once; rc=$?; [ "$rc" -eq 1 ] && [ $((SECONDS-s)) -le 10 ]'
-t "ax_set_field escapes an embedded quote/backslash" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; ( ax_set_field setup.team.create.name "weird\"value\\here" ) 2>/dev/null; [ $? -eq 1 ] && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+t "ax_set_field escapes an embedded quote/backslash" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; ( ax_set_field setup.fast.create-team.name "weird\"value\\here" ) 2>/dev/null; [ $? -eq 1 ] && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
 t "ax finish-gate helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_enabled ax_wait_enabled ax_wait_text ax_click_sheet_button ax_find_sheet_id ax_click_sheet_id >/dev/null && ! ax_enabled x >/dev/null 2>&1 && ! ax_wait_enabled x 1 && ! ax_wait_text "Skip Mission Control shortcut?" 1 && ! ax_click_sheet_button "Skip for now" && ! ax_find_sheet_id x >/dev/null 2>&1 && ! ax_click_sheet_id x >/dev/null 2>&1 && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
-# The Fast Browser extension can never be skipped; only the three steps rt
-# lets you skip are, through their own Skip button and the confirm sheet.
-t "screens.sh skips only the three skippable steps, never the Fast Browser extension" bash -c \
-  'grep -q "for id in skills.overrides tool.chrome-signin tool.mission-control" run/guest/screens.sh \
-   && grep -q "ax_click_sheet_id setup.done.skipConfirm.skip" run/guest/screens.sh \
-   && ! grep -qE "setup\.done\.skip\.tool\.fast-browser-extension|Skip for now|Skip the Fast Browser extension" run/guest/screens.sh'
-t "screens.sh probes a skippable row in its group by its .status id, not the bare row id" bash -c \
-  'grep -qF "ax_find \"setup.checklist.row.\$id.status\"" run/guest/screens.sh'
 # grep exits 2 on a missing directory, so only 1 (no match) passes.
-t "nothing under vm reads an id the summary dropped" bash -c \
-  'grep -rqE "setup\.done\.stillToDo|ax_find setup\.done\.beforeYouFinish( |$)|setup\.checklist\.continueLimited" run golden lib; [ $? -eq 1 ]'
+t "nothing under vm drives an id the old setup wizard had" bash -c \
+  'grep -rqE "setup\.(welcome|team|checklist|install|done|join|fullDiskAccess|window)\.|setup\.choose\." run golden lib README.md; [ $? -eq 1 ]'
 # ax-button.js fails with its own "process not running" before it touches the
 # tree, so that line in the log proves the script compiled and ran.
-t "ax page helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && : > "$AX_LOG" && declare -F ax_click_raw ax_click_reading ax_title ax_progress ax_page_step ax_page_rewind ax_row_statuses ax_reveal_row >/dev/null && ! ax_page_step continue && ! ax_title x >/dev/null 2>&1 && ! ax_click_reading x Install && ! ax_reveal_row setup.checklist.row.x.status && ! grep -qi "script error\|Expected \|syntax error\|SyntaxError\|ReferenceError\|TypeError" "$AX_LOG" && [ "$(grep -c "process not running: definitely-not-running" "$AX_LOG")" -ge 3 ]'
+t "ax fast setup helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && : > "$AX_LOG" && declare -F ax_click_raw ax_click_reading ax_title ax_screen_now ax_fast_rows ax_fast_status ax_wait_row_done ax_pick_segment ax_wait_invite_verdict >/dev/null && ! ax_title x >/dev/null 2>&1 && ! ax_click_reading x "Set up this Mac" && ! ax_pick_segment x GitHub && ! ax_fast_status x >/dev/null && ! ax_wait_row_done x 1 && ! grep -qi "script error\|Expected \|syntax error\|SyntaxError\|ReferenceError\|TypeError" "$AX_LOG" && [ "$(grep -c "process not running: definitely-not-running" "$AX_LOG")" -ge 2 ]'
 t "ax-button.js compiles"        osacompile -l JavaScript -o /tmp/vmcheck-ax/ax-button.scpt run/guest/ax-button.js
-# System Events reads the wizard's primary button as "button": its wording is
+# System Events reads a SwiftUI button's label as "button": its wording is
 # read, and the button pressed, only through ax-button.js, in one run.
-t "ax.sh reads and presses the primary button only through ax-button.js" bash -c \
-  'grep -q "ax_button step \"\$1\"" run/guest/ax.sh && grep -q "ax_button press \"\$1\" \"\$2\"" run/guest/ax.sh && grep -q "ax_button read \"\$1\"" run/guest/ax.sh \
-   && ! grep -q "wording(" run/guest/ax.sh'
-# The wizard's primary button is Install on the last page: screens.sh presses
+t "ax.sh reads and presses a button by its wording only through ax-button.js" bash -c \
+  'grep -q "ax_button press \"\$1\" \"\$2\"" run/guest/ax.sh && grep -q "ax_button read \"\$1\"" run/guest/ax.sh \
+   && ! grep -q "ax_button step" run/guest/ax.sh && ! grep -q "wording(" run/guest/ax.sh'
+# Set up this Mac starts the run that clones and installs: screens.sh presses
 # it only through the script that checks its wording in the same breath.
-t "screens.sh never presses the wizard's primary button unread" bash -c \
-  'grep -q "ax_click_reading setup.checklist.continue \"\$wording\"" run/guest/screens.sh; read=$?; grep -qE "ax_click(_raw)? setup\.checklist\.continue" run/guest/screens.sh; plain=$?; [ "$read" -eq 0 ] && [ "$plain" -eq 1 ]'
+t "screens.sh never presses Set up this Mac unread" bash -c \
+  'grep -q "ax_click_reading setup.fast.this-mac.primary \"Set up this Mac\"" run/guest/screens.sh; read=$?; grep -qE "ax_click(_raw)? setup\.fast\.this-mac\.primary" run/guest/screens.sh; plain=$?; [ "$read" -eq 0 ] && [ "$plain" -eq 1 ]'
 t "screens.sh records the finish-gate outcome"      bash -c 'grep -q "finish-gate.txt" run/guest/screens.sh && grep -q "finish-gate.txt" run/guest/assert-installed.sh'
-t "screens.sh waits for the Done gate to settle before branching" bash -c 'grep -q "ax_wait_done_gate 60" run/guest/screens.sh && grep -q "^ax_wait_done_gate()" run/guest/ax.sh'
-# Every finish-gated row is probed and handled by its own .action id; neither
-# row may be inferred from the other or from the section merely showing --
-# a VM guest with only the writing-style row (no Chrome) must not fail on a
-# missing Fast Browser row the way the old unconditional ax_fail did.
-t "screens.sh probes each finish-gated row by its own .action id" bash -c \
-  'grep -q "setup.done.beforeYouFinish.tool.fast-browser-extension.action" run/guest/screens.sh \
-   && grep -q "setup.done.beforeYouFinish.skills.writing-style.action" run/guest/screens.sh'
-t "screens.sh never requires the Fast Browser row just because the section shows" bash -c \
-  '! grep -q "Before you finish is shown without the extension row" run/guest/screens.sh'
-t "screens.sh takes the writing-style row through the choose sheet by option id" bash -c \
-  'grep -q "ax_click_sheet_id \"setup.choose.option.\$style\"" run/guest/screens.sh \
-   && grep -q "ax_click_sheet_id setup.choose.submit" run/guest/screens.sh'
 t "ax.sh gained sheet-scoped AXIdentifier helpers alongside ax_click_sheet_button" bash -c \
   'grep -q "^ax_find_sheet_id()" run/guest/ax.sh && grep -q "^ax_click_sheet_id()" run/guest/ax.sh'
-t "ax_wait_done_gate also settles on a finish-gated row's own .action id, not just the section or Finish" bash -c \
-  'grep -q "ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action" run/guest/ax.sh \
-   && grep -q "ax_find setup.done.beforeYouFinish.skills.writing-style.action" run/guest/ax.sh'
 t "ax.sh gained a bounded sheet-content wait, not a one-shot check" bash -c \
   'grep -q "^ax_wait_sheet_id()" run/guest/ax.sh'
 t "ax.sh gained sheet-scoped enabled helpers so a driver can wait before clicking a sheet button" bash -c \
   'grep -q "^ax_enabled_sheet()" run/guest/ax.sh && grep -q "^ax_wait_sheet_enabled()" run/guest/ax.sh'
-t "screens.sh waits for the sheet with a bounded poll before looking for the option" bash -c \
-  'grep -q "ax_wait_sheet_id \"setup.choose.option.\$style\"" run/guest/screens.sh'
-t "screens.sh waits for Use this style to enable before clicking it" bash -c \
-  'grep -q "ax_wait_sheet_enabled setup.choose.submit" run/guest/screens.sh'
 t "assert-installed.sh parses finish-gate.txt's per-row line format, not just skipped/open" bash -c \
   'grep -q "for id in skills.overrides tool.chrome-signin tool.mission-control" run/guest/assert-installed.sh \
    && grep -q "writing-style=" run/guest/assert-installed.sh \
@@ -264,7 +238,7 @@ t "assert-installed.sh fails a setup.waived that holds the Fast Browser extensio
   'grep -q "tool.fast-browser-extension, which cannot be skipped" run/guest/assert-installed.sh \
    && grep -q "was not skipped on the summary but setup.waived holds it" run/guest/assert-installed.sh \
    && ! grep -q "fast-browser-extension=skipped" run/guest/assert-installed.sh'
-t "ax_enabled_or_fail names a missing axid"             env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; out=$( (ax_enabled_or_fail setup.done.continue) 2>&1 ); [ $? -ne 0 ] && printf "%s" "$out" | grep -q "setup.done.continue not found"'
+t "ax_enabled_or_fail names a missing axid"             env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; out=$( (ax_enabled_or_fail setup.fast.connect.primary) 2>&1 ); [ $? -ne 0 ] && printf "%s" "$out" | grep -q "setup.fast.connect.primary not found"'
 t "assert-installed.sh asserts setup.waived"            bash -c 'grep -q "rt settings get setup.waived --json" run/guest/assert-installed.sh'
 t "assert-installed.sh takes a backup and asserts the .age plus the LFS filter" bash -c \
   'grep -q "rt state backup init" run/guest/assert-installed.sh && grep -q "state-backups" run/guest/assert-installed.sh && grep -q "filter.lfs.process" run/guest/assert-installed.sh'
@@ -294,7 +268,7 @@ t "walkthrough --decline-trust refuses headless"  bash -c \
 # timing note as the no-SecurityAgent check above applies here too.
 t "ax_admin_auth_once returns fast when declining" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x AX_TRUST_DECLINE=1 bash -c 'source run/guest/ax.sh; s=$SECONDS; ax_admin_auth_once; rc=$?; [ "$rc" -eq 1 ] && [ $((SECONDS-s)) -le 10 ]'
 t "assert-installed.sh takes --expect-untrusted"  bash -c 'grep -q -- "--expect-untrusted" run/guest/assert-installed.sh'
-t "ax proxy/join helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_value ax_wait_join_note ax_admin_dialog_up ax_wait_admin_dialog ax_admin_cancel_once ax_security_agent_windows >/dev/null && ! ax_value x >/dev/null 2>&1 && [ "$(ax_wait_join_note 1 >/dev/null 2>&1; echo $?)" = 1 ] && ! ax_admin_dialog_up && ! ax_wait_admin_dialog 1 && ! ax_admin_cancel_once && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+t "ax proxy/join helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_value ax_wait_invite_verdict ax_admin_dialog_up ax_wait_admin_dialog ax_admin_cancel_once ax_security_agent_windows >/dev/null && ! ax_value x >/dev/null 2>&1 && [ "$(ax_wait_invite_verdict 1 >/dev/null 2>&1; echo $?)" = 1 ] && ! ax_admin_dialog_up && ! ax_wait_admin_dialog 1 && ! ax_admin_cancel_once && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
 # ax_admin_cancel_once only reaches its osascript with a dialog up, which a
 # host never has, so its script is compiled from a printing ax_osa instead.
 t "ax_admin_cancel_once AppleScript compiles" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c '
@@ -302,21 +276,21 @@ t "ax_admin_cancel_once AppleScript compiles" env GUEST_RUN=/tmp/vmcheck-ax AX_A
   ax_security_agent_windows() { printf "0,2"; }
   ax_osa() { printf "%s" "$1" > /tmp/vmcheck-ax/cancel.applescript; }
   ax_admin_cancel_once && osacompile -o /tmp/vmcheck-ax/cancel.scpt /tmp/vmcheck-ax/cancel.applescript'
-t "screens.sh drives the proxy row button, Cancel first, before Continue" bash -c '
-  grep -q "^screen_proxy_row()" run/guest/screens.sh \
-  && grep -q "ax_click setup.checklist.row.tool.proxy.action" run/guest/screens.sh \
+t "screens.sh drives Fancy URLs' own Allow on P1, Cancel first" bash -c '
+  grep -q "^screen_row_fancy_urls()" run/guest/screens.sh \
+  && grep -q "row=mac.fancy-urls p=setup.fast.row.mac.fancy-urls" run/guest/screens.sh \
   && grep -q "ax_admin_cancel_once" run/guest/screens.sh \
-  && grep -q "setup.checklist.row.tool.proxy.error" run/guest/screens.sh \
-  && call=$(grep -n "^ *screen_proxy_row$" run/guest/screens.sh | head -1 | cut -d: -f1) \
-  && cont=$(grep -n "ax_click_reading setup.checklist.continue" run/guest/screens.sh | head -1 | cut -d: -f1) \
-  && [ -n "$call" ] && [ -n "$cont" ] && [ "$call" -lt "$cont" ]'
-t "screens.sh proxy row: Cancel is asserted before the credentialed try" bash -c '
+  && grep -qF "ax_find \"\$p.error\"" run/guest/screens.sh \
+  && macos=$(grep -n "^screen_macos()" run/guest/screens.sh | cut -d: -f1) \
+  && call=$(grep -n "^  screen_row_fancy_urls$" run/guest/screens.sh | head -1 | cut -d: -f1) \
+  && [ -n "$macos" ] && [ -n "$call" ] && [ "$macos" -lt "$call" ]'
+t "screens.sh Fancy URLs: Cancel is asserted before the credentialed try" bash -c '
   cancel=$(grep -n "ax_admin_cancel_once ||" run/guest/screens.sh | head -1 | cut -d: -f1)
   auth=$(grep -n "ax_admin_auth ||" run/guest/screens.sh | head -1 | cut -d: -f1)
   [ -n "$cancel" ] && [ -n "$auth" ] && [ "$cancel" -lt "$auth" ]'
-t "screens.sh asserts the join note before Continue" bash -c '
-  note=$(grep -n "ax_wait_join_note" run/guest/screens.sh | head -1 | cut -d: -f1)
-  cont=$(grep -n "ax_click setup.team.continue" run/guest/screens.sh | head -1 | cut -d: -f1)
+t "screens.sh reads the invite verdict before Join" bash -c '
+  note=$(grep -n "ax_wait_invite_verdict" run/guest/screens.sh | head -1 | cut -d: -f1)
+  cont=$(grep -n "ax_click setup.fast.invite.primary" run/guest/screens.sh | head -1 | cut -d: -f1)
   [ -n "$note" ] && [ -n "$cont" ] && [ "$note" -lt "$cont" ]'
 t "screens.sh no longer answers a repo folder before Continue" bash -c '! grep -q "setup repo-root set" run/guest/screens.sh'
 t "assert-installed.sh checks the repos.place rows, absent included" bash -c 'grep -q "repos.place" run/guest/assert-installed.sh'
@@ -363,27 +337,24 @@ t "ax_bare_rt_version reads the first line's version" env GUEST_RUN=/tmp/vmcheck
 t "trigger-update.sh compares rt --version as a bare version" bash -c \
   'grep -q "rt --version 2>/dev/null | ax_bare_rt_version" run/guest/trigger-update.sh'
 # A keystroked invite code that drops one character parses as no code at all, and the
-# Join card shows nothing; the fill must read back intact before the note is awaited.
+# invite screen shows nothing; the fill must read back intact before the note is awaited.
 t "ax_fill_verified retypes until the field reads back intact" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c \
   'source run/guest/ax.sh; n=0; ax_set_field() { n=$((n+1)); }; ax_value() { if [ "$n" -ge 2 ]; then printf "ABCD-EFGH"; else printf "ABCD-EFG"; fi; }
-   ax_fill_verified setup.team.join.code "ABCD-EFGH" && [ "$n" -eq 2 ]'
+   ax_fill_verified setup.fast.invite.code "ABCD-EFGH" && [ "$n" -eq 2 ]'
 t "ax_fill_verified fails after three mangled fills" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c \
   'source run/guest/ax.sh; ax_set_field() { :; }; ax_value() { printf x; }; ax_dump_ids() { :; }
-   ( ax_fill_verified setup.team.join.code "ABCD" ) 2>/dev/null && exit 1; grep -q "did not read back intact after 3 fills" "$AX_LOG"'
+   ( ax_fill_verified setup.fast.invite.code "ABCD" ) 2>/dev/null && exit 1; grep -q "did not read back intact after 3 fills" "$AX_LOG"'
 t "screens.sh fills the invite code through ax_fill_verified" bash -c \
-  'grep -q "ax_fill_verified setup.team.join.code" run/guest/screens.sh'
-# Once GitHub is connected the create card defaults to "Create a private GitHub repo"
-# and hides the URL field the harness fills.
-t "screen_team turns off the GitHub-repo switch before the URL" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://example.invalid/r.git SLUG=s bash -c \
+  'grep -q "ax_fill_verified setup.fast.invite.code" run/guest/screens.sh'
+# Create team makes the repo itself under the owner or group --team-remote names.
+t "screen_create_team picks the forge segment and the group from the remote" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://gitlab.com/acme/platform/widgets.git SLUG=widgets FORGE=gitlab bash -c \
   'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
-   ax_wait_screen() { :; }; ax_shot() { :; }; ax_find() { [ "$1" = setup.team.create.useGh ]; }; ax_value() { printf 1; }
-   ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1"; }
-   screen_team; case "$calls" in *"click:setup.team.create.useGh"*"set:setup.team.create.remote"*) ;; *) echo "$calls"; exit 1;; esac'
-t "screen_team leaves the GitHub-repo switch alone when it is off" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://example.invalid/r.git SLUG=s bash -c \
-  'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
-   ax_wait_screen() { :; }; ax_shot() { :; }; ax_find() { [ "$1" = setup.team.create.useGh ]; }; ax_value() { printf 0; }
-   ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1"; }
-   screen_team; case "$calls" in *useGh*) echo "$calls"; exit 1;; esac'
+   ax_wait_screen() { :; }; ax_shot() { :; }; screen_answer_rows() { :; }; ax_find() { [ "$1" = setup.fast.connect ]; }
+   ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1=$2"; }; ax_pick_segment() { calls="$calls pick:$1=$2"; }
+   screen_create_team; [ "$calls" = " set:setup.fast.create-team.name=widgets pick:setup.fast.create-team.forge=GitLab set:setup.fast.create-team.group=acme/platform click:setup.fast.create-team.primary" ] || { echo "$calls"; exit 1; }'
+t "screen_create_team refuses a remote with no owner" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://github.com/widgets SLUG=widgets FORGE=github bash -c \
+  'source run/guest/ax.sh; source run/guest/screens.sh; ax_dump_ids() { :; }; ax_shot() { :; }; ax_click() { exit 9; }
+   ( screen_create_team ) >/dev/null 2>&1; [ $? -eq 1 ] && grep -q "no owner or group in --team-remote" "$AX_LOG"'
 t "walkthrough mints with the rt from the dmg's sibling zip" bash -c \
   'grep -q "vm_rt_from_zip" run/walkthrough.sh'
 t "walkthrough drives the long guest phases through vm_guest_run" bash -c \

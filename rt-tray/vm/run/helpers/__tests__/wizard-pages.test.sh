@@ -1,14 +1,9 @@
 #!/bin/bash
-# Exercises the wizard paging in run/guest/ax.sh and run/guest/screens.sh
-# against a model of the wizard: no app, no System Events, no VM. It proves
-# the order of the presses and that every loop ends. What the real
-# accessibility tree holds is outside it: only a VM walkthrough shows that.
-#
-# The model replaces ax_page_step and ax_click_reading with its own. Their
-# real guards (no Back on the first page, Continue only while it reads
-# Continue, a press only on the wording asked for) live in ax-button.js, and
-# here they run as plain functions: what the accessibility tree hands them is
-# outside this file.
+# Exercises the fast setup drivers in run/guest/ax.sh and run/guest/screens.sh
+# against a model of the setup window: no app, no System Events, no VM. It
+# proves the order of the screens and presses and that every wait ends. What
+# the real accessibility tree holds is outside it: only a VM walkthrough
+# shows that.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GUEST_RUN="$(mktemp -d)"; export GUEST_RUN
@@ -26,464 +21,314 @@ check() { if eval "$2"; then echo "  ok   $1"; else echo "  FAIL $1"; fails=$((f
 # same way, so each AppleScript is compiled from an ax_osa that prints it.
 S="$GUEST_RUN/scripts"; mkdir -p "$S"
 ax_osa() { printf '%s' "$1" > "$S/$OUT.applescript"; return 1; }
-OUT=progress; ax_progress || true
-OUT=statuses; ax_row_statuses || true
 OUT=click; ax_click_raw x || true
-for OUT in progress statuses click; do
+OUT=status; ax_fast_status x || true
+OUT=segment; ax_pick_segment x GitHub || true
+for OUT in click status segment; do
   check "$OUT AppleScript compiles" 'osacompile -o "$S/$OUT.scpt" "$S/$OUT.applescript" 2>/dev/null'
 done
 check "the click script brings the app to the front first" 'grep -q "set frontmost to true" "$S/click.applescript"'
 
-# The primary button is read, checked and pressed in one ax-button.js run.
+# A button is read, checked and pressed in one ax-button.js run.
 JS="$HERE/../../guest/ax-button.js"
 ax_button() { printf '%s\n' "$*" >> "$S/button-calls"; return 1; }
-ax_page_step back || true; ax_page_step continue || true; ax_title x || true; ax_click_reading x Install || true
-check "each page step, read and press is one ax-button.js run" \
-  '[ "$(cat "$S/button-calls")" = "$(printf "step back\nstep continue\nread x\npress x Install")" ]'
+ax_title x || true; ax_click_reading x "Set up this Mac" || true
+check "each read and press is one ax-button.js run" \
+  '[ "$(cat "$S/button-calls")" = "$(printf "read x\npress x Set up this Mac")" ]'
 check "ax-button.js compiles" 'osacompile -l JavaScript -o "$S/button.scpt" "$JS" 2>/dev/null'
 check "ax-button.js presses only after its guard, with the app in front" \
-  '[ "$(grep -c "pressEl(b" "$JS")" -eq 2 ] && [ -z "$(awk "/pressEl\(b/ && prev !~ /refuse\(/ { print FNR } { prev = \$0 }" "$JS")" ] && [ "$(grep -c "p.frontmost = true" "$JS")" -eq 2 ]'
-# Each expression is evaluated against the guards in ax-button.js; a held
-# step or press is a non-empty reason.
+  '[ "$(grep -c "pressEl(b" "$JS")" -eq 1 ] && [ -z "$(awk "/pressEl\(b/ && prev !~ /refuse\(/ { print FNR } { prev = \$0 }" "$JS")" ] && [ "$(grep -c "p.frontmost = true" "$JS")" -eq 1 ]'
+check "ax-button.js no longer turns wizard pages" '! grep -qE "stepHeld|setup\.checklist|setup\.window" "$JS"'
 guard() {
   osascript -l JavaScript -e "eval(\$.NSString.stringWithContentsOfFileEncodingError('$JS', \$.NSUTF8StringEncoding, null).js); run = function () { return String($1); };" 2>/dev/null
 }
 held() { [ -n "$(guard "$1")" ]; }
-check "the Back step holds on the first page and moves from any other" \
-  'held "stepHeld(\"back\", \"3 of 9\", \"\", true)" && ! held "stepHeld(\"back\", \"4 of 9\", \"\", true)"'
-check "the Continue step presses only an enabled button that reads Continue" \
-  '! held "stepHeld(\"continue\", \"4 of 9\", \"Continue\", true)" && held "stepHeld(\"continue\", \"4 of 9\", \"Install\", true)" && held "stepHeld(\"continue\", \"4 of 9\", \"\", true)" && held "stepHeld(\"continue\", \"4 of 9\", \"Continue\", false)"'
-check "a step holds when the progress does not read N of M" 'held "stepHeld(\"continue\", \"\", \"Continue\", true)"'
 check "the press holds on any other wording, on no wording, and on a disabled button" \
-  '! held "pressHeld(\"x\", \"Install\", \"Install\", true)" && held "pressHeld(\"x\", \"Install\", \"Continue\", true)" && held "pressHeld(\"x\", \"\", \"\", true)" && held "pressHeld(\"x\", \"Install\", \"Install\", false)"'
+  '! held "pressHeld(\"x\", \"Set up this Mac\", \"Set up this Mac\", true)" && held "pressHeld(\"x\", \"Set up this Mac\", \"Continue\", true)" && held "pressHeld(\"x\", \"\", \"\", true)" && held "pressHeld(\"x\", \"Set up this Mac\", \"Set up this Mac\", false)"'
 check "a wording is the title, else the description, else the attributed description" \
-  '[ "$(guard "wordingOf(\"Install\", \"\", \"Continue\", \"button\")")" = Install ] && [ "$(guard "wordingOf(\"\", \"Back\", \"Continue\", \"button\")")" = Back ] && [ "$(guard "wordingOf(null, \"\", \"Continue\", \"button\")")" = Continue ]'
+  '[ "$(guard "wordingOf(\"Join\", \"\", \"Continue\", \"button\")")" = Join ] && [ "$(guard "wordingOf(\"\", \"Back\", \"Continue\", \"button\")")" = Back ] && [ "$(guard "wordingOf(null, \"\", \"Continue\", \"button\")")" = Continue ]'
 check "the role description never reads as a wording" \
   '[ -z "$(guard "wordingOf(\"\", \"button\", \"\", \"button\")")" ] && [ -z "$(guard "wordingOf(\"\", \"Taste\", \"\", \"Taste\")")" ] && [ "$(guard "wordingOf(\"\", \"button\", \"Continue\", \"button\")")" = Continue ]'
-
-sleep() { :; }
-ax_button() { printf '3 of 9'; }
-ax_progress() { printf '4 of 9'; }
-check "a page step that moved returns 0" 'ax_page_step continue 2>/dev/null'
-ax_progress() { printf '3 of 9'; }
-check "a page step that did not move returns 1" '! ax_page_step continue 2>/dev/null'
-ax_progress() { return 1; }
-check "a page step whose progress cannot be read returns 1" '! ax_page_step continue 2>/dev/null'
-ax_button() { return 1; }
-check "a held page step returns 1" '! ax_page_step back 2>/dev/null'
-ax_button() { : > "$GUEST_RUN/osa-called"; }
-check "a page step takes only back or continue" '! ax_page_step install && [ ! -e "$GUEST_RUN/osa-called" ]'
 ax_button() { return 1; }
 
+# Ids, rows and screens, read from a dump.
+DUMP=$(printf '%s\n' setup.fast.connect setup.fast.row.forge.done setup.fast.row.claude.action setup.fast.row.claude.waiting \
+  setup.fast.row.forge.token.field setup.fast.row.forge.token.action setup.fast.row.forge.token.action.link \
+  setup.fast.row.slack.error setup.fast.row.slack.action "setup.fast.row.repos.place:github.com/acme/widgets.action.oneClick" \
+  "setup.fast.row.repos.place:github.com/acme/widgets.status" setup.fast.row.linear.field.apiKey setup.fast.connect.primary)
 check "ax_ids_have matches a whole identifier" \
   'ax_ids_have "$(printf "a.b\nc.d\n")" c.d && ! ax_ids_have "$(printf "a.b\nc.d\n")" c && ! ax_ids_have "" c.d'
-check "ax_page reads the page's group id" \
-  '[ "$(ax_page "$(printf "x\nsetup.checklist.page.agents\ny\n")")" = agents ] && [ -z "$(ax_page "$(printf "x\nsetup.checklist.page.\ny\n")")" ] && ! ax_page "x" >/dev/null'
+check "ax_fast_row_ids reads each row once, dotted ids and parts included" \
+  '[ "$(ax_fast_row_ids "$DUMP" | tr "\n" " ")" = "forge claude forge.token slack repos.place:github.com/acme/widgets linear " ]'
+ax_fast_status() { [ "$1" = "repos.place:github.com/acme/widgets" ] && echo needs-you; }
+check "a row reads done, waiting, error or todo from its children" \
+  '[ "$(ax_fast_rows "$DUMP" | tr "\n" " ")" = "forge=done claude=waiting forge.token=todo slack=error repos.place:github.com/acme/widgets=todo linear=todo " ]'
+ax_fast_status() { echo ready; }
+check "a repo placement row reads done from its status value" '[ "$(ax_fast_row_state "$DUMP" "repos.place:github.com/acme/widgets")" = done ]'
+check "ax_screen_in names the fast setup screen in a dump, and nothing without one" \
+  '[ "$(ax_screen_in "$DUMP")" = connect ] && [ "$(ax_screen_in "$(printf "setup.fast.this-mac\nsetup.fast.this-mac.primary\n")")" = this-mac ] && ! ax_screen_in "settings.team.create" >/dev/null'
+check "screen_remote_group reads the owner or group a repo URL sits under" \
+  '[ "$(screen_remote_group https://github.com/acme/widgets.git)" = acme ] && [ "$(screen_remote_group https://gitlab.com/acme/platform/widgets.git)" = acme/platform ] && [ "$(screen_remote_group git@github.com:acme/widgets.git)" = acme ] && ! screen_remote_group https://github.com/widgets >/dev/null'
 
-# The model. State lives in files: the driver reads statuses inside $(...),
-# and a page turned there must still be turned afterwards.
+# The model of the setup window. State lives in files: the drivers read it
+# inside $(...), and a screen moved there must still be moved afterwards.
 M="$GUEST_RUN/model"; mkdir -p "$M"
-PAGES="mac accounts agents browser rt team"
-REQUIRED=" perm.fda tool.clt tool.herdr tool.claude tool.rt "
-HIDE_PROXY=0
-# A page whose first press of Continue does nothing, and an Install whose
-# screen is not up by the next look.
-STICKY_PAGE=""; SLOW_INSTALL=0
-rows_on() {  # <page or pane>
-  case "$1" in
-    mac) echo "perm.fda perm.login-items perm.notifications tool.clt" ;;
-    accounts) echo "account.github" ;;
-    agents) echo "tool.herdr tool.claude" ;;
-    browser) echo "tool.fast-browser tool.fast-browser-extension" ;;
-    rt) if [ "$HIDE_PROXY" = 1 ]; then echo "tool.rt"; else echo "tool.rt tool.proxy"; fi ;;
-    team) echo "home.backup" ;;
-    all) for p in $PAGES; do rows_on "$p"; done ;;
-  esac
-}
-model() {  # <wizard|noplan|summary|legacy> <page index> [<rowId>=<status>...]; every other row is ready
-  local p r kv
-  printf '%s' "$1" > "$M/mode"; printf '%s' "$2" > "$M/cur"; printf 0 > "$M/open"; printf overview > "$M/pane"
-  : > "$M/calls"; : > "$M/status"; rm -f "$M/stuck-once" "$M/stale-once"; shift 2
-  for p in $PAGES; do for r in $(rows_on "$p"); do printf '%s ready\n' "$r" >> "$M/status"; done; done
-  for kv in "$@"; do set_status "${kv%%=*}" "${kv#*=}"; done
-}
-status_of() { awk -v id="$1" '$1 == id { print $2 }' "$M/status"; }
-set_status() { awk -v id="$1" -v s="$2" '$1 == id { $2 = s } { print }' "$M/status" > "$M/status.new"; mv "$M/status.new" "$M/status"; }
 note() { printf '%s\n' "$1" >> "$M/calls"; }
 calls() { tr '\n' ' ' < "$M/calls"; }
 count() { grep -c -- "$1" "$M/calls" || true; }
-page_now() { local i; i=$(cat "$M/cur"); set -- $PAGES; shift "$i"; printf '%s' "$1"; }
-page_last() { [ "$(cat "$M/mode")" = legacy ] && return 0; set -- $PAGES; [ "$(cat "$M/cur")" -eq $(($# - 1)) ]; }
-page_blocked() {
-  local r
-  for r in $(rows_on "$(where_now)"); do
-    case "$REQUIRED" in *" $r "*) [ "$(status_of "$r")" = ready ] || return 0 ;; esac
-  done
-  return 1
+mget() { cat "$M/$1" 2>/dev/null || true; }
+mset() { printf '%s' "$2" > "$M/$1"; }
+# rows: "<screen> <id> <kind> <state>"; kind is action, field or place.
+# A row id can sit on more than one screen (git, the token), so each helper
+# works on the rows of the screen up now, or of the one named.
+row_state() { awk -v sc="${2:-$(mget screen)}" -v id="$1" '$1 == sc && $2 == id { print $4 }' "$M/rows"; }
+set_row() { awk -v sc="${3:-$(mget screen)}" -v id="$1" -v s="$2" '$1 == sc && $2 == id { $4 = s } { print }' "$M/rows" > "$M/rows.new"; mv "$M/rows.new" "$M/rows"; }
+drop_row() { awk -v sc="$(mget screen)" -v id="$1" '!($1 == sc && $2 == id)' "$M/rows" > "$M/rows.new"; mv "$M/rows.new" "$M/rows"; }
+screen_done() { ! awk -v sc="$1" '$1 == sc && $4 != "done" { found = 1 } END { exit !found }' "$M/rows"; }
+# FDA_LIVE: the running app sees the Full Disk Access grant without a relaunch.
+# HOST: what the admin's host answers (done, failed, manual, none).
+# RUN_END: where the bar ends (ready or paused). ADMIN_IN_RUN: a dialog comes up on P6.
+FDA_LIVE=0; CLT_SLOW=0; HOST=done; HAND_AFTER=-1; RUN_END=ready; ADMIN_IN_RUN=0; STRAIGHT_IN=0
+model() {  # <scenario>
+  : > "$M/calls"; rm -f "$M"/clt "$M"/dialog "$M"/looks "$M"/hand "$M"/admin-shown "$GUEST_RUN"/in/join-*
+  mset screen macos; mset code ""
+  cat > "$M/rows" <<ROWS
+macos perm.fda action todo
+macos perm.notifications action todo
+macos mac.fancy-urls action todo
+invite tool.clt action todo
+invite forge.token field todo
+create-team tool.clt action todo
+create-team forge.token field todo
+connect forge action done
+connect claude action todo
+connect fast-browser action done
+this-mac repos.root action todo
+this-mac repos.place:github.com/acme/widgets place todo
+this-mac settings.backup action done
+ROWS
+  SCENARIO="$1"
 }
-# legacy: the one-list checklist of an app from before the wizard, which the
-# update leg installs. Every row is on it, with no page id and no progress.
-where_now() { case "$(cat "$M/mode")" in summary) cat "$M/pane" ;; legacy) echo all ;; *) page_now ;; esac; }
-# A row's container id is left out on purpose: the driver must not need it.
 screen_ids() {
-  local mode r
-  mode=$(cat "$M/mode")
-  case "$mode" in
-    install) echo setup.install.screen; return 0 ;;
-    noplan) printf '%s\n' setup.checklist.screen setup.checklist.page. setup.window.progress setup.checklist.back setup.checklist.continue; return 0 ;;
-    wizard) printf '%s\n' setup.checklist.screen "setup.checklist.page.$(page_now)" setup.window.progress ;;
-    legacy) echo setup.checklist.screen ;;
-    summary) printf '%s\n' setup.done.screen setup.checklist.group.overview; for r in $PAGES; do echo "setup.checklist.group.$r"; done ;;
-  esac
-  for r in $(rows_on "$(where_now)"); do
-    echo "setup.checklist.row.$r.status"
-    # A ready row is folded under "No action needed": its button is drawn once the line is open.
-    if [ "$(status_of "$r")" != ready ] || [ "$(cat "$M/open")" = 1 ]; then echo "setup.checklist.row.$r.action"; fi
+  local s r kind st
+  s=$(mget screen)
+  [ -n "$s" ] || return 0
+  echo "setup.fast.$s"
+  awk -v s="$s" '$1 == s { print $2, $3, $4 }' "$M/rows" | while read -r r kind st; do
+    case "$st" in
+      done) [ "$kind" = place ] && echo "setup.fast.row.$r.status" || echo "setup.fast.row.$r.done" ;;
+      waiting) echo "setup.fast.row.$r.waiting"; echo "setup.fast.row.$r.action" ;;
+      error) echo "setup.fast.row.$r.error"; echo "setup.fast.row.$r.action" ;;
+      *) case "$kind" in
+           field) echo "setup.fast.row.$r.field"; echo "setup.fast.row.$r.action" ;;
+           place) echo "setup.fast.row.$r.status"; echo "setup.fast.row.$r.action.oneClick" ;;
+           *) echo "setup.fast.row.$r.action" ;;
+         esac ;;
+    esac
   done
-  echo setup.checklist.noAction.toggle
-  if [ "$mode" = wizard ]; then printf '%s\n' setup.checklist.recheck setup.checklist.back setup.checklist.continue; fi
-  if [ "$mode" = legacy ]; then printf '%s\n' setup.checklist.recheck setup.checklist.continue; fi
+  case "$s" in
+    invite) [ -n "$(mget code)" ] && echo setup.fast.invite.line; echo setup.fast.invite.code ;;
+    paused) echo setup.fast.paused.secondary ;;
+    path) printf 'setup.fast.path.card.%s\n' join create solo restore ;;
+  esac
+  case "$s" in macos|path) ;; *) echo "setup.fast.$s.primary" ;; esac
 }
-ax_dump_ids() { screen_ids; }
-ax_find_raw() { ax_ids_have "$(screen_ids)" "$1"; }
-ax_page_step() {
-  local cur
-  [ "$(cat "$M/mode")" = wizard ] || { note "held:noplan"; return 1; }
-  cur=$(cat "$M/cur")
+# The host answers the waiting request, and the bar moves, on every look.
+world_turn() {
+  local s; s=$(mget screen)
+  if [ -e "$GUEST_RUN/in/join-waiting.req" ] && [ "$HOST" != none ]; then
+    rm -f "$GUEST_RUN/in/join-waiting.req"; : > "$GUEST_RUN/in/join-approve.$HOST"
+    [ "$HOST" = done ] && mset screen connect
+  fi
+  if [ "$s" = waiting ] && [ "$HOST" = manual ] && [ -e "$GUEST_RUN/in/join-approve.manual" ] && [ "$HAND_AFTER" -ge 0 ]; then
+    mset hand $(($(mget hand || echo 0) + 1)); [ "$(mget hand)" -gt "$HAND_AFTER" ] && mset screen connect
+  fi
+  if [ "$s" = running ]; then
+    mset looks $(($(mget looks || echo 0) + 1))
+    if [ "$ADMIN_IN_RUN" = 1 ] && [ ! -e "$M/admin-shown" ]; then : > "$M/admin-shown"; : > "$M/dialog"; fi
+    [ "$(mget looks)" -ge 3 ] && mset screen "$RUN_END"
+  fi
+  if [ "$s" = macos ] && screen_done macos; then mset screen path; fi
+  if [ -e "$M/clt" ]; then
+    mset clt $(($(mget clt) + 1))
+    [ "$(mget clt)" -ge 4 ] && { drop_row tool.clt; rm -f "$M/clt"; note clt-landed; }
+  fi
+  return 0
+}
+ax_dump_ids() { world_turn; screen_ids; }
+ax_find_raw() { ax_ids_have "$(ax_dump_ids)" "$1"; }
+ax_fast_status() { if [ "$(row_state "$1")" = done ]; then echo ready; else echo needs-you; fi; }
+ax_enabled() {
+  local s; s=$(mget screen)
   case "$1" in
-    back)
-      [ "$cur" -gt 0 ] || { note held:first; return 1; }
-      printf '%s' $((cur - 1)) > "$M/cur" ;;
-    continue)
-      if page_last; then note held:install; return 1; fi
-      if page_blocked; then note held:blocked; return 1; fi
-      printf '%s' $((cur + 1)) > "$M/cur" ;;
+    "setup.fast.$s.primary") if screen_done "$s"; then echo true; else echo false; fi ;;
     *) return 1 ;;
   esac
-  printf 0 > "$M/open"; note "$1"
+}
+ax_button() {
+  [ "$1" = press ] || return 1
+  [ "$2" = setup.fast.this-mac.primary ] && [ "$3" = "Set up this Mac" ] && [ "$(ax_enabled "$2")" = true ] || { note "held:$2"; return 1; }
+  note "press:$2"; mset screen running
 }
 ax_click_raw() {
   local r
   ax_find_raw "$1" || return 1
-  note "click:$1@$(where_now)"
+  note "click:$1"
   case "$1" in
-    setup.checklist.noAction.toggle) printf '%s' $((1 - $(cat "$M/open"))) > "$M/open" ;;
-    setup.checklist.group.*) printf '%s' "${1#setup.checklist.group.}" > "$M/pane"; printf 0 > "$M/open" ;;
-    setup.checklist.row.*.action) r="${1#setup.checklist.row.}"; set_status "${r%.action}" ready ;;
-    setup.checklist.continue)
-      # A disabled button takes the click and does nothing.
-      if page_blocked; then :
-      elif [ "$(page_now)" = "$STICKY_PAGE" ] && [ ! -e "$M/stuck-once" ]; then : > "$M/stuck-once"
-      elif page_last; then [ "$SLOW_INSTALL" = 1 ] || printf install > "$M/mode"
-      else printf '%s' $(($(cat "$M/cur") + 1)) > "$M/cur"; printf 0 > "$M/open"; fi ;;
+    setup.fast.row.perm.fda.action) ;;
+    setup.fast.row.perm.notifications.action) set_row perm.notifications done ;;
+    setup.fast.row.mac.fancy-urls.action) : > "$M/dialog"; set_row mac.fancy-urls waiting ;;
+    setup.fast.row.tool.clt.action) if [ "$CLT_SLOW" = 1 ]; then set_row tool.clt waiting; mset clt 0; else drop_row tool.clt; fi ;;
+    setup.fast.row.forge.token.action) set_row forge.token done ;;
+    setup.fast.row.claude.action) set_row claude done ;;
+    setup.fast.row.repos.root.action) set_row repos.root done ;;
+    setup.fast.row.*.action.oneClick) r="${1#setup.fast.row.}"; set_row "${r%.action.oneClick}" done ;;
+    setup.fast.path.card.join) mset screen invite ;;
+    setup.fast.path.card.create) mset screen create-team ;;
+    setup.fast.path.card.solo) mset screen connect ;;
+    setup.fast.invite.primary) if [ "$STRAIGHT_IN" = 1 ]; then mset screen connect; else mset screen waiting; fi ;;
+    setup.fast.create-team.primary) mset screen connect ;;
+    setup.fast.connect.primary) mset screen this-mac ;;
   esac
 }
-reveal() { rc=0; ax_reveal_row "$1" 2>/dev/null || rc=$?; }
-
-model wizard 0
-reveal setup.checklist.row.tool.rt.status
-check "a row on a later page is reached forward, with no Back" \
-  '[ "$rc" -eq 0 ] && [ "$(page_now)" = rt ] && [ "$(calls)" = "continue continue continue continue " ]'
-
-model wizard 0
-reveal setup.checklist.row.tool.rt
-check "a bare row id is found by the row's status" '[ "$rc" -eq 0 ] && [ "$(page_now)" = rt ]'
-
-model wizard 2 tool.herdr=missing
-reveal setup.checklist.row.perm.fda.status
-check "a row on an earlier page is reached by Back, past a page that blocks Continue" \
-  '[ "$rc" -eq 0 ] && [ "$(page_now)" = mac ] && [ "$(calls)" = "held:blocked back back held:first " ]'
-
-model wizard 4 tool.rt=missing
-reveal setup.checklist.row.account.github.status
-check "a row between the first page and this one is reached from the first page forward" \
-  '[ "$rc" -eq 0 ] && [ "$(page_now)" = accounts ] && [ "$(calls)" = "held:blocked back back back back held:first continue " ]'
-
-model wizard 5
-reveal setup.checklist.row.perm.fda.status
-check "from the last page the search never presses Install" \
-  '[ "$rc" -eq 0 ] && [ "$(page_now)" = mac ] && [ "$(count "^click:setup.checklist.continue")" -eq 0 ] && [ "$(cat "$M/mode")" = wizard ]'
-
-model wizard 0 tool.clt=missing
-reveal setup.checklist.row.tool.rt.status
-check "a row past a page that blocks Continue is not reached" \
-  '[ "$rc" -ne 0 ] && [ "$(page_now)" = mac ] && [ "$(calls)" = "held:blocked held:first " ]'
-
-model wizard 2
-reveal setup.checklist.row.no.such.row.status
-check "a row on no page ends the search, with no press of the primary button" \
-  '[ "$rc" -ne 0 ] && [ "$(wc -l < "$M/calls")" -lt 20 ] && [ "$(count "^click:setup.checklist.continue")" -eq 0 ] && [ "$(cat "$M/mode")" = wizard ]'
-
-model noplan 0
-reveal setup.checklist.row.perm.fda.status
-check "before a plan lands nothing is pressed" '[ "$rc" -ne 0 ] && [ "$(count "^click:")" -eq 0 ] && [ "$(count "^held:")" -eq 2 ]'
-
-model wizard 4
-reveal setup.checklist.row.tool.proxy.action
-check "a folded row's button takes one press of the No action needed line" \
-  '[ "$rc" -eq 0 ] && [ "$(calls)" = "click:setup.checklist.noAction.toggle@rt " ]'
-
-model wizard 4
-reveal setup.checklist.row.tool.proxy.error
-check "a row with no error is left where it is: no press, no page turned" '[ "$rc" -eq 1 ] && [ -z "$(calls)" ]'
-
-model wizard 4
-reveal setup.checklist.row.tool.proxy.status
-check "a status on the page on screen needs nothing" '[ "$rc" -eq 0 ] && [ -z "$(calls)" ]'
-
-model wizard 0
-reveal setup.checklist.continue
-check "anything that is not a checklist row is left alone" '[ "$rc" -eq 0 ] && [ -z "$(calls)" ]'
-
-model summary 0 tool.fast-browser-extension=needs-you
-reveal setup.checklist.row.tool.fast-browser-extension.status
-check "on the summary a row is reached through the sidebar, never through Overview" \
-  '[ "$rc" -eq 0 ] && [ "$(cat "$M/pane")" = browser ] && [ "$(count "group.overview")" -eq 0 ] && [ "$(count "^click:setup.checklist.group")" -ge 1 ]'
-
-model summary 0
-reveal setup.checklist.row.no.such.row.status
-check "on the summary a row in no pane ends the search" '[ "$rc" -ne 0 ] && [ "$(count "^click:setup.checklist.group")" -eq 6 ]'
-
-# screen_readiness against the model. The waits are single looks: the model
-# answers at once, and a real wait would spin on the clock.
-ax_status() {
-  ax_reveal_row "setup.checklist.row.$1.status" || true
-  ax_find_raw "setup.checklist.row.$1.status" || return 1
-  status_of "$1"
-}
-ax_wait_status() { [ "$(ax_status "$1" || true)" = "$2" ]; }
-ax_wait_status_not() { [ "$(ax_status "$1" || true)" != "$2" ]; }
-ax_enabled() { if [ "$1" = setup.checklist.continue ] && page_blocked; then echo false; else echo true; fi; }
-ax_wait_enabled() { [ "$(ax_enabled "$1")" = true ]; }
-wording_now() { if page_last; then echo Install; else echo Continue; fi; }
-# blank: the wording does not read. stale: the last page's button is read as
-# Continue once, the way a read just before a plan lands would see it.
-TITLE_MODE=truth
-ax_title() {
-  case "$TITLE_MODE" in
-    blank) return 0 ;;
-    stale) if page_last && [ ! -e "$M/stale-once" ]; then : > "$M/stale-once"; echo Continue; return 0; fi ;;
-  esac
-  wording_now
-}
-ax_click_reading() {
-  [ "$(wording_now)" = "$2" ] || { note "held:reads-$(wording_now)"; return 1; }
-  if page_blocked; then note held:disabled; return 1; fi
-  ax_click_raw "$1"
-}
-ax_row_statuses() { local r; for r in $(rows_on "$(where_now)"); do echo "$r=$(status_of "$r")"; done; }
-ax_shot() { :; }
-ax_allow_notifications() { :; }
-ax_toggle_in_system_settings() { :; }
-SCENARIO=solo; FORGE=github; PAT=""; PAT_ENV=NONE
-# errexit as drive-setup.sh runs it: a subshell on the left of || would switch it off.
-readiness() { set +e; ( set -e; screen_readiness ) >/dev/null 2>&1; rc=$?; set -e; }
-clicks() { grep '^click:' "$M/calls" | sed 's/^click:setup\.checklist\.//' | tr '\n' ' '; }
-
-model wizard 0 perm.login-items=missing perm.notifications=needs-you tool.clt=missing account.github=needs-you \
-  tool.herdr=missing tool.claude=missing tool.rt=missing
-readiness
-check "solo: rows are answered page by page, and Install is the last press" \
-  '[ "$rc" -eq 0 ] && [ "$(cat "$M/mode")" = install ] && [ "$(clicks)" = "row.perm.login-items.action@mac row.perm.notifications.action@mac row.tool.clt.action@mac continue@mac continue@accounts row.tool.herdr.action@agents row.tool.claude.action@agents continue@agents continue@browser row.tool.rt.action@rt continue@rt continue@team " ]'
-check "solo: Back is never pressed from the first page" '[ "$(count "^back$")" -eq 0 ] && [ "$(count "^held:first$")" -eq 1 ]'
-
-model wizard 5
-readiness
-check "a wizard that opens on its last page is walked back to the first before anything is pressed" \
-  '[ "$rc" -eq 0 ] && [ "$(cat "$M/mode")" = install ] && [ "$(count "^back$")" -eq 5 ] && [ "$(clicks)" = "continue@mac continue@accounts continue@agents continue@browser continue@rt continue@team " ]'
-
-model wizard 0 tool.herdr=error
-readiness
-check "a page whose required row the walkthrough cannot answer fails there, by name" \
-  '[ "$rc" -ne 0 ] && [ "$(page_now)" = agents ] && [ "$(count "continue@agents")" -eq 0 ] && grep -q "the wizard is stuck on page .agents." "$AX_LOG"'
-
-HIDE_PROXY=1
-model wizard 0
-readiness
-check "a checklist with no proxy row fails before Install is pressed" \
-  '[ "$rc" -ne 0 ] && [ "$(cat "$M/mode")" = wizard ] && [ "$(count "continue@team")" -eq 0 ] && grep -q "tool.proxy row is not on the checklist" "$AX_LOG"'
-HIDE_PROXY=0
-
-SLOW_INSTALL=1
-model wizard 0
-readiness
-check "nothing is pressed after a button that read Install" '[ "$rc" -eq 0 ] && [ "$(count "continue@team")" -eq 1 ]'
-SLOW_INSTALL=0
-
-TITLE_MODE=blank
-model wizard 0
-readiness
-check "a primary button whose wording does not read is never pressed" \
-  '[ "$rc" -ne 0 ] && [ "$(page_now)" = mac ] && [ "$(count "^click:")" -eq 0 ] && [ "$(count "^held:")" -eq 1 ] && grep -q "FAIL: setup.checklist.continue reads .. on page .mac., neither Continue nor Install: nothing was pressed" "$AX_LOG"'
-
-TITLE_MODE=stale
-model wizard 0
-readiness
-check "a wording read before the page became the last one presses nothing, and Install is pressed once on the next read" \
-  '[ "$rc" -eq 0 ] && [ "$(cat "$M/mode")" = install ] && [ "$(count "^held:reads-Install$")" -eq 1 ] && [ "$(count "continue@team")" -eq 1 ]'
-
-HIDE_PROXY=1
-model wizard 0
-readiness
-check "Install's checks still run when the page became the last one after the read" \
-  '[ "$rc" -ne 0 ] && [ "$(cat "$M/mode")" = wizard ] && [ "$(count "^held:reads-Install$")" -eq 1 ] && [ "$(count "continue@team")" -eq 0 ]'
-HIDE_PROXY=0
-TITLE_MODE=truth
-
-STICKY_PAGE=rt
-screen_proxy_row() { note proxy-row; }
-model wizard 0 tool.rt=missing
-readiness
-check "a press that did not turn the page is pressed again, and the page's rows are not driven twice" \
-  '[ "$rc" -eq 0 ] && [ "$(cat "$M/mode")" = install ] && [ "$(count "continue@rt")" -eq 2 ] && [ "$(count "^proxy-row$")" -eq 1 ] && [ "$(count "row.tool.rt.action")" -eq 1 ]'
-STICKY_PAGE=""
-
-# The last page holds every row the walkthrough insists on, so only the
-# guard on a first press that reads Install stands in the way.
-ax_page_step() { note "held:$1"; return 1; }
-PAGES="mac accounts agents browser rt"
-model wizard 4
-readiness
-check "a wizard that opens on its last page and cannot be turned back fails before Install" \
-  '[ "$rc" -ne 0 ] && [ "$(cat "$M/mode")" = wizard ] && [ "$(count "continue@rt")" -eq 0 ] && grep -q "could not be turned back to its first" "$AX_LOG"'
-
-PAGES="mac accounts agents browser rt team"
-model legacy 0 perm.login-items=needs-you
-readiness
-check "a checklist with no pages, from before the wizard, has its rows answered and Install pressed" \
-  '[ "$rc" -eq 0 ] && [ "$(cat "$M/mode")" = install ] && [ "$(clicks)" = "row.perm.login-items.action@all continue@all " ]'
-model legacy 0 tool.clt=missing
-readiness
-check "a checklist with no pages has a required row answered before Install" \
-  '[ "$rc" -eq 0 ] && [ "$(clicks)" = "row.tool.clt.action@all continue@all " ]'
-PAGES="mac accounts agents browser rt"
-
-model noplan 0
-screen_wait_plan() { return 1; }
-readiness
-check "a checklist that never draws a row fails before any press" '[ "$rc" -ne 0 ] && [ -z "$(calls)" ]'
-
-# The two steps before the checklist, each against a model of its page. A
-# sleep moves the clock, so a wait that never ends runs out at once.
-sleep() { SECONDS=$((SECONDS + ${1%.*})); }
-P="$GUEST_RUN/pages"; mkdir -p "$P"
-pset() { printf '%s' "$2" > "$P/$1"; }
-pget() { cat "$P/$1" 2>/dev/null; }
-pnote() { printf '%s\n' "$1" >> "$P/calls"; }
-pcalls() { tr '\n' ' ' < "$P/calls"; }
-drive() { set +e; ( set -e; "$@" ) >/dev/null 2>&1; rc=$?; set -e; }
-ax_wait_screen() { [ "$(pget screen)" = "$1" ]; }
+ax_set_field() { note "set:$1=$2"; [ "$1" = setup.fast.invite.code ] && mset code "$2"; return 0; }
+ax_value() { case "$1" in setup.fast.invite.code) mget code ;; *) echo x ;; esac; }
+ax_pick_segment() { note "pick:$1=$2"; }
+ax_shot() { note "shot:$1"; }
+ax_texts() { echo "Setup paused"; }
 ax_wait_window() { :; }
-ax_osa() { pnote "osa"; }
-ax_value() { :; }
-ax_set_field() { pnote "set:$1"; }
-relaunch_app() { pnote relaunch; pset screen welcome; pset fda on; }
+ax_osa() { note osa; }
+ax_allow_notifications() { note allow; }
+ax_toggle_in_system_settings() { note toggle; [ "$FDA_LIVE" = 1 ] && set_row perm.fda done; return 0; }
+relaunch_app() { note relaunch; set_row perm.fda done; mset screen macos; }
+ax_admin_dialog_up() { [ -e "$M/dialog" ]; }
+ax_wait_admin_dialog() { [ -e "$M/dialog" ]; }
+ax_admin_cancel_once() { [ -e "$M/dialog" ] || return 1; rm -f "$M/dialog"; note cancel; set_row mac.fancy-urls error; }
+ax_admin_auth_once() { [ -e "$M/dialog" ] || return 1; rm -f "$M/dialog"; note auth; [ "$(mget screen)" = macos ] && set_row mac.fancy-urls done; return 0; }
+ax_admin_auth() { ax_admin_auth_once; }
+sleep() { SECONDS=$((SECONDS + ${1%.*})); }
+FORGE=github; SLUG=widgets; PAT=test-token; PAT_ENV=MATTSTACK_VMTEST_PAT
+TEAM_REMOTE=https://github.com/acme/widgets.git
+CODE_FILE="$GUEST_RUN/in/code.txt"; printf 'ABCD-EFGH\n' > "$CODE_FILE"
+FB_EXTENSION_WAIT_S=30
+# errexit as drive-setup.sh runs it: a subshell on the left of || would switch it off.
+drive() { set +e; ( set -e; "$@" ) >"$GUEST_RUN/drive.out" 2>&1; rc=$?; set -e; }
+whole_run() {
+  screen_macos; screen_path
+  case "$SCENARIO" in join) screen_invite; screen_waiting ;; create) screen_create_team ;; esac
+  screen_connect; screen_this_mac; screen_running; screen_ready
+}
+screen_shots() { grep '^shot:[0-9][0-9]-[a-z-]*$' "$M/calls" | sed 's/^shot://' | tr '\n' ' '; }
+presses() { grep -E '^(click|press):setup\.fast\.[a-z-]+\.(primary|card\.[a-z]+)$|^(click|press):setup\.fast\.path' "$M/calls" | sed -E 's/^(click|press):setup\.fast\.//' | tr '\n' ' '; }
 
-# Full Disk Access: fda is off, granted-but-stale (reopen), on, or stuck (a
-# grant the running app never sees).
-ax_find() {
-  case "$1" in
-    setup.fullDiskAccess.open) [ "$(pget screen)" = fullDiskAccess ] && { [ "$(pget fda)" = off ] || [ "$(pget fda)" = stuck ]; } ;;
-    setup.fullDiskAccess.reopen) [ "$(pget screen)" = fullDiskAccess ] && [ "$(pget fda)" = reopen ] ;;
-    *) return 1 ;;
-  esac
-}
-ax_enabled() { if [ "$1" = setup.fullDiskAccess.continue ] && [ "$(pget fda)" = on ]; then echo true; else echo false; fi; }
-ax_wait_enabled() { [ "$(ax_enabled "$1")" = true ]; }
-ax_toggle_in_system_settings() { pnote toggle; [ "$(pget fda)" = stuck ] || pset fda reopen; }
-ax_click() {
-  pnote "click:$1"
-  case "$1" in
-    setup.welcome.continue) pset screen fullDiskAccess ;;
-    setup.fullDiskAccess.reopen) pset screen team ;;
-    setup.fullDiskAccess.continue) [ "$(pget fda)" = on ] && pset screen team ;;
-  esac
-}
-fda() { : > "$P/calls"; pset screen fullDiskAccess; pset fda "$1"; drive screen_full_disk_access; }
+model join; drive whole_run
+check "join: every screen in drive order, one shot each" \
+  '[ "$rc" -eq 0 ] && [ "$(screen_shots)" = "01-macos 02-path 03-invite 04-waiting 05-connect 06-this-mac 07-running 08-ready " ]'
+check "join: the card, Join, Continue, Set up this Mac and Open the board, and nothing else of the footers" \
+  '[ "$(presses)" = "path.card.join invite.primary connect.primary this-mac.primary ready.primary " ]'
+check "join: the waiting screen asks the host once, and Hide is never pressed" \
+  '[ -e "$GUEST_RUN/in/join-approve.done" ] && [ "$(count "waiting.primary")" -eq 0 ]'
+check "join: git and the token are answered before Join" \
+  'c=$(calls); case "$c" in *"click:setup.fast.row.tool.clt.action"*"set:setup.fast.row.forge.token.field=test-token"*"click:setup.fast.row.forge.token.action"*"click:setup.fast.invite.primary"*) true ;; *) false ;; esac'
+check "join: the invite code is typed into its own field" '[ "$(count "^set:setup.fast.invite.code=ABCD-EFGH$")" -ge 1 ]'
+check "join: Full Disk Access takes a relaunch, and P1 moves on by itself" \
+  'c=$(calls); case "$c" in *"click:setup.fast.row.perm.fda.action toggle"*"relaunch"*"shot:01c-fda-relaunched"*"shot:02-path"*) true ;; *) false ;; esac'
+check "join: Fancy URLs is cancelled once, then answered with credentials" \
+  'c=$(calls); case "$c" in *"click:setup.fast.row.mac.fancy-urls.action"*cancel*"click:setup.fast.row.mac.fancy-urls.action"*auth*) true ;; *) false ;; esac'
+check "join: this Mac's folder and repo are answered before Set up this Mac" \
+  'c=$(calls); case "$c" in *"click:setup.fast.row.repos.root.action"*"click:setup.fast.row.repos.place:github.com/acme/widgets.action.oneClick"*"press:setup.fast.this-mac.primary"*) true ;; *) false ;; esac'
+check "join: the gate file reads open" '[ "$(cat "$GUEST_RUN/logs/finish-gate.txt")" = open ]'
 
-fda off
-check "Full Disk Access: open, toggle, then Reopen mattstack resumes at Your team" \
-  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = team ] && [ "$(pcalls)" = "click:setup.fullDiskAccess.open toggle osa click:setup.fullDiskAccess.reopen " ]'
-fda on
-check "Full Disk Access already on: only Continue is pressed" \
-  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = team ] && [ "$(pcalls)" = "click:setup.fullDiskAccess.continue " ]'
-fda stuck
-check "a grant the page never sees: quit, reopen, walk Welcome again, then Continue" \
-  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = team ] && [ "$(pcalls)" = "click:setup.fullDiskAccess.open toggle osa osa relaunch click:setup.welcome.continue click:setup.fullDiskAccess.continue " ]'
+model create; drive whole_run
+check "create: every screen in drive order, one shot each" \
+  '[ "$rc" -eq 0 ] && [ "$(screen_shots)" = "01-macos 02-path 03-create-team 05-connect 06-this-mac 07-running 08-ready " ]'
+check "create: the name, the forge segment and the group from --team-remote, then Create team" \
+  'c=$(calls); case "$c" in *"set:setup.fast.create-team.name=widgets"*"pick:setup.fast.create-team.forge=GitHub"*"set:setup.fast.create-team.group=acme"*"click:setup.fast.create-team.primary"*) true ;; *) false ;; esac'
+FORGE=gitlab; TEAM_REMOTE=https://gitlab.com/acme/platform/widgets.git
+model create; drive whole_run
+check "create on GitLab: the GitLab segment and a nested group" \
+  '[ "$rc" -eq 0 ] && [ "$(count "^pick:setup.fast.create-team.forge=GitLab$")" -eq 1 ] && [ "$(count "^set:setup.fast.create-team.group=acme/platform$")" -eq 1 ]'
+FORGE=github; TEAM_REMOTE=https://github.com/acme/widgets.git
 
-# The Join page: token (the access row asks), ready, waiting, approved. The
-# host answers in/join-waiting.req with done or failed.
-HOST_ANSWER=done
-host_turn() {
-  [ -e "$GUEST_RUN/in/join-waiting.req" ] || return 0
-  rm -f "$GUEST_RUN/in/join-waiting.req"
-  : > "$GUEST_RUN/in/join-approve.$HOST_ANSWER"
-  [ "$HOST_ANSWER" = done ] && pset join approved
-  return 0
-}
-ax_find() {
-  host_turn
-  case "$1" in
-    setup.checklist.row.access.team-repo.action) [ "$(pget join)" = token ] ;;
-    setup.join.run) [ "$(pget join)" = ready ] ;;
-    setup.join.waiting) [ "$(pget join)" = waiting ] ;;
-    setup.join.approved) [ "$(pget join)" = approved ] ;;
-    *) return 1 ;;
-  esac
-}
-ax_status() { [ "$1" = access.team-repo ] && echo needs-you; }
-ax_enabled() { if [ "$1" = setup.join.continue ] && [ "$(pget join)" = approved ]; then echo true; else echo false; fi; }
-ax_click() {
-  pnote "click:$1"
-  case "$1" in
-    setup.checklist.connect.submit) pset join ready ;;
-    setup.join.run) pset join waiting ;;
-    setup.join.continue) pset screen checklist ;;
-  esac
-}
-join_page() { : > "$P/calls"; rm -f "$GUEST_RUN"/in/join-*; pset screen join; pset join "$1"; drive screen_join; }
+model solo; drive whole_run
+check "solo: straight from the card to Connect" \
+  '[ "$rc" -eq 0 ] && [ "$(screen_shots)" = "01-macos 02-path 05-connect 06-this-mac 07-running 08-ready " ] && [ "$(presses)" = "path.card.solo connect.primary this-mac.primary ready.primary " ]'
 
-PAT=test-token; PAT_ENV=MATTSTACK_VMTEST_PAT
-join_page token
-check "Join: the token first, then Join, then the host is asked once and Continue follows approval" \
-  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = checklist ] && [ "$(pcalls)" = "click:setup.checklist.row.access.team-repo.action set:setup.checklist.connect.field.token click:setup.checklist.connect.submit click:setup.join.run click:setup.join.continue " ] && [ -e "$GUEST_RUN/in/join-approve.done" ]'
-HOST_ANSWER=failed
-join_page ready
-count_join_continue() { grep -c "click:setup.join.continue" "$P/calls" || true; }
-check "Join: a host that could not approve fails the page, and Continue is never pressed" \
-  '[ "$rc" -ne 0 ] && [ "$(count_join_continue)" = 0 ] && grep -q "the host could not approve the join" "$AX_LOG"'
-# With no mint HOME the host cannot approve: it says so, and the page waits
-# for a hand approval (the model's admin approves after a few looks).
-HOST_ANSWER=manual; HAND_LOOKS=0
-host_turn() {
-  if [ -e "$GUEST_RUN/in/join-waiting.req" ]; then
-    rm -f "$GUEST_RUN/in/join-waiting.req"; : > "$GUEST_RUN/in/join-approve.$HOST_ANSWER"
-    [ "$HOST_ANSWER" = done ] && pset join approved
-  fi
-  if [ "$HOST_ANSWER" = manual ] && [ -e "$GUEST_RUN/in/join-approve.manual" ] && [ "$HAND_AFTER" -ge 0 ]; then
-    HAND_LOOKS=$((HAND_LOOKS + 1)); [ "$HAND_LOOKS" -gt "$HAND_AFTER" ] && pset join approved
-  fi
-  return 0
-}
-HAND_AFTER=5; JOIN_HAND_WAIT_S=600
-join_page ready
-check "Join: with no mint HOME the page waits for a hand approval, then Continues" \
-  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = checklist ] && grep -q "approve this join by hand" "$AX_LOG" && grep -q "rt team members sync, then rt team publish" "$AX_LOG"'
-HAND_AFTER=-1; JOIN_HAND_WAIT_S=30
-join_page ready
-check "Join: a hand approval that never comes fails within its bound, naming the hand approval" \
-  '[ "$rc" -ne 0 ] && [ "$(count_join_continue)" = 0 ] && grep -q "not approved by hand within 30s" "$AX_LOG"'
-HOST_ANSWER=done
-host_turn() {
-  [ -e "$GUEST_RUN/in/join-waiting.req" ] || return 0
-  rm -f "$GUEST_RUN/in/join-waiting.req"
-  : > "$GUEST_RUN/in/join-approve.$HOST_ANSWER"
-  [ "$HOST_ANSWER" = done ] && pset join approved
-  return 0
-}
+model restore; drive whole_run
+check "restore: stops at the cards with its own code, pressing none" '[ "$rc" -eq 3 ] && [ "$(count "^click:setup.fast.path")" -eq 0 ]'
+
+CLT_SLOW=1
+model create; drive whole_run
+check "a Command Line Tools install that takes a while is waited for before Create team" \
+  'c=$(calls); [ "$rc" -eq 0 ] && case "$c" in *clt-landed*"shot:clt-installed"*"click:setup.fast.create-team.primary"*) true ;; *) false ;; esac'
+CLT_SLOW=0
+
+FDA_LIVE=1
+model solo; drive whole_run
+check "a Full Disk Access grant the app sees at once needs no relaunch" '[ "$rc" -eq 0 ] && [ "$(count "^relaunch$")" -eq 0 ]'
+FDA_LIVE=0
+
+model solo; set_row perm.fda done macos; set_row perm.notifications done macos; set_row mac.fancy-urls done macos
+drive whole_run
+check "a P1 already done goes straight on to the cards, driving none of its rows" \
+  '[ "$rc" -eq 0 ] && [ "$(count "click:setup.fast.row.perm")" -eq 0 ] && [ "$(count "click:setup.fast.row.mac")" -eq 0 ] && [ "$(count "^shot:01-macos$")" -eq 0 ]'
+
+# A required row the walkthrough has no answer for holds the button: the
+# screen fails at its bound, naming the rows.
+model solo; awk '$2 == "fast-browser" { $4 = "todo" } { print }' "$M/rows" > "$M/rows.new"; mv "$M/rows.new" "$M/rows"
+CONNECT_WAIT_S=60; drive whole_run; CONNECT_WAIT_S=900
+check "a row Continue waits on that never connects fails at Connect, naming the rows" \
+  '[ "$rc" -ne 0 ] && [ "$(mget screen)" = connect ] && [ "$(count "connect.primary")" -eq 0 ] && grep -q "setup.fast.connect.primary never enabled within 60s; rows: .*fast-browser=todo" "$AX_LOG"'
+
+model solo; echo "connect slack action todo" >> "$M/rows"
+CONNECT_WAIT_S=60; drive whole_run; CONNECT_WAIT_S=900
+check "a row with no answer is logged once and left" '[ "$rc" -ne 0 ] && [ "$(grep -c "connect: no answer for row slack" "$AX_LOG")" -eq 1 ]'
+
 PAT=""
-join_page token
-check "Join: a page that asks for the token with no token on the host fails before pressing anything" \
-  '[ "$rc" -ne 0 ] && ! grep -q "^click:" "$P/calls" && grep -q "asks for the team repo.s forge but" "$AX_LOG"'
+model join; drive whole_run
+check "a token row with no token on the host fails before Join" \
+  '[ "$rc" -ne 0 ] && [ "$(count "invite.primary")" -eq 0 ] && grep -q "forge.token asks for the forge token but" "$AX_LOG"'
+model solo; echo "connect forge.token field todo" >> "$M/rows"; awk '!($2 == "forge.token" && $1 == "invite")' "$M/rows" > "$M/rows.new"; mv "$M/rows.new" "$M/rows"
+drive screen_row_token forge.token
+check "on solo a token row with no token is left" '[ "$rc" -eq 0 ] && [ "$(count "set:setup.fast.row.forge.token")" -eq 0 ]'
+PAT=test-token
 
-echo; [ "$fails" -eq 0 ] && echo "  all wizard paging checks ok" || { echo "  $fails check(s) failed"; exit 1; }
+# The waiting screen and the host's answer.
+HOST=failed
+model join; drive whole_run
+check "waiting: a host that could not approve fails the join, and Connect is never reached" \
+  '[ "$rc" -ne 0 ] && [ "$(count "connect.primary")" -eq 0 ] && grep -q "the host could not approve the join" "$AX_LOG"'
+HOST=manual; HAND_AFTER=5; JOIN_HAND_WAIT_S=600
+model join; drive whole_run
+check "waiting: with no mint HOME the screen waits for a hand approval, then goes on" \
+  '[ "$rc" -eq 0 ] && grep -q "approve this join by hand" "$AX_LOG" && grep -q "rt team members sync, then rt team publish" "$AX_LOG"'
+HAND_AFTER=-1; JOIN_HAND_WAIT_S=30
+model join; drive whole_run
+check "waiting: a hand approval that never comes fails within its bound" \
+  '[ "$rc" -ne 0 ] && [ "$(count "connect.primary")" -eq 0 ] && grep -q "not approved by hand within 30s" "$AX_LOG"'
+HOST=done; JOIN_HAND_WAIT_S=1800
+STRAIGHT_IN=1
+model join; drive whole_run
+check "waiting: a join approved at once goes on, logged as a finding, with no request to the host" \
+  '[ "$rc" -eq 0 ] && grep -q "FINDING: the join went straight to Connect" "$AX_LOG" && [ ! -e "$GUEST_RUN/in/join-approve.done" ]'
+STRAIGHT_IN=0
+
+# The running bar.
+RUN_END=paused
+model solo; drive whole_run
+check "running: a paused run opens its log, then fails with nothing pressed after" \
+  '[ "$rc" -ne 0 ] && [ "$(count "^click:setup.fast.paused.secondary$")" -eq 1 ] && [ "$(count "ready.primary")" -eq 0 ] && grep -q "FAIL: setup paused" "$AX_LOG"'
+RUN_END=ready
+ADMIN_IN_RUN=1
+model solo; drive whole_run
+check "running: an admin dialog on the bar is a finding, answered so the run ends" \
+  '[ "$rc" -eq 0 ] && grep -q "FINDING: a macOS admin dialog came up on the running screen" "$AX_LOG"'
+ADMIN_IN_RUN=0
+
+model solo; set_row repos.root done this-mac; set_row "repos.place:github.com/acme/widgets" done this-mac; mset screen this-mac
+ax_button() { note "held:$2"; return 1; }
+drive screen_this_mac
+check "Set up this Mac is never pressed when it does not read so" \
+  '[ "$rc" -ne 0 ] && [ "$(mget screen)" = this-mac ] && grep -q "did not read Set up this Mac" "$AX_LOG"'
+
+echo; [ "$fails" -eq 0 ] && echo "  all fast setup driver checks ok" || { echo "  $fails check(s) failed"; exit 1; }

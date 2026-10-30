@@ -1,7 +1,7 @@
 #!/bin/bash
 # Owner side of the join scenario's approval, on the host: under the HOME
 # mint-invite.sh scaffolded the team in, add the joiner's age key as a team
-# recipient and publish it, so the joiner's Join page reads approved.
+# recipient and publish it, so the joiner's waiting screen moves on to Connect.
 # Usage: approve-join.sh --rt <rt binary> --home <vm-mint.* dir> --slug <slug>
 #          [--key <the joiner's age1 public key>] [--forge github|gitlab]
 # The forge token comes from $VM_MINT_TOKEN, never argv. Exits non-zero unless

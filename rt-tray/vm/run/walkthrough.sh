@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do case "$1" in
 # consumed by exactly one creator: the guest (create) or the host's mint (join).
 case "$SCENARIO" in create|join) ;; *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };; esac
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$CODE_FILE" ] && { vm_warn "--invite-code-file and --fresh-team-repo both name the invite; pass one"; usage; }
-# Declining is answered in the SecurityAgent dialog the wizard raises, and the
+# Declining is answered in the SecurityAgent dialog setup raises, and the
 # headless recipe drives no dialogs at all.
 [ "$DECLINE_TRUST" = 1 ] && [ "$SCENARIO" = headless ] && { vm_warn "--decline-trust needs a driven scenario, not headless"; usage; }
 
@@ -184,8 +184,8 @@ shot_watcher() {  # host loop: in/shot-<name>.req → screenshots/<name>.png
   done
 }
 
-# Host loop for the join scenario: the guest's Join page writes
-# in/join-waiting.req once it shows the waiting state, and approve-join.sh
+# Host loop for the join scenario: the guest's screen_waiting writes
+# in/join-waiting.req once the waiting screen shows, and approve-join.sh
 # answers it as the team owner, under the mint's HOME. The outcome goes back as
 # in/join-approve.done or in/join-approve.failed, or in/join-approve.manual
 # when there is no mint HOME and the team's owner approves by hand.
@@ -440,7 +440,7 @@ else
   # Job control hands a background job the walkthrough's stdin, a terminal
   # on an attended run; a read from it would stop the watcher's group.
   if [ "$SCENARIO" = join ]; then set -m; approve_watcher </dev/null & APPROVE_PID=$!; set +m; fi
-  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' JOIN_HAND_WAIT_S='${JOIN_HAND_WAIT_S:-1800}' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' JOIN_HAND_WAIT_S='${JOIN_HAND_WAIT_S:-1800}' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' CONNECT_WAIT_S='${CONNECT_WAIT_S:-900}' RUN_WAIT_S='${RUN_WAIT_S:-1800}' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   rc=$?
   stop_approve_watcher
   mint_detach; drop_mint_home
@@ -481,7 +481,7 @@ if [ "$SCENARIO" != solo ]; then
 elif [ -z "$TEAM_REMOTE" ]; then
   vm_phase_end team-upgrade skip "no --team-remote given"
 else
-  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" upgrade "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" upgrade "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' CONNECT_WAIT_S='${CONNECT_WAIT_S:-900}' RUN_WAIT_S='${RUN_WAIT_S:-1800}' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then
     vm_phase_end team-upgrade pass
