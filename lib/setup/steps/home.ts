@@ -1,9 +1,9 @@
 /**
  * `home.init` / `home.restore` — the two steps that get the home repo
  * (~/.mattstack/user, A1: user/ IS the repo) and its age key onto this
- * machine. `home.restore` never runs the real restore itself: the app
- * already ran `rt home init`'s materialize phase (settings lane) before this
- * step gets a turn, so this only confirms the clone and the key landed.
+ * machine. `home.restore` never runs the real restore itself: `rt home
+ * restore` cloned the repo and imported the key before it recorded the
+ * restore intent, so this only confirms the clone and the key landed.
  */
 
 import { join } from "path";
@@ -205,8 +205,8 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   if (keyStatus.status === "unreachable") {
     // The clone/origin may be perfectly fine here — an unlock, not a fresh
-    // restore, is the actual fix, and pointing at `rt restore` would be
-    // actively wrong (it would ask for the age key again, when the real
+    // restore, is the actual fix, and pointing at `rt home restore` would be
+    // actively wrong (it would ask for the recovery key again, when the real
     // problem is this machine can't read the one it already has).
     return {
       state: "failed",
@@ -218,7 +218,7 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
   return {
     state: "failed",
     detail: `Could not confirm the home repo or its age key at ${join(p.home, ".mattstack", "user")}`,
-    remedy: "Run rt setup intent restore <org>/<repo>, then rt home key import to paste your age key, then Retry",
+    remedy: `Run rt home restore ${homeRepo ?? "<owner>/<repo>"} and paste your recovery key, then Retry`,
   };
 }
 

@@ -1664,6 +1664,23 @@ describe("resolveHomeUrl", () => {
     });
     expect(url).toBe("https://x/restore.git");
   });
+
+  test("a restore intent's owner/repo becomes a clone URL, never a local path for git clone", () => {
+    const url = resolveHomeUrl([], {
+      readIntent: () => ({ v: 1, at: "", mode: "restore", restore: { homeRepo: "janedoe/mattstack-home" } }) as SetupIntent,
+      env: {},
+    });
+    expect(url).toBe("https://github.com/janedoe/mattstack-home.git");
+  });
+
+  test("the URL rt home restore recorded beats its owner/repo", () => {
+    const url = resolveHomeUrl([], {
+      readIntent: () =>
+        ({ v: 1, at: "", mode: "restore", restore: { homeRepo: "janedoe/mattstack-home", url: "git@gitlab.example.com:janedoe/mattstack-home.git" } }) as SetupIntent,
+      env: {},
+    });
+    expect(url).toBe("git@gitlab.example.com:janedoe/mattstack-home.git");
+  });
 });
 
 /**

@@ -37,10 +37,14 @@ export interface SetupIntent {
   mode: "create" | "join" | "restore" | "solo";
   team?: { slug: string; name: string; remote: string; others: boolean; firstTeam?: string };
   join?: { id: string; keyB64: string; pointer: InvitePointer };
-  restore?: { homeRepo: string };
+  /** `url` is what `rt home restore` cloned; an intent from an older rt carries only `homeRepo`. */
+  restore?: { homeRepo: string; url?: string };
   /** Orthogonal to `mode` — create and join both need one; restore keeps its own under `restore.homeRepo`. */
   homeRepo?: string;
 }
+
+/** `org/repo`: the shape `restore.homeRepo` is recorded in, and what home.restore finds in the clone's origin. */
+export const HOME_REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;
 
 export function intentPath(home: string): string {
   return join(home, ".mattstack", "rt", "setup-intent.json");

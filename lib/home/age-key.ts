@@ -166,7 +166,7 @@ export async function ensureAgeKey(seams: AgeKeySeam): Promise<{ publicKey: stri
   return { publicKey, minted: true };
 }
 
-const PRIVATE_KEY_PREFIX = "AGE-SECRET-KEY-1";
+export const PRIVATE_KEY_PREFIX = "AGE-SECRET-KEY-1";
 
 export type ImportAgeKeyResult =
   | { ok: true; publicKey: string }

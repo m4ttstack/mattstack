@@ -46,7 +46,7 @@ import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverSt
 import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { CONNECT_WAIT_MS, endLogin, FINISH_IN_BROWSER, readLogin, startLogin, waitForSignIn, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
-import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
+import { clearIntent, HOME_REPO_PATTERN, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
@@ -654,11 +654,6 @@ export function realIntentDeps(): IntentDeps {
   return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit };
 }
 
-// Safe as a directory-name-free identifier and readable in a log line — not a
-// full org/repo syntax check, just enough to catch an empty or malformed arg
-// before it's persisted as this machine's restore target.
-const HOME_REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;
-
 function printIntentResult(deps: IntentDeps, json: boolean, body: Record<string, unknown>): void {
   if (json) {
     deps.json(envelope(body, deps.probes.now()));
@@ -669,8 +664,8 @@ function printIntentResult(deps: IntentDeps, json: boolean, body: Record<string,
 
 /**
  * `rt setup intent restore <org>/<repo>` / `rt setup intent clear` — hidden,
- * records intent only. The app runs the real restore; there is no `rt
- * restore` command.
+ * records intent only. `rt home restore` brings the repo and key over and
+ * records the restore intent itself.
  */
 export async function setupIntent(args: string[], _ctx: CommandContext = {}, deps: IntentDeps = realIntentDeps()): Promise<void> {
   const json = args.includes("--json");

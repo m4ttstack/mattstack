@@ -2068,6 +2068,18 @@ export const TREE: Record<string, CommandNode> = {
           },
         },
       },
+      restore: {
+        description: "Bring your settings over from another Mac",
+        module: "./commands/home.ts",
+        fn: "homeRestore",
+        omitBehavior: { exempt: "a repo on another Mac's account that rt cannot list" },
+        args: [
+          { name: "Repo", type: "text", placeholder: "janedoe/mattstack-home", hint: "Your settings repo: owner/repo on GitHub, host/owner/repo, or its clone address" },
+          { name: "Stdin", flag: "--stdin", type: "boolean", default: false, hint: "Read the recovery key from stdin instead of a no-echo prompt" },
+          { name: "Profile", flag: "--profile", type: "text", hint: "A name for this Mac's new profile, when its default name is taken" },
+          SETUP_JSON_ARG,
+        ],
+      },
       remote: {
         description: "Where the home repo is backed up",
         subcommands: {
