@@ -90,6 +90,10 @@ enum FastSetupSnapshot {
                                          waiting: [Rows.fancyUrls.id: Rows.fancyUrls.waiting ?? ""])),
             ("macos-done", page([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsAllowed])),
             ("macos-notifications-off", page([Rows.fdaGranted, Rows.notificationsOff, Rows.fancyUrls])),
+            ("macos-fancy-urls-long-detail", AnyView(VStack(spacing: 0) {
+                MacOSScreenBody(rows: [Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsNoInstaller], waiting: [:], errors: [:]) { _, _, _ in }
+                card([Rows.fancyUrlsBrewFailed]).padding(.horizontal, 4).padding(.top, -20)
+            })),
         ]
     }
 
@@ -111,6 +115,14 @@ enum FastSetupSnapshot {
                                        state: .todo, detail: "Not set up yet",
                                        action: RowAction(type: .run, label: "Allow", verb: ["setup", "apply", "--only", "proxy.install"]),
                                        waiting: "Waiting for your admin password in the macOS dialog…", watch: true)
+        static let fancyUrlsNoInstaller = FormRow(id: "mac.fancy-urls", title: "Fancy URLs",
+                                                  subtext: "Grant mattstack apps permission to use .mattstack", state: .done,
+                                                  detail: "This build has no local proxy installer, so apps serve on their own ports",
+                                                  waiting: "Waiting for your admin password in the macOS dialog…", watch: true)
+        static let fancyUrlsBrewFailed = FormRow(id: "mac.fancy-urls", title: "Fancy URLs",
+                                                 subtext: "Grant mattstack apps permission to use .mattstack", state: .done,
+                                                 detail: "Homebrew did not install. Tools that need it say so on their own rows",
+                                                 waiting: "Waiting for your admin password in the macOS dialog…", watch: true)
         static let fancyUrlsAllowed = FormRow(id: "mac.fancy-urls", title: "Fancy URLs",
                                               subtext: "Grant mattstack apps permission to use .mattstack", state: .done, detail: "Allowed",
                                               waiting: "Waiting for your admin password in the macOS dialog…", watch: true)

@@ -89,10 +89,10 @@ struct FormRowView: View {
 
     @ViewBuilder private var progress: some View {
         if let line = progressLine {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                ProgressView().controlSize(.small).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 Text(line).font(.callout).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .modifier(CappedWidth(max: 320))
             .accessibilityElement(children: .combine)
@@ -102,10 +102,11 @@ struct FormRowView: View {
 
     /// Never beside a segment: the segment already reads as the answer.
     private var doneCheck: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
             if !row.detail.isEmpty {
-                Text(row.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                Text(row.detail).font(.callout).foregroundStyle(.secondary)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
         }
         .modifier(CappedWidth(max: 300))
@@ -121,12 +122,15 @@ struct FormRowView: View {
         case .chooseFolder:
             Button(label) { chooseFolder(action) }.fixedSize().accessibilityIdentifier(AXID.fastRowAction(row.id))
         default:
+            // A second press of a running `setup apply` would raise a second admin prompt.
+            let applying = waiting != nil && RowVerbRun.streamsApplyEvents(action.verb ?? [])
             if action.primary == true && row.state != .waiting && waiting == nil {
                 Button(label) { onAction(row, nil, nil) }
                     .buttonStyle(.borderedProminent).fixedSize()
                     .accessibilityIdentifier(AXID.fastRowAction(row.id))
             } else {
-                Button(label) { onAction(row, nil, nil) }.fixedSize().accessibilityIdentifier(AXID.fastRowAction(row.id))
+                Button(label) { onAction(row, nil, nil) }.fixedSize().disabled(applying)
+                    .accessibilityIdentifier(AXID.fastRowAction(row.id))
             }
         }
     }
