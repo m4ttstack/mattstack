@@ -14,6 +14,9 @@ import { PNG } from 'pngjs';
 
 import { LAYOUT, STRIPS } from '../../assets/latch/index.ts';
 import {
+  BANNER_CSS_H,
+  BANNER_CSS_W,
+  BANNER_SCALE,
   copyFor,
   DOT_GAP_PX,
   DOT_PX,
@@ -21,21 +24,21 @@ import {
   type BannerVariant,
 } from './variants.ts';
 
-export const GIF_W = 1040;
-export const GIF_H = 128;
+export const GIF_W = BANNER_CSS_W * BANNER_SCALE;
+export const GIF_H = BANNER_CSS_H * BANNER_SCALE;
 
-const CELL = 6;
-const BOX_X = 28;
-const BOX_W = 90;
-const BOX_H = 66;
-/** The approved prototype centred the 33px CSS box at y 15.5, which Chromium
-    painted from device row 32, one below the arithmetic centre. */
-const BOX_Y = (GIF_H - BOX_H) / 2 + 1;
-
-const RING_X = 948;
-const RING_Y = (GIF_H - 44) / 2;
-const RING_CELL = 12;
-const RING_PITCH = 16;
+// Geometry in CSS px, multiplied by the strip set's scale when painting.
+const CELL = 3;
+const BOX_X = 14;
+const BOX_W = 45;
+/** The approved prototype centred the 33px box at y 15.5, which Chromium
+    painted from y 16. */
+const BOX_Y = 16;
+const RING_X = 474;
+const RING_Y = 21;
+const RING_CELL = 6;
+const RING_PITCH = 8;
+const CORNER_RADIUS = 6;
 /** Clockwise from the top-left, in ring cells. */
 const RING: [number, number][] = [
   [0, 0],
@@ -49,6 +52,7 @@ const RING: [number, number][] = [
 ];
 
 const EYE = '#ece8f4';
+const STRIP_BG = '#2a2638';
 const RING_UNLIT = '#5d5775';
 const SPARKLES: [number, number][] = [
   [0, -3],
@@ -179,17 +183,21 @@ class PaintedColours {
 
 class Canvas {
   /** The painted colour id per pixel, or -1 where the strip shows through. */
-  readonly owner = new Int16Array(GIF_W * GIF_H).fill(-1);
+  readonly owner: Int16Array;
 
   constructor(
     readonly data: Uint8Array,
+    readonly width: number,
+    readonly height: number,
     private readonly painted: PaintedColours
-  ) {}
+  ) {
+    this.owner = new Int16Array(width * height).fill(-1);
+  }
 
   rect(x0: number, y0: number, w: number, h: number, colour: Rgb, alpha = 1) {
-    for (let y = Math.max(0, y0); y < Math.min(GIF_H, y0 + h); y++) {
-      for (let x = Math.max(0, x0); x < Math.min(GIF_W, x0 + w); x++) {
-        const p = y * GIF_W + x;
+    for (let y = Math.max(0, y0); y < Math.min(this.height, y0 + h); y++) {
+      for (let x = Math.max(0, x0); x < Math.min(this.width, x0 + w); x++) {
+        const p = y * this.width + x;
         const i = p << 2;
         const c: Rgb = [0, 1, 2].map(k =>
           Math.round(colour[k]! * alpha + this.data[i + k]! * (1 - alpha))
@@ -203,6 +211,42 @@ class Canvas {
     }
   }
 }
+
+/** 1 for each pixel outside the banner's rounded corners, at `scale`. */
+export function outsideCorners(scale: number): Uint8Array {
+  const w = BANNER_CSS_W * scale;
+  const h = BANNER_CSS_H * scale;
+  const r = CORNER_RADIUS * scale;
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const dy = y < r ? r - y - 0.5 : y >= h - r ? y + 0.5 - (h - r) : 0;
+    if (dy === 0) continue;
+    for (let x = 0; x < w; x++) {
+      const dx = x < r ? r - x - 0.5 : x >= w - r ? x + 0.5 - (w - r) : 0;
+      if (dx * dx + dy * dy > r * r) out[y * w + x] = 1;
+    }
+  }
+  return out;
+}
+
+export interface StripLayout {
+  dotsX: number;
+  dotsY: number;
+}
+
+/** Text strips rendered at `scale` by scripts/build-latch-band.ts, with each
+    key's dots origin in that scale's px. */
+export interface StripSet {
+  scale: number;
+  strips: Record<string, string>;
+  layout: Record<string, StripLayout | undefined>;
+}
+
+export const BANNER_STRIPS: StripSet = {
+  scale: BANNER_SCALE,
+  strips: STRIPS,
+  layout: LAYOUT,
+};
 
 /** A creature to paint: its two leg poses and its eye cells as [col, row]. */
 export interface Creature {
@@ -223,37 +267,52 @@ export function latchBannerGif(
 
 export function renderBannerGif(
   creature: Creature,
-  variant: BannerVariant
+  variant: BannerVariant,
+  strips: StripSet = BANNER_STRIPS
 ): Uint8Array {
   const key = variantKey(variant);
   const copy = copyFor(variant);
-  const stripPath = STRIPS[key];
-  const layout = (
-    LAYOUT as Record<string, { dotsX: number; dotsY: number } | undefined>
-  )[key];
+  const stripPath = strips.strips[key];
+  const layout = strips.layout[key];
   if (!stripPath || !layout) throw new Error(`no latch strip for ${key}`);
+  const s = strips.scale;
+  const width = BANNER_CSS_W * s;
+  const height = BANNER_CSS_H * s;
   const strip = PNG.sync.read(readFileSync(stripPath));
+  if (strip.width !== width || strip.height !== height) {
+    throw new Error(
+      `latch strip ${key} is ${strip.width}x${strip.height}, not ${width}x${height}`
+    );
+  }
   const [grid, shuffled] = creature.frames;
   const body = hex(copy.accent);
   const eye = hex(EYE);
 
-  const spriteW = grid[0]!.length * CELL;
-  const restX = BOX_X + Math.floor((BOX_W - spriteW) / CELL / 2) * CELL;
-  const restY = BOX_Y;
+  const cell = CELL * s;
+  const boxX = BOX_X * s;
+  const boxY = BOX_Y * s;
+  const boxW = BOX_W * s;
+  const spriteW = grid[0]!.length * cell;
+  const restX = boxX + Math.floor((boxW - spriteW) / cell / 2) * cell;
 
   const plan = framesFor(variant.state);
   const painted = new PaintedColours();
   const canvases = plan.map(f => {
-    const canvas = new Canvas(new Uint8Array(strip.data), painted);
+    const canvas = new Canvas(
+      new Uint8Array(strip.data),
+      width,
+      height,
+      painted
+    );
     const cells = f.legs ? shuffled : grid;
     const ox = Math.min(
-      Math.max(restX + (f.dx ?? 0) * CELL, BOX_X),
-      BOX_X + BOX_W - spriteW
+      Math.max(restX + (f.dx ?? 0) * cell, boxX),
+      boxX + boxW - spriteW
     );
-    const oy = restY - (f.dy ?? 0) * CELL;
+    const oy = boxY - (f.dy ?? 0) * cell;
     cells.forEach((row, y) =>
       row.forEach((on, x) => {
-        if (on) canvas.rect(ox + x * CELL, oy + y * CELL, CELL, CELL, body);
+        if (on) canvas.rect(ox + x * cell, oy + y * cell, cell, cell, body);
       })
     );
     // invadrs' accent cells hold every enclosed hole, mouths included; only
@@ -261,40 +320,43 @@ export function renderBannerGif(
     for (const [x, y] of creature.eyes) {
       if (cells[y]?.[x]) continue;
       const shut = f.blink && y < grid.length / 2;
-      canvas.rect(ox + x * CELL, oy + y * CELL, CELL, CELL, shut ? body : eye);
+      canvas.rect(ox + x * cell, oy + y * cell, cell, cell, shut ? body : eye);
     }
     if (f.spark) {
       for (const [x, y] of SPARKLES) {
-        canvas.rect(BOX_X + x * CELL, BOX_Y + y * CELL, CELL, CELL, eye);
+        canvas.rect(boxX + x * cell, boxY + y * cell, cell, cell, eye);
       }
     }
     if (copy.indicator === 'dots') {
+      const dot = DOT_PX * s;
       for (let i = 0; i < (f.dots ?? 0); i++) {
-        const x = layout.dotsX + i * (DOT_PX + DOT_GAP_PX);
-        canvas.rect(x, layout.dotsY, DOT_PX, DOT_PX, body);
+        const x = layout.dotsX + i * (DOT_PX + DOT_GAP_PX) * s;
+        canvas.rect(x, layout.dotsY, dot, dot, body);
       }
     }
     if (copy.indicator === 'ring') {
+      const size = RING_CELL * s;
       RING.forEach(([cx, cy], k) => {
         const d = ((((f.head ?? 0) - k) % 8) + 8) % 8;
-        const x = RING_X + cx * RING_PITCH;
-        const y = RING_Y + cy * RING_PITCH;
-        if (d === 0) canvas.rect(x, y, RING_CELL, RING_CELL, body);
-        else if (d === 1)
-          canvas.rect(x, y, RING_CELL, RING_CELL, body, 0xe0 / 255);
-        else if (d === 2)
-          canvas.rect(x, y, RING_CELL, RING_CELL, body, 0xb0 / 255);
-        else canvas.rect(x, y, RING_CELL, RING_CELL, hex(RING_UNLIT));
+        const x = (RING_X + cx * RING_PITCH) * s;
+        const y = (RING_Y + cy * RING_PITCH) * s;
+        if (d === 0) canvas.rect(x, y, size, size, body);
+        else if (d === 1) canvas.rect(x, y, size, size, body, 0xe0 / 255);
+        else if (d === 2) canvas.rect(x, y, size, size, body, 0xb0 / 255);
+        else canvas.rect(x, y, size, size, hex(RING_UNLIT));
       });
     }
     return canvas;
   });
 
-  const size = GIF_W * GIF_H * 4;
+  const size = width * height * 4;
   const all = new Uint8Array(canvases.length * size);
   canvases.forEach((c, i) => all.set(c.data, i * size));
-  const quantized = quantize(all, 256 - painted.colours.length);
+  const quantized = quantize(all, 255 - painted.colours.length);
   const palette = [...quantized, ...painted.colours];
+  const clear = palette.length;
+  const bg = hex(STRIP_BG);
+  const corners = outsideCorners(s);
 
   const gif = GIFEncoder();
   canvases.forEach((c, i) => {
@@ -303,12 +365,19 @@ export function renderBannerGif(
     // their own exact entry instead.
     const index = applyPalette(c.data, palette);
     for (let p = 0; p < c.owner.length; p++) {
-      if (c.owner[p]! >= 0) index[p] = quantized.length + c.owner[p]!;
+      if (corners[p]) index[p] = clear;
+      else if (c.owner[p]! >= 0) index[p] = quantized.length + c.owner[p]!;
     }
-    gif.writeFrame(index, GIF_W, GIF_H, {
-      palette: i === 0 ? palette : undefined,
+    // Frames are whole and every one carries the clear corners, so leaving
+    // the last frame in place never shows a corner. The clear slot holds the
+    // strip background for viewers that ignore transparency.
+    gif.writeFrame(index, width, height, {
+      palette: i === 0 ? [...palette, bg] : undefined,
       delay: plan[i]!.delay,
       repeat: 0,
+      transparent: true,
+      transparentIndex: clear,
+      dispose: 1,
     });
   });
   gif.finish();

@@ -85,7 +85,8 @@ export async function bannerMarkdown(
 ): Promise<string> {
   const key = variantKey(variant);
   const cached = cachedUpload(mrUrl, key, db);
-  if (cached) return cached;
+  // A sized row is a pre-3x upload; it is replaced, not reused.
+  if (cached && !cached.includes('{width=')) return cached;
   const up = await gw.uploadFile(
     projectId,
     `latch-${iid}-${key}.gif`,

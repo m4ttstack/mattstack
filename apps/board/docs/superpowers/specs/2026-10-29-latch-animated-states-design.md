@@ -20,7 +20,7 @@ smaller and calmer than today's banner.
 - One banner per latch state, swapped on the same note as the state
   changes: armed, queued, running, error, done (comments or approved).
 - Each banner is an animated GIF strip: this MR's invadr creature plus
-  short copy, 520 CSS px wide.
+  short copy, stretched to the width of the GitLab comment column.
 - A follow-up the board cannot start yet waits in queued instead of being
   refused with "Not yet".
 - A follow-up that fails is retried by the board; after three failures it
@@ -44,10 +44,11 @@ smaller and calmer than today's banner.
 
 ## The states
 
-Every banner is a 520x64 strip (1040x128 pixels, 2x for Retina) on
-`#2a2638`, the creature on the left, a title in Silkscreen 18 (`#ece8f4`)
-and a subtitle in IBM Plex Mono 13 (`#b7b0c8`). The accent colours the
-creature and its indicator.
+Every banner is laid out as a 520x64 CSS px strip and rasterised at 3x
+(1560x192 pixels, so it stays sharp at full column width on Retina) on
+`#2a2638`, with 6 CSS px rounded corners, the creature on the left, a
+title in Silkscreen 18 (`#ece8f4`) and a subtitle in IBM Plex Mono 13
+(`#b7b0c8`). The accent colours the creature and its indicator.
 
 | State | Marker kind | Thread | Title | Subtitle | Accent | Motion |
 |---|---|---|---|---|---|---|
@@ -229,9 +230,26 @@ It reads the strip, paints this MR's creature from
 the prototype: armed ~4.4s loop, queued 420ms ticks, running 130ms
 frames, done and error ~3.5s loops.
 
-The posted markdown is `![<state title>](<upload url>){width=520}` so
-GitLab shows it at 520 CSS px instead of stretching it to the column.
-`imageMarkdownOf` must keep matching with that suffix.
+The posted markdown is `![<state title>](<upload url>)`, unsized, so
+GitLab stretches it to the comment column (about 785 CSS px in a typical
+window, where the 1560 px GIF shows at about 2x). `imageMarkdownOf` must
+keep matching the older `{width=N}` suffix. A cached upload with that
+suffix is a pre-3x GIF, so it counts as a cache miss: the banner is
+uploaded again and the cached row replaced.
+
+The corners are a binary quarter-circle mask (GIF transparency has no
+alpha): one palette slot is reserved as the transparent index, every
+pixel outside the rounded rect takes it in every frame, and every frame
+is whole with dispose 1, so the corners never flash. The reserved slot
+holds the strip background (`#2a2638`), so a viewer that ignores
+transparency shows square corners in the banner colour rather than black. The compositor
+applies the mask, not the strips.
+
+The geometry lives in CSS px and is multiplied by the strip set's scale
+(3 for the shipped strips). The parity test composites at 2x with 2x
+strips the build script renders into its fixtures, so it compares
+pixel-for-pixel with the approved 1040x128 prototype GIFs, the rounded
+corners excluded.
 
 Alternative B (one committed GIF per state, same creature for every MR)
 was rejected: it drops the per-MR creature for a simpler runtime.
@@ -240,7 +258,7 @@ the compiled binary.
 
 ## Uploads
 
-Every state change uploads the new GIF (30-60 KB) and rewrites the note.
+Every state change uploads the new GIF (50-80 KB) and rewrites the note.
 The board caches each upload's markdown per MR and state variant in its
 state db and reuses it when the latch returns to a variant it has shown
 (error, then running again). Existing latches keep their old PNG until
@@ -281,6 +299,7 @@ their next state change, then get the new banner.
   ordering cases (server signal and pass racing, retry after error,
   approval from each state).
 - A banner test that each state encodes, has the expected frame count,
-  stays under 80 KB, and is 1040x128.
+  stays under 100 KB, is 1560x192, and is transparent outside its
+  rounded corners in every frame.
 - Render every state and wait reason into a preview page and look at it
   in GitLab light and dark styling before calling it done.

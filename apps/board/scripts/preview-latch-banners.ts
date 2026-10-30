@@ -2,7 +2,8 @@
  * Writes a static preview of every latch banner to a temp dir and prints its
  * path. Two sections: the seven approved prototype GIFs beside the runtime's
  * rendering of the same creature, then every variant as a GitLab comment
- * would show it. light.html and dark.html hold the two page schemes.
+ * would show it: unsized, so stretched to the comment column. light.html and
+ * dark.html hold the two page schemes.
  *
  *   bun run scripts/preview-latch-banners.ts
  */
@@ -10,33 +11,17 @@ import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import {
+  PARITY_CASES,
+  REFERENCE_DIR as REFERENCE,
+} from '../src/__tests__/fixtures/latch-parity.ts';
 import { PROTOTYPE_CREATURE } from '../src/__tests__/fixtures/latch-prototype-creature.ts';
 import { latchBannerGif, renderBannerGif } from '../src/latch/banner.ts';
 import {
   allVariantKeys,
   copyFor,
   variantOfKey,
-  type BannerVariant,
 } from '../src/latch/variants.ts';
-
-const REFERENCE = join(
-  import.meta.dir,
-  '..',
-  'src',
-  '__tests__',
-  'fixtures',
-  'latch-reference'
-);
-
-const PARITY: [string, BannerVariant][] = [
-  ['armed', { state: 'armed' }],
-  ['queued', { state: 'queued', wait: 'next-sweep' }],
-  ['running', { state: 'running' }],
-  ['done-comments', { state: 'done-comments', count: 3 }],
-  ['done-approved', { state: 'done-approved' }],
-  ['error-retrying', { state: 'error-retrying', wait: 'next-sweep' }],
-  ['error-stuck', { state: 'error-stuck' }],
-];
 
 const MR = 'https://gitlab.example.com/acme/widgets/-/merge_requests/42';
 const EXTRA_ARMED = [
@@ -87,12 +72,12 @@ function card(src: string, sentence: string, caption?: string): string {
   return `<figure class="card">
   ${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}
   <div class="note-head"><span class="avatar"></span><b>Board reviewer</b> <span class="muted">@reviewer, just now</span></div>
-  <img src="${src}" width="520" alt="">
+  <img src="${src}" alt="">
   ${markdown(sentence)}
 </figure>`;
 }
 
-const parityRows = PARITY.map(([name, variant]) => {
+const parityRows = PARITY_CASES.map(([name, variant]) => {
   copyFileSync(
     join(REFERENCE, `latch-${name}.gif`),
     join(out, 'gifs', `approved-${name}.gif`)
@@ -134,11 +119,11 @@ function page(scheme: keyof typeof SCHEMES): string {
   body { margin: 0; padding: 24px; background: ${c.page}; color: ${c.text};
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   h2 { margin: 32px 0 8px; } h3 { margin: 20px 0 6px; font-size: 13px; color: ${c.muted}; }
-  .pair { display: flex; gap: 16px; flex-wrap: wrap; }
+  .pair { display: flex; flex-direction: column; gap: 16px; }
   .grid { display: flex; flex-direction: column; gap: 16px; }
-  .card { margin: 0; width: 552px; box-sizing: border-box; padding: 12px 16px;
+  .card { margin: 0; width: 820px; box-sizing: border-box; padding: 12px 16px;
     background: ${c.card}; border: 1px solid ${c.border}; border-radius: 4px; }
-  .card img { display: block; width: 520px; height: auto; margin: 8px 0; }
+  .card img { display: block; max-width: 100%; height: auto; margin: 8px 0; }
   .card p { margin: 0; }
   .card p + p { margin-top: 8px; }
   figcaption { font: 600 11px/1 ui-monospace, monospace; color: ${c.muted}; margin-bottom: 8px; }
