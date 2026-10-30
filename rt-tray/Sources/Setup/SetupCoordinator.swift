@@ -45,9 +45,7 @@ final class SetupCoordinator {
     private var picksJoinAtCards = false
     private var probing = false
     private var relaunching = false
-    /// This window has shown setup unfinished, so reaching P7 is a Finish to record.
-    private var sawUnfinished = false
-    private var finishPending = false
+    private var finish = SetupFinishLedger()
     /// A run that ends with rt still holding it is attached to once more, never in a loop.
     private var reattached = false
     private var lastPhase: InstallRunModel.Phase = .idle
@@ -111,21 +109,17 @@ final class SetupCoordinator {
         flow.requested = entry == .upgrade ? choice : nil
         team.enter(entry, choice: choice, joinCode: joinCode)
         picksJoinAtCards = joinCode != nil && entry == .firstRun
-        switch entry {
-        case .firstRun: sawUnfinished = true
-        // Setup status on a finished Mac records no Finish on close unless this window then shows setup unfinished.
-        case .status: sawUnfinished = false; finishPending = false
-        case .upgrade: break
-        }
+        finish.opened(as: entry)
         reattached = false
         window.show()
         observeActivation()
         let before = entries
         Task { @MainActor in
-            guard let read = await flow.land(reading: form), let stage = read.stage else { return }
-            // The flow may land on the screen it was already on, which starts nothing by itself.
-            if entries == before, flow.screen == enteredScreen { enter(flow.screen) }
-            startBarIfNeeded(stage: stage)
+            let read = await flow.land(reading: form)
+            // The flow may land on the screen it was already on, which starts nothing by itself. A failed
+            // read keeps that screen too, and it still restarts; only loading would read the form again.
+            if entries == before, flow.screen == enteredScreen, read != nil || flow.screen != .loading { enter(flow.screen) }
+            if let stage = read?.stage { startBarIfNeeded(stage: stage) }
         }
     }
 
@@ -221,13 +215,11 @@ final class SetupCoordinator {
             Task { await refreshSection() }
         case .waiting:
             Task { await keepCheckingApproval() }
-        case .running, .paused:
+        case .running, .paused, .ready:
             // The bar starts from rt's stage after a whole read, or from the member's own button.
             break
-        case .ready:
-            if sawUnfinished { finishPending = true }
         }
-        if screen != .loading, screen != .ready { sawUnfinished = true }
+        finish.entered(screen)
     }
 
     // MARK: - Reads
@@ -485,9 +477,7 @@ final class SetupCoordinator {
 
     /// P7's finish path, the one place closing on it or pressing its button records Finish.
     private func finishSetup() {
-        guard finishPending else { return }
-        finishPending = false
-        sawUnfinished = false
+        guard finish.settle() else { return }
         SetupSession.markFinished()
         recordFinish()
     }

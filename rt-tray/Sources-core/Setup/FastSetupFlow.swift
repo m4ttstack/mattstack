@@ -22,6 +22,37 @@ public enum FastSetupScreen: String, CaseIterable, Sendable {
     }
 }
 
+/// Whether reaching P7 is a Finish this window owes: it showed setup unfinished, then ready.
+/// Closing on P7 or its button settles the debt once.
+public struct SetupFinishLedger: Equatable, Sendable {
+    private var sawUnfinished = false
+    private var owed = false
+
+    public init() {}
+
+    /// Setup status on a finished Mac owes nothing for what it shows, but keeps a Finish an earlier opening already owes.
+    public mutating func opened(as entry: SetupEntry) {
+        switch entry {
+        case .firstRun: sawUnfinished = true
+        case .status: sawUnfinished = false
+        case .upgrade: break
+        }
+    }
+
+    public mutating func entered(_ screen: FastSetupScreen) {
+        switch screen {
+        case .ready: if sawUnfinished { owed = true }
+        case .loading: break
+        default: sawUnfinished = true
+        }
+    }
+
+    public mutating func settle() -> Bool {
+        defer { owed = false; sawUnfinished = false }
+        return owed
+    }
+}
+
 public struct SetupNotice: Equatable, Sendable {
     public var title: String
     public var body: String

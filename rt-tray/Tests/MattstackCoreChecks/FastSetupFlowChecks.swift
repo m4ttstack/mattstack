@@ -302,6 +302,41 @@ let fastSetupFlowChecks: [Check] = [
             c.expectEqual(upgrade.screen, .ready, "an approved upgrade never reopens the invite")
         }
     },
+    Check("FastSetupFlow: a finish this window owes survives Setup status") { c in
+        // Hidden during the run, which ends ready; the banner click reopens a now finished Mac as status.
+        var banner = SetupFinishLedger()
+        banner.opened(as: .firstRun)
+        banner.entered(.running)
+        banner.entered(.ready)
+        banner.opened(as: .status)
+        c.expect(banner.settle(), "closing or Open the board still records Finish")
+        c.expect(!banner.settle(), "once")
+
+        var status = SetupFinishLedger()
+        status.opened(as: .status)
+        status.entered(.loading)
+        status.entered(.ready)
+        c.expect(!status.settle(), "Setup status on a finished Mac records nothing")
+
+        var stale = SetupFinishLedger()
+        stale.opened(as: .firstRun)
+        stale.entered(.running)
+        stale.opened(as: .status)
+        stale.entered(.ready)
+        c.expect(!stale.settle(), "an unfinished screen seen in an earlier opening is not this one's")
+
+        var paused = SetupFinishLedger()
+        paused.opened(as: .status)
+        paused.entered(.paused)
+        paused.entered(.running)
+        paused.entered(.ready)
+        c.expect(paused.settle(), "Setup status that shows a run finish owes Finish")
+
+        var firstRun = SetupFinishLedger()
+        firstRun.opened(as: .firstRun)
+        firstRun.entered(.ready)
+        c.expect(firstRun.settle(), "a first run that lands straight on ready still records Finish")
+    },
     Check("FastSetupFlow: a run that ends lands where rt says") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup form --json": (0, wholeForm(stage: "paused", paused: clonePaused))]
