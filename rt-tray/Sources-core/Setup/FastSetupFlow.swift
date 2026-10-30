@@ -37,6 +37,17 @@ public final class FastSetupFlow: ObservableObject {
         }
     }
 
+    /// An empty list is done, so a section with nothing to wait on never holds a button.
+    public nonisolated static func allDone(_ rows: [FormRow]) -> Bool {
+        rows.allSatisfy { $0.optional || $0.state == .done }
+    }
+
+    /// What moves P1 on. Before the first read, or with nothing to show, P1 stays put.
+    public nonisolated static func macosReady(_ rows: [FormRow]?) -> Bool {
+        guard let rows, !rows.isEmpty else { return false }
+        return allDone(rows)
+    }
+
     /// `stage` comes from a whole-form read only: a section read carries none.
     /// A finished Mac whose Join or Create from Settings has not started yet
     /// still reads `ready`; once the join is in flight rt says so itself.

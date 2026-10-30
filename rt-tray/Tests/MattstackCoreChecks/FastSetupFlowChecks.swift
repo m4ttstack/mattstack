@@ -183,4 +183,35 @@ let fastSetupFlowChecks: [Check] = [
             c.expectEqual(resumed.screen, .connect)
         }
     },
+    Check("FastSetupFlow: macOS is done only when all three rows are") { c in
+        let done = [macosRow("perm.fda", .done), macosRow("perm.notifications", .done), macosRow("mac.fancy-urls", .done)]
+        c.expect(FastSetupFlow.allDone(done))
+        c.expect(FastSetupFlow.macosReady(done))
+        for (i, state) in [(0, FormRowState.todo), (1, .todo), (2, .waiting), (2, .busy)] {
+            var rows = done
+            rows[i].state = state
+            c.expect(!FastSetupFlow.allDone(rows), "\(rows[i].id) \(state)")
+            c.expect(!FastSetupFlow.macosReady(rows), "\(rows[i].id) \(state) holds P1")
+        }
+        var turnedOff = done
+        turnedOff[1].detail = "Turned off"
+        turnedOff[1].action = RowAction(type: .openSettings, label: "Open settings", target: "notifications")
+        c.expect(FastSetupFlow.macosReady(turnedOff), "rt calls denied notifications done, so P1 moves on")
+        var optional = done
+        optional[2].state = .todo
+        optional[2].optional = true
+        c.expect(FastSetupFlow.macosReady(optional), "an optional row never holds P1")
+    },
+    Check("FastSetupFlow: a macOS section not loaded yet never moves P1 on") { c in
+        c.expect(!FastSetupFlow.macosReady(nil))
+        c.expect(!FastSetupFlow.macosReady([]), "a loaded but empty macOS section has nothing to show, so it never moves on")
+    },
+    Check("FastSetupFlow: an empty section holds nothing") { c in
+        c.expect(FastSetupFlow.allDone([]))
+        c.expect(FastSetupFlow.allDone([macosRow("slack", .todo, optional: true)]))
+    },
 ]
+
+private func macosRow(_ id: String, _ state: FormRowState, optional: Bool = false) -> FormRow {
+    FormRow(id: id, title: id, subtext: "", state: state, detail: "", optional: optional)
+}

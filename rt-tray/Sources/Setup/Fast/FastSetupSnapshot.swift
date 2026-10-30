@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -79,7 +79,42 @@ enum FastSetupSnapshot {
         }
     }
 
+    @MainActor
+    private static func macosPages() -> [(String, AnyView)] {
+        func page(_ rows: [FormRow], waiting: [String: String] = [:]) -> AnyView {
+            AnyView(MacOSScreenBody(rows: rows, waiting: waiting, errors: [:]) { _, _, _ in })
+        }
+        return [
+            ("macos-fresh", page([Rows.fda, Rows.notificationsAsk, Rows.fancyUrls])),
+            ("macos-waiting-admin", page([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrls],
+                                         waiting: [Rows.fancyUrls.id: Rows.fancyUrls.waiting ?? ""])),
+            ("macos-done", page([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsAllowed])),
+            ("macos-notifications-off", page([Rows.fdaGranted, Rows.notificationsOff, Rows.fancyUrls])),
+        ]
+    }
+
     enum Rows {
+        static let fda = FormRow(id: "perm.fda", title: "Full Disk Access", subtext: "Reads your repos and Chrome's profile",
+                                 state: .todo, detail: "Not granted",
+                                 action: RowAction(type: .openSettings, label: "Open settings", target: "fda"), watch: true)
+        static let fdaGranted = FormRow(id: "perm.fda", title: "Full Disk Access", subtext: "Reads your repos and Chrome's profile",
+                                        state: .done, detail: "Granted", watch: true)
+        static let notificationsAsk = FormRow(id: "perm.notifications", title: "Notifications", subtext: "Tells you when setup is done",
+                                              state: .todo, detail: "Not asked yet",
+                                              action: RowAction(type: .requestPermission, label: "Allow", which: "notifications"))
+        static let notificationsAllowed = FormRow(id: "perm.notifications", title: "Notifications",
+                                                  subtext: "Tells you when setup is done", state: .done, detail: "Allowed")
+        static let notificationsOff = FormRow(id: "perm.notifications", title: "Notifications", subtext: "Tells you when setup is done",
+                                              state: .done, detail: "Turned off",
+                                              action: RowAction(type: .openSettings, label: "Open settings", target: "notifications"))
+        static let fancyUrls = FormRow(id: "mac.fancy-urls", title: "Fancy URLs", subtext: "Grant mattstack apps permission to use .mattstack",
+                                       state: .todo, detail: "Not set up yet",
+                                       action: RowAction(type: .run, label: "Allow", verb: ["setup", "apply", "--only", "proxy.install"]),
+                                       waiting: "Waiting for your admin password in the macOS dialog…", watch: true)
+        static let fancyUrlsAllowed = FormRow(id: "mac.fancy-urls", title: "Fancy URLs",
+                                              subtext: "Grant mattstack apps permission to use .mattstack", state: .done, detail: "Allowed",
+                                              waiting: "Waiting for your admin password in the macOS dialog…", watch: true)
+
         static let notifications = FormRow(id: "notifications", title: "Notifications", subtext: "Tells you when setup is done",
                                            state: .todo, detail: "Not asked yet",
                                            action: RowAction(type: .requestPermission, label: "Allow", which: "notifications", primary: true))
