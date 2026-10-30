@@ -9,21 +9,24 @@ usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
          [--invite-code-file <p>] [--team-remote <url> (solo scenario: runs the team-upgrade phase)] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
          [--fresh-team-repo] [--mint-rt <rt>] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
          [--golden <name>]
---fresh-team-repo mints an empty team repo; with --scenario join the host also
-scaffolds the team there and mints the invite (under a throwaway HOME, with the
-bundle's rt or --mint-rt), so no --invite-code-file is needed.
+--fresh-team-repo (join) mints an empty team repo; the host also scaffolds the
+team there and mints the invite (under a throwaway HOME, with the bundle's rt
+or --mint-rt), so no --invite-code-file is needed. A run that creates a team
+(create, and solo's team-upgrade) takes a slug of its own, vmtest-<run id>,
+and teardown deletes the repo Create team made for it.
 EOF
 exit 2; }
 
-VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; PAT_ENV=MATTSTACK_VMTEST_PAT; CODE_FILE=""; FORGE=""
-# The create card's pasted-URL path (a fresh guest has no gh identity yet): the throwaway
-# org's team repo, same naming as run/team-setup.sh.
+VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; SLUG_SET=0; TEAM_REMOTE_SET=0; PAT_ENV=MATTSTACK_VMTEST_PAT; CODE_FILE=""; FORGE=""
+# The throwaway org's team repo, same naming as run/team-setup.sh. A run that
+# creates a team replaces it with the repo Create team will make (preflight).
+[ -n "${TEAM_REMOTE:-}" ] && TEAM_REMOTE_SET=1
 TEAM_REMOTE="${TEAM_REMOTE:-https://github.com/${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}/${MATTSTACK_VMTEST_TEAM_REPO:-mattstack-vmtest-team}.git}"
 UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""; MINT_RT=""
 while [ $# -gt 0 ]; do case "$1" in
   --ver) VER="$2"; shift 2;; --dmg) DMG="$2"; shift 2;; --app) APP="$2"; shift 2;;
-  --scenario) SCENARIO="$2"; shift 2;; --team-slug) SLUG="$2"; shift 2;; --pat-env) PAT_ENV="$2"; shift 2;;
-  --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; shift 2;; --forge) FORGE="$2"; shift 2;;
+  --scenario) SCENARIO="$2"; shift 2;; --team-slug) SLUG="$2"; SLUG_SET=1; shift 2;; --pat-env) PAT_ENV="$2"; shift 2;;
+  --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; TEAM_REMOTE_SET=1; shift 2;; --forge) FORGE="$2"; shift 2;;
   --update-dir) UPD="$2"; shift 2;; --update-version) UPDV="$2"; shift 2;;
   --golden) GOLDEN_OVERRIDE="$2"; shift 2;;
   --fresh-team-repo) FRESH_REPO=1; shift;; --mint-rt) MINT_RT="$2"; shift 2;;
@@ -33,8 +36,13 @@ while [ $# -gt 0 ]; do case "$1" in
 [ -n "$VER" ] || usage
 [ -n "$DMG" ] || [ -n "$APP" ] || usage
 # `rt team create` refuses a remote with commits, so a freshly minted repo is
-# consumed by exactly one creator: the guest (create) or the host's mint (join).
-case "$SCENARIO" in create|join) ;; *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };; esac
+# consumed by exactly one creator, the host's mint (join). Create team makes
+# its own repo, so a create run mints nothing.
+case "$SCENARIO" in
+  join) ;;
+  create) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo adds nothing to --scenario create: Create team makes its own repo, and teardown deletes it"; FRESH_REPO=0; } ;;
+  *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };;
+esac
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$CODE_FILE" ] && { vm_warn "--invite-code-file and --fresh-team-repo both name the invite; pass one"; usage; }
 # Declining is answered in the SecurityAgent dialog setup raises, and the
 # headless recipe drives no dialogs at all.
@@ -50,6 +58,9 @@ GUEST_BIN="/Users/$VM_TESTER_USER/vmrun"
 TART_PID=""; SHOT_PID=""; APPROVE_PID=""; CLONED=0; MINT_HOME=""
 APP_VERSION=""
 FRESH_SLUG=""
+# The repo Create team makes for this run, <group>/mattstack-team-<slug>: the
+# one repo outside the minted vmtest names teardown may delete.
+CREATE_TARGET=""
 # The longest passing screens phase on record ran 3353s, 23 minutes of it a
 # CLT install, so screens gets the most room. Teardown's limit only bounds the
 # guest log collection; the guest and repo are removed after it regardless.
@@ -144,7 +155,18 @@ mint_detach() {
 # archiving needs only the repo scope, so a run never leaves a live repo.
 retire_fresh_repo() {
   local log="$VM_RUN_DIR/logs/teardown.log" token="${!PAT_ENV:-}"
-  case "$FRESH_SLUG" in */mattstack-vmtest-team-*) ;; *) printf 'refused to delete %s: not a repo this run minted' "$FRESH_SLUG"; return 1 ;; esac
+  case "$FRESH_SLUG" in
+    */mattstack-vmtest-team-*) ;;
+    */mattstack-team-vmtest-*)
+      [ "$FRESH_SLUG" = "$CREATE_TARGET" ] || { printf 'refused to delete %s: not the repo this run created' "$FRESH_SLUG"; return 1; }
+      # Create team may never have run (a run cut before the screens).
+      if [ "$FORGE" = gitlab ]; then
+        GITLAB_TOKEN="$token" glab repo view "$FRESH_SLUG" >>"$log" 2>&1 || { printf '%s was never created' "$FRESH_SLUG"; return 0; }
+      else
+        GH_TOKEN="$token" gh repo view "$FRESH_SLUG" >>"$log" 2>&1 || { printf '%s was never created' "$FRESH_SLUG"; return 0; }
+      fi ;;
+    *) printf 'refused to delete %s: not a repo this run minted' "$FRESH_SLUG"; return 1 ;;
+  esac
   if [ "$FORGE" = gitlab ]; then
     GITLAB_TOKEN="$token" glab repo delete "$FRESH_SLUG" --yes >>"$log" 2>&1 && { printf 'deleted %s' "$FRESH_SLUG"; return 0; }
     GITLAB_TOKEN="$token" glab api -X POST "projects/$(printf '%s' "$FRESH_SLUG" | sed 's|/|%2F|g')/archive" >>"$log" 2>&1 \
@@ -270,6 +292,31 @@ if [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ]; then
     "$TRACK_HOST"/*) ;;
     *) vm_phase_end preflight fail "the minted team needs a repo on $TRACK_HOST to track (the joiner's token clones it); the fixture's is ${TRACK_REPO:-missing}: set MATTSTACK_VMTEST_TRACK_REPO=$TRACK_HOST/<owner>/<repo>"; exit 1;;
   esac
+fi
+# Create team makes <group>/mattstack-team-<slug> itself, so a run that
+# creates a team takes a slug of its own (a fixed one collides with the last
+# run's repo) and teardown deletes that repo.
+if [ "$SCENARIO" = create ] || [ "$SCENARIO" = solo ]; then
+  [ "$SLUG_SET" = 1 ] || SLUG="vmtest-${VM_RUN_ID%%-walk-*}"
+  if [ "$TEAM_REMOTE_SET" = 1 ]; then
+    CREATE_GROUP="${TEAM_REMOTE%.git}"; CREATE_GROUP="${CREATE_GROUP#*://}"; CREATE_GROUP="${CREATE_GROUP#*/}"; CREATE_GROUP="${CREATE_GROUP%/*}"
+  elif [ "$FORGE" = gitlab ]; then
+    CREATE_GROUP="${MATTSTACK_VMTEST_GITLAB_GROUP:-}"
+    [ -n "$CREATE_GROUP" ] || [ "$DRY" = 1 ] || { vm_phase_end preflight fail "a gitlab create needs MATTSTACK_VMTEST_GITLAB_GROUP (where Create team makes the repo)"; exit 1; }
+  else
+    CREATE_GROUP="${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}"
+    case "$CREATE_GROUP" in
+      *vmtest*) ;;
+      *) [ "${MATTSTACK_VMTEST_ORG_CONFIRM:-}" = "$CREATE_GROUP" ] || [ "$DRY" = 1 ] || { vm_phase_end preflight fail "org $CREATE_GROUP lacks 'vmtest'; set MATTSTACK_VMTEST_ORG_CONFIRM=$CREATE_GROUP to confirm"; exit 1; };;
+    esac
+  fi
+  CREATE_HOST=github.com; [ "$FORGE" = gitlab ] && CREATE_HOST=gitlab.com
+  CREATE_TARGET="$CREATE_GROUP/mattstack-team-$SLUG"
+  [ "$TEAM_REMOTE_SET" = 1 ] || TEAM_REMOTE="https://$CREATE_HOST/$CREATE_TARGET.git"
+  # Set before the screens: a signal during Create team must still delete the repo.
+  [ "$DRY" = 1 ] || FRESH_SLUG="$CREATE_TARGET"
+  echo "$TEAM_REMOTE" > "$VM_RUN_DIR/in/team-repo.txt"
+  vm_log "team slug $SLUG; Create team makes $CREATE_TARGET, which teardown deletes"
 fi
 if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
   [ -n "${!PAT_ENV:-}" ] || { vm_phase_end preflight fail "--fresh-team-repo needs \$$PAT_ENV set — an empty token can fall back to the operator's own stored forge credentials"; exit 1; }

@@ -88,9 +88,9 @@ screen_done() { ! awk -v sc="$1" '$1 == sc && $4 != "done" { found = 1 } END { e
 # FDA_LIVE: the running app sees the Full Disk Access grant without a relaunch.
 # HOST: what the admin's host answers (done, failed, manual, none).
 # RUN_END: where the bar ends (ready or paused). ADMIN_IN_RUN: a dialog comes up on P6.
-FDA_LIVE=0; CLT_SLOW=0; HOST=done; HAND_AFTER=-1; RUN_END=ready; ADMIN_IN_RUN=0; STRAIGHT_IN=0
+FDA_LIVE=0; CLT_SLOW=0; CLAUDE_AFTER=done; HOST=done; HAND_AFTER=-1; RUN_END=ready; ADMIN_IN_RUN=0; STRAIGHT_IN=0
 model() {  # <scenario>
-  : > "$M/calls"; rm -f "$M"/clt "$M"/dialog "$M"/looks "$M"/hand "$M"/admin-shown "$GUEST_RUN"/in/join-*
+  : > "$M/calls"; rm -f "$M"/claude "$M"/clt "$M"/dialog "$M"/looks "$M"/hand "$M"/admin-shown "$GUEST_RUN"/in/join-*
   mset screen macos; mset code ""
   cat > "$M/rows" <<ROWS
 macos perm.fda action todo
@@ -101,11 +101,11 @@ invite forge.token field todo
 create-team tool.clt action todo
 create-team forge.token field todo
 connect forge action done
-connect claude action todo
+connect claude claude install
 connect fast-browser action done
 this-mac repos.root action todo
 this-mac repos.place:github.com/acme/widgets place todo
-this-mac settings.backup action done
+this-mac settings.backup segment done
 ROWS
   SCENARIO="$1"
 }
@@ -115,6 +115,17 @@ screen_ids() {
   [ -n "$s" ] || return 0
   echo "setup.fast.$s"
   awk -v s="$s" '$1 == s { print $2, $3, $4 }' "$M/rows" | while read -r r kind st; do
+    # A two-option choice draws only its segment, done or not.
+    [ "$kind" = segment ] && { echo "setup.fast.row.$r.action"; continue; }
+    if [ "$kind" = claude ]; then
+      case "$st" in
+        install|signin) echo "setup.fast.row.$r.action" ;;
+        installing) echo "setup.fast.row.$r.waiting" ;;
+        code) echo "setup.fast.row.$r.waiting"; echo "setup.fast.row.$r.field"; echo "setup.fast.row.$r.action" ;;
+        done) echo "setup.fast.row.$r.done" ;;
+      esac
+      continue
+    fi
     case "$st" in
       done) [ "$kind" = place ] && echo "setup.fast.row.$r.status" || echo "setup.fast.row.$r.done" ;;
       waiting) echo "setup.fast.row.$r.waiting"; echo "setup.fast.row.$r.action" ;;
@@ -149,6 +160,10 @@ world_turn() {
     [ "$(mget looks)" -ge 3 ] && mset screen "$RUN_END"
   fi
   if [ "$s" = macos ] && screen_done macos; then mset screen path; fi
+  if [ -e "$M/claude" ]; then
+    mset claude $(($(mget claude) + 1))
+    [ "$(mget claude)" -ge 3 ] && { set_row claude "$CLAUDE_AFTER" connect; rm -f "$M/claude"; note claude-installed; }
+  fi
   if [ -e "$M/clt" ]; then
     mset clt $(($(mget clt) + 1))
     [ "$(mget clt)" -ge 4 ] && { drop_row tool.clt; rm -f "$M/clt"; note clt-landed; }
@@ -156,7 +171,10 @@ world_turn() {
   return 0
 }
 ax_dump_ids() { world_turn; screen_ids; }
-ax_find_raw() { ax_ids_have "$(ax_dump_ids)" "$1"; }
+ax_find_raw() {
+  ax_ids_have "$(ax_dump_ids)" "$1" || return 1
+  case "$1" in setup.fast.row.settings.backup.action) echo "radio group" ;; *) echo button ;; esac
+}
 ax_fast_status() { if [ "$(row_state "$1")" = done ]; then echo ready; else echo needs-you; fi; }
 ax_enabled() {
   local s; s=$(mget screen)
@@ -166,6 +184,10 @@ ax_enabled() {
   esac
 }
 ax_button() {
+  if [ "$1" = read ] && [ "$2" = setup.fast.row.claude.action ]; then
+    if [ "$(row_state claude connect)" = install ]; then echo Install; else echo "Sign in"; fi
+    return 0
+  fi
   [ "$1" = press ] || return 1
   [ "$2" = setup.fast.this-mac.primary ] && [ "$3" = "Set up this Mac" ] && [ "$(ax_enabled "$2")" = true ] || { note "held:$2"; return 1; }
   note "press:$2"; mset screen running
@@ -180,7 +202,7 @@ ax_click_raw() {
     setup.fast.row.mac.fancy-urls.action) : > "$M/dialog"; set_row mac.fancy-urls waiting ;;
     setup.fast.row.tool.clt.action) if [ "$CLT_SLOW" = 1 ]; then set_row tool.clt waiting; mset clt 0; else drop_row tool.clt; fi ;;
     setup.fast.row.forge.token.action) set_row forge.token done ;;
-    setup.fast.row.claude.action) set_row claude done ;;
+    setup.fast.row.claude.action) [ "$(row_state claude)" = install ] && { set_row claude installing; mset claude 0; } ;;
     setup.fast.row.repos.root.action) set_row repos.root done ;;
     setup.fast.row.*.action.oneClick) r="${1#setup.fast.row.}"; set_row "${r%.action.oneClick}" done ;;
     setup.fast.path.card.join) mset screen invite ;;
@@ -256,6 +278,26 @@ check "solo: straight from the card to Connect" \
 
 model restore; drive whole_run
 check "restore: stops at the cards with its own code, pressing none" '[ "$rc" -eq 3 ] && [ "$(count "^click:setup.fast.path")" -eq 0 ]'
+
+check "a two-option choice reads answered, and is never logged as a row with no answer" \
+  '! grep -q "no answer for row settings.backup" "$AX_LOG"'
+
+# Claude Code: Install, the spinner while it installs, then the sign-in.
+model solo; drive whole_run
+check "Claude: Install is pressed once, and its install is waited out" \
+  'c=$(calls); case "$c" in *"click:setup.fast.row.claude.action"*claude-installed*"shot:claude-installed"*"click:setup.fast.connect.primary"*) true ;; *) false ;; esac'
+CLAUDE_AFTER=code
+model solo; CONNECT_WAIT_S=60; drive whole_run; CONNECT_WAIT_S=900
+check "Claude waiting on its sign-in code: a finding, no install failure, and Connect runs out its own bound" \
+  '[ "$rc" -ne 0 ] && [ "$(count "^click:setup.fast.row.claude.action$")" -eq 1 ] && grep -q "FINDING: Sign in to Claude waits on a browser sign-in" "$AX_LOG" && ! grep -q "Claude Code install did not finish" "$AX_LOG" && grep -q "setup.fast.connect.primary never enabled within 60s; rows: .*claude=todo" "$AX_LOG"'
+CLAUDE_AFTER=signin
+: > "$AX_LOG"
+model solo; CONNECT_WAIT_S=60; drive whole_run; CONNECT_WAIT_S=900
+check "Claude installed but signed out: Sign in is left for the operator, logged once" \
+  '[ "$rc" -ne 0 ] && [ "$(count "^click:setup.fast.row.claude.action$")" -eq 1 ] && [ "$(grep -c "FINDING: Sign in to Claude" "$AX_LOG")" -eq 1 ]'
+model solo; set_row claude signin connect; CONNECT_WAIT_S=60; drive whole_run; CONNECT_WAIT_S=900
+check "Claude already installed: nothing is pressed on its row" '[ "$rc" -ne 0 ] && [ "$(count "click:setup.fast.row.claude")" -eq 0 ]'
+CLAUDE_AFTER=done
 
 CLT_SLOW=1
 model create; drive whole_run

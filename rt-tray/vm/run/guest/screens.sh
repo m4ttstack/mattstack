@@ -236,17 +236,28 @@ screen_row_token() {  # <rowId>
 # browser on claude.ai, which no script here can do: the operator signs in by
 # hand in the guest window while screen_connect waits.
 screen_row_claude() {
-  local deadline=$((SECONDS + 600)) ids
-  ax_click setup.fast.row.claude.action
-  sleep 5
+  local deadline=$((SECONDS + 600)) p=setup.fast.row.claude ids
   ids=$(ax_dump_ids || true)
-  while [ "$(ax_fast_row_state "$ids" claude)" = waiting ]; do
-    [ "$SECONDS" -lt "$deadline" ] || ax_fail "Claude Code install did not finish in 10 min"
-    sleep 5; ids=$(ax_dump_ids || true)
-  done
-  screen_shot claude-installed
-  ax_row_done claude && return 0
+  # The row's one button reads Install until Claude Code is there, then Sign in.
+  if ax_ids_have "$ids" "$p.action" && ! ax_ids_have "$ids" "$p.field" && [ "$(ax_title "$p.action" || true)" = Install ]; then
+    ax_click "$p.action"
+    sleep 5
+    ids=$(ax_dump_ids || true)
+    while screen_claude_installing "$ids"; do
+      [ "$SECONDS" -lt "$deadline" ] || ax_fail "Claude Code install did not finish in 10 min"
+      sleep 5; ids=$(ax_dump_ids || true)
+    done
+    screen_shot claude-installed
+  fi
+  [ "$(ax_fast_row_state "$ids" claude)" = done ] && return 0
   ax_log "FINDING: Sign in to Claude waits on a browser sign-in; sign in by hand in the guest window within ${CONNECT_WAIT_S:-900}s of Connect opening"
+}
+
+# Installing draws the spinner with no control; waiting on the sign-in draws
+# it beside the code field and its button.
+screen_claude_installing() {  # <ax_dump_ids output>
+  local p=setup.fast.row.claude
+  ax_ids_have "$1" "$p.waiting" && ! ax_ids_have "$1" "$p.action" && ! ax_ids_have "$1" "$p.field"
 }
 
 # The chrome phase force-installs the extension by policy, so Add to Chrome
@@ -256,7 +267,7 @@ screen_row_fast_browser() {
   local deadline=$((SECONDS + ${FB_EXTENSION_WAIT_S:-300}))
   until ax_row_done fast-browser; do
     if [ "$SECONDS" -ge "$deadline" ]; then
-      ax_log "Fast Browser still open after ${FB_EXTENSION_WAIT_S:-300}s (logs/chrome.log)"; return 0
+      ax_log "FINDING: Fast Browser still not added after ${FB_EXTENSION_WAIT_S:-300}s; the policy install did not land (logs/chrome.log)"; return 0
     fi
     ax_osa 'tell application "Finder" to activate' >/dev/null 2>&1 || true
     sleep 2
