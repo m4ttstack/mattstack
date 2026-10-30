@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -218,6 +218,37 @@ enum FastSetupSnapshot {
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
             ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false)),
         ]
+    }
+
+    @MainActor
+    private static func runPages() -> [(String, AnyView)] {
+        /// The window opens at this height, so a page shows where the footer sits.
+        let windowHeight: CGFloat = 620
+        func page(_ bar: RunBar?, paused: FormPaused? = nil) -> AnyView {
+            AnyView(RunScreenBody(bar: bar, paused: paused, onHide: {}, onShowLog: {}, onRetry: {}, onPausedAction: { _ in })
+                .frame(height: windowHeight))
+        }
+        let cloning = RunBar(fraction: 0.42, message: "Cloning your repos", secondsLeft: 230)
+        return [
+            ("run-starting", page(nil)),
+            ("run-early", page(RunBar(fraction: 0.03, message: "Getting your team's settings", secondsLeft: nil))),
+            ("run-mid", page(cloning)),
+            ("run-late", page(RunBar(fraction: 0.93, message: "Installing Claude plugins", secondsLeft: 40))),
+            ("paused", page(cloning, paused: RunPaused.clone)),
+            ("paused-login-items", page(RunBar(fraction: 0.97, message: "Starting mattstack", secondsLeft: nil), paused: RunPaused.loginItems)),
+            ("paused-after-relaunch", page(nil, paused: RunPaused.clone)),
+        ]
+    }
+
+    /// What `pausedFor` in lib/setup/form.ts emits, its titles from `STEP_PHASES` in lib/setup/run-phases.ts.
+    enum RunPaused {
+        static let clone = FormPaused(step: "repos.clone", title: "Couldn't clone your repos",
+                                      detail: "GitLab says your token can't see acme/acme-api",
+                                      log: ["cloning acme/widgets", "cloning acme/acme-api", "remote: The project you were looking for could not be found"])
+        static let loginItems = FormPaused(step: "services.start", title: "Couldn't start mattstack",
+                                           detail: "The daemon is waiting for approval in Login Items",
+                                           remedy: "Approve the background item in Login Items, then Retry",
+                                           action: RowAction(type: .openSettings, label: "Open Login Items…", target: "login-items"))
     }
 
     /// What `thisMacRows` in lib/setup/form.ts emits, its repo rows from `repos.place` in lib/setup/validators/repos.ts.

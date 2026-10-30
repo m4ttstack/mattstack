@@ -94,6 +94,7 @@ enum AXID {
     static func fastScreen(_ name: String) -> String { "setup.fast.\(name)" }
     static func fastPrimary(_ name: String) -> String { "setup.fast.\(name).primary" }
     static func fastSecondary(_ name: String) -> String { "setup.fast.\(name).secondary" }
+    static func fastExtra(_ name: String) -> String { "setup.fast.\(name).extra" }
     static func fastRow(_ id: String) -> String { "setup.fast.row.\(id)" }
     /// `part` names a row's other buttons: an alternative's id, `link` for its create link, `oneClick` for a repo row's one-click.
     static func fastRowAction(_ id: String, _ part: String? = nil) -> String {

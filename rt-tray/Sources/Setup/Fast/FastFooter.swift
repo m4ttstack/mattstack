@@ -8,6 +8,8 @@ struct FastFooter: View {
     let secondary: (String, () -> Void)?
     /// The label, whether it is enabled, and what it does.
     let primary: (String, Bool, () -> Void)?
+    /// A button rt sent, drawn before the secondary.
+    var extra: (String, () -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -15,6 +17,10 @@ struct FastFooter: View {
                 Text(note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
+            if let extra {
+                Button(extra.0, action: extra.1).fixedSize()
+                    .accessibilityIdentifier(AXID.fastExtra(screen))
+            }
             if let secondary {
                 Button(secondary.0, action: secondary.1).fixedSize()
                     .accessibilityIdentifier(AXID.fastSecondary(screen))
