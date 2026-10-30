@@ -190,17 +190,14 @@ public final class TeamChoiceModel: ObservableObject {
                 if let failure = verdict.failure { return failure }
                 return await homeInitCheck()
             case .restore:
-                // The app runs the real restore at Continue (clone + key
-                // into the Keychain), then records the intent so
-                // `setup apply`'s home.restore step only verifies.
+                // One verb puts the key in the Keychain, clones, and records
+                // the intent last, so `setup apply`'s home.restore step only
+                // verifies. The key goes as plain stdin, never argv.
                 let repo = trimmedRestoreRepo
-                let stdin = try JSONEncoder().encode(["ageKey": restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines)])
-                let r = try await rt.run(["restore", repo, "--json"], stdin: stdin)
+                let stdin = Data(restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines).utf8)
+                let r = try await rt.run(["home", "restore", repo, "--stdin", "--json"], stdin: stdin)
                 if let e = r.userError(redactStderr: true) { return e.message }
-                guard r.exitCode == 0 else { return r.failureCopy(verb: "restore", redactStderr: true) }
-                let intent = try await rt.run(["setup", "intent", "restore", repo, "--json"], stdin: nil)
-                if let e = intent.userError { return e.message }
-                guard intent.exitCode == 0 else { return intent.failureCopy(verb: "setup intent restore") }
+                guard r.exitCode == 0 else { return r.failureCopy(verb: "home restore", redactStderr: true) }
                 preparedFingerprint = fingerprint
                 restoredRepo = repo
                 restoreAgeKey = ""

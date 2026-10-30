@@ -420,7 +420,7 @@ else if (a0 === "uninstall") {
   }
   line({ event: "done", ok: true, failedStep: null }); }
 else if (a0 === "settings" && a1 === "set") emit({ ok: true, key: a2 });
-else if (a0 === "restore") emit({ ok: true, repo: a1 });
+else if (a0 === "home" && a1 === "restore") emit({ ok: true, repo: a2, url: `https://github.com/${a2}.git`, key: "imported" });
 else if (a0 === "home" && a1 === "init") emit({ ok: true });
 else if (a0 === "version" || a0 === "--version") emit({ version: "2.8.0-stub", build: 0 });
 else if (a0 === "logins") {

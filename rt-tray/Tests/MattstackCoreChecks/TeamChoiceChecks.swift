@@ -10,6 +10,8 @@ final class FakePasteboard: PasteboardReading, @unchecked Sendable {
 
 let completeInviteCode = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
 
+private let restoredReply = #"{"contract":1,"at":"2026-01-01T00:00:00.000Z","ok":true,"repo":"janedoe/mattstack-home","url":"https://github.com/janedoe/mattstack-home.git","key":"imported"}"#
+
 let teamChoiceChecks: [Check] = [
     Check("Paste invite fills the field from a copied deep link") { c in
         let pb = FakePasteboard("mattstack://join/01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC")
@@ -166,37 +168,45 @@ let teamChoiceChecks: [Check] = [
             c.expectEqual(TeamChoiceModel.inviteCodeLength, 77)
         }
     },
-    Check("restore: repo + key required; the real rt restore runs with the key on stdin, then setup intent restore") { c in
+    Check("restore: repo + key required; rt home restore runs once with the key as plain stdin and records the intent itself") { c in
         let rt = ScriptedRt()
-        rt.answers["restore"] = (0, #"{"contract":1,"ok":true,"repo":"m4ttheweric/mattstack-home"}"#)
-        rt.answers["setup intent restore"] = (0, #"{"contract":1,"ok":true,"intent":"restore","repo":"m4ttheweric/mattstack-home"}"#)
+        rt.answers["home restore"] = (0, restoredReply)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
-        await MainActor.run { m.choice = .restore; m.restoreRepo = "m4ttheweric/mattstack-home"; c.expectEqual(m.canContinue, false); m.restoreAgeKey = "AGE-SECRET-KEY-1XYZ"; c.expectEqual(m.canContinue, true) }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home"; c.expectEqual(m.canContinue, false); m.restoreAgeKey = " AGE-SECRET-KEY-1PLACEHOLDER\n"; c.expectEqual(m.canContinue, true) }
         let err = await m.validateAndPrepare()
         c.expect(err == nil)
-        try c.require(rt.calls.count >= 2, "expected restore then setup intent restore, got \(rt.calls.map(\.args))")
-        c.expectEqual(rt.calls[0].args, ["restore", "m4ttheweric/mattstack-home", "--json"])
-        c.expectEqual(rt.calls[0].stdin, "{\"ageKey\":\"AGE-SECRET-KEY-1XYZ\"}")
-        c.expectEqual(rt.calls[1].args, ["setup", "intent", "restore", "m4ttheweric/mattstack-home", "--json"])
-        c.expect(rt.calls.allSatisfy { !$0.args.contains("AGE-SECRET-KEY-1XYZ") }, "key never on argv")
+        c.expectEqual(rt.calls.map(\.args), [["home", "restore", "janedoe/mattstack-home", "--stdin", "--json"]])
+        c.expectEqual(rt.calls.first?.stdin, "AGE-SECRET-KEY-1PLACEHOLDER")
+        c.expect(rt.calls.allSatisfy { !$0.args.joined().contains("AGE-SECRET-KEY") }, "key never on argv")
+    },
+    Check("restore: rt's refusal shows its own words, and a failure with no envelope withholds stderr") { c in
+        let refused = ScriptedRt()
+        refused.answers["home restore"] = (2, #"{"contract":1,"error":{"code":"other-key","message":"This Mac already has a different recovery key"}}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: refused, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home"; m.restoreAgeKey = "AGE-SECRET-KEY-1PLACEHOLDER" }
+        c.expectEqual(await m.validateAndPrepare(), "This Mac already has a different recovery key")
+        await MainActor.run { c.expectEqual(m.restoreAgeKey, "AGE-SECRET-KEY-1PLACEHOLDER", "a failed restore keeps the key for Retry") }
+
+        let crashed = ScriptedRt()
+        crashed.answers["home restore"] = (1, "")
+        let n = await MainActor.run { TeamChoiceModel(rt: crashed, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { n.choice = .restore; n.restoreRepo = "janedoe/mattstack-home"; n.restoreAgeKey = "AGE-SECRET-KEY-1PLACEHOLDER" }
+        c.expectEqual(await n.validateAndPrepare(), "rt home restore failed (exit 1); details withheld because the command carried a secret.")
     },
     Check("TeamChoice: a restore repo pasted with a newline is trimmed the way Restore's button trims it") { c in
         let rt = ScriptedRt()
-        rt.answers["restore"] = (0, #"{"contract":1,"ok":true,"repo":"janedoe/mattstack-home"}"#)
-        rt.answers["setup intent restore"] = (0, #"{"contract":1,"ok":true,"intent":"restore","repo":"janedoe/mattstack-home"}"#)
+        rt.answers["home restore"] = (0, restoredReply)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
         await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home\n"; m.restoreAgeKey = "placeholder" }
         c.expect(await m.validateAndPrepare() == nil)
-        c.expectEqual(rt.calls.first?.args, ["restore", "janedoe/mattstack-home", "--json"])
-        c.expectEqual(rt.calls.last?.args, ["setup", "intent", "restore", "janedoe/mattstack-home", "--json"])
+        c.expectEqual(rt.calls.first?.args, ["home", "restore", "janedoe/mattstack-home", "--stdin", "--json"])
         await MainActor.run { c.expect(m.canContinue, "the restored repo matches however it was pasted") }
     },
     Check("a finished restore survives Back→Continue: the wiped key doesn't disable Continue and doesn't re-run the real restore") { c in
         let rt = ScriptedRt()
-        rt.answers["restore"] = (0, #"{"contract":1,"ok":true,"repo":"m4ttheweric/mattstack-home"}"#)
-        rt.answers["setup intent restore"] = (0, #"{"contract":1,"ok":true,"intent":"restore","repo":"m4ttheweric/mattstack-home"}"#)
+        rt.answers["home restore"] = (0, restoredReply)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
-        await MainActor.run { m.choice = .restore; m.restoreRepo = "m4ttheweric/mattstack-home"; m.restoreAgeKey = "AGE-SECRET-KEY-1XYZ" }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home"; m.restoreAgeKey = "AGE-SECRET-KEY-1PLACEHOLDER" }
         c.expect(await m.validateAndPrepare() == nil)
         let afterFirst = rt.calls.count
         await MainActor.run {
@@ -207,7 +217,7 @@ let teamChoiceChecks: [Check] = [
         c.expectEqual(rt.calls.count, afterFirst, "the real restore must not run a second time")
         // A different repo is a different restore: it needs its own key again.
         await MainActor.run {
-            m.restoreRepo = "m4ttheweric/other-home"
+            m.restoreRepo = "janedoe/other-home"
             c.expectEqual(m.canContinue, false)
         }
     },
