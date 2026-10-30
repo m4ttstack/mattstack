@@ -262,6 +262,14 @@ let joinPageChecks: [Check] = [
         c.expectEqual(await MainActor.run { m.phase }, .needsToken)
         c.expect(await MainActor.run { !m.joinLanded && m.lastStatus == nil && m.checkError == nil && m.logLines.isEmpty })
     },
+    Check("JoinPage: invitedBy decodes, and absent reads nil") { c in
+        let named = statusJSON("waiting").replacingOccurrences(of: #""name":"acme"},"#, with: #""name":"Mithrandir"},"invitedBy":"Jane Doe","#)
+        let status = try JSONDecoder().decode(JoinStatus.self, from: Data(named.utf8))
+        c.expectEqual(status.invitedBy, "Jane Doe")
+        c.expectEqual(status.team.name, "Mithrandir")
+        let old = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("waiting").utf8))
+        c.expectEqual(old.invitedBy, nil, "a status from an older rt carries no inviter")
+    },
     Check("JoinPage: adopting a waiting status lands on the wait") { c in
         let m = await makeModel(ScriptedRt())
         let status = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("waiting").utf8))

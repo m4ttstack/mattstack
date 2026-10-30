@@ -42,14 +42,14 @@ const SNAPSHOT: TeamSnapshot = {
 
 const PULLED: OrgPull = { outcome: "pulled", detail: "Pulled acme" };
 
-function deps(opts: { joined?: boolean; invite?: boolean; pull?: JoinStatusDeps["pull"] } = {}) {
+function deps(opts: { joined?: boolean; invite?: boolean; pull?: JoinStatusDeps["pull"]; record?: Record<string, unknown> } = {}) {
   const lines: string[] = [];
   const files: Record<string, string> = {
     [join(DIR, ".git", "config")]: `[remote "origin"]\n\turl = https://github.com/acme/widgets-org.git\n`,
     [join(HOME, ".mattstack", "user", ".sops.yaml")]: `creation_rules:\n  - path_regex: secrets/.*\n    age: ${MINE}\n`,
     [SOPS]: teamSops([OWNER]),
   };
-  if (opts.joined !== false) files[teamLocalPath(HOME, SLUG)] = JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, joinedAt: JOINED_AT });
+  if (opts.joined !== false) files[teamLocalPath(HOME, SLUG)] = JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, joinedAt: JOINED_AT, ...opts.record });
   if (opts.invite) files[intentPath(HOME)] = JSON.stringify({ v: 1, at: JOINED_AT, mode: "join", join: { id: "a".repeat(32), keyB64: "k", pointer: {} } });
   const probes = fakeProbes({ home: HOME, files, dirs: { [orgsDirUnder(HOME)]: [SLUG] } });
   const d: JoinStatusDeps = {
@@ -89,11 +89,26 @@ describe("rt setup join-status", () => {
       contract: 1,
       at: "2026-01-01T00:00:00.000Z",
       team: { slug: SLUG, name: SLUG },
+      invitedBy: null,
       state: "waiting",
       since: JOINED_AT,
       uses: { repos: 2, accounts: 2, packs: 1 },
       pull: PULLED,
     });
+  });
+
+  test("join-status names the team and the admin who invited", async () => {
+    const t = deps({ record: { teamName: "Mithrandir", invitedBy: "Jane Doe" } });
+    await setupJoinStatus(["--json"], {}, t.d);
+    expect(JSON.parse(t.lines[0]!)).toMatchObject({ team: { slug: SLUG, name: "Mithrandir" }, invitedBy: "Jane Doe" });
+  });
+
+  test("a record from before this change reads the slug and no inviter", async () => {
+    const t = deps();
+    await setupJoinStatus(["--json"], {}, t.d);
+    const body = JSON.parse(t.lines[0]!);
+    expect(body.team).toEqual({ slug: SLUG, name: SLUG });
+    expect(body.invitedBy).toBeNull();
   });
 
   test("the pull runs before the check", async () => {

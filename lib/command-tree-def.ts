@@ -2797,7 +2797,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/setup-form.ts",
         fn: "setupForm",
         hidden: true,
-        args: [SETUP_JSON_ARG, { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, connect or this-mac" }],
+        args: [SETUP_JSON_ARG, { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect or this-mac" }],
       },
       prepare: {
         description: "Install what setup can while you answer its questions",

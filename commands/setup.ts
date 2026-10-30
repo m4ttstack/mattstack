@@ -1397,6 +1397,7 @@ export async function setupUnwaive(args: string[], _ctx: CommandContext = {}, de
 
 export interface JoinStatus {
   team: { slug: string; name: string };
+  invitedBy: string | null;
   state: ApprovalState["kind"];
   since: string | null;
   uses: { repos: number; accounts: number; packs: number };
@@ -1448,8 +1449,10 @@ export async function setupJoinStatus(args: string[], _ctx: CommandContext = {},
   const pull = await deps.pull(p, slug);
   const state = approvalState(p, slug);
   const snapshot = deps.teamSnapshot ? deps.teamSnapshot(p, slug) : readTeamSnapshot(p, slug);
+  const record = readTeamLocal(p, slug);
   const body: JoinStatus = {
-    team: { slug, name: slug },
+    team: { slug, name: record.teamName ?? slug },
+    invitedBy: record.invitedBy ?? null,
     state: state.kind,
     since: state.kind === "waiting" ? state.since : null,
     uses: {

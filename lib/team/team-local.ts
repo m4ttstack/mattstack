@@ -29,6 +29,10 @@ export interface TeamLocalRecord {
   joinedByRt: boolean;
   /** When the redeem stamped `joinedByRt`: how long this Mac has waited for the admin's approval. */
   joinedAt?: string;
+  /** The team's display name from the invite this Mac redeemed. */
+  teamName?: string;
+  /** The admin who made that invite, named on the wait for their approval. */
+  invitedBy?: string;
   /** The operator has asked rt to manage this org's forge access from this Mac: it grants the repo access each role needs and keeps the data branch's push list, following the org's roles (`lib/team/forge-access-apply.ts`). It never lowers anyone's repo access. Absent means false: a permission that was never granted is not held. */
   rtMayManageMembership: boolean;
   /**
@@ -106,6 +110,8 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
       ...(typeof parsed.joinedAt === "string" ? { joinedAt: parsed.joinedAt } : {}),
+      ...(typeof parsed.teamName === "string" && parsed.teamName.trim() !== "" ? { teamName: parsed.teamName } : {}),
+      ...(typeof parsed.invitedBy === "string" && parsed.invitedBy.trim() !== "" ? { invitedBy: parsed.invitedBy } : {}),
       ...(typeof parsed.agePublicKey === "string" && parsed.agePublicKey.startsWith("age1") ? { agePublicKey: parsed.agePublicKey } : {}),
       ...(parsed.creatorPending && typeof parsed.creatorPending.team === "string" ? {
         creatorPending: { team: parsed.creatorPending.team, ...(typeof parsed.creatorPending.agePublicKey === "string" ? { agePublicKey: parsed.creatorPending.agePublicKey } : {}) },

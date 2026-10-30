@@ -29,7 +29,7 @@ function realFormDeps(): FormDeps {
 
 const ROW_STATUS: Record<FormRowState, RenderStatus> = { done: "done", busy: "pending", waiting: "pending", todo: "needs-you" };
 
-const USAGE = "rt setup form --section macos|invite|connect|this-mac";
+const USAGE = "rt setup form --section macos|invite|restore|connect|this-mac";
 
 function isSection(value: string | undefined): value is FormSection {
   return FORM_SECTIONS.includes(value as FormSection);
@@ -45,8 +45,8 @@ export async function setupForm(args: string[], _ctx: CommandContext = {}, deps:
   if (at >= 0) {
     const value = args[at + 1];
     if (!isSection(value)) {
-      const err = new UserActionableError("bad-section", `${value ?? "(none)"} is not a part of setup. Use macos, invite, connect or this-mac`);
-      return exitWithUserError(err, json, { json: deps.json, exit: deps.exit, now: () => p.now() }, usageFailure("Pick a part of setup: macos, invite, connect or this-mac", USAGE));
+      const err = new UserActionableError("bad-section", `${value ?? "(none)"} is not a part of setup. Use macos, invite, restore, connect or this-mac`);
+      return exitWithUserError(err, json, { json: deps.json, exit: deps.exit, now: () => p.now() }, usageFailure("Pick a part of setup: macos, invite, restore, connect or this-mac", USAGE));
     }
     sections = [value];
   }
@@ -56,6 +56,6 @@ export async function setupForm(args: string[], _ctx: CommandContext = {}, deps:
     deps.json(envelope(form, p.now()));
     return;
   }
-  const rows: FormRow[] = [...(form.sections.macos ?? []), ...(form.sections.invite ?? []), ...(form.sections.connect ?? []), ...(form.sections.thisMac ?? [])];
+  const rows: FormRow[] = [...(form.sections.macos ?? []), ...(form.sections.invite ?? []), ...(form.sections.restore ?? []), ...(form.sections.connect ?? []), ...(form.sections.thisMac ?? [])];
   out.print(...rows.map((r) => out.line(ROW_STATUS[r.state], r.title, r.detail)));
 }

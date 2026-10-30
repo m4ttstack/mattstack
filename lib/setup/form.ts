@@ -6,12 +6,18 @@
  */
 import { applyStepAction, type Action, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
+import { readIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "./permissions.ts";
+import { enrichSnapshotForge } from "./plan.ts";
+import { readPrepare, type PrepareRecord } from "./prepare.ts";
 import type { Probes } from "./probes.ts";
-import type { SecretPresence } from "./validators/accounts.ts";
+import { readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
+import { TITLES, tokenCreateLink, tokenField } from "./token-create.ts";
+import { accountRows, type SecretPresence } from "./validators/accounts.ts";
+import { macRows } from "./validators/mac.ts";
 
-export type FormSection = "macos" | "invite" | "connect" | "this-mac";
-export const FORM_SECTIONS: readonly FormSection[] = ["macos", "invite", "connect", "this-mac"];
+export type FormSection = "macos" | "invite" | "restore" | "connect" | "this-mac";
+export const FORM_SECTIONS: readonly FormSection[] = ["macos", "invite", "restore", "connect", "this-mac"];
 
 export type FormRowState = "done" | "todo" | "busy" | "waiting";
 
@@ -44,7 +50,7 @@ export interface SetupForm {
   path: FormPath | null;
   team: { slug: string; name: string; invitedBy: string | null } | null;
   stage: FormStage | null;
-  sections: { macos?: FormRow[]; invite?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[] };
+  sections: { macos?: FormRow[]; invite?: FormRow[]; restore?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[] };
   continueReady: boolean;
   startReady: boolean;
   paused: FormPaused | null;
@@ -74,11 +80,21 @@ export const FORM_COPY = {
     notGranted: "Not granted",
     trayDown: "Not checked: mattstack.app is not running",
   },
+  clt: {
+    title: "Command Line Tools",
+    subtext: "Git and the build tools setup needs",
+    installing: "Installing Command Line Tools…",
+    install: "Install",
+    notInstalled: "Not installed yet",
+  },
   invite: {
     title: "Paste your invite",
     invitedBy: (team: string, admin: string) => `${team}, invited by ${admin}`,
     createToken: "Create token",
     tokenSubtext: (forge: Forge) => `Lets mattstack reach the team's repo and open ${reviews(forge)}`,
+    connect: "Connect",
+    connectedAs: (login: string) => `Connected as ${login}`,
+    connected: "Connected",
     join: "Join",
   },
   connect: {
@@ -171,6 +187,99 @@ async function macosSection(p: Probes): Promise<FormRow[]> {
   return macosRows({ permissions: permissionRows(reply, null), notifications: reply?.notifications.status ?? null, fancyUrls: await fancyUrlsState(p) });
 }
 
+type MacosPrepare = (PrepareRecord & { running: boolean }) | null;
+
+const CLT_TOOL = "apple-clt";
+
+/** Leads every section whose button starts git work, so that button waits for git. */
+export function cltRow(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow | null {
+  if (i.cltInstalled) return null;
+  const c = FORM_COPY.clt;
+  const base = { id: "tool.clt", title: c.title, subtext: c.subtext, waiting: null, watch: true, optional: false };
+  if (i.prepare?.running && i.prepare.items.includes(CLT_TOOL)) return { ...base, state: "busy", detail: c.installing, action: null };
+  const failure = i.prepare?.failed.find((f) => f.tool === CLT_TOOL);
+  return { ...base, state: "todo", detail: failure?.detail ?? c.notInstalled, action: { type: "install", label: c.install, tool: CLT_TOOL, via: "apple-clt" } };
+}
+
+export interface InviteInputs {
+  rows: ReadonlyMap<string, Row>;
+  forge: { provider: Forge; host: string } | null;
+  /** The forge username the invite was made for. */
+  forgeLogin: string | null;
+  ghSignedIn: boolean;
+  cltInstalled: boolean;
+  prepare: MacosPrepare;
+}
+
+function forgeTokenRow(forge: { provider: Forge; host: string }, account: Row | undefined, login: string | null): FormRow {
+  const c = FORM_COPY.invite;
+  const base = { id: "forge.token", title: TITLES[forge.provider], subtext: c.tokenSubtext(forge.provider), waiting: null, watch: false, optional: false };
+  if (account?.status === "ready") return { ...base, state: "done", detail: login ? c.connectedAs(login) : c.connected, action: null };
+  return {
+    ...base,
+    state: "todo",
+    detail: account?.detail ?? "",
+    action: {
+      type: "connect",
+      label: c.connect,
+      integration: forge.provider,
+      fields: [tokenField(forge.provider, "member")],
+      create: { label: c.createToken, url: tokenCreateLink(forge.provider, "member", forge.host).url },
+    },
+  };
+}
+
+export function inviteRows(i: InviteInputs): FormRow[] {
+  const rows: FormRow[] = [];
+  const clt = cltRow(i);
+  if (clt) rows.push(clt);
+  if (i.forge && (i.forge.provider === "gitlab" || !i.ghSignedIn)) rows.push(forgeTokenRow(i.forge, i.rows.get(`account.${i.forge.provider}`), i.forgeLogin));
+  return rows;
+}
+
+export function restoreRows(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow[] {
+  const clt = cltRow(i);
+  return clt ? [clt] : [];
+}
+
+const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+
+function isReady(rows: ReadonlyMap<string, Row>, id: string): boolean {
+  return rows.get(id)?.status === "ready";
+}
+
+function macosPrepare(p: Probes): MacosPrepare {
+  return readPrepare(p, "macos", undefined, () => p.now());
+}
+
+/** Only this Mac's rows and the accounts: the tools group's probes are slow and nothing on this screen waits on them. */
+async function inviteSection(p: Probes, secrets: SecretPresence): Promise<FormRow[]> {
+  const intent = readIntent(p);
+  const snapshot = enrichSnapshotForge(EMPTY_SNAPSHOT, intent);
+  const [mac, accounts] = await Promise.all([macRows(p), accountRows(p, snapshot, [], secrets, intent, readUserIntegrationOverrides())]);
+  const rows = new Map([...mac, ...accounts].map((r) => [r.id, r]));
+  const github = rows.get("account.github");
+  return inviteRows({
+    rows,
+    forge: snapshot.integrations.forge ?? null,
+    forgeLogin: intent?.mode === "join" ? (intent.join?.pointer.username ?? null) : null,
+    ghSignedIn: github?.status === "ready" && github.detail.startsWith("Signed in through the gh CLI"),
+    cltInstalled: isReady(rows, "tool.clt"),
+    prepare: macosPrepare(p),
+  });
+}
+
+async function restoreSection(p: Probes): Promise<FormRow[]> {
+  const rows = new Map((await macRows(p)).map((r) => [r.id, r]));
+  return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
+}
+
+function joinTeam(p: Probes): SetupForm["team"] {
+  const intent = readIntent(p);
+  const pointer = intent?.mode === "join" ? intent.join?.pointer : undefined;
+  return pointer ? { slug: pointer.team, name: pointer.name, invitedBy: pointer.owner } : null;
+}
+
 /** Every row answered, or optional. */
 function allAnswered(rows: FormRow[] | undefined): boolean {
   return rows !== undefined && rows.every((r) => r.optional || r.state === "done");
@@ -179,9 +288,11 @@ function allAnswered(rows: FormRow[] | undefined): boolean {
 export async function composeForm(p: Probes, opts: { sections: FormSection[]; secrets: SecretPresence; orgs: string[] }): Promise<SetupForm> {
   const sections: SetupForm["sections"] = {};
   if (opts.sections.includes("macos")) sections.macos = await macosSection(p);
+  if (opts.sections.includes("invite")) sections.invite = await inviteSection(p, opts.secrets);
+  if (opts.sections.includes("restore")) sections.restore = await restoreSection(p);
   return {
     path: null,
-    team: null,
+    team: joinTeam(p),
     stage: null,
     sections,
     continueReady: allAnswered(sections.connect),

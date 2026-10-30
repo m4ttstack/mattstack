@@ -18,6 +18,8 @@ public struct JoinStatus: Decodable, Equatable, Sendable {
         public var detail: String
     }
     public var team: Team
+    /// The admin who made the invite; absent from an older rt.
+    public var invitedBy: String?
     /// not-joined | waiting | approved | unreadable
     public var state: String
     public var since: String?
