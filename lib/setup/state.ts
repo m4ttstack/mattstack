@@ -7,6 +7,7 @@
 
 import { dirname, join } from "path";
 import type { BoardCwds } from "./board-folder.ts";
+import type { StepId } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
 export interface SetupState {
@@ -43,6 +44,17 @@ export interface SetupState {
   homebrew?: { at: string; outcome: "ok" | "present" | "failed"; detail?: string };
   /** Where the member chose to keep their settings. A remote with a url or create and no `appliedAt` is staged until a push lands. */
   homeBackup?: HomeBackupChoice;
+  /** The last full, `--from` or resumed `rt setup apply`, step by step. With no `endedAt` it is still running or died partway. */
+  run?: SetupRun;
+}
+
+export interface SetupRun {
+  startedAt: string;
+  /** Steps that ended done, partial, skipped or needs-you, in the order they ran. */
+  done: StepId[];
+  endedAt?: string;
+  ok?: boolean;
+  failed?: { step: StepId; detail: string; remedy?: string };
 }
 
 export type HomeBackupChoice = { mode: "local" } | { mode: "remote"; url?: string; create?: boolean; name?: string; appliedAt?: string };

@@ -24,10 +24,11 @@ import { listOrgs } from "../lib/settings/stores.ts";
 import { getOrgSetting, getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
-import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
+import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type ApplyRunOptions, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
+import { APPLY_RUN_LOCK_MAX_AGE_MS, applyRunLockPath, attachToRun, recordingEmit, resumePoint } from "../lib/setup/apply-run.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
 import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
-import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
+import { createUpdateLock, lockHeldByLiveRun, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
 import { HERDR_NOT_INSTALLED, startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
@@ -182,10 +183,17 @@ export interface ApplyDeps {
   devAppNotice?: () => Promise<DevAppNotice | null>;
   /** Single flight for `rt setup update`; absent means the run is not guarded. */
   updateLock?: UpdateLock;
+  /** Single flight for a full, `--from` or resumed `rt setup apply`; absent means the run is not guarded. */
+  runLock?: UpdateLock;
+  /** Whether a live run holds the run lock. Never throws. */
+  holderAlive?: () => boolean;
+  /** The wait between an attach's reads of the events file. */
+  attachSleep?: (ms: number) => Promise<void>;
 }
 
 export function realApplyDeps(): ApplyDeps {
   const probes = createRealProbes();
+  const runLockPath = applyRunLockPath(probes.home);
   return {
     probes,
     secrets: { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
@@ -200,6 +208,15 @@ export function realApplyDeps(): ApplyDeps {
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
     devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
     updateLock: createUpdateLock(updateLockPath(probes.home)),
+    runLock: createUpdateLock(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS }),
+    holderAlive: () => {
+      try {
+        return lockHeldByLiveRun(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS });
+      } catch {
+        // A lock file that cannot be read proves no live run.
+        return false;
+      }
+    },
   };
 }
 
@@ -242,6 +259,76 @@ function resolveStepSelection(args: string[]): { from?: StepId; only?: StepId } 
   return { ...(from !== undefined ? { from } : {}), ...(only !== undefined ? { only } : {}) };
 }
 
+interface ApplySelection {
+  from?: StepId;
+  only?: StepId;
+  resume: boolean;
+}
+
+function resolveApplySelection(args: string[]): ApplySelection {
+  const steps = resolveStepSelection(args);
+  const resume = args.includes("--resume");
+  if (resume && (steps.from !== undefined || steps.only !== undefined)) {
+    throw new UserActionableError("bad-args", "--resume cannot be combined with --from or --only: it picks up wherever the last run stopped");
+  }
+  return { ...steps, resume };
+}
+
+let closedStdoutIgnored = false;
+
+/** The app that spawned this run may quit before it ends, and a write to its closed pipe must not end the install. */
+function ignoreClosedStdout(): void {
+  if (closedStdoutIgnored) return;
+  closedStdoutIgnored = true;
+  process.stdout.on("error", () => {});
+}
+
+function runBusy(): UserActionableError {
+  return new UserActionableError("run-busy", "Setup is already running", {}, { next: "rt setup apply --resume" });
+}
+
+/**
+ * A full, `--from` or resumed run holds the run lock to its end, and a
+ * `--resume` that finds it held follows that run instead. An `--only` run
+ * (P1's Allow, a leftover row's own action) never takes the lock, so a lock a
+ * dead run left can never refuse it; it is refused only while a live run
+ * holds the lock, since the two would race on the same steps.
+ */
+function claimRun(selection: ApplySelection, deps: ApplyDeps): { attach: boolean; lock?: UpdateLock } {
+  if (selection.only !== undefined) {
+    if (deps.holderAlive?.()) throw runBusy();
+    return { attach: false };
+  }
+  const lock = deps.runLock;
+  if (!lock) return { attach: false };
+  let taken: boolean;
+  try {
+    taken = lock.acquire();
+  } catch (err) {
+    // A lock that cannot be taken must not stop a Mac from being set up.
+    logCliEvent("warn", "setup.apply", `run lock not taken, running unguarded: ${err instanceof Error ? err.message : String(err)}`);
+    return { attach: false };
+  }
+  if (taken) return { attach: false, lock };
+  if (selection.resume) return { attach: true };
+  throw runBusy();
+}
+
+/**
+ * A full run records afresh and a `--from` run (the app's Retry) continues the
+ * record. A `--resume` continues a run that died partway: what it finished
+ * streams as done and it starts at the first step it had not finished. A
+ * `--resume` with no unfinished run is a full run.
+ */
+function runOptions(selection: ApplySelection, steps: StepDef[], ctx: ApplyContext, probes: Probes): ApplyRunOptions {
+  if (selection.only !== undefined) return { only: selection.only };
+  if (selection.from !== undefined) return { from: selection.from, record: "continue" };
+  const run = selection.resume ? readSetupState(probes).run : undefined;
+  if (run === undefined || run.endedAt !== undefined) return { record: "fresh" };
+  const from = resumePoint(run, steps.filter((s) => s.applies(ctx)).map((s) => s.id));
+  return { ...(from !== undefined ? { from } : {}), replay: run.done, record: "continue" };
+}
+
 /**
  * Rows whose absence makes apply's own steps fail mid-plan (home.init shells
  * git on a Mac whose /usr/bin/git is only the CLT-install shim) rather than
@@ -278,33 +365,44 @@ async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<v
 
 export async function setupApply(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
+  if (json) ignoreClosedStdout();
   const human = json ? null : createStepEmitter({ labels: APPLY_LABELS, log: stepLog("setup.apply") });
-  const emit: Emit = human ? human.emit : (ev) => deps.json(ev);
+  const forward: Emit = human ? human.emit : (ev) => deps.json(ev);
 
   let result: { ok: boolean; failedStep?: StepId };
-  let selection: { from?: StepId; only?: StepId } = {};
+  let selection: ApplySelection = { resume: false };
+  let claim: { attach: boolean; lock?: UpdateLock } = { attach: false };
   try {
-    selection = resolveStepSelection(args);
-    if (selection.only === undefined || !HARD_PRECONDITION_FREE_STEPS.has(selection.only)) await gateHardPreconditions(args, deps);
-    const ctx: ApplyContext = await createApplyContext({
-      probes: deps.probes,
-      emit,
-      secrets: deps.secrets,
-      relay: deps.relay,
-      secretPresence: deps.secretPresence,
-      flags: { ...applyFlags(args), appDriven: json },
-      needOpts: deps.needOpts,
-      ...(human ? { tip: human.tip } : {}),
-    });
-    await human?.settle();
-    result = await runApplyWith(deps.steps ?? STEPS, ctx, selection);
+    selection = resolveApplySelection(args);
+    claim = claimRun(selection, deps);
+    if (claim.attach) {
+      result = await attachToRun(deps.probes, forward, { holderAlive: deps.holderAlive ?? (() => false), ...(deps.attachSleep ? { sleep: deps.attachSleep } : {}) });
+    } else {
+      // Emptied the moment the run is claimed: until then an attach would replay the last run.
+      const emit = selection.only === undefined ? recordingEmit(deps.probes, forward, { truncate: true }) : forward;
+      if (selection.only === undefined || !HARD_PRECONDITION_FREE_STEPS.has(selection.only)) await gateHardPreconditions(args, deps);
+      const ctx: ApplyContext = await createApplyContext({
+        probes: deps.probes,
+        emit,
+        secrets: deps.secrets,
+        relay: deps.relay,
+        secretPresence: deps.secretPresence,
+        flags: { ...applyFlags(args), appDriven: json },
+        needOpts: deps.needOpts,
+        ...(human ? { tip: human.tip } : {}),
+      });
+      await human?.settle();
+      const steps = deps.steps ?? STEPS;
+      const lock = claim.lock;
+      result = await runApplyWith(steps, ctx, { ...runOptions(selection, steps, ctx, deps.probes), beforeDone: () => lock?.release() });
+    }
   } catch (err) {
+    claim.lock?.release();
     await human?.flush();
     if (err instanceof UserActionableError) {
-      // Thrown before `plan` ever reaches the stream — a malformed/unknown
-      // --from or --only, or the two given together, so nothing else has
-      // gone out yet; print the same exit-2 envelope every other setup verb
-      // uses.
+      // Thrown before `plan` ever reaches the stream (a bad step flag, a run
+      // already going, a Mac not ready), so nothing else has gone out yet;
+      // print the same exit-2 envelope every other setup verb uses.
       return exitWithUserError(err, json, sinkOf(deps), err.code === "not-ready" ? { title: NOT_READY_TITLE } : undefined);
     }
     // A real bug — whether it happened building the context (nothing ever
@@ -317,7 +415,7 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
 
   await human?.flush();
   if (!result.ok) return deps.exit(2);
-  if (selection.from === undefined && selection.only === undefined) {
+  if (!claim.attach && selection.from === undefined && selection.only === undefined) {
     stampUpdateWhenNothingPends(deps, json);
     await finishIfClear(deps, json);
   }

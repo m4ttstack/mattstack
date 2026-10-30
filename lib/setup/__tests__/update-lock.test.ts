@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { createUpdateLock, UPDATE_LOCK_MAX_AGE_MS, updateLockPath } from "../update-lock.ts";
+import { createUpdateLock, lockHeldByLiveRun, UPDATE_LOCK_MAX_AGE_MS, updateLockPath } from "../update-lock.ts";
 
 let dir: string;
 let path: string;
@@ -82,6 +82,20 @@ describe("createUpdateLock", () => {
     const next = createUpdateLock(path, { pid: 222, alive: everyoneAlive, now: () => now });
 
     expect(next.acquire()).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe("222");
+  });
+
+  test("a lock older than its max age is stale", () => {
+    const maxAgeMs = 60 * 1000;
+    createUpdateLock(path, { pid: 111, alive: everyoneAlive }).acquire();
+    const now = Date.now();
+    const old = new Date(now - maxAgeMs - 1000);
+    utimesSync(path, old, old);
+
+    expect(lockHeldByLiveRun(path, { alive: everyoneAlive, now: () => now, maxAgeMs })).toBe(false);
+    expect(lockHeldByLiveRun(path, { alive: everyoneAlive, now: () => now })).toBe(true);
+    expect(createUpdateLock(path, { pid: 222, alive: everyoneAlive, now: () => now }).acquire()).toBe(false);
+    expect(createUpdateLock(path, { pid: 222, alive: everyoneAlive, now: () => now, maxAgeMs }).acquire()).toBe(true);
     expect(readFileSync(path, "utf8")).toBe("222");
   });
 

@@ -35,16 +35,43 @@ function errorCode(err: unknown): string | undefined {
   return (err as NodeJS.ErrnoException).code;
 }
 
-interface UpdateLockOptions {
-  pid?: number;
+interface LivenessOptions {
   alive?: (pid: number) => boolean;
   now?: () => number;
+  /** Past this age a lock is stale whatever its pid says. */
+  maxAgeMs?: number;
+}
+
+interface UpdateLockOptions extends LivenessOptions {
+  pid?: number;
+}
+
+function readHolderPid(path: string): number | null {
+  try {
+    const holder = Number.parseInt(readFileSync(path, "utf8").trim(), 10);
+    return Number.isInteger(holder) && holder > 0 ? holder : null;
+  } catch (err) {
+    // The holder released between the failed take and this read.
+    if (errorCode(err) === "ENOENT") return null;
+    throw err;
+  }
+}
+
+/** Whether a live run holds the lock at `path`. Throws when the lock file cannot be read. */
+export function lockHeldByLiveRun(path: string, opts: LivenessOptions = {}): boolean {
+  const holder = readHolderPid(path);
+  if (holder === null) return false;
+  try {
+    if ((opts.now ?? Date.now)() - statSync(path).mtimeMs > (opts.maxAgeMs ?? UPDATE_LOCK_MAX_AGE_MS)) return false;
+  } catch (err) {
+    if (errorCode(err) === "ENOENT") return false;
+    throw err;
+  }
+  return (opts.alive ?? pidAlive)(holder);
 }
 
 export function createUpdateLock(path: string, opts: UpdateLockOptions = {}): UpdateLock {
   const pid = opts.pid ?? process.pid;
-  const alive = opts.alive ?? pidAlive;
-  const now = opts.now ?? Date.now;
   let held = false;
 
   // link(2) publishes the file with the pid already in it: a lock created
@@ -64,29 +91,6 @@ export function createUpdateLock(path: string, opts: UpdateLockOptions = {}): Up
     }
   };
 
-  const holderPid = (): number | null => {
-    try {
-      const holder = Number.parseInt(readFileSync(path, "utf8").trim(), 10);
-      return Number.isInteger(holder) && holder > 0 ? holder : null;
-    } catch (err) {
-      // The holder released between the failed take and this read.
-      if (errorCode(err) === "ENOENT") return null;
-      throw err;
-    }
-  };
-
-  const heldByLiveRun = (): boolean => {
-    const holder = holderPid();
-    if (holder === null) return false;
-    try {
-      if (now() - statSync(path).mtimeMs > UPDATE_LOCK_MAX_AGE_MS) return false;
-    } catch (err) {
-      if (errorCode(err) === "ENOENT") return false;
-      throw err;
-    }
-    return alive(holder);
-  };
-
   return {
     acquire() {
       mkdirSync(dirname(path), { recursive: true });
@@ -94,7 +98,7 @@ export function createUpdateLock(path: string, opts: UpdateLockOptions = {}): Up
         held = true;
         return true;
       }
-      if (heldByLiveRun()) return false;
+      if (lockHeldByLiveRun(path, opts)) return false;
       rmSync(path, { force: true });
       held = take();
       return held;
@@ -106,7 +110,7 @@ export function createUpdateLock(path: string, opts: UpdateLockOptions = {}): Up
       // one that cannot be read is not provably this run's either. Release sits
       // in a finally, where a throw would replace the run's own error.
       try {
-        if (holderPid() === pid) rmSync(path, { force: true });
+        if (readHolderPid(path) === pid) rmSync(path, { force: true });
       } catch {
         return;
       }

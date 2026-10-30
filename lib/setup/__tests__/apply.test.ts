@@ -229,6 +229,146 @@ describe("runApplyWith: installRanAt marks that Install has run on this Mac", ()
   });
 });
 
+describe("runApplyWith: the run record", () => {
+  const runOf = (ctx: ApplyContext) => readSetupState(ctx.p as ReturnType<typeof fakeProbes>).run;
+  const NOW = "2026-01-01T00:00:00.000Z";
+
+  test("a fresh record lists each finished step and the outcome", async () => {
+    const { ctx } = testCtx();
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: { startedAt: "earlier", done: ["verify"], endedAt: "earlier", ok: false, failed: { step: "verify", detail: "old" } } }));
+    let atStart: unknown;
+    const steps: StepDef[] = [
+      fakeStep("home.init", async () => {
+        atStart = runOf(ctx);
+        return { state: "done" };
+      }),
+      fakeStep("path.link", { state: "skipped", detail: "already linked" }),
+      fakeStep("proxy.install", { state: "needs-you", detail: "approve it" }),
+      fakeStep("plugins.install", { state: "partial", detail: "one left" }),
+    ];
+
+    await runApplyWith(steps, ctx, { record: "fresh" });
+
+    expect(atStart).toEqual({ startedAt: NOW, done: [] });
+    expect(runOf(ctx)).toEqual({ startedAt: NOW, done: ["home.init", "path.link", "proxy.install", "plugins.install"], endedAt: NOW, ok: true });
+  });
+
+  test("a failed step is recorded with its detail and remedy", async () => {
+    const { ctx } = testCtx();
+    const steps: StepDef[] = [
+      fakeStep("home.init", { state: "done" }),
+      fakeStep("repos.clone", { state: "failed", detail: "Couldn't clone acme-api", remedy: "Check your token, then Retry" }),
+      fakeStep("verify", { state: "done" }),
+    ];
+
+    await runApplyWith(steps, ctx, { record: "fresh" });
+
+    expect(runOf(ctx)).toEqual({ startedAt: NOW, done: ["home.init"], endedAt: NOW, ok: false, failed: { step: "repos.clone", detail: "Couldn't clone acme-api", remedy: "Check your token, then Retry" } });
+  });
+
+  test("a step that throws a bug is recorded as the failure", async () => {
+    const { ctx } = testCtx();
+    await expect(runApplyWith([fakeStep("home.init", { state: "done" }), throwingStep("path.link", new Error("boom"))], ctx, { record: "fresh" })).rejects.toThrow("boom");
+    expect(runOf(ctx)).toEqual({ startedAt: NOW, done: ["home.init"], endedAt: NOW, ok: false, failed: { step: "path.link", detail: "bug: boom" } });
+  });
+
+  test("continue keeps what was done and clears the end", async () => {
+    const { ctx } = testCtx();
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: { startedAt: "earlier", done: ["home.init"], endedAt: "earlier", ok: false, failed: { step: "repos.clone", detail: "boom" } } }));
+    let midRun: unknown;
+    const steps: StepDef[] = [
+      fakeStep("home.init", { state: "done" }),
+      fakeStep("repos.clone", async () => {
+        midRun = runOf(ctx);
+        return { state: "done" };
+      }),
+      fakeStep("verify", { state: "done" }),
+    ];
+
+    await runApplyWith(steps, ctx, { from: "repos.clone", record: "continue" });
+
+    expect(midRun).toEqual({ startedAt: "earlier", done: ["home.init"] });
+    expect(runOf(ctx)).toEqual({ startedAt: "earlier", done: ["home.init", "repos.clone", "verify"], endedAt: NOW, ok: true });
+  });
+
+  test("--only never touches the record", async () => {
+    const { ctx } = testCtx();
+    const before = { startedAt: "earlier", done: ["home.init" as const], endedAt: "earlier", ok: false, failed: { step: "repos.clone" as const, detail: "boom" } };
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: before }));
+
+    await runApplyWith([fakeStep("home.init", { state: "done" }), fakeStep("repos.clone", { state: "done" })], ctx, { only: "repos.clone", record: "fresh" });
+
+    expect(runOf(ctx)).toEqual(before);
+  });
+
+  test("a run asked for no record leaves it alone", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("home.init", { state: "done" })], ctx);
+    expect(runOf(ctx)).toBeUndefined();
+  });
+
+  test("the record's end is written before beforeDone, and beforeDone before the done event", async () => {
+    const order: string[] = [];
+    const { ctx } = testCtx({
+      emit: (ev) => {
+        if (ev.event === "done") order.push(`done event, record ended: ${runOf(ctx)?.endedAt !== undefined}`);
+      },
+    });
+
+    await runApplyWith([fakeStep("home.init", { state: "done" })], ctx, {
+      record: "fresh",
+      beforeDone: () => order.push(`beforeDone, record ended: ${runOf(ctx)?.endedAt !== undefined}`),
+    });
+
+    expect(order).toEqual(["beforeDone, record ended: true", "done event, record ended: true"]);
+  });
+
+  test("a beforeDone that throws still lets the done event out", async () => {
+    const { ctx, events } = testCtx();
+    await runApplyWith([fakeStep("home.init", { state: "done" })], ctx, {
+      beforeDone: () => {
+        throw new Error("lock gone");
+      },
+    });
+    expect(events.at(-1)).toEqual({ event: "done", ok: true });
+  });
+
+  test("a resumed run streams what it already finished as done, and runs only the rest", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [
+      { ...fakeStep("home.init", { state: "done" }), run: async () => { throw new Error("home.init must not run again"); } },
+      { ...fakeStep("path.link", { state: "done" }), run: async () => { throw new Error("path.link must not run again"); } },
+      fakeStep("verify", { state: "done" }),
+    ];
+
+    await runApplyWith(steps, ctx, { from: "verify", replay: ["home.init", "path.link"], record: "continue" });
+
+    expect(events.map((e) => (e.event === "step" ? `${e.id} ${e.state}` : e.event))).toEqual(["plan", "home.init done", "path.link done", "verify running", "verify done", "done"]);
+  });
+
+  test("a resumed run with every step already finished runs nothing and ends ok", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [{ ...fakeStep("home.init", { state: "done" }), run: async () => { throw new Error("must not run again"); } }];
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: { startedAt: "earlier", done: ["home.init"] } }));
+
+    expect(await runApplyWith(steps, ctx, { replay: ["home.init"], record: "continue" })).toEqual({ ok: true });
+
+    expect(events.map((e) => (e.event === "step" ? `${e.id} ${e.state}` : e.event))).toEqual(["plan", "home.init done", "done"]);
+    expect(runOf(ctx)).toEqual({ startedAt: "earlier", done: ["home.init"], endedAt: NOW, ok: true });
+  });
+
+  test("a recorded failure keeps a registered secret out", async () => {
+    const p = fakeProbes();
+    const ctx = await createApplyContext({ probes: p, emit: () => {}, secrets: fakeSecrets, relay: fakeRelay, secretPresence: { has: async () => null }, flags: { nonInteractive: false, teamOfOne: false, ci: false } });
+    const secret = "glpat-sekrit-value";
+    ctx.redact(secret);
+
+    await runApplyWith([fakeStep("repos.clone", { state: "failed", detail: `clone with ${secret} failed`, remedy: `rotate ${secret}` })], ctx, { record: "fresh" });
+
+    expect(readSetupState(p).run?.failed).toEqual({ step: "repos.clone", detail: "clone with *** failed", remedy: "rotate ***" });
+  });
+});
+
 describe("runApplyWith — happy path", () => {
   test("three done steps stream plan, running/done per step, then done ok:true", async () => {
     const { ctx, events } = testCtx();

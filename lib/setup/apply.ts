@@ -21,7 +21,7 @@ import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, SHARED_STORE_MIGRATIONS, SHARED_STORE_REFUSAL, type MigrationDef } from "./migrations/index.ts";
-import { readSetupState, setupStatePath, storedVersion, updateSetupState } from "./state.ts";
+import { readSetupState, setupStatePath, storedVersion, updateSetupState, type SetupRun } from "./state.ts";
 import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
@@ -98,6 +98,8 @@ export interface ApplyContext {
    * secret is not caught.
    */
   redact(value: string): void;
+  /** `text` with every value registered through `redact` masked: for copy kept somewhere `emit` never sees, like the run record. */
+  redacted?(text: string): string;
   /**
    * "no-app" is an rt-side judgment (not the app's), made when a quick
    * pre-check finds no live tray.sock on a run the app did not spawn (a
@@ -214,6 +216,44 @@ function enqueueInOrder(queue: StepDef[], next: number, step: StepDef, applicabl
   else queue.splice(later, 0, step);
 }
 
+export interface ApplyRunOptions {
+  from?: StepId;
+  only?: StepId;
+  /** `fresh` starts a new run record and `continue` keeps the steps it already lists. An `--only` run never records. */
+  record?: "fresh" | "continue";
+  /** Steps a resumed run already finished: each applicable one streams `done` right after `plan`, and none runs again. */
+  replay?: StepId[];
+  /** Runs once the record's end is written and before `done` goes out, so whatever starts on `done` (the app's Retry) finds the run lock free. */
+  beforeDone?: () => void;
+}
+
+type RunFailure = NonNullable<SetupRun["failed"]>;
+
+/** The message when the write failed, so the caller can say so under the step it was recording. */
+function writeRun(ctx: ApplyContext, patch: (run: SetupRun | undefined) => SetupRun): string | null {
+  try {
+    updateSetupState(ctx.p, (s) => ({ ...s, run: patch(s.run) }));
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+function startRun(ctx: ApplyContext, mode: "fresh" | "continue"): void {
+  const startedAt = ctx.p.now().toISOString();
+  // persistTerminalState writes the record's end and reports a failed write there.
+  writeRun(ctx, (run) => (mode === "continue" && run ? { startedAt: run.startedAt, done: run.done } : { startedAt, done: [] }));
+}
+
+function withDone(run: SetupRun | undefined, at: string, id: StepId): SetupRun {
+  const base = run ?? { startedAt: at, done: [] };
+  return base.done.includes(id) ? base : { ...base, done: [...base.done, id] };
+}
+
+function endRun(run: SetupRun | undefined, at: string, ok: boolean, failure: RunFailure | undefined): SetupRun {
+  return { startedAt: run?.startedAt ?? at, done: run?.done ?? [], endedAt: at, ok, ...(failure ? { failed: failure } : {}) };
+}
+
 /**
  * Best-effort bookkeeping after the run: never allowed to suppress the terminal `done` event a throw would otherwise swallow. A failure here becomes a `log` warning (tagged with the last step that actually ran) instead of an exception.
  *
@@ -223,11 +263,17 @@ function enqueueInOrder(queue: StepDef[], next: number, step: StepDef, applicabl
  * (and what it needs) and leaves the rest untouched, so it never does; `--from`
  * resumes and then runs everything left, so it does.
  * `lastApplyOk` follows the same line: only a run that could have
- * finished the install sets it.
+ * finished the install sets it. A recorded run's end rides the same write.
  */
-function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId | undefined, oneStepOnly: boolean): void {
+function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId | undefined, oneStepOnly: boolean, recorded?: { failure: RunFailure | undefined }): void {
   try {
-    updateSetupState(ctx.p, (s) => ({ ...s, lastApplyAt: ctx.p.now().toISOString(), ...(oneStepOnly ? {} : { lastApplyOk: ok }) }));
+    const at = ctx.p.now().toISOString();
+    updateSetupState(ctx.p, (s) => ({
+      ...s,
+      lastApplyAt: at,
+      ...(oneStepOnly ? {} : { lastApplyOk: ok }),
+      ...(recorded ? { run: endRun(s.run, at, ok, recorded.failure) } : {}),
+    }));
     if (ok && !oneStepOnly) clearIntent(ctx.p);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -267,28 +313,38 @@ function stampInstallRan(ctx: ApplyContext): void {
  * for ids it never saw listed, so a full plan is the only safe choice. Steps
  * before `--from` get NO `step` event at all — the shipped app deliberately
  * preserves a retried run's earlier `done` rows, and a `skipped` event here
- * would overwrite them. `--only` runs the named step behind its unsatisfied
- * `prerequisites` (plus `intercepts.install` after a `feedsIntercepts` step)
- * and is silent about every other id for the same reason.
+ * would overwrite them. A resumed run's `replay` steps are the exception: the
+ * relaunched app has no rows yet, so each streams `done`. `--only` runs the
+ * named step behind its unsatisfied `prerequisites` (plus `intercepts.install`
+ * after a `feedsIntercepts` step) and is silent about every other id for the
+ * same reason.
  */
-export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
+export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: ApplyRunOptions = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
   const applicable = steps.filter((s) => s.applies(ctx));
   let queue: StepDef[];
+  let replayed: StepDef[] = [];
   if (opts.only !== undefined) {
     ctx.only = opts.only;
     const target = applicable[onlyIndex(applicable, opts.only)];
     queue = target ? await onlyQueue(applicable, target, ctx) : [];
   } else {
-    queue = applicable.slice(resumeStart(applicable, opts.from));
+    replayed = applicable.filter((s) => opts.replay?.includes(s.id));
+    queue = applicable.slice(resumeStart(applicable, opts.from)).filter((s) => !replayed.includes(s));
   }
+  const record = opts.only === undefined ? opts.record : undefined;
+  const scrub = (text: string): string => ctx.redacted?.(text) ?? text;
 
+  // Before `plan`: an attach that has seen this run's plan trusts the record to be this run's.
+  if (record) startRun(ctx, record);
   const titleOf = (s: StepDef) => s.titleFor?.(ctx) ?? s.title;
   ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: titleOf(s), kind: s.kind })) });
+  for (const s of replayed) ctx.emit({ event: "step", id: s.id, state: "done" });
   settleLegacyFinish(ctx);
   if (opts.only === undefined && !ctx.update) stampInstallRan(ctx);
 
   let lastRanId: StepId | undefined;
   let result: { ok: boolean; failedStep?: StepId } = { ok: true };
+  let failure: RunFailure | undefined;
   let hasBug = false;
   let bug: unknown;
 
@@ -315,6 +371,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
           const message = err instanceof Error ? err.message : String(err);
           ctx.emit({ event: "step", id: step.id, state: "failed", detail: `bug: ${message}` });
           result = { ok: false, failedStep: step.id };
+          failure = { step: step.id, detail: scrub(`bug: ${message}`) };
           hasBug = true;
           bug = err;
           break;
@@ -326,10 +383,16 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       if (outcome.state === "failed" && opts.only !== undefined && step.id !== opts.only && step.id !== INTERCEPTS_STEP) {
         outcome = { ...outcome, detail: `${titleOf(step)}: ${outcome.detail}` };
       }
+      if (record && outcome.state !== "failed") {
+        const id = step.id;
+        const unsaved = writeRun(ctx, (run) => withDone(run, ctx.p.now().toISOString(), id));
+        if (unsaved !== null) ctx.log(id, `warn: setup state not persisted: ${unsaved}`);
+      }
       ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
 
       if (outcome.state === "failed") {
         result = { ok: false, failedStep: step.id };
+        failure = { step: step.id, detail: scrub(outcome.detail), ...(outcome.remedy !== undefined ? { remedy: scrub(outcome.remedy) } : {}) };
         break;
       }
       if (step.reloadsTeam && (outcome.state === "done" || outcome.state === "partial")) ctx.reloadTeam?.();
@@ -345,7 +408,12 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
     // last run". `done` is emitted here, in a `finally`, so no exit path
     // (early return, a rethrown bug) can leave the stream without its one
     // required terminal event.
-    persistTerminalState(ctx, result.ok, lastRanId, opts.only !== undefined);
+    persistTerminalState(ctx, result.ok, lastRanId, opts.only !== undefined, record ? { failure } : undefined);
+    try {
+      opts.beforeDone?.();
+    } catch {
+      // Nothing before `done` may cost the stream its terminal event.
+    }
     ctx.emit({ event: "done", ok: result.ok, ...(result.failedStep !== undefined ? { failedStep: result.failedStep } : {}) });
   }
 
@@ -353,7 +421,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   return result;
 }
 
-export async function runApply(ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
+export async function runApply(ctx: ApplyContext, opts: ApplyRunOptions = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
   return runApplyWith(STEPS, ctx, opts);
 }
 
@@ -498,7 +566,7 @@ async function trayReachable(p: Probes): Promise<boolean> {
   return res.status !== 0;
 }
 
-function createRedactor(): { redact(value: string): void; wrap(emit: Emit): Emit } {
+function createRedactor(): { redact(value: string): void; apply(text: string): string; wrap(emit: Emit): Emit } {
   const secrets = new Set<string>();
 
   function apply(text: string): string {
@@ -513,6 +581,7 @@ function createRedactor(): { redact(value: string): void; wrap(emit: Emit): Emit
     redact(value) {
       if (value) secrets.add(value);
     },
+    apply,
     wrap(emit) {
       return (ev) => {
         if (ev.event === "log") {
@@ -577,6 +646,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     relay,
     secretPresence: deps.secretPresence ?? realSecretPresence(),
     redact: redactor.redact,
+    redacted: redactor.apply,
     async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal"> {
       // The app pumps needs only for the rt it spawned, which it marks with
       // RT_APP_SOCKET. Any other run asks the app's plain route for the same
