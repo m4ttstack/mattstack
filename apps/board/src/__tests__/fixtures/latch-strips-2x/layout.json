@@ -1,0 +1,30 @@
+{
+  "armed": {
+    "dotsX": 777,
+    "dotsY": 52
+  },
+  "queued-next-sweep": {
+    "dotsX": 759,
+    "dotsY": 52
+  },
+  "running": {
+    "dotsX": 797,
+    "dotsY": 52
+  },
+  "done-comments-3": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-approved": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "error-retrying-next-sweep": {
+    "dotsX": 853,
+    "dotsY": 52
+  },
+  "error-stuck": {
+    "dotsX": 735,
+    "dotsY": 52
+  }
+}
