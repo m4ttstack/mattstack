@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -178,6 +178,89 @@ enum FastSetupSnapshot {
             ("waiting", AnyView(WaitingScreenBody(team: "Mithrandir", admin: "Jane Doe", onHide: {}))),
             ("waiting-no-admin", AnyView(WaitingScreenBody(team: "Mithrandir", admin: nil, onHide: {}))),
         ]
+    }
+
+    @MainActor
+    private static func connectPages() -> [(String, AnyView)] {
+        typealias C = ConnectRows
+        /// The window opens at this height, so a page shows whether the card fits or scrolls.
+        let windowHeight: CGFloat = 620
+        func page(team: Bool = true, _ rows: [FormRow], waiting: [String: String] = [:], ready: Bool = false) -> AnyView {
+            AnyView(ConnectScreenBody(teamFirst: team, rows: rows, waiting: waiting, errors: [:], continueReady: ready,
+                                      onAction: { _, _, _ in }, onBack: team ? nil : {}, onContinue: {})
+                .frame(height: windowHeight))
+        }
+        return [
+            ("connect-fresh", page([C.forge, C.slack, C.claudeInstalling, C.dopplerSignIn, C.herdrInstalling, C.sdm, C.linear, C.fastBrowser])),
+            ("connect-waiting", page([C.forge, C.slack, C.claudePasteCode, C.dopplerCode, C.sdm, C.linearDone, C.fastBrowser],
+                                     waiting: [C.slack.id: C.slack.waiting ?? "", C.fastBrowser.id: C.fastBrowser.waiting ?? ""])),
+            ("connect-done", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.fastBrowserDone], ready: true)),
+            ("connect-solo", page(team: false, [C.soloForge, C.claudeSignIn, C.soloFastBrowser])),
+            ("connect-get-chrome", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.getChrome])),
+        ]
+    }
+
+    /// What `connectRows` in lib/setup/form.ts emits for a GitLab team with Doppler, StrongDM and Linear, and for Just me.
+    enum ConnectRows {
+        static let forge = FormRow(id: "forge", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
+                                   state: .done, detail: "Connected as janedoe from your invite")
+        static let soloForge = FormRow(id: "forge", title: "GitHub", subtext: "Optional. Lets mattstack open PRs and MRs",
+                                       state: .todo, detail: "No GitHub account connected yet", action: Rows.githubToken.action, optional: true)
+        static let slack = FormRow(id: "slack", title: "Slack", subtext: "Lets mattstack track and post MRs in Slack", state: .todo,
+                                   detail: "No Slack account connected yet. If Slack rejects the redirect, add http://localhost:11234/callback in the app's OAuth settings",
+                                   action: RowAction(type: .oauth, label: "Connect Slack", integration: "slack", verb: ["setup", "slack", "connect"]),
+                                   waiting: "Waiting for Slack…", watch: true)
+        static let slackDone = FormRow(id: "slack", title: "Slack", subtext: "Lets mattstack track and post MRs in Slack", state: .done,
+                                       detail: "Connected", waiting: "Waiting for Slack…", watch: true)
+        static let claudeInstalling = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .busy,
+                                              detail: "Installing…", watch: true)
+        static let claudeSignIn = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .todo,
+                                          detail: "Not signed in yet",
+                                          action: RowAction(type: .run, label: "Sign in to Claude", verb: ["setup", "claude", "connect"]), watch: true)
+        static let claudePasteCode = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .waiting,
+                                             detail: "Finish signing in in your browser",
+                                             action: RowAction(type: .form, label: "Paste code", fields: [
+                                                 ActionField(name: "code", label: "Code from your browser", secret: true),
+                                             ], verb: ["setup", "claude", "code"]), watch: true)
+        static let claudeDone = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .done,
+                                        detail: "Claude Code 2.1.0, signed in", watch: true)
+        static let dopplerSignIn = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .todo,
+                                           detail: "Not signed in to doppler",
+                                           action: RowAction(type: .run, label: "Sign in", verb: ["setup", "doppler", "connect"]), watch: true)
+        static let dopplerCode = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .waiting,
+                                         detail: "Your code is WXYZ-1234. Confirm it in your browser",
+                                         action: RowAction(type: .openURL, label: "Open again", url: "https://dashboard.doppler.com/workplace/auth/cli"),
+                                         watch: true)
+        static let dopplerDone = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .done,
+                                         detail: "Signed in to doppler", watch: true)
+        static let herdrInstalling = FormRow(id: "tool.herdr", title: "herdr", subtext: "Drives Herdr panes for remote-control and multi-agent workflows.",
+                                             state: .busy, detail: "Installing…", watch: true)
+        static let sdm = FormRow(id: "account.sdm", title: "StrongDM",
+                                 subtext: "Lets rt confirm you're logged into StrongDM before driving database tunnels.", state: .todo,
+                                 detail: "No StrongDM account connected yet",
+                                 action: RowAction(type: .connect, label: "Connect", integration: "sdm", fields: [
+                                     ActionField(name: "email", label: "StrongDM email", secret: false),
+                                 ]), watch: true)
+        static let linear = FormRow(id: "linear", title: "Linear", subtext: "So mattstack can read and write Linear tickets", state: .todo,
+                                    detail: "No Linear account connected yet",
+                                    action: RowAction(type: .connect, label: "Connect", integration: "linear", fields: [
+                                        ActionField(name: "apiKey", label: "Linear API key", secret: true, hint: "lin_api_…"),
+                                    ], create: ActionLink(label: "Create token", url: "https://linear.app/settings/account/security")))
+        static let linearDone = FormRow(id: "linear", title: "Linear", subtext: "So mattstack can read and write Linear tickets", state: .done,
+                                        detail: "Connected")
+        private static let addToChrome = RowAction(type: .openURL, label: "Add to Chrome",
+                                                   url: "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm",
+                                                   waiting: "Waiting for Chrome…", again: "Open again", primary: true)
+        static let fastBrowser = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
+                                         detail: "Not installed in Chrome", action: addToChrome, waiting: "Waiting for Chrome…", watch: true)
+        static let soloFastBrowser = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
+                                             detail: "Not installed in Chrome", action: addToChrome, waiting: "Waiting for Chrome…", watch: true,
+                                             optional: true)
+        static let fastBrowserDone = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .done,
+                                             detail: "Added", watch: true)
+        static let getChrome = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
+                                       detail: "Google Chrome is not installed",
+                                       action: RowAction(type: .openURL, label: "Get Chrome", url: "https://www.google.com/chrome/"), watch: true)
     }
 
     enum Rows {
