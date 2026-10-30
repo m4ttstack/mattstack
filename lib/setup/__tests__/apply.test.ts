@@ -400,10 +400,9 @@ describe("the plan event's bar phases", () => {
     const { ctx, events } = testCtx();
     await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
     const plan = events.find((e) => e.event === "plan");
-    expect(plan && plan.event === "plan" ? plan.steps.map((s) => Object.keys(s).sort()) : []).toEqual(
-      plan && plan.event === "plan" ? plan.steps.map(() => ["id", "kind", "title"]) : [[]],
-    );
-    expect(plan && plan.event === "plan" ? plan.steps.length : 0).toBeGreaterThan(0);
+    if (!plan || plan.event !== "plan") throw new Error("missing update plan");
+    expect(plan.steps.length).toBeGreaterThan(0);
+    for (const step of plan.steps) expect(Object.keys(step).sort()).toEqual(["id", "kind", "title"]);
   });
 });
 

@@ -17,6 +17,171 @@ exports[`the setup plan's shape and copy apply emits the org folder, pull and id
 ]
 `;
 
+exports[`the setup plan's shape and copy apply phases: the copy is what the copy table says 1`] = `
+{
+  "board.cwds": {
+    "paused": "Couldn't set up the board",
+    "phase": "Setting up the board",
+    "weight": 1,
+  },
+  "board.keys": {
+    "paused": "Couldn't set up the board",
+    "phase": "Setting up the board",
+    "weight": 1,
+  },
+  "board.restart": {
+    "paused": "Couldn't start the board",
+    "phase": "Starting the board",
+    "weight": 1,
+  },
+  "claude.permissions": {
+    "paused": "Couldn't set up Claude",
+    "phase": "Setting up Claude",
+    "weight": 1,
+  },
+  "cron.triage": {
+    "paused": "Couldn't set up the board",
+    "phase": "Setting up the board",
+    "weight": 1,
+  },
+  "deck.managed": {
+    "paused": "Couldn't start your apps",
+    "phase": "Starting your apps",
+    "weight": 2,
+  },
+  "extension.install": {
+    "paused": "Couldn't install editor extensions",
+    "phase": "Installing editor extensions",
+    "weight": 2,
+  },
+  "fastbrowser.setup": {
+    "paused": "Couldn't set up Fast Browser",
+    "phase": "Setting up Fast Browser",
+    "weight": 4,
+  },
+  "git.identity": {
+    "paused": "Couldn't set up git",
+    "phase": "Setting up git",
+    "weight": 1,
+  },
+  "herdr.integration": {
+    "paused": "Couldn't set up herdr",
+    "phase": "Setting up herdr",
+    "weight": 1,
+  },
+  "home.init": {
+    "paused": "Couldn't set up your settings folder",
+    "phase": "Setting up your settings folder",
+    "weight": 1,
+  },
+  "home.restore": {
+    "paused": "Couldn't restore your settings",
+    "phase": "Restoring your settings",
+    "weight": 2,
+  },
+  "intercepts.install": {
+    "paused": "Couldn't set up rt",
+    "phase": "Setting up rt",
+    "weight": 1,
+  },
+  "linear.mcp": {
+    "paused": "Couldn't connect Linear",
+    "phase": "Connecting Linear",
+    "weight": 1,
+  },
+  "org.folder": {
+    "paused": "Couldn't get your team's settings",
+    "phase": "Getting your team's settings",
+    "weight": 1,
+  },
+  "org.forge-access": {
+    "paused": "Couldn't get your team's settings",
+    "phase": "Getting your team's settings",
+    "weight": 1,
+  },
+  "org.pull": {
+    "paused": "Couldn't get your team's settings",
+    "phase": "Getting your team's settings",
+    "weight": 1,
+  },
+  "path.link": {
+    "paused": "Couldn't set up rt",
+    "phase": "Setting up rt",
+    "weight": 1,
+  },
+  "plugins.install": {
+    "paused": "Couldn't install Claude plugins",
+    "phase": "Installing Claude plugins",
+    "weight": 6,
+  },
+  "proxy.install": {
+    "paused": "Couldn't set up fancy URLs",
+    "phase": "Setting up fancy URLs",
+    "weight": 1,
+  },
+  "repos.clone": {
+    "paused": "Couldn't clone your repos",
+    "phase": "Cloning your repos",
+    "weight": 10,
+  },
+  "secrets.write": {
+    "paused": "Couldn't save your sign-ins",
+    "phase": "Saving your sign-ins",
+    "weight": 1,
+  },
+  "services.register": {
+    "paused": "Couldn't start mattstack",
+    "phase": "Starting mattstack",
+    "weight": 1,
+  },
+  "services.start": {
+    "paused": "Couldn't start mattstack",
+    "phase": "Starting mattstack",
+    "weight": 2,
+  },
+  "settings.seed": {
+    "paused": "Couldn't set up rt",
+    "phase": "Setting up rt",
+    "weight": 1,
+  },
+  "skills.link": {
+    "paused": "Couldn't install skills",
+    "phase": "Installing skills",
+    "weight": 1,
+  },
+  "skills.materialize": {
+    "paused": "Couldn't install skills",
+    "phase": "Installing skills",
+    "weight": 2,
+  },
+  "snapshot.push": {
+    "paused": "Couldn't save a snapshot",
+    "phase": "Saving a snapshot",
+    "weight": 1,
+  },
+  "team.create": {
+    "paused": "Couldn't create your team",
+    "phase": "Creating your team",
+    "weight": 1,
+  },
+  "team.identity": {
+    "paused": "Couldn't get your team's settings",
+    "phase": "Getting your team's settings",
+    "weight": 1,
+  },
+  "team.join": {
+    "paused": "Couldn't join your team",
+    "phase": "Joining your team",
+    "weight": 1,
+  },
+  "verify": {
+    "paused": "Couldn't check everything",
+    "phase": "Checking everything",
+    "weight": 2,
+  },
+}
+`;
+
 exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`] = `
 {
   "canInstall": false,

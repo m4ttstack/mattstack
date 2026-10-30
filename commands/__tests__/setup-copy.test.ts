@@ -12,6 +12,7 @@ import { createApplyContext, runApplyWith } from "../../lib/setup/apply.ts";
 import { STEPS } from "../../lib/setup/steps/index.ts";
 import type { ApplyEvent } from "../../lib/setup/contract.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
+import { STEP_PHASES } from "../../lib/setup/run-phases.ts";
 import type { Plan, Row } from "../../lib/setup/contract.ts";
 import { markDeferred } from "../../lib/setup/repo-placement.ts";
 import { updateSetupState } from "../../lib/setup/state.ts";
@@ -138,6 +139,10 @@ describe("the setup plan's shape and copy", () => {
     const at = event.steps.findIndex((step) => step.id === "team.join");
     expect(event.steps.slice(at, at + 4).map((step) => step.id)).toEqual(["team.join", "org.folder", "org.pull", "team.identity"]);
     expect(event.steps.slice(at + 1, at + 4).map((step) => ({ id: step.id, title: step.title }))).toMatchSnapshot();
+  });
+
+  test("apply phases: the copy is what the copy table says", () => {
+    expect(STEP_PHASES).toMatchSnapshot();
   });
 
   for (const mode of ["plan", "status"] as const) {
