@@ -41,7 +41,11 @@ export interface SetupState {
   boardRestartPending?: boolean;
   /** The last Homebrew install the privileged helper attempted. Any outcome counts as asked, so a failed attempt never raises the admin dialog again. */
   homebrew?: { at: string; outcome: "ok" | "present" | "failed"; detail?: string };
+  /** Where the member chose to keep their settings. A remote with a url or create is staged until home.init pushes to it. */
+  homeBackup?: HomeBackupChoice;
 }
+
+export type HomeBackupChoice = { mode: "local" } | { mode: "remote"; url?: string; create?: boolean; name?: string };
 
 export interface PendingMarketplaceMove {
   marketplace: string;

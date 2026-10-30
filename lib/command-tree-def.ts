@@ -2785,6 +2785,13 @@ export const TREE: Record<string, CommandNode> = {
         hidden: true,
         args: [SETUP_JSON_ARG],
       },
+      "home-backup": {
+        description: "Choose where your settings are kept",
+        module: "./commands/setup.ts",
+        fn: "setupHomeBackup",
+        hidden: true,
+        args: [SETUP_JSON_ARG],
+      },
       "join-status": {
         description: "Check whether your team admin approved your request to join",
         module: "./commands/setup.ts",

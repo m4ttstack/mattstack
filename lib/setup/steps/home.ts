@@ -9,7 +9,9 @@
 import { join } from "path";
 import { readAgeKey } from "../../home/age-key.ts";
 import { INIT_OUTPUT_CAPTION, INIT_STEP_FAILED } from "../../home/init-exec.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { ApplyContext } from "../apply.ts";
+import { markHomeRemoteApplied, pendingHomeRemote, setHomeRemote } from "../home-remote.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -97,6 +99,25 @@ export function homeInitDoneDetail(stdout: string): string {
 }
 
 async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
+  const created = await createHomeRepo(ctx);
+  if (created.state !== "done") return created;
+  return pushToStagedRemote(ctx, created);
+}
+
+/** The staged choice stays on a failure, so the next run tries the push again. */
+async function pushToStagedRemote(ctx: ApplyContext, created: StepOutcome & { state: "done" }): Promise<StepOutcome> {
+  const staged = pendingHomeRemote(ctx.p);
+  if (staged === null) return created;
+  try {
+    markHomeRemoteApplied(ctx.p, await setHomeRemote(ctx.p, staged));
+    return created;
+  } catch (err) {
+    if (!(err instanceof UserActionableError)) throw err;
+    return { state: "partial", detail: err.message, remedy: "Check the remote, then Retry" };
+  }
+}
+
+async function createHomeRepo(ctx: ApplyContext): Promise<StepOutcome> {
   const { p } = ctx;
   const alreadyCloned = p.exists(homeGitDir(p.home));
   const keyStatus = await checkLocalKey(ctx);
@@ -205,6 +226,10 @@ async function homeRepoReady(ctx: ApplyContext): Promise<boolean> {
   return ctx.p.exists(homeGitDir(ctx.p.home)) && (await checkLocalKey(ctx)).status === "present";
 }
 
+async function homeInitSatisfied(ctx: ApplyContext): Promise<boolean> {
+  return (await homeRepoReady(ctx)) && pendingHomeRemote(ctx.p) === null;
+}
+
 async function homeInitRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
   try {
     return await homeInitRun(ctx);
@@ -226,7 +251,7 @@ export const homeInitStep: StepDef = {
   title: "Create your settings home repo",
   kind: "rt",
   applies: (ctx) => ctx.intent?.mode !== "restore",
-  satisfied: homeRepoReady,
+  satisfied: homeInitSatisfied,
   run: homeInitRunSafe,
 };
 

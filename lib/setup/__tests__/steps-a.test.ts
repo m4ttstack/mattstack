@@ -34,6 +34,7 @@ import { stageSecret, stagingDir } from "../staging.ts";
 import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
 import { markDeferred, markJoining, readPlacements, writePlacement } from "../repo-placement.ts";
 import { fakeProbes, gitRepo, realFsProbes } from "./fakes.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 
 import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
@@ -216,6 +217,47 @@ describe("home.init", () => {
 
     const outcome = await homeInitStep.run(ctx);
     expect(outcome).toEqual({ state: "done", detail: "This Mac is set up: /fake-home/.mattstack" });
+  });
+
+  test("home.init pushes to a staged remote once the repo exists", async () => {
+    const url = "https://github.com/janedoe/mattstack-home.git";
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    const p: ReturnType<typeof fakeProbes> = fakeProbes({
+      home: "/fake-home",
+      runRt: async () => {
+        p.mkdirp(gitDir);
+        return ok("[ok] This Mac is set up  /fake-home/.mattstack");
+      },
+      exec: async (argv) => (argv.includes("get-url") ? { code: 2, stdout: "", stderr: "error: No such remote 'origin'" } : ok()),
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", url } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
+
+    const outcome = await homeInitStep.run(ctx);
+
+    expect(outcome).toEqual({ state: "done", detail: "This Mac is set up: /fake-home/.mattstack" });
+    const calls = p.calls.exec.map((a) => a.join(" "));
+    expect(calls).toContain(`git -C /fake-home/.mattstack/user remote add origin ${url}`);
+    expect(calls).toContain("git -C /fake-home/.mattstack/user push -u origin HEAD");
+    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", url });
+  });
+
+  test("a staged remote that fails leaves home.init partial and the choice in place", async () => {
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { [gitDir]: [] },
+      exec: async (argv) => (argv[0] === "gh" ? { code: 4, stdout: "", stderr: "please run: gh auth login" } : ok()),
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", create: true } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await homeInitStep.satisfied!(ctx)).toBe(false);
+    const outcome = await homeInitStep.run(ctx);
+
+    expect(outcome).toMatchObject({ state: "partial" });
+    expect((outcome as { detail: string }).detail).toContain("Could not create mattstack-home with gh");
+    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", create: true });
   });
 
   test("`rt home init` failure -> failed, remedy points at gh auth login", async () => {
