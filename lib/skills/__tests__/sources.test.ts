@@ -642,7 +642,91 @@ describe("buildPluginRoots", () => {
     ]);
 
     expect(roots.dirs).toEqual([realpathSync(userDir), realpathSync(projectDir)]);
-    expect(roots.byName.mattstack?.dir).toBe(realpathSync(projectDir));
+    expect(roots.byName.mattstack?.dir).toBe(realpathSync(userDir));
+  });
+
+  function twoInstalls(prefix: string): { userDir: string; projectDir: string } {
+    const rootDir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+    const userDir = join(rootDir, "user");
+    const projectDir = join(rootDir, "project");
+    writeFile(join(userDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "2.0.0" }));
+    writeFile(join(projectDir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
+    return { userDir, projectDir };
+  }
+
+  test("buildPluginRoots picks the user install over a stale project install rooted at the home folder", () => {
+    const { userDir, projectDir } = twoInstalls("rt-skills-plugin-stale-");
+    const home = "/Users/acme";
+
+    const roots = buildPluginRoots(
+      [
+        { id: "widgets@acme", installPath: userDir, scope: "user", enabled: false },
+        { id: "widgets@acme", installPath: projectDir, scope: "project", enabled: true, projectPath: home },
+      ],
+      { cwd: `${home}/code/gadgets`, home },
+    );
+
+    expect(roots.byName.widgets).toEqual({ dir: userDir, version: "2.0.0" });
+  });
+
+  test("a project install rooted at the home folder with a trailing slash is still the stale one", () => {
+    const { userDir, projectDir } = twoInstalls("rt-skills-plugin-stale-slash-");
+    const home = "/Users/acme";
+
+    const roots = buildPluginRoots(
+      [
+        { id: "widgets@acme", installPath: userDir, scope: "user", enabled: false },
+        { id: "widgets@acme", installPath: projectDir, scope: "project", enabled: true, projectPath: `${home}/` },
+      ],
+      { cwd: `${home}/code/gadgets`, home },
+    );
+
+    expect(roots.byName.widgets).toEqual({ dir: userDir, version: "2.0.0" });
+  });
+
+  test("buildPluginRoots picks a project install whose project holds the cwd", () => {
+    const { userDir, projectDir } = twoInstalls("rt-skills-plugin-project-");
+    const home = "/Users/acme";
+
+    const roots = buildPluginRoots(
+      [
+        { id: "widgets@acme", installPath: projectDir, scope: "project", projectPath: `${home}/code/gadgets` },
+        { id: "widgets@acme", installPath: userDir, scope: "user" },
+      ],
+      { cwd: `${home}/code/gadgets/src`, home },
+    );
+
+    expect(roots.byName.widgets).toEqual({ dir: projectDir, version: "1.0.0" });
+  });
+
+  test("buildPluginRoots ignores a project install for a sibling project", () => {
+    const { userDir, projectDir } = twoInstalls("rt-skills-plugin-sibling-");
+    const home = "/Users/acme";
+
+    const roots = buildPluginRoots(
+      [
+        { id: "widgets@acme", installPath: userDir, scope: "user" },
+        { id: "widgets@acme", installPath: projectDir, scope: "project", projectPath: `${home}/code/gadgets` },
+      ],
+      { cwd: `${home}/code/gadgets-two`, home },
+    );
+
+    expect(roots.byName.widgets?.dir).toBe(userDir);
+  });
+
+  test("buildPluginRoots prefers an enabled install over a disabled one at the same scope", () => {
+    const { userDir, projectDir } = twoInstalls("rt-skills-plugin-disabled-");
+
+    const roots = buildPluginRoots(
+      [
+        { id: "widgets@acme", installPath: userDir, scope: "user" },
+        { id: "widgets@acme", installPath: projectDir, scope: "user", enabled: false },
+      ],
+      { cwd: "/Users/acme/code/gadgets", home: "/Users/acme" },
+    );
+
+    expect(roots.byName.widgets?.dir).toBe(userDir);
+    expect(roots.dirs).toEqual([userDir, projectDir]);
   });
 
   test("buildPluginRoots dedupes a root listed twice", () => {
