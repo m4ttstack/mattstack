@@ -371,3 +371,27 @@ describe("startCron", () => {
     }
   });
 });
+
+describe("a failed cron command", () => {
+  const runOnce = async (script: string) => {
+    const warns: string[] = [];
+    const cron = startCron(
+      { triggers: [{ name: "t", event: "tick", run: ["sh", "-c", script], debounceMs: 5 }] },
+      { log: { info: () => {}, warn: (m) => warns.push(m) } },
+    );
+    cron.onBroadcast("tick", null);
+    await sleep(500);
+    cron.dispose();
+    return warns;
+  };
+
+  test("logs the tail of its stderr with the exit code", async () => {
+    expect(await runOnce("echo first >&2; echo db schema too new >&2; exit 3")).toEqual([
+      "cron t: exited 3: first\ndb schema too new",
+    ]);
+  });
+
+  test("a clean exit logs no stderr", async () => {
+    expect(await runOnce("echo chatter >&2")).toEqual([]);
+  });
+});
