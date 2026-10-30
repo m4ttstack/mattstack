@@ -168,7 +168,8 @@ describe('landFollowUp', () => {
         phase: 'error',
         stuck: true,
         variant: 'error-stuck',
-        replyDue: copyFor({ state: 'error-stuck' }).sentence,
+        replyDue:
+          "The follow-up review didn't finish after 3 tries. The reviewer has been told.",
       })
     );
     expect(await h.land()).toBe('landed');

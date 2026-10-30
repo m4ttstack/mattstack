@@ -262,8 +262,8 @@ describe('spendLatch', () => {
       'resolve:d1',
     ]);
     expect(latchKindOf(bodies[0]!)).toBe('spent');
-    expect(bodies[0]).toContain('Approved, so this latch is spent');
     expect(bodies[0]).toContain('![Approved](');
+    expect(bodies[0]!.trimEnd().endsWith(')')).toBe(true);
   });
 
   test('an already-spent latch that is resolved draws no writes', async () => {
@@ -315,7 +315,7 @@ describe('spendLatch', () => {
       NOW,
       db
     );
-    expect(bodies[0]).toContain('Superseded by a newer latch on this MR');
+    expect(bodies[0]).toContain('![Replaced](');
     expect(bodies[0]).not.toContain('Approved');
   });
 
@@ -435,7 +435,7 @@ describe('spendAllLatches', () => {
       db
     );
     expect(
-      bodies.every(b => b.includes('Superseded by a newer latch on this MR'))
+      bodies.every(b => b.includes('![Replaced]('))
     ).toBe(true);
   });
 });

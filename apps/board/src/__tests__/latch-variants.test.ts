@@ -135,8 +135,8 @@ describe('copy', () => {
       [{ state: 'approved' }, 'Approved', 'Nothing more to do', '#86cfa0'],
       [
         { state: 'superseded' },
-        'Superseded',
-        'A newer latch is live',
+        'Replaced',
+        'See the newer thread below',
         '#8e88a0',
       ],
     ];
@@ -161,28 +161,28 @@ describe('copy', () => {
 
   test('queued subtitles name the wait', () => {
     expect(SUB({ state: 'queued', wait: 'next-sweep' })).toBe(
-      'Starts on the next sweep'
+      'Starts in a few minutes'
     );
     expect(SUB({ state: 'queued', wait: 'cooldown' })).toBe(
-      'Waiting out the cooldown'
+      'Waiting between reviews'
     );
     expect(SUB({ state: 'queued', wait: 'budget' })).toBe(
-      'Daily limit hit; starts tomorrow'
+      'Daily limit reached. Starts tomorrow'
     );
     expect(SUB({ state: 'queued', wait: 'review-in-flight' })).toBe(
-      'Waiting for the running review'
+      'Waiting on another review'
     );
   });
 
   test('error-retrying subtitles name the wait', () => {
     expect(SUB({ state: 'error-retrying', wait: 'next-sweep' })).toBe(
-      'Retrying on the next sweep'
+      'Trying again in a few minutes'
     );
     expect(SUB({ state: 'error-retrying', wait: 'cooldown' })).toBe(
-      'Retrying after the cooldown'
+      'Trying again after a pause'
     );
     expect(SUB({ state: 'error-retrying', wait: 'budget' })).toBe(
-      'Daily limit hit; retrying tomorrow'
+      'Daily limit reached. Trying again tomorrow'
     );
   });
 
@@ -207,34 +207,27 @@ describe('copy', () => {
     );
   });
 
-  test('sentences under the image', () => {
+  test('a sentence only where the author has something to do', () => {
     expect(copyFor({ state: 'armed' }).sentence).toBe(
       "**Addressed everything?** Resolve this thread and I'll take another pass over the MR.\n\nLeave it open while there's still work in flight."
-    );
-    expect(copyFor({ state: 'approved' }).sentence).toBe(
-      'Approved, so this latch is spent. Nothing further to do here.'
-    );
-    expect(copyFor({ state: 'superseded' }).sentence).toBe(
-      'Superseded by a newer latch on this MR; nothing to do here.'
-    );
-    expect(copyFor({ state: 'queued', wait: 'budget' }).sentence).toBe(
-      "Follow-up review requested. I'll start it as soon as I can."
-    );
-    expect(copyFor({ state: 'running' }).sentence).toBe(
-      "Follow-up review in progress. I'll reply here when it's done."
-    );
-    expect(
-      copyFor({ state: 'error-retrying', wait: 'cooldown' }).sentence
-    ).toBe("The follow-up review didn't finish. I'll try again.");
-    expect(copyFor({ state: 'error-stuck' }).sentence).toBe(
-      "The follow-up review didn't finish after 3 tries. The reviewer has been told."
     );
     expect(copyFor({ state: 'done-comments', count: 4 }).sentence).toBe(
       "Follow-up review done. Resolve this thread again when you've addressed the new comments."
     );
-    expect(copyFor({ state: 'done-approved' }).sentence).toBe(
-      'Follow-up review done and approved, so this latch is spent.'
-    );
+    for (const key of allVariantKeys()) {
+      const v = variantOfKey(key)!;
+      if (v.state === 'armed' || v.state === 'done-comments') continue;
+      expect(copyFor(v).sentence).toBeUndefined();
+    }
+  });
+
+  test('no posted copy names the latch', () => {
+    for (const key of allVariantKeys()) {
+      const c = copyFor(variantOfKey(key)!);
+      expect(`${c.title} ${c.sub} ${c.sentence ?? ''}`).not.toMatch(
+        /latch|spent|supersed|sweep|cooldown/i
+      );
+    }
   });
 
   test('indicator follows the state', () => {
