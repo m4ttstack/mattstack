@@ -35,6 +35,13 @@ describe("applyExpectations", () => {
     expect(out).toMatchObject({ required: false, finishGated: true, waivable: false, optionalNote: null, action: ADD_LINEAR_MCP });
   });
 
+  test("board peering waiting on the org admin stays a task, but never holds Finish", () => {
+    const steps: Action = { type: "steps", label: "Show steps…", steps: ["Ask your org admin"] };
+    const out = one(rowOf("account.board-peering", "needs-you", { action: steps }));
+    expect(out).toMatchObject({ status: "needs-you", required: false, action: steps });
+    expect(out.finishGated).toBeUndefined();
+  });
+
   test("a validator's required state is never lowered", () => {
     const input = rowOf("tool.herdr", "missing", { required: true, optionalNote: null, action: { type: "install", label: "Install", tool: "herdr", via: "brew" } });
     expect(one(input)).toEqual(input);

@@ -520,7 +520,7 @@ export async function homeBackupRow(
     id: "home.backup",
     kind: "tool" as const,
     title: "Home repo backup",
-    why: "Local-only is fully supported; this only confirms whether your settings are actually backed up anywhere, not just committed on this machine.",
+    why: "Shows whether your settings are backed up off this Mac. Keeping them local only is fine.",
     required: false,
     optionalNote: "Works without this; local-only just means this machine is the only copy of your settings.",
     recheck: "on-activate" as const,
@@ -537,7 +537,7 @@ export async function homeBackupRow(
   }
 
   if (!(await hasRemote(exec, repoDir))) {
-    return row({ ...base, status: "needs-you", detail: "Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create", action: HOME_BACKUP_ADD_REMOTE_ACTION });
+    return row({ ...base, status: "ready", detail: "Local only: this Mac holds the only copy of your settings", action: HOME_BACKUP_ADD_REMOTE_ACTION });
   }
 
   const state = await originPushState(exec, repoDir);

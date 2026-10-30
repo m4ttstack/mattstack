@@ -26,7 +26,6 @@ export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "tool.proxy": "finish",
   "team.sync": "finish",
   "team.marketplace": "finish",
-  "account.board-peering": "finish",
   "home.backup": "finish",
   "tool.state-backup": "finish",
   "skills.overrides": "skip",

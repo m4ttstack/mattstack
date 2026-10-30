@@ -157,6 +157,10 @@ function declaredIntegrations(team: TeamSnapshot, reqs: PackRequirements[]): Dec
   return [...entries.values()];
 }
 
+export function teamDeclaresIntegration(team: TeamSnapshot, reqs: PackRequirements[], id: Integration): boolean {
+  return declaredIntegrations(team, reqs).some((entry) => entry.id === id);
+}
+
 async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, forge: ForgeConnect): Promise<Row> {
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
@@ -238,9 +242,9 @@ const REINVITE_STEPS: Action = {
 };
 
 /**
- * It blocks Finish (never Install) and is never waivable; only the org admin
- * can fix it, so its steps name them. The note must not start "Works
- * without": the app's Done screen drops rows whose note does.
+ * It never blocks Install or Finish, since only the org admin can fix it, so
+ * its steps name them. The note must not start "Works without": the app's
+ * Done screen drops rows whose note does.
  */
 const BOARD_PEERING_BASE = {
   id: BOARD_PEERING_ROW_ID,

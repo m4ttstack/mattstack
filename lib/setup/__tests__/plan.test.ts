@@ -335,7 +335,7 @@ describe("composePlan — install-satisfied flip", () => {
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
       // The fake home has no home repo, so skills.writing-style also blocks Finish here.
-      expect(plan.finishBlockedBy).toEqual(["tool.mission-control", "skills.writing-style", "tool.linear-mcp", "tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.state-backup", "home.backup"]);
+      expect(plan.finishBlockedBy).toEqual(["tool.mission-control", "skills.writing-style", "tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.state-backup", "home.backup"]);
       expect(plan.requiredMissing).not.toContain("tool.fast-browser-extension");
     }
   });
@@ -531,7 +531,7 @@ describe("finish gate", () => {
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
       const r = everyRow(plan).rows.find((r) => r.id === "tool.mission-control")!;
       expect(r.optionalNote).toBe(waivedNote("tool.mission-control"));
-      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.linear-mcp", "tool.proxy", "tool.state-backup", "home.backup"]);
+      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.proxy", "tool.state-backup", "home.backup"]);
     } finally {
       process.env.HOME = prevHome;
       rmSync(home, { recursive: true, force: true });
@@ -796,6 +796,9 @@ describe("approval wait", () => {
     for (const wait of [{ kind: "not-joined" as const }, { kind: "approved" as const }, { kind: "unreadable" as const, path: "/x", reason: "is missing" }]) {
       expect(applyApprovalWait(groups, wait)).toEqual(groups);
     }
+    const peering = row({ id: "account.board-peering", kind: "account", title: "Board peering", why: "w", required: false, status: "ready", detail: "d" });
+    const peeringWaited = applyApprovalWait([{ id: "accounts", title: "Accounts", rows: [peering] }], { kind: "waiting", since: null })[0]!.rows[0]!;
+    expect(peeringWaited).toMatchObject({ status: "needs-you", detail: APPROVAL_WAIT_DETAIL, finishGated: false });
     const waited = applyApprovalWait(groups, { kind: "waiting", since: null });
     expect(waited[0]!.rows[0]).toMatchObject({ id: "account.slack", status: "needs-you", detail: APPROVAL_WAIT_DETAIL, required: false });
     expect(waited[0]!.rows[1]).toEqual(other);

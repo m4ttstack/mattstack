@@ -727,7 +727,7 @@ const CONNECT_LINEAR_ACTION: Action = { type: "connect", label: "Connect Linear"
 const ADD_LINEAR_MCP_ACTION: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
 
 /** Wiring only: the credential itself is `account.linear`'s job, which validates this same secret against api.linear.app. Two probes of one key is one probe too many, and two rows that can disagree. */
-async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
+async function linearMcpRow(p: Probes, secrets: SecretPresence, usesLinear: boolean): Promise<Row> {
   const base = {
     id: "tool.linear-mcp",
     kind: "tool" as const,
@@ -743,6 +743,11 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
 
   const config = read.ok ? read.config : {};
   if (callableBySkills(config)) return row({ ...base, status: "ready", detail: "Linear is set up in Claude Code" });
+  if (!usesLinear) {
+    // Not the team's tool, so it never holds Finish; the action stays for a member who uses Linear on their own.
+    const hasKey = await secrets.has("rt", "linearApiKey").then((v) => v !== null, () => false);
+    return row({ ...base, status: "skipped", detail: "Your team doesn't use Linear", action: hasKey ? ADD_LINEAR_MCP_ACTION : CONNECT_LINEAR_ACTION });
+  }
   if (nameTaken(config)) return row({ ...base, status: "needs-you", detail: "Claude Code has a server named linear that is not Linear's" });
 
   // Every remaining state depends on the key, because Install skips without
@@ -777,7 +782,7 @@ export async function toolRows(
   // Optional, not required: the existing test call sites pass only
   // { hasBrew, secrets }, and tests are inside the root tsconfig, so a required
   // field turns `bunx tsc --noEmit` red while `bun test` stays green.
-  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null },
+  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null; usesLinear?: boolean },
   seams: ToolsSeams = REAL_SEAMS,
 ): Promise<Row[]> {
   const fastBrowser = await probeFastBrowser(p, seams);
@@ -826,7 +831,7 @@ export async function toolRows(
     rows.push(packRow(req, pluginList, byPack.get(name), engine));
   }
 
-  rows.push(await linearMcpRow(p, opts.secrets));
+  rows.push(await linearMcpRow(p, opts.secrets, opts.usesLinear ?? true));
 
   return rows;
 }

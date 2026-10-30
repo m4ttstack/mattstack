@@ -27,7 +27,7 @@ import { readPackRequirements } from "./requirements.ts";
 import { readStagedSecret } from "./staging.ts";
 import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { accessRows } from "./validators/access.ts";
-import { accountRows, type SecretPresence } from "./validators/accounts.ts";
+import { accountRows, BOARD_PEERING_ROW_ID, teamDeclaresIntegration, type SecretPresence } from "./validators/accounts.ts";
 import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
 import { boardTeamFieldsRowFor } from "./validators/board-team-fields.ts";
 import { macRows } from "./validators/mac.ts";
@@ -221,7 +221,8 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
+      const usesLinear = teamDeclaresIntegration(snapshot, reqs, "linear");
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs), usesLinear });
       const repos = await repoPlacementRows(i.p, team, snapshot);
       const boardFields = boardTeamFieldsRowFor(i.p, { solo, teamFor: () => (i.orgs.includes(team.slug) ? activeTeamFor(i.p, team.slug).team : null) });
       return [...tools, ...repos, ...healthRows, ...(boardFields ? [boardFields] : [])];
@@ -236,14 +237,14 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
 
 const CHECK_APPROVAL_ACTION = { type: "run" as const, label: "Check again", verb: ["setup", "join-status"] };
 
-/** Until the admin approves, these rows cannot read the team's secrets, so their own verdicts are noise: each shows the one wait instead, blocking Finish and never Install. */
+/** Until the admin approves, these rows cannot read the team's secrets, so their own verdicts are noise: each shows the one wait instead, never blocking Install. All but board peering block Finish. */
 export function applyApprovalWait(groups: Group[], wait: ApprovalState): Group[] {
   if (wait.kind !== "waiting") return groups;
   const dependent = new Set<string>(APPROVAL_DEPENDENT_IDS);
   return groups.map((g) => ({
     ...g,
     rows: g.rows.map((r) => (dependent.has(r.id)
-      ? { ...r, status: "needs-you" as const, detail: APPROVAL_WAIT_DETAIL, action: CHECK_APPROVAL_ACTION, required: false, optionalNote: null, finishGated: true, waivable: false }
+      ? { ...r, status: "needs-you" as const, detail: APPROVAL_WAIT_DETAIL, action: CHECK_APPROVAL_ACTION, required: false, optionalNote: null, finishGated: r.id !== BOARD_PEERING_ROW_ID, waivable: false }
       : r)),
   }));
 }

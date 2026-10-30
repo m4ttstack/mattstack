@@ -756,11 +756,11 @@ describe("rtHealthRows — home.backup (real git)", () => {
     return repoDir;
   }
 
-  test("no remote: needs-you, not skipped — skipped renders as info and shows no warning", async () => {
+  test("no remote: local only is a choice, so it reads ready and keeps a way to add a remote", async () => {
     const row = await homeBackupRow(await localOnlyRepo());
-    expect(row.status).toBe("needs-you");
+    expect(row.status).toBe("ready");
     expect(row.required).toBe(false);
-    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
+    expect(row.detail).toBe("Local only: this Mac holds the only copy of your settings");
     expect(row.action).not.toBeNull();
   });
 
@@ -890,7 +890,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     const row = await homeBackupRow(await localOnlyRepo(), REAL_EXEC, () => {
       throw new Error("readLastPush must not be reached on the local-only path");
     });
-    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
+    expect(row.detail).toBe("Local only: this Mac holds the only copy of your settings");
   });
 
   test("unborn branch (remote attached before any commit ever landed): needs-you, never crashes on a missing ref", async () => {
@@ -916,7 +916,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     execFileSync("git", ["remote", "add", "upstream", otherDir], { cwd: repoDir });
 
     const row = await homeBackupRow(repoDir);
-    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
+    expect(row.detail).toBe("Local only: this Mac holds the only copy of your settings");
   });
 
   test("remote configured, nothing pushed: the remedy names the push, not just the remote add", async () => {

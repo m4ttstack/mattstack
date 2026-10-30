@@ -1402,6 +1402,27 @@ describe("toolRows: tool.linear-mcp", () => {
     expect(r.action).toEqual(ADD_TO_CLAUDE);
   });
 
+  describe("a team that doesn't use Linear", () => {
+    const rowOff = (files: Record<string, string>, secrets: SecretPresence) =>
+      pickRow(toolRows(fakeProbes({ home: HOME, env: {}, files }), [], { hasBrew: true, secrets, usesLinear: false }, NOOP_SEAMS), "tool.linear-mcp");
+
+    test("not connected: skipped, so it never holds Finish, and Connect stays offered", async () => {
+      const r = await rowOff(conf({}), NO_SECRETS);
+      expect([r.status, r.detail]).toEqual(["skipped", "Your team doesn't use Linear"]);
+      expect(r.action?.type).toBe("connect");
+    });
+
+    test("connected but not added: skipped, with Add to Claude", async () => {
+      const r = await rowOff(conf({}), HAS_KEY);
+      expect([r.status, r.detail]).toEqual(["skipped", "Your team doesn't use Linear"]);
+      expect(r.action).toEqual(ADD_TO_CLAUDE);
+    });
+
+    test("already set up: still ready", async () => {
+      expect((await rowOff(conf({ mcpServers: { linear: hosted } }), HAS_KEY)).status).toBe("ready");
+    });
+  });
+
   test("an absent config file is not an error", async () => {
     const r = await rowFor({}, HAS_KEY);
     expect(r.status).toBe("missing");
