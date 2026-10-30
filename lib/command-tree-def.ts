@@ -2868,6 +2868,26 @@ export const TREE: Record<string, CommandNode> = {
           },
         },
       },
+      claude: {
+        description: "Sign in to Claude Code",
+        hidden: true,
+        subcommands: {
+          connect: {
+            description: "Sign in to Claude Code from setup",
+            module: "./commands/setup-claude.ts",
+            fn: "setupClaudeConnect",
+            hidden: true,
+            args: [SETUP_JSON_ARG],
+          },
+          code: {
+            description: "Send the code your browser shows to a Claude sign-in",
+            module: "./commands/setup-claude.ts",
+            fn: "setupClaudeCode",
+            hidden: true,
+            args: [SETUP_JSON_ARG],
+          },
+        },
+      },
       github: integrationNode("github", "GitHub"),
       gitlab: integrationNode("gitlab", "GitLab"),
       linear: integrationNode("linear", "Linear"),

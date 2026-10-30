@@ -234,11 +234,37 @@ describe("toolRows — tool.claude", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("Not signed in yet. Run claude once and sign in");
-    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Open a terminal", "Run: claude", "Follow the sign-in prompt"] });
-    // Sign-in is an interactive step after Install; the binary gates Install, the sign-in never.
+    // The binary gates Install; the sign-in never does.
     expect(r.required).toBe(false);
-    expect(r.optionalNote).toContain("after Install");
+  });
+
+  test("not signed in offers Sign in to Claude, which runs rt setup claude connect", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("1.2.3\n");
+      if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: false }));
+      return ok();
+    };
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.detail).toBe("Not signed in yet");
+    expect(r.action).toEqual({ type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] });
+    expect(r.optionalNote).toBeNull();
+  });
+
+  test("no row tells the member to open a terminal", async () => {
+    const answers: ExecResult[] = [ok(JSON.stringify({ loggedIn: false })), { code: 1, stdout: "", stderr: "unknown command \"auth\"" }, { code: 1, stdout: "", stderr: "not logged in" }];
+    for (const answer of answers) {
+      const exec: ExecScript = (argv) => {
+        if (argv[0] === "claude" && argv[1] === "--version") return ok("1.2.3\n");
+        if (argv[0] === "claude" && argv[1] === "auth") return answer;
+        return ok();
+      };
+      const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+      const steps = r.action?.type === "steps" ? r.action.steps : [];
+      for (const text of [r.detail, ...steps]) {
+        expect(text).not.toContain("terminal");
+        expect(text).not.toContain("Run: claude");
+      }
+    }
   });
 
   test("auth status unknown subcommand (stderr mentions unknown) -> needs-you, sign-in not checked — never a guessed ready (H-1)", async () => {
@@ -264,7 +290,7 @@ describe("toolRows — tool.claude", () => {
     expect(r.detail).toContain("sign-in could not be checked");
   });
 
-  test("auth status known non-zero exit, non-JSON -> needs-you, sign in steps", async () => {
+  test("auth status known non-zero exit, non-JSON -> needs-you, Sign in to Claude", async () => {
     const exec: ExecScript = (argv) => {
       if (argv[0] === "claude" && argv[1] === "--version") return ok("1.2.3\n");
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "not logged in" };
@@ -272,7 +298,7 @@ describe("toolRows — tool.claude", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("Not signed in yet. Run claude once and sign in");
+    expect(r.detail).toBe("Not signed in yet");
   });
 
   test("auth status times out -> error", async () => {
@@ -1266,13 +1292,13 @@ describe("Done-screen contract: optional rows with a manual action", () => {
    * mattstack.app's Done screen as a step the user still owes exactly when
    * it is optional, not ready, not skipped, its action is steps or
    * open-url, and its optionalNote does not start with "works without"
-   * (case-insensitively). These three ids are what this side guarantees
+   * (case-insensitively). These two ids are what this side guarantees
    * are genuine manual steps belonging on that list; every other optional
    * steps/open-url row this module can emit must keep the "works without"
    * wording, since a reworded note here changes what the Done screen shows
    * without failing a single test on either side of the language boundary.
    */
-  const DONE_SCREEN_MANUAL_STEP_IDS = new Set(["tool.claude", "tool.fast-browser-extension", "tool.chrome-signin"]);
+  const DONE_SCREEN_MANUAL_STEP_IDS = new Set(["tool.fast-browser-extension", "tool.chrome-signin"]);
 
   function assertOptionalManualActionRows(rows: Row[]) {
     for (const r of rows) {
@@ -1303,9 +1329,6 @@ describe("Done-screen contract: optional rows with a manual action", () => {
     // The scenario must actually reach the rows this test exists to guard;
     // otherwise a change that stops emitting one of them would pass here
     // without proving anything.
-    const claude = rows.find((r) => r.id === "tool.claude")!;
-    expect(claude.required).toBe(false);
-    expect(claude.action?.type).toBe("steps");
     const widget = rows.find((r) => r.id === "tool.team.widget")!;
     expect(widget.action?.type).toBe("steps");
     const sdm = rows.find((r) => r.id === "tool.team.sdm")!;
