@@ -23,4 +23,9 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdatePolicy.allowsImmediateInstall(setupRunning: true, windowsOpen: 0), false)
         c.expectEqual(UpdatePolicy.allowsImmediateInstall(setupRunning: false, windowsOpen: 1), false)
     },
+    Check("UpdatePolicy: a run in flight holds updates with no window open") { c in
+        c.expectEqual(UpdatePolicy.setupBusy(windowRunning: false, runInFlight: true), true)
+        c.expectEqual(UpdatePolicy.setupBusy(windowRunning: true, runInFlight: false), true)
+        c.expectEqual(UpdatePolicy.setupBusy(windowRunning: false, runInFlight: false), false)
+    },
 ]

@@ -56,7 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     // placeholder SUPublicEDKey already blocks Sparkle in every build this
     // repo produces, but a future real key must not revive it under the
     // stub-driven UI-test/QA harness.
-    lazy var updater = UpdaterController(isDevBuild: BundleFlavor.isDevBuild || BundleFlavor.isStubActive, isBusy: { SetupSession.isRunning })
+    lazy var updater = UpdaterController(isDevBuild: BundleFlavor.isDevBuild || BundleFlavor.isStubActive, isBusy: { UpdatePolicy.setupBusy(windowRunning: SetupSession.isRunning, runInFlight: SetupSession.runInFlight) })
     private var updaterObservation: NSKeyValueObservation?
 
     // ── Setup / Settings / rt ────────────────────────────────────────────────
