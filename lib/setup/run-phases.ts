@@ -36,4 +36,5 @@ export const STEP_PHASES: Readonly<Record<StepId, StepPhase>> = {
   "board.restart": { phase: "Starting the board", weight: 1, paused: "Couldn't start the board" },
   "snapshot.push": { phase: "Saving a snapshot", weight: 1, paused: "Couldn't save a snapshot" },
   verify: { phase: "Checking everything", weight: 2, paused: "Couldn't check everything" },
+  "apps.restart": { phase: "Restarting your apps", weight: 1, paused: "Couldn't restart your apps" },
 };

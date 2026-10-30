@@ -134,6 +134,23 @@ export interface StepDef {
 
 const INTERCEPTS_STEP: StepId = "intercepts.install";
 
+/** Runs at the end of every whole run and update run, after a failed step too, and its outcome never changes the run's. */
+const RUN_END_STEP: StepId = "apps.restart";
+
+/** Streams the end step like any other; a throw or a `failed` outcome reads as `partial`, since this step must never fail a run. */
+async function runEndStep(step: StepDef, ctx: ApplyContext): Promise<StepOutcome> {
+  ctx.emit({ event: "step", id: step.id, state: "running" });
+  let outcome: StepOutcome;
+  try {
+    outcome = await step.run(ctx);
+  } catch (err) {
+    outcome = { state: "partial", detail: err instanceof Error ? err.message : String(err) };
+  }
+  if (outcome.state === "failed") outcome = { ...outcome, state: "partial" };
+  ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
+  return outcome;
+}
+
 // Re-exported for backward compatibility (and so callers that already import
 // it from here, like apply.test.ts, keep working) — the implementation lives
 // in need.ts so a step file can import it without a steps/index.ts -> apply.ts
@@ -224,7 +241,9 @@ export interface ApplyRunOptions {
   record?: "fresh" | "continue";
   /** Steps a resumed run already finished: each applicable one streams `done` right after `plan`, and none runs again. */
   replay?: StepId[];
-  /** Runs, and is awaited, once the record's end is written and before `done` goes out, so whatever starts on `done` (the app's Retry, a form read) finds its work finished and the run lock free. */
+  /** Runs, and is awaited, once the record's end is written and before the end step restarts the apps: the run's own bookkeeping (stamp, Finish). */
+  afterRecord?: (result: { ok: boolean }) => void | Promise<void>;
+  /** Runs, and is awaited, after the end step and before `done` goes out, so whatever starts on `done` (the app's Retry, a form read) finds its work finished and the run lock free. */
   beforeDone?: (result: { ok: boolean }) => void | Promise<void>;
 }
 
@@ -332,6 +351,8 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: Ap
     replayed = applicable.filter((s) => opts.replay?.includes(s.id));
     queue = applicable.slice(resumeStart(applicable, opts.from)).filter((s) => !replayed.includes(s));
   }
+  const endStep = opts.only === undefined ? queue.find((s) => s.id === RUN_END_STEP) : undefined;
+  if (endStep) queue = queue.filter((s) => s !== endStep);
   const record = opts.only === undefined ? opts.record : undefined;
   const scrub = (text: string): string => ctx.redacted?.(text) ?? text;
 
@@ -410,11 +431,14 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: Ap
     // (early return, a rethrown bug) can leave the stream without its one
     // required terminal event.
     persistTerminalState(ctx, result.ok, lastRanId, opts.only !== undefined, record ? { failure } : undefined);
+    // Nothing before `done` may cost the stream its terminal event.
+    try {
+      await opts.afterRecord?.({ ok: result.ok });
+    } catch {}
+    if (endStep) await runEndStep(endStep, ctx);
     try {
       await opts.beforeDone?.({ ok: result.ok });
-    } catch {
-      // Nothing before `done` may cost the stream its terminal event.
-    }
+    } catch {}
     ctx.emit({ event: "done", ok: result.ok, ...(result.failedStep !== undefined ? { failedStep: result.failedStep } : {}) });
   }
 
@@ -464,7 +488,7 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
     },
     migrationId: m.id,
   }));
-  const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id)).map(item);
+  const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id) && s.id !== RUN_END_STEP).map(item);
   const verify = steps.find((s) => s.id === "verify" && s.updateSafe);
   return [...leads, ...pending, ...rest, ...(verify ? [item(verify)] : [])];
 }
@@ -483,7 +507,9 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
 export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext): Promise<UpdateRunResult> {
   settleLegacyFinish(ctx);
   const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations);
-  ctx.emit({ event: "plan", steps: items.map((i) => ({ id: i.id, title: i.title, kind: "rt" as const })) });
+  const endStep = steps.find((s) => s.id === RUN_END_STEP && s.updateSafe);
+  const planned = [...items, ...(endStep ? [endStep] : [])];
+  ctx.emit({ event: "plan", steps: planned.map((i) => ({ id: i.id, title: i.title, kind: "rt" as const })) });
 
   const outcomes: UpdateOutcome[] = [];
   const failedSteps: EventId[] = [];
@@ -527,6 +553,10 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
       }
     }
   } finally {
+    if (endStep) {
+      const outcome = await runEndStep(endStep, ctx);
+      outcomes.push({ id: endStep.id, state: outcome.state, ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}) });
+    }
     const ok = failedSteps.length === 0;
     persistTerminalState(ctx, ok, lastRanId, true);
     ctx.emit({

@@ -86,7 +86,16 @@ update run of its own, since the launch-time one skipped the Mac while setup
 was open. A whole `rt setup form` read (no `--section`) after a run that
 ended ok records Finish the same way, so a leftover fixed by its own action
 needs no second run; `lib/setup/form.ts` owns which screen setup is on
-(`formStage`). `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
+(`formStage`).
+
+Every run that ends restarts every app deck serves for rt, so none keeps
+code from before the run: `apps.restart` (`lib/setup/steps/apps-restart.ts`)
+is the engine's end step, run after a failed step too, in a whole
+`rt setup apply` (after Finish is recorded, before the run lock lets go) and
+in an update run (after `verify`). It never fails a run: a restart deck
+refuses is `partial`. An `--only` run, an attach and a skipped update run
+restart nothing; `rt setup finish` restarts once itself and its update run
+leaves the apps alone. `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
 the update stamp, the Install stamp (`installRanAt`) and the last run's record
 (`run`) off the record, so a reinstalled app opens setup again with rows only
 Install sets up waiting for it, and its form never finishes on the old run. Mark a

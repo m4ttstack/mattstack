@@ -19,6 +19,11 @@ exports[`the setup plan's shape and copy apply emits the org folder, pull and id
 
 exports[`the setup plan's shape and copy apply phases: the copy is what the copy table says 1`] = `
 {
+  "apps.restart": {
+    "paused": "Couldn't restart your apps",
+    "phase": "Restarting your apps",
+    "weight": 1,
+  },
   "board.cwds": {
     "paused": "Couldn't set up the board",
     "phase": "Setting up the board",

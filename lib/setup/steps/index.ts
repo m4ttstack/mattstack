@@ -24,6 +24,7 @@ import { linearMcpStep } from "./linear-mcp.ts";
 import { claudePermissionsStep } from "./claude-permissions.ts";
 import { fastbrowserSetupStep, herdrIntegrationStep, extensionInstallStep, servicesStartStep, snapshotPushStep } from "./tools.ts";
 import { verifyStep } from "./verify.ts";
+import { appsRestartStep } from "./apps-restart.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 async function interceptsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -90,6 +91,7 @@ export const STEPS: StepDef[] = [
   boardRestartStep,
   snapshotPushStep,
   verifyStep,
+  appsRestartStep,
 ];
 
 if (STEPS.length !== STEP_IDS.length) {

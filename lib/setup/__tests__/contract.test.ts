@@ -82,7 +82,7 @@ describe("row", () => {
 });
 
 describe("STEP_IDS", () => {
-  test("matches the contract's 32 ids in order", () => {
+  test("matches the contract's 33 ids in order", () => {
     expect(STEP_IDS).toEqual([
       "home.init",
       "home.restore",
@@ -116,6 +116,7 @@ describe("STEP_IDS", () => {
       "board.restart",
       "snapshot.push",
       "verify",
+      "apps.restart",
     ]);
   });
 

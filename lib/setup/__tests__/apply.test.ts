@@ -2046,3 +2046,93 @@ test("a settings tip raised inside a step reaches ctx.tip, not the log event", a
   expect(tips).toEqual([["path.link", "Saved on this Mac only."]]);
   expect(events.some((e) => e.event === "log")).toBe(false);
 });
+
+describe("apps.restart at the end of a run", () => {
+  function restartStep(outcome: StepOutcome | (() => Promise<StepOutcome>) = { state: "done", detail: "Restarted board" }, order?: string[]): StepDef & { runs: number } {
+    const s = {
+      ...fakeStep("apps.restart", async () => {
+        s.runs++;
+        order?.push("restart");
+        return typeof outcome === "function" ? outcome() : outcome;
+      }),
+      updateSafe: true as const,
+      runs: 0,
+    };
+    return s;
+  }
+  const stepEvents = (events: ApplyEvent[]) => events.filter((e) => e.event === "step" || e.event === "done").map((e) => (e.event === "step" ? `${e.id}:${e.state}` : `done:${e.event === "done" && e.ok}`));
+
+  test("a run that ends ok restarts the apps once, last, after the record's bookkeeping and before the lock lets go", async () => {
+    const { ctx, events } = testCtx();
+    const order: string[] = [];
+    const restart = restartStep(undefined, order);
+    await runApplyWith([fakeStep("path.link", { state: "done" }), fakeStep("verify", { state: "done" }), restart], ctx, {
+      record: "fresh",
+      afterRecord: () => void order.push("afterRecord"),
+      beforeDone: () => void order.push("beforeDone"),
+    });
+    expect(restart.runs).toBe(1);
+    expect(order).toEqual(["afterRecord", "restart", "beforeDone"]);
+    expect(stepEvents(events)).toEqual(["path.link:running", "path.link:done", "verify:running", "verify:done", "apps.restart:running", "apps.restart:done", "done:true"]);
+    expect(events[0]).toEqual({ event: "plan", steps: [planStep("path.link"), planStep("verify"), planStep("apps.restart")] });
+    expect(readSetupState(ctx.p as ReturnType<typeof fakeProbes>).run?.done).toEqual(["path.link", "verify"]);
+  });
+
+  test("a run that stops at a failed step still restarts the apps, and stays failed at that step", async () => {
+    const { ctx, events } = testCtx();
+    const restart = restartStep();
+    const result = await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" }), fakeStep("verify", { state: "done" }), restart], ctx, { record: "fresh" });
+    expect(result).toEqual({ ok: false, failedStep: "path.link" });
+    expect(restart.runs).toBe(1);
+    expect(stepEvents(events)).toEqual(["path.link:running", "path.link:failed", "apps.restart:running", "apps.restart:done", "done:false"]);
+    expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "path.link" });
+  });
+
+  test("a restart that fails or throws is reported on its own step and never fails the run", async () => {
+    const outcomes = [
+      async (): Promise<StepOutcome> => ({ state: "failed", detail: "deck boom", remedy: "Run deck restart board" }),
+      async (): Promise<StepOutcome> => {
+        throw new Error("spawn boom");
+      },
+    ];
+    for (const outcome of outcomes) {
+      const { ctx, events } = testCtx();
+      const result = await runApplyWith([fakeStep("path.link", { state: "done" }), restartStep(outcome)], ctx);
+      expect(result).toEqual({ ok: true });
+      const end = events.filter((e) => e.event === "step" && e.id === "apps.restart").at(-1);
+      expect(end).toMatchObject({ state: "partial" });
+      expect(events.at(-1)).toEqual({ event: "done", ok: true });
+    }
+  });
+
+  test("a --from retry restarts at its end too", async () => {
+    const { ctx } = testCtx();
+    const restart = restartStep();
+    await runApplyWith([fakeStep("path.link", { state: "done" }), fakeStep("verify", { state: "done" }), restart], ctx, { from: "verify", record: "continue" });
+    expect(restart.runs).toBe(1);
+  });
+
+  test("an --only run fixes its one row and leaves the apps alone", async () => {
+    const { ctx, events } = testCtx();
+    const restart = restartStep();
+    await runApplyWith([fakeStep("path.link", { state: "done" }), restart], ctx, { only: "path.link" });
+    expect(restart.runs).toBe(0);
+    expect(events.some((e) => e.event === "step" && e.id === "apps.restart")).toBe(false);
+  });
+
+  test("an update run restarts the apps last, after verify, whatever its steps reported", async () => {
+    const { ctx, events } = testCtx();
+    const restart = restartStep();
+    const result = await runUpdateWith([updateStep("path.link", { state: "failed", detail: "boom" }), updateStep("verify", { state: "done" }), restart], [], ctx);
+    expect(restart.runs).toBe(1);
+    expect(stepEvents(events)).toEqual(["path.link:running", "path.link:failed", "verify:running", "verify:done", "apps.restart:running", "apps.restart:done", "done:false"]);
+    expect((events[0] as Extract<ApplyEvent, { event: "plan" }>).steps.map((s) => s.id)).toEqual(["path.link", "verify", "apps.restart"]);
+    expect(result.outcomes.at(-1)).toEqual({ id: "apps.restart", state: "done", detail: "Restarted board" });
+    expect(result.failedSteps).toEqual(["path.link"]);
+  });
+
+  test("the real registry ends with the restart, after verify", () => {
+    expect(STEPS.at(-1)?.id).toBe("apps.restart");
+    expect(STEPS.at(-2)?.id).toBe("verify");
+  });
+});

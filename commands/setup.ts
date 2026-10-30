@@ -24,7 +24,7 @@ import { listOrgs } from "../lib/settings/stores.ts";
 import { getOrgSetting, getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
-import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type ApplyRunOptions, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
+import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type ApplyRunOptions, type CreateApplyContextDeps, type StepDef, type StepOutcome, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { APPLY_RUN_LOCK_MAX_AGE_MS, applyRunLockPath, attachToRun, recordingEmit, resumePoint } from "../lib/setup/apply-run.ts";
 import { ignoreClosedPipes } from "../lib/setup/closed-pipes.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
@@ -64,6 +64,7 @@ import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
+import { appsRestartStep, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -390,14 +391,11 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       const steps = deps.steps ?? STEPS;
       const lock = claim.lock;
       const whole = selection.only === undefined;
-      const beforeDone = async ({ ok }: { ok: boolean }): Promise<void> => {
-        try {
-          if (ok && whole) await finishWholeRun(deps, warnings);
-        } finally {
-          lock?.release();
-        }
+      const afterRecord = async ({ ok }: { ok: boolean }): Promise<void> => {
+        if (ok && whole) await finishWholeRun(deps, warnings);
       };
-      result = await runApplyWith(steps, ctx, { ...runOptions(selection, steps, ctx, deps.probes), beforeDone });
+      const beforeDone = (): void => lock?.release();
+      result = await runApplyWith(steps, ctx, { ...runOptions(selection, steps, ctx, deps.probes), afterRecord, beforeDone });
     }
   } catch (err) {
     claim.lock?.release();
@@ -711,20 +709,26 @@ export type FinishDeps = IntentDeps;
 
 export interface AfterFinish {
   update(opts: { json: boolean }): Promise<void>;
+  restartApps(p: Probes): Promise<StepOutcome>;
   startHerdr(): Promise<HerdrStartResult>;
   warn(json: boolean, title: string, detail: string): void;
   /** The setup window has closed by the time this runs, so a notification is the only place the app shows it. */
   notify(title: string, message: string): void;
 }
 
-/** The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own. */
+/**
+ * The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own.
+ * Finish restarts the apps itself, whether or not this run had anything to do, so the run leaves them alone.
+ */
 export async function updateAfterFinish(opts: { json: boolean }, deps: ApplyDeps = realApplyDeps()): Promise<void> {
-  const quiet: ApplyDeps = { ...deps, json: opts.json ? () => {} : deps.json, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
+  const steps = (deps.steps ?? STEPS).filter((s) => s.id !== appsRestartStep.id);
+  const quiet: ApplyDeps = { ...deps, steps, json: opts.json ? () => {} : deps.json, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
   await setupUpdate(opts.json ? ["--json"] : [], {}, quiet);
 }
 
 export const REAL_AFTER_FINISH: AfterFinish = {
   update: (opts) => updateAfterFinish(opts),
+  restartApps: (p) => restartServedApps(p, (line) => logCliEvent("debug", "setup.finish", line)),
   startHerdr,
   warn: warnLine,
   notify: (title, message) => notifyEnabled(SETUP_UPDATE_CATEGORY, title, message, undefined, undefined, "setup-finish-herdr"),
@@ -769,7 +773,28 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
   } catch (err) {
     after.warn(json, "The update after Finish did not finish", err instanceof Error ? err.message : String(err));
   }
+  await restartAppsAfterFinish(json, deps.probes, after);
   await startHerdrAfterFinish(json, after);
+}
+
+/** A failed restart is a caveat on a Finish that already happened, never a failed exit. */
+async function restartAppsAfterFinish(json: boolean, p: Probes, after: AfterFinish): Promise<void> {
+  let outcome: StepOutcome;
+  try {
+    outcome = await after.restartApps(p);
+  } catch (err) {
+    outcome = { state: "partial", detail: err instanceof Error ? err.message : String(err) };
+  }
+  if (outcome.state === "done") {
+    if (!json) out.print(out.line("done", outcome.detail ?? "Restarted your apps"));
+    return;
+  }
+  if (outcome.state === "skipped") {
+    logCliEvent("debug", "setup.finish", `apps not restarted: ${outcome.detail}`);
+    return;
+  }
+  const remedy = "remedy" in outcome && outcome.remedy ? `. ${outcome.remedy}` : "";
+  after.warn(json, "Some apps did not restart", `${outcome.detail}${remedy}`);
 }
 
 // ─── repo-root (`rt setup repo-root set`) ──────────────────────────────────

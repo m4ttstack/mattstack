@@ -208,6 +208,7 @@ export const STEP_IDS = [
   "board.restart",
   "snapshot.push",
   "verify",
+  "apps.restart",
 ] as const;
 export type StepId = (typeof STEP_IDS)[number];
 

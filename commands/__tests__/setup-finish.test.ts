@@ -23,6 +23,7 @@ function deps(): FinishDeps & { probes: ReturnType<typeof fakeProbes>; lines: st
 function after(
   run: AfterFinish["update"] = async () => {},
   herdr: AfterFinish["startHerdr"] = async () => ({ state: "running", bin: "/bin/herdr" }),
+  restart: AfterFinish["restartApps"] = async () => ({ state: "skipped", detail: "No apps to restart" }),
 ): AfterFinish & { calls: boolean[]; warnings: string[]; notified: string[]; order: string[] } {
   const calls: boolean[] = [];
   const warnings: string[] = [];
@@ -33,6 +34,10 @@ function after(
       order.push("update");
       calls.push(opts.json);
       await run(opts);
+    },
+    restartApps: async (p) => {
+      order.push("restart");
+      return restart(p);
     },
     startHerdr: async () => {
       order.push("herdr");
@@ -132,7 +137,7 @@ describe("setupFinish", () => {
       return { state: "started", bin: "/bin/herdr" };
     });
     await setupFinish(["--json"], {}, d, a);
-    expect(a.order).toEqual(["update", "herdr"]);
+    expect(a.order).toEqual(["update", "restart", "herdr"]);
     expect(finishedWhenHerdrStarted).toBe(true);
     expect(a.warnings).toEqual([]);
     expect(a.notified).toEqual([]);
@@ -188,7 +193,7 @@ describe("setupFinish", () => {
       throw new Error("boom");
     });
     await setupFinish([], {}, d, a);
-    expect(a.order).toEqual(["update", "herdr"]);
+    expect(a.order).toEqual(["update", "restart", "herdr"]);
   });
 
   test("a notification that throws never fails the Finish", async () => {
@@ -222,5 +227,57 @@ describe("setupFinish", () => {
     }
     const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(`${logsDir()}/${f}`, "utf8")).join("");
     expect(log).toContain("herdr did not start: json herdr boom");
+  });
+
+  test("restarts the served apps after the update run, even when that run had nothing to do", async () => {
+    const d = deps();
+    let finishedWhenRestarted = false;
+    const a = after(undefined, undefined, async () => {
+      finishedWhenRestarted = isSetupFinished(readSetupState(d.probes));
+      return { state: "done", detail: "Restarted board, chat" };
+    });
+    const cap = capturePlain();
+    try {
+      await setupFinish([], {}, d, a);
+      expect(cap.stdout()).toBe("[ok] Setup is finished on this Mac\n[ok] Restarted board, chat\n");
+    } finally {
+      cap.restore();
+    }
+    expect(a.order).toEqual(["update", "restart", "herdr"]);
+    expect(finishedWhenRestarted).toBe(true);
+    expect(a.warnings).toEqual([]);
+  });
+
+  test("--json: a restart prints nothing past the one envelope", async () => {
+    const d = deps();
+    const a = after(undefined, undefined, async () => ({ state: "done", detail: "Restarted board" }));
+    const cap = capturePlain();
+    try {
+      await setupFinish(["--json"], {}, d, a);
+      expect(cap.stdout()).toBe("");
+    } finally {
+      cap.restore();
+    }
+    expect(d.lines).toHaveLength(1);
+  });
+
+  test("an app that did not restart is a caveat with its remedy, and Finish still stands", async () => {
+    const d = deps();
+    const a = after(undefined, undefined, async () => ({ state: "partial", detail: "Couldn't restart board", remedy: "Run deck restart board" }));
+    await setupFinish(["--json"], {}, d, a);
+    expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
+    expect(a.warnings).toEqual(["Some apps did not restart: Couldn't restart board. Run deck restart board"]);
+    expect(d.lines).toHaveLength(1);
+  });
+
+  test("a restart that throws never fails the Finish, and herdr still starts", async () => {
+    const d = deps();
+    const a = after(undefined, undefined, async () => {
+      throw new Error("deck boom");
+    });
+    await setupFinish([], {}, d, a);
+    expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
+    expect(a.warnings).toEqual(["Some apps did not restart: deck boom"]);
+    expect(a.order).toEqual(["update", "restart", "herdr"]);
   });
 });

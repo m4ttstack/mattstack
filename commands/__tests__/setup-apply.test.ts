@@ -693,6 +693,38 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     }
   });
 
+  test("the apps restart once, after Finish is on record and while the run still holds the lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-apply-restart-"));
+    try {
+      const lockPath = join(dir, "setup-apply.lock");
+      const seen: { finished: boolean; lockHeld: boolean }[] = [];
+      const deps = baseApplyDeps({ runLock: createUpdateLock(lockPath, { pid: 222, alive: () => true }) });
+      deps.steps = [
+        fakeStep("path.link", { state: "done" }),
+        fakeStep("apps.restart", async () => {
+          seen.push({ finished: finished(deps.probes), lockHeld: existsSync(lockPath) });
+          return { state: "done", detail: "Restarted board" };
+        }),
+      ];
+      await setupApply(["--json"], {}, deps);
+      expect(seen).toEqual([{ finished: true, lockHeld: true }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an app deck could not restart leaves the run ok, exit 0", async () => {
+    const deps = baseApplyDeps({
+      steps: [fakeStep("path.link", { state: "done" }), fakeStep("apps.restart", { state: "partial", detail: "Couldn't restart board", remedy: "Run deck restart board" })],
+    });
+    await setupApply(["--json"], {}, deps);
+    const evs = deps.lines.map((l) => JSON.parse(l) as ApplyEvent);
+    expect(evs.find((e) => e.event === "step" && e.id === "apps.restart" && e.state === "partial")).toMatchObject({ detail: "Couldn't restart board", remedy: "Run deck restart board" });
+    expect(evs.at(-1)).toEqual({ event: "done", ok: true });
+    expect(deps.exitCodes).toEqual([]);
+    expect(finished(deps.probes)).toBe(true);
+  });
+
   test("a finish check that throws under --json reaches the log, never stdout", async () => {
     const cap = capturePlain();
     try {
