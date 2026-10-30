@@ -8,19 +8,11 @@ struct ChecklistScreen: View {
     let needs: NeedBroker
     enum Presentation {
         case accounts
-        /// A wizard page: one group. nil while no plan has landed.
-        case page(String?, onSkip: ((PlanRow) -> Void)? = nil)
-        /// Setup status, and the wizard's last step when `overview` is set.
-        /// `rowsConfirmed` is false while the model still holds the pre-install rows: the summary then shows its Overview alone.
-        /// `recheck` replaces the model's own re-read: the summary's gate must see every re-read, or a second fetch would let its check confirm rows it never read.
-        case sidebar(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool = true, recheck: (() async -> Void)? = nil)
         /// Only these rows, in one card, on another setup page: no load states and no Re-check bar.
         case rows([String])
     }
-    var presentation: Presentation = .sidebar(overview: nil, onSkip: nil)
+    var presentation: Presentation = .accounts
     private var scope: ReadinessModel.Scope { if case .accounts = presentation { return .accounts } else { return .all } }
-    private var showsOverviewOnly: Bool { if case .sidebar(.some, _, false, _) = presentation { return true } else { return false } }
-    private var presentationRecheck: (() async -> Void)? { if case .sidebar(_, _, _, let recheck) = presentation { return recheck } else { return nil } }
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
@@ -30,8 +22,6 @@ struct ChecklistScreen: View {
         let status: RowStatus
     }
     @State private var actionErrors: [String: RowFailure] = [:]
-    @State private var selected: String?
-    @State private var filter: ChecklistLayout.SummaryKind?
     @State private var waitingOnYou: [String: String] = [:]
     /// Rows whose waiting line came from opening a page, not from an apply run.
     @State private var pageWaits: Set<String> = []
@@ -53,12 +43,7 @@ struct ChecklistScreen: View {
                 }
             }
         }
-        .sheet(isPresented: Binding(get: { steps != nil }, set: { presented in
-            guard !presented else { return }
-            steps = nil
-            // A finish-gated row changes outside the app (Chrome, a download): only the sheet's dismissal says to look again.
-            if let recheck = presentationRecheck { Task { await recheck() } }
-        })) {
+        .sheet(isPresented: Binding(get: { steps != nil }, set: { if !$0 { steps = nil } })) {
             if let s = steps { StepsSheet(title: s.title, steps: s.steps) }
         }
         .sheet(item: $choose) { row in
@@ -71,8 +56,7 @@ struct ChecklistScreen: View {
         .environment(\.repoPlacementAnswer, { row, mode, path in placeRepo(row, mode: mode, path: path) })
         .onChange(of: model.allRows) { _, rows in settlePageWaits(rows) }
         // .contain: without it, the footer HStack's only interactive child
-        // (Re-check) reports THIS screen-level identifier instead of its own
-        // -- same fix as InstallScreen's stepRow.
+        // (Re-check) reports THIS screen-level identifier instead of its own.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(screenID)
     }
@@ -93,15 +77,14 @@ struct ChecklistScreen: View {
     }
 
     @ViewBuilder private var screenBody: some View {
-        // The Overview carries its own spinner and failure, so it never waits behind the load states.
-        switch showsOverviewOnly ? .loaded : model.loadState {
+        switch model.loadState {
         case .loading:
             ChecklistLoadingView(title: scope == .all ? "Checking your setup…" : "Checking your accounts…")
         case .failed(let message):
             ChecklistLoadFailedView(title: scope == .all ? "Couldn't check your setup" : "Couldn't load your accounts",
                                     message: message) { recheck() }
         case .loaded:
-            if model.lastRefreshFailed, !showsOverviewOnly {
+            if model.lastRefreshFailed {
                 // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
                 Label(scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
                                     : "Couldn't refresh your accounts. Re-check to try again.",
@@ -112,9 +95,6 @@ struct ChecklistScreen: View {
             }
             switch presentation {
             case .accounts: flatList
-            case .page(let id, let onSkip): pageBody(id, onSkip: onSkip)
-            case .sidebar(let overview, let onSkip, let rowsConfirmed, _):
-                sidebarBody(overview: overview, onSkip: onSkip, rowsConfirmed: rowsConfirmed || overview == nil)
             case .rows: EmptyView()
             }
         }
@@ -152,125 +132,6 @@ struct ChecklistScreen: View {
         return live
     }
 
-    private var relaunchBanner: some View {
-        HStack {
-            Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
-            Spacer()
-            Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
-        }
-    }
-
-    private func pageBody(_ id: String?, onSkip: ((PlanRow) -> Void)?) -> some View {
-        let notes = model.groups.first(where: { $0.id == id })?.rows.filter(PageNote.isNote) ?? []
-        let layout = ChecklistLayout.make(PageNote.withoutNotes(model.groups), finishBlockedBy: model.finishBlockedBy)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if model.fdaNeedsRelaunch { relaunchBanner }
-                if let section = layout.sections.first(where: { $0.id == id }) {
-                    Text(PageLead.text(for: section)).font(.callout).foregroundStyle(.secondary)
-                }
-                ForEach(notes, id: \.id) { PageNoteView(row: $0) }
-                if let section = layout.sections.first(where: { $0.id == id }) {
-                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
-                                          onSkip: onSkip) { perform($0) }
-                        .id(section.id)
-                }
-            }
-            .padding(.horizontal, 20).padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .background(Color.primary.opacity(0.035))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(AXID.checklistPage(id ?? ""))
-    }
-
-    private func sidebarBody(overview: AnyView?, onSkip: ((PlanRow) -> Void)?, rowsConfirmed: Bool) -> some View {
-        let layout = ChecklistLayout.make(model.groups, finishBlockedBy: model.finishBlockedBy)
-        let entries = layout.entries(overview: overview != nil, running: model.checkingRowIds, failed: Set(liveErrors.keys))
-            .filter { rowsConfirmed || $0.id == ChecklistLayout.overviewID }
-        let current = rowsConfirmed ? layout.selection(preferred: selected, overview: overview != nil) : ChecklistLayout.overviewID
-        let shownFilter = rowsConfirmed ? layout.activeFilter(filter) : nil
-        let onNeedsYou = shownFilter == nil && current == ChecklistLayout.needsYouID
-        return VStack(alignment: .leading, spacing: 12) {
-            if rowsConfirmed {
-                HStack(spacing: 6) {
-                    if !layout.sections.isEmpty {
-                        SummaryCount(kind: nil, text: "All", isOn: shownFilter == nil && current == ChecklistLayout.allID) {
-                            filter = nil
-                            selected = ChecklistLayout.allID
-                        }
-                    }
-                    ForEach(layout.summary, id: \.kind) { part in
-                        SummaryCount(kind: part.kind, text: part.text, isOn: part.kind == .needsYou ? onNeedsYou : part.kind == shownFilter) {
-                            if part.kind == .needsYou {
-                                filter = nil
-                                selected = ChecklistLayout.needsYouID
-                            } else {
-                                filter = part.kind == shownFilter ? nil : part.kind
-                            }
-                        }
-                    }
-                    Spacer()
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(AXID.checklistSummary)
-            }
-            if model.fdaNeedsRelaunch { relaunchBanner }
-            HStack(alignment: .top, spacing: 12) {
-                ChecklistCard {
-                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                        if index > 0 { Divider() }
-                        // A pick made before the rows are confirmed would keep the summary off Needs you once they are.
-                        ChecklistSidebarEntry(entry: entry, isSelected: shownFilter == nil && entry.id == current) {
-                            guard rowsConfirmed else { return }
-                            // A second click on the entry on screen unselects it, back to All.
-                            selected = shownFilter == nil && entry.id == current ? ChecklistLayout.allID : entry.id
-                            filter = nil
-                        }
-                    }
-                }
-                .frame(width: 220)
-                ScrollView {
-                    Group {
-                        if let shownFilter {
-                            ChecklistFilterView(kind: shownFilter, layout: layout, activity: activity) { perform($0) }
-                        } else if current == ChecklistLayout.overviewID, let overview {
-                            ChecklistCard { overview }
-                        } else if current == ChecklistLayout.needsYouID {
-                            ChecklistSectionsView(
-                                needsYou: layout.attention.map(\.row), finishBlockedBy: layout.finishBlockedBy, activity: activity,
-                                contexts: Dictionary(layout.attention.map { ($0.row.id, $0.groupTitle) }, uniquingKeysWith: { first, _ in first }),
-                                needsYouIDs: overview != nil ? .beforeYouFinish : .checklist) { perform($0) }
-                        } else if current == ChecklistLayout.allID {
-                            VStack(alignment: .leading, spacing: 18) {
-                                ForEach(layout.sections) { section in
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text(section.title).font(.headline)
-                                        ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
-                                                              onSkip: onSkip) { perform($0) }
-                                    }
-                                    .id(section.id)
-                                }
-                            }
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier(AXID.checklistAll)
-                        } else if let section = layout.sections.first(where: { $0.id == current }) {
-                            ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
-                                                  onSkip: onSkip) { perform($0) }
-                                .id(section.id)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-            }
-        }
-        .padding(.horizontal, 20).padding(.vertical, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.primary.opacity(0.035))
-        // A filter left set after its rows went would come back on, with no click, when a later re-read gave it rows again.
-        .onChange(of: layout.activeFilter(filter)) { _, active in if active == nil { filter = nil } }
-    }
-
     @ViewBuilder
     private func fullRow(_ row: PlanRow) -> some View {
         RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
@@ -283,21 +144,7 @@ struct ChecklistScreen: View {
 
     private func footerText(now: Date) -> String {
         guard model.loadState == .loaded else { return "" }
-        let note = ChecklistFooter.refreshNote(isRefreshing: isRefreshing, lastCheckedAt: model.lastCheckedAt, now: now)
-        guard !isRefreshing else { return note ?? "" }
-        let status: String?
-        switch presentation {
-        case .accounts: status = nil
-        case .page(let id, _):
-            let group = model.groups.first { $0.id == id }
-            let isLast = WizardPages(groups: model.groups).ids.last == id
-            status = PageGate.footer(blockers: group.map { PageGate.blockers(in: $0).count } ?? 0, isLast: isLast, canInstall: model.canInstall)
-        case .sidebar(let overview, _, _, _):
-            status = overview == nil ? ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
-                                                            owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows)) : nil
-        case .rows: status = nil
-        }
-        return [note, status].compactMap { $0 }.joined(separator: " · ")
+        return ChecklistFooter.refreshNote(isRefreshing: isRefreshing, lastCheckedAt: model.lastCheckedAt, now: now) ?? ""
     }
 
     private func recordFailure(_ message: String, for row: PlanRow) {
@@ -312,8 +159,7 @@ struct ChecklistScreen: View {
 
     private func recheck() {
         actionErrors = [:]
-        let recheck = presentationRecheck
-        Task { if let recheck { await recheck() } else { await model.recheckAll() } }
+        Task { await model.recheckAll() }
     }
 
     /// A page wait ends when the row reads ready, or when a re-read moves it to an action that waits on nothing (the pairing steps).
@@ -490,131 +336,5 @@ struct RowWaitingCaption: View {
         }
         .font(.caption)
         .accessibilityIdentifier(AXID.checklistRowWaiting(rowId))
-    }
-}
-
-/// A row that only tells the person something (an info row with nothing to check or press) reads as a
-/// line on its page; folded under No action needed, a joiner would never open it.
-enum PageNote {
-    static func isNote(_ row: PlanRow) -> Bool { row.kind == .info && row.status == .skipped && row.action == nil }
-
-    static func withoutNotes(_ groups: [PlanGroup]) -> [PlanGroup] {
-        groups.map { PlanGroup(id: $0.id, title: $0.title, rows: $0.rows.filter { !isNote($0) }) }
-    }
-}
-
-struct PageNoteView: View {
-    let row: PlanRow
-
-    var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(row.title).fontWeight(.medium)
-                if let detail = row.detail { Text(detail).foregroundStyle(.secondary) }
-            }
-        } icon: {
-            Image(systemName: "info.circle").foregroundStyle(.secondary)
-        }
-        .font(.callout)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(AXID.checklistNote(row.id))
-    }
-}
-
-struct SummaryGlyph: View {
-    let kind: ChecklistLayout.SummaryKind
-    /// A count that is on has a solid selection fill, which a glyph's own colour does not read against.
-    var isOn = false
-    var body: some View {
-        if let symbol {
-            Image(systemName: symbol).symbolRenderingMode(.monochrome)
-                .foregroundStyle(isOn ? SummaryCount.onText : kind == .ready ? Color.green : Color.secondary)
-        }
-    }
-
-    /// Needs you has none: the warning mark belongs to the sidebar entry and the pane's heading.
-    private var symbol: String? {
-        switch kind {
-        case .needsYou: return nil
-        case .ready: return "checkmark.circle"
-        case .skipped: return "circle"
-        case .notNeeded: return "circle.dashed"
-        }
-    }
-}
-
-struct SummaryCount: View {
-    /// nil is All. It shows every row and is no filter, so `SummaryKind` has no case for it.
-    let kind: ChecklistLayout.SummaryKind?
-    let text: String
-    let isOn: Bool
-    let onPick: () -> Void
-    /// The system's own selection pair: white on `Color.accentColor` does not read when the user's accent is a pale one.
-    static let onFill = Color(nsColor: .selectedContentBackgroundColor)
-    static let onText = Color(nsColor: .alternateSelectedControlTextColor)
-    var body: some View {
-        Button(action: onPick) {
-            HStack(spacing: 4) {
-                if let kind { SummaryGlyph(kind: kind, isOn: isOn).accessibilityHidden(true) }
-                // The hidden copy holds the semibold width, so turning a filter on moves no other count.
-                Text(text).font(.callout).fontWeight(.semibold).hidden()
-                    .overlay(alignment: .leading) {
-                        Text(text).font(.callout).fontWeight(isOn ? .semibold : .regular)
-                            .foregroundStyle(isOn ? Self.onText : Color.primary)
-                    }
-            }
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().fill(isOn ? Self.onFill : Color.primary.opacity(0.06)))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(AXID.checklistFilter(idName))
-        .accessibilityLabel(Text(text))
-        .accessibilityValue(Text(isOn ? "on" : "off"))
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-    }
-
-    /// Spelled out, not read off the case: the UI tests click these ids, and a renamed case must not rename one.
-    private var idName: String {
-        switch kind {
-        case nil: return "all"
-        case .needsYou?: return "needsYou"
-        case .ready?: return "ready"
-        case .skipped?: return "skipped"
-        case .notNeeded?: return "notNeeded"
-        }
-    }
-}
-
-struct ChecklistSidebarEntry: View {
-    let entry: ChecklistLayout.Entry
-    let isSelected: Bool
-    let onSelect: () -> Void
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 6) {
-                mark.frame(width: 20, height: 20)
-                Text(entry.title).font(.callout).fontWeight(isSelected ? .semibold : .regular).lineLimit(1)
-                Spacer(minLength: 6)
-                if let count = entry.count { Text("\(count)").font(.caption).foregroundStyle(.secondary) }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(AXID.checklistGroup(entry.id))
-        .accessibilityValue(Text(String(describing: entry.mark)))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    @ViewBuilder private var mark: some View {
-        switch entry.mark {
-        case .overview: Image(systemName: "house").foregroundStyle(.secondary)
-        case .failed: Image(systemName: "xmark.circle").foregroundStyle(.red)
-        case .running: ProgressView().controlSize(.small)
-        case .needsYou: Image(systemName: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
-        case .settled: Image(systemName: "checkmark.circle").foregroundStyle(.green)
-        }
     }
 }

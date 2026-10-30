@@ -9,69 +9,26 @@ enum AXID {
     static func `continue`(_ screen: String) -> String { "setup.\(screen).continue" }
     static func back(_ screen: String) -> String { "setup.\(screen).back" }
     static func error(_ screen: String) -> String { "setup.\(screen).error" }
-    /// The read-only "Setup status…" window's primary button, in place of
-    /// `setup.<screen>.continue`: a walkthrough must be able to tell a health
-    /// view's Close from a wizard's Install.
-    static let statusClose = "setup.status.close"
 
     // Screens (the root view of each)
-    static let welcomeScreen = "setup.welcome.screen"
-    static let teamScreen = "setup.team.screen"
     static let checklistScreen = "setup.checklist.screen"
-    static let installScreen = "setup.install.screen"
-    static let doneScreen = "setup.done.screen"
-    static let fdaScreen = "setup.fullDiskAccess.screen"
     static let checklistRows = "setup.checklist.rows"
 
-    // Full Disk Access
-    static let fdaOpen = "setup.fullDiskAccess.open"
-    static let fdaReopen = "setup.fullDiskAccess.reopen"
-    static let fdaLoadFailed = "setup.fullDiskAccess.loadFailed"
-    static let fdaCheckAgain = "setup.fullDiskAccess.checkAgain"
-
     // Join your team
-    static let joinScreen = "setup.join.screen"
-    static let joinRun = "setup.join.run"
-    static let joinCheckAgain = "setup.join.checkAgain"
-    static let joinWaiting = "setup.join.waiting"
     static let joinApproved = "setup.join.approved"
 
-    // Your team
-    static let teamCardCreate = "setup.team.card.create"
-    static let teamCardJoin = "setup.team.card.join"
-    static let teamCardRestore = "setup.team.card.restore"
-    static let teamCardSolo = "setup.team.card.solo"
-    static let teamCreateName = "setup.team.create.name"
-    static let teamCreateOthers = "setup.team.create.others"
-    static let teamCreateUseGh = "setup.team.create.useGh"
-    static let teamCreateOwner = "setup.team.create.owner"
-    static let teamCreateRemote = "setup.team.create.remote"
-    static let teamJoinCode = "setup.team.join.code"
-    static let teamPasteInvite = "setup.team.paste.invite"
-    static let teamJoinWarning = "setup.team.join.warning"
-    static let teamJoinError = "setup.team.join.error"
-    static let teamRestoreRepo = "setup.team.restore.repo"
-    static let teamRestoreKey = "setup.team.restore.key"
-
     // Checklist
-    static func checklistPage(_ id: String) -> String { "setup.checklist.page.\(id)" }
     static func checklistSection(_ name: String) -> String { "setup.checklist.section.\(name)" }
     static let checklistNoActionToggle = "setup.checklist.noAction.toggle"
     static let progress = "setup.window.progress"
     static func checklistRow(_ id: String) -> String { "setup.checklist.row.\(id)" }
-    static func checklistNote(_ id: String) -> String { "setup.checklist.note.\(id)" }
     static func checklistRowAction(_ id: String) -> String { "setup.checklist.row.\(id).action" }
     static func checklistRowStatus(_ id: String) -> String { "setup.checklist.row.\(id).status" }
     static func checklistRowError(_ id: String) -> String { "setup.checklist.row.\(id).error" }
     static func checklistRowWaiting(_ id: String) -> String { "setup.checklist.row.\(id).waiting" }
     static func checklistRowSegment(_ id: String) -> String { "setup.checklist.row.\(id).segment" }
     static func checklistRowOneClick(_ id: String) -> String { "setup.checklist.row.\(id).oneClick" }
-    static func checklistGroup(_ id: String) -> String { "setup.checklist.group.\(id)" }
-    static let checklistSummary = "setup.checklist.summary"
-    static let checklistAll = "setup.checklist.all"
-    static func checklistFilter(_ kind: String) -> String { "setup.checklist.filter.\(kind)" }
     static let checklistRecheck = "setup.checklist.recheck"
-    static let checklistRelaunch = "setup.checklist.relaunch"
     static let checklistLoading = "setup.checklist.loading"
     static let checklistLoadFailed = "setup.checklist.loadFailed"
     static let checklistLoadRetry = "setup.checklist.loadRetry"
@@ -123,35 +80,16 @@ enum AXID {
     static let fastRestoreFailure = "setup.fast.restore.failure"
 
     // Install
-    static func installStep(_ id: String) -> String { "setup.install.step.\(id)" }
-    static func installStepLog(_ id: String) -> String { "setup.install.step.\(id).log" }
-    static func installStepStatus(_ id: String) -> String { "setup.install.step.\(id).status" }
-    static let installRetry = "setup.install.retry"
-    static let installRetryStream = "setup.install.retryStream"
-    static func installRetryPartial(_ id: String) -> String { "setup.install.step.\(id).retry" }
-    static func donePartialStep(_ id: String) -> String { "setup.done.partial.\(id)" }
-    static func donePartialStepStatus(_ id: String) -> String { "setup.done.partial.\(id).status" }
-    static func donePartialStepRetry(_ id: String) -> String { "setup.done.partial.\(id).retry" }
-    static let installNotes = "setup.install.notes"
     static let logCopy = "setup.install.log.copy"
     static let logDone = "setup.install.log.done"
 
     // Done
-    static let doneOpenBoard = "setup.done.openBoard"
-    static let doneInvite = "setup.done.invite"
-    static let doneOverview = "setup.done.overview"
     static func doneBeforeYouFinishRow(_ id: String) -> String { "setup.done.beforeYouFinish.\(id)" }
     static func doneBeforeYouFinishRowStatus(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).status" }
     static func doneBeforeYouFinishRowAction(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).action" }
     static func doneBeforeYouFinishRowSegment(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).segment" }
     static func doneBeforeYouFinishRowOneClick(_ id: String) -> String { "setup.done.beforeYouFinish.\(id).oneClick" }
     static func doneSkipRow(_ id: String) -> String { "setup.done.skip.\(id)" }
-    static let doneSkipConfirm = "setup.done.skipConfirm"
-    static let doneSkipConfirmSkip = "setup.done.skipConfirm.skip"
-    static let doneSkipConfirmCancel = "setup.done.skipConfirm.cancel"
-    static let doneSkipConfirmError = "setup.done.skipConfirm.error"
-    static let doneRefreshError = "setup.done.refreshError"
-    static let doneRetryCheck = "setup.done.retryCheck"
 
     // Settings
     static func settingsTab(_ pane: String) -> String { "settings.tab.\(pane)" }

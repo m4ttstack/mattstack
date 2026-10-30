@@ -30,7 +30,7 @@ let sourceGuardChecks: [Check] = [
                 if !line.contains(".controlSize(.mini)") { c.fail("\(f):\(i + 1) switch is not .controlSize(.mini)") }
             }
         }
-        c.expect(switches >= 7, "expected the settings switches; found \(switches)")
+        c.expect(switches >= 6, "expected the settings switches; found \(switches)")
     },
     Check("BadgePoller never fetches over URLSession.shared") { c in
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

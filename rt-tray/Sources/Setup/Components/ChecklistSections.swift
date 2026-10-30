@@ -147,34 +147,6 @@ struct ChecklistCardHeader: View {
     }
 }
 
-/// Every count but Needs you lists settled rows; Needs you rows are drawn by their own pane only.
-struct ChecklistFilterView: View {
-    let groups: [ChecklistLayout.FilterGroup]
-    let activity: RowActivity
-    let perform: (PlanRow) -> Void
-
-    init?(kind: ChecklistLayout.SummaryKind, layout: ChecklistLayout, activity: RowActivity, perform: @escaping (PlanRow) -> Void) {
-        guard kind != .needsYou else { return nil }
-        groups = layout.filtered(kind); self.activity = activity; self.perform = perform
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(groups) { group in
-                ChecklistCard {
-                    ChecklistCardHeader(title: group.title)
-                    ForEach(group.rows) { row in
-                        Divider()
-                        SettledRow(row: row, isChecking: activity.checking.contains(row.id), error: activity.errors[row.id], perform: perform)
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(AXID.checklistSection("filter.\(group.id)"))
-            }
-        }
-    }
-}
-
 /// An invisible element that keeps a row's status readable by id, since rows
 /// draw no status icon. The VM walkthrough and the UI tests compare the value
 /// of `setup.checklist.row.<id>.status`, so the value is the bare status; the

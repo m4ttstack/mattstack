@@ -3,43 +3,22 @@ import Combine
 
 public enum TeamChoice: Equatable, Sendable { case create, join, restore, solo }
 
-/// Derives the summary's solo/owner framing from the plan the checklist
-/// loaded rather than from `TeamChoiceModel`, since a Full Disk Access
-/// relaunch (`AppRelaunch.swift`) resumes the wizard at the checklist with a
-/// fresh, default-`.create` choice model — the plan survives the relaunch.
-public enum DoneRole {
-    public static func solo(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
-        guard let planTeam else { return choice == .solo }
-        return planTeam.mode == .noTeam && (planTeam.slug ?? "").isEmpty
-    }
-    public static func owner(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
-        guard let planTeam else { return choice == .create }
-        return planTeam.mode == .create
-    }
-}
-
 public struct GitHubStatus: Codable, Equatable, Sendable {
     public var status: RowStatus
     public var handle: String?
     public var owners: [String]?
 }
 
-/// Screen 2 state. Every validation is an rt verb; codes and keys travel on
-/// stdin; nothing is pushed until Install.
+/// The path, invite, create and restore screens' state. Every validation is
+/// an rt verb; codes and keys travel on stdin.
 @MainActor
 public final class TeamChoiceModel: ObservableObject {
     public nonisolated static let inviteCodeLength = 77
-    public static let explainer = "mattstack keeps your team settings in git. That keeps them safe and gives you a paper trail: skill edits and every change are visible in history. The same goes for your own settings home repo, created by the same step."
-    public static let soloExplainer = "rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."
 
     @Published public var choice: TeamChoice = .create
     @Published public var teamName = ""
     @Published public var othersWillJoin = true
-    @Published public var useGhRepo = false
-    @Published public var ghOwner: String?
-    @Published public private(set) var ghOwners: [String] = []
     @Published public private(set) var ghHandle: String?
-    @Published public var remoteURL = ""
     /// Where the new team's settings live: "gitlab" or "github".
     @Published public var forge: String = "gitlab"
     /// The forge group or account the team repo goes under.
@@ -68,8 +47,7 @@ public final class TeamChoiceModel: ObservableObject {
     private var preparedFingerprint: String?
     // The repo a real `rt restore` already finished for. The age key is wiped
     // from memory right after, so nothing may demand it again for that repo:
-    // without this latch Back→Continue is dead (canContinue wants a key) and
-    // re-pasting one re-runs the whole restore.
+    // without this latch a second press re-runs the whole restore.
     private var restoredRepo: String?
     // The code the shown join verdict belongs to, so a re-check of the same
     // code keeps its note on screen while a new code clears the old one.
@@ -100,7 +78,6 @@ public final class TeamChoiceModel: ObservableObject {
     }
 
     public var slugPreview: String { Slug.make(teamName) }
-    public var ghRepoPreview: String { "\(ghOwner ?? ghHandle ?? "you")/mattstack-team-\(slugPreview)" }
     public var normalizedInviteCode: String {
         JoinLink.code(fromText: inviteCode) ?? inviteCode.filter { !$0.isWhitespace && !$0.isNewline }
     }
@@ -118,44 +95,20 @@ public final class TeamChoiceModel: ObservableObject {
     /// Trimmed as `FastSetupFlow.restoreEnabled` trims it, so a pasted newline never reaches rt.
     private var trimmedRestoreRepo: String { restoreRepo.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    /// The fast screen names a forge and a group. GitHub with a gh sign-in keeps `--create-repo`,
-    /// and the old checklist card, which has no group, still sends its remote or gh owner.
+    /// GitHub with a gh sign-in keeps `--create-repo`; otherwise rt creates the repo with the forge token.
     var createArguments: [String] {
         var args = ["team", "create", teamName]
-        if !trimmedGroup.isEmpty {
-            args += forge == "github" && ghHandle != nil ? ["--create-repo", trimmedGroup] : ["--forge", forge, "--group", trimmedGroup]
-        } else {
-            args += useGhRepo ? ["--create-repo", ghOwner ?? ghHandle ?? ""] : ["--remote", remoteURL.trimmingCharacters(in: .whitespaces)]
-        }
+        args += forge == "github" && ghHandle != nil ? ["--create-repo", trimmedGroup] : ["--forge", forge, "--group", trimmedGroup]
         if othersWillJoin { args.append("--others") }
         return args + ["--json"]
-    }
-
-    public var canContinue: Bool {
-        switch choice {
-        case .create:
-            guard !slugPreview.isEmpty else { return false }
-            return useGhRepo ? (ghHandle != nil) : !remoteURL.trimmingCharacters(in: .whitespaces).isEmpty
-        case .join:
-            return !normalizedInviteCode.isEmpty
-        case .restore:
-            let repo = trimmedRestoreRepo
-            return !repo.isEmpty && (restoredRepo == repo || !restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        case .solo:
-            return true
-        }
     }
 
     public func loadGitHubStatus() async {
         guard !didLoadGitHubStatus else { return }
         guard let result = try? await rt.run(["setup", "github", "status", "--json"], stdin: nil),
               let status = try? result.decode(GitHubStatus.self), status.status == .ready else { return }
+        // Only a live gh session yields a handle, and only it can run `gh repo create`.
         ghHandle = status.handle
-        ghOwners = status.owners ?? [status.handle].compactMap { $0 }
-        ghOwner = ghOwners.first
-        // Creating the repo runs `gh repo create`, and only a live gh session
-        // yields a handle; a stored token alone cannot create it.
-        useGhRepo = status.handle != nil
         didLoadGitHubStatus = true
     }
 
@@ -280,7 +233,7 @@ public final class TeamChoiceModel: ObservableObject {
     private func preparationFingerprint() -> String? {
         switch choice {
         case .create:
-            return ["create", teamName, "\(othersWillJoin)", "\(useGhRepo)", ghOwner ?? "", remoteURL, forge, trimmedGroup].joined(separator: "\u{1}")
+            return ["create", teamName, "\(othersWillJoin)", ghHandle ?? "", forge, trimmedGroup].joined(separator: "\u{1}")
         case .join:
             return nil
         case .restore:

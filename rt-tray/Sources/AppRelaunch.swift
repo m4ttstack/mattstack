@@ -1,16 +1,12 @@
 import AppKit
 import MattstackCore
 
-/// Shared by the Setup checklist and Settings > Permissions relaunch buttons
+/// Shared by setup and Settings > Permissions relaunch buttons
 /// (both prompt this after a permission grant that only takes effect on the
 /// next launch).
 enum AppRelaunch {
-    static func relaunchInPlace(resumeAt step: SetupStep? = nil) {
-        relaunch(passthrough: SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeAt: step))
-    }
-
-    /// Fast setup reopens after the relaunch; rt's whole read decides the screen.
-    static func relaunchInPlace(resumeScreen: FastSetupScreen) {
+    /// Fast setup reopens after the relaunch when given a screen; rt's whole read decides the screen.
+    static func relaunchInPlace(resumeScreen: FastSetupScreen? = nil) {
         relaunch(passthrough: SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeScreen: resumeScreen))
     }
 

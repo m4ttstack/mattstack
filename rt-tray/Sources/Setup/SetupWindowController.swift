@@ -3,22 +3,6 @@ import SwiftUI
 import Combine
 import MattstackCore
 
-/// What the checklist `SetupView` reads; nothing opens it any more.
-struct SetupEnvironment {
-    let rt: RtRunning
-    let needs: NeedBroker
-    let readiness: ReadinessModel
-    let install: InstallRunModel
-    let permissions: PermissionsService
-    let join: JoinPageModel
-    let isDevBuild: Bool
-    let bundleId: String
-    let bundlePath: String
-    /// "Setup status…" — screen 3 as a health view, never a wizard step
-    /// (SetupFlowModel.readOnly carries the footer semantics).
-    var readOnly = false
-}
-
 /// One dedicated NSWindow hosting fast setup (AppKit lifecycle stays). Opens
 /// at `width` and resizes no smaller. Always closable: closing never stops
 /// the join's approval check or a run, which the coordinator owns.

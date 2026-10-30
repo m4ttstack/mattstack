@@ -1,6 +1,11 @@
 import Foundation
 import Combine
 
+/// Distinguishes onboarding from re-entering setup to upgrade an existing
+/// solo install to a team (Settings' Create/Join, a join link post-install),
+/// and from opening Setup status on a Mac that may already be set up.
+public enum SetupEntry: Equatable, Sendable { case firstRun, upgrade, status }
+
 public enum FastSetupScreen: String, CaseIterable, Sendable {
     case loading, macos, path, invite
     case createTeam = "create-team"

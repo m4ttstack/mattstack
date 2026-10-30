@@ -1,29 +1,8 @@
 import Foundation
-import Combine
 
-/// Copy and rules for the finish gate: finish-gated rows block the wizard's
-/// Finish until ready, skipped, or waived on this Mac by `rt setup waive`.
+/// A finish-gated row blocks Finish until ready, skipped, or waived on this Mac by `rt setup waive`.
 public enum FinishGate {
     public static let skipRowButton = "Skip"
-    public static func skipSheetTitle(_ rowTitle: String) -> String { "Skip \(rowTitle)?" }
-    public static let skipSheetConfirm = "Skip for now"
-    public static let skipSheetCancel = "Cancel"
-
-    public static func headline(blocked: Int) -> String {
-        blocked == 1 ? "One step left before you finish" : "\(blocked) steps left before you finish"
-    }
-
-    /// Install finished, but a step came back partial; a finish blocker's headline still wins over this one.
-    public static func retryHeadline(partial: Int) -> String {
-        partial == 1 ? "Installed, with one step to retry" : "Installed, with \(partial) steps to retry"
-    }
-
-    /// A blocker always wins the symbol; the multicolor warning triangle
-    /// matches StatusGlyph's own needsYou/missing rendering.
-    public static func headlineSymbol(blocked: Bool, allDone: Bool) -> String {
-        if blocked { return "exclamationmark.triangle.fill" }
-        return allDone ? "checkmark.seal.fill" : "checkmark.seal"
-    }
 }
 
 public extension PlanRow {
@@ -33,9 +12,8 @@ public extension PlanRow {
 
 /// Runs the two waiver verbs. It never re-reads the plan itself: the row's
 /// shape on screen must come from rt, and the caller owns that re-read
-/// through its own bounded path (`DoneModel`'s check, or the Settings
-/// pane's refresh), so a hung or failed re-read is reported there and not
-/// swallowed here.
+/// (the Settings pane's refresh), so a hung or failed re-read is reported
+/// there and not swallowed here.
 @MainActor
 public final class WaiverClient {
     private let rt: RtRunning
@@ -81,146 +59,5 @@ public final class ChoiceClient {
             return (error as? RtClientError)?.copy ?? "rt \(verb.joined(separator: " ")) failed to start."
         }
         return nil
-    }
-}
-
-/// The summary's gate: which rows block Finish, which others are still
-/// outstanding, and the Skip for now sheet. Nothing is listed until the
-/// post-install re-check lands, since the model still holds the pre-Install
-/// plan before then; the gate reads closed while that check is in flight.
-/// A check that fails reads open with the failure shown: a gate that could
-/// not be evaluated must never strand the wizard, and the pre-Install rows
-/// are not evidence either way.
-@MainActor
-public final class DoneModel: ObservableObject {
-    public enum CheckState: Equatable, Sendable {
-        case unchecked, checking, checked
-        case failed(String)
-    }
-
-    /// How long a post-install check may run before it is treated as failed.
-    /// `RtClient.run` has no timeout of its own, so without this a hung rt
-    /// would hold Finish shut with nothing on screen to act on.
-    public static let defaultCheckTimeout: TimeInterval = 30
-
-    @Published public private(set) var checkState: CheckState = .unchecked
-    @Published public var skipTarget: PlanRow?
-    @Published public private(set) var skipError: String?
-    @Published public private(set) var isSkipping = false
-    /// A re-read the user asked for from a screen already showing a
-    /// confirmed plan keeps those rows up while the gate closes; an arrival
-    /// at the summary shows nothing until its own check lands.
-    @Published private var showsConfirmedRowsWhileChecking = false
-
-    private let readiness: ReadinessModel
-    private let waivers: WaiverClient
-    private let checkTimeout: TimeInterval
-    private var checkGeneration = 0
-    private var forward: AnyCancellable?
-
-    public init(readiness: ReadinessModel, waivers: WaiverClient, checkTimeout: TimeInterval = DoneModel.defaultCheckTimeout) {
-        self.readiness = readiness; self.waivers = waivers; self.checkTimeout = checkTimeout
-        forward = readiness.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
-    }
-
-    public var hasCheckedSincePostInstall: Bool { checkState == .checked }
-    private var showsRows: Bool { hasCheckedSincePostInstall || (checkState == .checking && showsConfirmedRowsWhileChecking) }
-    /// True once blockedRows/stillToDoRows hold real, confirmed data rather
-    /// than the empty placeholder they read as before the first post-install
-    /// check lands -- the headline and its glyph must never read as success
-    /// while this is false, since an empty blockedRows here means "not known
-    /// yet", not "nothing is wrong".
-    public var hasConfirmedRows: Bool { showsRows }
-    public var blockedRows: [PlanRow] { showsRows ? readiness.finishBlockedRows : [] }
-    public var stillToDoRows: [PlanRow] { showsRows ? readiness.outstandingManualRows : [] }
-    /// Required rows Install left not ready. They sit under the sidebar's
-    /// Needs you without closing Finish, so the headline has to count them.
-    /// A row that also blocks Finish is in `blockedRows` only.
-    public var requiredLeftRows: [PlanRow] {
-        guard showsRows else { return [] }
-        return readiness.allRows.filter { ChecklistSorting.blocksInstall($0) && !readiness.finishBlockedBy.contains($0.id) }
-    }
-    /// True after a post-install check failed or timed out and no later one succeeded.
-    public var refreshFailed: Bool { refreshError != nil }
-    public var refreshError: String? {
-        if case .failed(let message) = checkState { return message }
-        return nil
-    }
-    /// The one boolean Finish and the window's close buttons both follow:
-    /// closed while a check is in flight, the plan's answer once it landed,
-    /// open when the check could not be completed.
-    public var finishEnabled: Bool {
-        switch checkState {
-        case .checked: return readiness.finishBlockedBy.isEmpty
-        case .failed: return true
-        case .unchecked, .checking: return false
-        }
-    }
-
-    public var headline: String {
-        guard hasConfirmedRows else { return "Checking…" }
-        let blocked = blockedRows.count
-        if blocked > 0 { return FinishGate.headline(blocked: blocked) }
-        let outstanding = stillToDoRows.count + requiredLeftRows.count
-        return outstanding == 0 ? "Everything's working" : "Installed, with \(outstanding) step\(outstanding == 1 ? "" : "s") left for you"
-    }
-
-    /// Every arrival at the summary checks from scratch: the previous run's
-    /// rows are never presented as fresh.
-    public func checkPostInstall() async { await runCheck(keepingConfirmedRows: false) }
-
-    /// The summary's re-read after the first check (Try again, Re-check, a
-    /// dismissed steps sheet, a confirmed skip): bounded by the same
-    /// watchdog, and a confirmed plan stays on screen while it is re-read.
-    /// A row's own action re-reads through `ReadinessModel.afterAction`
-    /// instead, which no watchdog bounds.
-    public func retryCheck() async { await runCheck(keepingConfirmedRows: hasConfirmedRows) }
-
-    /// A failed refresh leaves `readiness` holding the last plan, which is
-    /// never presented as confirmed: the rows stay hidden and the failure is
-    /// shown instead. A check that outlives the watchdog is reported the same
-    /// way, and its late answer, if one arrives, still becomes the truth.
-    private func runCheck(keepingConfirmedRows: Bool) async {
-        checkGeneration += 1
-        let generation = checkGeneration
-        showsConfirmedRowsWhileChecking = keepingConfirmedRows
-        checkState = .checking
-        let seconds = checkTimeout
-        let watchdog = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard let self, !Task.isCancelled, self.checkGeneration == generation, self.checkState == .checking else { return }
-            self.checkState = .failed("rt setup plan did not answer within \(Int(seconds.rounded())) s")
-        }
-        await readiness.recheckAll()
-        watchdog.cancel()
-        guard checkGeneration == generation else { return }
-        showsConfirmedRowsWhileChecking = false
-        checkState = readiness.lastRefreshFailed ? .failed(readiness.lastError ?? "unknown error") : .checked
-    }
-
-    /// A Skip asked from a checklist page re-reads the plan without
-    /// touching the summary's check: that plan is the pre-Install one, and
-    /// must never confirm the gate.
-    private var skipFromPage = false
-
-    public func requestSkip(_ row: PlanRow, onPage: Bool = false) { skipError = nil; skipFromPage = onPage; skipTarget = row }
-    public func cancelSkip() { skipTarget = nil; skipError = nil }
-
-    /// A verb failure keeps the sheet up with the message and the gate
-    /// closed. Success closes the sheet and re-reads the plan through the
-    /// bounded path, so the row leaves Needs you, or a failed re-read
-    /// shows its error with Try again and fails open.
-    public func confirmSkip() async {
-        guard let row = skipTarget else { return }
-        isSkipping = true
-        if let error = await waivers.waive(row.id) {
-            skipError = error
-            isSkipping = false
-            return
-        }
-        skipTarget = nil
-        skipError = nil
-        isSkipping = false
-        if skipFromPage { await readiness.recheckAll() } else { await retryCheck() }
     }
 }

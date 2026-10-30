@@ -36,12 +36,9 @@ enum ChecklistRowSnapshot {
             }
         }
         for scheme in ["light", "dark"] {
-            SnapshotRenderer.render(InstallRows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("install-clone-progress-\(scheme).png"))
-        }
-        for scheme in ["light", "dark"] {
             SnapshotRenderer.render(RepoRows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("repo-rows-\(scheme).png"))
         }
-        print("wrote \(6 + sheets.count * 2) snapshots to \(out.path)")
+        print("wrote \(4 + sheets.count * 2) snapshots to \(out.path)")
         return true
         #else
         return false
@@ -164,32 +161,6 @@ enum ChecklistRowSnapshot {
             .padding(20)
             .controlSize(.large)
             .frame(width: SetupWindowController.width)        }
-    }
-
-    private static let installSteps: [InstallStep] = [
-        InstallStep(info: StepInfo(id: "team.join", title: "Join your team", kind: .rt), state: .done, detail: "Joined acme"),
-        InstallStep(info: StepInfo(id: "repos.clone", title: "Clone your repos", kind: .rt), state: .running,
-                    detail: "Cloning acme-api (2 of 2) · widgets was already on this Mac",
-                    progress: StepProgress(label: "Receiving objects", percent: 42, note: "1.21 GiB · 18.4 MiB/s")),
-        InstallStep(info: StepInfo(id: "board.setup", title: "Set up the board", kind: .rt)),
-    ]
-
-    /// The Install list mid-clone, as the "R · Install" board draws it.
-    private struct InstallRows: View {
-        var body: some View {
-            Form {
-                Section {
-                    ForEach(installSteps) { step in
-                        InstallStepRow(step: step, hasLog: false, isFailedStep: false, isRunning: true,
-                                       showLog: {}, retryFromFailure: {}, retryFrom: {})
-                    }
-                } header: {
-                    Text("Installing… nothing runs that isn't listed here.")
-                }
-            }
-            .formStyle(.grouped)
-            .frame(width: SetupWindowController.width, height: 300)
-        }
     }
 
     private static func place(_ repo: String, mode: String, checkout: String? = nil, clone: String, note: String,
