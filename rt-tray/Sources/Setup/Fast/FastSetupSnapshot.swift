@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -217,6 +217,19 @@ enum FastSetupSnapshot {
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupLocal], ready: false)),
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
             ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false)),
+        ]
+    }
+
+    @MainActor
+    private static func readyPages() -> [(String, AnyView)] {
+        /// The window opens at this height, so a page shows how the screen balances.
+        let windowHeight: CGFloat = 620
+        func page(_ home: FormHome) -> AnyView {
+            AnyView(ReadyScreenBody(home: home, onOpen: {}).frame(height: windowHeight))
+        }
+        return [
+            ("ready", page(FormHome(label: "Open the board", url: "https://board.mattstack"))),
+            ("ready-solo", page(FormHome(label: "Open the console", url: "https://console.mattstack"))),
         ]
     }
 
