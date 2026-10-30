@@ -1,16 +1,22 @@
 /**
  * `rt setup prepare`: the installs setup starts while the member is still
  * answering screens, so nothing waits on them later. Command Line Tools start
- * at the macOS screen; Claude Code, herdr and the team's tools start once the
- * member is approved. Each stage keeps its own record, which the form reads
- * to show a row as installing.
+ * at the macOS screen; Claude Code, herdr, the team's tools and Fast Browser's
+ * runtime start once the member is approved. Each stage keeps its own record,
+ * which the form reads to show a row as installing.
  */
 import { dirname, join } from "path";
+import { resolveTool } from "../deps/resolve.ts";
+import type { StepOutcome } from "./apply.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements, ToolRequirement } from "./requirements.ts";
 import { signInTools } from "./sign-in-tools.ts";
+import { setUpFastBrowser } from "./steps/tools.ts";
 import { CLT_INSTALL_TIMEOUT_MS, installRoute, installTool } from "./tools-install.ts";
 import { pidAlive } from "./update-lock.ts";
+
+/** The accounts item for Fast Browser's setup, which the connect form's Fast Browser row reads. */
+export const FAST_BROWSER = "fast-browser";
 
 export type PrepareStage = "macos" | "accounts";
 export const PREPARE_STAGES: readonly PrepareStage[] = ["macos", "accounts"];
@@ -105,6 +111,8 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
     hasBrew ??= (await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS })).code === 0;
     if ((await installRoute(p, tool.name, reqs, hasBrew)) !== null) items.push(tool.name);
   }
+  // Last, so the Claude Code it integrates into is already installed.
+  if (resolveTool(p, FAST_BROWSER).exec) items.push(FAST_BROWSER);
   return items;
 }
 
@@ -125,10 +133,16 @@ function errorDetail(err: unknown): string {
 export async function runPrepare(
   p: Probes,
   stage: PrepareStage,
-  deps: { reqs: PackRequirements[]; install?: typeof installTool; alive?: (pid: number) => boolean; pid?: number },
+  deps: { reqs: PackRequirements[]; install?: typeof installTool; setUpFastBrowser?: (p: Probes) => Promise<StepOutcome>; alive?: (pid: number) => boolean; pid?: number },
 ): Promise<PrepareResult> {
   const alive = deps.alive ?? pidAlive;
   const install = deps.install ?? installTool;
+  const setUp = deps.setUpFastBrowser ?? ((probes: Probes) => setUpFastBrowser(probes, { nonInteractive: true }));
+  const installOne = async (tool: string) => {
+    if (tool !== FAST_BROWSER) return install(p, tool, deps.reqs);
+    const outcome = await setUp(p);
+    return outcome.state === "done" ? { ok: true as const } : { ok: false as const, detail: outcome.detail };
+  };
   if (readPrepare(p, stage, alive, () => p.now())?.running) return { stage, skipped: "running", installed: [], failed: [] };
 
   const items = await prepareTools(p, stage, deps.reqs);
@@ -141,7 +155,7 @@ export async function runPrepare(
     if (stage === "accounts" && items.length > 0) await waitForCommandLineTools(p, alive);
     for (const tool of items) {
       try {
-        const result = await install(p, tool, deps.reqs);
+        const result = await installOne(tool);
         if (result.ok) installed.push(tool);
         else record.failed.push({ tool, detail: result.detail });
       } catch (err) {

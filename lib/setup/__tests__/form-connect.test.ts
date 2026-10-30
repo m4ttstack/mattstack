@@ -321,6 +321,41 @@ describe("connectRows", () => {
     expect(fb.watch).toBe(true);
   });
 
+  const UNREAD = r("tool.fast-browser-extension", "skipped", "Fast Browser's doctor report could not be read. See the Fast Browser row", { required: false, finishGated: true });
+  const NOT_ADDED = r("tool.fast-browser-extension", "needs-you", "The pinned Chrome extension is not installed.", { required: false, finishGated: true, action: FAST_BROWSER_ADD_ACTION });
+
+  test("while prepare sets up Fast Browser the row reads Installing and holds Continue", () => {
+    for (const ext of [UNREAD, NOT_ADDED]) {
+      const fb = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), ext)), prepare: prepare({ items: ["claude", "fast-browser"] }) })), "fast-browser");
+      expect([fb.state, fb.detail, fb.action, fb.optional]).toEqual(["busy", "Installing…", null, false]);
+    }
+  });
+
+  test("an added extension reads Added even while prepare is still running", () => {
+    const fb = pick(connectRows(inputs({ prepare: prepare({ items: ["fast-browser"] }) })), "fast-browser");
+    expect([fb.state, fb.detail]).toEqual(["done", "Added"]);
+  });
+
+  test("once prepare has set up Fast Browser the row offers Add to Chrome", () => {
+    const ended = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", items: ["fast-browser"] });
+    const fb = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), NOT_ADDED)), prepare: ended })), "fast-browser");
+    expect([fb.state, fb.action, fb.waiting, fb.optional]).toEqual(["todo", FAST_BROWSER_ADD_ACTION, "Waiting for Chrome…", false]);
+  });
+
+  test("a failed Fast Browser setup with no report leaves the row optional with the reason", () => {
+    const failed = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", items: ["fast-browser"], failed: [{ tool: "fast-browser", detail: "Fast Browser's setup failed (exit 1): no network" }] });
+    const list = connectRows(inputs({ plan: plan(swap(joinerRows(), UNREAD)), prepare: failed }));
+    const fb = pick(list, "fast-browser");
+    expect([fb.state, fb.detail, fb.action, fb.optional]).toEqual(["todo", "Fast Browser's setup failed (exit 1): no network", null, true]);
+    expect(allAnswered(list.filter((x) => x.id === "fast-browser"))).toBe(true);
+  });
+
+  test("a failed Fast Browser setup still offers Add to Chrome when the report can see Chrome", () => {
+    const failed = prepare({ running: false, endedAt: "2026-10-30T09:55:00.000Z", items: ["fast-browser"], failed: [{ tool: "fast-browser", detail: "Fast Browser's setup failed (exit 1): no network" }] });
+    const fb = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), NOT_ADDED)), prepare: failed })), "fast-browser");
+    expect(fb.action).toEqual(FAST_BROWSER_ADD_ACTION);
+  });
+
   test("solo shows the code host as optional, then Claude and Fast Browser", () => {
     const rows = [
       r("account.github", "missing", "No GitHub account connected yet", { required: false }),

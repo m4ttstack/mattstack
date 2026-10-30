@@ -21,7 +21,7 @@ import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "./permissions.ts";
 import { composePlan, enrichSnapshotForge } from "./plan.ts";
-import { readPrepare, type PrepareRecord } from "./prepare.ts";
+import { FAST_BROWSER, readPrepare, type PrepareRecord } from "./prepare.ts";
 import type { Probes } from "./probes.ts";
 import { configuredRepoRoots } from "./repo-placement.ts";
 import { detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
@@ -598,15 +598,18 @@ function isStoreInstall(action: Action | null): boolean {
   return action?.type === "open-url" && FAST_BROWSER_ADD_ACTION.type === "open-url" && action.url === FAST_BROWSER_ADD_ACTION.url;
 }
 
-function fastBrowserRow(rows: ReadonlyMap<string, Row>): ConnectRow {
+/** Without Fast Browser's report there is no way to see the extension land, so a failed setup leaves the row optional with its reason. */
+function fastBrowserRow(rows: ReadonlyMap<string, Row>, prepare: AccountsPrepare): ConnectRow {
   const c = FORM_COPY.connect.fastBrowser;
   const base = { id: "fast-browser", title: c.title, subtext: c.subtext, waiting: null, watch: true };
   const chrome = rows.get("tool.chrome");
   if (chrome && chrome.status !== "ready") return { ...base, state: "todo", detail: chrome.detail, action: GET_CHROME };
   const extension = rows.get("tool.fast-browser-extension");
   if (extension?.status === "ready") return { ...base, state: "done", detail: c.done, action: null };
+  if (installing(prepare, FAST_BROWSER)) return { ...base, state: "busy", detail: FORM_COPY.installing, action: null };
   if (isStoreInstall(extension?.action ?? null)) return { ...base, state: "todo", detail: extension!.detail, action: FAST_BROWSER_ADD_ACTION, waiting: c.waiting };
-  return { ...base, state: "todo", detail: extension?.detail ?? "", action: extension?.action ?? null };
+  const action = extension?.action ?? null;
+  return { ...base, state: "todo", detail: (action === null ? installFailure(prepare, FAST_BROWSER) : null) ?? extension?.detail ?? "", action };
 }
 
 /** Fast Browser is optional on solo, so its row never holds a solo Continue. */
@@ -621,7 +624,7 @@ export function connectRows(i: ConnectInputs): FormRow[] {
     ...(team ? i.signIn.map((tool) => signInRow(i, rows, tool)) : []),
     ...extraRows(i.plan, formOwnedIds(i.plan, i), { afterRun: false, prepare: i.prepare }),
     team ? linearRow(rows) : null,
-    team ? fastBrowserRow(rows) : { ...fastBrowserRow(rows), optional: true },
+    team ? fastBrowserRow(rows, i.prepare) : { ...fastBrowserRow(rows, i.prepare), optional: true },
   ];
   return list.filter((r): r is ConnectRow => r !== null).map(settle);
 }

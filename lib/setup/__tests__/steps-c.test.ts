@@ -1636,6 +1636,26 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(p.calls.exec.at(-1)).toEqual(["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"]);
     });
 
+    test("a mattstack marketplace fast-browser setup added goes on the uninstall record; one already there does not", async () => {
+      let listed: Record<string, unknown>[] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/fast-browser": "bin", "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv.includes("marketplace") && argv.includes("list")) return ok(JSON.stringify(listed));
+          if (argv[1] === "setup") listed = [{ name: "mattstack", source: "git", url: MATTSTACK_MARKETPLACE_SOURCE }];
+          return ok("");
+        },
+      });
+      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
+      expect(readSetupState(p).marketplaces).toEqual([MATTSTACK_MARKETPLACE_SOURCE]);
+
+      updateSetupState(p, (s) => ({ ...s, marketplaces: [] }));
+      expect((await fastbrowserSetupStep.run(makeCtx(p).ctx)).state).toBe("done");
+      expect(readSetupState(p).marketplaces).toEqual([]);
+    });
+
     test("not bundled, no user copy -> skipped honestly, never execs", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);

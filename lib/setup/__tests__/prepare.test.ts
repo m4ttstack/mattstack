@@ -182,6 +182,51 @@ describe("runPrepare", () => {
     expect(readPrepare(p, "accounts", alive)!.failed).toEqual(failed);
   });
 
+  describe("Fast Browser", () => {
+    const withFastBrowser = (exec: ExecScript = machine()) =>
+      fakeProbes({ home: HOME, env: { PATH: "/usr/local/bin" }, files: { "/usr/local/bin/fast-browser": "bin" }, exec });
+
+    test("accounts sets up Fast Browser once, after the tools it integrates into", async () => {
+      const p = withFastBrowser();
+      const seen: string[] = [];
+      const setUps: ReturnType<typeof readPrepare>[] = [];
+      const setUpFastBrowser = async () => {
+        seen.push("fast-browser");
+        setUps.push(readPrepare(p, "accounts", alive, () => p.now()));
+        return { state: "done" as const, detail: "Fast Browser is set up" };
+      };
+      const result = await runPrepare(p, "accounts", { reqs, install: fakeInstall(seen), setUpFastBrowser, alive, pid: OWN_PID });
+      expect(seen).toEqual(["claude", "herdr", "doppler", "jq", "fast-browser"]);
+      expect(setUps).toHaveLength(1);
+      expect(setUps[0]).toMatchObject({ running: true, items: ["claude", "herdr", "doppler", "jq", "fast-browser"] });
+      expect(result.installed).toEqual(["claude", "herdr", "doppler", "jq", "fast-browser"]);
+    });
+
+    test("a Fast Browser setup that does not finish is recorded with its reason", async () => {
+      const p = withFastBrowser();
+      const setUpFastBrowser = async () => ({ state: "skipped" as const, detail: "No Claude Code or Codex found, so there is nothing to integrate with" });
+      const result = await runPrepare(p, "accounts", { reqs, install: fakeInstall([]), setUpFastBrowser, alive, pid: OWN_PID });
+      const failed = [{ tool: "fast-browser", detail: "No Claude Code or Codex found, so there is nothing to integrate with" }];
+      expect(result.failed).toEqual(failed);
+      expect(readPrepare(p, "accounts", alive)).toMatchObject({ running: false, failed });
+    });
+
+    test("a build without Fast Browser has nothing to set up", async () => {
+      let called = false;
+      const p = fakeProbes({ home: HOME, exec: machine() });
+      await runPrepare(p, "accounts", { reqs, install: fakeInstall([]), setUpFastBrowser: async () => ((called = true), { state: "done" }), alive, pid: OWN_PID });
+      expect(called).toBe(false);
+      expect(readPrepare(p, "accounts", alive)!.items).not.toContain("fast-browser");
+    });
+
+    test("by default it runs Install's own Fast Browser setup, unattended", async () => {
+      const p = withFastBrowser((argv) => (argv[0] === "/usr/local/bin/fast-browser" ? { code: 2, stdout: "", stderr: "fast-browser: Detected hosts: none." } : machine()(argv)));
+      const result = await runPrepare(p, "accounts", { reqs, install: fakeInstall([]), alive, pid: OWN_PID });
+      expect(p.calls.exec.filter((argv) => argv[0] === "/usr/local/bin/fast-browser")).toEqual([["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"]]);
+      expect(result.failed).toEqual([{ tool: "fast-browser", detail: "No Claude Code or Codex found, so there is nothing to integrate with" }]);
+    });
+  });
+
   test("the record carries the items while it runs and loses its pid when it ends", async () => {
     const p = fakeProbes({ home: HOME, exec: machine(), now: new Date("2026-01-01T00:05:00.000Z") });
     const during: ReturnType<typeof readPrepare>[] = [];
