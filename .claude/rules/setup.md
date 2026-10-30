@@ -141,9 +141,11 @@ is the engine's end step, run after a failed step too, in a whole
 `rt setup apply` (after Finish is recorded, before the run lock lets go) and
 in an update run (after `verify`). It runs `deck restart --managed`, so deck
 decides which apps count, and never fails a run: a restart deck refuses is
-`partial`. An attach and a skipped update run restart nothing. An `--only`
-run that ends ok restarts nothing either but sets `appsRestartOwed` in
-setup-state; a done or skipped restart clears it, and `rt setup finish`
+`partial`. Its wait for the apps to answer has one short deadline, so a hung
+deck never holds a run's `done`. An attach and a skipped update run restart
+nothing. An `--only` run that ends ok restarts nothing either but sets
+`appsRestartOwed` in setup-state. The end step clears it whatever its
+outcome (Finish's own restart only on done or skipped), and `rt setup finish`
 restarts only while it is still set after its own update run, so a whole
 run's restart is never repeated as P7 opens the board. `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
 the update stamp, the Install stamp (`installRanAt`) and the last run's record

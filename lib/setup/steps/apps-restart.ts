@@ -20,15 +20,18 @@ import { readDeckApiPortFrom } from "./deck.ts";
 
 export interface AppsRestartSeams {
   sleep(ms: number): Promise<void>;
+  /** Milliseconds, for the health wait's one deadline. */
+  now(): number;
 }
 
-export const REAL_APPS_RESTART_SEAMS: AppsRestartSeams = { sleep: (ms) => Bun.sleep(ms) };
+export const REAL_APPS_RESTART_SEAMS: AppsRestartSeams = { sleep: (ms) => Bun.sleep(ms), now: () => Date.now() };
 
 const MANAGED_RESTART_TIMEOUT_MS = 180_000;
 const EXEC_TIMEOUT_CODE = 124;
-const HEALTH_ATTEMPTS = 10;
+/** The whole health wait, however slowly deck answers: a hung deck must not hold the run's `done`. */
+const HEALTH_DEADLINE_MS = 5_000;
 const HEALTH_DELAY_MS = 500;
-const HEALTH_FETCH_TIMEOUT_MS = 5_000;
+const HEALTH_FETCH_TIMEOUT_MS = 1_000;
 const MANAGED_REMEDY = "Run deck restart --managed";
 const NOT_RUNNING = "Deck is not running, so no apps to restart";
 
@@ -46,8 +49,8 @@ export function parseManagedRestart(stdout: string, stderr: string): { restarted
 }
 
 /** Names among `apps` deck does not yet report healthy; a name deck no longer lists, or lists with no health probe, counts as settled. */
-async function unsettled(p: Probes, port: number, apps: string[]): Promise<string[]> {
-  const res = await p.fetch(`http://127.0.0.1:${port}/api/v1/apps`, { timeoutMs: HEALTH_FETCH_TIMEOUT_MS });
+async function unsettled(p: Probes, port: number, apps: string[], timeoutMs: number): Promise<string[]> {
+  const res = await p.fetch(`http://127.0.0.1:${port}/api/v1/apps`, { timeoutMs });
   if (res.status !== 200) return apps;
   let rows: Array<{ name?: unknown; health?: { ok?: unknown } | null }>;
   try {
@@ -64,10 +67,12 @@ async function unsettled(p: Probes, port: number, apps: string[]): Promise<strin
 
 /** A short, bounded wait so whatever opens on `done` (P7's board) finds the apps answering. A slow one is logged, never a failure: deck did restart it. */
 async function waitForHealthy(p: Probes, port: number, apps: string[], seams: AppsRestartSeams, log: (line: string) => void): Promise<void> {
-  let pending = await unsettled(p, port, apps);
-  for (let i = 1; i < HEALTH_ATTEMPTS && pending.length > 0; i++) {
+  const deadline = seams.now() + HEALTH_DEADLINE_MS;
+  const ask = () => unsettled(p, port, apps, Math.max(1, Math.min(HEALTH_FETCH_TIMEOUT_MS, deadline - seams.now())));
+  let pending = await ask();
+  while (pending.length > 0 && seams.now() + HEALTH_DELAY_MS < deadline) {
     await seams.sleep(HEALTH_DELAY_MS);
-    pending = await unsettled(p, port, apps);
+    pending = await ask();
   }
   if (pending.length > 0) log(`Still starting: ${pending.join(", ")}`);
 }
@@ -121,6 +126,11 @@ export async function restartServedApps(p: Probes, log: (line: string) => void, 
   return outcome;
 }
 
+/**
+ * As a run's end step it settles the owed mark whatever its outcome: the run's
+ * own restart is the one it owes, and a Finish that retried a partial one
+ * would restart the board just as P7 opens it.
+ */
 export function makeAppsRestartStep(seams: AppsRestartSeams = REAL_APPS_RESTART_SEAMS): StepDef {
   return {
     id: "apps.restart",
@@ -128,7 +138,11 @@ export function makeAppsRestartStep(seams: AppsRestartSeams = REAL_APPS_RESTART_
     kind: "rt",
     updateSafe: true,
     applies: () => true,
-    run: (ctx: ApplyContext) => restartServedApps(ctx.p, (line) => ctx.log("apps.restart", line), seams),
+    async run(ctx: ApplyContext) {
+      const outcome = await restartServedApps(ctx.p, (line) => ctx.log("apps.restart", line), seams);
+      clearOwed(ctx.p);
+      return outcome;
+    },
   };
 }
 

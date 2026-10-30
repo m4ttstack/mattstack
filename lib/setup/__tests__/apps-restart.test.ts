@@ -6,7 +6,8 @@ import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../..
 import { setSetting } from "../../settings/write.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
-import { appsRestartOwed, oweAppsRestart, parseManagedRestart, restartServedApps, type AppsRestartSeams } from "../steps/apps-restart.ts";
+import type { ApplyContext } from "../apply.ts";
+import { appsRestartOwed, makeAppsRestartStep, oweAppsRestart, parseManagedRestart, restartServedApps, type AppsRestartSeams } from "../steps/apps-restart.ts";
 import { fakeProbes, type ExecScript } from "./fakes.ts";
 
 const DASH = String.fromCharCode(0x2014);
@@ -71,9 +72,19 @@ describe("restartServedApps", () => {
   function healthy(): Probes["fetch"] {
     return async () => ({ status: 200, body: appsBody([{ name: "board", ok: true }, { name: "chat", ok: true }]), headers: {} });
   }
-  function seams(): AppsRestartSeams & { sleeps: number[] } {
+  /** A clock that moves only by the step's own sleeps, plus whatever a fake fetch spends. */
+  function seams(): AppsRestartSeams & { sleeps: number[]; clock: { ms: number } } {
     const sleeps: number[] = [];
-    return { sleeps, sleep: async (ms) => void sleeps.push(ms) };
+    const clock = { ms: 0 };
+    return {
+      sleeps,
+      clock,
+      now: () => clock.ms,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        clock.ms += ms;
+      },
+    };
   }
 
   test("no deck in the bundle is skipped without running anything", async () => {
@@ -117,6 +128,22 @@ describe("restartServedApps", () => {
     const p = bundledProbes({ exec: reply(0, "restarted board\n"), fetch });
     expect(await restartServedApps(p, (l) => logs.push(l), s)).toEqual({ state: "done", detail: "Restarted board" });
     expect(s.sleeps).toHaveLength(9);
+    expect(logs).toContain("Still starting: board");
+  });
+
+  test("a deck that hangs on every health ask is given up on at one deadline, with short asks", async () => {
+    const s = seams();
+    const asks: number[] = [];
+    const fetch: Probes["fetch"] = async (_url, opts) => {
+      asks.push(opts?.timeoutMs ?? -1);
+      s.clock.ms += opts?.timeoutMs ?? 0;
+      return { status: 0, body: "", headers: {} };
+    };
+    const logs: string[] = [];
+    const p = bundledProbes({ exec: reply(0, "restarted board\n"), fetch });
+    expect(await restartServedApps(p, (l) => logs.push(l), s)).toEqual({ state: "done", detail: "Restarted board" });
+    expect(Math.max(...asks)).toBeLessThanOrEqual(1_000);
+    expect(s.clock.ms).toBeLessThanOrEqual(5_000);
     expect(logs).toContain("Still starting: board");
   });
 
@@ -181,5 +208,14 @@ describe("restartServedApps", () => {
     updateSetupState(partial, (s) => ({ ...s, appsRestartOwed: true }));
     await restartServedApps(partial, () => {}, seams());
     expect(readSetupState(partial).appsRestartOwed).toBe(true);
+  });
+
+  // Else a partial end restart plus Finish's own restart catches the board as P7 opens it.
+  test("as a run's end step it settles the owed mark whatever the outcome", async () => {
+    const partial = bundledProbes({ exec: reply(1, "", `${failedLine("board")}\n`) });
+    oweAppsRestart(partial);
+    const ctx = { p: partial, log: () => {} } as unknown as ApplyContext;
+    expect((await makeAppsRestartStep(seams()).run(ctx)).state).toBe("partial");
+    expect(appsRestartOwed(partial)).toBe(false);
   });
 });
