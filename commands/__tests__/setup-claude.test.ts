@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setupClaudeCode, setupClaudeConnect, type ClaudeDeps } from "../setup-claude.ts";
 import { loginSessionPath, type LoginSeams, type LoginSession } from "../../lib/setup/cli-login.ts";
 import { fakeProbes, ok, type ExecScript } from "../../lib/setup/__tests__/fakes.ts";
+import { readStdinJson } from "../../lib/setup/probes.ts";
 import { capturePlain } from "./helpers/json-line.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
@@ -177,6 +178,16 @@ describe("rt setup claude code", () => {
     expect(t.lines[0]).toMatchObject({ integration: "claude", status: "invalid", detail: "Claude did not accept that code" });
     expect(t.sleeps.reduce((a, b) => a + b, 0)).toBe(30_000);
     expect(exec.statusCalls()).toBe(15);
+    expect(t.seams.killed).toEqual([]);
+    expect(t.probes.readFile(RECORD)).not.toBeNull();
+  });
+
+  test("a garbled body is refused, not a crash", async () => {
+    const t = harness({ exec: claudeStatus(), files: seeded() });
+    t.d.stdin = () => readStdinJson(new Response("{not json").body!);
+    expect(await exitCode(() => setupClaudeCode(["--json"], {}, t.d))).toBe(2);
+    expect(t.lines[0]).toMatchObject({ error: { code: "bad-stdin" } });
+    expect(t.seams.written).toEqual([]);
   });
 
   test("no code on stdin is refused before anything reaches the session", async () => {

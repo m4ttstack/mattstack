@@ -8,7 +8,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { endLogin, readLogin, sendLoginInput, startLogin, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
+import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
 import * as out from "../lib/ui/out.ts";
 import type { RenderStatus } from "../lib/ui/protocol.ts";
@@ -22,18 +22,8 @@ export interface ClaudeDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-async function readStdinJson(): Promise<unknown> {
-  const text = (await new Response(Bun.stdin.stream()).text()).trim();
-  if (text === "") return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
 function realClaudeDeps(): ClaudeDeps {
-  return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit, stdin: readStdinJson };
+  return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit, stdin: () => readStdinJson() };
 }
 
 type ClaudeStatus = "ready" | "needs-you" | "invalid";
@@ -121,7 +111,14 @@ export async function setupClaudeCode(args: string[], _ctx: CommandContext = {},
   // Checked before stdin: with no session there is nothing to read a code for.
   if (readLogin(p, "claude", deps.seams) === null) return noLogin();
 
-  const code = codeFrom(await deps.stdin());
+  let input: unknown;
+  try {
+    input = await deps.stdin();
+  } catch (err) {
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
+    throw err;
+  }
+  const code = codeFrom(input);
   if (code === null) {
     const err = new UserActionableError("bad-stdin", 'No code given. Pipe {"code": "<code>"} on stdin');
     return exitWithUserError(err, json, sinkOf(deps));
