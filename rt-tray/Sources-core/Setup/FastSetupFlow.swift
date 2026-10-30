@@ -7,6 +7,67 @@ public enum FastSetupScreen: String, CaseIterable, Sendable {
     case restore, waiting, connect
     case thisMac = "this-mac"
     case running, paused, ready
+
+    /// The `rt setup form --section` this screen draws; nil for a screen with no rows.
+    public var section: String? {
+        switch self {
+        case .macos: return "macos"
+        case .invite: return "invite"
+        case .createTeam: return "create"
+        case .restore: return "restore"
+        case .connect: return "connect"
+        case .thisMac: return "this-mac"
+        case .loading, .path, .waiting, .running, .paused, .ready: return nil
+        }
+    }
+}
+
+public struct SetupNotice: Equatable, Sendable {
+    public var title: String
+    public var body: String
+    public init(title: String, body: String) { self.title = title; self.body = body }
+}
+
+/// Where the app picks setup up: whether it opens, as what, and whether the bar starts.
+public enum FastSetupLaunch {
+    /// rt holds the run record, so this app only attaches to or resumes it, and never starts a second over a live one.
+    public static func startsRun(stage: FormStage, runLive: Bool) -> Bool {
+        stage == .running && !runLive
+    }
+
+    public static func installStream(rt: RtRunning) -> ApplyStreamFactory {
+        { from in rt.stream(FastSetupRun.arguments(retryFrom: from), stdin: nil) }
+    }
+
+    /// Setup status on a Mac that never finished is the first run, which still offers Just me; a finished Mac opens as status.
+    public static func entry(_ requested: SetupEntry, finished: Bool) -> SetupEntry {
+        switch requested {
+        case .status, .firstRun: return finished ? .status : .firstRun
+        case .upgrade: return .upgrade
+        }
+    }
+
+    /// The banner for a run that ended while the window was not in front.
+    public static func runEndNotice(stage: FormStage, paused: FormPaused?) -> SetupNotice? {
+        switch stage {
+        case .ready: return SetupNotice(title: "This Mac is ready", body: "Go make something cool")
+        case .paused: return SetupNotice(title: "Setup paused", body: paused?.title ?? "")
+        default: return nil
+        }
+    }
+
+    public static let approvedNotice = SetupNotice(title: "You're in", body: "A few questions, then it runs by itself")
+
+    /// When the run rt still holds began, from `run.startedAt` in setup-state.json, so a relaunch keeps the bar's time left honest.
+    public static func runStartedAt(stateJSON: Data?) -> Date? {
+        guard let stateJSON,
+              let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any],
+              let run = state["run"] as? [String: Any], run["endedAt"] == nil,
+              let startedAt = run["startedAt"] as? String else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: startedAt) ?? ISO8601DateFormatter().date(from: startedAt)
+    }
 }
 
 /// Which fast-setup screen is up. rt's stage decides where setup resumes:
@@ -107,6 +168,22 @@ public final class FastSetupFlow: ObservableObject {
         requested = nil
         chosen = nil
         screen = Self.screen(for: stage)
+    }
+
+    /// Reads the whole form and lands on rt's stage. A read rt could not answer, or one with no stage, moves nothing.
+    @discardableResult
+    public func land(reading form: SetupFormModel) async -> SetupForm? {
+        guard let read = await form.load(section: nil), let stage = read.stage else { return nil }
+        land(on: stage)
+        return read
+    }
+
+    /// A run ended: rt's whole read says where it stopped.
+    @discardableResult
+    public func landAfterRun(reading form: SetupFormModel) async -> SetupForm? {
+        guard let read = await form.load(section: nil), let stage = read.stage else { return nil }
+        runEnded(stage: stage)
+        return read
     }
 
     public var canGoBack: Bool {

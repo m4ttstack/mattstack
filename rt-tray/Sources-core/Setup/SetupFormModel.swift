@@ -9,6 +9,10 @@ public final class SetupFormModel: ObservableObject {
     @Published public private(set) var form: SetupForm?
     @Published public private(set) var error: String?
     @Published public private(set) var isLoading = false
+    /// The newest read that carried each section, keyed by the name `--section` takes, so one screen's read never blanks another's.
+    @Published public private(set) var reads: [String: SetupForm] = [:]
+    /// The newest whole read: only it carries the stage and what paused.
+    @Published public private(set) var whole: SetupForm?
 
     private let rt: RtRunning
     private let sleep: @Sendable (TimeInterval) async -> Void
@@ -17,6 +21,10 @@ public final class SetupFormModel: ObservableObject {
     private var issued = 0
     /// A read answered after a newer one has landed is dropped.
     private var landed = 0
+    private var sectionLanded: [String: Int] = [:]
+    private var wholeLanded = 0
+
+    public nonisolated static let sections = ["macos", "invite", "restore", "create", "connect", "this-mac"]
 
     public init(rt: RtRunning, sleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
         self.rt = rt; self.sleep = sleep
@@ -27,7 +35,9 @@ public final class SetupFormModel: ObservableObject {
     }
 
     /// `section` nil reads the whole form; `extra` carries `--forge` and `--host` for the create section.
-    public func load(section: String?, extra: [String] = []) async {
+    /// Hands back this call's own read even when a newer one has landed first, and nil when rt could not answer.
+    @discardableResult
+    public func load(section: String?, extra: [String] = []) async -> SetupForm? {
         issued += 1
         let mine = issued
         readsInFlight += 1
@@ -37,19 +47,55 @@ public final class SetupFormModel: ObservableObject {
             isLoading = readsInFlight > 0
         }
         let result = await rt.runJSON(Self.args(section: section, extra: extra), verb: "setup form", as: SetupForm.self)
-        guard mine > landed else { return }
-        landed = mine
         switch result {
         case .success(let read):
-            form = read
-            error = nil
+            keep(read, issued: mine, whole: section == nil)
+            return read
         case .failure(let failure):
-            error = failure.copy
+            if mine > landed {
+                landed = mine
+                error = failure.copy
+            }
+            return nil
         }
     }
 
-    /// Re-reads one at a time until no row rt marks `watch` in that section is waiting or busy.
-    public func watch(section: String?, every seconds: TimeInterval = 2, extra: [String] = []) {
+    /// A read rt answered some other way, kept as a load keeps it.
+    public func absorb(_ read: SetupForm) {
+        issued += 1
+        keep(read, issued: issued, whole: read.stage != nil)
+    }
+
+    public func rows(for section: String) -> [FormRow]? { reads[section]?.sections.rows(for: section) }
+
+    public func read(carrying section: String) -> SetupForm? { reads[section] }
+
+    /// Until the next read of `section` lands it reads as not loaded, and no read already in flight brings the old rows back.
+    public func forget(section: String) {
+        reads[section] = nil
+        sectionLanded[section] = issued
+    }
+
+    private func keep(_ read: SetupForm, issued mine: Int, whole isWhole: Bool) {
+        if mine > landed {
+            landed = mine
+            form = read
+            error = nil
+        }
+        for name in Self.sections where read.sections.rows(for: name) != nil && mine > (sectionLanded[name] ?? 0) {
+            sectionLanded[name] = mine
+            reads[name] = read
+        }
+        if isWhole, mine > wholeLanded {
+            wholeLanded = mine
+            whole = read
+        }
+    }
+
+    /// Re-reads one at a time until no row rt marks `watch` in that section is waiting or busy, and
+    /// `alsoWhile` is false: a link the app opened leaves rt's row todo until its answer lands.
+    public func watch(section: String?, every seconds: TimeInterval = 2, extra: [String] = [],
+                      alsoWhile: (@MainActor () -> Bool)? = nil) {
         stopWatching()
         watchTask = Task { [weak self, sleep] in
             while !Task.isCancelled {
@@ -57,7 +103,7 @@ public final class SetupFormModel: ObservableObject {
                 guard !Task.isCancelled, let self else { return }
                 await self.load(section: section, extra: extra)
                 guard !Task.isCancelled else { return }
-                if !self.waits(in: section) {
+                if !self.waits(in: section), alsoWhile?() != true {
                     self.watchTask = nil
                     return
                 }
@@ -72,7 +118,7 @@ public final class SetupFormModel: ObservableObject {
         watchTask = nil
     }
 
-    private func waits(in section: String?) -> Bool {
+    public func waits(in section: String?) -> Bool {
         guard let sections = form?.sections else { return false }
         let rows = section.map { sections.rows(for: $0) ?? [] } ?? sections.all
         return rows.contains { $0.watch && ($0.state == .waiting || $0.state == .busy) }

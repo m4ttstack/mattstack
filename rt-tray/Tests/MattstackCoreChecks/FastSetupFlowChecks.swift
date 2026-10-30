@@ -255,7 +255,95 @@ let fastSetupFlowChecks: [Check] = [
         c.expect(!FastSetupFlow.restoreEnabled(repo: "janedoe/mattstack-home", key: "key", rows: nil),
                  "before rt's restore section arrives nothing says whether git is missing")
     },
+    Check("FastSetupFlow: a launch on stage running starts the bar with --resume") { c in
+        c.expect(FastSetupLaunch.startsRun(stage: .running, runLive: false))
+        c.expect(!FastSetupLaunch.startsRun(stage: .running, runLive: true), "a run already live in this app is never started over")
+        for stage in [FormStage.macos, .path, .invite, .waiting, .connect, .thisMac, .paused, .ready] {
+            c.expect(!FastSetupLaunch.startsRun(stage: stage, runLive: false), "\(stage) starts nothing")
+        }
+        c.expect(FastSetupRun.arguments(retryFrom: nil).contains("--resume"))
+        let rt = ScriptedRt()
+        let stream = FastSetupLaunch.installStream(rt: rt)
+        for try await _ in stream(nil) {}
+        c.expectEqual(rt.calls.last?.args, FastSetupRun.arguments(retryFrom: nil), "the bar attaches to or resumes rt's run")
+        for try await _ in stream("repos.clone") {}
+        c.expectEqual(rt.calls.last?.args, FastSetupRun.arguments(retryFrom: "repos.clone"), "Retry runs from the failed step")
+    },
+    Check("FastSetupFlow: a run that ends lands where rt says") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --json": (0, wholeForm(stage: "paused", paused: clonePaused))]
+        let form = await SetupFormModel(rt: rt)
+        let f = await flow(on: .thisMac)
+        await f.startRun()
+        let paused = await f.landAfterRun(reading: form)
+        c.expectEqual(await f.screen, .paused)
+        c.expectEqual(rt.calls.last?.args, ["setup", "form", "--json"], "a run's end reads the whole form")
+        c.expectEqual(FastSetupLaunch.runEndNotice(stage: .paused, paused: paused?.paused),
+                      SetupNotice(title: "Setup paused", body: "Couldn't clone your repos"))
+        await f.retry()
+        rt.answers = ["setup form --json": (0, wholeForm(stage: "ready"))]
+        _ = await f.landAfterRun(reading: form)
+        c.expectEqual(await f.screen, .ready)
+        c.expectEqual(FastSetupLaunch.runEndNotice(stage: .ready, paused: nil),
+                      SetupNotice(title: "This Mac is ready", body: "Go make something cool"))
+        c.expectEqual(FastSetupLaunch.runEndNotice(stage: .running, paused: nil), nil, "a run rt still holds says nothing")
+        c.expectEqual(FastSetupLaunch.runEndNotice(stage: .thisMac, paused: nil), nil)
+
+        let upgrade = await flow(.upgrade, on: .ready, requested: .join)
+        await upgrade.joined()
+        _ = await upgrade.landAfterRun(reading: form)
+        c.expectEqual(await upgrade.screen, .ready, "an upgrade's run ends on ready, not back on the invite")
+
+        let stays = await flow(on: .running)
+        rt.answers = ["setup form --json": (1, "")]
+        c.expectEqual(await stays.landAfterRun(reading: form), nil)
+        c.expectEqual(await stays.screen, .running, "a read rt could not answer moves nothing")
+        rt.answers = ["setup form --json": (0, wholeForm(stage: nil))]
+        c.expectEqual(await stays.landAfterRun(reading: form), nil)
+        c.expectEqual(await stays.screen, .running, "a read without a stage moves nothing")
+    },
+    Check("FastSetupFlow: a whole read lands, and loading asks for one") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --json": (0, wholeForm(stage: "connect"))]
+        let form = await SetupFormModel(rt: rt)
+        let status = await flow(.status, on: .macos)
+        await status.macosDone()
+        c.expectEqual(await status.screen, .loading)
+        _ = await status.land(reading: form)
+        c.expectEqual(await status.screen, .connect, "a finished Mac that got macOS back resumes where rt says")
+        c.expectEqual(rt.calls.last?.args, ["setup", "form", "--json"])
+    },
+    Check("FastSetupFlow: Setup status on an unfinished Mac is the first run") { c in
+        c.expectEqual(FastSetupLaunch.entry(.status, finished: false), .firstRun, "an unfinished Mac still offers Just me")
+        c.expectEqual(FastSetupLaunch.entry(.status, finished: true), .status)
+        c.expectEqual(FastSetupLaunch.entry(.firstRun, finished: true), .status, "a finished Mac opens as status")
+        c.expectEqual(FastSetupLaunch.entry(.firstRun, finished: false), .firstRun)
+        c.expectEqual(FastSetupLaunch.entry(.upgrade, finished: true), .upgrade)
+    },
+    Check("FastSetupFlow: the bar times a run rt still holds from when it started") { c in
+        let live = Data(#"{"v":2,"run":{"startedAt":"2026-10-30T10:00:00.000Z","done":["org.pull"]}}"#.utf8)
+        let ended = Data(#"{"v":2,"run":{"startedAt":"2026-10-30T10:00:00.000Z","done":[],"endedAt":"2026-10-30T10:05:00.000Z","ok":false}}"#.utf8)
+        c.expectEqual(FastSetupLaunch.runStartedAt(stateJSON: live), Date(timeIntervalSince1970: 1_793_354_400))
+        c.expectEqual(FastSetupLaunch.runStartedAt(stateJSON: ended), nil, "an ended run is not the one the bar shows")
+        c.expectEqual(FastSetupLaunch.runStartedAt(stateJSON: Data(#"{"v":2}"#.utf8)), nil)
+        c.expectEqual(FastSetupLaunch.runStartedAt(stateJSON: nil), nil)
+    },
+    Check("FastSetupFlow: each screen reads its own section") { c in
+        let pairs: [(FastSetupScreen, String?)] = [
+            (.macos, "macos"), (.invite, "invite"), (.createTeam, "create"), (.restore, "restore"),
+            (.connect, "connect"), (.thisMac, "this-mac"), (.loading, nil), (.path, nil), (.waiting, nil),
+            (.running, nil), (.paused, nil), (.ready, nil),
+        ]
+        for (screen, section) in pairs { c.expectEqual(screen.section, section, "\(screen)") }
+    },
 ]
+
+private let clonePaused = #"{"step":"repos.clone","title":"Couldn't clone your repos","detail":"GitLab says your token can't see acme/acme-api","log":[]}"#
+
+private func wholeForm(stage: String?, paused: String = "null") -> String {
+    let stage = stage.map { "\"\($0)\"" } ?? "null"
+    return #"{"path":"join","team":{"slug":"widgets","name":"Widgets","invitedBy":"Jane Doe"},"stage":\#(stage),"sections":{"macos":[]},"continueReady":false,"startReady":false,"paused":\#(paused),"home":{"label":"Open the board","url":"https://board.mattstack"}}"#
+}
 
 private func macosRow(_ id: String, _ state: FormRowState, optional: Bool = false) -> FormRow {
     FormRow(id: id, title: id, subtext: "", state: state, detail: "", optional: optional)

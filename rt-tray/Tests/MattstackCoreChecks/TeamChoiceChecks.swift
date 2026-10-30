@@ -180,6 +180,17 @@ let teamChoiceChecks: [Check] = [
         c.expectEqual(rt.calls[1].args, ["setup", "intent", "restore", "m4ttheweric/mattstack-home", "--json"])
         c.expect(rt.calls.allSatisfy { !$0.args.contains("AGE-SECRET-KEY-1XYZ") }, "key never on argv")
     },
+    Check("TeamChoice: a restore repo pasted with a newline is trimmed the way Restore's button trims it") { c in
+        let rt = ScriptedRt()
+        rt.answers["restore"] = (0, #"{"contract":1,"ok":true,"repo":"janedoe/mattstack-home"}"#)
+        rt.answers["setup intent restore"] = (0, #"{"contract":1,"ok":true,"intent":"restore","repo":"janedoe/mattstack-home"}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home\n"; m.restoreAgeKey = "placeholder" }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.first?.args, ["restore", "janedoe/mattstack-home", "--json"])
+        c.expectEqual(rt.calls.last?.args, ["setup", "intent", "restore", "janedoe/mattstack-home", "--json"])
+        await MainActor.run { c.expect(m.canContinue, "the restored repo matches however it was pasted") }
+    },
     Check("a finished restore survives Back→Continue: the wiped key doesn't disable Continue and doesn't re-run the real restore") { c in
         let rt = ScriptedRt()
         rt.answers["restore"] = (0, #"{"contract":1,"ok":true,"repo":"m4ttheweric/mattstack-home"}"#)

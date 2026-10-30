@@ -115,6 +115,9 @@ public final class TeamChoiceModel: ObservableObject {
 
     private var trimmedGroup: String { group.trimmingCharacters(in: .whitespaces) }
 
+    /// Trimmed as `FastSetupFlow.restoreEnabled` trims it, so a pasted newline never reaches rt.
+    private var trimmedRestoreRepo: String { restoreRepo.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     /// The fast screen names a forge and a group. GitHub with a gh sign-in keeps `--create-repo`,
     /// and the old checklist card, which has no group, still sends its remote or gh owner.
     var createArguments: [String] {
@@ -136,7 +139,7 @@ public final class TeamChoiceModel: ObservableObject {
         case .join:
             return !normalizedInviteCode.isEmpty
         case .restore:
-            let repo = restoreRepo.trimmingCharacters(in: .whitespaces)
+            let repo = trimmedRestoreRepo
             return !repo.isEmpty && (restoredRepo == repo || !restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         case .solo:
             return true
@@ -162,7 +165,7 @@ public final class TeamChoiceModel: ObservableObject {
     /// Idempotent for create/restore — a repeat call with unchanged inputs
     /// (e.g. Back then Continue again) skips the verb rather than re-running it.
     public func validateAndPrepare() async -> String? {
-        if choice == .restore, restoredRepo == restoreRepo.trimmingCharacters(in: .whitespaces) { return nil }
+        if choice == .restore, restoredRepo == trimmedRestoreRepo { return nil }
         let fingerprint = preparationFingerprint()
         if let fingerprint, fingerprint == preparedFingerprint { return nil }
         isChecking = true
@@ -190,7 +193,7 @@ public final class TeamChoiceModel: ObservableObject {
                 // The app runs the real restore at Continue (clone + key
                 // into the Keychain), then records the intent so
                 // `setup apply`'s home.restore step only verifies.
-                let repo = restoreRepo.trimmingCharacters(in: .whitespaces)
+                let repo = trimmedRestoreRepo
                 let stdin = try JSONEncoder().encode(["ageKey": restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines)])
                 let r = try await rt.run(["restore", repo, "--json"], stdin: stdin)
                 if let e = r.userError(redactStderr: true) { return e.message }
@@ -287,7 +290,7 @@ public final class TeamChoiceModel: ObservableObject {
             // The key is hashed, never stored: this value outlives the field
             // (which is wiped after a successful restore) and only ever has to
             // answer "did the inputs change".
-            return ["restore", restoreRepo.trimmingCharacters(in: .whitespaces), String(restoreAgeKey.hashValue)].joined(separator: "\u{1}")
+            return ["restore", trimmedRestoreRepo, String(restoreAgeKey.hashValue)].joined(separator: "\u{1}")
         case .solo:
             return "solo"
         }

@@ -181,6 +181,38 @@ let formModelsChecks: [Check] = [
         c.expect(rt.calls.allSatisfy { $0.args == ["setup", "form", "--section", "connect", "--json"] })
         c.expectEqual(await m.form?.sections.connect?.first?.state, .done)
     },
+    Check("SetupForm: a section read keeps the other sections, and hands back its own read") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup form --json": (0, wholeFormJSON)]
+        let m = await SetupFormModel(rt: rt)
+        let whole = await m.load(section: nil)
+        c.expectEqual(whole?.stage, .thisMac, "a whole read hands back its stage")
+        rt.answers = ["setup form --section connect --json": (0, sectionJSON("connect", [row("claude", state: "done")]))]
+        let section = await m.load(section: "connect")
+        c.expectEqual(section?.stage, nil)
+        c.expectEqual(await m.rows(for: "connect")?.map(\.state), [.done], "the newest connect rows")
+        c.expectEqual(await m.rows(for: "this-mac")?.count, 4, "the connect read never blanks this Mac's rows")
+        c.expectEqual(await m.read(carrying: "this-mac")?.startReady, false)
+        c.expectEqual(await m.whole?.stage, .thisMac, "the last whole read stays for what only it carries")
+        c.expectEqual(await m.whole?.paused?.step, "daemon.start")
+        await m.forget(section: "invite")
+        c.expectEqual(await m.rows(for: "invite"), nil, "a forgotten section reads as not loaded")
+        rt.answers = ["setup form --json": (1, "")]
+        c.expectEqual(await m.load(section: nil), nil, "a read rt could not answer hands back nothing")
+        c.expectEqual(await m.rows(for: "connect")?.map(\.state), [.done])
+    },
+    Check("SetupForm: a watch keeps going while the app still waits on a row rt calls todo") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup form": (0, sectionJSON("connect", [row("fast-browser", watch: true)]))]
+        final class Waiting: @unchecked Sendable { var on = true }
+        let waiting = Waiting()
+        let sleeps = CountingSleep { n in if n == 3 { waiting.on = false } }
+        let m = await SetupFormModel(rt: rt, sleep: sleeps.sleep)
+        await m.watch(section: "connect", alsoWhile: { waiting.on })
+        await waitUntilIdle(m)
+        c.expectEqual(rt.calls.count, 4, "re-reads until the app's own wait ends")
+        c.expect(await !m.isWatching)
+    },
     Check("SetupForm: stopWatching ends the re-reads") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup form": (0, sectionJSON("macos", [row("perm.fda", state: "busy", watch: true)]))]

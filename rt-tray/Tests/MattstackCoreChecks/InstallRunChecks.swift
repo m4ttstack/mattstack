@@ -137,6 +137,18 @@ let installRunChecks: [Check] = [
         }
         c.expectEqual(count.froms, [nil, "plugins.install"])
     },
+    // rt sends no step event for the steps before --from, and a relaunched app holds no rows for them.
+    Check("InstallRun: a retry after a relaunch counts the steps before it as done") { c in
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        let stream: ApplyStreamFactory = { _ in lines([planLine, #"{"event":"step","id":"services.register","state":"running"}"#]) }
+        let m = await MainActor.run { InstallRunModel(stream: stream, needs: broker) }
+        await MainActor.run { m.start(from: "services.register") }
+        for _ in 0..<50 { if await MainActor.run(body: { m.steps.count == 3 && m.steps[1].state == .running }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.steps.map(\.state), [.done, .running, .pending], "home.init ran before the pause")
+            c.expectEqual(m.peakFraction, 1.0 / 3)
+        }
+    },
     Check("InstallRun: the peak survives a step's progress clearing on failure; a retry keeps it, a fresh start resets it") { c in
         let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
         let stream: ApplyStreamFactory = { from in
