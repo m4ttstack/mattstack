@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -169,6 +169,14 @@ enum FastSetupSnapshot {
             ("restore-restoring", page(repo: repo, key: key, rows: [], restoring: true)),
             ("restore-error", page(repo: repo, key: key, rows: [],
                                    failure: "That recovery key does not unlock janedoe/mattstack-home")),
+        ]
+    }
+
+    @MainActor
+    private static func waitingPages() -> [(String, AnyView)] {
+        [
+            ("waiting", AnyView(WaitingScreenBody(team: "Mithrandir", admin: "Jane Doe", onHide: {}))),
+            ("waiting-no-admin", AnyView(WaitingScreenBody(team: "Mithrandir", admin: nil, onHide: {}))),
         ]
     }
 

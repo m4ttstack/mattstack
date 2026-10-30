@@ -32,6 +32,18 @@ private func waitingStatus(_ m: JoinPageModel) async -> JoinStatus? {
     await MainActor.run { if case .waiting(let s) = m.phase { return s } else { return nil } }
 }
 
+@MainActor
+private final class ApprovalLog {
+    var teams: [String] = []
+}
+
+@MainActor
+private func listen(_ m: JoinPageModel) -> ApprovalLog {
+    let log = ApprovalLog()
+    m.onApproved = { status in log.teams.append(status.team.name) }
+    return log
+}
+
 let joinPageChecks: [Check] = [
     Check("JoinPage: a team repo row that needs a token reads needs token") { c in
         let m = await makeModel(ScriptedRt())
@@ -276,5 +288,39 @@ let joinPageChecks: [Check] = [
         await MainActor.run { m.adopt(status) }
         c.expectEqual(await MainActor.run { m.phase }, .waiting(status))
         c.expect(await MainActor.run { m.joinLanded })
+    },
+    Check("JoinPage: approval calls onApproved once") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup join-status --json": (0, statusJSON("approved", since: nil))]
+        let m = await makeModel(rt)
+        let log = await MainActor.run { listen(m) }
+        let waiting = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("waiting").utf8))
+        await MainActor.run { m.adopt(waiting) }
+        c.expectEqual(await MainActor.run { log.teams }, [], "a wait is not an approval")
+        await m.check()
+        c.expectEqual(await MainActor.run { log.teams }, ["acme"])
+        await m.check()
+        c.expectEqual(await MainActor.run { log.teams }, ["acme"], "a second check reading approved is the same approval")
+        await MainActor.run { m.reset(); m.adopt(waiting) }
+        await m.check()
+        c.expectEqual(await MainActor.run { log.teams }, ["acme", "acme"], "a new join is a new approval")
+    },
+    Check("JoinPage: polling with no page on screen still reports approval") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
+        let m = await makeModel(rt)
+        let log = await MainActor.run { listen(m) }
+        let waiting = try JSONDecoder().decode(JoinStatus.self, from: Data(statusJSON("waiting").utf8))
+        await MainActor.run { m.adopt(waiting); m.startPolling(every: 0.01) }
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        c.expect(rt.calls.count > 1, "a hidden wait keeps asking; got \(rt.calls.count) checks")
+        c.expectEqual(await MainActor.run { log.teams }, [])
+        rt.answers = ["setup join-status --json": (0, statusJSON("approved", since: nil))]
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        c.expectEqual(await MainActor.run { log.teams }, ["acme"])
+        c.expect(await MainActor.run { !m.isPolling }, "approval ends the polling")
+        let stopped = rt.calls.count
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        c.expectEqual(rt.calls.count, stopped, "no checks after approval")
     },
 ]

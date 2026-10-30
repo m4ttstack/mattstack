@@ -50,6 +50,9 @@ public final class JoinPageModel: ObservableObject {
     @Published public private(set) var isChecking = false
     /// The redeem is done: a failure from here on is the check's, so the page offers Check again, never a second redeem.
     @Published public private(set) var joinLanded = false
+    /// Called once per join, when a check first reads approved, whether or not a page is showing.
+    public var onApproved: (@MainActor (JoinStatus) -> Void)?
+    private var approvalReported = false
 
     public nonisolated static let joinVerb = ["setup", "apply", "--only", "team.join", "--json"]
     public nonisolated static let statusVerb = ["setup", "join-status", "--json"]
@@ -102,12 +105,15 @@ public final class JoinPageModel: ObservableObject {
         logLines = []
         needWaiting = nil
         joinLanded = false
+        approvalReported = false
     }
 
     /// A Mac found waiting at launch arrives here already joined.
     public func adopt(_ status: JoinStatus) {
         joinLanded = true
         checkError = nil
+        // Approved before this launch: that approval was already announced.
+        approvalReported = status.state == "approved"
         apply(status)
     }
 
@@ -116,6 +122,7 @@ public final class JoinPageModel: ObservableObject {
         generation += 1
         let mine = generation
         phase = .joining
+        approvalReported = false
         logLines = []
         checkError = nil
         let failure = await RowVerbRun.apply(Self.joinVerb, rt: rt, needs: needs,
@@ -177,6 +184,10 @@ public final class JoinPageModel: ObservableObject {
             return
         }
         apply(status)
+        if case .approved = phase, !approvalReported {
+            approvalReported = true
+            onApproved?(status)
+        }
     }
 
     public enum LaunchJoin: Equatable, Sendable {

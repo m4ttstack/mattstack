@@ -18,12 +18,16 @@ public enum NotificationClick {
     /// A setup update run left something for the person: the click opens
     /// the Setup status checklist.
     public static let setupUpdateCategory = "setup_update"
+    /// Setup moved on while its window may be hidden ("You're in"): the
+    /// click brings fast setup back on whatever screen rt says is next.
+    public static let setupProgressCategory = "setup_progress"
 
     public enum Route: Equatable, Sendable {
         case showKeyboardConflict
         case showProcessPanel
         case showWorktreePanel
         case showSetupStatus
+        case resumeSetup
         case openURL(String)
         case focusPane(String)
         case confirmMembersSync(team: String, handle: String)
@@ -37,7 +41,7 @@ public enum NotificationClick {
         public var suppressesActivationShow: Bool {
             switch self {
             case .focusPane, .confirmMembersSync, .none: return true
-            case .showKeyboardConflict, .showProcessPanel, .showWorktreePanel, .showSetupStatus, .openURL: return false
+            case .showKeyboardConflict, .showProcessPanel, .showWorktreePanel, .showSetupStatus, .resumeSetup, .openURL: return false
             }
         }
     }
@@ -58,6 +62,7 @@ public enum NotificationClick {
         if category == readyHeldCategory { return .showProcessPanel }
         if category == worktreeTriageCategory { return .showWorktreePanel }
         if category == setupUpdateCategory { return .showSetupStatus }
+        if category == setupProgressCategory { return .resumeSetup }
         if category == gatePaneCategory { return focusPaneRoute(url: url, paneId: paneId) }
         if category == memberJoinedCategory { return memberJoinedRoute(team: team, handle: handle) }
         return openRoute(url: url, paneId: paneId)
