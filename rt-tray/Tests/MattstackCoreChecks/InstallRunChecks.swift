@@ -96,6 +96,22 @@ let installRunChecks: [Check] = [
         }
         c.expectEqual(services.registered, [["com.mattstack.daemon.plist"]])
     },
+    Check("InstallRun: cancel stops following the run, so a line after it changes nothing and the phase stays") { c in
+        let (feed, cont) = AsyncThrowingStream<String, Error>.makeStream()
+        let m = await MainActor.run { InstallRunModel(stream: { _ in feed }, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged())) }
+        await MainActor.run { m.start() }
+        cont.yield(planLine)
+        cont.yield(#"{"event":"step","id":"home.init","state":"running"}"#)
+        c.expect(await waitUntil { m.steps.first?.state == .running }, "the run never started")
+        await MainActor.run { m.cancel() }
+        cont.yield(#"{"event":"step","id":"home.init","state":"done"}"#)
+        cont.yield(#"{"event":"done","ok":true,"failedStep":null}"#)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        await MainActor.run {
+            c.expectEqual(m.steps.first?.state, .running)
+            c.expectEqual(m.phase, .running, "cancel is not the run ending")
+        }
+    },
     Check("a fresh Install forgets only its plan's step ids, so a need another run is answering survives") { c in
         let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
         _ = await broker.perform(id: "services.unregister", request: NeedRequest(type: "app-unregister-services", plists: [], op: nil))

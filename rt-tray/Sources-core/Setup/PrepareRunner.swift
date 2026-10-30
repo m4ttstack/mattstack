@@ -10,6 +10,7 @@ public final class PrepareRunner: ObservableObject {
     @Published public private(set) var running: Set<String> = []
     public var onFinished: ((String) -> Void)?
     private let rt: RtRunning
+    private var tasks: [String: Task<Void, Never>] = [:]
 
     public init(rt: RtRunning) { self.rt = rt }
 
@@ -17,11 +18,19 @@ public final class PrepareRunner: ObservableObject {
         guard !running.contains(stage) else { return }
         running.insert(stage)
         let rt = self.rt
-        Task { [weak self] in
+        tasks[stage] = Task { [weak self] in
             _ = try? await rt.run(["setup", "prepare", stage, "--json"], stdin: nil)
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
+            self.tasks[stage] = nil
             self.running.remove(stage)
             self.onFinished?(stage)
         }
+    }
+
+    /// Forgets every stage still installing: none reports finished. rt's own process runs to its end.
+    public func cancel() {
+        tasks.values.forEach { $0.cancel() }
+        tasks = [:]
+        running = []
     }
 }

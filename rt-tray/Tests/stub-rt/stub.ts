@@ -24,6 +24,7 @@ import { STEP_PHASES } from "../../../lib/setup/run-phases.ts";
 import { PREPARE_STAGES } from "../../../lib/setup/prepare-record.ts";
 import { TITLES, tokenCreateLink, tokenField } from "../../../lib/setup/token-create.ts";
 import { PLACE_REPO_LABELS } from "../../../lib/setup/validators/repos.ts";
+import { SLACK_APP_ACTION, SLACK_APP_MISSING } from "../../../lib/setup/validators/accounts.ts";
 
 const scenario = process.env.RT_STUB_SCENARIO ?? "join-happy";
 const stateDir = process.env.RT_STUB_STATE_DIR ?? join(import.meta.dir, ".state", scenario);
@@ -368,10 +369,11 @@ async function apply() {
   line({ event: "done", ok: true, failedStep: null });
 }
 
-/** A long step reports its percent as it goes, so the bar moves inside it. */
+/** Every step longer than a tick reports its percent as it goes, so the bar's fraction tracks the clock and
+ *  the app's time-left estimate, which extrapolates from it, reads the drive's own pace. */
 async function working(id: string, ms: number, line: (o: unknown) => void): Promise<void> {
   const tick = 500;
-  if (ms <= tick * 2) return sleep(ms);
+  if (ms <= tick) return sleep(ms);
   const label = id === "repos.clone" ? "Receiving objects" : "Working";
   for (let done = 0; done < ms; done += tick) {
     await sleep(Math.min(tick, ms - done));
@@ -393,15 +395,16 @@ function runFailure(): RunFailure | null {
   return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
 }
 
-// The join scenarios wait on the admin and are approved from their second
-// check, once the scenario's wait has passed, so the fast-setup walk passes
-// through P4; every other joiner is approved at once.
+// The join scenarios wait on the admin, so the fast-setup walk passes through
+// P4: approved from the second check, or with a speed set once its wait has
+// passed. Every other joiner is approved at once. The status keys on this
+// Mac's own join, so any card works in any scenario.
 const WAITING_JOINS = ["join", "join-happy", "slow"];
 const INVITER = "Jane Doe";
 function joinStatus(): unknown {
-  if (["create-happy", "restore", "solo"].includes(scenario)) fail("no-join", "This Mac has not joined a team");
+  if (stateGet("team-joined") === 0) fail("no-join", "This Mac has not joined a team");
   const calls = stateBump("join-status-calls");
-  const approved = !WAITING_JOINS.includes(scenario) || stateGet("join-approved") > 0 || (calls > 1 && waited("team-joined-at", 2));
+  const approved = !WAITING_JOINS.includes(scenario) || stateGet("join-approved") > 0 || (speed ? waited("team-joined-at", 2) : calls > 1);
   if (approved) stateSet("join-approved", 1);
   return {
     team: { slug: "acme", name: "Acme" },
@@ -494,10 +497,15 @@ const DOPPLER_CODE = "WIDGET-4271";
 const DOPPLER_LOGIN = "https://dashboard.doppler.com/workplace/auth/cli";
 
 /** The team's sign-in tool: its browser sign-in lands on its own after a while, the way doppler's does. */
+/** A set speed lands it on time alone, as a person waits; unset, the third read lands it, so the tests never sleep. */
+function landsAfter(readsKey: string, sinceKey: string, units: number): boolean {
+  return speed ? waited(sinceKey, units) : stateBump(readsKey) > 2;
+}
+
 function dopplerSignedIn(): boolean {
   if (stateGet("doppler-signed-in") > 0) return true;
   if (!stateGet("doppler-login-at")) return false;
-  const landed = stateBump("doppler-reads") > 2 && waited("doppler-login-at", 3);
+  const landed = landsAfter("doppler-reads", "doppler-login-at", 3);
   if (landed) stateSet("doppler-signed-in", 1);
   return landed;
 }
@@ -523,7 +531,7 @@ function linearRow(): FormRow {
 function fastBrowserAdded(): boolean {
   if (stateGet("fast-browser-added") > 0) return true;
   if (!stateGet("fast-browser-opened-at")) return false;
-  const landed = stateBump("fast-browser-reads") > 2 && waited("fast-browser-opened-at", 2);
+  const landed = landsAfter("fast-browser-reads", "fast-browser-opened-at", 2);
   if (landed) stateSet("fast-browser-added", 1);
   return landed;
 }
@@ -547,9 +555,7 @@ function slackAppRow(): FormRow {
   const c = FORM_COPY.connect.slackApp;
   const base = { id: "slack-app", title: c.title, subtext: c.subtext };
   if (stateGet("slack-app-created") > 0) return formRow({ ...base, state: "done", detail: FORM_COPY.connect.connected, action: null });
-  return formRow({ ...base, state: "todo", detail: "The team has no Slack app yet",
-                   action: { type: "owner-once", label: "Create the team's Slack app…", integration: "slack",
-                             fields: [{ name: "configToken", label: "App configuration token", secret: true }] } });
+  return formRow({ ...base, state: "todo", detail: SLACK_APP_MISSING, action: SLACK_APP_ACTION });
 }
 
 function connectSection(path: FormPath | null): FormRow[] {
@@ -639,9 +645,9 @@ function remoteRow(): FormRow | null {
   const base = { id: "settings.remote", title: c.title, subtext: c.subtext };
   if (b.url) return formRow({ ...base, state: "done", detail: b.url, action: null });
   if (b.create) return formRow({ ...base, state: "done", detail: c.creates, action: null });
+  // rt offers to create the repo only through a gh sign-in, which this stub's Mac never has (`setup github status`).
   return formRow({ ...base, state: "todo", detail: "",
-                   action: { type: "form", label: c.use, verb: ["home", "remote", "set"], fields: [{ name: "url", label: c.field, secret: false, hint: c.hint }],
-                             alternatives: [{ id: "create", label: c.create }] } });
+                   action: { type: "form", label: c.use, verb: ["home", "remote", "set"], fields: [{ name: "url", label: c.field, secret: false, hint: c.hint }] } });
 }
 
 function thisMacSection(path: FormPath | null): FormRow[] {
@@ -698,7 +704,11 @@ const [a0, a1, a2] = args;
 if (a0 === "setup" && (a1 === "plan" || a1 === "status")) emit(plan());
 else if (a0 === "setup" && a1 === "apply") await apply();
 else if (a0 === "setup" && a1 === "join-status") emit(joinStatus());
-else if (a0 === "setup" && a1 === "github" && a2 === "status") emit({ integration: "github", status: "ready", detail: "gh authenticated as matt", scopesSeen: ["repo", "read:org"], handle: "matt", owners: ["matt", "acme"] });
+// No gh session, so rt sends no handle or owners and the screens show the GitHub token rows; a pasted token is the account.
+else if (a0 === "setup" && a1 === "github" && a2 === "status") {
+  emit(connected("github") ? { integration: "github", status: "ready", detail: "token can see group acme", scopesSeen: ["repo", "read:org"] }
+                           : { integration: "github", status: "missing", detail: "No GitHub token yet", scopesSeen: [] });
+}
 else if (a0 === "setup" && a1 === "intent" && a2 === "restore") emit({ ok: true, intent: "restore", repo: args[3] });
 else if (a0 === "setup" && a1 === "intent" && a2 === "solo") { choosePath("solo"); emit({ mode: "solo" }); }
 else if (a0 === "setup" && a1 === "form") emit(setupForm());
@@ -772,6 +782,8 @@ else if (a0 === "setup" && a1 === "repo-root" && a2 === "set") {
 }
 // The app's own side of Test drive setup: a System Settings pane or a macOS
 // prompt answered, and a link opened in the browser rt never sees.
+// `--probe` answers before a drive starts, so an older stub without these verbs is caught then, not as a stuck row.
+else if (a0 === "stub" && a1 === "grant" && a2 === "--probe") emit({ ok: true, probe: true });
 else if (a0 === "stub" && a1 === "grant" && a2) { stateSet(`granted-${a2}`, 1); emit({ ok: true, granted: a2 }); }
 else if (a0 === "stub" && a1 === "opened" && a2) {
   if (FAST_BROWSER_ADD_ACTION.type === "open-url" && a2 === FAST_BROWSER_ADD_ACTION.url) stampNow("fast-browser-opened-at");
@@ -832,7 +844,7 @@ else if (a0 === "team" && a1 === "join") {
   else if (scenario === "join-no-access") emit({ team, access: "denied", peering: "idle", intent: "written", message: `Joining Acme. Your GitHub account cannot see acme/team yet: ask ${INVITER} or your org admin to grant read access.` });
   else emit({ team, access: "ok", peering: "idle", intent: "written", message: `Joining Acme (owner ${INVITER})` });
 }
-else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { slug: "acme", name: "Acme", remote: "git@github.com:acme/mattstack-team-acme.git", lastPush: "2026-08-21T03:00:00Z", members: [{ username: "matt" }, { username: "bob" }] });
+else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { slug: "acme", name: "Acme", remote: "git@github.com:acme/mattstack-team-acme.git", lastPush: "2026-08-21T03:00:00Z", members: [{ username: "janedoe" }, { username: "bob" }] });
 else if (a0 === "apps" && a1 === "list") emit({ apps: [
   { name: "board", displayName: "Board", description: "Open MRs ready for review.", enabled: scenario !== "solo", requiresTeam: true },
   { name: "boxscore", displayName: "boxscore", description: "Team scoreboard.", enabled: scenario !== "solo", requiresTeam: true },

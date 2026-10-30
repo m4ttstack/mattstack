@@ -12,7 +12,17 @@ private var allCopy: [String] {
     return TestDriveScenario.allCases.flatMap { [$0.title, $0.detail] } + TestDriveSpeed.allCases.flatMap { [$0.title, $0.detail] }
         + [TestDriveCopy.wouldOpen(url), TestDriveCopy.wouldOpenSettings("fda"), TestDriveCopy.wouldAsk("notifications"),
            TestDriveCopy.wouldAskAdmin, TestDriveCopy.wouldAddLoginItems, TestDriveCopy.wouldStartAtLogin,
-           TestDriveCopy.wouldNotify(FastSetupLaunch.approvedNotice)]
+           TestDriveCopy.wouldNotify(FastSetupLaunch.approvedNotice), TestDriveCopy.stubRefused("stub grant fda", "no answer"),
+           TestDriveCopy.noStub, TestDriveCopy.stubWontRun, TestDriveCopy.stubTooOld, TestDriveCopy.checking]
+}
+
+private func result(_ exit: Int32, _ body: String) -> RtResult { RtResult(exitCode: exit, stdout: Data(body.utf8), stderr: Data()) }
+
+private final class LandedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var landed = false
+    func set() { lock.withLock { landed = true } }
+    var value: Bool { lock.withLock { landed } }
 }
 
 let testDriveChecks: [Check] = [
@@ -70,6 +80,42 @@ let testDriveChecks: [Check] = [
         c.expect(env["RT_APP_SOCKET"]?.hasPrefix("/tmp/d/home/") == true, "the app socket must point inside the drive")
         c.expectEqual(env["RT_STUB_REAL_WRITING_STYLE"], "", "the stub must never read the account's real skills")
     },
+    Check("Test drive: one probe tells a stub that can drive from an older one or none, before any drive starts") { c in
+        c.expectEqual(TestDrive.probeArguments, ["stub", "grant", "--probe", "--json"])
+        c.expectEqual(TestDrive.stubProblem(probe: result(0, #"{"contract":1,"at":"x","ok":true,"probe":true}"#)), nil)
+        c.expectEqual(TestDrive.stubProblem(probe: result(2, #"{"contract":1,"at":"x","error":{"code":"unknown-verb","message":"stub has no answer for: stub grant --probe"}}"#)),
+                      TestDriveCopy.stubTooOld, "a stub from before the drive's verbs")
+        c.expectEqual(TestDrive.stubProblem(probe: result(0, #"{"contract":1,"at":"x","ok":true,"granted":"--probe"}"#)), TestDriveCopy.stubTooOld,
+                      "a stub that took --probe as a grant is no drive stub either")
+        c.expectEqual(TestDrive.stubProblem(probe: nil), TestDriveCopy.stubWontRun, "bun could not start it")
+    },
+    Check("Test drive: a retired rt refuses every call, ends its streams, and cancels what the pretend person had still to do") { c in
+        let inner = ScriptedRt()
+        inner.answers = ["stub grant fda": (0, #"{"ok":true}"#)]
+        let rt = TestDriveRt(inner)
+        c.expectEqual(try await rt.run(["stub", "grant", "fda", "--json"], stdin: nil).exitCode, 0)
+        let landed = LandedFlag()
+        rt.later {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else { return }
+            landed.set()
+        }
+        rt.retire()
+        c.expect(rt.isRetired)
+        rt.later { landed.set() }
+        do {
+            _ = try await rt.run(["stub", "grant", "fda", "--json"], stdin: nil)
+            c.fail("a retired rt ran a call")
+        } catch {
+            c.expectEqual(error as? RtClientError, .spawnFailed(TestDriveRt.ended))
+        }
+        var streamEnded = false
+        do { for try await _ in rt.stream(["setup", "apply", "--json"], stdin: nil) {} } catch { streamEnded = true }
+        c.expect(streamEnded, "a retired rt's stream ends with an error")
+        try await Task.sleep(nanoseconds: 250_000_000)
+        c.expect(!landed.value, "nothing pending or asked for after the reset ever lands")
+        c.expectEqual(inner.calls.count, 1, "only the call before the reset reached the stub")
+    },
     Check("Test drive: Paste fills an invite code JoinLink reads") { c in
         c.expect(JoinLink.code(fromText: TestDrive.sampleInvite) != nil)
     },
@@ -85,6 +131,17 @@ let testDriveChecks: [Check] = [
             c.expect(!line.contains("\u{00B7}"), "a dot separator in '\(line)'")
             c.expect(!line.hasSuffix("."), "a full stop in '\(line)'")
         }
+    },
+    Check("Test drive: a reset retires the drive's rt before shutting its coordinator, and a notification never raises the window") { c in
+        let text = try source("Sources/Setup/TestDrive/TestDriveController.swift")
+        c.expect(text.contains("TestDriveRt(RtClient("), "the drive's coordinator must get the retiring rt")
+        guard let end = text.range(of: "private func endDrive()"),
+              let retire = text.range(of: "drive.rt.retire()", range: end.upperBound..<text.endIndex),
+              let shut = text.range(of: "drive.coordinator.shutDown()", range: end.upperBound..<text.endIndex) else { return c.fail("endDrive steps missing") }
+        c.expect(retire.lowerBound < shut.lowerBound, "retire first, so nothing shutDown sets off reaches the stub")
+        guard let notified = text.range(of: "private func notified("),
+              let next = text.range(of: "\n    }\n", range: notified.upperBound..<text.endIndex) else { return c.fail("notified missing") }
+        c.expect(!text[notified.upperBound..<next.lowerBound].contains("resumeSetup"), "a pretend notification waits on Show")
     },
     Check("Test drive: its sources never reach the Mac's native effects or the real setup's records") { c in
         let dir = trayRoot.appendingPathComponent("Sources/Setup/TestDrive")

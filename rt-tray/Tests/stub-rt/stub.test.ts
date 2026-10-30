@@ -89,10 +89,15 @@ test("uninstall --dry-run lists L1's action ids; --delete-data needs --yes; vers
 test("team status and setup github status answer the contract shapes", async () => {
   const ts = await run("join-happy", ["team", "status", "--json"]);
   expect(ts.lines[0].slug).toBe("acme");
-  expect(ts.lines[0].members[0].username).toBe("matt");
-  const gh = await run("join-happy", ["setup", "github", "status", "--json"]);
-  expect(gh.lines[0].handle).toBe("matt");
-  expect(gh.lines[0].owners).toContain("acme");
+  expect(ts.lines[0].members[0].username).toBe("janedoe");
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const before = await run("join-happy", ["setup", "github", "status", "--json"], "", dir);
+  expect(before.lines[0]).toMatchObject({ integration: "github", status: "missing" });
+  await run("join-happy", ["setup", "github", "connect", "--json"], JSON.stringify({ token: "t" }), dir);
+  const after = await run("join-happy", ["setup", "github", "status", "--json"], "", dir);
+  expect(after.lines[0]).toMatchObject({ integration: "github", status: "ready" });
+  // No gh session: rt sends no handle or owners, which is why the screens draw the GitHub token rows.
+  for (const reply of [before, after]) expect(Object.keys(reply.lines[0])).not.toContain("handle");
 });
 
 test("team create answers the contract's flat shape, not nested under team", async () => {
@@ -434,8 +439,12 @@ test("join-team-accounts: the after-install note before Install, then Slack bloc
   expect(after.requiredMissing).toContain("account.slack");
 });
 
-test("join-status answers waiting, then approved", async () => {
+test("join-status answers waiting, then approved, and no-join before this Mac joins in any scenario", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const early = await run("join", ["setup", "join-status", "--json"], "", dir);
+  expect(early.code).toBe(2);
+  expect(early.lines[0].error.code).toBe("no-join");
+  await run("join", ["setup", "apply", "--only", "team.join", "--json"], "", dir);
   const first = await run("join", ["setup", "join-status", "--json"], "", dir);
   expect(first.code).toBe(0);
   expect(first.lines[0].state).toBe("waiting");
@@ -445,11 +454,12 @@ test("join-status answers waiting, then approved", async () => {
   const second = await run("join", ["setup", "join-status", "--json"], "", dir);
   expect(second.lines[0].state).toBe("approved");
   expect(second.lines[0].since).toBeNull();
-  const quick = await run("join-team-accounts", ["setup", "join-status", "--json"]);
-  expect(quick.lines[0].state).toBe("approved");
-  const creator = await run("create-happy", ["setup", "join-status", "--json"]);
-  expect(creator.code).toBe(2);
-  expect(creator.lines[0].error.code).toBe("no-join");
+  const quickDir = mkdtempSync(join(tmpdir(), "stub-"));
+  await run("join-team-accounts", ["setup", "apply", "--only", "team.join", "--json"], "", quickDir);
+  expect((await run("join-team-accounts", ["setup", "join-status", "--json"], "", quickDir)).lines[0].state).toBe("approved");
+  const creatorDir = mkdtempSync(join(tmpdir(), "stub-"));
+  await run("create-happy", ["setup", "apply", "--only", "team.join", "--json"], "", creatorDir);
+  expect((await run("create-happy", ["setup", "join-status", "--json"], "", creatorDir)).lines[0].state).toBe("approved");
 });
 
 const FORM_KEYS = ["path", "team", "stage", "sections", "continueReady", "startReady", "paused", "home"].sort();
@@ -674,9 +684,12 @@ test("this-mac waits on a repo pick, and the settings choice opens and closes th
   const third = await read();
   expect(third.startReady).toBe(false);
   expect(third.sections.thisMac!.map((r) => [r.id, r.state])).toEqual([["repos.place:github.com/acme/widgets", "done"], ["settings.backup", "done"], ["settings.remote", "todo"]]);
-  const staged = await run("join-happy", ["home", "remote", "set", "--json"], JSON.stringify({ alternative: "create" }), dir);
-  expect(staged.lines[0]).toMatchObject({ staged: true, url: null, created: false, pushed: false });
-  expect((await read()).sections.thisMac!.find((r) => r.id === "settings.remote")).toMatchObject({ state: "done", detail: "rt creates a private GitHub repo when setup runs" });
+  const remoteRow = third.sections.thisMac!.find((r) => r.id === "settings.remote")!;
+  expect(Object.keys(remoteRow.action!)).not.toContain("alternatives");
+  const url = "git@github.com:janedoe/mattstack-home.git";
+  const staged = await run("join-happy", ["home", "remote", "set", "--json"], JSON.stringify({ url }), dir);
+  expect(staged.lines[0]).toMatchObject({ staged: true, url, created: false, pushed: false });
+  expect((await read()).sections.thisMac!.find((r) => r.id === "settings.remote")).toMatchObject({ state: "done", detail: url });
   await run("join-happy", ["setup", "home-backup", "local", "--json"], "", dir);
   expect((await read()).sections.thisMac!.map((r) => r.id)).toEqual(["repos.place:github.com/acme/widgets", "settings.backup"]);
 });
@@ -794,3 +807,52 @@ test("setup claude connect answers needs-you, then ready", async () => {
   const second = await run("join-happy", ["setup", "claude", "connect", "--json"], "", dir);
   expect(second.lines[0]).toMatchObject({ integration: "claude", status: "ready" });
 });
+
+test("stub grant --probe answers without granting anything, so the app can tell an older stub before a drive", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const probe = await run("join-happy", ["stub", "grant", "--probe", "--json"], "", dir);
+  expect(probe.code).toBe(0);
+  expect(probe.lines[0]).toMatchObject({ contract: 1, ok: true, probe: true });
+  expect(readdirSync(dir)).toEqual([]);
+});
+
+test("with a speed set, Fast Browser lands on time alone, however few reads came before", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const row = async () => (await run("join-happy", ["setup", "form", "--section", "connect", "--json"], "", dir, INSTANT)).lines[0]
+    .sections.connect.find((r: { id: string }) => r.id === "fast-browser");
+  await run("join-happy", ["stub", "opened", "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm", "--json"], "", dir, INSTANT);
+  expect((await row()).state).toBe("todo");
+  await Bun.sleep(1600);
+  expect((await row()).state).toBe("done");
+});
+
+test("an instant run's bar tracks the clock, so the app's time-left estimate reads the drive's pace", async () => {
+  const proc = Bun.spawn(["bun", STUB, "setup", "apply", "--resume", "--unattended", "--json"], {
+    env: { ...process.env, RT_STUB_SCENARIO: "join-happy", RT_STUB_STATE_DIR: mkdtempSync(join(tmpdir(), "stub-")), ...INSTANT }, stdout: "pipe",
+  });
+  const timed: { at: number; event: Record<string, unknown> }[] = [];
+  const decoder = new TextDecoder();
+  let buffered = "";
+  for await (const chunk of proc.stdout) {
+    buffered += decoder.decode(chunk);
+    const lines = buffered.split("\n");
+    buffered = lines.pop()!;
+    for (const l of lines.filter(Boolean)) timed.push({ at: performance.now(), event: JSON.parse(l) });
+  }
+  await proc.exited;
+  // The same arithmetic as RunProgress.bar: finished steps count their weight, a running step its share.
+  const steps = (timed[0]!.event.steps as { id: string; weight: number }[]).map((s) => ({ ...s, state: "pending", percent: 0 }));
+  const total = steps.reduce((sum, s) => sum + s.weight, 0);
+  const start = timed[0]!.at, end = timed.at(-1)!.at;
+  let worst = 0;
+  for (const { at, event } of timed.slice(1)) {
+    const step = steps.find((s) => s.id === event.id);
+    if (step && event.event === "step") { step.state = event.state as string; step.percent = 0; }
+    if (step && event.event === "progress") step.percent = event.percent as number;
+    if (event.event !== "progress") continue;
+    const done = steps.reduce((sum, s) => sum + (s.state === "done" ? s.weight : s.state === "running" ? (s.weight * s.percent) / 100 : 0), 0);
+    worst = Math.max(worst, Math.abs(done / total - (at - start) / (end - start)));
+  }
+  expect(timed.filter((t) => t.event.event === "progress").length).toBeGreaterThan(5);
+  expect(worst).toBeLessThan(0.15);
+}, 20000);

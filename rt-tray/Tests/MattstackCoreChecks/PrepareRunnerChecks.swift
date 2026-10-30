@@ -73,4 +73,19 @@ let prepareRunnerChecks: [Check] = [
         await MainActor.run { runner.start("macos") }
         c.expect(await waitUntil { rt.allCalls.count == 2 }, "a freed stage could not start again")
     },
+    Check("PrepareRunner: cancel frees every stage and a late answer reports nothing") { c in
+        let rt = HeldRt()
+        let finished = FinishedLog()
+        let runner = await MainActor.run { PrepareRunner(rt: rt) }
+        await MainActor.run {
+            runner.onFinished = { finished.append($0) }
+            runner.start("macos")
+        }
+        c.expect(await waitUntil { rt.allCalls.count == 1 }, "prepare never spawned")
+        await MainActor.run { runner.cancel() }
+        c.expectEqual(await MainActor.run { runner.running }, [])
+        rt.release("macos")
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        c.expectEqual(finished.all, [], "a cancelled stage never reports finished")
+    },
 ]

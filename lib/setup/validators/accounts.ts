@@ -432,6 +432,14 @@ async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnap
 
 const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.";
 
+export const SLACK_APP_MISSING = "The team has no Slack app yet";
+export const SLACK_APP_ACTION: Action = {
+  type: "owner-once",
+  label: "Create the team's Slack app…",
+  integration: "slack",
+  fields: [{ name: "configToken", label: "App configuration token", secret: true }],
+};
+
 function slackAppRow(required: boolean): Row {
   return row({
     id: "account.slack-app",
@@ -441,13 +449,8 @@ function slackAppRow(required: boolean): Row {
     required,
     optionalNote: required ? null : "Works without this until the team's Slack app exists. Only the team's owner can create it; ask them, or re-check once it does.",
     status: "missing",
-    detail: "The team has no Slack app yet",
-    action: {
-      type: "owner-once",
-      label: "Create the team's Slack app…",
-      integration: "slack",
-      fields: [{ name: "configToken", label: "App configuration token", secret: true }],
-    },
+    detail: SLACK_APP_MISSING,
+    action: SLACK_APP_ACTION,
   });
 }
 

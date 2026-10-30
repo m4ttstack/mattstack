@@ -132,6 +132,14 @@ public final class InstallRunModel: ObservableObject {
         }
     }
 
+    /// Stops following the run and ends its stream, which stops rt's process. The phase stays where it was,
+    /// so nothing treats this as the run ending.
+    public func cancel() {
+        task?.cancel()
+        task = nil
+        generation += 1
+    }
+
     public func retryFromFailure() {
         guard let id = resumableStepId else { return }
         start(from: id)

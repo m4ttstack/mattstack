@@ -55,8 +55,8 @@ public enum TestDriveSpeed: String, CaseIterable, Identifiable, Sendable {
 
     public var detail: String {
         switch self {
-        case .instant: return "Every wait takes about a second"
-        case .realistic: return "Waits take seconds, the run about a minute"
+        case .instant: return "Waits take a second or two, the run a few seconds"
+        case .realistic: return "Waits take a few seconds, the run about a minute"
         }
     }
 
@@ -106,6 +106,64 @@ public enum TestDrive {
 
     /// What Paste fills on the invite screen: a code `JoinLink` reads, which the stub accepts.
     public static let sampleInvite = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
+
+    /// The one call made before a drive starts. It writes nothing, and a stub without the drive's verbs refuses it.
+    public static let probeArguments = ["stub", "grant", "--probe", "--json"]
+
+    /// Why no drive can start on this stub, or nil when it answered the probe. A nil result is a stub bun could not run.
+    public static func stubProblem(probe: RtResult?) -> String? {
+        guard let probe else { return TestDriveCopy.stubWontRun }
+        struct Reply: Decodable { let probe: Bool? }
+        guard probe.exitCode == 0, (try? probe.decode(Reply.self))?.probe == true else { return TestDriveCopy.stubTooOld }
+        return nil
+    }
+}
+
+/// One drive's rt. Once retired it refuses every call and cancels the pretend person's answers still
+/// pending, so nothing a reset drive started reaches the stub or brings back its deleted folder.
+public final class TestDriveRt: RtRunning, @unchecked Sendable {
+    public static let ended = "The test drive ended"
+    private let inner: RtRunning
+    private let lock = NSLock()
+    private var retired = false
+    private var pending: [UUID: Task<Void, Never>] = [:]
+
+    public init(_ inner: RtRunning) { self.inner = inner }
+
+    public var isRetired: Bool { lock.withLock { retired } }
+
+    public func retire() {
+        let tasks: [Task<Void, Never>] = lock.withLock {
+            retired = true
+            defer { pending = [:] }
+            return Array(pending.values)
+        }
+        tasks.forEach { $0.cancel() }
+    }
+
+    public func run(_ args: [String], stdin: Data?) async throws -> RtResult {
+        guard !isRetired else { throw RtClientError.spawnFailed(Self.ended) }
+        return try await inner.run(args, stdin: stdin)
+    }
+
+    public func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> {
+        guard !isRetired else { return AsyncThrowingStream { $0.finish(throwing: RtClientError.spawnFailed(Self.ended)) } }
+        return inner.stream(args, stdin: stdin)
+    }
+
+    /// Something the pretend person finishes a while later; retiring the drive cancels it.
+    public func later(_ work: @escaping @Sendable () async -> Void) {
+        let id = UUID()
+        lock.withLock {
+            guard !retired else { return }
+            pending[id] = Task { [weak self] in
+                await work()
+                self?.forget(id)
+            }
+        }
+    }
+
+    private func forget(_ id: UUID) { lock.withLock { pending[id] = nil } }
 }
 
 /// The line a test drive shows in place of each native effect it fakes.
@@ -128,4 +186,12 @@ public enum TestDriveCopy {
     public static let wouldStartAtLogin = "Would turn on Start at Login"
 
     public static func wouldNotify(_ notice: SetupNotice) -> String { "Would notify: \(notice.title)" }
+
+    /// The stub would not take what the pretend person did, so the row it feeds would wait for good.
+    public static func stubRefused(_ verb: String, _ why: String) -> String { "The stub rt refused \(verb): \(why)" }
+
+    public static let noStub = "Needs the mattstack checkout and bun on this Mac"
+    public static let stubWontRun = "Bun couldn't run the checkout's stub rt"
+    public static let stubTooOld = "The checkout's stub rt is too old for a test drive"
+    public static let checking = "Checking the stub rt…"
 }

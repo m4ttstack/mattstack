@@ -61,9 +61,9 @@ final class SetupCoordinator {
     private var activeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
 
-    /// `permissionProbe` feeds only `readiness`; every other use of
-    /// `permissions` (row actions, Settings, TrayRoutes) keeps the real
-    /// `PermissionsService` even under stub mode.
+    /// `permissionProbe` feeds only `readiness`. `permissions` serves Settings
+    /// and, through `host.effects`, the real setup's row actions, so stub mode
+    /// keeps the real `PermissionsService` there; a test drive's effects never call it.
     init(rt: RtRunning, permissions: PermissionsService, permissionProbe: PermissionProbing? = nil,
          needs: NeedBroker, updater: UpdaterController, notify: @escaping @MainActor (SetupNotice) -> Void,
          registerLoginItem: @escaping @MainActor () -> Void, host: SetupHost = .real) {
@@ -511,6 +511,8 @@ final class SetupCoordinator {
     func shutDown() {
         setupWindow?.onClose = nil
         setupWindow?.close()
+        install.cancel()
+        prepare.cancel()
         join.stopPolling()
         form.stopWatching()
         stopProbing()

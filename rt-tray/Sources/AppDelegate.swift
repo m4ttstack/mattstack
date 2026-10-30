@@ -884,6 +884,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         statusTimer?.invalidate()
         notificationTimer?.invalidate()
         TrayServer.shared.stop()
+        MainActor.assumeIsolated { testDrive?.shutDown() }
     }
 
     // MARK: - Login Item

@@ -16,6 +16,8 @@ final class TestDrivePickerModel: ObservableObject {
     @Published var note: String?
     /// Why no drive can start on this Mac.
     @Published var problem: String?
+    /// The stub's probe has not answered yet.
+    @Published var checking = false
 }
 
 struct TestDrivePickerActions {
@@ -31,6 +33,7 @@ struct TestDrivePickerActions {
 struct TestDrivePickerView: View {
     static let width: CGFloat = 480
     @ObservedObject var model: TestDrivePickerModel
+    @ObservedObject var toasts: TestDriveToasts
     let actions: TestDrivePickerActions
 
     var body: some View {
@@ -58,8 +61,8 @@ struct TestDrivePickerView: View {
                 if let live = model.live { liveRow(live) }
             }
             .padding(24)
-            FastFooter(screen: "test-drive", note: model.problem ?? model.note,
-                       secondary: ("Cancel", actions.cancel), primary: ("Start", model.problem == nil, actions.start))
+            FastFooter(screen: "test-drive", note: model.problem ?? (model.checking ? TestDriveCopy.checking : model.note),
+                       secondary: ("Cancel", actions.cancel), primary: ("Start", model.problem == nil && !model.checking, actions.start))
         }
         .frame(width: Self.width)
         .controlSize(.large)
@@ -94,6 +97,9 @@ struct TestDrivePickerView: View {
                         Text(live.scenario.title).fontWeight(.medium)
                         Text(live.speed.title).foregroundStyle(.secondary)
                     }
+                    if let notice = toasts.notice {
+                        Label(notice, systemImage: "bell.badge").font(.callout).padding(.top, 2)
+                    }
                 }
                 Spacer(minLength: 12)
                 Button("Show", action: actions.show).fixedSize().accessibilityIdentifier(AXID.testDriveShow)
@@ -110,13 +116,15 @@ struct TestDriveFrame: View {
     static let bannerHeight: CGFloat = 60
     @ObservedObject var toasts: TestDriveToasts
     let run: TestDriveRun
+    let onShow: () -> Void
     let onScenarios: () -> Void
     let onReset: () -> Void
     let content: AnyView
 
     var body: some View {
         VStack(spacing: 0) {
-            TestDriveBanner(toast: toasts.latest, run: run, onScenarios: onScenarios, onReset: onReset)
+            TestDriveBanner(toast: toasts.latest, toastFailed: toasts.latestFailed, notice: toasts.notice, run: run,
+                            onShow: onShow, onScenarios: onScenarios, onReset: onReset)
             content
         }
         .environment(\.openSetupLink) { [toasts] url in toasts.show(TestDriveCopy.wouldOpen(url)) }
@@ -125,7 +133,11 @@ struct TestDriveFrame: View {
 
 struct TestDriveBanner: View {
     let toast: String?
+    var toastFailed = false
+    /// A pretend notification waiting on its click.
+    let notice: String?
     let run: TestDriveRun
+    let onShow: () -> Void
     let onScenarios: () -> Void
     let onReset: () -> Void
 
@@ -151,13 +163,29 @@ struct TestDriveBanner: View {
                 Button("Reset", action: onReset).controlSize(.small).fixedSize()
                     .accessibilityIdentifier(AXID.testDriveReset)
             }
-            if let toast {
+            if let notice {
+                HStack(spacing: 8) {
+                    Label {
+                        Text(notice).lineLimit(1)
+                    } icon: {
+                        Image(systemName: "bell.badge").foregroundStyle(Color(nsColor: Self.badge))
+                    }
+                    .font(.callout)
+                    Button("Show", action: onShow).controlSize(.small).fixedSize()
+                        .accessibilityIdentifier(AXID.testDriveShow)
+                }
+            } else if let toast {
                 Label {
                     Text(toast).lineLimit(1).truncationMode(.middle)
                 } icon: {
-                    Image(systemName: "arrow.up.forward.app").foregroundStyle(Color(nsColor: Self.badge))
+                    if toastFailed {
+                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                    } else {
+                        Image(systemName: "arrow.up.forward.app").foregroundStyle(Color(nsColor: Self.badge))
+                    }
                 }
                 .font(.callout)
+                .foregroundStyle(toastFailed ? Color.red : Color.primary)
             } else {
                 Label("Links, prompts and notifications show here instead", systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
