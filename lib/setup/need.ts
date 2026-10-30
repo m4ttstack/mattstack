@@ -67,6 +67,8 @@ export function deckHelperLabel(mode: "dev" | "prod", p: Pick<Probes, "exists" |
 export interface NeedReply {
   ok: boolean;
   detail?: string;
+  /** The app answered its route with an error status (an older app has no such route), so none of the work ran. */
+  unserved?: true;
 }
 
 interface NeedStateBody {
@@ -133,7 +135,9 @@ function registerReply(json: { ok?: boolean; results?: ServiceRegisterResult[] }
 
 function directRoute(request: NeedRequest): { path: string; body?: unknown } | null {
   if (request.type === "app-register-services") return { path: "/services/register", body: { plists: request.plists } };
-  if (request.type === "app-privileged" && (request.op === "proxy-install" || request.op === "proxy-trust")) return { path: `/privileged/${request.op}` };
+  if (request.type === "app-privileged" && (request.op === "proxy-install" || request.op === "proxy-trust" || request.op === "homebrew")) {
+    return { path: `/privileged/${request.op}`, ...(request.homebrew ? { body: { homebrew: true } } : {}) };
+  }
   return null;
 }
 
@@ -161,7 +165,7 @@ export async function askAppDirectly(
   const res = await tray<{ ok?: boolean; detail?: string; results?: ServiceRegisterResult[] }>(path, { method: "POST", body, timeoutMs: DEFAULT_TIMEOUT_MS });
   // A transport failure and our own deadline both come back as status 0.
   if (res.status === 0) return now() - started >= DEFAULT_TIMEOUT_MS ? "timeout" : "app-gone";
-  if (res.status !== 200) return { ok: false, detail: `mattstack.app answered ${path} with status ${res.status}` };
+  if (res.status !== 200) return { ok: false, unserved: true, detail: `mattstack.app answered ${path} with status ${res.status}` };
   if (request.type === "app-register-services") return registerReply(res.json);
   return { ok: res.json?.ok === true, ...(typeof res.json?.detail === "string" ? { detail: res.json.detail } : {}) };
 }

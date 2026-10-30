@@ -154,11 +154,14 @@ async function homebrewOnly(ctx: ApplyContext): Promise<StepOutcome> {
   if (proxyInstallerMissing(ctx.p)) return { state: "done", detail: "Already installed" };
 
   const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "homebrew" });
+  // The proxy is already fine, so a refusal the app itself sends back is the
+  // person declining Homebrew, and Retry must not raise the same dialog again.
+  const declined = typeof reply === "object" && !reply.ok && reply.unserved !== true;
   return privilegedOutcome(ctx, true, needOutcome(reply, ctx, {
     noAppDetail: "mattstack.app is not running; open it to install Homebrew",
     noAppRemedy: "Open mattstack.app, then Retry",
     timeoutRemedy: "Retry with mattstack.app running",
-  }));
+  }), declined);
 }
 
 function brewFlag(askBrew: boolean): { homebrew?: true } {
@@ -214,9 +217,9 @@ async function proxyInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }));
 }
 
-function privilegedOutcome(ctx: ApplyContext, askedBrew: boolean, outcome: StepOutcome): StepOutcome {
+function privilegedOutcome(ctx: ApplyContext, askedBrew: boolean, outcome: StepOutcome, declined = false): StepOutcome {
   const final = withHomebrewOutcome(withTrustOutcome(outcome));
-  if (askedBrew) recordHomebrew(ctx.p, final);
+  if (askedBrew) recordHomebrew(ctx.p, final, declined);
   return final;
 }
 
@@ -238,13 +241,18 @@ function withHomebrewOutcome(outcome: StepOutcome): StepOutcome {
   return { ...outcome, detail: outcome.detail ? `${note}\n${outcome.detail}` : note };
 }
 
-/** A prompt that never ran the helper (no app, cancelled) records nothing, so the next Allow asks again. */
-function recordHomebrew(p: Probes, outcome: StepOutcome): void {
+/**
+ * A failed step that never reached the helper, or whose combined prompt was
+ * cancelled, records nothing, so the next Allow asks again. A declined
+ * Homebrew-only prompt records the decline with the app's own words.
+ */
+function recordHomebrew(p: Probes, outcome: StepOutcome, declined: boolean): void {
   const reported = homebrewReport(outcome.detail);
-  if (outcome.state !== "done" && reported === undefined) return;
+  if (outcome.state !== "done" && reported === undefined && !declined) return;
+  const detail = reported !== undefined ? undefined : outcome.state === "done" ? HOMEBREW_UNREPORTED : outcome.detail;
   updateSetupState(p, (s) => ({
     ...s,
-    homebrew: { at: p.now().toISOString(), outcome: reported ?? "failed", ...(reported === undefined ? { detail: HOMEBREW_UNREPORTED } : {}) },
+    homebrew: { at: p.now().toISOString(), outcome: reported ?? "failed", ...(detail !== undefined ? { detail } : {}) },
   }));
 }
 

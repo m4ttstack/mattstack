@@ -19,7 +19,7 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import { STEPS } from "../steps/index.ts";
 import { writePlacement } from "../repo-placement.ts";
 import type { SetupIntent } from "../intent.ts";
-import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
+import { askAppDirectly, awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import { materializeWorld } from "./materialize-world.ts";
@@ -671,6 +671,33 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     test("a cancelled prompt records nothing, so the next Allow asks again", async () => {
       const p = fakeProbes({ home });
       const { ctx } = makeCtx(p, { need: async () => ({ ok: false, detail: "admin prompt cancelled" }) });
+      expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
+      expect(readSetupState(p).homebrew).toBeUndefined();
+    });
+
+    // For op homebrew the proxy is already fine, so a cancel is the person
+    // declining Homebrew. Unrecorded, Retry would raise the same dialog forever.
+    test("a cancelled Homebrew-only prompt records the decline and never asks again", async () => {
+      const p = proxyInPlace();
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: false, detail: "User cancelled" }) });
+      expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
+      expect(readSetupState(p).homebrew).toMatchObject({ outcome: "failed", detail: "User cancelled" });
+
+      const { need, requests } = capture("");
+      expect((await proxyInstallStep.run(makeCtx(p, { need }).ctx)).state).toBe("done");
+      expect(requests).toEqual([]);
+    });
+
+    test("an app with no route for the combined install fails at once and records nothing", async () => {
+      const p = fakeProbes({ home });
+      const { ctx } = makeCtx(p, { need: async (_id, request) => (await askAppDirectly(fakeTray({}), request))! });
+      expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
+      expect(readSetupState(p).homebrew).toBeUndefined();
+    });
+
+    test("an app with no Homebrew route fails at once and records nothing", async () => {
+      const p = proxyInPlace();
+      const { ctx } = makeCtx(p, { need: async (_id, request) => (await askAppDirectly(fakeTray({}), request))! });
       expect((await proxyInstallStep.run(ctx)).state).toBe("failed");
       expect(readSetupState(p).homebrew).toBeUndefined();
     });

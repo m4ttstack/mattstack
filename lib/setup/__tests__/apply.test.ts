@@ -1383,6 +1383,15 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
     expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" })).toEqual({ ok: true, detail: "installed" });
   });
 
+  // Left to the need protocol, a terminal run would wait ten minutes for an
+  // answer no app ever sends.
+  test("Homebrew goes to its own route, and an app without it fails at once with no need", async () => {
+    const { ctx, events } = await terminalCtx(fakeTray({ ...reachable }));
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "homebrew" })).toMatchObject({ ok: false, unserved: true });
+    expect(events.some((e) => e.event === "need")).toBe(false);
+  });
+
   test("with no app running it answers no-app at once, which the step turns into open mattstack.app and retry", async () => {
     const noTray: ReturnType<typeof fakeTray> = async () => ({ status: 0, json: null });
     const { ctx, events } = await terminalCtx(noTray);
