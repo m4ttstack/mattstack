@@ -176,6 +176,10 @@ the stamp a follow-up must start at or after (the request while queued,
 the launch once running), and the failure count. The cron pass (`bin/triage.ts`) and the board server both
 read and write it; every transition is a compare-and-set on the row's
 current kind, and the note is rewritten only after the row moves.
+A landing (comment or approve) or a stuck transition also writes the reply
+it owes into the row's `reply_due` in that same compare-and-set; the writer
+posts it at once and clears it, and a post that fails stays owed until a
+later cron tick, past the post grace, posts it to the canonical latch.
 
 This is what makes the daemon's stale discussion reads harmless: a
 stale note showing `queued` or `armed`+resolved after the row already

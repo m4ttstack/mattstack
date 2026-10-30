@@ -17,6 +17,7 @@ import {
 } from './latch-state.ts';
 import { latchKindOf } from './markers.ts';
 import {
+  postReplyDue,
   rewriteLatch,
   spendAllLatches,
   spendLatch,
@@ -84,9 +85,13 @@ export async function landFollowUp(
         ? { state: 'done-comments', count }
         : ARMED;
   const key = variantKey(variant);
+  // Owed in the same write that lands, so a reply that fails to post is
+  // still owed to the latch pass rather than lost.
+  const reply = i.outcome ? finishedReply(i.outcome, count) : null;
+  const owed = reply === null ? {} : { replyDue: reply };
   const patch: Partial<Omit<LatchRow, 'mrUrl'>> =
     i.outcome === 'approve'
-      ? { phase: 'spent', variant: key }
+      ? { phase: 'spent', variant: key, ...owed }
       : {
           phase: 'armed',
           failures: 0,
@@ -94,6 +99,7 @@ export async function landFollowUp(
           wait: null,
           launchAt: null,
           variant: key,
+          ...owed,
         };
 
   // The re-check and the move share one write transaction: a retry that
@@ -147,13 +153,15 @@ export async function landFollowUp(
       db
     );
   }
-  if (i.outcome) {
-    await i.gateway.createNote(
-      target.projectId,
-      target.iid,
-      finishedReply(i.outcome, count),
-      target.discussionId
-    );
+  if (reply !== null) {
+    try {
+      await postReplyDue(i.gateway, target, target.discussionId, reply, db);
+    } catch (err) {
+      // Still owed on the row: the latch pass posts it on a later tick.
+      console.error(
+        `latch: !${target.iid} finished reply not posted: ${err instanceof Error ? err.message : err}`
+      );
+    }
   }
   if (i.outcome === 'approve') {
     await spendAllLatches(

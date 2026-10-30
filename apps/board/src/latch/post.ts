@@ -10,6 +10,7 @@ import type { LatchRef } from './discussions.ts';
 import {
   cachedUpload,
   casLatch,
+  clearReplyDue,
   rememberUpload,
   type LatchPhase,
 } from './latch-state.ts';
@@ -59,6 +60,18 @@ export interface LatchTarget {
   mrUrl: string;
   discussionId: string;
   rootNoteId: number;
+}
+
+/** Posts the reply a row owes its latch's discussion, then clears it. */
+export async function postReplyDue(
+  gw: LatchGateway,
+  mr: Pick<LatchTarget, 'projectId' | 'iid' | 'mrUrl'>,
+  discussionId: string,
+  body: string,
+  db: Database = getStateDb()
+): Promise<void> {
+  await gw.createNote(mr.projectId, mr.iid, body, discussionId);
+  clearReplyDue(mr.mrUrl, discussionId, body, db);
 }
 
 /** This MR's banner for `variant`, uploaded only the first time the MR shows it. */

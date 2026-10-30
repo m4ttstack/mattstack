@@ -57,6 +57,7 @@ function latchRow(over: Partial<LatchRow> = {}): LatchRow {
     failures: 0,
     stuck: false,
     variant: 'running',
+    replyDue: null,
     updatedAt: 1,
     ...over,
   };

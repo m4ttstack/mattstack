@@ -74,6 +74,7 @@ function row(overrides: Partial<LatchRow> = {}): LatchRow {
     failures: 0,
     stuck: false,
     variant: 'armed',
+    replyDue: null,
     updatedAt: 1,
     ...overrides,
   };

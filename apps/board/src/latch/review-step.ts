@@ -124,6 +124,7 @@ export async function applyReviewLatch(
       failures: 0,
       stuck: false,
       variant: 'armed',
+      replyDue: null,
       updatedAt: now,
     },
     db

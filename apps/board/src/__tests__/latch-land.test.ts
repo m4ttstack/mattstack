@@ -36,6 +36,7 @@ function row(over: Partial<LatchRow> = {}): LatchRow {
     failures: 2,
     stuck: false,
     variant: 'running',
+    replyDue: null,
     updatedAt: 1,
     ...over,
   };
@@ -130,8 +131,41 @@ describe('landFollowUp', () => {
       wait: null,
       launchAt: null,
       variant: 'done-comments-3',
+      replyDue: null,
       updatedAt: NOW,
     });
+  });
+
+  test('a reply that fails to post is still owed, and the approval still spends the extras', async () => {
+    const h = harness({
+      outcome: 'approve',
+      latches: [
+        {
+          discussionId: 'd2',
+          rootNoteId: 2,
+          kind: 'armed',
+          resolved: false,
+          createdAt: '',
+          body: '',
+        },
+      ],
+    });
+    h.input.gateway.createNote = async () => {
+      throw new Error('gitlab 500');
+    };
+    expect(await h.land()).toBe('landed');
+    expect(h.calls).toContain('updateNote:2');
+    expect(readLatchRow(MR, h.db)).toMatchObject({
+      phase: 'spent',
+      replyDue: 'Follow-up review done: approved.',
+    });
+  });
+
+  test('an abandoned landing owes no reply', async () => {
+    const h = harness({ outcome: null });
+    expect(await h.land()).toBe('landed');
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, h.db)?.replyDue).toBeNull();
   });
 
   test('one new comment reads singular', async () => {

@@ -18,6 +18,9 @@ export interface LatchRow {
   stuck: boolean;
   /** variantKey of the banner last written to the note. */
   variant: string | null;
+  /** The reply this latch still owes its discussion, verbatim. GitLab emails
+      new notes, never edits, so the reply is the author's only notice. */
+  replyDue: string | null;
   updatedAt: number;
 }
 
@@ -31,6 +34,7 @@ interface LatchRecord {
   failures: number;
   stuck: number;
   variant: string | null;
+  reply_due: string | null;
   updated_at: number;
 }
 
@@ -43,6 +47,7 @@ const COLUMNS: Record<keyof Omit<LatchRow, 'mrUrl'>, string> = {
   failures: 'failures',
   stuck: 'stuck',
   variant: 'variant',
+  replyDue: 'reply_due',
   updatedAt: 'updated_at',
 };
 
@@ -57,6 +62,7 @@ function toRow(r: LatchRecord): LatchRow {
     failures: r.failures,
     stuck: r.stuck !== 0,
     variant: r.variant,
+    replyDue: r.reply_due,
     updatedAt: r.updated_at,
   };
 }
@@ -82,8 +88,8 @@ export function putLatchRow(row: LatchRow, db: Database = getStateDb()): void {
   db.run(
     `INSERT OR REPLACE INTO latch_state
        (mr_url, discussion_id, root_note_id, phase, wait, launch_at,
-        failures, stuck, variant, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        failures, stuck, variant, reply_due, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.mrUrl,
       row.discussionId,
@@ -94,9 +100,26 @@ export function putLatchRow(row: LatchRow, db: Database = getStateDb()): void {
       row.failures,
       row.stuck ? 1 : 0,
       row.variant,
+      row.replyDue,
       row.updatedAt,
     ]
   );
+}
+
+/** Clears the reply owed once it posted, only while the row still owes that
+    same reply on that discussion; true when it cleared. */
+export function clearReplyDue(
+  mrUrl: string,
+  discussionId: string,
+  body: string,
+  db: Database = getStateDb()
+): boolean {
+  const result = db.run(
+    `UPDATE latch_state SET reply_due = NULL
+     WHERE mr_url = ? AND discussion_id = ? AND reply_due = ?`,
+    [mrUrl, discussionId, body]
+  );
+  return result.changes > 0;
 }
 
 /** Applies `patch` only while the row's phase is in `from` (and, with

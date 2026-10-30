@@ -75,6 +75,7 @@ function row(over: Partial<LatchRow> = {}): LatchRow {
     failures: 0,
     stuck: false,
     variant: 'armed',
+    replyDue: null,
     updatedAt: 1,
     ...over,
   };
@@ -205,6 +206,18 @@ function harness(
   };
 }
 
+function failNextReply(gw: LatchGateway): void {
+  const create = gw.createNote;
+  let broken = true;
+  gw.createNote = async (...args) => {
+    if (broken) {
+      broken = false;
+      throw new Error('gitlab 500');
+    }
+    return create(...args);
+  };
+}
+
 describe('step 0: no latch', () => {
   test('posts one on a comment-outcome state', async () => {
     const { deps, calls } = harness({ detail: detail() });
@@ -228,6 +241,7 @@ describe('step 0: no latch', () => {
       failures: 0,
       stuck: false,
       variant: 'armed',
+      replyDue: null,
       updatedAt: NOW,
     });
   });
@@ -356,6 +370,7 @@ describe('step 2: armed and unresolved', () => {
         failures: 0,
         stuck: false,
         variant: 'armed',
+        replyDue: null,
         updatedAt: 1,
       },
       db
@@ -1797,6 +1812,37 @@ describe('error, retry and stuck', () => {
     expect(h.stuckNotices).toHaveLength(1);
   });
 
+  test('a stuck reply that fails to post goes out once on a later pass, with no second notice', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    let note = runningBody();
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      readDetail: async () =>
+        detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+    });
+    failNextReply(h.deps.gateway);
+    const stuck = copyFor({ state: 'error-stuck' }).sentence;
+    expect((await runLatchPass(h.deps)).stuck).toBe(1);
+    expect(h.stuckNotices).toHaveLength(1);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      variant: 'error-stuck',
+      replyDue: stuck,
+    });
+
+    note = errorBody();
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([stuck]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+
+    await runLatchPass(h.deps);
+    expect(h.replies).toHaveLength(1);
+    expect(h.stuckNotices).toHaveLength(1);
+  });
+
   test('a relaunch mid-pass is not a failure', async () => {
     const db = tempDb();
     putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
@@ -2104,6 +2150,95 @@ describe('landing a follow-up from the pass', () => {
     expect(readLatchRow(MR, db)).toMatchObject({
       phase: 'armed',
       variant: 'armed',
+      replyDue: null,
+    });
+  });
+
+  test('a finished reply that fails to post goes out once on a later pass', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    let note = runningBody();
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      countNew: async () => 2,
+      readDetail: async () => detail(disc('d1', note, OLD, false)),
+    });
+    failNextReply(h.deps.gateway);
+    expect((await runLatchPass(h.deps)).landed).toBe(1);
+    expect(h.replies).toEqual([]);
+    const reply = 'Follow-up review done: 2 new comments.';
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      replyDue: reply,
+    });
+
+    note = armedLatchBody(IMG);
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([reply]);
+    expect(h.calls.filter(c => c.startsWith('reply:'))).toEqual(['reply:d1']);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('replied');
+
+    await runLatchPass(h.deps);
+    expect(h.replies).toHaveLength(1);
+  });
+
+  test('a spent row still owing its approved reply is followed until it posts', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    let note = runningBody();
+    let lanes = new Map([[MR, lane({ outcome: 'approve' })]]);
+    const h = harness({
+      db,
+      readReviewStates: () => lanes,
+      readDetail: async () => detail(disc('d1', note, OLD, true)),
+    });
+    failNextReply(h.deps.gateway);
+    expect((await runLatchPass(h.deps)).landed).toBe(1);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      replyDue: 'Follow-up review done: approved.',
+    });
+
+    note = spentLatchBody(IMG);
+    lanes = new Map();
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual(['Follow-up review done: approved.']);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+
+    expect((await runLatchPass(h.deps)).skipped).toBe(1);
+    expect(h.replies).toHaveLength(1);
+  });
+
+  test('an owed reply is never posted to a latch other than the canon', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        discussionId: 'old',
+        phase: 'spent',
+        variant: 'done-approved',
+        replyDue: 'Follow-up review done: approved.',
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(disc('d1', spentLatchBody(IMG), OLD, true)),
+      now: () => NOW + LATCH_POST_GRACE_MS,
+    });
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'd1',
+      replyDue: null,
     });
   });
 

@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   cachedUpload,
   casLatch,
+  clearReplyDue,
   putLatchRow,
   readLatchRow,
   readLatchRows,
@@ -31,6 +32,7 @@ function row(overrides: Partial<LatchRow> = {}): LatchRow {
     failures: 0,
     stuck: false,
     variant: null,
+    replyDue: null,
     updatedAt: 100,
     ...overrides,
   };
@@ -46,6 +48,7 @@ describe('latch state', () => {
       failures: 2,
       stuck: true,
       variant: 'queued-cooldown',
+      replyDue: 'Follow-up review done.',
     });
     putLatchRow(r, db);
     expect(readLatchRow(MR, db)).toEqual(r);
@@ -148,5 +151,23 @@ describe('latch state', () => {
     ).map(t => t.name);
     expect(tables).toContain('latch_state');
     expect(tables).toContain('latch_uploads');
+    const cols = (
+      db.query('PRAGMA table_info(latch_state)').all() as { name: string }[]
+    ).map(c => c.name);
+    expect(cols).toContain('reply_due');
+  });
+
+  test('clearReplyDue clears only the reply still owed on that discussion', () => {
+    const db = openStateDb(tempPath());
+    putLatchRow(row({ replyDue: 'Follow-up review done.' }), db);
+    expect(clearReplyDue(MR, 'disc-2', 'Follow-up review done.', db)).toBe(
+      false
+    );
+    expect(clearReplyDue(MR, 'disc-1', 'Other reply.', db)).toBe(false);
+    expect(readLatchRow(MR, db)!.replyDue).toBe('Follow-up review done.');
+    expect(clearReplyDue(MR, 'disc-1', 'Follow-up review done.', db)).toBe(
+      true
+    );
+    expect(readLatchRow(MR, db)!.replyDue).toBeNull();
   });
 });

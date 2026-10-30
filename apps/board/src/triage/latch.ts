@@ -33,6 +33,7 @@ import {
 } from '../latch/latch-state.ts';
 import {
   postLatch,
+  postReplyDue,
   rewriteLatch,
   spendLatch,
   type LatchGateway,
@@ -307,8 +308,10 @@ export async function runLatchPass(
     try {
       const stored = rows.read(mr.mrUrl);
       // A live row is followed whatever its lane reads: the lane moves
-      // through queued, reviewing and error while the latch waits on it.
-      const held = !!stored && stored.phase !== 'spent';
+      // through queued, reviewing and error while the latch waits on it. A
+      // spent row that still owes a reply is followed until it posts.
+      const held =
+        !!stored && (stored.phase !== 'spent' || stored.replyDue !== null);
       const live = reviews.get(mr.mrUrl);
       // Only a commented tombstone is a resurrection candidate: an approve
       // outcome's latch is already spent-terminal, so reviving its row buys
@@ -400,6 +403,7 @@ export async function runLatchPass(
             failures: 0,
             stuck: false,
             variant: 'armed',
+            replyDue: null,
             updatedAt: now,
           });
           deps.appendAudit({
@@ -420,6 +424,31 @@ export async function runLatchPass(
       if (!row) {
         result.skipped++;
         continue;
+      }
+
+      // A reply a landing or stuck transition owes but failed to post. Read
+      // fresh, and only once the transition is past the grace: the server
+      // may still be posting a reply it owed seconds ago.
+      const owing = rows.read(mr.mrUrl);
+      if (
+        owing?.replyDue != null &&
+        owing.discussionId === canon.discussionId &&
+        now - owing.updatedAt >= LATCH_POST_GRACE_MS
+      ) {
+        await postReplyDue(
+          deps.gateway,
+          mr,
+          owing.discussionId,
+          owing.replyDue,
+          deps.db
+        );
+        deps.appendAudit({
+          ts: now,
+          mrUrl: mr.mrUrl,
+          iid: mr.iid,
+          event: 'latch',
+          action: 'replied',
+        });
       }
 
       // Step 1: spent wins over everything, unconditionally.
@@ -573,6 +602,7 @@ function trackCanon(
     failures: 0,
     stuck: false,
     variant: null,
+    replyDue: null,
   };
   if (!stored) {
     const adopted: LatchRow = { mrUrl: mr.mrUrl, ...fresh, updatedAt: now };
@@ -972,7 +1002,13 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
     mr.mrUrl,
     [t.row.phase],
     stuck
-      ? { phase: 'error', failures, wait: null, stuck: true }
+      ? {
+          phase: 'error',
+          failures,
+          wait: null,
+          stuck: true,
+          replyDue: copyFor(STUCK).sentence,
+        }
       : { phase: 'error', failures, wait },
     now,
     { discussionId: canon.discussionId }
@@ -1003,19 +1039,32 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
   await showStuck(t);
 }
 
-/** The stuck banner, then the stuck reply. A row still showing another
-    variant has not had either, which is how a cut-short write is repaired.
-    False when a landing moved the row first and nothing was written. */
+const STUCK: BannerVariant = { state: 'error-stuck' };
+
+/** The stuck banner, then the stuck reply while the row still owes it. A row
+    still showing another variant has not had the banner, which is how a
+    cut-short write is repaired. False when a landing moved the row first and
+    nothing was written. */
 async function showStuck(t: Tick): Promise<boolean> {
   if (!t.rows.read(t.mr.mrUrl)?.stuck) return false;
-  const variant: BannerVariant = { state: 'error-stuck' };
-  if (!(await show(t, 'error', variant, threadClosed(t)))) return false;
-  await t.deps.gateway.createNote(
-    t.mr.projectId,
-    t.mr.iid,
-    copyFor(variant).sentence,
-    t.canon.discussionId
-  );
+  if (!(await show(t, 'error', STUCK, threadClosed(t)))) return false;
+  const reply = copyFor(STUCK).sentence;
+  if (t.rows.read(t.mr.mrUrl)?.replyDue === reply) {
+    try {
+      await postReplyDue(
+        t.deps.gateway,
+        t.mr,
+        t.canon.discussionId,
+        reply,
+        t.deps.db
+      );
+    } catch (err) {
+      // Still owed on the row: a later tick posts it.
+      console.error(
+        `latch pass: !${t.mr.iid} stuck reply not posted: ${err instanceof Error ? err.message : err}`
+      );
+    }
+  }
   await supersede(t.deps, t.mr, t.canon, t.carriers);
   return true;
 }

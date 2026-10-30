@@ -176,6 +176,7 @@ const MIGRATIONS: Migration[] = [
   failures      INTEGER NOT NULL DEFAULT 0,
   stuck         INTEGER NOT NULL DEFAULT 0,
   variant       TEXT,
+  reply_due     TEXT,
   updated_at    INTEGER NOT NULL
 )`);
     db.run(`CREATE TABLE IF NOT EXISTS latch_uploads (
