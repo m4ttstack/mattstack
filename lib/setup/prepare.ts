@@ -34,11 +34,28 @@ export interface PrepareResult {
 const PROBE_TIMEOUT_MS = 5000;
 const MACOS_POLL_SECONDS = 5;
 
+/**
+ * How long a run of each stage may take before its record stops counting as
+ * running, whatever its pid says: a run killed before it could end its record
+ * leaves the pid behind, and after a reboot that pid can belong to anything.
+ * macos is the Command Line Tools install plus its catalog scans; accounts can
+ * wait that long for macos and then install several tools.
+ */
+export const PREPARE_BUDGET_MS: Record<PrepareStage, number> = {
+  macos: CLT_INSTALL_TIMEOUT_MS + 15 * 60_000,
+  accounts: CLT_INSTALL_TIMEOUT_MS + 90 * 60_000,
+};
+
 export function preparePath(home: string, stage: PrepareStage): string {
   return join(home, ".mattstack", "rt", `setup-prepare-${stage}.json`);
 }
 
-export function readPrepare(p: Pick<Probes, "readFile" | "home">, stage: PrepareStage, alive: (pid: number) => boolean = pidAlive): (PrepareRecord & { running: boolean }) | null {
+export function readPrepare(
+  p: Pick<Probes, "readFile" | "home">,
+  stage: PrepareStage,
+  alive: (pid: number) => boolean = pidAlive,
+  now: () => Date = () => new Date(),
+): (PrepareRecord & { running: boolean }) | null {
   const text = p.readFile(preparePath(p.home, stage));
   if (text === null) return null;
   let record: PrepareRecord;
@@ -48,7 +65,9 @@ export function readPrepare(p: Pick<Probes, "readFile" | "home">, stage: Prepare
     return null;
   }
   if (typeof record !== "object" || record === null || !Array.isArray(record.items)) return null;
-  const running = typeof record.pid === "number" && record.endedAt === undefined && alive(record.pid);
+  const age = now().getTime() - Date.parse(record.startedAt);
+  const withinBudget = age <= PREPARE_BUDGET_MS[stage];
+  const running = typeof record.pid === "number" && record.endedAt === undefined && withinBudget && alive(record.pid);
   return { ...record, running };
 }
 
@@ -93,7 +112,7 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
 async function waitForCommandLineTools(p: Probes, alive: (pid: number) => boolean): Promise<void> {
   const maxPolls = CLT_INSTALL_TIMEOUT_MS / (MACOS_POLL_SECONDS * 1000);
   for (let poll = 0; poll < maxPolls; poll++) {
-    const macos = readPrepare(p, "macos", alive);
+    const macos = readPrepare(p, "macos", alive, () => p.now());
     if (!macos?.running || !macos.items.includes("apple-clt")) return;
     await p.exec(["sleep", String(MACOS_POLL_SECONDS)], { timeoutMs: (MACOS_POLL_SECONDS + 5) * 1000 });
   }
@@ -110,7 +129,7 @@ export async function runPrepare(
 ): Promise<PrepareResult> {
   const alive = deps.alive ?? pidAlive;
   const install = deps.install ?? installTool;
-  if (readPrepare(p, stage, alive)?.running) return { stage, skipped: "running", installed: [], failed: [] };
+  if (readPrepare(p, stage, alive, () => p.now())?.running) return { stage, skipped: "running", installed: [], failed: [] };
 
   const items = await prepareTools(p, stage, deps.reqs);
   const pid = deps.pid ?? process.pid;

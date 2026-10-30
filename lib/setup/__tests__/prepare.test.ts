@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { UserActionableError } from "../../errors.ts";
-import { preparePath, readPrepare, runPrepare, type PrepareRecord } from "../prepare.ts";
+import { PREPARE_BUDGET_MS, preparePath, readPrepare, runPrepare, type PrepareRecord } from "../prepare.ts";
 import type { PackRequirements } from "../requirements.ts";
 import type { InstallResult, installTool } from "../tools-install.ts";
 import { fakeProbes, missing, ok, type ExecScript } from "./fakes.ts";
@@ -102,7 +102,7 @@ describe("runPrepare", () => {
         onSleep: () => {
           sleeps++;
           events.push("sleep");
-          expect(readPrepare(p, "accounts", alive)).toMatchObject({ running: true, items: ["claude", "herdr", "doppler", "jq"] });
+          expect(readPrepare(p, "accounts", alive, () => p.now())).toMatchObject({ running: true, items: ["claude", "herdr", "doppler", "jq"] });
           if (sleeps === 2) {
             const { pid: _pid, ...rest } = macos;
             p.writeFile(preparePath(HOME, "macos"), JSON.stringify({ ...rest, endedAt: "2026-01-01T00:10:00.000Z" }));
@@ -144,6 +144,27 @@ describe("runPrepare", () => {
     expect(seen).toContain("claude");
   });
 
+  test("a record older than its stage's budget is not running, even when its pid is alive", async () => {
+    const startedAt = "2026-01-01T00:00:00.000Z";
+    const reused: PrepareRecord = { stage: "accounts", startedAt, pid: 999, items: ["claude"], failed: [] };
+    const at = (ms: number) => () => new Date(Date.parse(startedAt) + ms);
+    const files = seedRecord(reused);
+    const fresh = fakeProbes({ home: HOME, exec: machine(), files });
+    expect(readPrepare(fresh, "accounts", alive, at(PREPARE_BUDGET_MS.accounts))!.running).toBe(true);
+    expect(readPrepare(fresh, "accounts", alive, at(PREPARE_BUDGET_MS.accounts + 1))!.running).toBe(false);
+    expect(readPrepare(fresh, "accounts", alive, at(PREPARE_BUDGET_MS.macos + 1))!.running).toBe(true);
+
+    const later = new Date(Date.parse(startedAt) + PREPARE_BUDGET_MS.accounts + 60_000);
+    const p = fakeProbes({ home: HOME, exec: machine(), files, now: later });
+    const seen: string[] = [];
+    const result = await runPrepare(p, "accounts", { reqs, install: fakeInstall(seen), alive, pid: OWN_PID });
+    expect(result.skipped).toBeUndefined();
+    expect(seen).toContain("claude");
+
+    const macos: PrepareRecord = { stage: "macos", startedAt, pid: 999, items: ["apple-clt"], failed: [] };
+    expect(readPrepare(fakeProbes({ home: HOME, files: seedRecord(macos) }), "macos", alive, at(PREPARE_BUDGET_MS.macos + 1))!.running).toBe(false);
+  });
+
   test("a failed install is recorded with its detail and the rest still run", async () => {
     const p = fakeProbes({ home: HOME, exec: machine() });
     const seen: string[] = [];
@@ -165,7 +186,7 @@ describe("runPrepare", () => {
     const p = fakeProbes({ home: HOME, exec: machine(), now: new Date("2026-01-01T00:05:00.000Z") });
     const during: ReturnType<typeof readPrepare>[] = [];
     const install: typeof installTool = async () => {
-      during.push(readPrepare(p, "accounts", alive));
+      during.push(readPrepare(p, "accounts", alive, () => p.now()));
       return { via: "brew", ok: true, detail: "ok" };
     };
     await runPrepare(p, "accounts", { reqs, install, alive, pid: OWN_PID });
