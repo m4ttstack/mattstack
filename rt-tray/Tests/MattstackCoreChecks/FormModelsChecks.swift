@@ -213,6 +213,20 @@ let formModelsChecks: [Check] = [
         c.expectEqual(rt.calls.count, 4, "re-reads until the app's own wait ends")
         c.expect(await !m.isWatching)
     },
+    Check("SetupForm: another section's read never ends a watch early") { c in
+        let rt = ScriptedRt()
+        let waiting = sectionJSON("connect", [row("claude", state: "waiting", watch: true)])
+        let settled = sectionJSON("connect", [row("claude", state: "done", watch: true)])
+        rt.sequences = ["setup form --section connect --json": [(0, waiting), (0, waiting), (0, settled)]]
+        rt.answers = ["setup form --section macos --json": (0, sectionJSON("macos", [row("perm.fda", state: "done")]))]
+        let m = await SetupFormModel(rt: rt, sleep: CountingSleep().sleep)
+        // The macOS read is issued while the watch's first connect read is in flight, and lands first.
+        rt.duringNextRun = { await m.load(section: "macos") }
+        await m.watch(section: "connect")
+        await waitUntilIdle(m)
+        c.expectEqual(rt.calls.filter { $0.args.contains("connect") }.count, 3, "the watch reads connect until it settles")
+        c.expectEqual(await m.rows(for: "connect")?.first?.state, .done)
+    },
     Check("SetupForm: stopWatching ends the re-reads") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup form": (0, sectionJSON("macos", [row("perm.fda", state: "busy", watch: true)]))]

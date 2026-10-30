@@ -8,13 +8,15 @@ struct FastSetupHandlers {
     var join: () -> Void
     var create: () -> Void
     var restore: () -> Void
+    /// Set up this Mac.
+    var start: () -> Void
     var hide: () -> Void
     var retry: () -> Void
     var pausedAction: (RowAction) -> Void
     var openHome: () -> Void
     var readAgain: () -> Void
 
-    static let inert = FastSetupHandlers(choose: { _ in }, join: {}, create: {}, restore: {}, hide: {}, retry: {},
+    static let inert = FastSetupHandlers(choose: { _ in }, join: {}, create: {}, restore: {}, start: {}, hide: {}, retry: {},
                                          pausedAction: { _ in }, openHome: {}, readAgain: {})
 }
 
@@ -91,7 +93,7 @@ struct FastSetupView: View {
             let read = form.read(carrying: "this-mac")
             ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, rows: form.rows(for: "this-mac") ?? [],
                               waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false,
-                              onAction: perform, onBack: back, onStart: { flow.startRun() })
+                              onAction: perform, onBack: back, onStart: handlers.start)
         case .running:
             RunScreen(model: install, startedAt: status.runStartedAt, paused: nil, onHide: handlers.hide,
                       onRetry: handlers.retry, onPausedAction: handlers.pausedAction)
@@ -99,7 +101,10 @@ struct FastSetupView: View {
             RunScreen(model: install, startedAt: status.runStartedAt, paused: form.whole?.paused ?? Self.unknownPause,
                       onHide: handlers.hide, onRetry: handlers.retry, onPausedAction: handlers.pausedAction)
         case .ready:
-            ReadyScreenBody(home: latest?.home ?? form.whole?.home ?? Self.board, onOpen: handlers.openHome)
+            // Only a read lands on ready, and every read carries rt's home.
+            if let home = latest?.home ?? form.whole?.home {
+                ReadyScreenBody(home: home, onOpen: handlers.openHome)
+            }
         }
     }
 
@@ -123,7 +128,6 @@ struct FastSetupView: View {
 
     /// rt names no failed step when the run's holder died, and Retry then runs setup again from the top.
     private static let unknownPause = FormPaused(step: "", title: "Setup stopped before it finished", detail: "Retry runs it again")
-    private static let board = FormHome(label: "Open the board", url: "https://board.mattstack")
 }
 
 /// Before rt's first whole read: nothing says which screen setup is on yet.

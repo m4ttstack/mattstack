@@ -35,8 +35,9 @@ public enum FastSetupLaunch {
         stage == .running && !runLive
     }
 
-    public static func installStream(rt: RtRunning) -> ApplyStreamFactory {
-        { from in rt.stream(FastSetupRun.arguments(retryFrom: from), stdin: nil) }
+    /// `attended` is asked at each spawn: true when a person's Retry, not a launch or a relaunch, started it.
+    public static func installStream(rt: RtRunning, attended: @escaping @Sendable () -> Bool = { false }) -> ApplyStreamFactory {
+        { from in rt.stream(FastSetupRun.arguments(retryFrom: from, attended: attended()), stdin: nil) }
     }
 
     /// Setup status on a Mac that never finished is the first run, which still offers Just me; a finished Mac opens as status.
@@ -157,6 +158,16 @@ public final class FastSetupFlow: ObservableObject {
 
     public func joined() { requested = nil; screen = .waiting }
     public func approved() { chosen = nil; screen = .connect }
+
+    /// The team admin approved. A join approved at once never reached the wait, so the invite moves on
+    /// too; a Mac already past both stays where it is.
+    @discardableResult
+    public func joinApproved() -> Bool {
+        guard screen == .invite || screen == .waiting else { return false }
+        requested = nil
+        approved()
+        return true
+    }
     public func created() { requested = nil; chosen = nil; screen = .connect }
     public func restored() { screen = .running }
     public func continueToThisMac() { screen = .thisMac }

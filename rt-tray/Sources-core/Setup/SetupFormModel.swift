@@ -118,9 +118,9 @@ public final class SetupFormModel: ObservableObject {
         watchTask = nil
     }
 
+    /// Reads the section's own newest rows, so another section's read landing first never ends a watch.
     public func waits(in section: String?) -> Bool {
-        guard let sections = form?.sections else { return false }
-        let rows = section.map { sections.rows(for: $0) ?? [] } ?? sections.all
+        let rows = section.map { self.rows(for: $0) ?? [] } ?? (whole?.sections.all ?? [])
         return rows.contains { $0.watch && ($0.state == .waiting || $0.state == .busy) }
     }
 }

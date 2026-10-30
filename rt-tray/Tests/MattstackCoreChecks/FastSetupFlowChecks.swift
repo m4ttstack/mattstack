@@ -269,6 +269,39 @@ let fastSetupFlowChecks: [Check] = [
         for try await _ in stream("repos.clone") {}
         c.expectEqual(rt.calls.last?.args, FastSetupRun.arguments(retryFrom: "repos.clone"), "Retry runs from the failed step")
     },
+    Check("FastSetupFlow: a Retry rt names no step for resumes with a person there") { c in
+        c.expectEqual(FastSetupRun.arguments(retryFrom: nil, attended: true), ["setup", "apply", "--resume", "--json"])
+        c.expectEqual(FastSetupRun.arguments(retryFrom: "repos.clone", attended: true), FastSetupRun.arguments(retryFrom: "repos.clone"))
+        let rt = ScriptedRt()
+        final class Flag: @unchecked Sendable { var on = true }
+        let flag = Flag()
+        let stream = FastSetupLaunch.installStream(rt: rt, attended: { flag.on })
+        for try await _ in stream(nil) {}
+        c.expectEqual(rt.calls.last?.args, ["setup", "apply", "--resume", "--json"], "a person pressed Retry, so nothing is unattended")
+        flag.on = false
+        for try await _ in stream(nil) {}
+        c.expectEqual(rt.calls.last?.args, FastSetupRun.arguments(retryFrom: nil))
+    },
+    Check("FastSetupFlow: an approval moves on from the invite or the wait, never from later") { c in
+        await MainActor.run {
+            let atOnce = flow(on: .invite)
+            c.expect(atOnce.joinApproved(), "a join approved at once never sat on the wait")
+            c.expectEqual(atOnce.screen, .connect)
+            let waited = flow(on: .waiting)
+            c.expect(waited.joinApproved())
+            c.expectEqual(waited.screen, .connect)
+            for stage in [FormStage.thisMac, .running, .paused, .ready, .connect] {
+                let past = flow(on: stage)
+                c.expect(!past.joinApproved(), "\(stage) stays put")
+                c.expectEqual(past.screen, FastSetupFlow.screen(for: stage))
+            }
+            let upgrade = flow(.upgrade, on: .ready, requested: .join)
+            c.expectEqual(upgrade.screen, .invite)
+            c.expect(upgrade.joinApproved())
+            upgrade.land(on: .ready)
+            c.expectEqual(upgrade.screen, .ready, "an approved upgrade never reopens the invite")
+        }
+    },
     Check("FastSetupFlow: a run that ends lands where rt says") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup form --json": (0, wholeForm(stage: "paused", paused: clonePaused))]

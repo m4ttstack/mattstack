@@ -25,6 +25,7 @@ final class SetupCoordinator {
     private let join: JoinPageModel
     private let team: TeamChoiceModel
     private let status = FastSetupStatus()
+    private let attendedRun = AttendedRun()
     private lazy var actions = FormActionRunner(rt: rt, needs: needs, effects: AppFormEffects(permissions: permissions),
                                                 reload: { [weak self] in await self?.refreshSection() })
     private let teamSettings: TeamSettingsModel
@@ -65,7 +66,8 @@ final class SetupCoordinator {
         readiness = ReadinessModel(plans: RtPlanSource(rt: rt, verb: ["setup", "plan", "--json"]),
                                    permissions: permissionProbe ?? permissions, ticker: MainTicker())
         form = SetupFormModel(rt: rt)
-        install = InstallRunModel(stream: FastSetupLaunch.installStream(rt: rt), needs: needs)
+        let attended = attendedRun
+        install = InstallRunModel(stream: FastSetupLaunch.installStream(rt: rt, attended: { attended.take() }), needs: needs)
         prepare = PrepareRunner(rt: rt)
         join = JoinPageModel(rt: rt, needs: needs)
         team = TeamChoiceModel(rt: rt, pasteboard: SystemPasteboard())
@@ -109,15 +111,21 @@ final class SetupCoordinator {
         flow.requested = entry == .upgrade ? choice : nil
         team.enter(entry, choice: choice, joinCode: joinCode)
         picksJoinAtCards = joinCode != nil && entry == .firstRun
-        if entry == .firstRun { sawUnfinished = true }
+        switch entry {
+        case .firstRun: sawUnfinished = true
+        // Setup status on a finished Mac records no Finish on close unless this window then shows setup unfinished.
+        case .status: sawUnfinished = false; finishPending = false
+        case .upgrade: break
+        }
         reattached = false
         window.show()
         observeActivation()
         let before = entries
         Task { @MainActor in
-            await flow.land(reading: form)
+            guard let read = await flow.land(reading: form), let stage = read.stage else { return }
             // The flow may land on the screen it was already on, which starts nothing by itself.
             if entries == before, flow.screen == enteredScreen { enter(flow.screen) }
+            startBarIfNeeded(stage: stage)
         }
     }
 
@@ -128,6 +136,7 @@ final class SetupCoordinator {
                                     join: { [weak self] in Task { await self?.joinPressed() } },
                                     create: { [weak self] in Task { await self?.createPressed() } },
                                     restore: { [weak self] in Task { await self?.restorePressed() } },
+                                    start: { [weak self] in self?.startRun() },
                                     hide: { [weak self] in self?.setupWindow?.close() },
                                     retry: { [weak self] in self?.retry() },
                                     pausedAction: { [weak self] in self?.pausedAction($0) },
@@ -165,6 +174,7 @@ final class SetupCoordinator {
         let screen = flow.screen
         guard screen != enteredScreen else { return }
         leave(enteredScreen)
+        status.failures = [:]
         enter(screen)
     }
 
@@ -182,6 +192,8 @@ final class SetupCoordinator {
         case .macos:
             prepare.start("macos")
             if setupWindow?.isVisible == true { startProbing() }
+            // A grant reported before P1 showed was swallowed by the publisher's removeDuplicates.
+            if readiness.fdaNeedsRelaunch { relaunchForFullDiskAccess() }
             Task { await refreshSection() }
         case .path:
             if picksJoinAtCards {
@@ -209,9 +221,8 @@ final class SetupCoordinator {
             Task { await refreshSection() }
         case .waiting:
             Task { await keepCheckingApproval() }
-        case .running:
-            startBarIfNeeded()
-        case .paused:
+        case .running, .paused:
+            // The bar starts from rt's stage after a whole read, or from the member's own button.
             break
         case .ready:
             if sawUnfinished { finishPending = true }
@@ -223,8 +234,8 @@ final class SetupCoordinator {
 
     /// A whole read, and rt's stage decides the screen.
     private func landOnRtStage() async {
-        await flow.land(reading: form)
-        if flow.screen == .running { startBarIfNeeded() }
+        guard let read = await flow.land(reading: form), let stage = read.stage else { return }
+        startBarIfNeeded(stage: stage)
     }
 
     /// Re-reads the current screen's own section, then watches it while a row's answer is landing outside the app.
@@ -340,7 +351,9 @@ final class SetupCoordinator {
         case .failed(let detail, _):
             status.failures[.invite] = detail
         case .approved:
-            break
+            // Approved at once (this Mac's key was already a recipient): onApproved has moved the
+            // flow on unless that approval was announced before, which still leaves the invite.
+            if flow.screen == .invite { approved() }
         case .unreadable:
             flow.joined()
             await flow.land(reading: form)
@@ -365,6 +378,7 @@ final class SetupCoordinator {
         defer { status.busy = nil }
         status.failures[.restore] = nil
         if let failure = await team.validateAndPrepare() { status.failures[.restore] = failure; return }
+        beginRun()
         flow.restored()
     }
 
@@ -385,18 +399,29 @@ final class SetupCoordinator {
     private func approved() {
         prepare.start("accounts")
         Task { await form.load(section: "connect") }
-        guard flow.screen == .waiting else { return }
+        guard flow.joinApproved(), setupWindow?.isInFront != true else { return }
         notify(FastSetupLaunch.approvedNotice)
-        flow.requested = nil
-        flow.approved()
     }
 
     // MARK: - The bar
 
-    private func startBarIfNeeded() {
-        guard flow.screen == .running, FastSetupLaunch.startsRun(stage: .running, runLive: install.isRunning) else { return }
+    /// rt's whole read says a run is due or live: this app attaches to it, or resumes it.
+    private func startBarIfNeeded(stage: FormStage) {
+        guard FastSetupLaunch.startsRun(stage: stage, runLive: install.isRunning) else { return }
         let state = FileManager.default.contents(atPath: SetupCompletion.statePath(home: AppHome.current))
         status.runStartedAt = FastSetupLaunch.runStartedAt(stateJSON: state) ?? Date()
+        install.start()
+    }
+
+    /// Set up this Mac: the member's own button starts the run before the bar shows.
+    private func startRun() {
+        beginRun()
+        flow.startRun()
+    }
+
+    private func beginRun() {
+        guard !install.isRunning else { return }
+        status.runStartedAt = Date()
         install.start()
     }
 
@@ -424,16 +449,18 @@ final class SetupCoordinator {
             return
         }
         reattached = true
-        startBarIfNeeded()
+        startBarIfNeeded(stage: stage)
     }
 
-    /// The first live failure retries from rt's failed step; after a relaunch rt's paused read names it.
+    /// Retries from rt's failed step (`--from`, attended). With no step named (the run's holder died),
+    /// an attended `--resume`, which rt runs in full on an ended record: a person pressed Retry, so nothing is unattended.
     private func retry() {
         guard !install.isRunning else { return }
-        let from = form.whole?.paused?.step ?? install.resumableStepId
+        let from = (form.whole?.paused?.step ?? install.resumableStepId).flatMap { $0.isEmpty ? nil : $0 }
         status.runStartedAt = Date()
         reattached = false
-        install.start(from: from.flatMap { $0.isEmpty ? nil : $0 })
+        if from == nil { attendedRun.mark() }
+        install.start(from: from)
         flow.retry()
     }
 
@@ -468,6 +495,7 @@ final class SetupCoordinator {
     private func windowClosed() {
         form.stopWatching()
         stopProbing()
+        // Closing on P7 records Finish only: a closed window never opens a browser tab.
         if flow.screen == .ready { finishSetup() }
         let entry = flow.entry, applied = flow.screen == .ready
         Task { @MainActor in await settingsRefresher.setupWindowClosed(entry: entry, applied: applied) }
@@ -575,6 +603,14 @@ struct MainTicker: TickerScheduling {
         box.timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { _ in tick() }
         return TickerHandle { box.invalidate() }
     }
+}
+
+/// Marked by a Retry just before it spawns, and read once by that spawn, which runs off the main actor's call.
+private final class AttendedRun: @unchecked Sendable {
+    private let lock = NSLock()
+    private var marked = false
+    func mark() { lock.withLock { marked = true } }
+    func take() -> Bool { lock.withLock { defer { marked = false }; return marked } }
 }
 
 /// Timer isn't Sendable; the cancel closure only ever runs on the main run

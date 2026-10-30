@@ -56,8 +56,10 @@ public enum RunProgress {
 }
 
 public enum FastSetupRun {
-    public static func arguments(retryFrom: String?) -> [String] {
+    /// A Retry is a person at the window, so it never runs unattended. `attended` with no step is a
+    /// Retry rt named no failed step for: rt runs `--resume` on an ended record as a full run.
+    public static func arguments(retryFrom: String?, attended: Bool = false) -> [String] {
         if let id = retryFrom { return ["setup", "apply", "--from", id, "--json"] }
-        return ["setup", "apply", "--resume", "--unattended", "--json"]
+        return ["setup", "apply", "--resume"] + (attended ? [] : ["--unattended"]) + ["--json"]
     }
 }
