@@ -48,6 +48,8 @@ public final class TeamChoiceModel: ObservableObject {
     /// An early check's failure, shown on the Join card; Continue moves it to the screen's error line.
     @Published public private(set) var joinError: String?
     @Published public private(set) var isChecking = false
+    /// The team the last good dry run read.
+    @Published private var verdictTeam: TeamJoinResult.Team?
 
     private let rt: RtRunning
     private let pasteboard: PasteboardReading
@@ -81,6 +83,13 @@ public final class TeamChoiceModel: ObservableObject {
     public func enter(_ entry: SetupEntry, choice requested: TeamChoice?, joinCode: String?) {
         if let requested { choice = requested } else if entry == .upgrade, choice == .solo { choice = .create }
         if let joinCode { choice = .join; inviteCode = joinCode }
+    }
+
+    /// The dry run's `owner` is the inviter: rt keeps it as the joined team's `invitedBy`.
+    public var inviteLine: String? {
+        guard let team = verdictTeam, !team.name.isEmpty else { return nil }
+        guard let owner = team.owner, !owner.isEmpty else { return team.name }
+        return "\(team.name), invited by \(owner)"
     }
 
     public var slugPreview: String { Slug.make(teamName) }
@@ -209,35 +218,39 @@ public final class TeamChoiceModel: ObservableObject {
         joinWarning = nil
         joinError = nil
         verdictCode = nil
+        verdictTeam = nil
     }
 
     /// Join never latches, so a Back plus a second code re-runs the check:
     /// the previous code's verdict must not outlive its own attempt.
-    private func show(_ verdict: (summary: String?, warning: String?, failure: String?), for code: String) {
+    private func show(_ verdict: JoinVerdict, for code: String) {
         joinSummary = verdict.summary
         joinWarning = verdict.warning
         verdictCode = verdict.failure == nil ? code : nil
+        verdictTeam = verdict.failure == nil ? verdict.team : nil
     }
 
-    private func joinVerdict(_ code: String) async -> (summary: String?, warning: String?, failure: String?) {
+    private typealias JoinVerdict = (summary: String?, warning: String?, failure: String?, team: TeamJoinResult.Team?)
+
+    private func joinVerdict(_ code: String) async -> JoinVerdict {
         do {
             let stdin = try JSONEncoder().encode(["code": code])
             let r = try await rt.run(["team", "join", "--dry-run", "--json"], stdin: stdin)
-            if let e = r.userError(redactStderr: true) { return (nil, nil, Self.joinFailureCopy(e, owner: nil, team: nil)) }
-            guard r.exitCode == 0, let j = try? r.decode(TeamJoinResult.self) else { return (nil, nil, r.failureCopy(verb: "team join", redactStderr: true)) }
+            if let e = r.userError(redactStderr: true) { return (nil, nil, Self.joinFailureCopy(e, owner: nil, team: nil), nil) }
+            guard r.exitCode == 0, let j = try? r.decode(TeamJoinResult.self) else { return (nil, nil, r.failureCopy(verb: "team join", redactStderr: true), nil) }
             // Dev mode runs an app and a CLI built separately, so a CLI too
             // old to send `intent` must not wave a joiner past a denial it
             // did check.
             let wrote = j.intent.map { $0 == "written" } ?? (j.access == "ok")
             guard wrote else {
-                return (nil, nil, Self.joinFailureCopy(RtUserError(code: j.access == "denied" ? "no-access" : "unreachable", message: j.message ?? ""), owner: j.team?.owner, team: j.team?.name))
+                return (nil, nil, Self.joinFailureCopy(RtUserError(code: j.access == "denied" ? "no-access" : "unreachable", message: j.message ?? ""), owner: j.team?.owner, team: j.team?.name), nil)
             }
             // Exactly one of the two renders, so a non-ok verdict never
             // reaches the screen under the summary's green checkmark.
-            if j.access == "ok" { return (j.message ?? "Joining \(j.team?.name ?? "") (owner \(j.team?.owner ?? ""))", nil, nil) }
-            return (nil, j.message ?? "rt could not confirm access to the team repo; the checklist re-checks it.", nil)
+            if j.access == "ok" { return (j.message ?? "Joining \(j.team?.name ?? "") (owner \(j.team?.owner ?? ""))", nil, nil, j.team) }
+            return (nil, j.message ?? "rt could not confirm access to the team repo; the checklist re-checks it.", nil, j.team)
         } catch {
-            return (nil, nil, "Could not run rt: \(error)")
+            return (nil, nil, "Could not run rt: \(error)", nil)
         }
     }
 
@@ -270,7 +283,7 @@ public final class TeamChoiceModel: ObservableObject {
         switch error.code {
         case "no-access": return error.message.isEmpty ? "You don't have access yet: ask \(who) to grant you access to \(team ?? "the team")." : error.message
         case "expired", "not-found", "redeemed", "invite-unknown": return "Invite not recognized or expired: ask \(who) for a new one."
-        case "invite-malformed": return "That doesn't look like an invite code — paste the whole code (about \(inviteCodeLength) characters)."
+        case "invite-malformed": return "That doesn't look like an invite code. Paste the whole code (about \(inviteCodeLength) characters)."
         case "wrong-account": return "This code is for a different forge account than you're signed into."
         default: return error.message.isEmpty ? "Couldn't redeem the invite." : error.message
         }

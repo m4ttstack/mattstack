@@ -210,6 +210,21 @@ let fastSetupFlowChecks: [Check] = [
         c.expect(FastSetupFlow.allDone([]))
         c.expect(FastSetupFlow.allDone([macosRow("slack", .todo, optional: true)]))
     },
+    Check("FastSetupFlow: Join waits for every invite row, Command Line Tools included") { c in
+        let done = [macosRow("tool.clt", .done), macosRow("forge.token", .done)]
+        c.expect(FastSetupFlow.joinEnabled(verdictOK: true, rows: done))
+        c.expect(!FastSetupFlow.joinEnabled(verdictOK: false, rows: done), "no good read, no Join")
+        c.expect(!FastSetupFlow.joinEnabled(verdictOK: false, rows: []), "an empty section never stands in for a read")
+        c.expect(FastSetupFlow.joinEnabled(verdictOK: true, rows: []), "gh signed in and git present: nothing to wait on")
+        for state in [FormRowState.todo, .busy, .waiting] {
+            c.expect(!FastSetupFlow.joinEnabled(verdictOK: true, rows: [macosRow("tool.clt", state), macosRow("forge.token", .done)]),
+                     "Command Line Tools \(state) holds Join")
+            c.expect(!FastSetupFlow.joinEnabled(verdictOK: true, rows: [macosRow("tool.clt", .done), macosRow("forge.token", state)]),
+                     "the token \(state) holds Join")
+        }
+        c.expect(FastSetupFlow.joinEnabled(verdictOK: true, rows: [macosRow("tool.clt", .done), macosRow("extra", .todo, optional: true)]),
+                 "an optional row never holds Join")
+    },
 ]
 
 private func macosRow(_ id: String, _ state: FormRowState, optional: Bool = false) -> FormRow {

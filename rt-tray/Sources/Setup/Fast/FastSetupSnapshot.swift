@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -97,7 +97,57 @@ enum FastSetupSnapshot {
         ]
     }
 
+    @MainActor
+    private static func pathPages() -> [(String, AnyView)] {
+        [
+            ("path", AnyView(PathScreenBody(showsSolo: true) { _ in })),
+            ("path-upgrade", AnyView(PathScreenBody(showsSolo: false) { _ in })),
+        ]
+    }
+
+    @MainActor
+    private static func invitePages() -> [(String, AnyView)] {
+        let code = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
+        let line = "Mithrandir, invited by Jane Doe"
+        func page(_ code: String, line: String? = nil, failure: String? = nil, checking: Bool = false,
+                  rows: [FormRow] = [], waiting: [String: String] = [:]) -> AnyView {
+            let enabled = FastSetupFlow.joinEnabled(verdictOK: line != nil, rows: rows)
+            return AnyView(InviteScreenBody(code: .constant(code), inviteLine: line, failure: failure, isChecking: checking,
+                                            rows: rows, waiting: waiting, errors: [:], joinEnabled: enabled,
+                                            onPaste: {}, onAction: { _, _, _ in }, onBack: {}, onJoin: {}))
+        }
+        return [
+            ("invite-empty", page("")),
+            ("invite-checking", page(code, checking: true)),
+            ("invite-failed", page(code, failure: "Invite not recognized or expired: ask Jane Doe for a new one.")),
+            ("invite-read", page(code, line: line, rows: [Rows.gitlabToken])),
+            ("invite-clt-busy", page(code, line: line, rows: [Rows.cltInstalling, Rows.gitlabTokenConnected])),
+            ("invite-clt-todo", page(code, line: line, rows: [Rows.clt, Rows.githubToken])),
+            ("invite-ready", page(code, line: line, rows: [Rows.gitlabTokenConnected])),
+        ]
+    }
+
     enum Rows {
+        static let clt = FormRow(id: "tool.clt", title: "Command Line Tools", subtext: "Git and the build tools setup needs",
+                                 state: .todo, detail: "Not installed yet",
+                                 action: RowAction(type: .install, label: "Install", tool: "apple-clt", via: "apple-clt"), watch: true)
+        static let cltInstalling = FormRow(id: "tool.clt", title: "Command Line Tools", subtext: "Git and the build tools setup needs",
+                                           state: .busy, detail: "Installing Command Line Tools…", watch: true)
+        static let gitlabToken = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
+                                         state: .todo, detail: "",
+                                         action: RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: [
+                                             ActionField(name: "token", label: "GitLab token", secret: true, hint: "api"),
+                                         ], create: ActionLink(label: "Create token",
+                                                               url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features")))
+        static let gitlabTokenConnected = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
+                                                  state: .done, detail: "Connected as janedoe")
+        static let githubToken = FormRow(id: "forge.token", title: "GitHub", subtext: "Lets mattstack reach the team's repo and open PRs",
+                                         state: .todo, detail: "",
+                                         action: RowAction(type: .connect, label: "Connect", integration: "github", fields: [
+                                             ActionField(name: "token", label: "GitHub token", secret: true, hint: "repo, read:org"),
+                                         ], create: ActionLink(label: "Create token",
+                                                               url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg")))
+
         static let fda = FormRow(id: "perm.fda", title: "Full Disk Access", subtext: "Reads your repos and Chrome's profile",
                                  state: .todo, detail: "Not granted",
                                  action: RowAction(type: .openSettings, label: "Open settings", target: "fda"), watch: true)

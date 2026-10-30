@@ -42,6 +42,11 @@ public final class FastSetupFlow: ObservableObject {
         rows.allSatisfy { $0.optional || $0.state == .done }
     }
 
+    /// The invite read holds Join until it is good, then rt's rows do.
+    public nonisolated static func joinEnabled(verdictOK: Bool, rows: [FormRow]) -> Bool {
+        verdictOK && allDone(rows)
+    }
+
     /// What moves P1 on. Before the first read, or with nothing to show, P1 stays put.
     public nonisolated static func macosReady(_ rows: [FormRow]?) -> Bool {
         guard let rows, !rows.isEmpty else { return false }

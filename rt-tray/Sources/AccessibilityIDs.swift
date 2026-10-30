@@ -108,6 +108,11 @@ enum AXID {
     static func fastRowDone(_ id: String) -> String { "setup.fast.row.\(id).done" }
     static func fastRowStatus(_ id: String) -> String { "setup.fast.row.\(id).status" }
     static func fastRowSegment(_ id: String) -> String { "setup.fast.row.\(id).segment" }
+    static func fastPathCard(_ choice: String) -> String { "setup.fast.path.card.\(choice)" }
+    static let fastInviteCode = "setup.fast.invite.code"
+    static let fastInvitePaste = "setup.fast.invite.paste"
+    static let fastInviteLine = "setup.fast.invite.line"
+    static let fastInviteFailure = "setup.fast.invite.failure"
 
     // Install
     static func installStep(_ id: String) -> String { "setup.install.step.\(id)" }

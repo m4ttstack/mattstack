@@ -391,4 +391,23 @@ let teamChoiceChecks: [Check] = [
         c.expectEqual(DoneRole.solo(planTeam: nil, choice: .create), false)
         c.expectEqual(DoneRole.owner(planTeam: nil, choice: .join), false)
     },
+    Check("TeamChoice: a good preview reads Mithrandir, invited by Jane Doe") { c in
+        let rt = ScriptedRt()
+        rt.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"mithrandir","name":"Mithrandir","owner":"Jane Doe"},"access":"no-account","intent":"written","message":"Joining Mithrandir (owner Jane Doe). Connect your GitLab account on the next screen."}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join }
+        c.expectEqual(await MainActor.run { m.inviteLine }, nil, "nothing read yet")
+        await MainActor.run { m.inviteCode = completeInviteCode }
+        await m.previewInvite()
+        c.expectEqual(await MainActor.run { m.inviteLine }, "Mithrandir, invited by Jane Doe", "a token still to connect is a good read")
+        await MainActor.run { m.inviteCode = "ABCD" }
+        await m.previewInvite()
+        c.expectEqual(await MainActor.run { m.inviteLine }, nil, "an edited code drops the old team's line")
+
+        let bad = ScriptedRt(); bad.answers["team join --dry-run"] = (2, #"{"contract":1,"error":{"code":"invite-unknown","message":""}}"#)
+        let failed = await MainActor.run { TeamChoiceModel(rt: bad, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { failed.choice = .join; failed.inviteCode = completeInviteCode }
+        await failed.previewInvite()
+        c.expectEqual(await MainActor.run { failed.inviteLine }, nil, "a failed read names no team")
+    },
 ]
