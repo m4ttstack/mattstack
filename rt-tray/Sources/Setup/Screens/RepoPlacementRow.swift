@@ -58,6 +58,8 @@ struct RepoPlacementRow: View {
     /// The last pick rt refused (or any other failure of this row's verbs).
     let error: String?
     let ids: RowIDs
+    /// The fast screen takes rt's button label and sits the segment beside other full-size controls.
+    let fast: Bool
     @Environment(\.repoPlacementAnswer) private var answer
     @Environment(\.colorScheme) private var scheme
     /// The segment on screen. A refused pick keeps it where the member put it, away from rt's `mode`.
@@ -66,9 +68,9 @@ struct RepoPlacementRow: View {
     @State private var answeredMode: String?
 
     init(row: PlanRow, action: RowAction, badge: NeedBadge? = nil, context: String? = nil, isChecking: Bool, error: String?,
-         ids: RowIDs, shown: String? = nil) {
+         ids: RowIDs, shown: String? = nil, fast: Bool = false) {
         self.row = row; self.action = action; self.badge = badge; self.context = context
-        self.isChecking = isChecking; self.error = error; self.ids = ids
+        self.isChecking = isChecking; self.error = error; self.ids = ids; self.fast = fast
         let start = shown ?? action.mode ?? RepoPlacementState.clone
         _shown = State(initialValue: start)
         _answeredMode = State(initialValue: shown)
@@ -79,6 +81,10 @@ struct RepoPlacementRow: View {
     /// rt's `problem` describes the recorded mode only; on the other segment it is not this path's problem.
     private var lastError: String? { shownError ?? (onRecordedMode ? action.problem : nil) }
     private var note: String? { shownError ?? (onRecordedMode ? (action.problem ?? action.note) : nil) }
+    private var buttonLabel: String {
+        fast ? RepoPlacementState.fastButtonLabel(mode: shown, lastError: lastError, action: action)
+            : RepoPlacementState.buttonLabel(mode: shown, lastError: lastError)
+    }
     private var style: RepoPlacementState.NoteStyle { RepoPlacementState.noteStyle(action: action, shown: shown, lastError: shownError) }
 
     var body: some View {
@@ -99,7 +105,7 @@ struct RepoPlacementRow: View {
                     Text("New checkout").tag(RepoPlacementState.clone)
                 }
                 .pickerStyle(.segmented)
-                .controlSize(.small)
+                .modifier(SegmentSize(inherits: fast))
                 .labelsHidden()
                 .fixedSize()
                 .disabled(isChecking)
@@ -107,7 +113,7 @@ struct RepoPlacementRow: View {
             }
             HStack(spacing: 8) {
                 pathField
-                Button(RepoPlacementState.buttonLabel(mode: shown, lastError: lastError)) { pick(shown) }
+                Button(buttonLabel) { pick(shown) }
                     .disabled(isChecking)
                     .accessibilityIdentifier(ids.action(row.id))
                 if let oneClick = action.oneClick {
@@ -201,5 +207,13 @@ struct RepoPlacementRow: View {
         shown = mode
         answeredMode = mode
         answer?(row, mode, path)
+    }
+}
+
+/// The checklist's segment is small beside its regular buttons; the fast screen keeps the size around it.
+private struct SegmentSize: ViewModifier {
+    let inherits: Bool
+    func body(content: Content) -> some View {
+        if inherits { content } else { content.controlSize(.small) }
     }
 }

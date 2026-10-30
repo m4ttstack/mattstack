@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -58,6 +58,7 @@ enum FastSetupSnapshot {
             ("rows-repo", card([Rows.repo, Rows.repoClone], title: "Your repos")),
             ("rows-folder", card([Rows.repoRoot])),
             ("rows-done-action", card([Rows.repoRootLong])),
+            ("rows-done-long-path", card([ThisMacRows.repoRootLongPath, ThisMacRows.remoteDoneLongURL])),
             ("rows-choose-waiting", card([Rows.backup], waiting: [Rows.backup.id: "Saving…"])),
             ("card-connect", AnyView(connectScreen)),
             ("footer-ready", AnyView(FastFooter(screen: "this-mac", note: "About 10 minutes once you start",
@@ -198,6 +199,83 @@ enum FastSetupSnapshot {
             ("connect-solo", page(team: false, [C.soloForge, C.claudeSignIn, C.soloFastBrowser])),
             ("connect-get-chrome", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.getChrome])),
         ]
+    }
+
+    @MainActor
+    private static func thisMacPages() -> [(String, AnyView)] {
+        typealias T = ThisMacRows
+        /// The window opens at this height, so a page shows whether the cards fit or scroll.
+        let windowHeight: CGFloat = 620
+        func page(team: String? = "Mithrandir", _ rows: [FormRow], ready: Bool) -> AnyView {
+            AnyView(ThisMacScreenBody(teamName: team, rows: rows, waiting: [:], errors: [:], startReady: ready,
+                                      onAction: { _, _, _ in }, onBack: {}, onStart: {})
+                .frame(height: windowHeight))
+        }
+        return [
+            ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
+            ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
+            ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupLocal], ready: false)),
+            ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false)),
+        ]
+    }
+
+    /// What `thisMacRows` in lib/setup/form.ts emits, its repo rows from `repos.place` in lib/setup/validators/repos.ts.
+    enum ThisMacRows {
+        private static let settingsSubtext = "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later"
+        private static func backupAction(_ selected: String) -> RowAction {
+            RowAction(type: .choose, label: "Change", verb: ["setup", "home-backup"], options: [
+                ChooseOption(id: "local", label: "Keep on this Mac", detail: ""),
+                ChooseOption(id: "remote", label: "Store in a remote repo", detail: ""),
+            ], selected: selected)
+        }
+        /// Before Install has run, a segment switch records and no `then` run follows.
+        static let boardFound = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here",
+                                        state: .done, detail: "Found your acme-api checkout",
+                                        action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/acme-api", repo: "acme-api",
+                                                          mode: "checkout", checkoutPath: "/Users/janedoe/code/acme-api",
+                                                          clonePath: "/Users/janedoe/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
+                                                          segmentRecords: true, board: "The board starts here", awaitsRun: false))
+        static let widgetsClone = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
+                                          state: .done, detail: "rt clones it here when setup runs",
+                                          action: RowAction(type: .placeRepo, label: "Choose…", identity: "github.com/acme/widgets", repo: "widgets",
+                                                            mode: "clone", clonePath: "/Users/janedoe/Documents/GitHub/widgets",
+                                                            note: "rt clones it here when setup runs", segmentRecords: true, awaitsRun: false))
+        static let boardFoundAfterRun = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here",
+                                                state: .done, detail: "Found your acme-api checkout",
+                                                action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/acme-api", repo: "acme-api",
+                                                                  mode: "checkout", checkoutPath: "/Users/janedoe/code/acme-api",
+                                                                  clonePath: "/Users/janedoe/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
+                                                                  then: ["setup", "apply", "--only", "board.restart"], segmentRecords: false,
+                                                                  board: "The board starts here", awaitsRun: false))
+        static let widgetsFoundAfterRun = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
+                                                  state: .done, detail: "Found your widgets checkout",
+                                                  action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/widgets", repo: "widgets",
+                                                                    mode: "checkout", checkoutPath: "/Users/janedoe/Documents/GitHub/widgets",
+                                                                    clonePath: "/Users/janedoe/Documents/GitHub/widgets-2", note: "Found your widgets checkout",
+                                                                    then: ["setup", "apply", "--only", "repos.clone"], segmentRecords: false, awaitsRun: false))
+        static let repoRoot = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
+                                      detail: "/Users/janedoe/Documents/GitHub",
+                                      action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "/Users/janedoe/Documents/GitHub"))
+        static let repoRootLongPath = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
+                                              detail: "/Users/janedoe/Library/Mobile Documents/com~apple~CloudDocs/Projects/clients/acme/engineering/checkouts/team-widgets",
+                                              action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "/Users/janedoe/Documents/GitHub"))
+        static let backupLocal = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
+                                         detail: "Keep on this Mac", action: backupAction("local"))
+        static let backupRemote = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
+                                          detail: "Store in a remote repo", action: backupAction("remote"))
+        static let remoteTodo = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .todo, detail: "",
+                                        action: RowAction(type: .form, label: "Use this repo", fields: [
+                                            ActionField(name: "url", label: "Repo URL", secret: false, hint: "git@github.com:janedoe/mattstack-home.git"),
+                                        ], alternatives: [ActionAlternative(id: "create", label: "Create a private GitHub repo")],
+                                        verb: ["home", "remote", "set"]))
+        static let remoteDoneLongURL = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .done,
+                                               detail: "https://gitlab.example.com/janedoe/personal/backups/machines/laptop/mattstack-home-settings-backup.git")
+        /// A leftover keeps rt's own row copy and action: `extraRow` in lib/setup/form.ts.
+        static let shellLeftover = FormRow(id: "tool.shell", title: "Shell integration",
+                                           subtext: "The rtcd alias and PATH precedence come from your shell rc file.", state: .todo,
+                                           detail: "Shell integration not added yet",
+                                           action: RowAction(type: .run, label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"]),
+                                           watch: true)
     }
 
     /// What `connectRows` in lib/setup/form.ts emits for a GitLab team with Doppler, StrongDM and Linear, and for Just me.

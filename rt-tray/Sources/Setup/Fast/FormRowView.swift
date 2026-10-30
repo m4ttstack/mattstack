@@ -11,12 +11,13 @@ struct FormRowView: View {
     let row: FormRow
     let waiting: String?
     let error: String?
+    var showsTitle = true
     let onAction: FormRowPerform
 
     var body: some View {
         if let action = row.action, action.type == .placeRepo {
             RepoPlacementRow(row: FormRowPlan.planRow(row), action: action,
-                             isChecking: row.state == .busy || waiting != nil, error: error, ids: .fast)
+                             isChecking: row.state == .busy || waiting != nil, error: error, ids: .fast, fast: true)
                 .environment(\.repoPlacementAnswer) { _, mode, path in onAction(row, ["mode": mode, "path": path], nil) }
         } else {
             standard
@@ -27,7 +28,7 @@ struct FormRowView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(row.title).fontWeight(.medium)
+                    if showsTitle { Text(row.title).fontWeight(.medium) }
                     if !row.subtext.isEmpty {
                         Text(row.subtext).font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +107,7 @@ struct FormRowView: View {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
             if !row.detail.isEmpty {
                 Text(row.detail).font(.callout).foregroundStyle(.secondary)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2).truncationMode(.middle).fixedSize(horizontal: false, vertical: true)
             }
         }
         .modifier(CappedWidth(max: 300))

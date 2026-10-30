@@ -14,6 +14,20 @@ let repoPlacementStateChecks: [Check] = [
         c.expectEqual(RepoPlacementState.buttonLabel(mode: "checkout", lastError: "~/foo isn't a git checkout."), "Locate again…")
         c.expectEqual(RepoPlacementState.buttonLabel(mode: "clone", lastError: "~/code/acme-api already exists."), "Choose another location…")
     },
+    Check("RepoPlacementState.fastButtonLabel: rt's label on its recorded segment, the same short wording elsewhere") { c in
+        var clone = place(mode: "clone")
+        clone.label = "Choose…"
+        var broken = place(mode: "checkout", problem: "~/foo isn't a git checkout.")
+        broken.label = "Locate again…"
+        c.expectEqual(RepoPlacementState.fastButtonLabel(mode: "clone", lastError: nil, action: clone), "Choose…")
+        c.expectEqual(RepoPlacementState.fastButtonLabel(mode: "checkout", lastError: nil, action: clone), "Locate…")
+        c.expectEqual(RepoPlacementState.fastButtonLabel(mode: "checkout", lastError: broken.problem, action: broken), "Locate again…")
+        c.expectEqual(RepoPlacementState.fastButtonLabel(mode: "clone", lastError: nil, action: broken), "Choose…")
+        c.expectEqual(RepoPlacementState.fastButtonLabel(mode: "checkout", lastError: nil, action: place(mode: "checkout")), "Locate…")
+        c.expectEqual(RepoPlacementState.fastButtonLabel(mode: "checkout", lastError: "~/bar isn't a git checkout.", action: place(mode: "checkout")),
+                      "Locate again…")
+        c.expectEqual(RepoPlacementState.fastButtonLabel(mode: "clone", lastError: "~/code/acme-api already exists.", action: clone), "Choose…")
+    },
     Check("RepoPlacementState.noteStyle: a problem or a refused pick is red, a ready checkout green, a clone secondary") { c in
         c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout", problem: "~/foo isn't a git checkout."), shown: "checkout", lastError: nil), .problem)
         c.expectEqual(RepoPlacementState.noteStyle(action: place(mode: "checkout"), shown: "checkout", lastError: "~/foo isn't a git checkout."), .problem)
