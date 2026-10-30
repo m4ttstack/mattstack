@@ -35,7 +35,7 @@ let fastSetupFlowChecks: [Check] = [
             c.expectEqual(f.screen, .path)
             let status = flow(.status, on: .macos)
             status.macosDone()
-            c.expectEqual(status.screen, .path)
+            c.expectEqual(status.screen, .loading, "a finished Mac that lost a permission resumes where rt says, not on the cards")
         }
     },
     Check("FastSetupFlow: an upgrade's Join skips the cards") { c in
@@ -48,7 +48,7 @@ let fastSetupFlowChecks: [Check] = [
             c.expectEqual(create.screen, .createTeam)
             let none = flow(.upgrade, on: .macos)
             none.macosDone()
-            c.expectEqual(none.screen, .path, "an upgrade that asked for nothing still gets the cards")
+            c.expectEqual(none.screen, .loading, "an upgrade that asked for nothing waits for rt's stage")
         }
     },
     Check("FastSetupFlow: an upgrade on a ready Mac lands on the requested screen, a join in flight on rt's stage") { c in
@@ -67,6 +67,14 @@ let fastSetupFlowChecks: [Check] = [
             upgrade.startRun()
             upgrade.runEnded(stage: .ready)
             c.expectEqual(upgrade.screen, .ready, "a finished upgrade ends on ready, not back on Create")
+            let created = flow(.upgrade, on: .ready, requested: .create)
+            created.created()
+            created.land(on: .ready)
+            c.expectEqual(created.screen, .ready, "a stale read after Create started does not reopen Create")
+            let joined = flow(.upgrade, on: .ready, requested: .join)
+            joined.joined()
+            joined.land(on: .ready)
+            c.expectEqual(joined.screen, .ready, "a stale read after Join was sent does not reopen the invite")
         }
     },
     Check("FastSetupFlow: Just me goes straight to accounts") { c in
@@ -88,6 +96,15 @@ let fastSetupFlowChecks: [Check] = [
             c.expect(!f.canGoBack, "a created team cannot be walked back into the cards")
             let resumed = flow(on: .connect)
             c.expect(!resumed.canGoBack, "a relaunch onto accounts has no cards behind it here")
+            let landed = flow(on: .path)
+            landed.choose(.solo)
+            landed.land(on: .connect)
+            c.expect(!landed.canGoBack, "rt's stage past the cards drops the pick")
+            let ran = flow(on: .path)
+            ran.choose(.solo)
+            ran.startRun()
+            ran.runEnded(stage: .connect)
+            c.expect(!ran.canGoBack, "a run's end drops the pick")
         }
     },
     Check("FastSetupFlow: a join waits, approval opens accounts") { c in

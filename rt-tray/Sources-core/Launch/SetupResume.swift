@@ -22,7 +22,6 @@ public enum SetupResume {
         return names.first { $0.value == name }?.key
     }
 
-    /// The fast-setup screen names are the screens' raw values.
     public static func relaunchArguments(passthrough: [String], resumeScreen: FastSetupScreen?) -> [String] {
         withoutResume(passthrough) + (resumeScreen.map { [flag, $0.rawValue] } ?? [])
     }

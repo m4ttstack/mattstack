@@ -41,6 +41,7 @@ public final class FastSetupFlow: ObservableObject {
     /// A finished Mac whose Join or Create from Settings has not started yet
     /// still reads `ready`; once the join is in flight rt says so itself.
     public func land(on stage: FormStage) {
+        if stage != .path { chosen = nil }
         if stage == .ready, let target = requestedScreen {
             screen = target
         } else {
@@ -48,8 +49,10 @@ public final class FastSetupFlow: ObservableObject {
         }
     }
 
+    /// Off a first run, only rt knows where a Mac that already got past the cards resumes:
+    /// `.loading` asks the coordinator for a whole-form read.
     public func macosDone() {
-        screen = requestedScreen ?? .path
+        screen = requestedScreen ?? (entry == .firstRun ? .path : .loading)
     }
 
     public func choose(_ c: TeamChoice) {
@@ -57,9 +60,9 @@ public final class FastSetupFlow: ObservableObject {
         screen = Self.start(of: c)
     }
 
-    public func joined() { screen = .waiting }
+    public func joined() { requested = nil; screen = .waiting }
     public func approved() { chosen = nil; screen = .connect }
-    public func created() { chosen = nil; screen = .connect }
+    public func created() { requested = nil; chosen = nil; screen = .connect }
     public func restored() { screen = .running }
     public func continueToThisMac() { screen = .thisMac }
     public func startRun() { screen = .running }
@@ -68,6 +71,7 @@ public final class FastSetupFlow: ObservableObject {
     /// Unlike `land(on:)`, never reopens an upgrade's requested screen: the run it asked for is over.
     public func runEnded(stage: FormStage) {
         requested = nil
+        chosen = nil
         screen = Self.screen(for: stage)
     }
 
