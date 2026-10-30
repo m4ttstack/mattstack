@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setupPrepare, type PrepareDeps } from "../setup-prepare.ts";
+import { __test__ as closedPipes } from "../../lib/setup/closed-pipes.ts";
 import { fakeProbes, missing, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { installTool } from "../../lib/setup/tools-install.ts";
 import { capturePlain } from "./helpers/json-line.ts";
@@ -74,6 +75,19 @@ describe("rt setup prepare", () => {
     expect(await exitCode(() => setupPrepare(["accounts", "--json"], {}, t.d))).toBeUndefined();
     expect(t.installed).toEqual(["claude", "herdr"]);
     expect(calls).toBe(1);
+  });
+
+  test("--json listens for errors on both pipes, so an app that quits never ends an install", async () => {
+    closedPipes.reset();
+    try {
+      const listeners = () => [process.stdout.listenerCount("error"), process.stderr.listenerCount("error")];
+      const before = listeners();
+      await setupPrepare(["accounts", "--json"], {}, deps().d);
+      await setupPrepare(["accounts", "--json"], {}, deps().d);
+      expect(listeners()).toEqual([before[0]! + 1, before[1]! + 1]);
+    } finally {
+      closedPipes.reset();
+    }
   });
 
   test("human output prints a line per tool", async () => {

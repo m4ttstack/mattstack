@@ -26,6 +26,7 @@ import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type ApplyRunOptions, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { APPLY_RUN_LOCK_MAX_AGE_MS, applyRunLockPath, attachToRun, recordingEmit, resumePoint } from "../lib/setup/apply-run.ts";
+import { ignoreClosedPipes } from "../lib/setup/closed-pipes.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
 import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, lockHeldByLiveRun, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
@@ -274,15 +275,6 @@ function resolveApplySelection(args: string[]): ApplySelection {
   return { ...steps, resume };
 }
 
-let closedStdoutIgnored = false;
-
-/** The app that spawned this run may quit before it ends, and a write to its closed pipe must not end the install. */
-function ignoreClosedStdout(): void {
-  if (closedStdoutIgnored) return;
-  closedStdoutIgnored = true;
-  process.stdout.on("error", () => {});
-}
-
 function runBusy(): UserActionableError {
   return new UserActionableError("run-busy", "Setup is already running", {}, { next: "rt setup apply --resume" });
 }
@@ -365,7 +357,7 @@ async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<v
 
 export async function setupApply(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  if (json) ignoreClosedStdout();
+  if (json) ignoreClosedPipes();
   const human = json ? null : createStepEmitter({ labels: APPLY_LABELS, log: stepLog("setup.apply") });
   const forward: Emit = human ? human.emit : (ev) => deps.json(ev);
 

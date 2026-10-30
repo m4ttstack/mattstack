@@ -33,12 +33,8 @@ export function createTestHome(): { path: string; cleanup: () => void } {
   };
 }
 
-async function run(
-  args: string[],
-  opts: RunOpts & { skipSetup: boolean },
-): Promise<RunResult> {
-  const home = opts.home ?? createTestHome().path;
-
+/** The environment `rt()` runs the binary under, for a test that has to spawn it some other way. */
+export function rtEnv(home: string, extra: Record<string, string> = {}, skipSetup = true): Record<string, string> {
   // Some spawned children may exec a script with a `#!/usr/bin/env bun`
   // shebang, so bun's own directory must be on PATH for the spawned rt
   // binary's children to find it. process.execPath is the running bun binary
@@ -52,13 +48,22 @@ async function run(
     PATH: `${join(RT_BINARY, "..")}:${bunDir}:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin`,
     TERM: "xterm-256color",
     RT_GH_TOKEN_FALLBACK: "off",
-    ...opts.env,
+    ...extra,
   };
 
-  if (opts.skipSetup) {
+  if (skipSetup) {
     env.RT_SKIP_SETUP = "1";
     env.CI = "true";
   }
+  return env;
+}
+
+async function run(
+  args: string[],
+  opts: RunOpts & { skipSetup: boolean },
+): Promise<RunResult> {
+  const home = opts.home ?? createTestHome().path;
+  const env = rtEnv(home, opts.env, opts.skipSetup);
 
   const proc = Bun.spawn([RT_BINARY, ...args], {
     env,

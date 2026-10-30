@@ -18,6 +18,7 @@ import type { ApplyEvent, StepId } from "../../lib/setup/contract.ts";
 import { intentPath, readIntent } from "../../lib/setup/intent.ts";
 import { isSetupFinished, readSetupState, updateSetupState } from "../../lib/setup/state.ts";
 import { applyEventsPath } from "../../lib/setup/apply-run.ts";
+import { __test__ as closedPipes } from "../../lib/setup/closed-pipes.ts";
 import { createUpdateLock, lockHeldByLiveRun } from "../../lib/setup/update-lock.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
 import type { SecretsSeams } from "../../lib/secrets/store.ts";
@@ -901,6 +902,23 @@ describe("setupApply: one run, recorded, resumed or attached", () => {
     await runExpectingExit(() => setupApply(["--json"], {}, deps));
     expect(deps.exitCodes).toEqual([2]);
     expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+// When the app quits, both of its child's pipes close and every later write
+// fails with an async error event; with no listener, Bun ends the run there.
+describe("setupApply --json outlives the app that spawned it", () => {
+  const errorListeners = () => [process.stdout.listenerCount("error"), process.stderr.listenerCount("error")];
+  beforeEach(() => closedPipes.reset());
+  afterEach(() => closedPipes.reset());
+
+  test("--json listens for errors on both pipes, once however many runs", async () => {
+    const before = errorListeners();
+
+    await setupApply(["--json"], {}, baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })] }));
+    await setupApply(["--json"], {}, baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })] }));
+
+    expect(errorListeners()).toEqual([before[0]! + 1, before[1]! + 1]);
   });
 });
 

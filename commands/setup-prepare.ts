@@ -5,6 +5,7 @@
  */
 import type { CommandContext } from "../lib/command-tree.ts";
 import { UserActionableError } from "../lib/errors.ts";
+import { ignoreClosedPipes } from "../lib/setup/closed-pipes.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { orgRefFromIntent, readIntent } from "../lib/setup/intent.ts";
 import { PREPARE_STAGES, runPrepare, type PrepareResult, type PrepareStage } from "../lib/setup/prepare.ts";
@@ -51,7 +52,7 @@ export async function setupPrepare(args: string[], _ctx: CommandContext = {}, de
   const json = args.includes("--json");
   if (json) {
     out.payloadOnStdout();
-    process.stdout.on("error", () => {});
+    ignoreClosedPipes();
   }
   const p = deps.probes;
 
