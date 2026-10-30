@@ -1,3 +1,5 @@
+import Foundation
+
 // The pinned identity of everything this helper installs. The values live in
 // Pins.generated.swift, written by scripts/gen-pins.sh at build time; there is
 // deliberately no default anywhere, so a build that skipped codegen fails to
@@ -14,4 +16,9 @@ struct PinsValues {
     /// installs only bytes whose sha256 is this value.
     let homebrewPkgUrl: String
     let homebrewPkgSha256: String
+    let homebrewPkgSize: Int
+    /// What the package's Distribution.xml accepts. installer(8) would refuse
+    /// any other Mac, but only after the whole download.
+    let homebrewMinimumMacOS: OperatingSystemVersion
+    let homebrewArch: String
 }

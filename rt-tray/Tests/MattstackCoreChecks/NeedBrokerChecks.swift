@@ -25,8 +25,9 @@ private final class HeldPrivileged: PrivilegedInstalling, @unchecked Sendable {
             lock.lock()
             if answer != nil { lock.unlock(); c.resume() } else { waiters.append(c); lock.unlock() }
         }
-        lock.lock(); defer { lock.unlock() }; return answer!
+        return answered()
     }
+    private func answered() -> NeedResult { lock.lock(); defer { lock.unlock() }; return answer! }
 }
 
 private let installReq = NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install")

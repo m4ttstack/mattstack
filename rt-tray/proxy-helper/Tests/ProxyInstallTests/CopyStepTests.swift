@@ -8,7 +8,10 @@ extension PinsValues {
         portlessVersion: String = "0.0.0",
         nodeBinSha256: String = "n0de",
         homebrewPkgUrl: String = "https://github.com/Homebrew/brew/releases/download/9.9.9/Homebrew.pkg",
-        homebrewPkgSha256: String = "b4e4"
+        homebrewPkgSha256: String = "b4e4",
+        homebrewPkgSize: Int = 1000,
+        homebrewMinimumMacOS: OperatingSystemVersion = OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0),
+        homebrewArch: String = "arm64"
     ) -> PinsValues {
         PinsValues(
             portlessVersion: portlessVersion,
@@ -17,7 +20,10 @@ extension PinsValues {
             nodeBinSha256: nodeBinSha256,
             appVersion: "0.0.0-test",
             homebrewPkgUrl: homebrewPkgUrl,
-            homebrewPkgSha256: homebrewPkgSha256)
+            homebrewPkgSha256: homebrewPkgSha256,
+            homebrewPkgSize: homebrewPkgSize,
+            homebrewMinimumMacOS: homebrewMinimumMacOS,
+            homebrewArch: homebrewArch)
     }
 }
 

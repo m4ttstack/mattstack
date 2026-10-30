@@ -3,9 +3,10 @@ import XCTest
 @testable import ProxyInstall
 
 private let pinnedPackage = Data("the pinned Homebrew package".utf8)
-private let stage = ProxyPaths.homebrewStage
-private let stagedPkg = ProxyPaths.homebrewStage + "/Homebrew.pkg"
+private let stage = ProxyPaths.homebrewStage(pid: ProcessInfo.processInfo.processIdentifier)
+private let stagedPkg = stage + "/Homebrew.pkg"
 private let appleSiliconBrew = "/opt/homebrew/bin/brew"
+private let supportedMac = HostPlatform(arch: "arm64", osVersion: OperatingSystemVersion(majorVersion: 15, minorVersion: 1, patchVersion: 0))
 
 // A root process downloads a package and hands it to installer(8), so the
 // contract is where the bytes land, which bytes are accepted, and that
@@ -50,8 +51,9 @@ final class HomebrewStepTests: XCTestCase {
         }
     }
 
-    private func makeStep() -> HomebrewStep {
+    private func makeStep(on host: HostPlatform = supportedMac) -> HomebrewStep {
         var step = HomebrewStep(fs: fs, runner: runner, pins: pins)
+        step.host = host
         step.emit = { [self] in lines.append($0) }
         return step
     }
@@ -74,10 +76,12 @@ final class HomebrewStepTests: XCTestCase {
         XCTAssertEqual(makeStep().run(), .ok)
         XCTAssertEqual(runner.calls, [
             ["/usr/bin/curl", "--disable", "--fail", "--location", "--proto", "=https", "--silent", "--show-error",
-             "-o", stagedPkg, pins.homebrewPkgUrl],
+             "--connect-timeout", "30", "--speed-limit", "10240", "--speed-time", "60",
+             "--max-filesize", String(pins.homebrewPkgSize + 1_048_576), "-o", stagedPkg, pins.homebrewPkgUrl],
             ["/usr/sbin/installer", "-pkg", stagedPkg, "-target", "/"],
         ])
         XCTAssertTrue(stagedPkg.hasPrefix(ProxyPaths.root + "/"))
+        XCTAssertTrue(stage.hasSuffix("-\(ProcessInfo.processInfo.processIdentifier)"), "one stage per run: \(stage)")
         XCTAssertEqual(stageAtDownload?.isDirectory, true, "the stage exists before curl writes into it")
         XCTAssertEqual(fs.modes[stage], 0o700)
         XCTAssertTrue(fs.ops.contains("mkdir-private \(stage)"))
@@ -176,13 +180,63 @@ final class HomebrewStepTests: XCTestCase {
         XCTAssertEqual(lines.last?.hasPrefix("homebrew: failed the installer finished but no brew"), true, "got: \(lines)")
     }
 
-    // A stalled download would otherwise hold the escalated session, and the
-    // proxy install queued behind it, for as long as the network takes.
-    func testTheDownloadAndTheInstallerAreBoundedAndGetAStatedEnvironment() {
+    // A dead network would otherwise hold the escalated session open, so the
+    // download is capped. The installer is not: killing it midway leaves a
+    // half-installed prefix whose bin/brew reads as present from then on.
+    func testOnlyTheDownloadIsBoundedAndBothGetAStatedEnvironment() {
         _ = makeStep().run()
         XCTAssertEqual(runner.timeouts.count, 2)
-        XCTAssertTrue(runner.timeouts.allSatisfy { $0 != nil })
+        XCTAssertEqual(runner.timeouts[0], 900)
+        XCTAssertNil(runner.timeouts[1], "installer waits on no person, so nothing may kill it partway")
         XCTAssertEqual(runner.envs, [["PATH": LaunchdPlist.daemonPath], ["PATH": LaunchdPlist.daemonPath]])
+    }
+
+    // installer(8) would refuse the package on such a Mac anyway, after the
+    // whole download. rt records a failed outcome and stops asking.
+    func testAMacThePackageCannotTakeIsSkippedBeforeAnyDownload() {
+        let intel = HostPlatform(arch: "x86_64", osVersion: OperatingSystemVersion(majorVersion: 15, minorVersion: 1, patchVersion: 0))
+        XCTAssertEqual(makeStep(on: intel).run(), .failed)
+        XCTAssertEqual(lines, ["homebrew: failed the pinned package is for arm64 Macs, and this Mac is x86_64"])
+
+        for (old, shown) in [((14, 7, 2), "14.7.2"), ((14, 0, 0), "14.0")] {
+            setUp()
+            let mac = HostPlatform(arch: "arm64", osVersion: OperatingSystemVersion(majorVersion: old.0, minorVersion: old.1, patchVersion: old.2))
+            XCTAssertEqual(makeStep(on: mac).run(), .failed)
+            XCTAssertTrue(runner.calls.isEmpty)
+            XCTAssertTrue(fs.ops.isEmpty, "nothing is staged for a Mac the package cannot take: \(fs.ops)")
+            XCTAssertEqual(lines, ["homebrew: failed the pinned package needs macOS 15.0 or later, and this Mac runs \(shown)"])
+        }
+    }
+
+    func testTheMinimumMacOSItselfIsSupported() {
+        let exact = HostPlatform(arch: "arm64", osVersion: OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0))
+        XCTAssertEqual(makeStep(on: exact).run(), .ok)
+    }
+
+    // The package is hashed and handed to installer by path, so whatever sits
+    // there must be the file curl wrote as root, not a link or a stranger's file.
+    func testADownloadThatIsNotARootOwnedRegularFileIsRefused() {
+        let wrong = [
+            PathStat(uid: 501, isRegularFile: true),
+            PathStat(uid: 0, isSymlink: true),
+            PathStat(uid: 0, isDirectory: true),
+        ]
+        for found in wrong {
+            setUp()
+            fs.statOverrides[stagedPkg] = found
+            XCTAssertEqual(makeStep().run(), .failed, "\(found)")
+            XCTAssertFalse(runner.called("installer"), "\(found)")
+            XCTAssertTrue(fs.removed.contains(stage), "\(found)")
+            XCTAssertEqual(lines, ["homebrew: failed the download left no root-owned regular file at \(stagedPkg)"])
+        }
+    }
+
+    func testATimedOutDownloadSaysSoAndRemovesTheStage() {
+        serve(pinnedPackage, download: CommandResult(status: RealCommandRunner.timedOutStatus, output: "timed out after 900s"))
+        XCTAssertEqual(makeStep().run(), .failed)
+        XCTAssertFalse(runner.called("installer"))
+        XCTAssertTrue(fs.removed.contains(stage))
+        XCTAssertEqual(lines, ["homebrew: failed download timed out after 900s"])
     }
 
     func testTheHomebrewVerbReportsItsOutcomeAndExitsZeroEvenWhenItFails() {

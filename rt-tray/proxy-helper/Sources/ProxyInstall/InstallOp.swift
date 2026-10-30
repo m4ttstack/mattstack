@@ -21,8 +21,9 @@ enum ProxyPaths {
     /// keychain promotes it to `trustedCa`.
     static let trustedCaStage = root + "/.ca.pem.stage"
     /// HomebrewStep's download directory. Inside the root-owned tree, never a
-    /// path the console user can write, and gone again before the op ends.
-    static let homebrewStage = root + "/.homebrew-stage"
+    /// path the console user can write, one per run, and gone again before the
+    /// op ends.
+    static func homebrewStage(pid: Int32) -> String { root + "/.homebrew-stage-\(pid)" }
 }
 
 struct InstallOp {

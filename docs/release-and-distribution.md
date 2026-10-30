@@ -144,17 +144,23 @@ Homebrew rides the same admin prompt. When rt's need carries `homebrew: true`
 (no brew on the Mac and no earlier attempt on record), the tray passes
 `--homebrew` to `install` or `trust`; a Mac whose proxy needs nothing gets the
 `homebrew` verb alone, through `POST /privileged/homebrew`. The helper skips it
-when `/opt/homebrew/bin/brew` or `/usr/local/bin/brew` exists. Otherwise it
-downloads the package pinned in `rt-tray/proxy-helper/homebrew-pin.json` into a
-fresh 0700 directory under the root-owned proxy tree, refuses bytes whose
-sha256 differs from the pin, runs `installer -pkg <package> -target /`, and
+when `/opt/homebrew/bin/brew` or `/usr/local/bin/brew` exists, and reports
+`failed` without downloading on a Mac the package's Distribution.xml would
+refuse (wrong architecture or too old a macOS). Otherwise it downloads the
+package pinned in `rt-tray/proxy-helper/homebrew-pin.json` into a fresh 0700
+directory of this run's own under the root-owned proxy tree (curl gives up on a
+stalled transfer, the whole download is capped at 15 minutes, and a file more
+than 1 MiB over the pinned size is refused), refuses bytes whose sha256 differs from the pin,
+runs `installer -pkg <package> -target /` with no time limit (killing it midway
+would leave a half-installed prefix whose `bin/brew` reads as present), and
 deletes the download whatever happened. `gen-pins.sh` compiles the pin in and
 accepts only a `.pkg` on Homebrew's own GitHub release for the pinned version,
 so nothing at run time (argv, the request, a user-writable file) names what
 root installs. Homebrew runs first and is never fatal: its outcome travels on
 its own line (`MATTSTACK_HOMEBREW=ok|present|failed`) just before the trust
 line. Moving to a newer Homebrew is a pin-file change: the version, the release
-asset's URL and its sha256.
+asset's URL, its sha256 and size, and the architecture and minimum macOS its
+Distribution.xml names.
 
 A version-drifted proxy (the deployed `/Library/Application
 Support/mattstack/proxy/VERSION` disagreeing with the bundle's pinned
