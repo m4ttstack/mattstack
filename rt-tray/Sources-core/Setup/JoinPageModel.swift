@@ -62,6 +62,7 @@ public final class JoinPageModel: ObservableObject {
     private let needs: NeedBroker
     private let clock: @Sendable () -> Date
     private var pollTask: Task<Void, Never>?
+    private var pollInterval: TimeInterval = 15
     /// Bumped by reset and join: a check answered under an older value is dropped.
     private var generation = 0
     private var checksInFlight = 0
@@ -140,6 +141,10 @@ public final class JoinPageModel: ObservableObject {
         if mine == generation, phase == .joining, let checkError {
             phase = .failed(detail: checkError, remedy: nil)
         }
+        // A join after the polling ended (not joined, then a new invite) still needs its approval heard.
+        if mine == generation, case .waiting = phase, pollTask == nil {
+            startPolling(every: pollInterval)
+        }
     }
 
     public func check() async {
@@ -207,13 +212,16 @@ public final class JoinPageModel: ObservableObject {
 
     public func startPolling(every seconds: TimeInterval = 15) {
         stopPolling()
+        pollInterval = seconds
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
                 if self.isAwaitingApproval { await self.check() }
+                // A failure the page fixes in place (Try again, Check again) keeps the loop idling for the wait that follows.
                 switch self.phase {
-                case .approved, .failed: self.pollTask = nil; return
+                case .approved: self.pollTask = nil; return
+                case .failed(_, let remedy) where remedy == Self.notJoinedRemedy: self.pollTask = nil; return
                 default: break
                 }
             }

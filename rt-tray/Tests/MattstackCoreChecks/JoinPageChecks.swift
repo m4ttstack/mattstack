@@ -340,4 +340,37 @@ let joinPageChecks: [Check] = [
         guard case .failed = await MainActor.run(body: { m.phase }) else { c.fail("expected failed, got \(await MainActor.run { m.phase })"); return }
         c.expectEqual(rt.calls.count, 2)
     },
+    Check("JoinPage: a failed join retried in place is still heard when approved") { c in
+        let rt = ScriptedRt()
+        rt.streamLines = [
+            #"{"event":"step","id":"team.join","state":"failed","detail":"The switchboard did not answer"}"#,
+            #"{"event":"done","ok":false,"failedStep":"team.join"}"#,
+        ]
+        let waitingAnswer: (Int32, String) = (0, statusJSON("waiting"))
+        rt.sequences = ["setup join-status --json": [waitingAnswer, waitingAnswer, (0, statusJSON("approved", since: nil))]]
+        let m = await makeModel(rt)
+        let log = await MainActor.run { listen(m) }
+        await MainActor.run { m.update(teamRepoRow: teamRepoRow(.ready)); m.startPolling(every: 0.01) }
+        await m.join()
+        guard case .failed = await MainActor.run(body: { m.phase }) else { c.fail("expected failed, got \(await MainActor.run { m.phase })"); return }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        c.expect(await MainActor.run { m.isPolling }, "a failure the page fixes in place keeps the polling")
+        rt.streamLines = joinOkLines
+        await m.join()
+        c.expect(await waitingStatus(m) != nil, "the retried join lands on the wait")
+        let ended = await waitUntil({ !m.isPolling }, tries: 500)
+        c.expect(ended, "approval ends the polling")
+        c.expectEqual(await MainActor.run { log.teams }, ["acme"])
+    },
+    Check("JoinPage: a join that lands on the wait starts polling when none runs") { c in
+        let rt = ScriptedRt()
+        rt.streamLines = joinOkLines
+        rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
+        let m = await makeModel(rt)
+        await MainActor.run { m.update(teamRepoRow: teamRepoRow(.ready)) }
+        c.expect(await MainActor.run { !m.isPolling })
+        await m.join()
+        c.expect(await MainActor.run { m.isPolling }, "nothing else would hear the approval")
+        await MainActor.run { m.stopPolling() }
+    },
 ]
