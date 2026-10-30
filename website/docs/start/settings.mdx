@@ -24,6 +24,30 @@ The org and team scopes are shared through your org's repo, so a change there re
 
 A few settings take a list, such as the Claude plugins to install. For those, the lists from every level are added together instead of one replacing another.
 
+## Where your own settings are kept
+
+Your user settings live in your home repo, `~/.mattstack/user`. Setup's **Your settings** row picks where it lives:
+
+- **Keep on this Mac**: the default. The settings stay versioned on this Mac only.
+- **Store in a remote repo**: rt also pushes them to a private repo you own, on any forge. On a new Mac, **Move from another Mac** restores them from that repo with your recovery key.
+
+You can turn the remote copy on later:
+
+```bash
+rt home remote set <url>     # an empty private repo you own
+rt home remote set --create  # or let rt create a private GitHub repo
+```
+
+## In the menu bar app
+
+**Settings…** in the menu bar menu holds the app's own settings. A few setup leftovers live there instead of in the setup window, and none of them holds up setup:
+
+- **Mission Control shortcut**: Settings → General → Keyboard.
+- **Skill overrides**: Settings → General, only when a hand-edited skill overrides file still uses old key names.
+- **Chrome sign-in**: Settings → Fast Browser, only when a team pack needs Chrome signed in to a site.
+
+Your writing style is in Settings → General too. A new Mac starts on sparse.
+
 ## Read a setting
 
 ```bash

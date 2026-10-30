@@ -5,42 +5,55 @@ title: "Setup: just you, or a team"
 
 # Setup
 
-The first time you open mattstack.app, a setup window walks you through installing it. The [install guide](/start/install) covers each screen. On the Team screen you choose to set up just for you, or as part of a team.
+The first time you open mattstack.app, the setup window asks everything it needs up front, then sets up the Mac in one run. The [install guide](/start/install) covers each screen.
 
-## What setup asks
+## The order
 
-- **Full Disk Access**: turn it on for mattstack, then reopen the app.
-- **Your team**: create a team, join one with an invite code, go solo with **Just me**, or restore your own setup on a new Mac.
-- **Join and wait**: a joiner joins the team, then waits for the team admin to approve the request.
-- **The checklist**: what the install needs, one page for each group, starting with Your Mac. A step that needs you sits under **Needs you** with its own button. Three steps can be skipped, and sit under **You can skip**.
-- **Install**: sets everything up in one run.
-- **Summary**: your **Writing style**, the **Fast Browser extension**, and any step still open hold the **Finish** button until they are handled.
+1. **Three things from macOS**: Full Disk Access, Notifications, and Fancy URLs.
+2. **How are you setting up?**: Join a team, Create a team, Just me, or Move from another Mac.
+3. **Your invite**: a joiner pastes the invite code and, when the forge needs one, a token.
+4. **The wait**: a joiner waits for the team admin to approve. A **You're in** notification says when.
+5. **Connect your accounts**: one click each, most in your browser.
+6. **This Mac**: where your repos go, and where your settings live.
+7. **One progress bar**: nothing needs you until it's done.
+8. **This Mac is ready**.
+
+Creating a team skips the invite and the wait. Moving from another Mac goes from your backup repo and recovery key straight to the bar.
+
+If the app quits or relaunches partway, setup picks up where it was by itself. See [When the app quits or relaunches](/start/install#when-the-app-quits-or-relaunches).
+
+## What each answer lets mattstack do
+
+| Answer | What it lets mattstack do |
+|---|---|
+| Full Disk Access | Reads your repos and Chrome's profile |
+| Notifications | Tells you when setup is done |
+| Fancy URLs | Serves the apps at addresses like `board.mattstack` |
+| Forge token | Reaches the team's repo and opens MRs or PRs |
+| Slack | Tracks and posts MRs or PRs in Slack |
+| Claude | Runs your agents |
+| A team tool's sign-in | Runs your dev servers |
+| Linear | Reads and writes Linear tickets |
+| Fast Browser | Lets agents drive your real Chrome |
+| Your repos | Puts each repo where you want it; the board starts in its repo |
+| Your settings | Keeps them on this Mac, or also in a private remote repo you can restore from |
 
 ## On a team
 
-Pick **Create a team** to start one, or **Join a team** and paste the invite code a teammate sent you. A joiner then joins on the Join page and waits there until the team admin approves. The checklist then also asks for a forge account, where your team's repos go, and the team's access. [Teams and invites](/start/teams) covers roles, invites and how changes travel.
+Pick **Create a team** to start one, or **Join a team** and paste the invite code a teammate sent you. A joiner waits until the team admin approves, then sees only the accounts and repos their team uses. [Teams and invites](/start/teams) covers roles, invites and how changes travel.
 
 ## Just me
 
-**Just me** is the solo install: rt, the daemon, and Claude Code on this Mac, with rt's integrations (flock among them), no team repo, and no forge account. It's for one person setting up a personal machine rather than joining or starting a team.
+**Just me** is the solo setup: rt, the daemon, and Claude Code on this Mac, with rt's integrations (flock among them), no team repo, and no forge account. It's for one person setting up a personal machine rather than joining or starting a team.
 
-## Pick Just me
+Just me skips the invite and the wait, and asks less:
 
-On the Team screen (see [Install](/start/install#your-team)), pick the **Just me** card: "rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."
-
-## What the checklist asks for
-
-The rest of the checklist is unchanged, except:
-
-- **Your Mac** rows (macOS, Command Line Tools, PATH, permissions) still apply as usual.
-- No team repo, no switchboard. The **Your repos** rows appear once you track a repo, as they do on a team.
-- **Accounts** has a GitHub row, and it holds neither Install nor Finish: "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt." A GitLab row on the solo checklist is coming later.
-- **Fast Browser** is expected like every other step: Install sets it up, and **Finish** waits for it.
-- **Writing style** still has to resolve before Finish. The default preset ships in the plugin, so it resolves on its own.
+- **Connect your accounts** has GitHub, Claude, and Fast Browser. GitHub ("Optional. Lets mattstack open PRs and MRs") and Fast Browser never hold up **Continue**.
+- **This Mac** asks where new clones go instead of listing team repos, and where your settings live.
 
 ## What you get
 
-Install runs to a green `rt verify` with no team, no forge token, no `gh` login, and no git remote. The window shows console and chat. Board and boxscore, the team-only apps, are installed but off.
+The run ends at a green `rt verify` with no team, no forge token, no `gh` login, and no git remote. The last screen's button is **Open the console**. Board and boxscore, the team-only apps, are installed but off.
 
 ## Settings > Apps
 
@@ -57,7 +70,7 @@ Deck's own board (`deck.mattstack`) shows an off app as off, with no switch of i
 
 ## Upgrading to a team
 
-Nothing about a solo install is permanent. In **Settings → Team**, pick **Create a team…** or **Join a team…**. Either one reopens the setup window at the Team screen and runs Install again. This time Install runs only what a team needs: the team itself, a forge token, the team's marketplace, and board and boxscore turning on. Everything already set up (rt, the daemon, Claude Code) stays as it is.
+Nothing about a solo setup is permanent. In **Settings → Team**, pick **Create a team…** or **Join a team…**. Either one reopens the setup window on that path. A joiner waits for approval as usual, and the run then sets up what a team adds: the team itself, a forge token, the team's marketplace, and board and boxscore turning on. Everything already set up (rt, the daemon, Claude Code) stays as it is.
 
 Until you do, `rt team status --json` reports `"mode": "solo"`.
 
@@ -69,7 +82,7 @@ Solo works without a GitHub or GitLab account, but connecting one adds a few thi
 - `rt` can open PRs and MRs directly
 - your home repo backup can push to a remote instead of staying local-only
 
-Today, the GitHub row on the setup checklist is the way in. A dedicated Settings door for connecting an account after Finish is coming later.
+Connect GitHub on the **Connect your accounts** screen, or later with `rt setup github connect`.
 
 ## From a terminal
 
