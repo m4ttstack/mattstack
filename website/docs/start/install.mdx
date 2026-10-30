@@ -71,7 +71,7 @@ rt setup gitlab connect --host gitlab.example.com
 
 After **Join**, the screen shows your team's name and reads **Waiting for Jane Doe to confirm your membership**. Let them know you're waiting. Your admin approves from the notification mattstack shows them.
 
-The wait has no progress bar, because nothing installs for the team until your admin approves you. Click **Hide** to close the window; mattstack keeps checking in the background. When your admin approves, a **You're in** notification brings you back. Meanwhile, mattstack installs what the next screen's sign-ins need, such as Claude Code and any team tool with a sign-in.
+The wait has no progress bar, because nothing installs for the team until your admin approves you. Click **Hide** to close the window; mattstack keeps checking in the background. When your admin approves, a **You're in** notification brings you back. Once they approve, mattstack starts installing what the next screen's sign-ins need, such as Claude Code and any team tool with a sign-in.
 
 A request nobody has approved yet keeps waiting.
 
@@ -130,7 +130,7 @@ The bar never opens a browser or raises a dialog. When a step would need you, th
 
 ### Setup paused
 
-When a step fails, the screen reads **Setup paused**. It says what failed and why, for example "Couldn't clone acme-api" and "GitLab says your token can't see acme/acme-api". Everything before that step is done. Fix the cause, then click **Retry**. **Show log** shows what the step printed. When macOS holds mattstack's background item, the paused screen offers the button that approves it in Login Items.
+When a step fails, the screen reads **Setup paused**. It says what failed and why, for example "Couldn't clone your repos" and "GitLab says your token can't see acme/acme-api". Everything before that step is done. Fix the cause, then click **Retry**. **Show log** shows what the step printed. When macOS holds mattstack's background item, the paused screen offers the button that approves it in Login Items.
 
 ### When the app quits or relaunches
 
@@ -152,7 +152,7 @@ Finishing starts herdr, the terminal server your agents run in, and adds mattsta
 2. Paste your recovery key. On your old Mac, `rt home key export` prints it.
 3. Click **Restore**.
 
-Restore puts the recovery key in your keychain, clones your settings, and starts the progress bar. rt refuses a key that can't open the backup, and changes nothing. When this Mac already holds a different recovery key, rt never replaces it on its own: run `rt home key import --force` with the key from your old Mac, then click **Restore** again.
+Restore puts the recovery key in your keychain, clones your settings, and starts the progress bar. rt refuses a key that can't open the backup, and leaves your keychain as it was. When this Mac already holds a different recovery key, rt never replaces it on its own: run `rt home key import --force` with the key from your old Mac, then click **Restore** again.
 
 ## After setup
 
@@ -183,6 +183,7 @@ Each answer in the window has a CLI form:
 rt setup gitlab connect            # or github, linear, slack, sdm
 rt setup gitlab connect --host gitlab.example.com   # confirm a self-hosted GitLab
 rt setup repo place github.com/acme/widgets --checkout ~/code/widgets   # or --clone-to <folder>
+rt setup repo-root set ~/code      # Just me: the folder new clones go in
 rt home remote set <url>           # or --create
 rt home restore janedoe/mattstack-home --stdin   # move from another Mac; the recovery key on stdin
 rt skills writing-style use <id>   # omit the id to pick

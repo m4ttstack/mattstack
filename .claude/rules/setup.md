@@ -23,9 +23,7 @@ by `resolveWritingStyle` in `lib/skills/writing-style.ts`: the
 `skills.writingStyle` setting (user scope beats team), else its registry
 default, `mattstack:writing-style-conversational`. A Mac where no store sets
 the key reads as not chosen yet (`source: "fallback"`), which the
-`skills.writing-style` row reports in the tray's Settings, General. rt no longer reads `~/.mattstack/user/skills/preferences.md`;
-the `2026-10-10-import-legacy-settings` migration copied its `writing-style:`
-line into the user store.
+`skills.writing-style` row reports in the tray's Settings, General.
 `rt skills writing-style show`
 prints the resolved skill and its source with the one wording the setup row
 also uses (`WRITING_STYLE_SOURCE_LABEL`), so never restate it elsewhere.
@@ -58,11 +56,12 @@ finished step, so the app spawns `--resume --unattended` at a launch or
 relaunch, which attaches to a live run or resumes a dead one. `--unattended`
 makes a step that would raise an admin prompt pause the run instead; a
 person's Retry runs without it, or with `--from <step>`. Nothing the bar runs
-may raise a dialog or open a browser: a step that would must pause (P6b).
+may raise a dialog or open a browser: a step that would must pause (the paused screen).
 
 A row's `required` blocks Install (the run); `finishGated` blocks Finish and
 never Install (`finalizePlan` and `finishBlockers` in
-`lib/setup/contract.ts`). Finish waits on `tool.fast-browser-extension`
+`lib/setup/contract.ts`), except a required `FINISH_GATED_ACCOUNT_IDS` row,
+which blocks both, since Install steps such as `linear.mcp` read it. Finish waits on `tool.fast-browser-extension`
 (`FINISH_GATED_ROW_IDS`), the team's accounts (`FINISH_GATED_ACCOUNT_IDS`,
 `account.slack` and `account.linear`), the `repos.place` rows, the
 approval-wait rows (`APPROVAL_DEPENDENT_IDS` in `lib/team/approval.ts`,
@@ -108,7 +107,7 @@ Swift side too.
 On an unfinished Mac the tray asks macOS for nothing before the macos
 screen: no notification prompt, login item or Mission Control notice at
 launch (`LaunchPrompts`). The login item registers when setup finishes, or
-when a run lands on ready with the window closed. App updates are held while
+whenever a run lands on ready. App updates are held while
 setup runs, window or not.
 
 ## Setup after an update
