@@ -225,8 +225,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NotificationCenter.default.addObserver(self, selector: #selector(showSettingsAccounts), name: .rtShowSettingsAccounts, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appsChanged), name: .rtAppsChanged, object: nil)
 
-        checkMissionControlConflict()
-        autoRegisterLoginItem()
+        if LaunchPrompts.asksAtLaunch(setupFinished: SetupSession.isFinished) {
+            checkMissionControlConflict()
+            autoRegisterLoginItem()
+        }
 
         Task { @MainActor in
             setHealth(.starting)
@@ -614,7 +616,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             Task { await NotificationManager.sounds.load(rt: rt) }
             let notifications = notificationManager
             coordinator = SetupCoordinator(rt: rt, permissions: permissionsService, permissionProbe: permissionProbe, needs: needBroker, updater: updater,
-                                           notify: { notifications.fireSetupProgress(title: $0.title, body: $0.body) })
+                                           notify: { notifications.fireSetupProgress(title: $0.title, body: $0.body) },
+                                           registerLoginItem: { [weak self] in self?.autoRegisterLoginItem() })
             if let code = pendingJoinCode {
                 pendingJoinCode = nil
                 coordinator?.handleJoin(code: code)
@@ -1916,7 +1919,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     // MARK: - Notifications Setup
 
     private func setupNotifications() {
-        notificationManager.requestPermission()
+        if LaunchPrompts.asksAtLaunch(setupFinished: SetupSession.isFinished) {
+            notificationManager.requestPermission()
+        }
         notificationManager.registerCategories()
     }
 

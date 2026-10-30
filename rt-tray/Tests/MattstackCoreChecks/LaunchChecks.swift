@@ -130,4 +130,13 @@ let launchChecks: [Check] = [
         c.expectEqual(garbage.ok, false)
         c.expectEqual(garbage.failedSteps, [])
     },
+    Check("Launch: an unfinished Mac is asked nothing before P1") { c in
+        c.expect(!LaunchPrompts.asksAtLaunch(setupFinished: false))
+        c.expect(LaunchPrompts.asksAtLaunch(setupFinished: true))
+        // A member who hides the window during the run never reaches P7's finish path.
+        c.expect(LaunchPrompts.registersLoginItem(afterRunOn: .ready))
+        for stage in [FormStage.running, .paused, .macos, .connect, .thisMac] {
+            c.expect(!LaunchPrompts.registersLoginItem(afterRunOn: stage), stage.rawValue)
+        }
+    },
 ]

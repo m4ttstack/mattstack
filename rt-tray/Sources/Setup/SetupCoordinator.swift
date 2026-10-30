@@ -16,6 +16,8 @@ final class SetupCoordinator {
     private let needs: NeedBroker
     private let updater: UpdaterController
     private let notify: @MainActor (SetupNotice) -> Void
+    /// Safe to call more than once: it acts only on a login item that is not registered.
+    private let registerLoginItem: @MainActor () -> Void
     /// Settings' shared, live view of `setup plan`; P1 borrows its permission probe.
     private let readiness: ReadinessModel
     private let flow = FastSetupFlow()
@@ -59,8 +61,10 @@ final class SetupCoordinator {
     /// `permissions` (row actions, Settings, TrayRoutes) keeps the real
     /// `PermissionsService` even under stub mode.
     init(rt: RtRunning, permissions: PermissionsService, permissionProbe: PermissionProbing? = nil,
-         needs: NeedBroker, updater: UpdaterController, notify: @escaping @MainActor (SetupNotice) -> Void) {
+         needs: NeedBroker, updater: UpdaterController, notify: @escaping @MainActor (SetupNotice) -> Void,
+         registerLoginItem: @escaping @MainActor () -> Void) {
         self.rt = rt; self.permissions = permissions; self.needs = needs; self.updater = updater; self.notify = notify
+        self.registerLoginItem = registerLoginItem
         readiness = ReadinessModel(plans: RtPlanSource(rt: rt, verb: ["setup", "plan", "--json"]),
                                    permissions: permissionProbe ?? permissions, ticker: MainTicker())
         form = SetupFormModel(rt: rt)
@@ -432,6 +436,7 @@ final class SetupCoordinator {
             if landed != nil || install.isRunning { break }
         }
         guard let read = landed, let stage = read.stage else { return }
+        if LaunchPrompts.registersLoginItem(afterRunOn: stage) { registerLoginItem() }
         if setupWindow?.isInFront != true, let notice = FastSetupLaunch.runEndNotice(stage: stage, paused: read.paused) {
             notify(notice)
         }
@@ -479,6 +484,7 @@ final class SetupCoordinator {
     private func finishSetup() {
         guard finish.settle() else { return }
         SetupSession.markFinished()
+        registerLoginItem()
         recordFinish()
     }
 
