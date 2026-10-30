@@ -57,16 +57,16 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     // The other segment never offers the checkout's own folder as a clone location.
     expect(action(byId(rows, WIDGETS)).clonePath).toBe(join(home, "Documents", "GitHub", "widgets"));
 
-    expect(byId(rows, ACME_API)).toMatchObject({ title: "acme-api", status: "ready", detail: "rt clones it here when you click Install" });
+    expect(byId(rows, ACME_API)).toMatchObject({ title: "acme-api", status: "ready", detail: "rt clones it here when setup runs" });
     expect(action(byId(rows, ACME_API))).toEqual({
       type: "place-repo",
-      label: "Choose location…",
+      label: "Choose…",
       identity: ACME_API,
       repo: "acme-api",
       mode: "clone",
       checkoutPath: null,
       clonePath: join(home, "code", "acme-api"),
-      note: "rt clones it here when you click Install",
+      note: "rt clones it here when setup runs",
       problem: null,
       then: null,
       oneClick: null,
@@ -80,7 +80,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     installed();
     const rows = await repoPlacementRows(realFsProbes(home), TEAM, { ...snapshot([WIDGETS, ACME_API]), boardRepo: ACME_API });
 
-    expect(action(byId(rows, ACME_API))).toMatchObject({ board: "The board's review, respond and doctor agents start here", then: ["setup", "apply", "--only", "board.restart"] });
+    expect(action(byId(rows, ACME_API))).toMatchObject({ board: "The board starts here", then: ["setup", "apply", "--only", "board.restart"] });
     expect(action(byId(rows, WIDGETS))).toMatchObject({ board: null, then: THEN });
   });
 
@@ -183,7 +183,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     writePlacement(p, WIDGETS, { mode: "clone", path: join(home, "work", "widgets") });
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([WIDGETS])), WIDGETS);
 
-    expect(r).toMatchObject({ status: "ready", detail: "rt clones it here when you click Install" });
+    expect(r).toMatchObject({ status: "ready", detail: "rt clones it here when setup runs" });
     expect(action(r)).toMatchObject({ mode: "clone", clonePath: join(home, "work", "widgets"), checkoutPath: null });
   });
 

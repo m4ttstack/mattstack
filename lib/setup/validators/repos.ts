@@ -30,8 +30,8 @@ import type { TeamSnapshot } from "../team-settings.ts";
 
 type PlaceRepo = Extract<Action, { type: "place-repo" }>;
 
-const CLONES_AT_INSTALL = "rt clones it here when you click Install";
-const BOARD_LINE = "The board's review, respond and doctor agents start here";
+const CLONES_AT_INSTALL = "rt clones it here when setup runs";
+const BOARD_LINE = "The board starts here";
 
 async function indexedCheckout(p: Probes, identity: string): Promise<string | null> {
   const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
@@ -119,7 +119,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
     shown.map(async (identity) => {
       const base = repoBasename(identity);
       const s = await stateOf(identity, resolved[identity]!);
-      const label = s.mode === "clone" ? "Choose location…" : s.problem ? "Locate again…" : "Locate…";
+      const label = s.mode === "clone" ? "Choose…" : s.problem ? "Locate again…" : "Locate…";
       const action: PlaceRepo = {
         type: "place-repo",
         label,

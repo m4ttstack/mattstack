@@ -148,7 +148,7 @@ const HOME_BACKUP_ADD_REMOTE_ACTION: Action = {
   fields: [{ name: "url", label: "Remote URL", secret: false, hint: "An empty private repo you own, e.g. https://github.com/you/mattstack-home.git" }],
   alternatives: [{ id: "create", label: "Create a private repo for me" }],
 };
-const HOME_BACKUP_PUSH_ACTION: Action = { type: "steps", label: "Show steps…", steps: [HOME_BACKUP_PUSH_STEP] };
+export const HOME_BACKUP_PUSH_ACTION: Action = { type: "steps", label: "Show steps…", steps: [HOME_BACKUP_PUSH_STEP] };
 const MERGE_LEGACY_STATE_ACTION: Action = {
   type: "steps",
   label: "Merge legacy state",

@@ -5,19 +5,23 @@
  * read only what their screen needs; the connect section is built from the
  * full plan, which one call composes at most once and shares between sections.
  */
+import { join } from "path";
 import { readTeamLocal } from "../team/team-local.ts";
 import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from "./cli-login.ts";
 import { applyStepAction, isSolo, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
+import { homeGitDir } from "./home-paths.ts";
 import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "./permissions.ts";
 import { composePlan, enrichSnapshotForge } from "./plan.ts";
 import { readPrepare, type PrepareRecord } from "./prepare.ts";
 import type { Probes } from "./probes.ts";
+import { configuredRepoRoots } from "./repo-placement.ts";
+import { detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
 import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
-import { isSetupFinished, readSetupState } from "./state.ts";
+import { isSetupFinished, readSetupState, type HomeBackupChoice } from "./state.ts";
 import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
@@ -123,12 +127,22 @@ export const FORM_COPY = {
   thisMac: {
     title: "Last bit: this Mac",
     subtitle: (team: string) => `Where ${team}'s repos and your settings live`,
-    repos: { title: "Your repos", current: "Current checkout", locate: "Locate…", fresh: "New checkout", choose: "Choose…", board: "The board starts here" },
+    repos: { title: "Your repos", current: "Current checkout", locate: "Locate…", fresh: "New checkout", choose: "Choose…", board: "The board starts here", root: "Where new clones go" },
     settings: {
       title: "Your settings",
       local: "Keep on this Mac",
       remote: "Store in a remote repo",
       subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later",
+      change: "Change",
+    },
+    remote: {
+      title: "Remote repo",
+      subtext: "Where the private copy lives",
+      use: "Use this repo",
+      field: "Repo URL",
+      hint: "git@github.com:janedoe/mattstack-home.git",
+      create: "Create a private GitHub repo",
+      creates: "rt creates a private GitHub repo when setup runs",
     },
     footer: "About 10 minutes once you start",
     start: "Set up this Mac",
@@ -513,6 +527,102 @@ export function connectRows(i: ConnectInputs): FormRow[] {
   return list.filter((r): r is ConnectRow => r !== null).map(settle);
 }
 
+export interface ThisMacInputs {
+  path: FormPath;
+  plan: Plan;
+  /** The connect screen's sign-in tools, so a run's leftovers never draw one twice. */
+  signIn: ToolRequirement[];
+  /** The last run ended ok. */
+  ranOk: boolean;
+  cltInstalled: boolean;
+  prepare: MacosPrepare;
+  backup: HomeBackupChoice | undefined;
+  /** The home repo's origin, or the staged url before the repo exists. */
+  homeRemote: string | null;
+  ghSignedIn: boolean;
+  repoRoot: { configured: string | null; staged: string | null; candidate: string | null };
+}
+
+function placeRow(r: Row): FormRow {
+  const board = r.action?.type === "place-repo" ? r.action.board : null;
+  return { id: r.id, title: r.title, subtext: board ?? r.why, state: r.status === "ready" ? "done" : "todo", detail: r.detail, action: r.action, waiting: null, watch: false, optional: false };
+}
+
+function repoRootRow(i: ThisMacInputs): FormRow {
+  const c = FORM_COPY.thisMac.repos;
+  const chosen = i.repoRoot.staged ?? i.repoRoot.configured;
+  return {
+    id: "repos.root",
+    title: c.title,
+    subtext: c.root,
+    state: chosen ? "done" : "todo",
+    detail: chosen ?? "",
+    action: { type: "choose-folder", label: c.choose, startAt: i.repoRoot.candidate },
+    waiting: null,
+    watch: false,
+    optional: false,
+  };
+}
+
+function backupRow(i: ThisMacInputs): FormRow {
+  const c = FORM_COPY.thisMac.settings;
+  const selected = i.backup?.mode ?? "local";
+  return {
+    id: "settings.backup",
+    title: c.title,
+    subtext: c.subtext,
+    state: "done",
+    detail: c[selected],
+    action: {
+      type: "choose",
+      label: c.change,
+      verb: ["setup", "home-backup"],
+      options: [
+        { id: "local", label: c.local, detail: "" },
+        { id: "remote", label: c.remote, detail: "" },
+      ],
+      selected,
+    },
+    waiting: null,
+    watch: false,
+    optional: false,
+  };
+}
+
+/** Choosing remote alone stages nothing, so the row stays open until a url or a create is staged. */
+function remoteRow(i: ThisMacInputs): FormRow | null {
+  if (i.backup?.mode !== "remote") return null;
+  const c = FORM_COPY.thisMac.remote;
+  const base = { id: "settings.remote", title: c.title, subtext: c.subtext, waiting: null, watch: false, optional: false };
+  if (i.homeRemote !== null) return { ...base, state: "done", detail: i.homeRemote, action: null };
+  if (i.backup.create) return { ...base, state: "done", detail: c.creates, action: null };
+  return {
+    ...base,
+    state: "todo",
+    detail: "",
+    action: {
+      type: "form",
+      label: c.use,
+      verb: ["home", "remote", "set"],
+      fields: [{ name: "url", label: c.field, secret: false, hint: c.hint }],
+      ...(i.ghSignedIn ? { alternatives: [{ id: "create", label: c.create }] } : {}),
+    },
+  };
+}
+
+/** Git leads on every path: Just me's run refuses before its first step without it. */
+export function thisMacRows(i: ThisMacInputs): FormRow[] {
+  const repos = i.path === "solo" ? [repoRootRow(i)] : planRows(i.plan).filter((r) => r.id.startsWith(REPO_PLACE_ROW_PREFIX)).map(placeRow);
+  const list: (FormRow | null)[] = [
+    cltRow(i),
+    ...repos,
+    backupRow(i),
+    remoteRow(i),
+    ...(i.ranOk ? extraRows(i.plan, formOwnedIds(i.plan, i.signIn), { afterRun: true, prepare: i.prepare }) : []),
+  ];
+  return list.filter((r): r is FormRow => r !== null);
+}
+
 export function restoreRows(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow[] {
   const clt = cltRow(i);
   return clt ? [clt] : [];
@@ -522,6 +632,11 @@ const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdent
 
 function isReady(rows: ReadonlyMap<string, Row>, id: string): boolean {
   return rows.get(id)?.status === "ready";
+}
+
+function ghSignedIn(rows: ReadonlyMap<string, Row>): boolean {
+  const github = rows.get("account.github");
+  return github?.status === "ready" && github.detail.startsWith("Signed in through the gh CLI");
 }
 
 function macosPrepare(p: Probes): MacosPrepare {
@@ -534,12 +649,11 @@ async function inviteSection(p: Probes, secrets: SecretPresence): Promise<FormRo
   const snapshot = enrichSnapshotForge(EMPTY_SNAPSHOT, intent);
   const [mac, accounts] = await Promise.all([macRows(p), accountRows(p, snapshot, [], secrets, intent, readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }))]);
   const rows = new Map([...mac, ...accounts].map((r) => [r.id, r]));
-  const github = rows.get("account.github");
   return inviteRows({
     rows,
     forge: snapshot.integrations.forge ?? null,
     forgeLogin: intent?.mode === "join" ? (intent.join?.pointer.username ?? null) : null,
-    ghSignedIn: github?.status === "ready" && github.detail.startsWith("Signed in through the gh CLI"),
+    ghSignedIn: ghSignedIn(rows),
     cltInstalled: isReady(rows, "tool.clt"),
     prepare: macosPrepare(p),
   });
@@ -590,6 +704,32 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[]): Promise<Fo
   });
 }
 
+/** A url staged before Install still counts once the Join page has made the repo without an origin. */
+async function homeRemote(p: Probes, backup: HomeBackupChoice | undefined): Promise<string | null> {
+  const staged = backup?.mode === "remote" ? (backup.url ?? null) : null;
+  if (!p.exists(homeGitDir(p.home))) return staged;
+  const origin = await p.exec(["git", "-C", join(p.home, ".mattstack", "user"), "remote", "get-url", "origin"]);
+  return (origin.code === 0 && origin.stdout.trim()) || staged;
+}
+
+async function thisMacSection(p: Probes, plan: Plan): Promise<FormRow[]> {
+  const rows = new Map(planRows(plan).map((r) => [r.id, r]));
+  const backup = readSetupState(p).homeBackup;
+  return thisMacRows({
+    path: formPath(p, readIntent(p), plan),
+    plan,
+    signIn: signInTools(readPackRequirements(p, plan.team.slug)),
+    // The run record that says how the last run ended is not written yet.
+    ranOk: false,
+    cltInstalled: isReady(rows, "tool.clt"),
+    prepare: macosPrepare(p),
+    backup,
+    homeRemote: await homeRemote(p, backup),
+    ghSignedIn: ghSignedIn(rows),
+    repoRoot: { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate: detectCandidate(p) },
+  });
+}
+
 export async function composeForm(p: Probes, opts: { sections: FormSection[]; secrets: SecretPresence; orgs: string[] }): Promise<SetupForm> {
   let planned: Promise<Plan> | undefined;
   const plan = () => (planned ??= composePlan({ p, secrets: opts.secrets, ci: p.env.CI === "true", mode: isSetupFinished(readSetupState(p)) ? "status" : "plan", orgs: opts.orgs }));
@@ -598,6 +738,7 @@ export async function composeForm(p: Probes, opts: { sections: FormSection[]; se
   if (opts.sections.includes("invite")) sections.invite = await inviteSection(p, opts.secrets);
   if (opts.sections.includes("restore")) sections.restore = await restoreSection(p);
   if (opts.sections.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs);
+  if (opts.sections.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan());
   return {
     path: null,
     team: joinTeam(p),
