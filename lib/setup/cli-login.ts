@@ -241,6 +241,21 @@ export async function startLogin(p: Probes, tool: LoginTool, opts: { email?: str
   return session;
 }
 
+export const LOGIN_POLL_MS = 2000;
+/** How long a connect watches a fresh session before it hands the sign-in to the person. */
+export const CONNECT_WAIT_MS = 10_000;
+export const FINISH_IN_BROWSER = "Finish signing in in your browser";
+
+/** Polls `check` every LOGIN_POLL_MS for up to `budgetMs`; its first non-null answer wins. */
+export async function waitForSignIn<T>(check: () => Promise<T | null>, budgetMs: number, sleep: (ms: number) => Promise<void> = (ms) => Bun.sleep(ms)): Promise<T | null> {
+  for (let waited = 0; waited < budgetMs; waited += LOGIN_POLL_MS) {
+    await sleep(LOGIN_POLL_MS);
+    const answer = await check();
+    if (answer !== null) return answer;
+  }
+  return null;
+}
+
 export function sendLoginInput(p: Probes, tool: LoginTool, line: string, seams: LoginSeams = realLoginSeams()): boolean {
   const session = readLogin(p, tool, seams);
   if (session === null) return false;

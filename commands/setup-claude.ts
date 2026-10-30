@@ -6,7 +6,7 @@
  */
 import type { CommandContext } from "../lib/command-tree.ts";
 import { UserActionableError } from "../lib/errors.ts";
-import { endLogin, readLogin, sendLoginInput, startLogin, type LoginSeams } from "../lib/setup/cli-login.ts";
+import { CONNECT_WAIT_MS, endLogin, FINISH_IN_BROWSER, readLogin, sendLoginInput, startLogin, waitForSignIn, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
@@ -30,8 +30,6 @@ type ClaudeStatus = "ready" | "needs-you" | "invalid";
 
 const RENDER: Record<ClaudeStatus, RenderStatus> = { ready: "done", "needs-you": "needs-you", invalid: "failed" };
 
-const POLL_MS = 2000;
-const CONNECT_WAIT_MS = 10_000;
 const CODE_WAIT_MS = 30_000;
 const STATUS_TIMEOUT_MS = 5000;
 
@@ -60,14 +58,8 @@ function signedInDetail(email: string): string {
   return email ? `Signed in as ${email}` : "Signed in";
 }
 
-async function waitForSignIn(deps: ClaudeDeps, budgetMs: number): Promise<string | null> {
-  const sleep = deps.sleep ?? ((ms: number) => Bun.sleep(ms));
-  for (let waited = 0; waited < budgetMs; waited += POLL_MS) {
-    await sleep(POLL_MS);
-    const email = await signedIn(deps.probes);
-    if (email !== null) return email;
-  }
-  return null;
+function waitForClaude(deps: ClaudeDeps, budgetMs: number): Promise<string | null> {
+  return waitForSignIn(() => signedIn(deps.probes), budgetMs, deps.sleep);
 }
 
 async function gitEmail(p: Probes): Promise<string | undefined> {
@@ -90,8 +82,8 @@ export async function setupClaudeConnect(args: string[], _ctx: CommandContext = 
     return exitWithUserError(err, json, sinkOf(deps));
   }
 
-  const email = await waitForSignIn(deps, CONNECT_WAIT_MS);
-  if (email === null) return report(deps, json, "needs-you", "Finish signing in in your browser");
+  const email = await waitForClaude(deps, CONNECT_WAIT_MS);
+  if (email === null) return report(deps, json, "needs-you", FINISH_IN_BROWSER);
   endLogin(p, "claude", deps.seams);
   report(deps, json, "ready", signedInDetail(email));
 }
@@ -125,7 +117,7 @@ export async function setupClaudeCode(args: string[], _ctx: CommandContext = {},
   }
   if (!sendLoginInput(p, "claude", code, deps.seams)) return noLogin();
 
-  const email = await waitForSignIn(deps, CODE_WAIT_MS);
+  const email = await waitForClaude(deps, CODE_WAIT_MS);
   if (email === null) return report(deps, json, "invalid", "Claude did not accept that code");
   endLogin(p, "claude", deps.seams);
   report(deps, json, "ready", signedInDetail(email));

@@ -43,6 +43,7 @@ import { processFlavor } from "../lib/flavor.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname } from "../lib/setup/host-validate.ts";
+import { CONNECT_WAIT_MS, endLogin, FINISH_IN_BROWSER, readLogin, startLogin, waitForSignIn, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
@@ -1066,6 +1067,8 @@ export interface ConnectDeps extends SetupDeps {
   listen: (port: number, expectedState: string) => Promise<string>;
   /** Unguessable per-request token (CSRF-style) — never `Math.random`; the OAuth `state` param is the one consumer today. */
   randomState: () => string;
+  loginSeams?: LoginSeams;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 async function readSmartStdin(): Promise<unknown> {
@@ -1194,7 +1197,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-type IntegrationRowStatus = "ready" | "missing" | "invalid";
+type IntegrationRowStatus = "ready" | "missing" | "invalid" | "needs-you";
 
 interface IntegrationResult {
   integration: Integration;
@@ -1205,7 +1208,7 @@ interface IntegrationResult {
   owners?: string[];
 }
 
-const INTEGRATION_STATUS: Record<IntegrationRowStatus, RenderStatus> = { ready: "done", missing: "needs-you", invalid: "failed" };
+const INTEGRATION_STATUS: Record<IntegrationRowStatus, RenderStatus> = { ready: "done", missing: "needs-you", invalid: "failed", "needs-you": "needs-you" };
 
 function printIntegrationResult(deps: SetupDeps, json: boolean, body: IntegrationResult): void {
   if (json) {
@@ -1599,16 +1602,36 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
 }
 
 async function connectCliSession(id: "doppler" | "ldcli", args: string[], deps: ConnectDeps): Promise<void> {
-  await deps.probes.exec(id === "doppler" ? ["doppler", "login"] : ["ldcli", "login"], { inherit: true });
+  const json = args.includes("--json");
   const def = integrationDef(id);
   const ctx = ctxFor(id, snapshotFor(deps), overridesFor(deps));
-  const result = await def.validate(deps.probes, "", ctx);
-  if (result.status === "invalid") {
-    printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: result.detail, scopesSeen: result.scopesSeen });
-    return;
+  const validate = () => def.validate(deps.probes, "", ctx);
+  const print = (status: IntegrationRowStatus, detail: string, scopesSeen: string[] = []) => printIntegrationResult(deps, json, { integration: id, status, detail, scopesSeen });
+
+  if (deps.isTTY()) {
+    await deps.probes.exec(id === "doppler" ? ["doppler", "login"] : ["ldcli", "login"], { inherit: true });
+    const result = await validate();
+    if (result.status === "error") throw new UserActionableError("unreachable", result.detail);
+    return print(result.status, result.detail, result.scopesSeen);
   }
-  if (result.status === "error") throw new UserActionableError("unreachable", result.detail);
-  printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail: result.detail, scopesSeen: result.scopesSeen });
+
+  // Validated before any spawn: a signed-in doppler login opens a menu with no URL or code to show.
+  const first = await validate();
+  if (first.status === "error") throw new UserActionableError("unreachable", first.detail);
+  if (first.status === "ready") return print("ready", first.detail, first.scopesSeen);
+
+  if ((await startLogin(deps.probes, id, { seams: deps.loginSeams })) === null) return print("invalid", first.detail, first.scopesSeen);
+
+  const signedIn = await waitForSignIn(async () => {
+    const result = await validate();
+    return result.status === "ready" ? result : null;
+  }, CONNECT_WAIT_MS, deps.sleep);
+  if (signedIn !== null) {
+    endLogin(deps.probes, id, deps.loginSeams);
+    return print("ready", signedIn.detail, signedIn.scopesSeen);
+  }
+  const code = readLogin(deps.probes, id, deps.loginSeams)?.code;
+  print("needs-you", code ? `Your code is ${code}. Confirm it in your browser` : FINISH_IN_BROWSER);
 }
 
 const SLACK_WAIT_CODE: Record<SlackSecretWait["kind"], string> = {
