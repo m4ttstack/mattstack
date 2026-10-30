@@ -64,7 +64,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         flow.entry = entry
         if let step { flow.jump(to: step, landing: step == .checklist && !flow.readOnly) }
         team.enter(entry, choice: choice, joinCode: joinCode)
-        if entry == .firstRun, !flow.readOnly, flow.step == .checklist { resumeAJoinStillWaiting() }
+        if entry == .firstRun, !flow.readOnly, flow.step == .checklist { resumeAnUnfinishedJoin() }
         // The page's own onAppear does not fire again for a window shown a second time.
         if flow.step == .join { environment.join.startPolling() }
         showWindow(nil)
@@ -80,17 +80,25 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// A Mac that joined and quit before approval reopens on the checklist,
-    /// whose team rows cannot settle yet, so it goes back to the wait.
-    private func resumeAJoinStillWaiting() {
+    /// A Mac that chose an invite reopens on the checklist, which must never
+    /// Install before the join: one not joined yet goes back to the Join
+    /// page, and one that joined and quit before approval goes back to the wait.
+    private func resumeAnUnfinishedJoin() {
         let rt = environment.rt
         flow.resolvingJoin = true
         Task { @MainActor [weak self] in
-            let status = await JoinPageModel.launchStatus(rt: rt)
+            let launch = await JoinPageModel.launchStatus(rt: rt)
             guard let self else { return }
             defer { self.flow.resolvingJoin = false }
-            guard let status, status.state == "waiting", self.flow.step == .checklist else { return }
-            self.environment.join.adopt(status)
+            guard self.flow.step == .checklist else { return }
+            switch launch {
+            case .unredeemed?:
+                break
+            case .joined(let status)? where status.state == "waiting":
+                self.environment.join.adopt(status)
+            default:
+                return
+            }
             self.flow.joining = true
             self.flow.jump(to: .join)
         }

@@ -186,11 +186,17 @@ let joinPageChecks: [Check] = [
     Check("JoinPage: the launch check reads a refusal or a failure as not joining") { c in
         let rt = ScriptedRt()
         rt.answers = ["setup join-status --json": (0, statusJSON("waiting"))]
-        c.expectEqual(await JoinPageModel.launchStatus(rt: rt)?.state, "waiting")
+        guard case .joined(let status)? = await JoinPageModel.launchStatus(rt: rt) else { c.fail("expected joined"); return }
+        c.expectEqual(status.state, "waiting")
         rt.answers = ["setup join-status --json": (2, #"{"contract":1,"at":"x","error":{"code":"no-join","message":"This Mac has not joined a team"}}"#)]
         c.expect(await JoinPageModel.launchStatus(rt: rt) == nil)
         rt.answers = ["setup join-status --json": (1, "")]
         c.expect(await JoinPageModel.launchStatus(rt: rt) == nil)
+    },
+    Check("JoinPage: the launch check reads an invite not joined with yet as the Join page still to do") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup join-status --json": (2, #"{"contract":1,"at":"x","error":{"code":"join-unredeemed","message":"This Mac has an invite it has not joined with yet"}}"#)]
+        c.expectEqual(await JoinPageModel.launchStatus(rt: rt), .unredeemed)
     },
     Check("JoinPage: the join landed while a poll was in flight: the page still leaves Joining") { c in
         let rt = ScriptedRt()

@@ -5,6 +5,7 @@ import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
 import { orgDirUnder, orgsDirUnder } from "../../lib/rt-paths.ts";
 import { teamLocalPath } from "../../lib/team/team-local.ts";
+import { intentPath } from "../../lib/setup/intent.ts";
 import { APPROVAL_WAIT_DETAIL } from "../../lib/team/approval.ts";
 import type { OrgPull } from "../../lib/team/org-pull.ts";
 import { renderSopsYamlRules } from "../../lib/home/age-key.ts";
@@ -41,7 +42,7 @@ const SNAPSHOT: TeamSnapshot = {
 
 const PULLED: OrgPull = { outcome: "pulled", detail: "Pulled acme" };
 
-function deps(opts: { joined?: boolean; pull?: JoinStatusDeps["pull"] } = {}) {
+function deps(opts: { joined?: boolean; invite?: boolean; pull?: JoinStatusDeps["pull"] } = {}) {
   const lines: string[] = [];
   const files: Record<string, string> = {
     [join(DIR, ".git", "config")]: `[remote "origin"]\n\turl = https://github.com/acme/widgets-org.git\n`,
@@ -49,6 +50,7 @@ function deps(opts: { joined?: boolean; pull?: JoinStatusDeps["pull"] } = {}) {
     [SOPS]: teamSops([OWNER]),
   };
   if (opts.joined !== false) files[teamLocalPath(HOME, SLUG)] = JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, joinedAt: JOINED_AT });
+  if (opts.invite) files[intentPath(HOME)] = JSON.stringify({ v: 1, at: JOINED_AT, mode: "join", join: { id: "a".repeat(32), keyB64: "k", pointer: {} } });
   const probes = fakeProbes({ home: HOME, files, dirs: { [orgsDirUnder(HOME)]: [SLUG] } });
   const d: JoinStatusDeps = {
     probes,
@@ -141,6 +143,24 @@ describe("rt setup join-status", () => {
     const human = deps({ joined: false });
     expect(await exitCode(() => setupJoinStatus([], {}, human.d))).toBe(2);
     expect(quiet.stderr()).toStartWith("This Mac has not joined a team");
+  });
+
+  test.each([
+    ["an invite chosen but never used", false],
+    ["a join that stopped partway", true],
+  ])("%s: refused as not joined yet, so the app reopens on the Join page", async (_label, joined) => {
+    let pulled = false;
+    const t = deps({
+      joined,
+      invite: true,
+      pull: async () => {
+        pulled = true;
+        return PULLED;
+      },
+    });
+    expect(await exitCode(() => setupJoinStatus(["--json"], {}, t.d))).toBe(2);
+    expect(JSON.parse(t.lines[0]!).error).toMatchObject({ code: "join-unredeemed", message: "This Mac has an invite it has not joined with yet" });
+    expect(pulled).toBe(false);
   });
 
   test("no joined team: nothing is pulled", async () => {

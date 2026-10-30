@@ -1428,6 +1428,12 @@ export async function setupJoinStatus(args: string[], _ctx: CommandContext = {},
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
   const p = deps.probes;
+  // A successful join deletes the invite, so one still on disk is a join the Join page has to run (again).
+  if (readIntent(p)?.mode === "join") {
+    return exitWithUserError(new UserActionableError("join-unredeemed", "This Mac has an invite it has not joined with yet"), json, sinkOf(deps), {
+      next: out.cmd("rt setup apply --only team.join"),
+    });
+  }
   const slug = cloneSlugs(p).find((s) => readTeamLocal(p, s).joinedByRt);
   if (!slug) {
     return exitWithUserError(new UserActionableError("no-join", "This Mac has not joined a team"), json, sinkOf(deps), { next: out.cmd("rt team join") });

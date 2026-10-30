@@ -177,11 +177,19 @@ public final class JoinPageModel: ObservableObject {
         apply(status)
     }
 
+    public enum LaunchJoin: Equatable, Sendable {
+        case joined(JoinStatus)
+        /// The invite is on disk but the join never landed: the Join page is still to do.
+        case unredeemed
+    }
+
     /// A first-run window that opens on the checklist asks this first. Any
-    /// refusal or failure reads as not joining, so the checklist opens as before.
-    public nonisolated static func launchStatus(rt: RtRunning) async -> JoinStatus? {
-        guard let r = try? await rt.run(statusVerb, stdin: nil), r.exitCode == 0 else { return nil }
-        return try? r.decode(JoinStatus.self)
+    /// other refusal or failure reads as not joining, so the checklist opens as before.
+    public nonisolated static func launchStatus(rt: RtRunning) async -> LaunchJoin? {
+        guard let r = try? await rt.run(statusVerb, stdin: nil) else { return nil }
+        if r.userError?.code == "join-unredeemed" { return .unredeemed }
+        guard r.exitCode == 0, let status = try? r.decode(JoinStatus.self) else { return nil }
+        return .joined(status)
     }
 
     public func startPolling(every seconds: TimeInterval = 15) {
