@@ -543,7 +543,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
     expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
-    expect(FAST_BROWSER_ADD_ACTION).toEqual({ type: "open-url", label: "Add to Chrome", url: WEB_STORE_URL, primary: true, waiting: "Waiting for Chrome", again: "Open again" });
+    expect(FAST_BROWSER_ADD_ACTION).toEqual({ type: "open-url", label: "Add to Chrome", url: WEB_STORE_URL, primary: true, waiting: "Waiting for Chrome…", again: "Open again" });
   });
 
   // extension-loaded passes when no managed extension is loaded at all and

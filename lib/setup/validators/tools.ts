@@ -43,7 +43,7 @@ const PROBE_TIMEOUT_MS = 5000;
 const DOCTOR_TIMEOUT_MS = 45_000;
 const CHROME_PATHS = (home: string): string[] => ["/Applications/Google Chrome.app", `${home}/Applications/Google Chrome.app`];
 
-const CLAUDE_SIGNIN_ACTION: Action = { type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] };
+export const CLAUDE_SIGNIN_ACTION: Action = { type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] };
 /** Only the claude binary gates Install; the sign-in waits for Finish. */
 const SIGNIN_NOT_REQUIRED = { required: false, action: CLAUDE_SIGNIN_ACTION };
 const CHROME_DOWNLOAD_ACTION: Action = { type: "open-url", label: "Download", url: "https://www.google.com/chrome/" };
@@ -316,7 +316,7 @@ export const FAST_BROWSER_ADD_ACTION: Action = {
   label: "Add to Chrome",
   url: FAST_BROWSER_WEB_STORE_URL,
   primary: true,
-  waiting: "Waiting for Chrome",
+  waiting: "Waiting for Chrome…",
   again: "Open again",
 };
 const FAST_BROWSER_PAIR_STEPS: Action = { type: "steps", label: "Show steps…", steps: PAIRING_STEPS };
