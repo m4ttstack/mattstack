@@ -56,6 +56,15 @@ public final class FastSetupFlow: ObservableObject {
         return allDone(rows)
     }
 
+    /// Restore waits on the backup repo and the recovery key, then on rt's restore rows.
+    /// Before rt's restore section arrives (nil) nothing says whether git is still missing.
+    public nonisolated static func restoreEnabled(repo: String, key: String, rows: [FormRow]?) -> Bool {
+        guard !repo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let rows else { return false }
+        return allDone(rows)
+    }
+
     /// What moves P1 on. Before the first read, or with nothing to show, P1 stays put.
     public nonisolated static func macosReady(_ rows: [FormRow]?) -> Bool {
         guard let rows, !rows.isEmpty else { return false }

@@ -117,6 +117,9 @@ enum AXID {
     static let fastCreateForge = "setup.fast.create-team.forge"
     static let fastCreateGroup = "setup.fast.create-team.group"
     static let fastCreateFailure = "setup.fast.create-team.failure"
+    static let fastRestoreRepo = "setup.fast.restore.repo"
+    static let fastRestoreKey = "setup.fast.restore.key"
+    static let fastRestoreFailure = "setup.fast.restore.failure"
 
     // Install
     static func installStep(_ id: String) -> String { "setup.install.step.\(id)" }

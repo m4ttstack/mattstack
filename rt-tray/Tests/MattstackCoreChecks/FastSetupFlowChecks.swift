@@ -237,6 +237,24 @@ let fastSetupFlowChecks: [Check] = [
         c.expect(FastSetupFlow.createEnabled(nameAndGroup: true, rows: [macosRow("forge.token", .done), macosRow("extra", .todo, optional: true)]),
                  "an optional row never holds Create team")
     },
+    Check("FastSetupFlow: Restore waits for Command Line Tools") { c in
+        for state in [FormRowState.todo, .busy, .waiting] {
+            c.expect(!FastSetupFlow.restoreEnabled(repo: "janedoe/mattstack-home", key: "key", rows: [macosRow("tool.clt", state)]),
+                     "Command Line Tools \(state) holds Restore")
+        }
+        c.expect(FastSetupFlow.restoreEnabled(repo: "janedoe/mattstack-home", key: "key", rows: [macosRow("tool.clt", .done)]))
+        c.expect(FastSetupFlow.restoreEnabled(repo: "janedoe/mattstack-home", key: "key", rows: []), "git already present: nothing to wait on")
+    },
+    Check("FastSetupFlow: Restore needs the repo and the key") { c in
+        c.expect(!FastSetupFlow.restoreEnabled(repo: "", key: "key", rows: []), "no repo, no Restore")
+        c.expect(!FastSetupFlow.restoreEnabled(repo: "janedoe/mattstack-home", key: "", rows: []), "no key, no Restore")
+        c.expect(!FastSetupFlow.restoreEnabled(repo: "  ", key: "key", rows: []), "a blank repo is no repo")
+        c.expect(!FastSetupFlow.restoreEnabled(repo: "janedoe/mattstack-home", key: " \n", rows: []), "a blank key is no key")
+    },
+    Check("FastSetupFlow: Restore waits for the restore section to load") { c in
+        c.expect(!FastSetupFlow.restoreEnabled(repo: "janedoe/mattstack-home", key: "key", rows: nil),
+                 "before rt's restore section arrives nothing says whether git is missing")
+    },
 ]
 
 private func macosRow(_ id: String, _ state: FormRowState, optional: Bool = false) -> FormRow {

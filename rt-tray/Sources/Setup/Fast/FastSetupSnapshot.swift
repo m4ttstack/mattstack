@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -148,6 +148,27 @@ enum FastSetupSnapshot {
             ("create-creating", page(name: "Widgets", group: "acme", rows: [Rows.gitlabTokenCreated], creating: true)),
             ("create-error", page(name: "Widgets", group: "acme", rows: [Rows.gitlabTokenCreated],
                                   failure: "This token cannot see acme on GitLab")),
+        ]
+    }
+
+    @MainActor
+    private static func restorePages() -> [(String, AnyView)] {
+        let repo = "janedoe/mattstack-home"
+        /// A stand-in, never a real-looking key: the field only draws dots.
+        let key = "placeholder"
+        func page(repo: String = "", key: String = "", rows: [FormRow]?, restoring: Bool = false, failure: String? = nil) -> AnyView {
+            let enabled = FastSetupFlow.restoreEnabled(repo: repo, key: key, rows: rows)
+            return AnyView(RestoreScreenBody(repo: .constant(repo), key: .constant(key), rows: rows, waiting: [:], errors: [:],
+                                             isRestoring: restoring, failure: failure, restoreEnabled: enabled,
+                                             onAction: { _, _, _ in }, onBack: {}, onRestore: {}))
+        }
+        return [
+            ("restore-empty", page(rows: [])),
+            ("restore-clt-busy", page(repo: repo, key: key, rows: [Rows.cltInstalling])),
+            ("restore-ready", page(repo: repo, key: key, rows: [])),
+            ("restore-restoring", page(repo: repo, key: key, rows: [], restoring: true)),
+            ("restore-error", page(repo: repo, key: key, rows: [],
+                                   failure: "That recovery key does not unlock janedoe/mattstack-home")),
         ]
     }
 
