@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { endLogin, LOGIN_TTL_MS, loginSessionPath, readLogin, sendLoginInput, startLogin, type LoginSeams, type LoginSession } from "../cli-login.ts";
+import type { Probes } from "../probes.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const HOME = "/fake-home";
@@ -7,7 +8,7 @@ const NOW = new Date("2026-01-01T00:00:00Z");
 const LOGINS = `${HOME}/.mattstack/rt/logins`;
 const WRAPPER = 'exec 3<>"$1"; shift; cat <&3 | { /usr/bin/script -q /dev/null "$@"; kill 0; }';
 
-function fakeSeams(opts: { alive?: boolean; pid?: number | null } = {}): LoginSeams & { spawned: string[][]; killed: number[]; fifos: string[]; written: Array<[string, string]> } {
+function fakeSeams(opts: { alive?: boolean | (() => boolean); pid?: number | null; probes?: Probes } = {}): LoginSeams & { spawned: string[][]; killed: number[]; fifos: string[]; written: Array<[string, string]> } {
   const spawned: string[][] = [];
   const killed: number[] = [];
   const fifos: string[] = [];
@@ -21,12 +22,13 @@ function fakeSeams(opts: { alive?: boolean; pid?: number | null } = {}): LoginSe
       spawned.push(argv);
       return opts.pid === undefined ? 4242 : opts.pid;
     },
-    alive: () => opts.alive ?? true,
+    alive: () => (typeof opts.alive === "function" ? opts.alive() : opts.alive ?? true),
     kill(pid) {
       killed.push(pid);
     },
     mkfifo(path) {
       fifos.push(path);
+      opts.probes?.writeFile(path, "");
       return true;
     },
     writeFifo(path, text) {
@@ -68,6 +70,16 @@ describe("cli sign-in sessions", () => {
     const p = fakeProbes({ home: HOME, now: NOW });
     expect(await startLogin(p, "ldcli", { seams: fakeSeams({ pid: null }), waitMs: 0 })).toBeNull();
     expect(p.readFile(loginSessionPath(HOME, "ldcli"))).toBeNull();
+  });
+
+  test("a login whose process dies during the wait starts nothing", async () => {
+    const p = fakeProbes({ home: HOME, now: NOW });
+    let checks = 0;
+    const seams = fakeSeams({ probes: p, alive: () => ++checks < 3 });
+    expect(await startLogin(p, "claude", { seams })).toBeNull();
+    expect(seams.spawned).toHaveLength(1);
+    expect(p.readFile(loginSessionPath(HOME, "claude"))).toBeNull();
+    expect(p.exists(`${LOGINS}/claude.fifo`)).toBe(false);
   });
 
   test("a live, young session is reused, not spawned again", async () => {
@@ -137,8 +149,10 @@ describe("cli sign-in sessions", () => {
   test("ending a login kills it and removes its record", () => {
     const seams = fakeSeams();
     const p = seeded(session("ldcli", NOW));
+    p.writeFile(`${LOGINS}/ldcli.fifo`, "");
     endLogin(p, "ldcli", seams);
     expect(seams.killed).toEqual([4242]);
     expect(p.readFile(loginSessionPath(HOME, "ldcli"))).toBeNull();
+    expect(p.exists(`${LOGINS}/ldcli.fifo`)).toBe(false);
   });
 });

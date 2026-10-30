@@ -230,6 +230,13 @@ export async function startLogin(p: Probes, tool: LoginTool, opts: { email?: str
     if (session.url !== null || poll >= polls || !seams.alive(pid)) break;
     p.sleepSync(POLL_MS);
   }
+  // A tool missing from PATH or one that quits at once ends the group within
+  // milliseconds, and readLogin would already call that session none.
+  if (!seams.alive(pid)) {
+    p.removeFile(loginSessionPath(p.home, tool));
+    p.removeFile(fifoPath);
+    return null;
+  }
   writeRecord(p, session);
   return session;
 }
