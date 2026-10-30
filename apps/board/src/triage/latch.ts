@@ -574,7 +574,11 @@ async function settleOwedReply(
   const body = owing?.replyDue;
   if (!owing || body == null) return;
   const age = now - owing.updatedAt;
-  if (age > LATCH_REPLY_GIVE_UP_MS || (body === STUCK_REPLY && !owing.stuck)) {
+  // A spend moves the row without touching stuck, so a spent row can still
+  // read stuck while owing a stuck reply that no longer applies.
+  const staleStuck =
+    body === STUCK_REPLY && (!owing.stuck || owing.phase !== 'error');
+  if (age > LATCH_REPLY_GIVE_UP_MS || staleStuck) {
     dropOwedReply(deps, mr, body, now);
     return;
   }

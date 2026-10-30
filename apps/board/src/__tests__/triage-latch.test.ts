@@ -1876,6 +1876,42 @@ describe('error, retry and stuck', () => {
     expect(h.replies).toEqual([]);
   });
 
+  test('a stuck latch that gets spent never posts its stuck reply', async () => {
+    const db = tempDb();
+    const stuck = copyFor({ state: 'error-stuck' }).sentence;
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+        replyDue: stuck,
+        updatedAt: NOW,
+      }),
+      db
+    );
+    let note = errorBody();
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+      readDetail: async () =>
+        detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(h.deps)).spent).toBe(1);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      replyDue: stuck,
+    });
+
+    note = spentLatchBody(IMG);
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('reply-dropped');
+  });
+
   test('a relaunch mid-pass is not a failure', async () => {
     const db = tempDb();
     putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
