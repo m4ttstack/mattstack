@@ -2,8 +2,10 @@ import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { LatchRef } from '../latch/discussions.ts';
 import {
+  cachedUpload,
   putLatchRow,
   readLatchRow,
+  rememberUpload,
   type LatchRow,
 } from '../latch/latch-state.ts';
 import { latchKindOf } from '../latch/markers.ts';
@@ -98,7 +100,7 @@ describe('bannerMarkdown', () => {
       { filename: 'latch-2317-armed.gif', contentType: 'image/gif' },
     ]);
     expect(md).toBe(
-      '![Ready for another pass?](/uploads/ab12/latch-2317-armed.gif){width=520}'
+      '![Ready for another pass?](/uploads/ab12/latch-2317-armed.gif)'
     );
   });
 
@@ -110,6 +112,23 @@ describe('bannerMarkdown', () => {
     const second = await bannerMarkdown(gw, 42, MR, 2317, v, db);
     expect(second).toBe(first);
     expect(calls).toEqual(['upload:latch-2317-queued-cooldown.gif']);
+  });
+
+  test('a pre-3x upload cached with a width is uploaded again and replaced', async () => {
+    const db = tempDb();
+    const { gw, calls } = gateway();
+    rememberUpload(
+      MR,
+      'running',
+      '![Follow-up review running](/uploads/old1/latch-2317-running.gif){width=520}',
+      db
+    );
+    const md = await bannerMarkdown(gw, 42, MR, 2317, { state: 'running' }, db);
+    const want =
+      '![Follow-up review running](/uploads/ab12/latch-2317-running.gif)';
+    expect(md).toBe(want);
+    expect(calls).toEqual(['upload:latch-2317-running.gif']);
+    expect(cachedUpload(MR, 'running', db)).toBe(want);
   });
 
   test('a different variant uploads its own banner', async () => {
@@ -132,9 +151,7 @@ describe('postLatch', () => {
     expect(posted).toEqual({ discussionId: 'd1', rootNoteId: 1 });
     expect(calls).toEqual(['upload:latch-2317-armed.gif', 'createDiscussion']);
     expect(latchKindOf(bodies[0]!)).toBe('armed');
-    expect(bodies[0]).toContain(
-      '/uploads/ab12/latch-2317-armed.gif){width=520}'
-    );
+    expect(bodies[0]).toContain('](/uploads/ab12/latch-2317-armed.gif)\n');
     expect(bodies[0]).toContain('Resolve this thread');
   });
 });

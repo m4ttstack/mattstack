@@ -5,11 +5,15 @@ import { describe, expect, test } from 'bun:test';
 import { GifReader } from 'omggif';
 import { PNG } from 'pngjs';
 
-import { renderBannerGif } from '../latch/banner.ts';
-import type { BannerVariant } from '../latch/variants.ts';
+import { outsideCorners, renderBannerGif } from '../latch/banner.ts';
+import {
+  PARITY_CASES,
+  PARITY_SCALE,
+  parityStrips,
+  REFERENCE_DIR as REFERENCE,
+} from './fixtures/latch-parity.ts';
 import { PROTOTYPE_CREATURE } from './fixtures/latch-prototype-creature.ts';
 
-const REFERENCE = join(import.meta.dir, 'fixtures', 'latch-reference');
 const OUT = process.env.LATCH_PARITY_OUT ?? join(tmpdir(), 'latch-parity');
 
 /** A pixel differs when any channel is off by more than this. */
@@ -17,15 +21,9 @@ const CHANNEL_TOLERANCE = 24;
 /** The share of pixels per frame allowed to differ. */
 const MAX_DIFFERING = 0.005;
 
-const CASES: [string, BannerVariant][] = [
-  ['armed', { state: 'armed' }],
-  ['queued', { state: 'queued', wait: 'next-sweep' }],
-  ['running', { state: 'running' }],
-  ['done-comments', { state: 'done-comments', count: 3 }],
-  ['done-approved', { state: 'done-approved' }],
-  ['error-retrying', { state: 'error-retrying', wait: 'next-sweep' }],
-  ['error-stuck', { state: 'error-stuck' }],
-];
+/** The prototype had square corners; the runtime's rounded ones are not compared. */
+const CORNERS = outsideCorners(PARITY_SCALE);
+const NO_CORNERS = new Uint8Array(CORNERS.length);
 
 interface Decoded {
   width: number;
@@ -79,11 +77,20 @@ interface Verdict {
   diff: Uint8Array;
 }
 
-function compare(ref: Uint8Array, got: Uint8Array, width: number): Verdict {
+function compare(
+  ref: Uint8Array,
+  got: Uint8Array,
+  width: number,
+  skip: Uint8Array
+): Verdict {
   const diff = new Uint8Array(ref.length);
   const bad = new Uint8Array(ref.length / 4);
+  let compared = 0;
   for (let p = 0; p < bad.length; p++) {
     const i = p * 4;
+    diff[i + 3] = 255;
+    if (skip[p]) continue;
+    compared++;
     const off = Math.max(
       Math.abs(ref[i]! - got[i]!),
       Math.abs(ref[i + 1]! - got[i + 1]!),
@@ -93,7 +100,6 @@ function compare(ref: Uint8Array, got: Uint8Array, width: number): Verdict {
     diff[i] = bad[p] ? 255 : got[i]! >> 2;
     diff[i + 1] = bad[p] ? 0 : got[i + 1]! >> 2;
     diff[i + 2] = bad[p] ? 0 : got[i + 2]! >> 2;
-    diff[i + 3] = 255;
   }
   let differing = 0;
   let blocks = 0;
@@ -104,7 +110,7 @@ function compare(ref: Uint8Array, got: Uint8Array, width: number): Verdict {
     if (x + 1 < width && bad[p + 1] && bad[p + width] && bad[p + width + 1])
       blocks++;
   }
-  return { share: differing / bad.length, blocks, diff };
+  return { share: differing / compared, blocks, diff };
 }
 
 const passes = (v: Verdict) => v.share <= MAX_DIFFERING && v.blocks === 0;
@@ -112,10 +118,11 @@ const passes = (v: Verdict) => v.share <= MAX_DIFFERING && v.blocks === 0;
 const pct = (share: number) => `${(share * 100).toFixed(3)}%`;
 
 describe('latch banner parity with the approved prototype', () => {
-  for (const [name, variant] of CASES) {
+  const strips = parityStrips();
+  for (const [name, variant] of PARITY_CASES) {
     test(name, () => {
       const ref = decode(readFileSync(join(REFERENCE, `latch-${name}.gif`)));
-      const got = decode(renderBannerGif(PROTOTYPE_CREATURE, variant));
+      const got = decode(renderBannerGif(PROTOTYPE_CREATURE, variant, strips));
       expect([got.width, got.height]).toEqual([ref.width, ref.height]);
       expect(got.frames.length).toBe(ref.frames.length);
       expect(got.delays).toEqual(ref.delays);
@@ -123,7 +130,7 @@ describe('latch banner parity with the approved prototype', () => {
       const failures: string[] = [];
       const shares: string[] = [];
       ref.frames.forEach((refFrame, i) => {
-        const v = compare(refFrame, got.frames[i]!, ref.width);
+        const v = compare(refFrame, got.frames[i]!, ref.width, CORNERS);
         shares.push(`${pct(v.share)}/${v.blocks}`);
         if (passes(v)) return;
         mkdirSync(OUT, { recursive: true });
@@ -156,7 +163,7 @@ describe('the parity gate rejects a missing feature', () => {
   for (const [feature, name, a, b] of FEATURE_PAIRS) {
     test(feature, () => {
       const ref = decode(readFileSync(join(REFERENCE, `latch-${name}.gif`)));
-      const v = compare(ref.frames[a]!, ref.frames[b]!, ref.width);
+      const v = compare(ref.frames[a]!, ref.frames[b]!, ref.width, NO_CORNERS);
       expect(v.share).toBeLessThanOrEqual(MAX_DIFFERING);
       expect(passes(v)).toBe(false);
     });

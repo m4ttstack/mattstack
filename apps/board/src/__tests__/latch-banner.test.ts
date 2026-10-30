@@ -11,6 +11,7 @@ import {
 } from '../latch/banner.ts';
 import {
   allVariantKeys,
+  BANNER_SCALE,
   copyFor,
   DOT_GAP_PX,
   DOT_PX,
@@ -24,6 +25,8 @@ const MR_B = 'https://gitlab.com/acme/web/-/merge_requests/2318';
 
 interface GifFrame {
   delay: number;
+  transparentIndex: number | null;
+  dispose: number;
   pixels: Uint8Array;
 }
 
@@ -100,12 +103,19 @@ function parseGif(b: Uint8Array): Gif {
   }
   const frames: GifFrame[] = [];
   let delay = 0;
+  let transparentIndex: number | null = null;
+  let dispose = 0;
   while (p < b.length) {
     const tag = b[p]!;
     if (tag === 0x3b) break;
     if (tag === 0x21) {
       const label = b[p + 1]!;
-      if (label === 0xf9) delay = (b[p + 4]! | (b[p + 5]! << 8)) * 10;
+      if (label === 0xf9) {
+        const flags = b[p + 3]!;
+        delay = (b[p + 4]! | (b[p + 5]! << 8)) * 10;
+        transparentIndex = flags & 1 ? b[p + 6]! : null;
+        dispose = (flags >> 2) & 7;
+      }
       [, p] = readSubBlocks(b, p + 2);
     } else if (tag === 0x2c) {
       const w = b[p + 5]! | (b[p + 6]! << 8);
@@ -113,7 +123,12 @@ function parseGif(b: Uint8Array): Gif {
       if (b[p + 9]! & 0x80) throw new Error('local colour tables not expected');
       const minSize = b[p + 10]!;
       const [data, next] = readSubBlocks(b, p + 11);
-      frames.push({ delay, pixels: lzwDecode(data, minSize, w * h) });
+      frames.push({
+        delay,
+        transparentIndex,
+        dispose,
+        pixels: lzwDecode(data, minSize, w * h),
+      });
       p = next;
     } else {
       throw new Error(`unexpected GIF block 0x${tag.toString(16)} at ${p}`);
@@ -154,13 +169,17 @@ function toGrid(rows: readonly string[]): boolean[][] {
   return rows.map(row => [...row].map(c => c === '#'));
 }
 
+const S = BANNER_SCALE;
+const CELL = 3 * S;
+
 /** Centre of sprite cell (col, row) at rest, for the 11-wide creatures. */
 function cellCentre(col: number, row: number): [number, number] {
-  return [28 + (2 + col) * 6 + 3, 32 + row * 6 + 3];
+  return [14 * S + (2 + col) * CELL + 4, 16 * S + row * CELL + 4];
 }
 
 describe('latchBannerGif', () => {
-  test('encodes a 1040x128 GIF for every variant key', () => {
+  test('encodes a 1560x192 GIF for every variant key', () => {
+    expect([GIF_W, GIF_H]).toEqual([1560, 192]);
     for (const key of allVariantKeys()) {
       const b = gifFor(key);
       expect(String.fromCharCode(...b.slice(0, 6))).toBe('GIF89a');
@@ -179,9 +198,9 @@ describe('latchBannerGif', () => {
     }
   }, 60_000);
 
-  test('every GIF is under 80 KB', () => {
+  test('every GIF is under 100 KB', () => {
     for (const key of allVariantKeys()) {
-      expect({ key, small: gifFor(key).length < 80 * 1024 }).toEqual({
+      expect({ key, small: gifFor(key).length < 100 * 1024 }).toEqual({
         key,
         small: true,
       });
@@ -225,6 +244,62 @@ describe('latchBannerGif', () => {
     }
   }, 60_000);
 
+  test('the four corner pixels are transparent in every frame and the centre is not', () => {
+    const corners: [number, number][] = [
+      [0, 0],
+      [GIF_W - 1, 0],
+      [0, GIF_H - 1],
+      [GIF_W - 1, GIF_H - 1],
+    ];
+    for (const key of allVariantKeys()) {
+      const gif = parseGif(gifFor(key));
+      const seen = gif.frames.map(f => {
+        const at = (x: number, y: number) => f.pixels[y * gif.width + x];
+        return {
+          dispose: f.dispose,
+          corners: corners.map(([x, y]) => at(x, y) === f.transparentIndex),
+          centre: at(GIF_W / 2, GIF_H / 2) === f.transparentIndex,
+        };
+      });
+      expect({ key, seen }).toEqual({
+        key,
+        seen: gif.frames.map(() => ({
+          dispose: 1,
+          corners: [true, true, true, true],
+          centre: false,
+        })),
+      });
+    }
+  }, 60_000);
+
+  test('the corners are a quarter circle of radius 6 CSS px', () => {
+    const gif = parseGif(gifFor('armed'));
+    const r = 6 * S;
+    const clear = gif.frames[0]!.transparentIndex;
+    const at = (x: number, y: number) =>
+      gif.frames[0]!.pixels[y * gif.width + x] === clear;
+    // Pixel centres farther than r from the corner circle's centre.
+    const want: string[] = [];
+    const got: string[][] = [[], [], [], []];
+    for (let y = 0; y < r; y++) {
+      for (let x = 0; x < r; x++) {
+        if ((r - x - 0.5) ** 2 + (r - y - 0.5) ** 2 > r * r)
+          want.push(`${x},${y}`);
+        const mx = GIF_W - 1 - x;
+        const my = GIF_H - 1 - y;
+        if (at(x, y)) got[0]!.push(`${x},${y}`);
+        if (at(mx, y)) got[1]!.push(`${x},${y}`);
+        if (at(x, my)) got[2]!.push(`${x},${y}`);
+        if (at(mx, my)) got[3]!.push(`${x},${y}`);
+      }
+    }
+    expect(want).toContain('13,0');
+    expect(want).not.toContain('14,0');
+    expect(got).toEqual([want, want, want, want]);
+    expect(at(r, 0) || at(0, r) || at(r, r)).toBe(false);
+    expect(rgbAt(gif, 0, 0, 0)).toBe('#2a2638');
+  });
+
   test('names the variant when its strip is missing', () => {
     expect(() =>
       renderBannerGif(PROTOTYPE_CREATURE, { state: 'nope' as never })
@@ -237,7 +312,12 @@ describe('latchBannerGif', () => {
       LAYOUT as Record<string, { dotsX: number; dotsY: number }>
     )['queued-cooldown']!;
     const dot = (i: number, frame: number) =>
-      rgbAt(gif, frame, dotsX + i * (DOT_PX + DOT_GAP_PX) + 4, dotsY + 4);
+      rgbAt(
+        gif,
+        frame,
+        dotsX + i * (DOT_PX + DOT_GAP_PX) * S + (DOT_PX * S) / 2,
+        dotsY + (DOT_PX * S) / 2
+      );
     expect([0, 1, 2].map(i => dot(i, 0))).toEqual(Array(3).fill('#2a2638'));
     expect([0, 1, 2].map(i => dot(i, 3))).toEqual(Array(3).fill('#e6b860'));
     expect(gif.frames.map(f => f.delay)).toEqual(Array(8).fill(420));
@@ -245,8 +325,8 @@ describe('latchBannerGif', () => {
 
   test('moves the running ring head clockwise', () => {
     const gif = parseGif(gifFor('running'));
-    const topLeft: [number, number] = [948 + 6, 42 + 6];
-    const topMid: [number, number] = [964 + 6, 42 + 6];
+    const topLeft: [number, number] = [474 * S + 9, 21 * S + 9];
+    const topMid: [number, number] = [482 * S + 9, 21 * S + 9];
     expect(rgbAt(gif, 0, ...topLeft)).toBe('#7fbfe8');
     expect(rgbAt(gif, 0, ...topMid)).toBe('#5d5775');
     expect(rgbAt(gif, 1, ...topMid)).toBe('#7fbfe8');

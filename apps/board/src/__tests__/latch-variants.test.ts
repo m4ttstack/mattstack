@@ -93,9 +93,9 @@ describe('variant keys', () => {
     );
   });
 
-  test('dot pitch is shared in 2x px', () => {
-    expect(DOT_PX).toBe(8);
-    expect(DOT_GAP_PX).toBe(8);
+  test('dot pitch is shared in CSS px', () => {
+    expect(DOT_PX).toBe(4);
+    expect(DOT_GAP_PX).toBe(4);
   });
 
   test('unknown keys have no variant', () => {

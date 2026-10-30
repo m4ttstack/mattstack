@@ -64,9 +64,14 @@ const RETRY_WAITS = Object.keys(RETRY_SUB) as WaitReason[];
 
 const MAX_COUNT = 20;
 
-/** The indicator's dots, in 2x px: each dot is DOT_PX square, DOT_GAP_PX apart. */
-export const DOT_PX = 8;
-export const DOT_GAP_PX = 8;
+/** The banner's size in CSS px. Strips and GIFs are rasterised at BANNER_SCALE. */
+export const BANNER_CSS_W = 520;
+export const BANNER_CSS_H = 64;
+export const BANNER_SCALE = 3;
+
+/** The indicator's dots, in CSS px: each dot is DOT_PX square, DOT_GAP_PX apart. */
+export const DOT_PX = 4;
+export const DOT_GAP_PX = 4;
 
 function cleanCount(count: number | null | undefined): number | null {
   if (count == null || !Number.isFinite(count)) return null;
