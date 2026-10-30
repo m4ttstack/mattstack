@@ -62,6 +62,7 @@ function inputs(over: Partial<ThisMacInputs> = {}): ThisMacInputs {
   return {
     path: "join",
     plan: plan([placeRow(WIDGETS, "ready", "The board starts here"), placeRow(ACME_API, "ready")]),
+    forge: { provider: "gitlab", host: "gitlab.com" },
     signIn: [],
     ranOk: false,
     cltInstalled: true,

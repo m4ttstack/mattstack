@@ -18,6 +18,7 @@ import {
 } from "../form.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import type { ToolRequirement } from "../requirements.ts";
+import { CLI_SESSION_INTEGRATIONS } from "../sign-in-tools.ts";
 import type { SetupIntent } from "../intent.ts";
 import type { SetupRun } from "../state.ts";
 import { HOME_BACKUP_PUSH_ACTION } from "../validators/rt-health.ts";
@@ -132,6 +133,17 @@ describe("formStage on a finished Mac", () => {
   test("a finished Mac joining another team from Settings lands on the wait", () => {
     expect(finished({ join: "waiting" })).toBe("waiting");
     expect(finished({ join: "unredeemed", connectDone: false })).toBe("invite");
+    expect(finished({ join: "waiting", run: RUNNING })).toBe("waiting");
+  });
+
+  test("a finished Mac that relaunches mid-bar goes back to the bar", () => {
+    expect(finished({ run: RUNNING })).toBe("running");
+    expect(finished({ run: RUNNING, macosDone: false, connectDone: false, thisMacDone: false, needsRun: true })).toBe("running");
+  });
+
+  test("a finished Mac whose re-run failed shows Setup paused", () => {
+    expect(finished({ run: FAILED })).toBe("paused");
+    expect(finished({ run: FAILED, macosDone: false, connectDone: false, thisMacDone: false, needsRun: true })).toBe("paused");
   });
 });
 
@@ -187,17 +199,30 @@ function runFixRows(): Row[] {
 const SECTIONS = ["macos", "connect", "this-mac"] as const;
 type Section = (typeof SECTIONS)[number];
 
-function screens(p: Plan, o: { path?: FormPath; ranOk: boolean; signIn?: ToolRequirement[] }): Record<Section, FormRow[]> {
+const GITLAB = { provider: "gitlab" as const, host: "gitlab.com" };
+
+interface Drawn {
+  path: FormPath;
+  forge: typeof GITLAB | null;
+  signIn: ToolRequirement[];
+}
+
+function drawn(o: Partial<Drawn> = {}): Drawn {
   const path = o.path ?? "join";
-  const signIn = o.signIn ?? [DOPPLER];
+  return { path, forge: "forge" in o ? (o.forge ?? null) : path === "solo" ? null : GITLAB, signIn: o.signIn ?? [DOPPLER] };
+}
+
+function screens(p: Plan, o: { ranOk: boolean } & Partial<Drawn>): Record<Section, FormRow[]> {
+  const { path, forge, signIn } = drawn(o);
   const permissions = p.groups.flatMap((g) => g.rows).filter((x) => x.id.startsWith("perm."));
   const denied = permissions.find((x) => x.id === "perm.notifications")?.detail === "Denied";
   return {
     macos: macosRows({ permissions, notifications: denied ? "denied" : "authorized", fancyUrls: FANCY_DONE }),
-    connect: connectRows({ path, plan: p, forge: path === "solo" ? null : { provider: "gitlab", host: "gitlab.com" }, forgeLogin: "janedoe", signIn, prepare: null, logins: {} }),
+    connect: connectRows({ path, plan: p, forge, forgeLogin: "janedoe", signIn, prepare: null, logins: {} }),
     "this-mac": thisMacRows({
       path,
       plan: p,
+      forge,
       signIn,
       ranOk: o.ranOk,
       cltInstalled: true,
@@ -211,7 +236,6 @@ function screens(p: Plan, o: { path?: FormPath; ranOk: boolean; signIn?: ToolReq
 }
 
 const DRAWN_AS: Record<string, string[]> = {
-  forge: ["account.github", "account.gitlab"],
   slack: ["account.slack"],
   "slack-app": ["account.slack-app"],
   claude: ["tool.claude"],
@@ -220,20 +244,22 @@ const DRAWN_AS: Record<string, string[]> = {
 };
 
 /** The plan rows a drawn row stands for: some sections draw a plan row under a name of their own. */
-function planIdsOf(drawn: string, signIn: ToolRequirement[]): string[] {
-  if (drawn.startsWith("signin.")) {
-    const name = drawn.slice("signin.".length);
-    const connect = signIn.find((t) => t.name === name)?.connect;
-    return [`tool.team.${name}`, ...(connect && "integration" in connect ? [`account.${connect.integration}`] : [])];
+function planIdsOf(id: string, d: Drawn): string[] {
+  if (id === "forge") return [`account.${d.path === "solo" ? "github" : d.forge!.provider}`];
+  if (id.startsWith("signin.")) {
+    const name = id.slice("signin.".length);
+    const connect = d.signIn.find((t) => t.name === name)?.connect;
+    const session = connect && "integration" in connect && CLI_SESSION_INTEGRATIONS.includes(connect.integration) ? [`account.${connect.integration}`] : [];
+    return [`tool.team.${name}`, ...session];
   }
-  if (drawn.startsWith("settings.")) return [];
-  return DRAWN_AS[drawn] ?? [drawn];
+  if (id.startsWith("settings.")) return [];
+  return DRAWN_AS[id] ?? [id];
 }
 
-function drawnStates(s: Record<Section, FormRow[]>, signIn: ToolRequirement[]): Map<string, FormRow["state"][]> {
+function drawnStates(s: Record<Section, FormRow[]>, d: Drawn): Map<string, FormRow["state"][]> {
   const states = new Map<string, FormRow["state"][]>();
   for (const section of SECTIONS) {
-    for (const x of s[section]) for (const id of planIdsOf(x.id, signIn)) states.set(id, [...(states.get(id) ?? []), x.state]);
+    for (const x of s[section]) for (const id of planIdsOf(x.id, d)) states.set(id, [...(states.get(id) ?? []), x.state]);
   }
   return states;
 }
@@ -255,26 +281,51 @@ function stageOf(s: Record<Section, FormRow[]>, p: Plan, o: { finished: boolean;
   });
 }
 
+/** Rows an earlier ownership claimed though this path's screens never draw them. */
+function undrawnRows(): { name: string; rows: Row[]; drawn: Partial<Drawn> }[] {
+  const slackApp = r("account.slack-app", "missing", "The team has no Slack app yet", {
+    action: { type: "owner-once", label: "Create the team's Slack app…", integration: "slack", fields: [{ name: "configToken", label: "App configuration token", secret: true }] },
+  });
+  const ldcli = r("account.ldcli", "missing", "Not signed in to LaunchDarkly", { action: { type: "run", label: "Sign in", verb: ["setup", "ldcli", "connect"] } });
+  const github = r("account.github", "missing", "No GitHub account connected yet", { action: { type: "connect", label: "Connect", integration: "github", fields: [] } });
+  const gitlab = r("account.gitlab", "missing", "No GitLab account connected yet", { action: { type: "connect", label: "Connect", integration: "gitlab", fields: [] } });
+  const settled = settledRows();
+  return [
+    { name: "a joiner's Slack app row", rows: [...settled, slackApp], drawn: {} },
+    { name: "a session account no sign-in tool draws", rows: [...settled, ldcli], drawn: {} },
+    { name: "a pack's other forge listed before the team's", rows: [github, ...settled], drawn: {} },
+    { name: "a team whose forge is not known yet", rows: [...settled.filter((x) => x.id !== "account.gitlab"), gitlab], drawn: { forge: null } },
+  ];
+}
+
 describe("every row that blocks Install or Finish is on a screen", () => {
-  const cases: { name: string; rows: Row[]; run: SetupRun | undefined }[] = [
+  const cases: { name: string; rows: Row[]; run: SetupRun | undefined; drawn?: Partial<Drawn> }[] = [
     { name: "before a run", rows: [...settledRows(), ...formFixRows()], run: undefined },
     { name: "after an ok run", rows: [...settledRows(), ...runFixRows()], run: ENDED_OK },
     { name: "after an ok run that left both kinds", rows: [...settledRows(), ...formFixRows(), ...runFixRows()], run: ENDED_OK },
+    ...undrawnRows().flatMap((u) => [
+      { ...u, name: `${u.name}, before a run`, run: undefined },
+      { ...u, name: `${u.name}, after an ok run`, run: ENDED_OK },
+    ]),
   ];
 
   test("setup never lands on a screen that shows none of the missing rows", () => {
     for (const c of cases) {
       const p = plan(c.rows);
-      const s = screens(p, { ranOk: c.run?.ok === true });
-      const drawn = drawnStates(s, [DOPPLER]);
-      for (const id of p.finishBlockedBy) expect({ case: c.name, id, states: drawn.get(id) ?? [] }).toMatchObject({ states: expect.arrayContaining(["todo"]) });
+      const d = drawn(c.drawn);
+      const s = screens(p, { ranOk: c.run?.ok === true, ...c.drawn });
+      const states = drawnStates(s, d);
+      expect({ case: c.name, blocking: p.requiredMissing.length + p.finishBlockedBy.length > 0 }).toEqual({ case: c.name, blocking: true });
+      for (const id of p.finishBlockedBy) expect({ case: c.name, id, states: states.get(id) ?? [] }).toMatchObject({ states: expect.arrayContaining(["todo"]) });
       for (const id of p.requiredMissing) {
-        const states = drawn.get(id) ?? [];
-        expect({ case: c.name, id, drawn: states.some((st) => st === "todo" || st === "done") }).toEqual({ case: c.name, id, drawn: true });
+        const shown = (states.get(id) ?? []).some((st) => st === "todo" || st === "done");
+        expect({ case: c.name, id, shown }).toEqual({ case: c.name, id, shown: true });
       }
       const first = SECTIONS.find((section) => holdsTodo(s[section]));
-      expect(first).toBeDefined();
-      for (const finished of [false, true]) expect({ case: c.name, finished, stage: stageOf(s, p, { finished, run: c.run }) }).toEqual({ case: c.name, finished, stage: first! });
+      expect({ case: c.name, first }).toMatchObject({ first: expect.any(String) });
+      for (const finished of [false, true]) {
+        expect({ case: c.name, finished, stage: stageOf(s, p, { finished, run: c.run, path: d.path }) }).toEqual({ case: c.name, finished, stage: first! });
+      }
     }
   });
 
@@ -282,7 +333,7 @@ describe("every row that blocks Install or Finish is on a screen", () => {
     const p = plan([...settledRows(), r("tool.daemon", "missing", "Not running")]);
     const s = screens(p, { ranOk: false });
     expect(p.requiredMissing).toEqual(["tool.daemon"]);
-    expect(drawnStates(s, [DOPPLER]).has("tool.daemon")).toBe(false);
+    expect(drawnStates(s, drawn()).has("tool.daemon")).toBe(false);
     expect(stageOf(s, p, { finished: true, run: undefined })).toBe("this-mac");
   });
 

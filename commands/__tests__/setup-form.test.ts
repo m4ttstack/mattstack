@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setupForm, type FormDeps } from "../setup-form.ts";
 import { finalizePlan, row, type Plan, type Row } from "../../lib/setup/contract.ts";
 import { readSetupState, type SetupRun } from "../../lib/setup/state.ts";
-import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+import { PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH } from "../../lib/setup/steps/services.ts";
+import { fakeProbes, fakeTray } from "../../lib/setup/__tests__/fakes.ts";
 import { capturePlain } from "./helpers/json-line.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
@@ -14,11 +15,27 @@ class ExitSentinel extends Error {
 
 const STATE = "/fake-home/.mattstack/rt/setup-state.json";
 
-function deps(o: { run?: SetupRun; plan?: Plan } = {}) {
+/** Every screen answered on a Just me Mac: the proxy, its certificate and Homebrew in place, and a folder for new clones chosen. */
+const ANSWERED_FILES = {
+  [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
+  [PROXY_VERSION_PATH]: "0.9.0",
+  "/fake-home/.portless/ca.pem": "pem",
+  "/opt/homebrew/bin/brew": "",
+  "/fake-home/.mattstack/rt/repo-root.json": JSON.stringify({ root: "/fake-home/code" }),
+};
+
+function grantedTray(notifications: "authorized" | "denied") {
+  return fakeTray({ "GET /permissions": () => ({ status: 200, json: { fda: { status: "granted" }, notifications: { status: notifications }, loginItems: { status: "enabled" } } }) });
+}
+
+function deps(o: { run?: SetupRun; plan?: Plan; answered?: boolean; notifications?: "authorized" | "denied" } = {}) {
   const lines: string[] = [];
-  const files: Record<string, string> = o.run ? { [STATE]: JSON.stringify({ v: 2, run: o.run }) } : {};
+  const files: Record<string, string> = {
+    ...(o.run ? { [STATE]: JSON.stringify({ v: 2, run: o.run }) } : {}),
+    ...(o.answered ? ANSWERED_FILES : {}),
+  };
   const d: FormDeps = {
-    probes: fakeProbes({ home: "/fake-home", files }),
+    probes: fakeProbes({ home: "/fake-home", files, ...(o.answered ? { tray: grantedTray(o.notifications ?? "authorized") } : {}) }),
     secrets: { has: async () => null },
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code) => {
@@ -40,7 +57,8 @@ function plan(rows: Row[]): Plan {
   return finalizePlan({ slug: "", name: "", mode: "none" }, [{ id: "tools", title: "Tools", rows }], NOW);
 }
 
-const CLEAR = plan([r("tool.claude", "ready", "Claude Code 2.1.0, signed in"), r("tool.shell", "ready", "zsh", { finishGated: true, waivable: false })]);
+const SETTLED = [r("tool.clt", "ready", "Installed"), r("tool.claude", "ready", "Claude Code 2.1.0, signed in"), r("tool.chrome", "ready", "Google Chrome installed")];
+const CLEAR = plan([...SETTLED, r("tool.shell", "ready", "zsh", { finishGated: true, waivable: false })]);
 const ENDED_OK: SetupRun = { startedAt: "2025-12-31T23:40:00.000Z", done: ["home.init", "verify"], endedAt: "2025-12-31T23:50:00.000Z", ok: true };
 
 async function exitCode(fn: () => Promise<void>): Promise<number | undefined> {
@@ -104,7 +122,7 @@ describe("rt setup form finishes setup once nothing blocks it", () => {
   const finishedAt = (t: ReturnType<typeof deps>) => readSetupState(t.d.probes).finishedAt;
 
   test("fixing the last leftover after an ok run finishes setup at the next read", async () => {
-    const t = deps({ run: ENDED_OK, plan: CLEAR });
+    const t = deps({ run: ENDED_OK, plan: CLEAR, answered: true });
     await setupForm(["--json"], {}, t.d);
     expect(finishedAt(t)).toBe("2026-01-01T00:00:00.000Z");
     const body = JSON.parse(t.lines[0]!);
@@ -113,12 +131,30 @@ describe("rt setup form finishes setup once nothing blocks it", () => {
   });
 
   test("denied notifications left in requiredMissing never stop the form finishing", async () => {
-    const denied = plan([r("perm.notifications", "needs-you", "Denied"), r("tool.claude", "ready", "Claude Code 2.1.0, signed in")]);
+    const denied = plan([r("perm.notifications", "needs-you", "Denied"), ...SETTLED]);
     expect(denied.requiredMissing).toEqual(["perm.notifications"]);
-    const t = deps({ run: ENDED_OK, plan: denied });
+    const t = deps({ run: ENDED_OK, plan: denied, answered: true, notifications: "denied" });
     await setupForm(["--json"], {}, t.d);
     expect(finishedAt(t)).toBeDefined();
     expect(JSON.parse(t.lines[0]!).stage).toBe("ready");
+  });
+
+  test("finishing on a read lands where the next read would", async () => {
+    const sdm = r("account.sdm", "missing", "No StrongDM account connected yet", {
+      action: { type: "connect", label: "Connect", integration: "sdm", fields: [{ name: "email", label: "StrongDM email", secret: false }] },
+    });
+    const leftover = plan([...SETTLED, sdm]);
+    expect(leftover.finishBlockedBy).toEqual([]);
+    const t = deps({ run: ENDED_OK, plan: leftover, answered: true });
+
+    await setupForm(["--json"], {}, t.d);
+    await setupForm(["--json"], {}, t.d);
+
+    expect(finishedAt(t)).toBe("2026-01-01T00:00:00.000Z");
+    const [first, next] = t.lines.map((l) => JSON.parse(l));
+    expect(first.sections.macos.map((x: { state: string }) => x.state)).toEqual(["done", "done", "done"]);
+    expect(first.sections.connect.find((x: { id: string }) => x.id === "account.sdm")).toMatchObject({ state: "todo" });
+    expect([first.stage, next.stage]).toEqual(["connect", "connect"]);
   });
 
   test("a section read never finishes setup", async () => {

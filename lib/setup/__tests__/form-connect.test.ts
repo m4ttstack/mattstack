@@ -357,7 +357,7 @@ describe("extraRows", () => {
   test("after a run only the rows a run sets up come back", () => {
     const rows = swap(swap(joinerRows(), r("tool.daemon", "missing", "Not running")), r("tool.herdr", "invalid", "herdr 0.6.0 is older than 0.7.5", { action: HERDR_INSTALL }));
     const p = plan(rows);
-    const ids = (afterRun: boolean) => extraRows(p, formOwnedIds(p, [DOPPLER]), { afterRun, prepare: null }).map((x) => x.id);
+    const ids = (afterRun: boolean) => extraRows(p, formOwnedIds(p, { path: "join", forge: { provider: "gitlab", host: "gitlab.com" }, signIn: [DOPPLER] }), { afterRun, prepare: null }).map((x) => x.id);
     expect(ids(false)).toEqual(["tool.herdr"]);
     expect(ids(true)).toEqual(["tool.daemon"]);
   });
@@ -372,7 +372,7 @@ describe("extraRows", () => {
       r("repos.place:gitlab.com/acme/acme-api", "needs-you", "x"),
       r("home.backup", "needs-you", "x"),
     ];
-    const owned = formOwnedIds(plan(rows), [DOPPLER]);
+    const owned = formOwnedIds(plan(rows), { path: "create", forge: { provider: "gitlab", host: "gitlab.com" }, signIn: [DOPPLER] });
     for (const id of ["perm.fda", "perm.notifications", "tool.clt", "account.gitlab", "account.slack-app", "account.slack", "tool.claude", "tool.team.doppler", "account.doppler", "account.linear", "tool.chrome", "tool.fast-browser-extension", "repos.place:gitlab.com/acme/acme-api"]) {
       expect(owned.has(id)).toBe(true);
     }

@@ -314,38 +314,42 @@ export function runFixes(r: Row): boolean {
   return RUN_FIXES.has(r.id) || r.id.startsWith("pack.") || r.waitsForInstall === true || (r.id === "tool.herdr" && r.status === "needs-you");
 }
 
-const FORGE_ACCOUNT_IDS = ["account.github", "account.gitlab"];
-
 function planRows(plan: Plan): Row[] {
   return plan.groups.flatMap((g) => g.rows);
 }
 
+type FormForge = { provider: Forge; host: string };
+
+/** What a path's screens draw as their own rows; ownership reads it so a row they do not draw falls through to the extra rows. */
+export interface DrawnContext {
+  path: FormPath;
+  /** The team's forge; Just me always draws GitHub. */
+  forge: FormForge | null;
+  signIn: readonly ToolRequirement[];
+}
+
+function drawnForge(d: Pick<DrawnContext, "path" | "forge">): FormForge | null {
+  return d.path === "solo" ? { provider: "github", host: "github.com" } : d.forge;
+}
+
 /**
- * Every plan row some section draws as its own row. The team's forge is the
- * first forge account the plan lists, so a pack's other forge still shows.
- * `home.backup` stays out: its plan row is what says whether a push landed.
+ * Every plan row a section draws as its own row on this path. `home.backup`
+ * stays out: its plan row is what says whether a push landed.
  */
-export function formOwnedIds(plan: Plan, signIn: readonly ToolRequirement[] = []): Set<string> {
-  const rows = planRows(plan);
-  const owned = new Set([
-    "perm.fda",
-    "perm.notifications",
-    "tool.clt",
-    "account.slack-app",
-    "account.slack",
-    "tool.claude",
-    "account.linear",
-    "tool.chrome",
-    "tool.fast-browser-extension",
-    ...CLI_SESSION_INTEGRATIONS.map((id) => `account.${id}`),
-  ]);
-  const forge = rows.find((r) => FORGE_ACCOUNT_IDS.includes(r.id));
-  if (forge) owned.add(forge.id);
-  for (const tool of signIn) {
+export function formOwnedIds(plan: Plan, d: DrawnContext): Set<string> {
+  const owned = new Set(["perm.fda", "perm.notifications", "tool.clt", "tool.claude", "tool.chrome", "tool.fast-browser-extension"]);
+  const forge = drawnForge(d);
+  if (forge) owned.add(`account.${forge.provider}`);
+  if (d.path === "create") owned.add("account.slack-app");
+  if (d.path === "solo") return owned;
+  owned.add("account.slack");
+  owned.add("account.linear");
+  for (const tool of d.signIn) {
     owned.add(`tool.team.${tool.name}`);
-    if (tool.connect && "integration" in tool.connect) owned.add(`account.${tool.connect.integration}`);
+    const session = sessionIntegration(tool);
+    if (session) owned.add(`account.${session}`);
   }
-  for (const r of rows) if (r.id.startsWith(REPO_PLACE_ROW_PREFIX)) owned.add(r.id);
+  for (const r of planRows(plan)) if (r.id.startsWith(REPO_PLACE_ROW_PREFIX)) owned.add(r.id);
   return owned;
 }
 
@@ -382,10 +386,8 @@ export function extraRows(plan: Plan, owned: Set<string>, opts: { afterRun: bool
     .map((r) => extraRow(r, opts.prepare));
 }
 
-export interface ConnectInputs {
-  path: FormPath;
+export interface ConnectInputs extends DrawnContext {
   plan: Plan;
-  forge: { provider: Forge; host: string } | null;
   forgeLogin: string | null;
   signIn: ToolRequirement[];
   /** The accounts stage. */
@@ -404,7 +406,7 @@ const GH_LOGIN = /^Signed in through the gh CLI as (\S+)/;
 
 function forgeRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow | null {
   const c = FORM_COPY.connect;
-  const forge = i.path === "solo" ? { provider: "github" as const, host: "github.com" } : i.forge;
+  const forge = drawnForge(i);
   if (forge === null) return null;
   const account = rows.get(`account.${forge.provider}`);
   const login = (account?.status === "ready" ? GH_LOGIN.exec(account.detail)?.[1] : undefined) ?? i.forgeLogin;
@@ -534,17 +536,16 @@ export function connectRows(i: ConnectInputs): FormRow[] {
     team ? slackRow(i, rows) : null,
     claudeRow(i, rows),
     ...(team ? i.signIn.map((tool) => signInRow(i, rows, tool)) : []),
-    ...extraRows(i.plan, formOwnedIds(i.plan, i.signIn), { afterRun: false, prepare: i.prepare }),
+    ...extraRows(i.plan, formOwnedIds(i.plan, i), { afterRun: false, prepare: i.prepare }),
     team ? linearRow(rows) : null,
     team ? fastBrowserRow(rows) : { ...fastBrowserRow(rows), optional: true },
   ];
   return list.filter((r): r is ConnectRow => r !== null).map(settle);
 }
 
-export interface ThisMacInputs {
-  path: FormPath;
+/** `forge` and `signIn` are the connect screen's, so a run's leftovers never draw one of its rows twice. */
+export interface ThisMacInputs extends DrawnContext {
   plan: Plan;
-  /** The connect screen's sign-in tools, so a run's leftovers never draw one twice. */
   signIn: ToolRequirement[];
   /** The last run ended ok. */
   ranOk: boolean;
@@ -634,7 +635,7 @@ export function thisMacRows(i: ThisMacInputs): FormRow[] {
     ...repos,
     backupRow(i),
     remoteRow(i),
-    ...(i.ranOk ? extraRows(i.plan, formOwnedIds(i.plan, i.signIn), { afterRun: true, prepare: i.prepare }) : []),
+    ...(i.ranOk ? extraRows(i.plan, formOwnedIds(i.plan, i), { afterRun: true, prepare: i.prepare }) : []),
   ];
   return list.filter((r): r is FormRow => r !== null);
 }
@@ -737,8 +738,8 @@ export interface StageInputs {
 export function formStage(i: StageInputs): FormStage {
   if (i.finished) return finishedStage(i);
   if (!i.macosDone) return "macos";
-  if (i.run !== undefined && i.run.endedAt === undefined) return "running";
-  if (i.run !== undefined && i.run.ok !== true) return "paused";
+  const bar = runStage(i.run);
+  if (bar) return bar;
   if (i.path === null) return "path";
   if (i.join === "unredeemed") return "invite";
   if (i.join === "waiting") return "waiting";
@@ -747,10 +748,22 @@ export function formStage(i: StageInputs): FormStage {
   return "this-mac";
 }
 
-/** A Join from Settings in flight outranks the finished state. */
+function runStage(run: SetupRun | undefined): "running" | "paused" | null {
+  if (run === undefined) return null;
+  if (run.endedAt === undefined) return "running";
+  return run.ok === true ? null : "paused";
+}
+
+/**
+ * A Join from Settings in flight outranks the finished state, and a run
+ * outranks the sections: a failed run here started after Finish (nothing
+ * finishes a failed run), so its Retry is the way on.
+ */
 function finishedStage(i: StageInputs): FormStage {
   if (i.join === "unredeemed") return "invite";
   if (i.join === "waiting") return "waiting";
+  const bar = runStage(i.run);
+  if (bar) return bar;
   if (!i.macosDone) return "macos";
   if (!i.connectDone) return "connect";
   if (!i.thisMacDone || i.needsRun) return "this-mac";
@@ -795,10 +808,14 @@ export function pausedFor(run: SetupRun | undefined, extras: { events: string | 
 
 const LOGIN_TOOLS: readonly LoginTool[] = ["claude", "doppler", "ldcli"];
 
+function teamForge(p: Probes, plan: Plan, intent: SetupIntent | null): FormForge | null {
+  const slug = plan.team.slug;
+  return enrichSnapshotForge(slug ? readTeamSnapshot(p, slug) : EMPTY_SNAPSHOT, intent).integrations.forge ?? null;
+}
+
 async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormPath): Promise<FormRow[]> {
   const intent = readIntent(p);
   const slug = plan.team.slug;
-  const snapshot = enrichSnapshotForge(slug ? readTeamSnapshot(p, slug) : EMPTY_SNAPSHOT, intent);
   const pointerLogin = intent?.mode === "join" ? (intent.join?.pointer.username ?? null) : null;
   const logins: ConnectInputs["logins"] = {};
   for (const tool of LOGIN_TOOLS) {
@@ -808,7 +825,7 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormP
   return connectRows({
     path,
     plan,
-    forge: snapshot.integrations.forge ?? null,
+    forge: teamForge(p, plan, intent),
     forgeLogin: (slug && orgs.includes(slug) ? readTeamLocal(p, slug).forgeUsername : undefined) ?? pointerLogin,
     signIn: signInTools(readPackRequirements(p, slug)),
     prepare: readPrepare(p, "accounts", undefined, () => p.now()),
@@ -830,6 +847,7 @@ async function thisMacSection(p: Probes, plan: Plan, path: FormPath, state: Setu
   return thisMacRows({
     path,
     plan,
+    forge: teamForge(p, plan, readIntent(p)),
     signIn: signInTools(readPackRequirements(p, plan.team.slug)),
     ranOk: state.run?.ok === true,
     cltInstalled: isReady(rows, "tool.clt"),
@@ -853,9 +871,10 @@ export interface FormOptions {
 
 /**
  * A whole read marks setup finished after a run that ended ok once nothing
- * blocks Finish, the same test the run's own finish makes. `requiredMissing`
- * is not read: a row a section draws as done, such as denied notifications,
- * can sit there for good.
+ * blocks Finish, the same test the run's own finish makes, then answers the
+ * stage a finished Mac gets, so the next read lands on the same screen.
+ * `requiredMissing` is not read for Finish: a row a section draws as done,
+ * such as denied notifications, can sit there for good.
  */
 export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupForm> {
   const wanted = opts.sections ?? FORM_SECTIONS;
@@ -897,23 +916,24 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   const run = state.run;
   const loginItems = permissionRows(permissions, null).find((r) => r.id === "perm.login-items");
   const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems });
+  let nowFinished = finished;
   if (!finished && run?.ok === true && (await plan()).finishBlockedBy.length === 0) {
     try {
       markSetupFinished(p);
-      return { ...form, stage: "ready", paused };
+      nowFinished = true;
     } catch (err) {
       warn("setup.form", `setup not marked finished: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   const stage = formStage({
-    finished,
+    finished: nowFinished,
     path,
     macosDone: allAnswered(sections.macos),
     join: intent?.mode === "join" ? "unredeemed" : (joined?.approval.kind ?? null),
     run,
     connectDone: allAnswered(sections.connect),
     thisMacDone: allAnswered(sections.thisMac),
-    needsRun: finished && needsRun(await plan()),
+    needsRun: nowFinished && needsRun(await plan()),
   });
   return { ...form, stage, paused };
 }
