@@ -26,6 +26,7 @@
     "@mattstack/settings-kit": "workspace:*",
     "@mattstack/tui-kit": "workspace:*",
     "@pierre/diffs": "catalog:",
+    "gifenc": "catalog:",
     "invadrs": "^1.3.1",
     "lucide-react": "catalog:",
     "motion": "14.2.0",
@@ -39,12 +40,15 @@
     "@happy-dom/global-registrator": "^20.14.0",
     "@types/bun": "latest",
     "@types/node": "catalog:",
+    "@types/omggif": "catalog:",
     "@types/pixelmatch": "^5.2.6",
     "@types/pngjs": "^6.0.5",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "omggif": "catalog:",
     "pixelmatch": "^7.2.0",
     "playwright": "^1.62.1",
+    "prettier": "catalog:",
     "typescript": "^7.0.2"
   },
   "//soribashi": "No @soribashi/* DEPENDENCY here, deliberately: registerTheme/SoribashiProvider come from @mattstack/tui-kit/provider, which keeps them on the same resolved path as the kit's own recipes. A direct @soribashi/core dep would bundle a SECOND copy of factory and silently break theming. The kit now resolves @soribashi/core from the registry (no file: deps in its own package.json), so no overrides block is needed here either. See docs/tui-kit-devloop.md."

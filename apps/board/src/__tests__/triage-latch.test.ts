@@ -1,16 +1,33 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
-import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
+import {
+  casLatch as casLatchIn,
+  putLatchRow,
+  readLatchRow,
+  type LatchRow,
+} from '../latch/latch-state.ts';
+import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
 import type { LatchGateway } from '../latch/post.ts';
+import { copyFor } from '../latch/variants.ts';
 import type { ReviewState } from '../review-state.ts';
+import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import {
+  LATCH_MAX_FAILURES,
+  LATCH_POST_GRACE_MS,
+  LATCH_REPLY_GIVE_UP_MS,
+  latchInScope,
   runLatchPass,
+  runStamp,
+  waitReasonOf,
   type LatchMrFacts,
   type LatchPassDeps,
 } from '../triage/latch.ts';
 import { emptyMrMemory, type DispatchMemory } from '../triage/memory.ts';
+import { removeTempDbs, tempDb } from './latch-temp-db.ts';
+
+afterAll(removeTempDbs);
 
 const NOW = 1_000_000_000;
 const MR = 'https://gitlab.com/acme/web/-/merge_requests/2317';
@@ -37,6 +54,33 @@ const commented: ReviewState = {
   startedAt: 0,
   updatedAt: 0,
 };
+
+const noOutcome: ReviewState = { ...commented, outcome: undefined };
+const RUNNING = '<!-- mattstack:board re-review-latch v1 running -->';
+const QUEUED = '<!-- mattstack:board re-review-latch v1 queued -->';
+const ARMED = '<!-- mattstack:board re-review-latch v1 -->';
+const SPENT = '<!-- mattstack:board re-review-latch v1 spent -->';
+const ERROR = '<!-- mattstack:board re-review-latch v1 error -->';
+const queuedBody = () => latchBody('queued', IMG, 'queued');
+const runningBody = () => latchBody('running', IMG, 'running');
+const errorBody = () => latchBody('error', IMG, 'error');
+
+function row(over: Partial<LatchRow> = {}): LatchRow {
+  return {
+    mrUrl: MR,
+    discussionId: 'd1',
+    rootNoteId: 1,
+    phase: 'armed',
+    wait: null,
+    launchAt: null,
+    failures: 0,
+    stuck: false,
+    variant: 'armed',
+    replyDue: null,
+    updatedAt: 1,
+    ...over,
+  };
+}
 
 function disc(
   id: string,
@@ -75,11 +119,13 @@ function harness(
   over: Partial<LatchPassDeps> & { detail?: MRDetail | null } = {}
 ) {
   const calls: string[] = [];
+  const uploads: string[] = [];
   const launches: string[] = [];
   const noteBodies = new Map<number, string>();
   const gateway: LatchGateway = {
-    async uploadFile() {
+    async uploadFile(_p, filename) {
       calls.push('upload');
+      uploads.push(filename);
       return { alt: '', url: '', full_path: '', markdown: IMG };
     },
     async createDiscussion() {
@@ -96,15 +142,20 @@ function harness(
     async unresolveDiscussion(_p, _i, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _i, _b, d) {
+    async createNote(_p, _i, body, d) {
       calls.push(`reply:${d}`);
+      replies.push(body);
       return { id: 9 };
     },
   };
+  const replies: string[] = [];
+  const audits: AuditEntry[] = [];
   const memory: DispatchMemory = { identity: null, mrs: {} };
   const resurrects: string[] = [];
   const drops: string[] = [];
   const notifies: Array<{ title: string; message: string; mrUrl: string }> = [];
+  const stuckNotices: Array<{ title: string; message: string; mrUrl: string }> =
+    [];
   const deps: LatchPassDeps = {
     readReviewStates: () => new Map([[MR, commented]]),
     readPrunedReviewStates: () => new Map(),
@@ -127,22 +178,44 @@ function harness(
     self: 'matt',
     cfg,
     reReview: { enabled: true },
-    appendAudit: () => {},
+    appendAudit: entry => {
+      audits.push(entry);
+    },
     notify: async (title, message, mrUrl) => {
       notifies.push({ title, message, mrUrl });
     },
+    notifyStuck: async (title, message, mrUrl) => {
+      stuckNotices.push({ title, message, mrUrl });
+    },
     now: () => NOW,
+    db: tempDb(),
     ...over,
   };
   return {
     deps,
     calls,
+    uploads,
     launches,
     memory,
     noteBodies,
     resurrects,
     drops,
     notifies,
+    stuckNotices,
+    replies,
+    audits,
+  };
+}
+
+function failNextReply(gw: LatchGateway): void {
+  const create = gw.createNote;
+  let broken = true;
+  gw.createNote = async (...args) => {
+    if (broken) {
+      broken = false;
+      throw new Error('gitlab 500');
+    }
+    return create(...args);
   };
 }
 
@@ -152,6 +225,26 @@ describe('step 0: no latch', () => {
     const r = await runLatchPass(deps);
     expect(r.posted).toBe(1);
     expect(calls).toEqual(['upload', 'createDiscussion']);
+  });
+
+  // A second writer must see the post before the daemon's discussion store does.
+  test('records the posted latch as an armed row', async () => {
+    const db = tempDb();
+    const { deps } = harness({ detail: detail(), db });
+    await runLatchPass(deps);
+    expect(readLatchRow(MR, db)).toEqual({
+      mrUrl: MR,
+      discussionId: 'new',
+      rootNoteId: 1,
+      phase: 'armed',
+      wait: null,
+      launchAt: null,
+      failures: 0,
+      stuck: false,
+      variant: 'armed',
+      replyDue: null,
+      updatedAt: NOW,
+    });
   });
 
   test('posts nothing on an approve-outcome state', async () => {
@@ -262,7 +355,41 @@ describe('step 2: armed and unresolved', () => {
       readReviewStates: () => new Map([[MR, approved]]),
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
-    expect(calls).toEqual(['updateNote:1', 'resolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:d1']);
+  });
+
+  test("the spend stamps the row with the pass's clock", async () => {
+    const db = tempDb();
+    putLatchRow(
+      {
+        mrUrl: MR,
+        discussionId: 'd1',
+        rootNoteId: 1,
+        phase: 'armed',
+        wait: null,
+        launchAt: null,
+        failures: 0,
+        stuck: false,
+        variant: 'armed',
+        replyDue: null,
+        updatedAt: 1,
+      },
+      db
+    );
+    const approved: ReviewState = { ...commented, outcome: 'approve' };
+    const { deps } = harness({
+      db,
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
+      ),
+      readReviewStates: () => new Map([[MR, approved]]),
+    });
+    await runLatchPass(deps);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      variant: 'approved',
+      updatedAt: NOW,
+    });
   });
 
   // Step 2 must spend every duplicate, not just the canonical latch.
@@ -296,12 +423,15 @@ describe('the re-review switch is board.reReview, not board.triage', () => {
     expect(r).toEqual({
       posted: 0,
       dispatched: 0,
-      rejected: 0,
+      queued: 0,
       spent: 0,
       repaired: 0,
       resurrected: 0,
       skipped: 0,
       failed: 0,
+      landed: 0,
+      errored: 0,
+      stuck: 0,
     });
     expect(calls).toEqual([]);
     expect(launches).toEqual([]);
@@ -320,20 +450,29 @@ describe('the re-review switch is board.reReview, not board.triage', () => {
     });
     expect((await runLatchPass(deps)).dispatched).toBe(1);
     expect(launches).toEqual([MR]);
-    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
   });
 });
 
 describe('step 3: armed and resolved', () => {
-  test('dispatches, replies, and unresolves to rearm', async () => {
-    const { deps, calls, launches, memory } = harness({
+  test('dispatches and shows running on the resolved latch, with no reply', async () => {
+    const db = tempDb();
+    const { deps, calls, launches, memory, noteBodies } = harness({
+      db,
       detail: detail(
         disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
       ),
     });
     expect((await runLatchPass(deps)).dispatched).toBe(1);
     expect(launches).toEqual([MR]);
-    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW,
+      wait: null,
+      variant: 'running',
+    });
     expect(memory.mrs[MR]?.attemptsToday).toBe(1);
     expect(memory.mrs[MR]?.lastDispatchAt).toBe(NOW);
   });
@@ -347,7 +486,7 @@ describe('step 3: armed and resolved', () => {
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
     expect(launches).toEqual([]);
-    expect(calls).toEqual(['updateNote:1', 'resolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:d1']);
   });
 
   // Spending only canon and the resolved carriers would strand an
@@ -367,30 +506,10 @@ describe('step 3: armed and resolved', () => {
     expect(calls).toContain('resolve:extra');
   });
 
-  test('a refusal replies with the reason and still unresolves', async () => {
-    const memory: DispatchMemory = {
-      identity: null,
-      mrs: {
-        [MR]: { ...emptyMrMemory('1970-01-12'), lastDispatchAt: NOW - 60_000 },
-      },
-    };
-    const { deps, calls, launches } = harness({
-      detail: detail(
-        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
-      ),
-      memory,
-    });
-    expect((await runLatchPass(deps)).rejected).toBe(1);
-    expect(launches).toEqual([]);
-    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
-    expect(memory.mrs[MR]?.attemptsToday).toBe(0);
-    expect(memory.mrs[MR]?.lastDispatchAt).toBe(NOW - 60_000);
-  });
-
   // A GitLab write failing after a successful launch must still charge the
   // attempt, or the next tick reads the same resolved latch as a fresh
   // request and dispatches again every tick for as long as the write fails.
-  test('a successful launch with a failing createNote still charges the attempt', async () => {
+  test('a successful launch with a failing note rewrite still charges the attempt', async () => {
     const { deps, launches, memory } = harness({
       detail: detail(
         disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
@@ -402,11 +521,13 @@ describe('step 3: armed and resolved', () => {
         async createDiscussion() {
           return { id: 'new', notes: [{ id: 1 }] };
         },
-        async updateNote() {},
+        async updateNote() {
+          throw new Error('gitlab 500');
+        },
         async resolveDiscussion() {},
         async unresolveDiscussion() {},
         async createNote() {
-          throw new Error('gitlab 500');
+          return { id: 9 };
         },
       },
     });
@@ -418,18 +539,21 @@ describe('step 3: armed and resolved', () => {
     expect(memory.mrs[MR]?.lastDispatchAt).toBe(NOW);
   });
 
-  test('a failed launch replies, consumes the request, and counts a rejection', async () => {
-    const { deps, calls, launches } = harness({
+  test('a failed launch never replies and supersedes the extra copy', async () => {
+    const db = tempDb();
+    const { deps, calls, replies } = harness({
+      db,
       detail: detail(
         disc('canon', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true),
         disc('extra', armedLatchBody(IMG), '2026-08-01T10:00:00Z', true)
       ),
       launchReReview: async () => ({ kind: 'error', message: 'boom' }),
     });
-    expect((await runLatchPass(deps)).rejected).toBe(1);
-    expect(launches).toEqual([]);
-    expect(calls).toContain('reply:canon');
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(replies).toEqual([]);
+    expect(calls.some(c => c.startsWith('reply:'))).toBe(false);
     expect(calls).toContain('resolve:extra');
+    expect(readLatchRow(MR, db)?.phase).toBe('error');
   });
 
   test('a dispatch notifies in plain words, pointing at the MR', async () => {
@@ -443,29 +567,6 @@ describe('step 3: armed and resolved', () => {
       {
         title: 'Follow-up review started on !2317',
         message: 'The author asked for a follow-up review',
-        mrUrl: MR,
-      },
-    ]);
-  });
-
-  test('a refusal notifies the plain reason, never the code', async () => {
-    const memory: DispatchMemory = {
-      identity: null,
-      mrs: {
-        [MR]: { ...emptyMrMemory('1970-01-12'), attemptsToday: 3 },
-      },
-    };
-    const { deps, notifies } = harness({
-      detail: detail(
-        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
-      ),
-      memory,
-    });
-    await runLatchPass(deps);
-    expect(notifies).toEqual([
-      {
-        title: 'Follow-up review skipped on !2317',
-        message: "Hit today's limit of 3 automatic runs",
         mrUrl: MR,
       },
     ]);
@@ -510,16 +611,7 @@ describe('dedupe', () => {
     });
     expect((await runLatchPass(deps)).dispatched).toBe(1);
     expect(launches).toEqual([MR]);
-    expect(calls).toEqual(
-      [
-        'reply:fresh',
-        'unresolve:fresh',
-        'updateNote:1',
-        'resolve:relic',
-      ].filter(
-        c => !c.startsWith('updateNote') && !c.startsWith('resolve:relic')
-      )
-    );
+    expect(calls).toEqual(['upload', 'updateNote:1']);
   });
 
   // Resolving the duplicate is still asking, and the request must be consumed
@@ -533,15 +625,15 @@ describe('dedupe', () => {
     });
     expect((await runLatchPass(deps)).dispatched).toBe(1);
     expect(launches).toEqual([MR]);
-    expect(calls).toContain('reply:canon');
+    expect(calls).toContain('resolve:canon');
     expect(calls).toContain('updateNote:1');
     expect(calls).toContain('resolve:extra');
+    expect(calls.some(c => c.startsWith('reply:'))).toBe(false);
   });
 
-  // The request bit must be consumed on the refusal path too, not just on
-  // dispatch. Left in the extra, it re-fires on every re-entry into scope:
-  // one unrequested dispatch per cooldown expiry, forever.
-  test('a refusal consumes a resolved extra, not just the canonical latch', async () => {
+  // The request bit must be consumed when the request queues too, not just
+  // on dispatch. Left in the extra, it re-fires once the latch is armed again.
+  test('queueing consumes a resolved extra, not just the canonical latch', async () => {
     const memory: DispatchMemory = {
       identity: null,
       mrs: {
@@ -555,10 +647,9 @@ describe('dedupe', () => {
       ),
       memory,
     });
-    expect((await runLatchPass(deps)).rejected).toBe(1);
+    expect((await runLatchPass(deps)).queued).toBe(1);
     expect(launches).toEqual([]);
-    expect(calls).toContain('reply:canon');
-    expect(calls).toContain('unresolve:canon');
+    expect(calls).not.toContain('unresolve:canon');
     expect(calls).toContain('resolve:extra');
   });
 
@@ -621,7 +712,7 @@ describe('tombstone resurrection', () => {
     expect(result.resurrected).toBe(1);
     expect(result.dispatched).toBe(1);
     expect(launches).toEqual([MR]);
-    expect(calls).toEqual(['reply:d1', 'unresolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
   });
 
   test('an armed unresolved latch revives the tombstone and waits', async () => {
@@ -698,7 +789,7 @@ describe('tombstone resurrection', () => {
     const result = await runLatchPass(deps);
     expect(resurrects).toEqual([MR]);
     expect(result.spent).toBe(1);
-    expect(calls).toEqual(['updateNote:1', 'resolve:d1']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:d1']);
   });
 
   test('an unreadable detail leaves the tombstone in place for the next tick', async () => {
@@ -776,7 +867,7 @@ describe('one latch per reviewer', () => {
     });
     expect((await runLatchPass(deps)).dispatched).toBe(1);
     expect(launches).toEqual([MR]);
-    expect(calls).toEqual(['reply:mine', 'unresolve:mine']);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
   });
 
   test("approving in GitLab spends this reviewer's armed latch and no other", async () => {
@@ -788,7 +879,7 @@ describe('one latch per reviewer', () => {
       fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
-    expect(calls).toEqual(['updateNote:1', 'resolve:mine']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'resolve:mine']);
   });
 
   test('posts nothing for a reviewer who already approved in GitLab', async () => {
@@ -798,5 +889,1825 @@ describe('one latch per reviewer', () => {
     });
     expect((await runLatchPass(deps)).posted).toBe(0);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('the queue', () => {
+  const cooling = (): DispatchMemory => ({
+    identity: null,
+    mrs: {
+      [MR]: { ...emptyMrMemory('1970-01-12'), lastDispatchAt: NOW - 60_000 },
+    },
+  });
+  const queuedRow = (over: Partial<LatchRow> = {}) =>
+    row({
+      phase: 'queued',
+      wait: 'cooldown',
+      variant: 'queued-cooldown',
+      ...over,
+    });
+
+  test('cooldown queues instead of replying Not yet', async () => {
+    const db = tempDb();
+    const { deps, calls, uploads, noteBodies, notifies, launches, audits } =
+      harness({
+        db,
+        memory: cooling(),
+        detail: detail(
+          disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+        ),
+      });
+    expect((await runLatchPass(deps)).queued).toBe(1);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(uploads).toEqual(['latch-2317-queued-cooldown.gif']);
+    expect(noteBodies.get(1)).toStartWith(QUEUED);
+    expect(notifies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'cooldown',
+      variant: 'queued-cooldown',
+    });
+    expect(audits.map(a => a.action)).toContain('queued');
+  });
+
+  test('queued dispatches when the block clears', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, calls, launches, noteBodies, memory, audits } = harness({
+      db,
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(calls.some(c => c.startsWith('reply:'))).toBe(false);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(memory.mrs[MR]?.attemptsToday).toBe(1);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW,
+      wait: null,
+    });
+    expect(audits.map(a => a.action)).toContain('dispatched');
+  });
+
+  test('wait reason change swaps the strip', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, uploads, launches, noteBodies, calls } = harness({
+      db,
+      memory: {
+        identity: null,
+        mrs: {
+          [MR]: {
+            ...emptyMrMemory('1970-01-12'),
+            attemptsToday: 3,
+            lastDispatchAt: NOW - 60_000,
+          },
+        },
+      },
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-queued-budget.gif']);
+    expect(noteBodies.get(1)).toStartWith(QUEUED);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'budget',
+      variant: 'queued-budget',
+    });
+  });
+
+  test('an unchanged wait touches nothing', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, calls } = harness({
+      db,
+      memory: cooling(),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)?.updatedAt).toBe(1);
+  });
+
+  test('a hand-launched review satisfies a queued request', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      startedAt: 5,
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, launches, noteBodies, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]).toBeUndefined();
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 1_000,
+    });
+  });
+
+  // The run began before the author resolved, so it cannot have seen the
+  // fixes the request is about.
+  test('a review already running when the request came in is not adopted', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 3_000,
+    };
+    const { deps, launches, uploads, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).queued).toBe(1);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(uploads).toEqual(['latch-2317-queued-review-in-flight.gif']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+      launchAt: NOW - 2_000,
+    });
+  });
+
+  test('a queued row with no request stamp never adopts a run in flight', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: null }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+    });
+  });
+
+  test('a review the board launched since the snapshot is adopted, not launched again', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 500,
+    };
+    let reads = 0;
+    const { deps, launches, memory, noteBodies, audits } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? commented : reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 500,
+    });
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: 'dispatched',
+        outcome: 'review already running',
+      })
+    );
+  });
+
+  test('an armed request finding a run launched since the snapshot adopts it', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW - LATCH_POST_GRACE_MS }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW,
+    };
+    let reads = 0;
+    const { deps, launches, memory } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? commented : reviewing]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW,
+    });
+  });
+
+  test('a run that began before the request, found at launch time, keeps the request waiting', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 2_000 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 3_000,
+    };
+    let reads = 0;
+    const { deps, launches, uploads } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? commented : reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-queued-review-in-flight.gif']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+    });
+  });
+
+  test('a running row whose note never showed running is healed', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({ phase: 'running', launchAt: NOW - 1_000, variant: 'armed' }),
+      db
+    );
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, calls, launches, noteBodies, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).repaired).toBe(1);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      variant: 'running',
+    });
+    expect(audits.map(a => a.action)).toContain('repaired');
+
+    await runLatchPass(deps);
+    expect(calls).toHaveLength(2);
+  });
+
+  test('stale note never re-requests a running latch', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({ phase: 'running', launchAt: NOW - 1_000, variant: 'running' }),
+      db
+    );
+    const { deps, calls, launches } = harness({
+      db,
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('a running row whose lane is gone is skipped', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({ phase: 'running', launchAt: NOW - 1_000, variant: 'running' }),
+      db
+    );
+    const { deps, calls, launches } = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).skipped).toBe(1);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test('author reopening a queued latch withdraws it', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow({ launchAt: NOW - 5_000 }), db);
+    const { deps, calls, launches, noteBodies, audits } = harness({
+      db,
+      memory: cooling(),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', false)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(ARMED + '\n');
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      wait: null,
+      launchAt: null,
+      variant: 'armed',
+    });
+    expect(audits.map(a => a.action)).toContain('withdrawn');
+  });
+
+  test('a stale armed unresolved read does not withdraw a queued latch', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, calls, launches } = harness({
+      db,
+      memory: cooling(),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('queued');
+  });
+
+  test('crash shape is repaired after the grace window', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({ variant: 'done-comments-3', updatedAt: NOW - LATCH_POST_GRACE_MS }),
+      db
+    );
+    const { deps, calls, uploads, launches, noteBodies, audits } = harness({
+      db,
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).repaired).toBe(1);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-done-comments-3.gif']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'unresolve:d1']);
+    expect(noteBodies.get(1)).toStartWith(ARMED + '\n');
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      variant: 'done-comments-3',
+    });
+    expect(audits.map(a => a.action)).toContain('repaired');
+  });
+
+  test('no repair inside the grace window', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const { deps, calls, launches } = harness({
+      db,
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test('queued row re-decides past an error lane', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const failed: ReviewState = {
+      ...commented,
+      status: 'error',
+      outcome: undefined,
+    };
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('a queued row whose lane is gone re-decides as a commented review', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, launches } = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('pre-change latch with no row is adopted', async () => {
+    const db = tempDb();
+    const { deps, calls, audits } = harness({
+      db,
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'd1',
+      rootNoteId: 1,
+      phase: 'armed',
+      updatedAt: NOW,
+    });
+    expect(audits.map(a => a.action)).toContain('adopted');
+  });
+
+  test('a spent note with no row is adopted as spent', async () => {
+    const db = tempDb();
+    const { deps } = harness({
+      db,
+      detail: detail(
+        disc('d1', spentLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(readLatchRow(MR, db)?.phase).toBe('spent');
+  });
+
+  // A post race can leave the row on an older copy while the newest copy is
+  // the one the author sees and acts on.
+  test('a row on an older copy is re-pointed to the canonical latch', async () => {
+    const db = tempDb();
+    putLatchRow(row({ discussionId: 'old', updatedAt: NOW }), db);
+    const { deps, launches, calls, audits } = harness({
+      db,
+      detail: detail(
+        disc('new', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true),
+        disc('old', armedLatchBody(IMG), '2026-08-01T10:00:00Z', false)
+      ),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(calls).not.toContain('resolve:old');
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'new',
+      phase: 'running',
+      variant: 'running',
+    });
+    expect(audits.map(a => a.action)).toContain('repointed');
+  });
+
+  test('own approval spends from every phase', async () => {
+    const bodies = {
+      queued: queuedBody,
+      running: runningBody,
+      error: errorBody,
+    };
+    for (const phase of ['queued', 'running', 'error'] as const) {
+      const db = tempDb();
+      putLatchRow(row({ phase }), db);
+      const { deps, launches, uploads, noteBodies } = harness({
+        db,
+        fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+        detail: detail(
+          disc('d1', bodies[phase](), '2026-09-01T10:00:00Z', true)
+        ),
+      });
+      expect((await runLatchPass(deps)).spent).toBe(1);
+      expect(launches).toEqual([]);
+      expect(uploads).toEqual(['latch-2317-approved.gif']);
+      expect(noteBodies.get(1)).toStartWith(SPENT);
+      expect(readLatchRow(MR, db)).toMatchObject({
+        phase: 'spent',
+        variant: 'approved',
+      });
+    }
+  });
+
+  test('an errored lane does not refuse an armed request', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const failed: ReviewState = {
+      ...commented,
+      status: 'error',
+      outcome: undefined,
+    };
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('an abandoned follow-up lane does not refuse an armed request', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, noOutcome]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('an armed row whose lane is gone still takes a request', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+  });
+
+  test('a request during a running review queues behind it', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const reviewing: ReviewState = { ...commented, status: 'reviewing' };
+    const { deps, launches, uploads } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).queued).toBe(1);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-queued-review-in-flight.gif']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'queued',
+      wait: 'review-in-flight',
+      launchAt: NOW,
+    });
+  });
+
+  test('reopening a queued latch while a hand-launched review runs withdraws it and leaves the thread open', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, calls, launches, noteBodies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', false)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(ARMED + '\n');
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'armed', wait: null });
+  });
+
+  test('a wait change that loses its cas writes and counts nothing', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, calls, audits } = harness({
+      db,
+      casLatch: () => false,
+      memory: {
+        identity: null,
+        mrs: {
+          [MR]: { ...emptyMrMemory('1970-01-12'), attemptsToday: 3 },
+        },
+      },
+      detail: detail(disc('d1', queuedBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    const result = await runLatchPass(deps);
+    expect(result.queued).toBe(0);
+    expect(calls).toEqual([]);
+    expect(audits.map(a => a.action)).not.toContain('queued');
+  });
+
+  // A read that cannot see the row's latch yet, beside an old spent relic,
+  // must not overwrite the row with the relic.
+  test('a live row is kept when the read shows only a spent latch elsewhere', async () => {
+    const db = tempDb();
+    putLatchRow(queuedRow(), db);
+    const { deps, calls } = harness({
+      db,
+      detail: detail(
+        disc('relic', spentLatchBody(IMG), '2026-08-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'd1',
+      phase: 'queued',
+    });
+  });
+
+  test('a re-point that loses its cas skips the tick', async () => {
+    const db = tempDb();
+    putLatchRow(row({ discussionId: 'old', updatedAt: NOW }), db);
+    const { deps, calls, launches } = harness({
+      db,
+      casLatch: () => false,
+      detail: detail(
+        disc('new', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true),
+        disc('old', armedLatchBody(IMG), '2026-08-01T10:00:00Z', false)
+      ),
+    });
+    expect((await runLatchPass(deps)).skipped).toBe(1);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)?.discussionId).toBe('old');
+  });
+});
+
+describe('error, retry and stuck', () => {
+  const failed: ReviewState = {
+    ...commented,
+    status: 'error',
+    outcome: undefined,
+    message: 'pane closed',
+  };
+  const cooling = (): DispatchMemory => ({
+    identity: null,
+    mrs: {
+      [MR]: { ...emptyMrMemory('1970-01-12'), lastDispatchAt: NOW - 60_000 },
+    },
+  });
+  const runningRow = (over: Partial<LatchRow> = {}) =>
+    row({
+      phase: 'running',
+      launchAt: NOW - 60_000,
+      variant: 'running',
+      ...over,
+    });
+  const errorRow = (over: Partial<LatchRow> = {}) =>
+    row({
+      phase: 'error',
+      wait: 'next-sweep',
+      launchAt: NOW - 60 * 60_000,
+      failures: 1,
+      variant: 'error-retrying-next-sweep',
+      ...over,
+    });
+
+  test('review error moves running to error-retrying', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, calls, uploads, launches, noteBodies, replies, audits } =
+      harness({
+        db,
+        memory: cooling(),
+        readReviewStates: () => new Map([[MR, failed]]),
+        detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+      });
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(uploads).toEqual(['latch-2317-error-retrying-cooldown.gif']);
+    expect(noteBodies.get(1)).toStartWith(ERROR);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: 1,
+      stuck: false,
+      wait: 'cooldown',
+      variant: 'error-retrying-cooldown',
+    });
+    expect(audits.map(a => a.action)).toContain('error');
+  });
+
+  test('retry dispatch returns error to running and charges memory', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const { deps, launches, noteBodies, memory, replies, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(replies).toEqual([]);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(memory.mrs[MR]?.attemptsToday).toBe(1);
+    expect(memory.mrs[MR]?.lastDispatchAt).toBe(NOW);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW,
+      wait: null,
+      failures: 1,
+      variant: 'running',
+    });
+    expect(audits.map(a => a.action)).toContain('retried');
+  });
+
+  test('launch-failed counts as a failure', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW }), db);
+    const phases: string[] = [];
+    const { deps, calls, uploads, replies, memory, audits } = harness({
+      db,
+      launchReReview: async () => ({ kind: 'error', message: 'boom' }),
+      casLatch: (url, from, patch, at, opts) => {
+        if (patch.phase) phases.push(patch.phase);
+        return casLatchIn(url, from, patch, at, db, opts);
+      },
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(replies).toEqual([]);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(uploads).toEqual(['latch-2317-error-retrying-next-sweep.gif']);
+    expect(phases).toEqual(['error']);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: 1,
+      wait: 'next-sweep',
+    });
+    expect(audits.find(a => a.action === 'error')?.outcome).toBe('boom');
+  });
+
+  test('third failure is stuck: one reply, one notifyStuck, no more launches', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    let note = runningBody();
+    const { deps, launches, uploads, replies, calls, stuckNotices, audits } =
+      harness({
+        db,
+        readReviewStates: () => new Map([[MR, failed]]),
+        readDetail: async () =>
+          detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+      });
+    expect((await runLatchPass(deps)).stuck).toBe(1);
+    expect(uploads).toEqual(['latch-2317-error-stuck.gif']);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'reply:d1']);
+    expect(replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(stuckNotices).toEqual([
+      {
+        title: 'Follow-up review stuck on !2317',
+        message: 'It failed 3 times. Relaunch it from the board.',
+        mrUrl: MR,
+      },
+    ]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: 3,
+      stuck: true,
+      variant: 'error-stuck',
+    });
+    expect(audits.map(a => a.action)).toContain('stuck');
+
+    note = errorBody();
+    await runLatchPass(deps);
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(replies).toHaveLength(1);
+    expect(stuckNotices).toHaveLength(1);
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'error', stuck: true });
+  });
+
+  test('relaunch from the board clears stuck', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+      }),
+      db
+    );
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, launches, noteBodies, replies, memory, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(memory.mrs[MR]).toBeUndefined();
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 1_000,
+      stuck: false,
+      failures: 3,
+      variant: 'running',
+    });
+    expect(audits.map(a => a.action)).toContain('recovered');
+  });
+
+  test('long reviewing is still running', async () => {
+    const db = tempDb();
+    const sixHours = 6 * 60 * 60_000;
+    putLatchRow(runningRow({ launchAt: NOW - sixHours }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - sixHours,
+      updatedAt: NOW - sixHours,
+    };
+    const { deps, calls, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      updatedAt: 1,
+    });
+  });
+
+  test('retry blocked by budget shows the budget wait', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const { deps, launches, uploads, calls, noteBodies, audits } = harness({
+      db,
+      memory: {
+        identity: null,
+        mrs: { [MR]: { ...emptyMrMemory('1970-01-12'), attemptsToday: 3 } },
+      },
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).errored).toBe(1);
+    expect(audits.find(a => a.action === 'error')?.reason).toBe('budget');
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-error-retrying-budget.gif']);
+    expect(calls).toEqual(['upload', 'updateNote:1']);
+    expect(noteBodies.get(1)).toStartWith(ERROR);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      wait: 'budget',
+      failures: 1,
+      variant: 'error-retrying-budget',
+    });
+  });
+
+  test('a stuck transition whose banner write throws still notifies, and the next pass finishes it', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    const upload = h.deps.gateway.uploadFile;
+    let broken = true;
+    h.deps.gateway.uploadFile = async (...args) => {
+      if (broken) {
+        broken = false;
+        throw new Error('gitlab 500');
+      }
+      return upload(...args);
+    };
+    expect((await runLatchPass(h.deps)).failed).toBe(1);
+    expect(h.stuckNotices).toHaveLength(1);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'error', stuck: true });
+
+    expect((await runLatchPass(h.deps)).repaired).toBe(1);
+    expect(h.calls).toEqual(['upload', 'updateNote:1', 'reply:d1']);
+    expect(h.noteBodies.get(1)).toStartWith(ERROR);
+    expect(h.replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(h.stuckNotices).toHaveLength(1);
+    expect(readLatchRow(MR, db)?.variant).toBe('error-stuck');
+
+    await runLatchPass(h.deps);
+    expect(h.replies).toHaveLength(1);
+    expect(h.stuckNotices).toHaveLength(1);
+  });
+
+  test('a stuck reply that fails to post goes out once on a later pass, with no second notice', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    let note = runningBody();
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      readDetail: async () =>
+        detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+    });
+    failNextReply(h.deps.gateway);
+    const stuck = copyFor({ state: 'error-stuck' }).sentence;
+    expect((await runLatchPass(h.deps)).stuck).toBe(1);
+    expect(h.stuckNotices).toHaveLength(1);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      variant: 'error-stuck',
+      replyDue: stuck,
+    });
+
+    note = errorBody();
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([stuck]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+
+    await runLatchPass(h.deps);
+    expect(h.replies).toHaveLength(1);
+    expect(h.stuckNotices).toHaveLength(1);
+  });
+
+  test('a stuck reply still owed when a relaunch adopts the latch is never posted', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    let note = runningBody();
+    let lane: ReviewState = failed;
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane]]),
+      readDetail: async () =>
+        detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+    });
+    failNextReply(h.deps.gateway);
+    expect((await runLatchPass(h.deps)).stuck).toBe(1);
+    expect(readLatchRow(MR, db)?.replyDue).toBe(
+      copyFor({ state: 'error-stuck' }).sentence
+    );
+
+    note = errorBody();
+    lane = { ...commented, status: 'reviewing', runStartedAt: NOW };
+    await runLatchPass(h.deps);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      stuck: false,
+      replyDue: null,
+    });
+
+    note = runningBody();
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+  });
+
+  test('a stuck latch that gets spent never posts its stuck reply', async () => {
+    const db = tempDb();
+    const stuck = copyFor({ state: 'error-stuck' }).sentence;
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+        replyDue: stuck,
+        updatedAt: NOW,
+      }),
+      db
+    );
+    let note = errorBody();
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+      readDetail: async () =>
+        detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(h.deps)).spent).toBe(1);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      replyDue: stuck,
+    });
+
+    note = spentLatchBody(IMG);
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('reply-dropped');
+  });
+
+  test('a relaunch mid-pass is not a failure', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW,
+    };
+    let reads = 0;
+    const { deps, calls, replies, stuckNotices } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, reads++ === 0 ? failed : reviewing]]),
+      detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).stuck).toBe(0);
+    expect(calls).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(stuckNotices).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      failures: LATCH_MAX_FAILURES - 1,
+      stuck: false,
+    });
+  });
+
+  test('a launch error on a retry at two failures is stuck', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const { deps, replies, stuckNotices, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      launchReReview: async () => ({ kind: 'error', message: 'boom' }),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    expect((await runLatchPass(deps)).stuck).toBe(1);
+    expect(replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(stuckNotices).toHaveLength(1);
+    expect(memory.mrs[MR]?.attemptsToday ?? 0).toBe(0);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'error',
+      failures: LATCH_MAX_FAILURES,
+      stuck: true,
+      variant: 'error-stuck',
+    });
+  });
+
+  test('a review starting on a retrying error row moves it to running', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 1_000,
+    };
+    const { deps, launches, noteBodies, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 1_000,
+      failures: 1,
+      stuck: false,
+    });
+    expect(audits.map(a => a.action)).toContain('recovered');
+  });
+
+  test('a queued lane recovers a stuck latch', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+      }),
+      db
+    );
+    const queuedLane: ReviewState = {
+      ...commented,
+      status: 'queued',
+      runStartedAt: NOW - 2_000,
+    };
+    const { deps, launches, noteBodies, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, queuedLane]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(noteBodies.get(1)).toStartWith(RUNNING);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: NOW - 2_000,
+      stuck: false,
+      failures: 3,
+    });
+  });
+
+  test('a run in flight that began before the last launch does not recover an error row', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const reviewing: ReviewState = {
+      ...commented,
+      status: 'reviewing',
+      runStartedAt: NOW - 2 * 60 * 60_000,
+    };
+    const { deps, launches, calls } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, reviewing]]),
+      detail: detail(disc('d1', errorBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({ phase: 'error', failures: 1 });
+  });
+
+  test('the stuck reply goes out before the extra copies are spent', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      detail: detail(
+        disc('d1', runningBody(), '2026-09-02T10:00:00Z', true),
+        disc('d2', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    const update = h.deps.gateway.updateNote;
+    h.deps.gateway.updateNote = async (p, i, id, body) => {
+      if (body.startsWith(SPENT)) throw new Error('gitlab 500');
+      return update(p, i, id, body);
+    };
+    expect((await runLatchPass(h.deps)).failed).toBe(1);
+    expect(h.replies).toEqual([copyFor({ state: 'error-stuck' }).sentence]);
+    expect(readLatchRow(MR, db)?.variant).toBe('error-stuck');
+  });
+});
+
+describe('a lost db mid follow-up', () => {
+  const POSTED = '2026-09-01T10:00:00Z';
+  const POSTED_MS = Date.parse(POSTED);
+
+  test('the commented review from before the post never lands as the follow-up', async () => {
+    const db = tempDb();
+    const earlier: ReviewState = {
+      ...commented,
+      runStartedAt: POSTED_MS - 60_000,
+      updatedAt: POSTED_MS - 1_000,
+    };
+    const { deps, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, earlier]]),
+      detail: detail(disc('d1', runningBody(), POSTED, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(0);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      launchAt: POSTED_MS,
+    });
+  });
+
+  test('a follow-up that started after the post lands', async () => {
+    const db = tempDb();
+    const finished: ReviewState = {
+      ...commented,
+      runStartedAt: POSTED_MS + 60_000,
+      updatedAt: NOW - 60_000,
+    };
+    const { deps, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, finished]]),
+      detail: detail(disc('d1', runningBody(), POSTED, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(replies).toEqual(['Follow-up review done.']);
+    expect(readLatchRow(MR, db)?.phase).toBe('armed');
+  });
+});
+
+describe('landing a follow-up from the pass', () => {
+  const LAUNCH = NOW - 60 * 60_000;
+  const lane = (over: Partial<ReviewState> = {}): ReviewState => ({
+    ...commented,
+    runStartedAt: LAUNCH + 60_000,
+    updatedAt: NOW - 60_000,
+    ...over,
+  });
+  const runningRow = (over: Partial<LatchRow> = {}) =>
+    row({ phase: 'running', launchAt: LAUNCH, variant: 'running', ...over });
+  const errorRow = (over: Partial<LatchRow> = {}) =>
+    row({
+      phase: 'error',
+      wait: 'next-sweep',
+      launchAt: LAUNCH,
+      failures: 1,
+      variant: 'error-retrying-next-sweep',
+      ...over,
+    });
+  // A day before NOW: a latch posted long before the row last moved.
+  const OLD = new Date(NOW - 24 * 60 * 60_000).toISOString();
+
+  test('a running row whose review finished lands with the count', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const asked: number[] = [];
+    const { deps, calls, uploads, launches, replies, audits, noteBodies } =
+      harness({
+        db,
+        readReviewStates: () => new Map([[MR, lane()]]),
+        countNew: async (_mr, launchAt) => {
+          asked.push(launchAt);
+          return 2;
+        },
+        detail: detail(disc('d1', runningBody(), OLD, true)),
+      });
+    const r = await runLatchPass(deps);
+    expect(r.landed).toBe(1);
+    expect(asked).toEqual([LAUNCH]);
+    expect(launches).toEqual([]);
+    expect(uploads).toEqual(['latch-2317-done-comments-2.gif']);
+    expect(calls).toEqual([
+      'upload',
+      'updateNote:1',
+      'unresolve:d1',
+      'reply:d1',
+    ]);
+    expect(noteBodies.get(1)).toStartWith(ARMED);
+    expect(replies).toEqual(['Follow-up review done: 2 new comments.']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      launchAt: null,
+      failures: 0,
+      variant: 'done-comments-2',
+    });
+    expect(audits).toContainEqual(
+      expect.objectContaining({ action: 'landed', outcome: 'comment' })
+    );
+  });
+
+  test('with no countNew the pass lands as Review posted', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, uploads, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(uploads).toEqual(['latch-2317-done-comments-none.gif']);
+    expect(replies).toEqual(['Follow-up review done.']);
+  });
+
+  test('a running row whose lane reads done approve spends done-approved', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, uploads, replies, noteBodies } = harness({
+      db,
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+      readReviewStates: () => new Map([[MR, lane({ outcome: 'approve' })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(uploads).toEqual(['latch-2317-done-approved.gif']);
+    expect(noteBodies.get(1)).toStartWith(SPENT);
+    expect(replies).toEqual(['Follow-up review done: approved.']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      variant: 'done-approved',
+    });
+  });
+
+  test('a stale read after an approve landing keeps done-approved', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ phase: 'spent', variant: 'done-approved' }), db);
+    const { deps, uploads } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ outcome: 'approve' })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(uploads).toEqual(['latch-2317-done-approved.gif']);
+    expect(readLatchRow(MR, db)?.variant).toBe('done-approved');
+  });
+
+  test('an abandoned follow-up re-arms quietly from the pass', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, calls, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ outcome: undefined })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(calls).toEqual(['upload', 'updateNote:1', 'unresolve:d1']);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      variant: 'armed',
+      replyDue: null,
+    });
+  });
+
+  test('a finished reply that fails to post goes out once on a later pass', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    let note = runningBody();
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      countNew: async () => 2,
+      readDetail: async () => detail(disc('d1', note, OLD, false)),
+    });
+    failNextReply(h.deps.gateway);
+    expect((await runLatchPass(h.deps)).landed).toBe(1);
+    expect(h.replies).toEqual([]);
+    const reply = 'Follow-up review done: 2 new comments.';
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      replyDue: reply,
+    });
+
+    note = armedLatchBody(IMG);
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([reply]);
+    expect(h.calls.filter(c => c.startsWith('reply:'))).toEqual(['reply:d1']);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('replied');
+
+    await runLatchPass(h.deps);
+    expect(h.replies).toHaveLength(1);
+  });
+
+  test('a spent row still owing its approved reply is followed until it posts', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    let note = runningBody();
+    let lanes = new Map([[MR, lane({ outcome: 'approve' })]]);
+    const h = harness({
+      db,
+      readReviewStates: () => lanes,
+      readDetail: async () => detail(disc('d1', note, OLD, true)),
+    });
+    failNextReply(h.deps.gateway);
+    expect((await runLatchPass(h.deps)).landed).toBe(1);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      replyDue: 'Follow-up review done: approved.',
+    });
+
+    note = spentLatchBody(IMG);
+    lanes = new Map();
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual(['Follow-up review done: approved.']);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+
+    expect((await runLatchPass(h.deps)).skipped).toBe(1);
+    expect(h.replies).toHaveLength(1);
+  });
+
+  test('a reply GitLab keeps refusing does not stop the rest of the tick', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        replyDue: 'Follow-up review done.',
+        updatedAt: NOW - LATCH_POST_GRACE_MS,
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    h.deps.gateway.createNote = async () => {
+      throw new Error('gitlab 500');
+    };
+    const r = await runLatchPass(h.deps);
+    expect(r.failed).toBe(0);
+    expect(r.dispatched).toBe(1);
+    expect(h.launches).toEqual([MR]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      replyDue: 'Follow-up review done.',
+    });
+  });
+
+  test('an owed reply older than a day is dropped and audited, never posted', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        replyDue: 'Follow-up review done.',
+        updatedAt: NOW - LATCH_REPLY_GIVE_UP_MS - 1,
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, false)),
+    });
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('reply-dropped');
+  });
+
+  test('an owed reply whose latch is gone is dropped and audited', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        phase: 'spent',
+        variant: 'done-approved',
+        replyDue: 'Follow-up review done: approved.',
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(disc('x1', 'Nice catch.', OLD, false, 'river')),
+      now: () => NOW + LATCH_POST_GRACE_MS,
+    });
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('reply-dropped');
+  });
+
+  test('an owed reply is never posted to a latch other than the canon', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        discussionId: 'old',
+        phase: 'spent',
+        variant: 'done-approved',
+        replyDue: 'Follow-up review done: approved.',
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(disc('d1', spentLatchBody(IMG), OLD, true)),
+      now: () => NOW + LATCH_POST_GRACE_MS,
+    });
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'd1',
+      replyDue: null,
+    });
+  });
+
+  test('a retrying error row whose review finished lands instead of retrying', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow(), db);
+    const { deps, launches, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', errorBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(launches).toEqual([]);
+    expect(memory.mrs[MR]).toBeUndefined();
+    expect(readLatchRow(MR, db)?.phase).toBe('armed');
+  });
+
+  test('a stuck error row whose review finished lands', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-stuck',
+      }),
+      db
+    );
+    const { deps, launches, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', errorBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(1);
+    expect(launches).toEqual([]);
+    expect(replies).toEqual(['Follow-up review done.']);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      stuck: false,
+    });
+  });
+
+  test('an error row with no launch stamp is retried, never landed', async () => {
+    const db = tempDb();
+    putLatchRow(errorRow({ launchAt: null }), db);
+    const { deps, launches, audits } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ runStartedAt: NOW })]]),
+      detail: detail(disc('d1', errorBody(), OLD, true)),
+    });
+    const r = await runLatchPass(deps);
+    expect(r.landed).toBe(0);
+    expect(launches).toEqual([MR]);
+    expect(audits.some(a => a.action === 'landed')).toBe(false);
+  });
+
+  test('a review that started before the launch does not land a running row', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, calls } = harness({
+      db,
+      readReviewStates: () =>
+        new Map([[MR, lane({ runStartedAt: LAUNCH - 1 })]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).landed).toBe(0);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)?.phase).toBe('running');
+  });
+
+  test('a landed latch ignores a stale armed resolved read inside the grace window', async () => {
+    const db = tempDb();
+    const landed = row({ variant: 'done-comments-2', updatedAt: NOW - 60_000 });
+    putLatchRow(landed, db);
+    const { deps, calls, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(readLatchRow(MR, db)).toEqual(landed);
+  });
+
+  test('an abandoned landing is guarded the same way', async () => {
+    const db = tempDb();
+    putLatchRow(row({ variant: 'armed', updatedAt: NOW - 60_000 }), db);
+    const { deps, calls, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane({ outcome: undefined })]]),
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  // A follow-up requested, run and landed within minutes of the post is
+  // still a move after the post.
+  test('a landing three minutes after the post still guards a stale read', async () => {
+    const db = tempDb();
+    const posted = NOW - 4 * 60_000;
+    const landed = row({
+      variant: 'done-comments-1',
+      updatedAt: posted + 3 * 60_000,
+    });
+    putLatchRow(landed, db);
+    const { deps, calls, launches, memory } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), new Date(posted).toISOString(), true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(memory.mrs[MR]).toBeUndefined();
+    expect(readLatchRow(MR, db)).toEqual(landed);
+  });
+
+  test("the landing stamp is the pass's clock at the landing, not the tick start", async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    let clock = NOW;
+    const { deps } = harness({
+      db,
+      now: () => clock++,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    await runLatchPass(deps);
+    expect(readLatchRow(MR, db)!.updatedAt).toBeGreaterThan(NOW);
+  });
+
+  test('a GitLab approval beats a commented follow-up: plain Approved, no reply', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow(), db);
+    const { deps, uploads, replies, audits } = harness({
+      db,
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', runningBody(), OLD, true)),
+    });
+    const r = await runLatchPass(deps);
+    expect(r.landed).toBe(0);
+    expect(r.spent).toBe(1);
+    expect(uploads).toEqual(['latch-2317-approved.gif']);
+    expect(replies).toEqual([]);
+    expect(audits.some(a => a.action === 'landed')).toBe(false);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'spent',
+      variant: 'approved',
+    });
+  });
+
+  test('the armed repair skips once another writer moved the row', async () => {
+    const db = tempDb();
+    putLatchRow(row({ variant: 'done-comments-1', updatedAt: 1 }), db);
+    const { deps, calls, audits } = harness({
+      db,
+      readDetail: async () => {
+        casLatchIn(
+          MR,
+          ['armed'],
+          { phase: 'queued', wait: 'cooldown' },
+          NOW,
+          db
+        );
+        return detail(disc('d1', runningBody(), OLD, true));
+      },
+    });
+    const r = await runLatchPass(deps);
+    expect(r.repaired).toBe(0);
+    expect(calls).toEqual([]);
+    expect(audits.some(a => a.action === 'repaired')).toBe(false);
+  });
+
+  test('past the grace window the same read is a request', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        variant: 'done-comments-2',
+        updatedAt: NOW - LATCH_POST_GRACE_MS,
+      }),
+      db
+    );
+    const { deps, launches } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane()]]),
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+  });
+
+  test('a request on a latch posted moments ago is not held', async () => {
+    const db = tempDb();
+    putLatchRow(row({ updatedAt: NOW - 60_000 }), db);
+    const posted = new Date(NOW - 61_000).toISOString();
+    const { deps, launches } = harness({
+      db,
+      detail: detail(disc('d1', armedLatchBody(IMG), posted, true)),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+  });
+
+  test('the stuck repair skips once a landing moved the row', async () => {
+    const db = tempDb();
+    putLatchRow(
+      errorRow({
+        failures: 3,
+        stuck: true,
+        wait: null,
+        variant: 'error-retrying-next-sweep',
+      }),
+      db
+    );
+    const failed: ReviewState = {
+      ...commented,
+      status: 'error',
+      outcome: undefined,
+    };
+    const { deps, calls, replies } = harness({
+      db,
+      readReviewStates: () => new Map([[MR, failed]]),
+      readDetail: async () => {
+        casLatchIn(
+          MR,
+          ['error'],
+          { phase: 'armed', stuck: false, variant: 'done-comments-1' },
+          NOW,
+          db
+        );
+        return detail(disc('d1', errorBody(), OLD, true));
+      },
+    });
+    await runLatchPass(deps);
+    expect(calls).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'armed',
+      variant: 'done-comments-1',
+    });
+  });
+});
+
+describe('latchInScope', () => {
+  const OTHER = 'https://gitlab.com/acme/web/-/merge_requests/2400';
+  const mrs = [{ webUrl: MR }, { webUrl: OTHER }, { webUrl: null }];
+  const none = new Map<string, ReviewState>();
+  const urls = (got: { webUrl?: string | null }[]) => got.map(m => m.webUrl);
+
+  // A request can arrive while the lane reads error (a hand-launched review
+  // died) or reviewing; the pass must still see the latch.
+  test('every live row phase is in scope whatever the lane reads, armed included', () => {
+    for (const phase of ['armed', 'queued', 'running', 'error'] as const) {
+      const got = latchInScope(mrs, {
+        rows: [{ mrUrl: MR, phase }],
+        states: new Map([[MR, { ...commented, status: 'error' }]]),
+        pruned: none,
+      });
+      expect(urls(got)).toEqual([MR]);
+    }
+  });
+
+  test('a spent row or no row falls back to the done and tombstone checks', () => {
+    const scope = (rows: { mrUrl: string; phase: 'spent' }[]) =>
+      latchInScope(mrs, {
+        rows,
+        states: new Map([
+          [MR, { ...commented, status: 'reviewing' }],
+          [OTHER, { ...commented, mrUrl: OTHER, outcome: 'approve' }],
+        ]),
+        pruned: none,
+      });
+    expect(urls(scope([{ mrUrl: MR, phase: 'spent' }]))).toEqual([OTHER]);
+    expect(urls(scope([]))).toEqual([OTHER]);
+  });
+
+  test('a commented tombstone is in scope, an approved one is not', () => {
+    const got = latchInScope(mrs, {
+      rows: [],
+      states: none,
+      pruned: new Map([
+        [MR, commented],
+        [OTHER, { ...commented, mrUrl: OTHER, outcome: 'approve' }],
+      ]),
+    });
+    expect(urls(got)).toEqual([MR]);
+  });
+
+  test('an MR listed twice and matched twice is read once', () => {
+    const got = latchInScope([{ webUrl: MR }, { webUrl: MR }], {
+      rows: [{ mrUrl: MR, phase: 'queued' }],
+      states: new Map([[MR, commented]]),
+      pruned: new Map([[MR, commented]]),
+    });
+    expect(urls(got)).toEqual([MR]);
+  });
+});
+
+describe('waitReasonOf', () => {
+  test('maps the reasons that clear by themselves', () => {
+    expect(waitReasonOf({ action: 'dispatch', reason: 'latch' })).toBe(
+      'next-sweep'
+    );
+    expect(waitReasonOf({ action: 'reject', reason: 'cooldown' })).toBe(
+      'cooldown'
+    );
+    expect(waitReasonOf({ action: 'reject', reason: 'budget-exhausted' })).toBe(
+      'budget'
+    );
+    expect(waitReasonOf({ action: 'reject', reason: 'review-in-flight' })).toBe(
+      'review-in-flight'
+    );
+  });
+
+  test('null for reasons that never clear', () => {
+    expect(
+      waitReasonOf({ action: 'reject', reason: 'no-commented-review' })
+    ).toBeNull();
+    expect(
+      waitReasonOf({ action: 'reject', reason: 'already-reviewed' })
+    ).toBeNull();
+  });
+});
+
+describe('runStamp', () => {
+  test('the run start, falling back to the last write, never startedAt', () => {
+    expect(runStamp({ ...commented, startedAt: 1, runStartedAt: 7 })).toBe(7);
+    expect(runStamp({ ...commented, startedAt: 1, updatedAt: 9 })).toBe(9);
   });
 });

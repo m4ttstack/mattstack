@@ -4,12 +4,12 @@ import type { MRDetail } from '@mattstack/glance';
 import {
   canonicalLatch,
   findLatches,
-  hasArmedLatch,
+  hasLiveLatch,
   hasRequest,
   requestCarriers,
   reviewerLatches,
 } from '../latch/discussions.ts';
-import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
+import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
 
 const IMG = '![re-review latch](/uploads/ab12/latch.png)';
 
@@ -196,14 +196,14 @@ describe('requestCarriers / hasRequest', () => {
   });
 });
 
-describe('hasArmedLatch', () => {
+describe('hasLiveLatch', () => {
   test('false with no latch at all', () => {
-    expect(hasArmedLatch(findLatches(detail(), 'matt'))).toBe(false);
+    expect(hasLiveLatch(findLatches(detail(), 'matt'))).toBe(false);
   });
 
   test('true for an armed latch, resolved or not', () => {
     expect(
-      hasArmedLatch(
+      hasLiveLatch(
         findLatches(
           detail(
             disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
@@ -213,13 +213,35 @@ describe('hasArmedLatch', () => {
       )
     ).toBe(true);
     expect(
-      hasArmedLatch(
+      hasLiveLatch(
         findLatches(
           detail(disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)),
           'matt'
         )
       )
     ).toBe(true);
+  });
+
+  // A queued, running or errored latch is still the live one: posting beside
+  // it would hand the author a second latch for the same ask.
+  test('true for a queued, running or error latch', () => {
+    for (const kind of ['queued', 'running', 'error'] as const) {
+      expect(
+        hasLiveLatch(
+          findLatches(
+            detail(
+              disc(
+                'd1',
+                latchBody(kind, IMG, 'x'),
+                '2026-09-01T10:00:00Z',
+                true
+              )
+            ),
+            'matt'
+          )
+        )
+      ).toBe(true);
+    }
   });
 
   // The bug this guards: canonicalLatch returns the newest latch of EITHER
@@ -230,7 +252,7 @@ describe('hasArmedLatch', () => {
       'matt'
     );
     expect(canonicalLatch(latches)).not.toBeNull();
-    expect(hasArmedLatch(latches)).toBe(false);
+    expect(hasLiveLatch(latches)).toBe(false);
   });
 });
 
