@@ -354,5 +354,5 @@ enum FormRowPlan {
 
 extension RowIDs {
     static let fast = RowIDs(row: AXID.fastRow, action: { AXID.fastRowAction($0) }, status: AXID.fastRowStatus,
-                             segment: AXID.fastRowSegment, oneClick: { AXID.fastRowAction($0, "oneClick") })
+                             segment: AXID.fastRowSegment, oneClick: { AXID.fastRowAction($0, "oneClick") }, error: AXID.fastRowError)
 }

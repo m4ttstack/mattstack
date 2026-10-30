@@ -7,6 +7,7 @@ struct RowIDs {
     let status: (String) -> String
     let segment: (String) -> String
     let oneClick: (String) -> String
+    var error: (String) -> String = AXID.checklistRowError
     static let checklist = RowIDs(row: AXID.checklistRow, action: AXID.checklistRowAction, status: AXID.checklistRowStatus,
                                   segment: AXID.checklistRowSegment, oneClick: AXID.checklistRowOneClick)
     static let beforeYouFinish = RowIDs(row: AXID.doneBeforeYouFinishRow, action: AXID.doneBeforeYouFinishRowAction,

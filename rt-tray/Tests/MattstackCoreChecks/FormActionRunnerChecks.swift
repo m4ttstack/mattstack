@@ -27,6 +27,17 @@ private final class SilentRt: RtRunning, @unchecked Sendable {
     func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
 }
 
+/// Fails every buffered run with the same exit and stderr.
+private final class EchoRt: RtRunning, @unchecked Sendable {
+    let exitCode: Int32
+    let stderr: String
+    init(exitCode: Int32, stderr: String) { self.exitCode = exitCode; self.stderr = stderr }
+    func run(_ args: [String], stdin: Data?) async throws -> RtResult {
+        RtResult(exitCode: exitCode, stdout: Data(), stderr: Data(stderr.utf8))
+    }
+    func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
+}
+
 /// Answers every buffered run after a delay.
 private final class SlowRt: RtRunning, @unchecked Sendable {
     let after: TimeInterval
@@ -130,6 +141,25 @@ let formActionRunnerChecks: [Check] = [
         rt.answers = ["setup gitlab connect --json": (0, connectJSON("gitlab", "ready", "Connected as janedoe"))]
         await runner.perform(row, values: ["token": "glpat-good"])
         c.expectEqual(await MainActor.run { runner.errors["access.team-repo"] }, nil, "a retry that lands clears the error")
+    },
+    Check("FormActionRunner: a verb that carried a secret on stdin never shows rt's stderr, which could echo it") { c in
+        let secret = "glpat-placeholder-secret"
+        let row = FormRow(id: "forge", title: "GitLab", subtext: "s", state: .todo, detail: "",
+                          action: RowAction(type: .connect, label: "Connect", integration: "gitlab",
+                                            fields: [ActionField(name: "token", label: "Token", secret: true)]))
+        for code: Int32 in [1, 2] {
+            let rt = EchoRt(exitCode: code, stderr: "rejected token \(secret)")
+            let (runner, _) = await makeRunner(rt, log: EventLog())
+            await runner.perform(row, values: ["token": secret])
+            let shown = await MainActor.run { runner.errors["forge"] } ?? ""
+            c.expect(!shown.isEmpty, "exit \(code) still says it failed")
+            c.expect(!shown.contains(secret), "exit \(code) showed: \(shown)")
+        }
+        let plain = FormRow(id: "doppler", title: "Doppler", subtext: "s", state: .todo, detail: "",
+                            action: RowAction(type: .run, label: "Sign in", verb: ["tools", "install", "doppler"]))
+        let (runner, _) = await makeRunner(EchoRt(exitCode: 1, stderr: "brew failed"), log: EventLog())
+        await runner.perform(plain)
+        c.expect((await MainActor.run { runner.errors["doppler"] } ?? "").contains("brew failed"), "a verb with nothing on stdin keeps rt's own words")
     },
     Check("FormActionRunner: a sign-in still open keeps the row waiting") { c in
         let rt = ScriptedRt()

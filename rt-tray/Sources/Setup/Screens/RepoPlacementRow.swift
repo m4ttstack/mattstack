@@ -125,7 +125,7 @@ struct RepoPlacementRow: View {
             }
             if let note, !note.isEmpty {
                 Text(note).font(.caption).foregroundStyle(noteColor).fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier(shownError != nil ? AXID.checklistRowError(row.id) : ids.row(row.id) + ".note")
+                    .accessibilityIdentifier(shownError != nil ? ids.error(row.id) : ids.row(row.id) + ".note")
             }
             if let board = action.board { boardLine(board) }
             RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id))
