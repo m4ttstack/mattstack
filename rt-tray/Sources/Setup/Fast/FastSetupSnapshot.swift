@@ -237,6 +237,7 @@ enum FastSetupSnapshot {
             ("paused", page(cloning, paused: RunPaused.clone)),
             ("paused-login-items", page(RunBar(fraction: 0.97, message: "Starting mattstack", secondsLeft: nil), paused: RunPaused.loginItems)),
             ("paused-after-relaunch", page(nil, paused: RunPaused.clone)),
+            ("paused-after-progress", page(RunPaused.heldBar(), paused: RunPaused.clone)),
         ]
     }
 
@@ -249,6 +250,21 @@ enum FastSetupSnapshot {
                                            detail: "The daemon is waiting for approval in Login Items",
                                            remedy: "Approve the background item in Login Items, then Retry",
                                            action: RowAction(type: .openSettings, label: "Open Login Items…", target: "login-items"))
+
+        /// The clone fails at 60% of its own work: the raw bar drops that share, the drawn bar holds where it was.
+        static func heldBar() -> RunBar {
+            func steps(clone state: StepState, percent: Int?) -> [InstallStep] {
+                func step(_ id: String, _ phase: String, _ weight: Double, _ state: StepState, _ percent: Int? = nil) -> InstallStep {
+                    InstallStep(info: StepInfo(id: id, title: id, kind: .rt, phase: phase, weight: weight), state: state,
+                                progress: percent.map { StepProgress(label: "", percent: $0, note: nil) })
+                }
+                return [step("org.pull", "Getting your team's settings", 2, .done), step("path.link", "Setting up rt", 3, .done),
+                        step("repos.clone", "Cloning your repos", 10, state, percent), step("plugins.install", "Installing Claude plugins", 6, .pending),
+                        step("verify", "Checking everything", 2, .pending)]
+            }
+            let before = RunProgress.bar(steps: steps(clone: .running, percent: 60), elapsed: 120)
+            return RunProgress.monotonic(previous: before.fraction, current: RunProgress.bar(steps: steps(clone: .failed, percent: nil), elapsed: 121))
+        }
     }
 
     /// What `thisMacRows` in lib/setup/form.ts emits, its repo rows from `repos.place` in lib/setup/validators/repos.ts.

@@ -13,18 +13,31 @@ struct RunScreen: View {
     let onRetry: () -> Void
     let onPausedAction: ((RowAction) -> Void)?
     @State private var showLog = false
+    /// The run's highest drawn fraction, so the bar never slides back.
+    @State private var highWater: Double = 0
 
     /// After a relaunch this app holds no lines for the step, so rt's copy from the events file stands in.
     static func logLines(_ paused: FormPaused, appLines: [String]) -> [String] {
         appLines.isEmpty ? paused.log : appLines
     }
 
+    private func bar(at date: Date) -> RunBar? {
+        guard !model.steps.isEmpty else { return nil }
+        return RunProgress.monotonic(previous: highWater, current: RunProgress.bar(steps: model.steps, elapsed: date.timeIntervalSince(startedAt)))
+    }
+
+    private var rawFraction: Double {
+        model.steps.isEmpty ? 0 : RunProgress.bar(steps: model.steps, elapsed: 0).fraction
+    }
+
     var body: some View {
         TimelineView(.periodic(from: startedAt, by: 1)) { context in
-            RunScreenBody(bar: model.steps.isEmpty ? nil : RunProgress.bar(steps: model.steps, elapsed: context.date.timeIntervalSince(startedAt)),
-                          paused: paused, onHide: onHide, onShowLog: { showLog = true }, onRetry: onRetry,
-                          onPausedAction: onPausedAction)
+            RunScreenBody(bar: bar(at: context.date), paused: paused, onHide: onHide, onShowLog: { showLog = true },
+                          onRetry: onRetry, onPausedAction: onPausedAction)
         }
+        .onAppear { highWater = rawFraction }
+        .onChange(of: rawFraction) { _, raw in highWater = max(highWater, raw) }
+        .onChange(of: startedAt) { highWater = rawFraction }
         .sheet(isPresented: $showLog) {
             if let paused {
                 LogSheet(title: paused.title, lines: Self.logLines(paused, appLines: model.logLines(for: paused.step)))
@@ -50,7 +63,8 @@ struct RunScreenBody: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 22) {
                 if let paused {
-                    FastScreenHeader(label: nil, title: "Setup paused", subtitle: nil)
+                    // The subtitle slot is filled so the bar stays where P6 drew it when a live run pauses.
+                    FastScreenHeader(label: nil, title: "Setup paused", subtitle: "Everything before this step is done")
                     pausedBody(paused)
                 } else {
                     FastScreenHeader(label: nil, title: "Setting up this Mac", subtitle: "Nothing needs you. Close the window if you like")
@@ -68,7 +82,7 @@ struct RunScreenBody: View {
 
     private var runningBody: some View {
         VStack(alignment: .leading, spacing: 10) {
-            RunBarView(fraction: bar?.fraction ?? 0, stopped: false)
+            RunBarView(fraction: bar?.fraction, stopped: false)
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(bar?.message ?? "Getting ready").font(.callout)
                 Spacer(minLength: 12)
@@ -99,14 +113,6 @@ struct RunScreenBody: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            Label {
-                Text("Everything before this step is done")
-            } icon: {
-                Image(systemName: "checkmark.circle").foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.top, 8)
         }
     }
 
@@ -122,13 +128,19 @@ struct RunScreenBody: View {
 
 /// The one bar. A sheen crosses the fill while it runs, so a long step that
 /// sends no progress still reads as working; stopped, it goes grey and still.
+/// With no fraction yet, a short segment sweeps the track instead. Motion
+/// rests while the window is not active and under Reduce Motion.
 private struct RunBarView: View {
-    let fraction: Double
+    let fraction: Double?
     let stopped: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.controlActiveState) private var activeState
 
     private static let height: CGFloat = 8
     private static let sheenPeriod: TimeInterval = 2.4
+    private static let sweepPeriod: TimeInterval = 1.6
+    /// Where a resting sweep sits, so a frozen frame is the same every time.
+    private static let restingSweep: Double = 0.35
     private static let track = NSColor(name: nil) { appearance in
         NSColor.labelColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.14 : 0.08)
     }
@@ -139,37 +151,64 @@ private struct RunBarView: View {
         NSColor.white.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.28 : 0.4)
     }
 
+    private var moving: Bool { !stopped && !reduceMotion && activeState != .inactive }
+
     var body: some View {
         GeometryReader { geo in
-            let clamped = min(max(fraction, 0), 1)
-            // A started bar always shows its rounded end, even at 0%.
-            let width = max(geo.size.width * clamped, Self.height)
             ZStack(alignment: .leading) {
                 Capsule().fill(Color(nsColor: Self.track))
-                Capsule()
-                    .fill(stopped ? Color(nsColor: Self.stoppedFill) : Color.accentColor)
-                    .frame(width: width)
-                    .overlay(alignment: .leading) {
-                        if !stopped && !reduceMotion { sheenBand(width: width) }
-                    }
-                    .clipShape(Capsule())
-                    .animation(.easeOut(duration: 0.6), value: clamped)
+                if let fraction {
+                    fill(fraction, in: geo.size.width)
+                } else if !stopped && !reduceMotion {
+                    sweep(in: geo.size.width)
+                } else {
+                    Capsule().fill(Color.accentColor).frame(width: Self.height)
+                }
             }
         }
         .frame(height: Self.height)
         .accessibilityElement()
         .accessibilityLabel(stopped ? "Setup paused" : "Setup progress")
-        .accessibilityValue(RunProgress.percentText(fraction))
+        .accessibilityValue(fraction.map(RunProgress.percentText) ?? "Getting ready")
     }
 
-    private func sheenBand(width: CGFloat) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-            let band: CGFloat = 90
-            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.sheenPeriod) / Self.sheenPeriod
-            LinearGradient(colors: [.clear, Color(nsColor: Self.sheen), .clear], startPoint: .leading, endPoint: .trailing)
-                .frame(width: band)
-                .offset(x: -band + (width + band) * phase)
+    @ViewBuilder private func fill(_ fraction: Double, in trackWidth: CGFloat) -> some View {
+        let clamped = min(max(fraction, 0), 1)
+        // A started bar always shows its rounded end, even at 0%.
+        let width = max(trackWidth * clamped, Self.height)
+        Capsule()
+            .fill(stopped ? Color(nsColor: Self.stoppedFill) : Color.accentColor)
+            .frame(width: width)
+            .animation(.easeOut(duration: 0.6), value: clamped)
+        if moving {
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+                let band: CGFloat = 90
+                let phase = Self.phase(context.date, period: Self.sheenPeriod)
+                LinearGradient(colors: [.clear, Color(nsColor: Self.sheen), .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: band)
+                    .offset(x: -band + (width + band) * phase)
+            }
+            .frame(width: width, alignment: .leading)
+            .clipShape(Capsule())
+            .allowsHitTesting(false)
         }
+    }
+
+    private func sweep(in trackWidth: CGFloat) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+            let band = trackWidth * 0.22
+            let phase = moving ? Self.phase(context.date, period: Self.sweepPeriod) : Self.restingSweep
+            Capsule()
+                .fill(Color.accentColor.opacity(0.7))
+                .frame(width: band)
+                .offset(x: -band + (trackWidth + band) * phase)
+        }
+        .frame(width: trackWidth, alignment: .leading)
+        .clipShape(Capsule())
         .allowsHitTesting(false)
+    }
+
+    private static func phase(_ date: Date, period: TimeInterval) -> Double {
+        date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
     }
 }

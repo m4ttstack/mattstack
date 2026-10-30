@@ -33,6 +33,14 @@ public enum RunProgress {
         return RunBar(fraction: fraction, message: message, secondsLeft: left)
     }
 
+    /// A step that leaves `.running`, or reports a new detail, drops its own percent, so the
+    /// raw fraction can dip; within one run the drawn bar holds its highest point instead.
+    public static func monotonic(previous: Double, current: RunBar) -> RunBar {
+        var bar = current
+        bar.fraction = max(min(previous, 1), current.fraction)
+        return bar
+    }
+
     public static func timeLeftText(_ seconds: Int?) -> String? {
         guard let seconds else { return nil }
         if seconds < 60 { return "Less than a minute left" }

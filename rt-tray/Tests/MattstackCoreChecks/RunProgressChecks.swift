@@ -51,6 +51,18 @@ let runProgressChecks: [Check] = [
         c.expectEqual(RunProgress.percentText(0.42), "42%")
         c.expectEqual(RunProgress.percentText(1), "100%")
     },
+    Check("RunProgress: the drawn bar never slides back") { c in
+        let cloning = [step("a", .done, weight: 2), step("b", .running, phase: "Cloning your repos", weight: 4, percent: 50), step("c", .pending, weight: 4)]
+        let failed = [step("a", .done, weight: 2), step("b", .failed, phase: "Cloning your repos", weight: 4), step("c", .pending, weight: 4)]
+        let before = RunProgress.bar(steps: cloning, elapsed: 60)
+        let after = RunProgress.bar(steps: failed, elapsed: 61)
+        c.expectEqual(after.fraction, 0.2, "the failed step's percent is gone from the raw fraction")
+        let held = RunProgress.monotonic(previous: before.fraction, current: after)
+        c.expectEqual(held.fraction, 0.4)
+        c.expectEqual(held.message, after.message)
+        c.expectEqual(RunProgress.monotonic(previous: 0.2, current: before).fraction, 0.4, "a rise passes straight through")
+        c.expectEqual(RunProgress.monotonic(previous: 3, current: after).fraction, 1, "a stale high point never draws past full")
+    },
     Check("FastSetupRun: the bar resumes unattended, Retry runs attended from the step") { c in
         c.expectEqual(FastSetupRun.arguments(retryFrom: nil), ["setup", "apply", "--resume", "--unattended", "--json"])
         c.expectEqual(FastSetupRun.arguments(retryFrom: "daemon.start"), ["setup", "apply", "--from", "daemon.start", "--json"])
