@@ -260,4 +260,17 @@ let setupFlowChecks: [Check] = [
             c.expectEqual(SetupResume.step(from: ["mattstack"] + args), step)
         }
     },
+    Check("SetupResume: screen names round-trip") { c in
+        for screen in FastSetupScreen.allCases {
+            let args = SetupResume.relaunchArguments(passthrough: ["--x"], resumeScreen: screen)
+            c.expectEqual(args, ["--x", "--resume-setup", screen.rawValue])
+            c.expectEqual(SetupResume.screen(from: ["mattstack"] + args), screen)
+        }
+        let again = SetupResume.relaunchArguments(passthrough: ["--resume-setup", "invite", "--x"], resumeScreen: .thisMac)
+        c.expectEqual(again, ["--x", "--resume-setup", "this-mac"])
+        c.expectEqual(SetupResume.relaunchArguments(passthrough: ["--resume-setup", "invite"], resumeScreen: nil), [])
+        c.expectEqual(SetupResume.screen(from: ["mattstack", "--resume-setup", "bogus"]), nil)
+        c.expectEqual(SetupResume.screen(from: ["mattstack", "--resume-setup"]), nil)
+        c.expectEqual(SetupResume.screen(from: ["mattstack"]), nil)
+    },
 ]

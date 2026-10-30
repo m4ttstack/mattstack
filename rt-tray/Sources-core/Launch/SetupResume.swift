@@ -14,6 +14,24 @@ public enum SetupResume {
     /// Passthrough arguments with any earlier resume pair removed and, when a
     /// step is given, the new pair appended.
     public static func relaunchArguments(passthrough: [String], resumeAt: SetupStep?) -> [String] {
+        withoutResume(passthrough) + (resumeAt.flatMap { names[$0] }.map { [flag, $0] } ?? [])
+    }
+
+    public static func step(from arguments: [String]) -> SetupStep? {
+        guard let name = resumeName(in: arguments) else { return nil }
+        return names.first { $0.value == name }?.key
+    }
+
+    /// The fast-setup screen names are the screens' raw values.
+    public static func relaunchArguments(passthrough: [String], resumeScreen: FastSetupScreen?) -> [String] {
+        withoutResume(passthrough) + (resumeScreen.map { [flag, $0.rawValue] } ?? [])
+    }
+
+    public static func screen(from arguments: [String]) -> FastSetupScreen? {
+        resumeName(in: arguments).flatMap(FastSetupScreen.init(rawValue:))
+    }
+
+    private static func withoutResume(_ passthrough: [String]) -> [String] {
         var out: [String] = []
         var skipNext = false
         for arg in passthrough {
@@ -21,12 +39,11 @@ public enum SetupResume {
             if arg == flag { skipNext = true; continue }
             out.append(arg)
         }
-        if let resumeAt, let name = names[resumeAt] { out += [flag, name] }
         return out
     }
 
-    public static func step(from arguments: [String]) -> SetupStep? {
+    private static func resumeName(in arguments: [String]) -> String? {
         guard let i = arguments.firstIndex(of: flag), i + 1 < arguments.count else { return nil }
-        return names.first { $0.value == arguments[i + 1] }?.key
+        return arguments[i + 1]
     }
 }

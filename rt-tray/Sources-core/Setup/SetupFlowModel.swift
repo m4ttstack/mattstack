@@ -18,8 +18,9 @@ public enum SetupStep: Int, CaseIterable, Sendable {
 }
 
 /// Distinguishes onboarding from re-entering setup to upgrade an existing
-/// solo install to a team (Settings' Create/Join, a join link post-install).
-public enum SetupEntry: Equatable, Sendable { case firstRun, upgrade }
+/// solo install to a team (Settings' Create/Join, a join link post-install),
+/// and from opening Setup status on a Mac that may already be set up.
+public enum SetupEntry: Equatable, Sendable { case firstRun, upgrade, status }
 
 /// Custom page model: push transitions, Back never dismisses, the window
 /// only closes once setup is done.
