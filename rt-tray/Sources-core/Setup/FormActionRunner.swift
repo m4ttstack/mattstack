@@ -57,24 +57,34 @@ public final class FormActionRunner: ObservableObject {
 
     /// rt holds a connect verb up to 10 s and `setup claude code` up to 30 s before it answers.
     public nonisolated static let signInTimeout: TimeInterval = 60
+    /// An `oauth` verb (Connect Slack) listens for the browser's callback for 5 minutes, so it outlasts that.
+    public nonisolated static let oauthTimeout: TimeInterval = 330
+
+    /// Rows whose rt verb is still running. A second press waits on the first: a second
+    /// `setup slack connect` would open a second Allow tab on a callback port already taken.
+    @Published public private(set) var running: Set<String> = []
 
     private let rt: RtRunning
     private let needs: NeedBroker
     private let effects: FormEffects
     private let signInTimeoutSeconds: TimeInterval
+    private let oauthTimeoutSeconds: TimeInterval
     private let reload: @MainActor () async -> Void
 
     public init(rt: RtRunning, needs: NeedBroker, effects: FormEffects,
                 signInTimeout: TimeInterval = FormActionRunner.signInTimeout,
+                oauthTimeout: TimeInterval = FormActionRunner.oauthTimeout,
                 reload: @escaping @MainActor () async -> Void) {
         self.rt = rt; self.needs = needs; self.effects = effects
-        self.signInTimeoutSeconds = signInTimeout; self.reload = reload
+        self.signInTimeoutSeconds = signInTimeout; self.oauthTimeoutSeconds = oauthTimeout; self.reload = reload
     }
 
     public func perform(_ row: FormRow, values: [String: String]? = nil, alternative: String? = nil) async {
+        let dispatched = row.action.map { RowActionDispatcher.dispatch($0, fieldValues: values, alternative: alternative) }
+        if case .rtVerb = dispatched, running.contains(row.id) { return }
         errors[row.id] = nil
-        if let action = row.action {
-            switch RowActionDispatcher.dispatch(action, fieldValues: values, alternative: alternative) {
+        if let action = row.action, let dispatched {
+            switch dispatched {
             case .openURL(let url):
                 effects.openURL(url)
                 if let line = row.waiting { waiting[row.id] = line }
@@ -83,10 +93,12 @@ public final class FormActionRunner: ObservableObject {
             case .requestPermission(let which):
                 _ = await effects.requestPermission(which)
             case .rtVerb(let args, let stdin):
+                running.insert(row.id)
                 let placed = await runVerb(args, stdin: stdin, row: row)
                 if placed, action.type == .placeRepo, let then = action.then, !then.isEmpty {
                     _ = await runVerb(then + ["--json"], stdin: nil, row: row)
                 }
+                running.remove(row.id)
             case .showSteps(let steps):
                 sheet = .steps(row, steps)
                 return
@@ -133,7 +145,8 @@ public final class FormActionRunner: ObservableObject {
         }
 
         waiting[row.id] = row.waiting
-        let answer = await run(args, stdin: stdin, timeout: Self.isSignIn(args) ? signInTimeoutSeconds : nil)
+        let timeout = row.action?.type == .oauth ? oauthTimeoutSeconds : (Self.isSignIn(args) ? signInTimeoutSeconds : nil)
+        let answer = await run(args, stdin: stdin, timeout: timeout)
         waiting[row.id] = nil
         switch answer {
         case .timedOut:

@@ -46,6 +46,7 @@ struct FastSetupView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .frame(minWidth: SetupWindowController.width, minHeight: SetupWindowController.minHeight)
             .controlSize(.large)
+            .environment(\.formRowsRunning, actions.running)
             .sheet(item: $actions.sheet, onDismiss: { Task { await actions.sheetClosed() } }) { sheet in
                 FastSetupSheet(sheet: sheet, actions: actions)
             }

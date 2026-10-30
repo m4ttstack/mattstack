@@ -4,9 +4,22 @@ import MattstackCore
 
 typealias FormRowPerform = (FormRow, [String: String]?, String?) -> Void
 
+private struct FormRowsRunningKey: EnvironmentKey {
+    static let defaultValue: Set<String> = []
+}
+
+extension EnvironmentValues {
+    /// `FormActionRunner.running`: rows whose rt verb has not answered yet.
+    var formRowsRunning: Set<String> {
+        get { self[FormRowsRunningKey.self] }
+        set { self[FormRowsRunningKey.self] = newValue }
+    }
+}
+
 /// One fast-setup question: rt sends the row's state and action, and `waiting`
 /// and `error` are the app's own overlays from `FormActionRunner`. Neither
-/// overlay hides the control, so a wait that outlives rt's read can be retried.
+/// overlay hides the control, so a wait that outlives rt's read can be retried;
+/// only a verb still running holds its button.
 struct FormRowView: View {
     static let needsNewerApp = "Needs a newer mattstack"
     let row: FormRow
@@ -14,6 +27,7 @@ struct FormRowView: View {
     let error: String?
     var showsTitle = true
     let onAction: FormRowPerform
+    @Environment(\.formRowsRunning) private var runningRows
 
     var body: some View {
         if let action = row.action, action.type == .placeRepo {
@@ -144,7 +158,7 @@ struct FormRowView: View {
             Button(label) { chooseFolder(action) }.fixedSize().accessibilityIdentifier(AXID.fastRowAction(row.id))
         default:
             // A second press of a running `setup apply` would raise a second admin prompt.
-            let applying = waiting != nil && RowVerbRun.streamsApplyEvents(action.verb ?? [])
+            let applying = runningRows.contains(row.id) || (waiting != nil && RowVerbRun.streamsApplyEvents(action.verb ?? []))
             if action.primary == true && row.state != .waiting && waiting == nil {
                 Button(label) { onAction(row, nil, nil) }
                     .buttonStyle(.borderedProminent).fixedSize()
@@ -178,6 +192,7 @@ struct FormRowFields: View {
     let onAction: FormRowPerform
     @State private var values: [String: String]
     @Environment(\.openSetupLink) private var openLink
+    @Environment(\.formRowsRunning) private var runningRows
 
     static func collects(_ action: RowAction) -> Bool {
         [.connect, .form, .ownerOnce].contains(action.type) && !(action.fields ?? []).isEmpty
@@ -218,7 +233,7 @@ struct FormRowFields: View {
                     }
                     if index == fields.count - 1 {
                         Button(action.label, action: submit)
-                            .disabled(!complete).fixedSize()
+                            .disabled(!complete || runningRows.contains(row.id)).fixedSize()
                             .accessibilityIdentifier(AXID.fastRowAction(row.id))
                     }
                 }

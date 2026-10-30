@@ -114,6 +114,7 @@ describe("inviteRows", () => {
     expect(clt.state).toBe("todo");
     expect(clt.detail).toBe("softwareupdate found no Command Line Tools to install");
     expect(clt.action).toEqual({ type: "install", label: "Install", tool: "apple-clt", via: "apple-clt" });
+    expect(clt.waiting).toBe("Installing Command Line Tools…");
   });
 
   test("with git ready and a token stored every row is done", () => {

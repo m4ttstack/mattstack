@@ -234,6 +234,7 @@ describe("connectRows", () => {
     const todo = pick(connectRows(inputs({ plan: plan(missing) })), "claude");
     expect(todo.state).toBe("todo");
     expect(todo.action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
+    expect(todo.waiting).toBe("Installing…");
   });
 
   test("Claude with a live sign-in waits and offers Paste code", () => {

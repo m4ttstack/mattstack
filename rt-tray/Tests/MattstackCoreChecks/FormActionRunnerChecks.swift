@@ -27,6 +27,22 @@ private final class SilentRt: RtRunning, @unchecked Sendable {
     func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
 }
 
+/// Answers every buffered run after a delay.
+private final class SlowRt: RtRunning, @unchecked Sendable {
+    let after: TimeInterval
+    let stdout: String
+    private let lock = NSLock()
+    private var count = 0
+    init(after: TimeInterval, stdout: String) { self.after = after; self.stdout = stdout }
+    var answered: Int { lock.withLock { count } }
+    func run(_ args: [String], stdin: Data?) async throws -> RtResult {
+        try? await Task.sleep(nanoseconds: UInt64(after * 1_000_000_000))
+        lock.withLock { count += 1 }
+        return RtResult(exitCode: 0, stdout: Data(stdout.utf8), stderr: Data())
+    }
+    func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> { AsyncThrowingStream { $0.finish() } }
+}
+
 @MainActor
 private func makeRunner(_ rt: RtRunning, log: EventLog, signInTimeout: TimeInterval = FormActionRunner.signInTimeout) -> (FormActionRunner, FakeEffects) {
     let effects = FakeEffects(log: log)
@@ -211,11 +227,49 @@ let formActionRunnerChecks: [Check] = [
         c.expect(FormActionRunner.signInTimeout > 30, "rt itself waits up to 30 s on a Claude code")
         let log = EventLog()
         let (runner, _) = await makeRunner(SilentRt(), log: log, signInTimeout: 0.05)
+        let row = FormRow(id: "claude", title: "Claude", subtext: "s", state: .todo, detail: "",
+                          action: RowAction(type: .run, label: "Sign in to Claude", verb: ["setup", "claude", "connect"]), waiting: "Signing in…")
         let started = Date()
-        await runner.perform(slackRow)
+        await runner.perform(row)
         c.expect(Date().timeIntervalSince(started) < 1, "the row waited past its timeout")
-        c.expectEqual(await MainActor.run { runner.waiting["account.slack"] }, nil)
+        c.expectEqual(await MainActor.run { runner.waiting["claude"] }, nil)
         c.expectEqual(log.all, ["reload"])
+    },
+    Check("FormActionRunner: Connect Slack outlasts the sign-in timeout, since rt listens for 5 minutes") { c in
+        c.expect(FormActionRunner.oauthTimeout > 300, "longer than rt's own 5-minute callback listener")
+        let rt = SlowRt(after: 0.3, stdout: connectJSON("slack", "ready", "Connected as janedoe"))
+        let log = EventLog()
+        let effects = FakeEffects(log: log)
+        let runner = await FormActionRunner(rt: rt, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged()),
+                                            effects: effects, signInTimeout: 0.05, oauthTimeout: 5) { log.append("reload") }
+        await runner.perform(slackRow)
+        c.expectEqual(await MainActor.run { runner.waiting["account.slack"] }, nil)
+        c.expectEqual(await MainActor.run { runner.errors["account.slack"] }, nil, "Slack's answer landed instead of being dropped at the sign-in timeout")
+        c.expectEqual(rt.answered, 1)
+
+        let silent = await FormActionRunner(rt: SilentRt(), needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged()),
+                                            effects: effects, signInTimeout: 5, oauthTimeout: 0.05) { log.append("reload") }
+        let started = Date()
+        await silent.perform(slackRow)
+        c.expect(Date().timeIntervalSince(started) < 1, "an oauth verb still has a timeout of its own")
+    },
+    Check("FormActionRunner: a second press while a verb runs starts nothing, so Slack never opens a second listener") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup slack connect --json": (0, connectJSON("slack", "ready", "Connected as janedoe"))]
+        let log = EventLog()
+        let (runner, _) = await makeRunner(rt, log: log)
+        let during = EventLog()
+        rt.duringNextRun = {
+            during.append(await MainActor.run { runner.running.contains("account.slack") } ? "running" : "idle")
+            await runner.perform(slackRow)
+        }
+        await runner.perform(slackRow)
+        c.expectEqual(rt.calls.count, 1, "the press during the run was not a second setup slack connect")
+        c.expectEqual(during.all, ["running"])
+        c.expectEqual(await MainActor.run { runner.running }, [], "the row is free once rt answers")
+        c.expectEqual(log.all, ["reload"], "the ignored press reloads nothing")
+        await runner.perform(slackRow)
+        c.expectEqual(rt.calls.count, 2, "a press after the answer runs again")
     },
     Check("FormActionRunner: every action type but unknown has a control on the fast screens that does something") { c in
         for type in ActionType.allCases {

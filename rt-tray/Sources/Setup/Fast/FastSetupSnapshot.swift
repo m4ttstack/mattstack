@@ -53,6 +53,8 @@ enum FastSetupSnapshot {
             ("rows-done", card([Rows.gitlab, Rows.fastBrowserAdded])),
             ("rows-todo-waiting", card([Rows.fastBrowser], waiting: [Rows.fastBrowser.id: "Waiting for Chrome…"])),
             ("rows-error", card([Rows.slack], errors: [Rows.slack.id: "Slack didn't answer. Try again"])),
+            ("rows-running", AnyView(card([ConnectRows.slack, Rows.clt], waiting: [ConnectRows.slack.id: "Waiting for Slack…", Rows.clt.id: "Installing Command Line Tools…"])
+                .environment(\.formRowsRunning, [ConnectRows.slack.id, Rows.clt.id]))),
             ("rows-connect", card([Rows.linear])),
             ("rows-choose", card([Rows.backup, Rows.remote])),
             ("rows-repo", card([Rows.repo, Rows.repoClone], title: "Your repos")),

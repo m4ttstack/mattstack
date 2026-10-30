@@ -254,7 +254,7 @@ const CLT_TOOL = "apple-clt";
 export function cltRow(i: { cltInstalled: boolean; prepare: MacosPrepare }): FormRow | null {
   if (i.cltInstalled) return null;
   const c = FORM_COPY.clt;
-  const base = { id: "tool.clt", title: c.title, subtext: c.subtext, waiting: null, watch: true, optional: false };
+  const base = { id: "tool.clt", title: c.title, subtext: c.subtext, waiting: c.installing, watch: true, optional: false };
   if (i.prepare?.running && i.prepare.items.includes(CLT_TOOL)) return { ...base, state: "busy", detail: c.installing, action: null };
   const failure = i.prepare?.failed.find((f) => f.tool === CLT_TOOL);
   return { ...base, state: "todo", detail: failure?.detail ?? c.notInstalled, action: { type: "install", label: c.install, tool: CLT_TOOL, via: "apple-clt" } };
@@ -540,7 +540,7 @@ function claudeRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow
   if (claude?.status === "ready") return { ...base, state: "done", detail: claude.detail, action: null };
   if (claude?.status === "missing") {
     if (installing(i.prepare, "claude")) return { ...base, state: "busy", detail: FORM_COPY.installing, action: null };
-    return { ...base, state: "todo", detail: installFailure(i.prepare, "claude") ?? claude.detail, action: CLAUDE_INSTALL };
+    return { ...base, state: "todo", detail: installFailure(i.prepare, "claude") ?? claude.detail, action: CLAUDE_INSTALL, waiting: FORM_COPY.installing };
   }
   if (i.logins.claude) {
     return {
