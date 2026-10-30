@@ -141,7 +141,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "action": {
             "tool": "herdr",
             "type": "install",
-            "via": "brew",
+            "via": "vendor",
           },
           "id": "tool.herdr",
           "kind": "tool",
@@ -685,7 +685,7 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "action": {
             "tool": "herdr",
             "type": "install",
-            "via": "brew",
+            "via": "vendor",
           },
           "id": "tool.herdr",
           "kind": "tool",

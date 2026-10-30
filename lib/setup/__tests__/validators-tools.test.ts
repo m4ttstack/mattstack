@@ -112,11 +112,11 @@ describe("extractVersion", () => {
 });
 
 describe("toolRows — tool.herdr", () => {
-  test("127 with brew available -> missing, install action via brew", async () => {
+  test("127 with brew available -> missing, install action via herdr's own script", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? missing("herdr") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("missing");
-    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "brew" });
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "herdr", via: "vendor" });
   });
 
   test("127 with no brew -> install action via vendor", async () => {
@@ -197,7 +197,7 @@ describe("toolRows — tool.herdr", () => {
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("invalid");
     expect(r.detail).toBe("herdr 0.7.4 is older than 0.7.5");
-    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "brew" });
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "vendor" });
   });
 });
 
@@ -206,7 +206,7 @@ describe("toolRows — tool.claude", () => {
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "--version" ? missing("claude") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("missing");
-    expect(r.action).toEqual({ type: "install", label: "Install", tool: "claude", via: "brew" });
+    expect(r.action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
     expect(r.recheck).toBe("on-activate");
   });
 
@@ -1127,7 +1127,7 @@ describe("toolRows: a tool that prints no version", () => {
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.detail).toBe("rt could not read herdr's version (it needs 0.7.5 or newer)");
     expect(r.status).toBe("invalid");
-    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "brew" });
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "vendor" });
   });
 
   test("nonnumeric team tool output says its version could not be read", async () => {
