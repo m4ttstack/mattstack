@@ -174,7 +174,7 @@ export function loadPeerAsksAlwaysAllow(
   );
 }
 
-/** The triage config, from three sibling keys: board.triage (user) carries
+/** The triage config, from three sibling keys: board.triage (user, team or org) carries
     every field but doctorSkill and maxConcurrent, which are
     board.triage.doctorSkill (team, never manifest-resolved) and
     board.triageMaxConcurrent (machine). */
