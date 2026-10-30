@@ -20,6 +20,13 @@ let rowActionChecks: [Check] = [
         c.expectEqual(d, .rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"token\":\"glpat-xyz\"}".utf8)))
         c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: nil, alternative: "use-gh"), .rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"useGh\":true}".utf8)))
     },
+    Check("connect: a self-hosted GitLab row's own verb carries --host to rt") { c in
+        let json = #"{"type":"connect","label":"Connect","integration":"gitlab","fields":[{"name":"token","label":"Token","secret":true}],"verb":["setup","gitlab","connect","--host","gitlab.example.com"]}"#
+        guard let a = try? JSONDecoder().decode(RowAction.self, from: Data(json.utf8)) else { c.expect(false, "decodes"); return }
+        c.expectEqual(a.verb, ["setup", "gitlab", "connect", "--host", "gitlab.example.com"])
+        c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: ["token": "glpat-xyz"], alternative: nil),
+                      .rtVerb(args: ["setup", "gitlab", "connect", "--host", "gitlab.example.com", "--json"], stdin: Data("{\"token\":\"glpat-xyz\"}".utf8)))
+    },
     Check("form: collect first, then the action's own verb with JSON on stdin; an alternative sends its id") { c in
         let fields = [ActionField(name: "url", label: "Remote URL", secret: false, hint: "an empty private repo")]
         let alts = [ActionAlternative(id: "create", label: "Create a private repo for me")]

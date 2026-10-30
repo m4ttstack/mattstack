@@ -45,11 +45,13 @@ describe("createRows", () => {
       integration: "gitlab",
       fields: [tokenField("gitlab", "owner")],
       create: { label: "Create token", url: tokenCreateLink("gitlab", "owner", "gitlab.example.com").url },
+      verb: ["setup", "gitlab", "connect", "--host", "gitlab.example.com"],
     });
 
     const github = pick(createRows(inputs({ forge: GITHUB, rows: new Map([["account.github", accountRow("account.github", "missing", "No GitHub account connected yet")]]) })), "forge.token");
     expect(github.subtext).toBe("Lets mattstack reach the team's repo and open PRs");
     expect(github.action).toMatchObject({ fields: [tokenField("github", "owner")], create: { label: "Create token", url: tokenCreateLink("github", "owner", "github.com").url } });
+    expect(github.action && "verb" in github.action).toBe(false);
   });
 
   test("GitHub with gh signed in asks for no token", () => {
@@ -79,7 +81,7 @@ describe("composeForm create section", () => {
     const form = await composeForm(p, { sections: ["create"], create: { forge: "gitlab", host: "gitlab.example.com" }, secrets: NO_SECRETS, orgs: [] });
     expect(Object.keys(form.sections)).toEqual(["create"]);
     const token = pick(form.sections.create!, "forge.token");
-    expect(token.action).toMatchObject({ create: { url: tokenCreateLink("gitlab", "owner", "gitlab.example.com").url } });
+    expect(token.action).toMatchObject({ create: { url: tokenCreateLink("gitlab", "owner", "gitlab.example.com").url }, verb: ["setup", "gitlab", "connect", "--host", "gitlab.example.com"] });
     expect(form.stage).toBeNull();
     expect(p.calls.exec.some((argv) => argv[0] === "fast-browser")).toBe(false);
   });
@@ -87,6 +89,8 @@ describe("composeForm create section", () => {
   test("a GitLab create with no host reads gitlab.com", async () => {
     const p = fakeProbes({ home: "/fake-home", exec: () => ({ code: 0, stdout: "git version 2.50.1", stderr: "" }) });
     const form = await composeForm(p, { sections: ["create"], create: { forge: "gitlab", host: null }, secrets: NO_SECRETS, orgs: [] });
-    expect(pick(form.sections.create!, "forge.token").action).toMatchObject({ create: { url: tokenCreateLink("gitlab", "owner", "gitlab.com").url } });
+    const action = pick(form.sections.create!, "forge.token").action;
+    expect(action).toMatchObject({ create: { url: tokenCreateLink("gitlab", "owner", "gitlab.com").url } });
+    expect(action && "verb" in action).toBe(false);
   });
 });

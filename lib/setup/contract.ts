@@ -28,7 +28,8 @@ export type Action =
   | { type: "open-settings"; label: string; target: "fda" | "login-items" | "notifications" | "keyboard" }
   | { type: "request-permission"; label: string; which: "notifications" }
   // `create` is the service's own new-credential page with rt's needs prefilled; the app opens it in the browser and keeps the sheet up for the paste.
-  | { type: "connect"; label: string; integration: Integration; fields: ConnectField[]; alternatives?: { id: string; label: string }[]; create?: { label: string; url: string } }
+  // `verb`, when set, is what the app runs in place of `setup <integration> connect` (a self-hosted GitLab's `--host`).
+  | { type: "connect"; label: string; integration: Integration; fields: ConnectField[]; alternatives?: { id: string; label: string }[]; create?: { label: string; url: string }; verb?: string[] }
   | { type: "oauth"; label: string; integration: Integration; verb: string[] }
   | { type: "owner-once"; label: string; integration: Integration; fields: ConnectField[] }
   | { type: "install"; label: string; tool: string; via: "brew" | "vendor" | "apple-clt" | "bundled-link" }

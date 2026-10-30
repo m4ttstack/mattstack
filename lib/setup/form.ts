@@ -15,6 +15,7 @@ import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from 
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { homeGitDir } from "./home-paths.ts";
+import { isValidHostname } from "./host-validate.ts";
 import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "./permissions.ts";
@@ -266,8 +267,16 @@ function forgeAccountRow(o: { id: string; forge: { provider: Forge; host: string
       integration: o.forge.provider,
       fields: [tokenField(o.forge.provider, o.role)],
       create: { label: c.createToken, url: tokenCreateLink(o.forge.provider, o.role, o.forge.host).url },
+      ...selfHostedConnect(o.forge),
     },
   };
+}
+
+/** `rt setup gitlab connect` checks a token against gitlab.com unless `--host` names the team's own host, which it then records as confirmed. */
+function selfHostedConnect(forge: { provider: Forge; host: string }): { verb?: string[] } {
+  const host = forge.host.toLowerCase();
+  if (forge.provider !== "gitlab" || host === "gitlab.com" || !isValidHostname(host)) return {};
+  return { verb: ["setup", "gitlab", "connect", "--host", host] };
 }
 
 export function inviteRows(i: InviteInputs): FormRow[] {

@@ -54,6 +54,21 @@ describe("inviteRows", () => {
     }
   });
 
+  test("a self-hosted GitLab team's Connect checks the token against the team's own host", () => {
+    const token = pick(inviteRows(inputs({ forge: { provider: "gitlab", host: "gitlab.example.com" } })), "forge.token");
+    expect(token.action).toMatchObject({
+      type: "connect",
+      integration: "gitlab",
+      verb: ["setup", "gitlab", "connect", "--host", "gitlab.example.com"],
+      create: { url: tokenCreateLink("gitlab", "member", "gitlab.example.com").url },
+    });
+  });
+
+  test("a host that is not a bare hostname never reaches the Connect verb", () => {
+    const token = pick(inviteRows(inputs({ forge: { provider: "gitlab", host: "--json" } })), "forge.token");
+    expect(token.action && "verb" in token.action).toBe(false);
+  });
+
   test("a GitHub team with a gh sign-in asks for nothing", () => {
     const rows = new Map([["account.github", accountRow("account.github", "ready", "Signed in through the gh CLI as janedoe")]]);
     expect(inviteRows(inputs({ forge: GITHUB, rows, ghSignedIn: true }))).toEqual([]);
@@ -132,6 +147,17 @@ describe("composeForm", () => {
     expect(form.sections.invite?.map((r) => [r.id, r.state])).toEqual([["forge.token", "todo"]]);
     expect(form.team).toEqual({ slug: "mithrandir", name: "Mithrandir", invitedBy: "Jane Doe" });
     expect(p.calls.exec.some((argv) => argv[0] === "fast-browser")).toBe(false);
+  });
+
+  test("a self-hosted invite's token row carries the pointer's host", async () => {
+    const pointer = { ...POINTER, remote: "https://gitlab.example.com/acme/mithrandir-org.git", forge: "gitlab.example.com" };
+    const p = fakeProbes({
+      home: "/fake-home",
+      files: { [intentPath("/fake-home")]: JSON.stringify({ v: 1, at: pointer.createdAt, mode: "join", join: { id: "a".repeat(32), keyB64: "k", pointer } }) },
+      exec: (argv) => (argv[0] === "xcode-select" || argv[0] === "git" ? { code: 0, stdout: "git version 2.50.1", stderr: "" } : { code: 1, stdout: "", stderr: "" }),
+    });
+    const form = await composeForm(p, { sections: ["invite"], secrets: NO_SECRETS, orgs: [] });
+    expect(pick(form.sections.invite!, "forge.token").action).toMatchObject({ verb: ["setup", "gitlab", "connect", "--host", "gitlab.example.com"] });
   });
 
   test("the restore section reads only this Mac's rows", async () => {
