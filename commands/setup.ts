@@ -64,7 +64,7 @@ import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
-import { appsRestartStep, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
+import { appsRestartOwed, appsRestartStep, oweAppsRestart, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -393,6 +393,7 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       const whole = selection.only === undefined;
       const afterRecord = async ({ ok }: { ok: boolean }): Promise<void> => {
         if (ok && whole) await finishWholeRun(deps, warnings);
+        if (ok && !whole && selection.only !== appsRestartStep.id) oweRestart(deps, warnings);
       };
       const beforeDone = (): void => lock?.release();
       result = await runApplyWith(steps, ctx, { ...runOptions(selection, steps, ctx, deps.probes), afterRecord, beforeDone });
@@ -426,6 +427,15 @@ interface RunWarning {
 
 function warningOf(title: string, err: unknown): RunWarning {
   return { title, detail: err instanceof Error ? err.message : String(err) };
+}
+
+/** An `--only` run restarts no apps, so the next Finish owes them one. */
+function oweRestart(deps: ApplyDeps, warnings: RunWarning[]): void {
+  try {
+    oweAppsRestart(deps.probes);
+  } catch (err) {
+    warnings.push(warningOf("Your apps may keep running old code until the next restart", err));
+  }
 }
 
 /** A full, `--from` or resumed run that ended ok has run every step that was left, so it stamps and finishes like a full one. */
@@ -716,13 +726,9 @@ export interface AfterFinish {
   notify(title: string, message: string): void;
 }
 
-/**
- * The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own.
- * Finish restarts the apps itself, whether or not this run had anything to do, so the run leaves them alone.
- */
+/** The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own. */
 export async function updateAfterFinish(opts: { json: boolean }, deps: ApplyDeps = realApplyDeps()): Promise<void> {
-  const steps = (deps.steps ?? STEPS).filter((s) => s.id !== appsRestartStep.id);
-  const quiet: ApplyDeps = { ...deps, steps, json: opts.json ? () => {} : deps.json, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
+  const quiet: ApplyDeps = { ...deps, json: opts.json ? () => {} : deps.json, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
   await setupUpdate(opts.json ? ["--json"] : [], {}, quiet);
 }
 
@@ -777,8 +783,18 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
   await startHerdrAfterFinish(json, after);
 }
 
-/** A failed restart is a caveat on a Finish that already happened, never a failed exit. */
+/**
+ * Restarts only while an `--only` fix left a restart owed and the update run above did not settle it: a whole run
+ * already restarted the apps, and a second restart would catch P7's "Open the board" mid-load. A failed restart is a
+ * caveat on a Finish that already happened, never a failed exit.
+ */
 async function restartAppsAfterFinish(json: boolean, p: Probes, after: AfterFinish): Promise<void> {
+  try {
+    if (!appsRestartOwed(p)) return;
+  } catch (err) {
+    logCliEvent("warn", "setup.finish", `apps restart mark unreadable: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
   let outcome: StepOutcome;
   try {
     outcome = await after.restartApps(p);

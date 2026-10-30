@@ -419,13 +419,14 @@ describe("rt setup update", () => {
       expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
     });
 
-    test("leaves the apps to Finish, which restarts them itself", async () => {
+    test("an update run Finish starts that actually runs restarts the apps", async () => {
+      let restarts = 0;
       const deps = updateDeps({
         probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
-        steps: [updateStep("verify", { state: "done" }), { ...neverRunsStep("apps.restart"), updateSafe: true }],
+        steps: [updateStep("verify", { state: "done" }), { ...fakeStep("apps.restart", async () => (restarts++, { state: "done" as const })), updateSafe: true }],
       });
       await updateAfterFinish({ json: true }, deps);
-      expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
+      expect(restarts).toBe(1);
     });
 
     test("human mode draws the run and ends in the update summary", async () => {

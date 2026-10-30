@@ -4,92 +4,22 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { setSetting } from "../../settings/write.ts";
-import type { Probes } from "../probes.ts";
-import { listServedAppsFromDeck, REAL_APPS_RESTART_SEAMS, restartServedApps, servedAppNames, type AppsRestartSeams, type ServedAppsList } from "../steps/apps-restart.ts";
+import type { ExecResult, Probes } from "../probes.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
+import { appsRestartOwed, oweAppsRestart, parseManagedRestart, restartServedApps, type AppsRestartSeams } from "../steps/apps-restart.ts";
 import { fakeProbes, type ExecScript } from "./fakes.ts";
 
-const row = (name: string, managedBy: string, extra: Record<string, unknown> = {}) => ({ name, managedBy, enabled: true, record: { kind: "service", command: null, workingDirectory: null }, ...extra });
+const DASH = String.fromCharCode(0x2014);
+const failedLine = (name: string, err = "kickstart failed") => `failed to restart ${name} ${DASH} ${err}`;
 
-function seams(listed: ServedAppsList, restart: (name: string) => boolean | Promise<boolean> = () => true): AppsRestartSeams & { restarted: string[] } {
-  const restarted: string[] = [];
-  return {
-    restarted,
-    listServedApps: async () => listed,
-    restartApp: async (_p, name) => {
-      restarted.push(name);
-      return restart(name);
-    },
-  };
-}
-
-describe("servedAppNames", () => {
-  test("keeps only the switched-on services rt registered, sorted", () => {
-    const body = JSON.stringify({
-      apps: [
-        row("chat", "rt"),
-        row("board", "rt"),
-        row("deck", "deck"),
-        row("mything", "user"),
-        row("console", "rt", { enabled: false }),
-        row("docs", "rt", { record: { kind: "external", command: null, workingDirectory: null } }),
-        row("legacy", "rt", { record: null }),
-      ],
-    });
-    expect(servedAppNames(body)).toEqual(["board", "chat"]);
-  });
-
-  test("an answer that is not an app list reads as unreadable", () => {
-    expect(servedAppNames("not json")).toBeNull();
-    expect(servedAppNames(JSON.stringify({ error: "deck is still starting its apps" }))).toBeNull();
+describe("parseManagedRestart", () => {
+  test("reads deck's restarted and failed lines, ignoring anything else", () => {
+    expect(parseManagedRestart("restarted board\nrestarted chat\n", `${failedLine("console")}\nsome noise\n`)).toEqual({ restarted: ["board", "chat"], failed: ["console"] });
+    expect(parseManagedRestart("", "")).toEqual({ restarted: [], failed: [] });
   });
 });
 
 describe("restartServedApps", () => {
-  test("restarts each served app once, with one log line per app", async () => {
-    const s = seams({ kind: "apps", names: ["board", "chat", "console"] });
-    const logs: string[] = [];
-    const outcome = await restartServedApps(fakeProbes(), (l) => logs.push(l), s);
-    expect(s.restarted).toEqual(["board", "chat", "console"]);
-    expect(outcome).toEqual({ state: "done", detail: "Restarted board, chat, console" });
-    expect(logs).toEqual(["Restarted board", "Restarted chat", "Restarted console"]);
-  });
-
-  test("a deck error on one app is partial with that app's remedy, and the rest still restart", async () => {
-    const s = seams({ kind: "apps", names: ["board", "chat"] }, (name) => name !== "board");
-    const logs: string[] = [];
-    const outcome = await restartServedApps(fakeProbes(), (l) => logs.push(l), s);
-    expect(s.restarted).toEqual(["board", "chat"]);
-    expect(outcome).toEqual({ state: "partial", detail: "Couldn't restart board", remedy: "Run deck restart board" });
-    expect(logs).toEqual(["deck restart board failed", "Restarted chat"]);
-  });
-
-  test("several failures point at deck's managed restart", async () => {
-    const s = seams({ kind: "apps", names: ["board", "chat"] }, () => {
-      throw new Error("spawn boom");
-    });
-    const logs: string[] = [];
-    const outcome = await restartServedApps(fakeProbes(), (l) => logs.push(l), s);
-    expect(outcome).toEqual({ state: "partial", detail: "Couldn't restart board, chat", remedy: "Run deck restart --managed" });
-    expect(logs).toContain("deck restart board threw: spawn boom");
-  });
-
-  test("a list deck could not answer is partial, and nothing restarts", async () => {
-    const s = seams({ kind: "error", detail: "Couldn't list your apps: deck answered 503" });
-    const outcome = await restartServedApps(fakeProbes(), () => {}, s);
-    expect(outcome).toEqual({ state: "partial", detail: "Couldn't list your apps: deck answered 503", remedy: "Run deck restart --managed" });
-    expect(s.restarted).toEqual([]);
-  });
-
-  test("deck not running, or nothing served, is skipped", async () => {
-    expect(await restartServedApps(fakeProbes(), () => {}, seams({ kind: "skip", detail: "Deck is not running, so no apps to restart" }))).toEqual({
-      state: "skipped",
-      detail: "Deck is not running, so no apps to restart",
-    });
-    expect(await restartServedApps(fakeProbes(), () => {}, seams({ kind: "apps", names: [] }))).toEqual({ state: "skipped", detail: "No apps to restart" });
-  });
-});
-
-describe("listServedAppsFromDeck and the real restart", () => {
   const origHome = process.env.HOME;
   let home: string;
   let appRoot: string;
@@ -108,7 +38,10 @@ describe("listServedAppsFromDeck and the real restart", () => {
     bundleLayoutTest.resetBundleLayoutMemo();
   });
 
-  function bundledProbes(overrides: { files?: Record<string, string>; fetch?: Probes["fetch"]; exec?: ExecScript } = {}): ReturnType<typeof fakeProbes> {
+  const API_JSON = () => join(home, ".mattstack", "deck", "api.json");
+  const deckBin = () => join(appRoot, HELPERS_DIR, "deck");
+
+  function bundledProbes(opts: { apiJson?: boolean; exec?: ExecScript; fetch?: Probes["fetch"] } = {}): ReturnType<typeof fakeProbes> {
     mkdirSync(join(appRoot, "Contents", "Resources"), { recursive: true });
     mkdirSync(join(appRoot, "Contents", "MacOS"), { recursive: true });
     mkdirSync(join(appRoot, HELPERS_DIR), { recursive: true });
@@ -121,41 +54,132 @@ describe("listServedAppsFromDeck and the real restart", () => {
     return fakeProbes({
       home,
       env: { PATH: "" },
-      files: { [join(appRoot, RT_BUNDLE_PATH)]: "rt-binary", [join(appRoot, HELPERS_DIR, "deck")]: "deck-binary", ...overrides.files },
+      files: {
+        [join(appRoot, RT_BUNDLE_PATH)]: "rt-binary",
+        [deckBin()]: "deck-binary",
+        ...(opts.apiJson === false ? {} : { [API_JSON()]: JSON.stringify({ port: 7777 }) }),
+      },
       dirs: { [appRoot]: [] },
-      ...(overrides.fetch ? { fetch: overrides.fetch } : {}),
-      ...(overrides.exec ? { exec: overrides.exec } : {}),
+      ...(opts.exec ? { exec: opts.exec } : {}),
+      fetch: opts.fetch ?? healthy(),
     });
   }
 
-  const apiJson = () => ({ [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 7777 }) });
+  const reply = (code: number, stdout = "", stderr = ""): ExecScript => async (): Promise<ExecResult> => ({ code, stdout, stderr });
+  const appsBody = (rows: Array<{ name: string; ok: boolean | null }>) =>
+    JSON.stringify({ apps: rows.map((r) => ({ name: r.name, managedBy: "rt", health: r.ok === null ? null : { ok: r.ok, status: r.ok ? 200 : null, ms: 1 } })) });
+  function healthy(): Probes["fetch"] {
+    return async () => ({ status: 200, body: appsBody([{ name: "board", ok: true }, { name: "chat", ok: true }]), headers: {} });
+  }
+  function seams(): AppsRestartSeams & { sleeps: number[] } {
+    const sleeps: number[] = [];
+    return { sleeps, sleep: async (ms) => void sleeps.push(ms) };
+  }
 
-  test("no deck in the bundle is skipped without asking anything", async () => {
+  test("no deck in the bundle is skipped without running anything", async () => {
     const p = fakeProbes({ home });
-    expect(await listServedAppsFromDeck(p)).toEqual({ kind: "skip", detail: "Deck is not in this build yet" });
-    expect(p.calls.fetch).toEqual([]);
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "skipped", detail: "Deck is not in this build yet" });
+    expect(p.calls.exec).toEqual([]);
   });
 
-  test("deck with no api.json, or refusing the connection, is skipped", async () => {
-    expect(await listServedAppsFromDeck(bundledProbes())).toEqual({ kind: "skip", detail: "Deck is not running, so no apps to restart" });
-    expect(await listServedAppsFromDeck(bundledProbes({ files: apiJson() }))).toEqual({ kind: "skip", detail: "Deck is not running, so no apps to restart" });
+  test("deck with no api.json is skipped without running anything", async () => {
+    const p = bundledProbes({ apiJson: false });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "skipped", detail: "Deck is not running, so no apps to restart" });
+    expect(p.calls.exec).toEqual([]);
   });
 
-  test("deck still starting its apps is an error the step reports", async () => {
-    const p = bundledProbes({ files: apiJson(), fetch: async () => ({ status: 503, body: "{}", headers: {} }) });
-    expect(await listServedAppsFromDeck(p)).toEqual({ kind: "error", detail: "Couldn't list your apps: deck answered 503" });
+  test("one deck restart --managed, one log line per app deck restarted", async () => {
+    const p = bundledProbes({ exec: reply(0, "restarted board\nrestarted chat\n") });
+    const logs: string[] = [];
+    const s = seams();
+    expect(await restartServedApps(p, (l) => logs.push(l), s)).toEqual({ state: "done", detail: "Restarted board, chat" });
+    expect(p.calls.exec).toEqual([[deckBin(), "restart", "--managed"]]);
+    expect(logs).toEqual(["Restarted board", "Restarted chat"]);
+    expect(s.sleeps).toEqual([]);
   });
 
-  test("lists from deck's own api, then restarts each by name through the bundled deck", async () => {
-    const fetch: Probes["fetch"] = async (url) =>
-      url === "http://127.0.0.1:7777/api/v1/apps" ? { status: 200, body: JSON.stringify({ apps: [row("board", "rt"), row("deck", "deck"), row("chat", "rt")] }), headers: {} } : { status: 404, body: "", headers: {} };
-    const p = bundledProbes({ files: apiJson(), fetch });
-    const outcome = await restartServedApps(p, () => {}, REAL_APPS_RESTART_SEAMS);
-    const deckBin = join(appRoot, HELPERS_DIR, "deck");
-    expect(p.calls.exec).toEqual([
-      [deckBin, "restart", "board"],
-      [deckBin, "restart", "chat"],
-    ]);
-    expect(outcome).toEqual({ state: "done", detail: "Restarted board, chat" });
+  test("waits a bounded while for the restarted apps to answer", async () => {
+    let asks = 0;
+    const fetch: Probes["fetch"] = async () => {
+      asks++;
+      return { status: 200, body: appsBody([{ name: "board", ok: asks >= 3 }, { name: "chat", ok: null }]), headers: {} };
+    };
+    const s = seams();
+    const p = bundledProbes({ exec: reply(0, "restarted board\nrestarted chat\n"), fetch });
+    expect(await restartServedApps(p, () => {}, s)).toEqual({ state: "done", detail: "Restarted board, chat" });
+    expect(s.sleeps).toEqual([500, 500]);
+  });
+
+  test("an app that never answers is logged, and the restart still counts as done", async () => {
+    const fetch: Probes["fetch"] = async () => ({ status: 200, body: appsBody([{ name: "board", ok: false }]), headers: {} });
+    const s = seams();
+    const logs: string[] = [];
+    const p = bundledProbes({ exec: reply(0, "restarted board\n"), fetch });
+    expect(await restartServedApps(p, (l) => logs.push(l), s)).toEqual({ state: "done", detail: "Restarted board" });
+    expect(s.sleeps).toHaveLength(9);
+    expect(logs).toContain("Still starting: board");
+  });
+
+  test("a deck error on one app is partial with that app's remedy", async () => {
+    const logs: string[] = [];
+    const p = bundledProbes({ exec: reply(1, "restarted chat\n", `${failedLine("board")}\n`) });
+    expect(await restartServedApps(p, (l) => logs.push(l), seams())).toEqual({ state: "partial", detail: "Couldn't restart board", remedy: "Run deck restart board" });
+    expect(logs).toEqual(["Restarted chat", "deck restart board failed"]);
+  });
+
+  test("several failures point at deck's managed restart", async () => {
+    const p = bundledProbes({ exec: reply(1, "", `${failedLine("board")}\n${failedLine("chat")}\n`) });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "partial", detail: "Couldn't restart board, chat", remedy: "Run deck restart --managed" });
+  });
+
+  test("deck still running its boot sweep is skipped, not a failure", async () => {
+    const p = bundledProbes({ exec: reply(1, "", "deck is still starting its apps\n") });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "skipped", detail: "Deck is still starting your apps" });
+  });
+
+  test("a deck that stopped answering is skipped", async () => {
+    const p = bundledProbes({ exec: reply(1, "", "Deck isn't running. Open mattstack.app\n") });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "skipped", detail: "Deck is not running, so no apps to restart" });
+  });
+
+  test("a restart that outlasts its timeout is partial, never read as deck being down", async () => {
+    const p = bundledProbes({ exec: reply(124) });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "partial", detail: "Deck took too long to restart your apps", remedy: "Run deck restart --managed" });
+  });
+
+  test("any other deck error is partial with deck's first line", async () => {
+    const p = bundledProbes({ exec: reply(1, "", "failed (500)\n") });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "partial", detail: "Deck couldn't restart your apps: failed (500)", remedy: "Run deck restart --managed" });
+  });
+
+  test("an exec that throws is partial", async () => {
+    const p = bundledProbes({
+      exec: async () => {
+        throw new Error("spawn boom");
+      },
+    });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "partial", detail: "Deck couldn't restart your apps: spawn boom", remedy: "Run deck restart --managed" });
+  });
+
+  test("nothing for deck to restart is skipped", async () => {
+    const p = bundledProbes({ exec: reply(0) });
+    expect(await restartServedApps(p, () => {}, seams())).toEqual({ state: "skipped", detail: "No apps to restart" });
+  });
+
+  test("a done or skipped restart settles the owed mark; a partial one keeps it", async () => {
+    const done = bundledProbes({ exec: reply(0, "restarted board\n") });
+    oweAppsRestart(done);
+    await restartServedApps(done, () => {}, seams());
+    expect(appsRestartOwed(done)).toBe(false);
+
+    const skipped = fakeProbes({ home });
+    oweAppsRestart(skipped);
+    await restartServedApps(skipped, () => {}, seams());
+    expect(appsRestartOwed(skipped)).toBe(false);
+
+    const partial = bundledProbes({ exec: reply(1, "", `${failedLine("board")}\n`) });
+    updateSetupState(partial, (s) => ({ ...s, appsRestartOwed: true }));
+    await restartServedApps(partial, () => {}, seams());
+    expect(readSetupState(partial).appsRestartOwed).toBe(true);
   });
 });

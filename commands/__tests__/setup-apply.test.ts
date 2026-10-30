@@ -8,8 +8,10 @@ import { logsDir } from "../../lib/rt-paths.ts";
 import {
   realIntentDeps,
   setupApply,
+  setupFinish,
   setupInteractive,
   setupIntent,
+  type AfterFinish,
   type ApplyDeps,
   type IntentDeps,
 } from "../setup.ts";
@@ -711,6 +713,49 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe("Finish restarts only when a restart is owed", () => {
+    function finishWith(): AfterFinish & { restarts: number } {
+      const after = {
+        restarts: 0,
+        update: async () => {},
+        restartApps: async () => {
+          after.restarts++;
+          return { state: "done" as const, detail: "Restarted board" };
+        },
+        startHerdr: async () => ({ state: "running" as const, bin: "/bin/herdr" }),
+        warn: () => {},
+        notify: () => {},
+      };
+      return after;
+    }
+    const finishDeps = (deps: ReturnType<typeof baseApplyDeps>) => ({ probes: deps.probes, json: () => {}, exit: deps.exit });
+    const restartStep = () => fakeStep("apps.restart", { state: "done", detail: "Restarted board" });
+
+    test("an ok whole run, then Finish: no second restart", async () => {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" }), restartStep()] });
+      await setupApply(["--json"], {}, deps);
+      const after = finishWith();
+      await setupFinish(["--json"], {}, finishDeps(deps), after);
+      expect(after.restarts).toBe(0);
+    });
+
+    test("an --only fix after an ok run, then Finish: one restart", async () => {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" }), restartStep()] });
+      await setupApply(["--json"], {}, deps);
+      await setupApply(["--only", "path.link", "--json"], {}, deps);
+      expect(readSetupState(deps.probes).appsRestartOwed).toBe(true);
+      const after = finishWith();
+      await setupFinish(["--json"], {}, finishDeps(deps), after);
+      expect(after.restarts).toBe(1);
+    });
+
+    test("an --only run that fails owes nothing", async () => {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" }), restartStep()] });
+      await runExpectingExit(() => setupApply(["--only", "path.link", "--json"], {}, deps));
+      expect(readSetupState(deps.probes).appsRestartOwed).toBeUndefined();
+    });
   });
 
   test("an app deck could not restart leaves the run ok, exit 0", async () => {

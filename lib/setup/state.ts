@@ -40,6 +40,8 @@ export interface SetupState {
   boardCwdsWritten?: Partial<BoardCwds>;
   /** `board.cwds` changed since the board last restarted, so `board.restart` has something to do. */
   boardRestartPending?: boolean;
+  /** An `--only` run changed something since the served apps last restarted; `rt setup finish` restarts them only while this is set. */
+  appsRestartOwed?: true;
   /** The last Homebrew install the privileged helper attempted. Any outcome counts as asked, so a failed attempt never raises the admin dialog again. */
   homebrew?: { at: string; outcome: "ok" | "present" | "failed"; detail?: string };
   /** Where the member chose to keep their settings. A remote with a url or create and no `appliedAt` is staged until a push lands. */

@@ -92,10 +92,13 @@ Every run that ends restarts every app deck serves for rt, so none keeps
 code from before the run: `apps.restart` (`lib/setup/steps/apps-restart.ts`)
 is the engine's end step, run after a failed step too, in a whole
 `rt setup apply` (after Finish is recorded, before the run lock lets go) and
-in an update run (after `verify`). It never fails a run: a restart deck
-refuses is `partial`. An `--only` run, an attach and a skipped update run
-restart nothing; `rt setup finish` restarts once itself and its update run
-leaves the apps alone. `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
+in an update run (after `verify`). It runs `deck restart --managed`, so deck
+decides which apps count, and never fails a run: a restart deck refuses is
+`partial`. An attach and a skipped update run restart nothing. An `--only`
+run that ends ok restarts nothing either but sets `appsRestartOwed` in
+setup-state; a done or skipped restart clears it, and `rt setup finish`
+restarts only while it is still set after its own update run, so a whole
+run's restart is never repeated as P7 opens the board. `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
 the update stamp, the Install stamp (`installRanAt`) and the last run's record
 (`run`) off the record, so a reinstalled app opens setup again with rows only
 Install sets up waiting for it, and its form never finishes on the old run. Mark a

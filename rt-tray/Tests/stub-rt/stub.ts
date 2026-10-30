@@ -275,6 +275,7 @@ const STEPS = [
   ["plugins.install", "Install the mattstack skills into Claude Code", "rt"], ["services.start", "Start services", "rt"],
   ["board.restart", "Restart the board", "rt"],
   ["verify", "Verify everything", "rt"],
+  ["apps.restart", "Restart your apps", "rt"],
 ] as const;
 
 // The contract's v1 uninstall action ids, in order; `data` only with

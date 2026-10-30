@@ -2,100 +2,123 @@
  * `apps.restart`: the last thing every setup run does, so no app deck serves
  * keeps running code from before the run. The engine runs it at a run's end
  * whether the run ended ok or stopped at a failed step, and `rt setup finish`
- * runs the same restart through `restartServedApps`.
+ * runs the same restart through `restartServedApps` when one is owed.
  *
- * Which apps count is deck's answer: its `/api/v1/apps` rows that rt
- * registered (`managedBy: "rt"`), run as a service and are switched on. Deck
- * itself (`managedBy: "deck"`) and a person's own apps (`user`) are never
- * restarted. Each one restarts through `deck restart <name>`, never a signal.
+ * Which apps count is deck's own answer: `deck restart --managed` restarts
+ * every app it serves for rt (never deck itself, never a person's own app,
+ * never a row this flavor does not serve) and prints one line per app.
  *
  * A restart that fails is `partial`, never `failed`: the run's own outcome is
  * already decided by the steps before it.
  */
 
-import { bundledToolPath, restartAppWithDeck } from "../../deps/resolve.ts";
+import { bundledToolPath } from "../../deps/resolve.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
-import { MATTSTACK_REGISTRAR, readDeckApiPortFrom } from "./deck.ts";
-
-export type ServedAppsList = { kind: "apps"; names: string[] } | { kind: "skip"; detail: string } | { kind: "error"; detail: string };
+import { readSetupState, updateSetupState } from "../state.ts";
+import { readDeckApiPortFrom } from "./deck.ts";
 
 export interface AppsRestartSeams {
-  listServedApps(p: Probes): Promise<ServedAppsList>;
-  restartApp(p: Probes, name: string): Promise<boolean>;
+  sleep(ms: number): Promise<void>;
 }
 
-interface DeckAppRow {
-  name?: unknown;
-  managedBy?: unknown;
-  enabled?: unknown;
-  record?: { kind?: unknown } | null;
-}
+export const REAL_APPS_RESTART_SEAMS: AppsRestartSeams = { sleep: (ms) => Bun.sleep(ms) };
 
-const DECK_LIST_TIMEOUT_MS = 30_000;
-
-/** The served-app names in a `/api/v1/apps` body, or null when the body is not that shape. */
-export function servedAppNames(body: string): string[] | null {
-  let rows: unknown;
-  try {
-    rows = (JSON.parse(body) as { apps?: unknown }).apps;
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(rows)) return null;
-  return (rows as DeckAppRow[])
-    .filter((r) => typeof r.name === "string" && r.managedBy === MATTSTACK_REGISTRAR && r.enabled !== false && r.record?.kind === "service")
-    .map((r) => r.name as string)
-    .sort();
-}
-
-export async function listServedAppsFromDeck(p: Probes): Promise<ServedAppsList> {
-  if (bundledToolPath(p, "deck") === null) return { kind: "skip", detail: "Deck is not in this build yet" };
-  const port = readDeckApiPortFrom(p);
-  if (port === null) return { kind: "skip", detail: "Deck is not running, so no apps to restart" };
-  const res = await p.fetch(`http://127.0.0.1:${port}/api/v1/apps`, { timeoutMs: DECK_LIST_TIMEOUT_MS });
-  if (res.status === 0) return { kind: "skip", detail: "Deck is not running, so no apps to restart" };
-  if (res.status !== 200) return { kind: "error", detail: `Couldn't list your apps: deck answered ${res.status}` };
-  const names = servedAppNames(res.body);
-  if (names === null) return { kind: "error", detail: "Couldn't list your apps: deck's answer was unreadable" };
-  return { kind: "apps", names };
-}
-
-export const REAL_APPS_RESTART_SEAMS: AppsRestartSeams = {
-  listServedApps: listServedAppsFromDeck,
-  restartApp: (p, name) => restartAppWithDeck(p, name),
-};
-
+const MANAGED_RESTART_TIMEOUT_MS = 180_000;
+const EXEC_TIMEOUT_CODE = 124;
+const HEALTH_ATTEMPTS = 10;
+const HEALTH_DELAY_MS = 500;
+const HEALTH_FETCH_TIMEOUT_MS = 5_000;
 const MANAGED_REMEDY = "Run deck restart --managed";
+const NOT_RUNNING = "Deck is not running, so no apps to restart";
 
-export async function restartServedApps(p: Probes, log: (line: string) => void, seams: AppsRestartSeams = REAL_APPS_RESTART_SEAMS): Promise<StepOutcome> {
-  let listed: ServedAppsList;
+/** Deck's own lines: `restarted <name>` on stdout, `failed to restart <name> <dash> <error>` on stderr. */
+export function parseManagedRestart(stdout: string, stderr: string): { restarted: string[]; failed: string[] } {
+  const restarted = stdout
+    .split("\n")
+    .map((l) => /^restarted (\S+)$/.exec(l.trim())?.[1])
+    .filter((n): n is string => n !== undefined);
+  const failed = stderr
+    .split("\n")
+    .map((l) => /^failed to restart (\S+)(?:\s|$)/.exec(l.trim())?.[1])
+    .filter((n): n is string => n !== undefined);
+  return { restarted, failed };
+}
+
+/** Names among `apps` deck does not yet report healthy; a name deck no longer lists, or lists with no health probe, counts as settled. */
+async function unsettled(p: Probes, port: number, apps: string[]): Promise<string[]> {
+  const res = await p.fetch(`http://127.0.0.1:${port}/api/v1/apps`, { timeoutMs: HEALTH_FETCH_TIMEOUT_MS });
+  if (res.status !== 200) return apps;
+  let rows: Array<{ name?: unknown; health?: { ok?: unknown } | null }>;
   try {
-    listed = await seams.listServedApps(p);
-  } catch (err) {
-    listed = { kind: "error", detail: `Couldn't list your apps: ${err instanceof Error ? err.message : String(err)}` };
+    rows = (JSON.parse(res.body) as { apps?: typeof rows }).apps ?? [];
+  } catch {
+    return apps;
   }
-  if (listed.kind === "skip") return { state: "skipped", detail: listed.detail };
-  if (listed.kind === "error") return { state: "partial", detail: listed.detail, remedy: MANAGED_REMEDY };
-  if (listed.names.length === 0) return { state: "skipped", detail: "No apps to restart" };
+  return apps.filter((name) => {
+    const row = rows.find((r) => r.name === name);
+    const health = row?.health ?? null;
+    return health !== null && health.ok !== true;
+  });
+}
 
-  const failed: string[] = [];
-  for (const name of listed.names) {
-    let ok = false;
-    try {
-      ok = await seams.restartApp(p, name);
-    } catch (err) {
-      log(`deck restart ${name} threw: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (ok) log(`Restarted ${name}`);
-    else {
-      log(`deck restart ${name} failed`);
-      failed.push(name);
-    }
+/** A short, bounded wait so whatever opens on `done` (P7's board) finds the apps answering. A slow one is logged, never a failure: deck did restart it. */
+async function waitForHealthy(p: Probes, port: number, apps: string[], seams: AppsRestartSeams, log: (line: string) => void): Promise<void> {
+  let pending = await unsettled(p, port, apps);
+  for (let i = 1; i < HEALTH_ATTEMPTS && pending.length > 0; i++) {
+    await seams.sleep(HEALTH_DELAY_MS);
+    pending = await unsettled(p, port, apps);
   }
-  if (failed.length === 0) return { state: "done", detail: `Restarted ${listed.names.join(", ")}` };
-  const remedy = failed.length === 1 ? `Run deck restart ${failed[0]}` : MANAGED_REMEDY;
-  return { state: "partial", detail: `Couldn't restart ${failed.join(", ")}`, remedy };
+  if (pending.length > 0) log(`Still starting: ${pending.join(", ")}`);
+}
+
+function clearOwed(p: Probes): void {
+  try {
+    updateSetupState(p, ({ appsRestartOwed: _, ...s }) => s);
+  } catch {
+    // Finish restarts once more next time; nothing is lost.
+  }
+}
+
+async function restart(p: Probes, log: (line: string) => void, seams: AppsRestartSeams): Promise<StepOutcome> {
+  const deck = bundledToolPath(p, "deck");
+  if (deck === null) return { state: "skipped", detail: "Deck is not in this build yet" };
+  const port = readDeckApiPortFrom(p);
+  if (port === null) return { state: "skipped", detail: NOT_RUNNING };
+
+  const r = await p.exec([deck, "restart", "--managed"], { timeoutMs: MANAGED_RESTART_TIMEOUT_MS });
+  const { restarted, failed } = parseManagedRestart(r.stdout, r.stderr);
+  for (const name of restarted) log(`Restarted ${name}`);
+  for (const name of failed) log(`deck restart ${name} failed`);
+
+  if (r.code === EXEC_TIMEOUT_CODE) return { state: "partial", detail: "Deck took too long to restart your apps", remedy: MANAGED_REMEDY };
+  if (failed.length > 0) {
+    const remedy = failed.length === 1 ? `Run deck restart ${failed[0]}` : MANAGED_REMEDY;
+    return { state: "partial", detail: `Couldn't restart ${failed.join(", ")}`, remedy };
+  }
+  if (r.code !== 0) {
+    const said = `${r.stderr}\n${r.stdout}`;
+    if (said.includes("still starting")) return { state: "skipped", detail: "Deck is still starting your apps" };
+    if (/isn't running|not running/i.test(said)) return { state: "skipped", detail: NOT_RUNNING };
+    const first = said.trim().split("\n")[0] || `exit ${r.code}`;
+    return { state: "partial", detail: `Deck couldn't restart your apps: ${first}`, remedy: MANAGED_REMEDY };
+  }
+  if (restarted.length === 0) return { state: "skipped", detail: "No apps to restart" };
+
+  await waitForHealthy(p, port, restarted, seams, log);
+  return { state: "done", detail: `Restarted ${restarted.join(", ")}` };
+}
+
+/** Clears the owed mark once nothing is left stale: on done, or when there was nothing deck could restart. A partial keeps it, so Finish tries again. */
+export async function restartServedApps(p: Probes, log: (line: string) => void, seams: AppsRestartSeams = REAL_APPS_RESTART_SEAMS): Promise<StepOutcome> {
+  let outcome: StepOutcome;
+  try {
+    outcome = await restart(p, log, seams);
+  } catch (err) {
+    outcome = { state: "partial", detail: `Deck couldn't restart your apps: ${err instanceof Error ? err.message : String(err)}`, remedy: MANAGED_REMEDY };
+  }
+  if (outcome.state === "done" || outcome.state === "skipped") clearOwed(p);
+  return outcome;
 }
 
 export function makeAppsRestartStep(seams: AppsRestartSeams = REAL_APPS_RESTART_SEAMS): StepDef {
@@ -110,3 +133,12 @@ export function makeAppsRestartStep(seams: AppsRestartSeams = REAL_APPS_RESTART_
 }
 
 export const appsRestartStep = makeAppsRestartStep();
+
+/** Called by an `--only` run that ended ok: it restarts nothing itself, so Finish owes one. */
+export function oweAppsRestart(p: Probes): void {
+  updateSetupState(p, (s) => ({ ...s, appsRestartOwed: true }));
+}
+
+export function appsRestartOwed(p: Probes): boolean {
+  return readSetupState(p).appsRestartOwed === true;
+}
