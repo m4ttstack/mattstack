@@ -15,18 +15,17 @@ import { UserActionableError } from "../errors.ts";
 import { homeGitDir } from "../setup/home-paths.ts";
 import { writeIntent } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
-import { failureDetail, homeInitRemedy } from "../setup/steps/home.ts";
+import { CHECK_ABOVE_REMEDY, failureDetail, homeInitRemedy } from "../setup/steps/home.ts";
 import { scrub } from "../team/redact.ts";
 import { importAgeKey, PRIVATE_KEY_PREFIX, readAgeKey, removeAgeKeyIf, sopsYamlRecipients, type AgeKeySeam } from "./age-key.ts";
 import { homeRepoTarget, originNames, RESTORE_USAGE, type HomeRepoTarget } from "./home-repo.ts";
-import { stableMachineId } from "./machine-id.ts";
 
 export { DEFAULT_HOME_HOST, homeRepoCloneUrl, homeRepoTarget, RESTORE_USAGE, type HomeRepoTarget } from "./home-repo.ts";
 
 /** A clone through `--url` runs inside `rt home init`, which reaches the network. */
 const HOME_INIT_TIMEOUT_MS = 180_000;
 
-export type KeyOutcome = "imported" | "kept" | "replaced";
+export type KeyOutcome = "imported" | "kept";
 
 function badKey(): UserActionableError {
   return new UserActionableError("bad-key", "That is not a recovery key", {}, {
@@ -83,20 +82,13 @@ function locksOut(p: Pick<Probes, "readFile" | "home">, pasted: string): boolean
   return recipients.length > 0 && !recipients.includes(pasted);
 }
 
-async function importKey(seam: AgeKeySeam, privateKey: string, arg: string, force: boolean) {
-  try {
-    return await importAgeKey(seam, privateKey, { force });
-  } catch (err) {
-    throw keychainError("rt could not save your recovery key to the keychain", arg, err);
-  }
-}
-
 /**
- * The same key already in the keychain is kept. A different one is refused,
- * except when it opens none of the cloned secrets and the pasted key does:
- * then the stored key is the wrong one, and replacing it loses nothing.
+ * The same key already in the keychain is kept; a different one is refused
+ * and never touched. This Mac's key is also its team identity (team join
+ * registers it, the org's secrets encrypt to it), so only a person replaces
+ * it, with `rt home key import --force`.
  */
-async function placeKey(p: Pick<Probes, "readFile" | "home">, seam: AgeKeySeam, privateKey: string, pasted: string, arg: string): Promise<KeyOutcome> {
+async function placeKey(seam: AgeKeySeam, privateKey: string, pasted: string, arg: string): Promise<KeyOutcome> {
   let existing: Awaited<ReturnType<typeof readAgeKey>>;
   try {
     existing = await readAgeKey(seam);
@@ -106,14 +98,14 @@ async function placeKey(p: Pick<Probes, "readFile" | "home">, seam: AgeKeySeam, 
   if ("key" in existing) {
     const held = await recipientOf(seam, existing.key);
     if (held === pasted) return "kept";
-    const recipients = cloneRecipients(p);
-    if (recipients.includes(pasted) && (held === null || !recipients.includes(held))) {
-      const replaced = await importKey(seam, privateKey, arg, true);
-      if (replaced.ok) return "replaced";
-    }
     throw held === null ? storedKeyUnreadable(arg) : otherKey(arg);
   }
-  const result = await importKey(seam, privateKey, arg, false);
+  let result: Awaited<ReturnType<typeof importAgeKey>>;
+  try {
+    result = await importAgeKey(seam, privateKey);
+  } catch (err) {
+    throw keychainError("rt could not save your recovery key to the keychain", arg, err);
+  }
   if (result.ok) return "imported";
   if (result.reason === "malformed") throw badKey();
   throw otherKey(arg);
@@ -147,8 +139,8 @@ function initArgs(p: Pick<Probes, "exists" | "home">, target: HomeRepoTarget, pr
 }
 
 export interface HomeRestoreOptions {
-  /** This Mac's hardware id, the name init gives a fresh Mac's profile. Defaults to the real ioreg read. */
-  machineId?: () => Promise<string | null>;
+  /** This Mac's hardware id, the name init gives a fresh Mac's profile: `stableMachineId` for real. */
+  machineId: () => Promise<string | null>;
 }
 
 async function cloneAndProvision(
@@ -164,7 +156,7 @@ async function cloneAndProvision(
   const stoppedAtProfile = () => p.exists(homeGitDir(p.home)) && !p.exists(machineKeyPath(p.home));
   if (stoppedAtProfile() && profile === undefined) {
     // This same Mac set up before: its profile is already named by its hardware id, so the new profile collides with it.
-    const id = await (opts.machineId ?? stableMachineId)();
+    const id = await opts.machineId();
     if (id !== null && p.exists(join(p.home, ".mattstack", "user", "local", id, "settings.local.jsonc"))) {
       result = await p.runRt(["home", "init", "--url", target.url, "--no-materialize", "--profile", id], { timeoutMs: HOME_INIT_TIMEOUT_MS });
       if (result.code === 0) return;
@@ -178,7 +170,10 @@ async function cloneAndProvision(
       log: result.stderr,
     });
   }
-  throw new UserActionableError("init-failed", detail, {}, { why: homeInitRemedy(result.stderr), next: `rt home restore ${arg} --stdin`, log: result.stderr });
+  const remedy = homeInitRemedy(result.stderr);
+  // The app shows no error above this one, so the generic remedy would point at nothing.
+  const why = remedy === CHECK_ABOVE_REMEDY ? "Retry, or run rt home restore in a terminal to see why." : remedy;
+  throw new UserActionableError("init-failed", detail, {}, { why, next: `rt home restore ${arg} --stdin`, log: result.stderr });
 }
 
 export type HomeRestoreProbes = Pick<Probes, "exists" | "readFile" | "writeFile" | "mkdirp" | "home" | "now" | "runRt">;
@@ -195,7 +190,15 @@ export interface HomeRestoreResult extends HomeRepoTarget {
   key: KeyOutcome;
 }
 
-export async function runHomeRestore(p: HomeRestoreProbes, seam: AgeKeySeam, input: HomeRestoreInput, opts: HomeRestoreOptions = {}): Promise<HomeRestoreResult> {
+async function takeBack(seam: AgeKeySeam, pasted: string): Promise<boolean> {
+  try {
+    return await removeAgeKeyIf(seam, pasted);
+  } catch {
+    return false;
+  }
+}
+
+export async function runHomeRestore(p: HomeRestoreProbes, seam: AgeKeySeam, input: HomeRestoreInput, opts: HomeRestoreOptions): Promise<HomeRestoreResult> {
   const target = homeRepoTarget(input.repo);
   const arg = input.repo.trim();
   if (!input.privateKey.startsWith(PRIVATE_KEY_PREFIX)) throw badKey();
@@ -203,18 +206,18 @@ export async function runHomeRestore(p: HomeRestoreProbes, seam: AgeKeySeam, inp
   if (pasted === null) throw badKey();
   checkExistingClone(p, target, arg);
   if (p.exists(homeGitDir(p.home)) && locksOut(p, pasted)) throw wrongKey(arg);
-  const key = await placeKey(p, seam, input.privateKey, pasted, arg);
+  const key = await placeKey(seam, input.privateKey, pasted, arg);
   try {
     await cloneAndProvision(p, target, arg, input.profile, opts);
   } catch (err) {
     if (!locksOut(p, pasted)) throw err;
-    // Only a key this run imported is taken back. One left behind is still replaced on the next run, since it opens none of the secrets.
-    if (key === "imported") {
-      try {
-        await removeAgeKeyIf(seam, pasted);
-      } catch {
-        // Covered by the replace on the next run.
-      }
+    // Only the key this run imported is taken back; any other key in the keychain stays as it was.
+    if (key === "imported" && !(await takeBack(seam, pasted))) {
+      throw new UserActionableError("wrong-key", "That recovery key can't open these settings", {}, {
+        why: "rt could not take it back out of your keychain.",
+        next: "rt home key import --force",
+        thenRun: `rt home restore ${arg} --stdin`,
+      });
     }
     throw wrongKey(arg);
   }

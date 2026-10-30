@@ -382,8 +382,8 @@ describe("runHomeRestore", () => {
     expect(initCalls).toEqual([]);
   });
 
-  test("a stored key that opens none of the cloned secrets is replaced by a pasted key that does", async () => {
-    const { p, keychain } = world({
+  test("a stored key that cannot open the clone is refused and never touched, even when the pasted key can", async () => {
+    const { p, keychain, initCalls } = world({
       keychain: OTHER_KEY,
       sopsLockedTo: RECIPIENTS[PASTED_KEY],
       dirs: { [GIT_DIR]: [] },
@@ -393,11 +393,32 @@ describe("runHomeRestore", () => {
         [MACHINE_KEY]: "this-mac",
       },
     });
-    const result = await restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY });
-    expect(result.key).toBe("replaced");
-    expect(keychain.stored).toBe(PASTED_KEY);
-    expect(keychain.calls.some((c) => c[1] === "add-generic-password" && c.includes("-U"))).toBe(true);
-    expect(intentOf(p)).not.toBeNull();
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    expect(err.code).toBe("other-key");
+    expect(err.next).toBe("rt home key import --force");
+    expect(err.thenRun).toBe(`rt home restore ${REPO} --stdin`);
+    expect(keychain.stored).toBe(OTHER_KEY);
+    expect(keychain.calls.some((c) => c[1] === "add-generic-password" || c[1] === "delete-generic-password")).toBe(false);
+    expect(initCalls).toEqual([]);
+    expect(intentOf(p)).toBeNull();
+  });
+
+  test("a take-back the keychain refuses says so, with the import as the way out", async () => {
+    const { p, keychain } = world({ sopsLockedTo: RECIPIENTS[PASTED_KEY] });
+    const run = keychain.run.bind(keychain);
+    keychain.run = async (cmd, opts) => (cmd[1] === "delete-generic-password" ? { code: 1, stdout: "", stderr: "denied" } : run(cmd, opts));
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: OTHER_KEY }));
+    expect(err.code).toBe("wrong-key");
+    expect(err.next).toBe("rt home key import --force");
+    expect(mentionsKey(err)).toBe(false);
+  });
+
+  test("an init failure that is not the remote's points at a terminal run, not an error the app never showed", async () => {
+    const { p, keychain } = world();
+    p.runRt = async () => ({ code: 1, stdout: "", stderr: "rt could not link your skills list\nwhat it said:\nEACCES: permission denied, symlink\n" });
+    const err = await failure(restore(p, keychain, { repo: REPO, privateKey: PASTED_KEY }));
+    expect(err.code).toBe("init-failed");
+    expect(err.why).toBe("Retry, or run rt home restore in a terminal to see why.");
   });
 
   test("a stored key age cannot read gets its own refusal, not an unlock", async () => {
@@ -442,6 +463,7 @@ function cliDeps(w: ReturnType<typeof world>, key: string, stdinUsed: { value: b
     exit: (code) => {
       throw new Exit(code);
     },
+    machineId: async () => null,
   };
   return { deps, lines };
 }

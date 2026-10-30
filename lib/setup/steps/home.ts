@@ -169,6 +169,8 @@ function missingToolRemedy(stderr: string): string | null {
 const REMOTE_AUTH_STDERR = /authenticat|could not read username|access denied|repository not found|403 forbidden|invalid username or (?:password|token)|gh auth login|permission denied \(publickey/i;
 /** ssh writes "Permission denied (publickey)", but so does a plain local `fatal: cannot mkdir user: Permission denied` — on its own this says nothing about a remote. */
 const AMBIGUOUS_PERMISSION_STDERR = /permission denied/i;
+/** homeInitRemedy's fallback, for a failure whose cause is the detail shown above it. */
+export const CHECK_ABOVE_REMEDY = "Check the error above, then Retry";
 /** `rt home init` leads a failed clone with this title; only the clone step ever contacts a host. */
 const CLONE_FAILED_TITLE = INIT_STEP_FAILED.cloneUserRepo;
 
@@ -189,7 +191,7 @@ export function homeInitRemedy(stderr: string): string {
   const remoteShaped =
     REMOTE_AUTH_STDERR.test(stderr) ||
     (AMBIGUOUS_PERMISSION_STDERR.test(stderr) && stderr.split("\n").some((l) => untagged(l.trim()) === CLONE_FAILED_TITLE));
-  return remoteShaped ? "Run gh auth login, then Retry" : "Check the error above, then Retry";
+  return remoteShaped ? "Run gh auth login, then Retry" : CHECK_ABOVE_REMEDY;
 }
 
 async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {

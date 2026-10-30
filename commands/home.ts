@@ -48,7 +48,7 @@ import { shellQuote } from "../lib/herdr-launch.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { isSafeMachineKeySegment, machineKey, mattstackHome } from "../lib/rt-paths.ts";
-import { resolveInitialMachineKey } from "../lib/home/machine-id.ts";
+import { resolveInitialMachineKey, stableMachineId } from "../lib/home/machine-id.ts";
 import {
   buildInitPlan,
   chooseMachineProfile,
@@ -978,7 +978,7 @@ export async function homeKeyImport(
   if (pastedKeyArg !== undefined) {
     refuse(
       "rt will not import a key passed as a positional argument",
-      out.callout("why", "It just landed in your shell history and in rt's own log, so treat it as leaked and rotate it before you use it for anything."),
+      out.callout("why", "It just landed in your shell history, so treat it as leaked and rotate it before you use it for anything."),
       out.callout("next", out.cmd("rt home key import --stdin")),
     );
   }
@@ -1035,6 +1035,8 @@ export interface HomeRestoreDeps {
   /** The --json envelope line, and nothing else. */
   json: (value: unknown) => void;
   exit: (code: number) => never;
+  /** This Mac's hardware id; tests pass a fixed one so nothing reads the real ioreg. */
+  machineId: () => Promise<string | null>;
 }
 
 export function realHomeRestoreDeps(): HomeRestoreDeps {
@@ -1042,13 +1044,12 @@ export function realHomeRestoreDeps(): HomeRestoreDeps {
     fromStdin: () => readStdinTrimmed(),
     fromPrompt: () => promptSecret("Paste your recovery key").then((value) => value.trim()),
   };
-  return { probes: createRealProbes(), ageKeySeam: createRealAgeKeySeam(), input, json: (v) => out.json(v), exit: process.exit };
+  return { probes: createRealProbes(), ageKeySeam: createRealAgeKeySeam(), input, json: (v) => out.json(v), exit: process.exit, machineId: () => stableMachineId() };
 }
 
 const KEY_ENDING: Record<KeyOutcome, string> = {
   imported: "Saved your recovery key to the keychain",
   kept: "Your recovery key was already on this Mac",
-  replaced: "Replaced the recovery key that could not open your settings",
 };
 
 async function readRecoveryKey(args: string[], input: AgeKeyInputSeam): Promise<string> {
@@ -1079,7 +1080,7 @@ export async function homeRestore(args: string[], _ctx: CommandContext = {}, dep
     const repo = args.find((a, i) => !a.startsWith("--") && (profileAt === -1 || i !== profileAt + 1));
     if (repo === undefined) throw new UserActionableError("usage", "Which settings repo should rt restore?", {}, { next: RESTORE_USAGE });
     const privateKey = await readRecoveryKey(args, deps.input);
-    const result = await runHomeRestore(deps.probes, deps.ageKeySeam, { repo, privateKey, ...(profile !== undefined ? { profile } : {}) });
+    const result = await runHomeRestore(deps.probes, deps.ageKeySeam, { repo, privateKey, ...(profile !== undefined ? { profile } : {}) }, { machineId: deps.machineId });
     if (json) {
       deps.json(envelope({ ok: true, repo: result.homeRepo, url: result.url, key: result.key }, deps.probes.now()));
       return;
