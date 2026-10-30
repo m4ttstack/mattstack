@@ -67,6 +67,7 @@ function inputs(over: Partial<ConnectInputs> = {}): ConnectInputs {
     signIn: [DOPPLER],
     prepare: null,
     logins: {},
+    confirmedHost: null,
     ...over,
   };
 }
@@ -191,6 +192,9 @@ describe("connectRows", () => {
     for (const path of ["join", "create"] as const) {
       const forge = pick(connectRows(inputs({ plan: plan(rows), forge: { provider: "gitlab", host: "gitlab.example.com" }, path })), "forge");
       expect(forge.action && "verb" in forge.action).toBe(false);
+      expect(forge.action && "create" in forge.action).toBe(false);
+      const confirmed = pick(connectRows(inputs({ plan: plan(rows), forge: { provider: "gitlab", host: "gitlab.example.com" }, path, confirmedHost: "gitlab.example.com" })), "forge");
+      expect(confirmed.action).toMatchObject({ create: { label: "Create token" } });
     }
   });
 

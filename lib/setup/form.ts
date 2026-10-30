@@ -8,6 +8,7 @@
  */
 import { join } from "path";
 import { approvalState, type ApprovalState } from "../team/approval.ts";
+import { mayOfferTokenToHost } from "../team/forge-token.ts";
 import { readTeamLocal, type TeamLocalRecord } from "../team/team-local.ts";
 import { warn } from "../ui/warn.ts";
 import { applyEventsPath } from "./apply-run.ts";
@@ -119,6 +120,7 @@ export const FORM_COPY = {
     connect: "Connect",
     connectedAs: (login: string) => `Connected as ${login}`,
     connected: "Connected",
+    confirmHost: (host: string) => `Connect ${host} from the terminal first`,
     join: "Join",
   },
   connect: {
@@ -251,27 +253,42 @@ export interface InviteInputs {
   ghSignedIn: boolean;
   cltInstalled: boolean;
   prepare: MacosPrepare;
+  /** The forge host this Mac's user confirmed through `connect --host`. */
+  confirmedHost: string | null;
+}
+
+interface ForgeAccountInputs {
+  id: string;
+  forge: { provider: Forge; host: string };
+  account: Row | undefined;
+  role: ForgeRole;
+  subtext: string;
+  connected: string;
+  /** Only where the host is the member's own input (a create read's `--host`). */
+  confirmsHost?: boolean;
+  confirmedHost?: string | null;
 }
 
 /**
- * `confirmsHost` only where the host is the member's own input (a create
- * read's `--host`). An invite's or a team's declared host is shown, never
- * confirmed for them: connect refuses it until they pass `--host` themselves.
+ * An invite's or a team's declared host is shown, never confirmed for the
+ * member: connect refuses it, and Create token never sends them there, until
+ * they pass `--host` themselves (the same gate as the org rows' Connect).
  */
-function forgeAccountRow(o: { id: string; forge: { provider: Forge; host: string }; account: Row | undefined; role: ForgeRole; subtext: string; connected: string; confirmsHost?: boolean }): FormRow {
+function forgeAccountRow(o: ForgeAccountInputs): FormRow {
   const c = FORM_COPY.invite;
   const base = { id: o.id, title: TITLES[o.forge.provider], subtext: o.subtext, waiting: null, watch: false, optional: false };
   if (o.account?.status === "ready") return { ...base, state: "done", detail: o.connected, action: null };
+  const trusted = o.confirmsHost === true || mayOfferTokenToHost(o.forge.host, o.confirmedHost);
   return {
     ...base,
     state: "todo",
-    detail: o.account?.detail ?? "",
+    detail: trusted ? (o.account?.detail ?? "") : c.confirmHost(o.forge.host),
     action: {
       type: "connect",
       label: c.connect,
       integration: o.forge.provider,
       fields: [tokenField(o.forge.provider, o.role)],
-      create: { label: c.createToken, url: tokenCreateLink(o.forge.provider, o.role, o.forge.host).url },
+      ...(trusted ? { create: { label: c.createToken, url: tokenCreateLink(o.forge.provider, o.role, o.forge.host).url } } : {}),
       ...(o.confirmsHost ? userHostConnect(o.forge) : {}),
     },
   };
@@ -305,6 +322,7 @@ export function inviteRows(i: InviteInputs): FormRow[] {
         role: "member",
         subtext: c.tokenSubtext(i.forge.provider),
         connected: i.forgeLogin ? c.connectedAs(i.forgeLogin) : c.connected,
+        confirmedHost: i.confirmedHost,
       }),
     );
   }
@@ -446,6 +464,8 @@ export interface ConnectInputs extends DrawnContext {
   /** The accounts stage. */
   prepare: AccountsPrepare;
   logins: Partial<Record<LoginTool, LoginSession>>;
+  /** The forge host this Mac's user confirmed through `connect --host`. */
+  confirmedHost: string | null;
 }
 
 type ConnectRow = Omit<FormRow, "optional"> & { optional?: boolean };
@@ -465,8 +485,8 @@ function forgeRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow 
   const login = (account?.status === "ready" ? GH_LOGIN.exec(account.detail)?.[1] : undefined) ?? i.forgeLogin;
   const connected = login === null ? c.connected : i.path === "join" ? c.connectedFromInvite(login) : FORM_COPY.invite.connectedAs(login);
   const role: ForgeRole = i.path === "create" ? "owner" : "member";
-  if (i.path === "solo") return { ...forgeAccountRow({ id: "forge", forge, account, role, subtext: c.soloForge, connected }), optional: true };
-  return forgeAccountRow({ id: "forge", forge, account, role, subtext: FORM_COPY.invite.tokenSubtext(forge.provider), connected });
+  if (i.path === "solo") return { ...forgeAccountRow({ id: "forge", forge, account, role, subtext: c.soloForge, connected, confirmedHost: i.confirmedHost }), optional: true };
+  return forgeAccountRow({ id: "forge", forge, account, role, subtext: FORM_COPY.invite.tokenSubtext(forge.provider), connected, confirmedHost: i.confirmedHost });
 }
 
 function slackAppRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow | null {
@@ -717,7 +737,8 @@ function macosPrepare(p: Probes): MacosPrepare {
 async function inviteSection(p: Probes, secrets: SecretPresence): Promise<FormRow[]> {
   const intent = readIntent(p);
   const snapshot = enrichSnapshotForge(EMPTY_SNAPSHOT, intent);
-  const [mac, accounts] = await Promise.all([macRows(p), accountRows(p, snapshot, [], secrets, intent, readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }))]);
+  const overrides = readUserIntegrationOverrides({ read: probeUserSettingsReader(p) });
+  const [mac, accounts] = await Promise.all([macRows(p), accountRows(p, snapshot, [], secrets, intent, overrides)]);
   const rows = new Map([...mac, ...accounts].map((r) => [r.id, r]));
   return inviteRows({
     rows,
@@ -726,6 +747,7 @@ async function inviteSection(p: Probes, secrets: SecretPresence): Promise<FormRo
     ghSignedIn: ghSignedIn(rows),
     cltInstalled: isReady(rows, "tool.clt"),
     prepare: macosPrepare(p),
+    confirmedHost: overrides.forgeHost ?? null,
   });
 }
 
@@ -899,6 +921,7 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormP
     signIn: signInTools(readPackRequirements(p, slug)),
     prepare: readPrepare(p, "accounts", undefined, () => p.now()),
     logins,
+    confirmedHost: readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }).forgeHost ?? null,
   });
 }
 

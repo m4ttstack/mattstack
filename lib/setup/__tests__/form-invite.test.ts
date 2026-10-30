@@ -25,6 +25,7 @@ function inputs(over: Partial<InviteInputs> = {}): InviteInputs {
     ghSignedIn: false,
     cltInstalled: true,
     prepare: null,
+    confirmedHost: null,
     ...over,
   };
 }
@@ -59,7 +60,18 @@ describe("inviteRows", () => {
       const token = pick(inviteRows(inputs({ forge: { provider: "gitlab", host } })), "forge.token");
       expect(token.action).toMatchObject({ type: "connect", integration: "gitlab" });
       expect(token.action && "verb" in token.action).toBe(false);
+      expect(token.action && "create" in token.action).toBe(false);
+      expect(token.detail).toBe(`Connect ${host} from the terminal first`);
     }
+  });
+
+  test("Create token opens a self-hosted GitLab once the member confirmed that host", () => {
+    const forge = { provider: "gitlab" as const, host: "gitlab.example.com" };
+    const confirmed = pick(inviteRows(inputs({ forge, confirmedHost: "gitlab.example.com" })), "forge.token");
+    expect(confirmed.action).toMatchObject({ create: { label: "Create token", url: tokenCreateLink("gitlab", "member", "gitlab.example.com").url } });
+    expect(confirmed.detail).toBe("No GitLab account connected yet");
+    const other = pick(inviteRows(inputs({ forge, confirmedHost: "gitlab.acme.dev" })), "forge.token");
+    expect(other.action && "create" in other.action).toBe(false);
   });
 
   test("a GitHub team with a gh sign-in asks for nothing", () => {
@@ -150,9 +162,10 @@ describe("composeForm", () => {
       exec: (argv) => (argv[0] === "xcode-select" || argv[0] === "git" ? { code: 0, stdout: "git version 2.50.1", stderr: "" } : { code: 1, stdout: "", stderr: "" }),
     });
     const form = await composeForm(p, { sections: ["invite"], secrets: NO_SECRETS, orgs: [] });
-    const action = pick(form.sections.invite!, "forge.token").action;
-    expect(action).toMatchObject({ create: { url: tokenCreateLink("gitlab", "member", "gitlab.example.com").url } });
-    expect(action && "verb" in action).toBe(false);
+    const token = pick(form.sections.invite!, "forge.token");
+    expect(token.detail).toBe("Connect gitlab.example.com from the terminal first");
+    expect(token.action && "create" in token.action).toBe(false);
+    expect(token.action && "verb" in token.action).toBe(false);
   });
 
   test("the restore section reads only this Mac's rows", async () => {

@@ -218,7 +218,7 @@ function screens(p: Plan, o: { ranOk: boolean } & Partial<Drawn>): Record<Sectio
   const denied = permissions.find((x) => x.id === "perm.notifications")?.detail === "Denied";
   return {
     macos: macosRows({ permissions, notifications: denied ? "denied" : "authorized", fancyUrls: FANCY_DONE }),
-    connect: connectRows({ path, plan: p, forge, forgeLogin: "janedoe", signIn, prepare: null, logins: {} }),
+    connect: connectRows({ path, plan: p, forge, forgeLogin: "janedoe", signIn, prepare: null, logins: {}, confirmedHost: null }),
     "this-mac": thisMacRows({
       path,
       plan: p,
