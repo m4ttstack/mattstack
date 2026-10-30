@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { LatchRef } from '../latch/discussions.ts';
 import {
+  cachedUpload,
   putLatchRow,
   readLatchRow,
   rememberUpload,
@@ -113,20 +114,21 @@ describe('bannerMarkdown', () => {
     expect(calls).toEqual(['upload:latch-2317-queued-cooldown.gif']);
   });
 
-  test('a banner cached with an older width is posted unsized', async () => {
+  test('a pre-3x upload cached with a width is uploaded again and replaced', async () => {
     const db = tempDb();
     const { gw, calls } = gateway();
     rememberUpload(
       MR,
       'running',
-      '![Follow-up review running](/uploads/ab12/latch-2317-running.gif){width=520}',
+      '![Follow-up review running](/uploads/old1/latch-2317-running.gif){width=520}',
       db
     );
     const md = await bannerMarkdown(gw, 42, MR, 2317, { state: 'running' }, db);
-    expect(md).toBe(
-      '![Follow-up review running](/uploads/ab12/latch-2317-running.gif)'
-    );
-    expect(calls).toEqual([]);
+    const want =
+      '![Follow-up review running](/uploads/ab12/latch-2317-running.gif)';
+    expect(md).toBe(want);
+    expect(calls).toEqual(['upload:latch-2317-running.gif']);
+    expect(cachedUpload(MR, 'running', db)).toBe(want);
   });
 
   test('a different variant uploads its own banner', async () => {

@@ -232,14 +232,17 @@ frames, done and error ~3.5s loops.
 
 The posted markdown is `![<state title>](<upload url>)`, unsized, so
 GitLab stretches it to the comment column (about 785 CSS px in a typical
-window, where the 1560 px GIF shows at about 2x). `imageMarkdownOf` must keep matching
-the older `{width=N}` suffix, and a cached upload is re-wrapped with the
-current markup, so an older width is dropped when the note is rewritten.
+window, where the 1560 px GIF shows at about 2x). `imageMarkdownOf` must
+keep matching the older `{width=N}` suffix. A cached upload with that
+suffix is a pre-3x GIF, so it counts as a cache miss: the banner is
+uploaded again and the cached row replaced.
 
 The corners are a binary quarter-circle mask (GIF transparency has no
 alpha): one palette slot is reserved as the transparent index, every
 pixel outside the rounded rect takes it in every frame, and every frame
-is whole with dispose 2, so the corners never flash. The compositor
+is whole with dispose 1, so the corners never flash. The reserved slot
+holds the strip background (`#2a2638`), so a viewer that ignores
+transparency shows square corners in the banner colour rather than black. The compositor
 applies the mask, not the strips.
 
 The geometry lives in CSS px and is multiplied by the strip set's scale
@@ -296,7 +299,7 @@ their next state change, then get the new banner.
   ordering cases (server signal and pass racing, retry after error,
   approval from each state).
 - A banner test that each state encodes, has the expected frame count,
-  stays under 150 KB, is 1560x192, and is transparent outside its
+  stays under 100 KB, is 1560x192, and is transparent outside its
   rounded corners in every frame.
 - Render every state and wait reason into a preview page and look at it
   in GitLab light and dark styling before calling it done.

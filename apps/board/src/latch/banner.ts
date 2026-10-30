@@ -52,6 +52,7 @@ const RING: [number, number][] = [
 ];
 
 const EYE = '#ece8f4';
+const STRIP_BG = '#2a2638';
 const RING_UNLIT = '#5d5775';
 const SPARKLES: [number, number][] = [
   [0, -3],
@@ -354,6 +355,7 @@ export function renderBannerGif(
   const quantized = quantize(all, 255 - painted.colours.length);
   const palette = [...quantized, ...painted.colours];
   const clear = palette.length;
+  const bg = hex(STRIP_BG);
   const corners = outsideCorners(s);
 
   const gif = GIFEncoder();
@@ -366,15 +368,16 @@ export function renderBannerGif(
       if (corners[p]) index[p] = clear;
       else if (c.owner[p]! >= 0) index[p] = quantized.length + c.owner[p]!;
     }
-    // Whole frames that clear to transparent once shown keep the corners
-    // clear on every frame of every loop.
+    // Frames are whole and every one carries the clear corners, so leaving
+    // the last frame in place never shows a corner. The clear slot holds the
+    // strip background for viewers that ignore transparency.
     gif.writeFrame(index, width, height, {
-      palette: i === 0 ? [...palette, [0, 0, 0]] : undefined,
+      palette: i === 0 ? [...palette, bg] : undefined,
       delay: plan[i]!.delay,
       repeat: 0,
       transparent: true,
       transparentIndex: clear,
-      dispose: 2,
+      dispose: 1,
     });
   });
   gif.finish();

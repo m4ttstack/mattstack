@@ -198,9 +198,9 @@ describe('latchBannerGif', () => {
     }
   }, 60_000);
 
-  test('every GIF is under 150 KB', () => {
+  test('every GIF is under 100 KB', () => {
     for (const key of allVariantKeys()) {
-      expect({ key, small: gifFor(key).length < 150 * 1024 }).toEqual({
+      expect({ key, small: gifFor(key).length < 100 * 1024 }).toEqual({
         key,
         small: true,
       });
@@ -264,7 +264,7 @@ describe('latchBannerGif', () => {
       expect({ key, seen }).toEqual({
         key,
         seen: gif.frames.map(() => ({
-          dispose: 2,
+          dispose: 1,
           corners: [true, true, true, true],
           centre: false,
         })),
@@ -297,6 +297,7 @@ describe('latchBannerGif', () => {
     expect(want).not.toContain('14,0');
     expect(got).toEqual([want, want, want, want]);
     expect(at(r, 0) || at(0, r) || at(r, r)).toBe(false);
+    expect(rgbAt(gif, 0, 0, 0)).toBe('#2a2638');
   });
 
   test('names the variant when its strip is missing', () => {
