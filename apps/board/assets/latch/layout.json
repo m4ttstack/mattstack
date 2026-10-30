@@ -1,0 +1,142 @@
+{
+  "armed": {
+    "dotsX": 777,
+    "dotsY": 52
+  },
+  "queued-next-sweep": {
+    "dotsX": 759,
+    "dotsY": 52
+  },
+  "queued-cooldown": {
+    "dotsX": 759,
+    "dotsY": 52
+  },
+  "queued-budget": {
+    "dotsX": 759,
+    "dotsY": 52
+  },
+  "queued-review-in-flight": {
+    "dotsX": 759,
+    "dotsY": 52
+  },
+  "running": {
+    "dotsX": 797,
+    "dotsY": 52
+  },
+  "error-retrying-next-sweep": {
+    "dotsX": 853,
+    "dotsY": 52
+  },
+  "error-retrying-cooldown": {
+    "dotsX": 853,
+    "dotsY": 52
+  },
+  "error-retrying-budget": {
+    "dotsX": 853,
+    "dotsY": 52
+  },
+  "error-stuck": {
+    "dotsX": 735,
+    "dotsY": 52
+  },
+  "done-comments-1": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-2": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-3": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-4": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-5": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-6": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-7": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-8": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-9": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-10": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-11": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-12": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-13": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-14": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-15": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-16": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-17": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-18": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-19": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-20": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-20plus": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-comments-none": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "done-approved": {
+    "dotsX": 710,
+    "dotsY": 52
+  },
+  "approved": {
+    "dotsX": 378,
+    "dotsY": 52
+  },
+  "superseded": {
+    "dotsX": 423,
+    "dotsY": 52
+  }
+}

@@ -1,31 +1,63 @@
 /**
- * The latch pass: read every done review state's MR, and act on the latch.
+ * The latch pass: read every MR whose review is done, whose commented review
+ * was pruned, or whose latch row is not spent, and act on the latch.
  *
  * Branch order is the design's safety property, not a style choice. The spent
  * check is unconditional and runs first, so no board-made resolve can ever be
  * read back as a human request, whatever the MR's approval state does
  * afterwards.
+ *
+ * The latch row is the record and the note is what people see. Every
+ * transition moves the row first and rewrites the note after, so a stale
+ * discussion read still showing an older note never re-requests or clobbers a
+ * latch the row has already moved on.
  */
+import type { Database } from 'bun:sqlite';
+
 import type { MRDetail } from '@mattstack/glance';
 import {
   canonicalLatch,
   findLatches,
-  hasArmedLatch,
+  hasLiveLatch,
   requestCarriers,
   type LatchRef,
 } from '../latch/discussions.ts';
+import { landFollowUp, spendForApproval } from '../latch/land.ts';
+import {
+  casLatch as casLatchIn,
+  clearReplyDue,
+  putLatchRow as putLatchRowIn,
+  readLatchRow as readLatchRowIn,
+  type LatchPhase,
+  type LatchRow,
+  type WaitReason,
+} from '../latch/latch-state.ts';
 import {
   postLatch,
-  spendAllLatches,
+  postReplyDue,
+  rewriteLatch,
   spendLatch,
   type LatchGateway,
+  type LatchTarget,
 } from '../latch/post.ts';
+import {
+  copyFor,
+  variantKey,
+  variantOfKey,
+  type BannerVariant,
+} from '../latch/variants.ts';
 import type { ReReviewLaunch } from '../review-launch.ts';
 import type { ReviewState } from '../review-state.ts';
 import type { AuditEntry } from './audit.ts';
 import type { ReReviewConfig, TriageConfig } from './config.ts';
-import { emptyMrMemory, rollDay, type DispatchMemory } from './memory.ts';
-import { decideRequest, plainReason } from './nudge.ts';
+import {
+  emptyMrMemory,
+  rollDay,
+  type DispatchMemory,
+  type MrMemory,
+} from './memory.ts';
+import { notifyEscalation } from './notify.ts';
+import { decideRequest, type ReReviewRequest } from './nudge.ts';
 
 export interface LatchMrFacts {
   mrUrl: string;
@@ -42,11 +74,13 @@ export interface LatchMrFacts {
   approvedBySelf: boolean;
 }
 
+type LatchPatch = Partial<Omit<LatchRow, 'mrUrl'>>;
+
 export interface LatchPassDeps {
   readReviewStates(): Map<string, ReviewState>;
   /** Tombstoned review rows (pruned while the MR was off the board). A
-      commented one whose MR is back in scope and still carries an armed
-      latch is resurrected; one whose latch is gone is dropped for good. */
+      commented one whose MR is back in scope and still carries a live latch
+      is resurrected; one whose latch is gone is dropped for good. */
   readPrunedReviewStates(): Map<string, ReviewState>;
   /** False when the claim is lost (the row already went live again): the
       snapshot's tombstone is stale and must not drive a dispatch. */
@@ -66,18 +100,43 @@ export interface LatchPassDeps {
   reReview: ReReviewConfig;
   appendAudit(entry: AuditEntry): void;
   notify(title: string, message: string, mrUrl: string): Promise<void>;
+  /** The reviewer's discussions on the MR created at or after `launchAt`,
+      fresh from GitLab; null when they cannot be read. Absent, a landing
+      shows the uncounted done banner. */
+  countNew?(mr: LatchMrFacts, launchAt: number): Promise<number | null>;
+  /** A stuck latch needs a person, so the default ignores `triage.notify`
+      and always sends the rt desktop notification. */
+  notifyStuck?(title: string, message: string, mrUrl: string): Promise<void>;
   now(): number;
+  /** The board's state db; the default is the live one. */
+  db?: Database;
+  /** The latch row store; each defaults to the latch-state function on `db`. */
+  readLatchRow?(mrUrl: string): LatchRow | null;
+  casLatch?(
+    mrUrl: string,
+    from: LatchPhase[],
+    patch: LatchPatch,
+    now: number,
+    opts?: { discussionId?: string }
+  ): boolean;
+  putLatchRow?(row: LatchRow): void;
 }
 
 export interface LatchPassResult {
   posted: number;
   dispatched: number;
-  rejected: number;
+  queued: number;
   spent: number;
   repaired: number;
   resurrected: number;
   skipped: number;
   failed: number;
+  /** Follow-ups this pass landed on their latch. */
+  landed: number;
+  /** Error banners written this tick: failed attempts (stuck ones
+      included) and retry-wait changes. */
+  errored: number;
+  stuck: number;
 }
 
 /** How long a freshly-done review is left to the server before this pass will
@@ -85,13 +144,132 @@ export interface LatchPassResult {
     both writers check for an existing latch through the daemon's discussion
     store, which within its staleness window cannot show a post seconds old:
     posting here inside that window double-posts. A genuinely missed post
-    (server down or throwing) still lands on the first tick past the window. */
+    (server down or throwing) still lands on the first tick past the window.
+    The same window guards the repair of a row the note has not caught up to. */
 export const LATCH_POST_GRACE_MS = 5 * 60_000;
 
-const DISPATCH_REPLY =
-  "Follow-up review started. I'll comment again when the pass is done, and this latch is armed for next time.";
-const refusalReply = (reason: string) =>
-  `Not yet: ${reason}. Resolve this thread again once that clears and I'll pick it up.`;
+/** Failed attempts in one request cycle before the latch stops retrying. */
+export const LATCH_MAX_FAILURES = 3;
+
+/** How long an owed reply keeps being retried after the transition that owed
+    it; a failed retry never moves the row, so this measures from the
+    transition. */
+export const LATCH_REPLY_GIVE_UP_MS = 24 * 60 * 60_000;
+
+const STUCK: BannerVariant = { state: 'error-stuck' };
+const STUCK_REPLY = copyFor(STUCK).sentence;
+
+/** The wait a decision maps to, or null for a refusal that never clears by
+    itself. */
+export function waitReasonOf(decision: {
+  action: string;
+  reason: string;
+}): WaitReason | null {
+  if (decision.action === 'dispatch') return 'next-sweep';
+  switch (decision.reason) {
+    case 'cooldown':
+      return 'cooldown';
+    case 'budget-exhausted':
+      return 'budget';
+    case 'review-in-flight':
+      return 'review-in-flight';
+    default:
+      return null;
+  }
+}
+
+/** When the lane's current run began. `startedAt` is the lane's first-ever
+    write and never resets, so it cannot stand in for a run. */
+export function runStamp(r: ReviewState): number {
+  return r.runStartedAt ?? r.updatedAt;
+}
+
+const IN_FLIGHT: ReadonlySet<LatchPhase> = new Set([
+  'queued',
+  'running',
+  'error',
+]);
+
+export interface LatchScope {
+  rows: Pick<LatchRow, 'mrUrl' | 'phase'>[];
+  states: Map<string, ReviewState>;
+  pruned: Map<string, ReviewState>;
+}
+
+/** The MRs the latch pass reads, once each: every MR with a done review
+    state (approve ones too, so a half-finished spend is repaired), a
+    commented tombstone (the pass decides between resurrecting and dropping),
+    or a latch row that is not spent. A live row is owed an answer, a launch
+    or a landing whatever its review lane now reads: an armed row's request
+    can arrive while the lane reads error or reviewing. */
+export function latchInScope<T extends { webUrl?: string | null }>(
+  mrs: T[],
+  scope: LatchScope
+): T[] {
+  const owed = new Set(
+    scope.rows.filter(r => r.phase !== 'spent').map(r => r.mrUrl)
+  );
+  const seen = new Set<string>();
+  return mrs.filter(m => {
+    const url = m.webUrl;
+    if (!url || seen.has(url)) return false;
+    const tomb = scope.pruned.get(url);
+    const hit =
+      owed.has(url) ||
+      scope.states.get(url)?.status === 'done' ||
+      (tomb?.status === 'done' && tomb.outcome === 'comment');
+    if (hit) seen.add(url);
+    return hit;
+  });
+}
+
+function inFlight(review: ReviewState | undefined): review is ReviewState {
+  return review?.status === 'queued' || review?.status === 'reviewing';
+}
+
+/** A run in flight is the follow-up only when it started at or after the
+    stamp: a queued row's request, or an error row's last launch. A run that
+    began before the request is an earlier review that cannot have seen the
+    author's fixes. An error row with no stamp never launched for this
+    request, so any run in flight is the reviewer's relaunch. */
+function followUpInFlight(
+  review: ReviewState | undefined,
+  phase: LatchPhase,
+  stamp: number | null
+): review is ReviewState {
+  if (!inFlight(review)) return false;
+  if (stamp === null) return phase === 'error';
+  return runStamp(review) >= stamp;
+}
+
+interface Rows {
+  read(mrUrl: string): LatchRow | null;
+  cas(
+    mrUrl: string,
+    from: LatchPhase[],
+    patch: LatchPatch,
+    now: number,
+    opts?: { discussionId?: string }
+  ): boolean;
+  put(row: LatchRow): void;
+}
+
+/** One MR's latch on one tick, past the spent and approval checks. */
+interface Tick {
+  deps: LatchPassDeps;
+  rows: Rows;
+  mr: LatchMrFacts;
+  canon: LatchRef;
+  carriers: LatchRef[];
+  row: LatchRow;
+  review: ReviewState | undefined;
+  target: LatchTarget;
+  policy: TriageConfig;
+  notifyStuck: NonNullable<LatchPassDeps['notifyStuck']>;
+  dayStamp: string;
+  now: number;
+  result: LatchPassResult;
+}
 
 export async function runLatchPass(
   deps: LatchPassDeps
@@ -99,18 +277,32 @@ export async function runLatchPass(
   const result: LatchPassResult = {
     posted: 0,
     dispatched: 0,
-    rejected: 0,
+    queued: 0,
     spent: 0,
     repaired: 0,
     resurrected: 0,
     skipped: 0,
     failed: 0,
+    landed: 0,
+    errored: 0,
+    stuck: 0,
   };
   if (!deps.reReview.enabled) return result;
   // decideRequest refuses with "disabled" on cfg.enabled, which is the
   // doctor/nudge switch. A team with those sweeps off but re-review on must
   // not see every resolved latch answered "Not yet: disabled".
   const policy: TriageConfig = { ...deps.cfg, enabled: true };
+  const rows: Rows = {
+    read: deps.readLatchRow ?? (url => readLatchRowIn(url, deps.db)),
+    cas:
+      deps.casLatch ??
+      ((url, from, patch, at, opts) =>
+        casLatchIn(url, from, patch, at, deps.db, opts)),
+    put: deps.putLatchRow ?? (row => putLatchRowIn(row, deps.db)),
+  };
+  const notifyStuck =
+    deps.notifyStuck ??
+    ((title, message, url) => notifyEscalation(title, message, 'rt', { url }));
 
   const reviews = deps.readReviewStates();
   const pruned = deps.readPrunedReviewStates();
@@ -123,6 +315,12 @@ export async function runLatchPass(
     // transient 500) must not abort the tick and starve every MR queued
     // after it while the condition lasts.
     try {
+      const stored = rows.read(mr.mrUrl);
+      // A live row is followed whatever its lane reads: the lane moves
+      // through queued, reviewing and error while the latch waits on it. A
+      // spent row that still owes a reply is followed until it posts.
+      const held =
+        !!stored && (stored.phase !== 'spent' || stored.replyDue !== null);
       const live = reviews.get(mr.mrUrl);
       // Only a commented tombstone is a resurrection candidate: an approve
       // outcome's latch is already spent-terminal, so reviving its row buys
@@ -135,8 +333,9 @@ export async function runLatchPass(
       // A done state with no outcome records no verdict, so there is nothing to
       // arm and nothing to spend. decideRequest treats it the same way.
       if (
-        (!live && !tomb) ||
-        (live && (live.status !== 'done' || !live.outcome))
+        !held &&
+        ((!live && !tomb) ||
+          (live && (live.status !== 'done' || !live.outcome)))
       ) {
         result.skipped++;
         continue;
@@ -148,7 +347,7 @@ export async function runLatchPass(
       }
       const latches = findLatches(detail, deps.self);
       let review = live;
-      if (!review) {
+      if (!review && tomb) {
         // Zero discussions is indistinguishable from the daemon's
         // empty-but-ok answer for an unrecognized identity (see
         // LatchMrFacts.rtRepo), so the tombstone is kept for the next tick
@@ -157,10 +356,10 @@ export async function runLatchPass(
           result.skipped++;
           continue;
         }
-        // The armed latch is the proof the tombstone still matters: without
+        // The live latch is the proof the tombstone still matters: without
         // one there is nothing a revived row could ever act on, and dropping
         // the tombstone keeps this MR out of every later tick's reads.
-        if (!hasArmedLatch(latches)) {
+        if (!hasLiveLatch(latches)) {
           deps.dropPrunedReviewState(mr.mrUrl);
           result.skipped++;
           continue;
@@ -182,27 +381,50 @@ export async function runLatchPass(
         result.resurrected++;
         review = tomb;
       }
-      if (!review) {
-        result.skipped++;
-        continue;
-      }
       const canon = canonicalLatch(latches);
 
       // Step 0: nothing to act on. A spent relic with no live latch is the
-      // descoped case: arming a second review cycle is the server's job.
+      // descoped case: arming a second review cycle is the server's job. A
+      // row mid-request proves a latch exists the read cannot show yet.
       if (!canon) {
+        // The latch a reply is owed to is gone. An empty read can be the
+        // daemon's empty-but-ok answer, so only a read showing threads, or
+        // the give-up age, drops it.
         if (
+          stored?.replyDue != null &&
+          (detail.discussions.length > 0 ||
+            now - stored.updatedAt > LATCH_REPLY_GIVE_UP_MS)
+        ) {
+          dropOwedReply(deps, mr, stored.replyDue, now);
+        }
+        if (
+          !(stored && IN_FLIGHT.has(stored.phase)) &&
+          review?.status === 'done' &&
           review.outcome === 'comment' &&
           !mr.approvedBySelf &&
           now - review.updatedAt >= LATCH_POST_GRACE_MS
         ) {
-          await postLatch(
+          const { discussionId, rootNoteId } = await postLatch(
             deps.gateway,
             mr.projectId,
             mr.projectPath,
             mr.mrUrl,
-            mr.iid
+            mr.iid,
+            deps.db
           );
+          rows.put({
+            mrUrl: mr.mrUrl,
+            discussionId,
+            rootNoteId,
+            phase: 'armed',
+            wait: null,
+            launchAt: null,
+            failures: 0,
+            stuck: false,
+            variant: 'armed',
+            replyDue: null,
+            updatedAt: now,
+          });
           deps.appendAudit({
             ts: now,
             mrUrl: mr.mrUrl,
@@ -217,6 +439,14 @@ export async function runLatchPass(
         continue;
       }
 
+      const row = trackCanon(deps, rows, mr, canon, stored, now);
+      if (!row) {
+        result.skipped++;
+        continue;
+      }
+
+      await settleOwedReply(deps, rows, mr, canon, now);
+
       // Step 1: spent wins over everything, unconditionally.
       if (canon.kind === 'spent') {
         if (!canon.resolved) {
@@ -224,8 +454,12 @@ export async function runLatchPass(
             deps.gateway,
             mr.projectId,
             mr.projectPath,
+            mr.mrUrl,
             mr.iid,
-            canon
+            canon,
+            { state: 'approved' },
+            now,
+            deps.db
           );
           deps.appendAudit({
             ts: now,
@@ -241,37 +475,47 @@ export async function runLatchPass(
         continue;
       }
 
-      const carriers = requestCarriers(latches);
+      const target: LatchTarget = {
+        projectId: mr.projectId,
+        projectPath: mr.projectPath,
+        iid: mr.iid,
+        mrUrl: mr.mrUrl,
+        discussionId: canon.discussionId,
+        rootNoteId: canon.rootNoteId,
+      };
 
-      // Step 2: armed and nobody has asked. Every duplicate gets spent here too:
-      // the canon alone would leave an older armed-unresolved duplicate stuck
-      // forever, since the next tick sees the now-spent canon and stops at step 1
-      // before ever looking at it.
-      if (carriers.length === 0) {
-        if (review.outcome === 'approve' || mr.approvedBySelf) {
-          await spendAll(deps, mr, latches);
-          deps.appendAudit({
-            ts: now,
-            mrUrl: mr.mrUrl,
-            iid: mr.iid,
-            event: 'latch',
-            action: 'spent',
-          });
-          result.spent++;
-        } else {
-          result.skipped++;
-        }
+      // The landing backstop runs before the approval spend, so a follow-up
+      // that approved shows done-approved, and before the error handling, so
+      // a finished run is never retried into a second review. This
+      // reviewer's standing GitLab approval still beats a comment or
+      // abandoned outcome: step 2 spends that as a plain approval.
+      if (
+        landable(row, review) &&
+        (review.outcome === 'approve' || !mr.approvedBySelf)
+      ) {
+        await landBackstop(deps, mr, row, review, target, latches, result);
         continue;
       }
 
-      // Step 3: a human resolved a latch. This reviewer's own approval spends
-      // rather than dispatching, whether it came through a review or GitLab;
-      // anyone else's approval leaves the request standing. Every own latch,
-      // not just canon and the request carriers: an armed-unresolved extra
-      // left out here would strand live on the next tick, which stops at step
-      // 1 on the now-spent canon and never looks at it again.
-      if (mr.approvedBySelf || review.outcome === 'approve') {
-        await spendAll(deps, mr, latches);
+      // Step 2: this reviewer's own approval spends from every phase, whether
+      // it came through a review or GitLab; anyone else's approval leaves the
+      // latch standing. Every own latch, not just canon: an armed-unresolved
+      // extra left out here would strand live on the next tick, which stops
+      // at step 1 on the now-spent canon and never looks at it again. A row
+      // already reading spent is no proof the note is: the spend moves the
+      // row first, so this branch is also what heals a spend cut short.
+      if (
+        mr.approvedBySelf ||
+        (review?.status === 'done' && review.outcome === 'approve')
+      ) {
+        await spendForApproval(
+          deps.gateway,
+          mr,
+          latches,
+          rows.read(mr.mrUrl),
+          deps.now(),
+          deps.db
+        );
         deps.appendAudit({
           ts: now,
           mrUrl: mr.mrUrl,
@@ -283,91 +527,28 @@ export async function runLatchPass(
         continue;
       }
 
-      const m = rollDay(
-        deps.memory.mrs[mr.mrUrl] ?? emptyMrMemory(dayStamp),
-        dayStamp
-      );
-      deps.memory.mrs[mr.mrUrl] = m;
-      const decision = decideRequest(
-        {
-          mrUrl: mr.mrUrl,
-          iid: mr.iid,
-          source: 'latch',
-          receivedAt: null,
-          handled: false,
-        },
+      const tick: Tick = {
+        deps,
+        rows,
+        mr,
+        canon,
+        carriers: requestCarriers(latches),
+        row,
         review,
-        m,
+        target,
         policy,
-        now
-      );
-      deps.appendAudit({
-        ts: now,
-        mrUrl: mr.mrUrl,
-        iid: mr.iid,
-        event: 'latch',
-        decision: decision.action,
-        reason: decision.reason,
-        attempt: m.attemptsToday + 1,
-      });
-
-      if (decision.action !== 'dispatch') {
-        await deps.gateway.createNote(
-          mr.projectId,
-          mr.iid,
-          refusalReply(decision.reason),
-          canon.discussionId
-        );
-        await consume(deps, mr, canon, carriers);
-        await deps.notify(
-          `Follow-up review skipped on !${mr.iid}`,
-          plainReason(decision.reason, policy),
-          mr.mrUrl
-        );
-        result.rejected++;
-        continue;
-      }
-
-      const launch = await deps.launchReReview(mr.mrUrl, mr.iid);
-      if (launch.kind === 'error') {
-        await deps.gateway.createNote(
-          mr.projectId,
-          mr.iid,
-          refusalReply('the pane failed to start'),
-          canon.discussionId
-        );
-        await consume(deps, mr, canon, carriers);
-        deps.appendAudit({
-          ts: now,
-          mrUrl: mr.mrUrl,
-          iid: mr.iid,
-          event: 'latch',
-          action: 'launch-failed',
-          outcome: launch.message,
-        });
-        result.rejected++;
-        continue;
-      }
-
-      // The launch already happened, so the attempt is charged before the
-      // follow-up GitLab writes run: a write failing here must still count
-      // against cooldown and budget, or a failing write turns into a launch
-      // every tick.
-      m.lastDispatchAt = now;
-      m.attemptsToday++;
-      await deps.gateway.createNote(
-        mr.projectId,
-        mr.iid,
-        DISPATCH_REPLY,
-        canon.discussionId
-      );
-      await consume(deps, mr, canon, carriers);
-      await deps.notify(
-        `Follow-up review started on !${mr.iid}`,
-        'The author asked for a follow-up review',
-        mr.mrUrl
-      );
-      result.dispatched++;
+        notifyStuck,
+        dayStamp,
+        now,
+        result,
+      };
+      // Running and error rows are never a request, whatever the note shows:
+      // they wait on the run landing.
+      if (row.phase === 'armed') await armedLatch(tick);
+      else if (row.phase === 'queued') await queuedLatch(tick);
+      else if (row.phase === 'running') await runningLatch(tick);
+      else if (row.phase === 'error') await erroredLatch(tick);
+      else result.skipped++;
     } catch (err) {
       console.error(
         `latch pass: !${mr.iid} (${mr.mrUrl}) failed: ${err instanceof Error ? err.message : err}`
@@ -378,49 +559,702 @@ export async function runLatchPass(
   return result;
 }
 
-/** Rearm the canonical latch and spend every OTHER copy carrying the request.
-    Consuming the extras is what stops the request bit re-firing on the next
-    re-entry into scope. */
-async function consume(
+/** Posts the reply a landing or stuck transition owes but failed to post.
+    At least once: a post that landed but whose response errored stays owed
+    and goes out again on a later tick. A failure is logged and the tick goes
+    on, so a reply GitLab keeps refusing never blocks the latch. */
+async function settleOwedReply(
+  deps: LatchPassDeps,
+  rows: Rows,
+  mr: LatchMrFacts,
+  canon: LatchRef,
+  now: number
+): Promise<void> {
+  const owing = rows.read(mr.mrUrl);
+  const body = owing?.replyDue;
+  if (!owing || body == null) return;
+  const age = now - owing.updatedAt;
+  // A spend moves the row without touching stuck, so a spent row can still
+  // read stuck while owing a stuck reply that no longer applies.
+  const staleStuck =
+    body === STUCK_REPLY && (!owing.stuck || owing.phase !== 'error');
+  if (age > LATCH_REPLY_GIVE_UP_MS || staleStuck) {
+    dropOwedReply(deps, mr, body, now);
+    return;
+  }
+  // The server may still be posting a reply it owed seconds ago.
+  if (owing.discussionId !== canon.discussionId || age < LATCH_POST_GRACE_MS)
+    return;
+  try {
+    await postReplyDue(deps.gateway, mr, owing.discussionId, body, deps.db);
+  } catch (err) {
+    console.error(
+      `latch pass: !${mr.iid} owed reply not posted: ${err instanceof Error ? err.message : err}`
+    );
+    return;
+  }
+  deps.appendAudit({
+    ts: now,
+    mrUrl: mr.mrUrl,
+    iid: mr.iid,
+    event: 'latch',
+    action: 'replied',
+  });
+}
+
+function dropOwedReply(
+  deps: LatchPassDeps,
+  mr: LatchMrFacts,
+  body: string,
+  now: number
+): void {
+  if (!clearReplyDue(mr.mrUrl, body, deps.db)) return;
+  deps.appendAudit({
+    ts: now,
+    mrUrl: mr.mrUrl,
+    iid: mr.iid,
+    event: 'latch',
+    action: 'reply-dropped',
+  });
+}
+
+/** The row for the canonical latch: adopted from the note when there is
+    none, or re-pointed when a post race left it on an older copy. Null when
+    another writer moved the row since this tick read it. */
+function trackCanon(
+  deps: LatchPassDeps,
+  rows: Rows,
+  mr: LatchMrFacts,
+  canon: LatchRef,
+  stored: LatchRow | null,
+  now: number
+): LatchRow | null {
+  if (stored && stored.discussionId === canon.discussionId) return stored;
+  const audit = (action: string) =>
+    deps.appendAudit({
+      ts: now,
+      mrUrl: mr.mrUrl,
+      iid: mr.iid,
+      event: 'latch',
+      action,
+    });
+  // A live row beside a read that shows only a spent latch elsewhere is a
+  // read that cannot see the row's latch yet, as in step 0.
+  if (stored && stored.phase !== 'spent' && canon.kind === 'spent') {
+    return stored;
+  }
+  // An acknowledged note with no row (a lost db) takes the post's time as its
+  // stamp: the commented review that armed the latch began before the post,
+  // so it can never land as the follow-up, and a later run still can.
+  const posted = Date.parse(canon.createdAt);
+  const acked = IN_FLIGHT.has(canon.kind) && Number.isFinite(posted);
+  const fresh: Omit<LatchRow, 'mrUrl' | 'updatedAt'> = {
+    discussionId: canon.discussionId,
+    rootNoteId: canon.rootNoteId,
+    phase: canon.kind,
+    wait: null,
+    launchAt: acked ? posted : null,
+    failures: 0,
+    stuck: false,
+    variant: null,
+    replyDue: null,
+  };
+  if (!stored) {
+    const adopted: LatchRow = { mrUrl: mr.mrUrl, ...fresh, updatedAt: now };
+    rows.put(adopted);
+    audit('adopted');
+    return adopted;
+  }
+  // Guarded on the copy this tick read, so a row another writer moved in the
+  // meantime is never overwritten from a stale snapshot.
+  const live = stored.phase !== 'spent';
+  const moved = rows.cas(
+    mr.mrUrl,
+    [stored.phase],
+    live
+      ? { discussionId: canon.discussionId, rootNoteId: canon.rootNoteId }
+      : fresh,
+    now,
+    { discussionId: stored.discussionId }
+  );
+  if (!moved) return null;
+  audit(live ? 'repointed' : 'adopted');
+  return live
+    ? {
+        ...stored,
+        discussionId: canon.discussionId,
+        rootNoteId: canon.rootNoteId,
+        updatedAt: now,
+      }
+    : { mrUrl: mr.mrUrl, ...fresh, updatedAt: now };
+}
+
+/** A running or error row whose follow-up has finished: the lane reads done
+    for a run that started at or after the launch. A row with no launch stamp
+    (a first launch that failed) has no follow-up to land. */
+function landable(
+  row: LatchRow,
+  review: ReviewState | undefined
+): review is ReviewState {
+  return (
+    (row.phase === 'running' || row.phase === 'error') &&
+    review?.status === 'done' &&
+    row.launchAt !== null &&
+    runStamp(review) >= row.launchAt
+  );
+}
+
+async function landBackstop(
+  deps: LatchPassDeps,
+  mr: LatchMrFacts,
+  row: LatchRow,
+  review: ReviewState,
+  target: LatchTarget,
+  latches: LatchRef[],
+  result: LatchPassResult
+): Promise<void> {
+  // The tick's clock may be minutes old by now; the landing stamp is what
+  // the re-arm grace measures from.
+  const now = deps.now();
+  const outcome = review.outcome ?? null;
+  const launchAt = row.launchAt;
+  const landed = await landFollowUp(
+    {
+      target,
+      outcome,
+      reviewRunStartedAt: runStamp(review),
+      gateway: deps.gateway,
+      self: deps.self,
+      countNew: () =>
+        deps.countNew && launchAt !== null
+          ? deps.countNew(mr, launchAt)
+          : Promise.resolve(null),
+      now,
+      latches,
+    },
+    deps.db
+  );
+  // Another writer (the server's done signal) moved the row first.
+  if (landed !== 'landed') {
+    result.skipped++;
+    return;
+  }
+  deps.appendAudit({
+    ts: now,
+    mrUrl: mr.mrUrl,
+    iid: mr.iid,
+    event: 'latch',
+    action: 'landed',
+    outcome: outcome ?? 'none',
+  });
+  result.landed++;
+}
+
+/** The lane decideRequest sees for a latch the row holds. The row is the
+    record that a commented review existed, so a lane reading error, done with
+    no outcome, or gone must not be refused as having none. A lane in flight
+    passes through, so it still reads review-in-flight. */
+function rowLane(
+  mr: LatchMrFacts,
+  review: ReviewState | undefined
+): ReviewState {
+  if (review && (review.status === 'queued' || review.status === 'reviewing')) {
+    return review;
+  }
+  return {
+    ...(review ?? {
+      mrUrl: mr.mrUrl,
+      iid: mr.iid,
+      status: 'done',
+      startedAt: 0,
+      updatedAt: 0,
+    }),
+    status: 'done',
+    outcome: 'comment',
+  };
+}
+
+/** decideRequest over the row's synthetic commented lane. Its never-clearing
+    reasons cannot come back for a row-backed latch, so every non-dispatch
+    decision carries a wait. */
+function decide(t: Tick, m: MrMemory) {
+  const decision = decideRequest(
+    requestOf(t),
+    rowLane(t.mr, t.review),
+    m,
+    t.policy,
+    t.now
+  );
+  return { decision, wait: waitReasonOf(decision) ?? 'next-sweep' };
+}
+
+async function armedLatch(t: Tick): Promise<void> {
+  if (t.canon.kind !== 'armed') return repairArmed(t);
+  if (t.carriers.length === 0 || insideRearmGrace(t)) {
+    t.result.skipped++;
+    return;
+  }
+  const m = memoryFor(t);
+  const { decision, wait } = decide(t, m);
+  auditDecision(t, decision, m);
+  if (decision.action === 'dispatch') return dispatch(t, 'armed', m);
+  return queue(t, wait);
+}
+
+async function queuedLatch(t: Tick): Promise<void> {
+  const { rows, mr, canon, now, review } = t;
+  const guard = { discussionId: canon.discussionId };
+  // The queued marker proves this read post-dates the pass's own rewrite, so
+  // an open thread is the author taking the request back, even while a review
+  // runs. An armed open note is a read from before the request and proves
+  // nothing.
+  if (canon.kind === 'queued' && !canon.resolved) {
+    const moved = rows.cas(
+      mr.mrUrl,
+      ['queued'],
+      { phase: 'armed', wait: null, launchAt: null },
+      now,
+      guard
+    );
+    if (moved) {
+      await show(t, 'armed', { state: 'armed' }, 'keep');
+      audit(t, 'withdrawn');
+    }
+    return;
+  }
+  // Any review that starts while the request waits is the follow-up, even one
+  // launched by hand: one ask never gets two reviews. One already running
+  // when the request came in is not; the request waits it out.
+  if (followUpInFlight(review, 'queued', t.row.launchAt)) {
+    return adoptRun(t, 'queued', review);
+  }
+  const m = memoryFor(t);
+  const { decision, wait } = decide(t, m);
+  if (decision.action === 'dispatch') {
+    auditDecision(t, decision, m);
+    return dispatch(t, 'queued', m);
+  }
+  return waitQueued(t, wait);
+}
+
+async function waitQueued(t: Tick, wait: WaitReason): Promise<void> {
+  const variant: BannerVariant = { state: 'queued', wait };
+  if (variantKey(variant) === t.row.variant) {
+    t.result.skipped++;
+    return;
+  }
+  const moved = t.rows.cas(t.mr.mrUrl, ['queued'], { wait }, t.now, {
+    discussionId: t.canon.discussionId,
+  });
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  await show(t, 'queued', variant, 'keep');
+  audit(t, 'queued', { reason: wait });
+  t.result.queued++;
+}
+
+/** A run in flight that is this request's follow-up becomes the latch's
+    launch: no second review starts and nothing is charged. */
+async function adoptRun(
+  t: Tick,
+  from: 'armed' | 'queued' | 'error',
+  review: ReviewState
+): Promise<void> {
+  const moved = t.rows.cas(
+    t.mr.mrUrl,
+    [from],
+    {
+      phase: 'running',
+      launchAt: runStamp(review),
+      wait: null,
+      stuck: false,
+      ...leavingError(t, from),
+    },
+    t.now,
+    { discussionId: t.canon.discussionId }
+  );
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  await show(t, 'running', { state: 'running' }, threadClosed(t));
+  if (from === 'armed') await supersede(t.deps, t.mr, t.canon, t.carriers);
+  if (from === 'error') audit(t, 'recovered');
+  else audit(t, 'dispatched', { outcome: 'review already running' });
+}
+
+/** A row leaving error drops the stuck reply it may still owe; a finished
+    reply still owed from an earlier landing stands. */
+function leavingError(t: Tick, from: LatchPhase): LatchPatch {
+  return from === 'error' && t.row.replyDue === STUCK_REPLY
+    ? { replyDue: null }
+    : {};
+}
+
+/** The row moved to armed but the note still shows a later phase: either the
+    rewrite never landed, or this read predates one that did. Only a row
+    older than the read's staleness window tells the two apart. */
+async function repairArmed(t: Tick): Promise<void> {
+  if (t.now - t.row.updatedAt < LATCH_POST_GRACE_MS) {
+    t.result.skipped++;
+    return;
+  }
+  if (!(await show(t, 'armed', armedVariantOf(t.row.variant), 'unresolve'))) {
+    t.result.skipped++;
+    return;
+  }
+  audit(t, 'repaired');
+  t.result.repaired++;
+}
+
+/** How far the board's clock may run ahead of GitLab's. Both post paths
+    stamp the row with a clock read before the post, so a row that never
+    moved after it sits at or before the latch's createdAt. */
+const LATCH_CLOCK_SKEW_MS = 60_000;
+
+/** A landing or a withdrawal re-arms the row, and a read from before that
+    move still shows the request it answered as armed and resolved. Only time
+    tells the two apart. A latch the row never moved past its post has no
+    older read to fear, so a quick resolve there is a request at once. */
+function insideRearmGrace(t: Tick): boolean {
+  if (t.now - t.row.updatedAt >= LATCH_POST_GRACE_MS) return false;
+  const posted = Date.parse(t.canon.createdAt);
+  return (
+    Number.isFinite(posted) && t.row.updatedAt - posted > LATCH_CLOCK_SKEW_MS
+  );
+}
+
+/** The armed banner the row last showed, so a done-comments count survives a
+    repair; anything else falls back to the plain armed banner. */
+function armedVariantOf(key: string | null): BannerVariant {
+  const v = key ? variantOfKey(key) : null;
+  return v && (v.state === 'armed' || v.state === 'done-comments')
+    ? v
+    : { state: 'armed' };
+}
+
+async function dispatch(
+  t: Tick,
+  from: 'armed' | 'queued' | 'error',
+  m: MrMemory
+): Promise<void> {
+  const { deps, rows, mr, canon, now } = t;
+  // A review the board launched since this tick's snapshot is live in a pane;
+  // launching now would resume a second prompt into it.
+  const lane = deps.readReviewStates().get(mr.mrUrl);
+  if (inFlight(lane)) {
+    const stamp = from === 'armed' ? now : t.row.launchAt;
+    if (followUpInFlight(lane, from, stamp)) return adoptRun(t, from, lane);
+    if (from === 'armed') return queue(t, 'review-in-flight');
+    if (from === 'queued') return waitQueued(t, 'review-in-flight');
+    return waitError(t, 'review-in-flight');
+  }
+  const launch = await deps.launchReReview(mr.mrUrl, mr.iid);
+  if (launch.kind === 'error') return fail(t, launch.message);
+
+  // The launch already happened, so the attempt is charged before the
+  // follow-up GitLab writes run: a write failing here must still count
+  // against cooldown and budget, or a failing write turns into a launch
+  // every tick.
+  m.lastDispatchAt = now;
+  m.attemptsToday++;
+  const moved = rows.cas(
+    mr.mrUrl,
+    [from],
+    { phase: 'running', launchAt: now, wait: null, ...leavingError(t, from) },
+    now,
+    { discussionId: canon.discussionId }
+  );
+  if (moved) await show(t, 'running', { state: 'running' }, threadClosed(t));
+  await supersede(deps, mr, canon, t.carriers);
+  audit(t, from === 'error' ? 'retried' : 'dispatched');
+  await deps.notify(
+    `Follow-up review started on !${mr.iid}`,
+    'The author asked for a follow-up review',
+    mr.mrUrl
+  );
+  t.result.dispatched++;
+}
+
+/** The run this latch waits on is alive while its lane is queued or
+    reviewing, however long a post gate parks it; only the lane reading
+    error (the closed-pane reconciler's verdict included) is a failure. */
+async function runningLatch(t: Tick): Promise<void> {
+  if (t.review?.status === 'error') return fail(t, t.review.message);
+  // The row moves before the note, so a rewrite that threw leaves the note
+  // showing the request for the whole run unless a later pass shows running.
+  if (
+    t.row.variant !== variantKey({ state: 'running' }) &&
+    (await show(t, 'running', { state: 'running' }, threadClosed(t)))
+  ) {
+    audit(t, 'repaired');
+    t.result.repaired++;
+    return;
+  }
+  t.result.skipped++;
+}
+
+async function erroredLatch(t: Tick): Promise<void> {
+  if (followUpInFlight(t.review, 'error', t.row.launchAt)) {
+    return adoptRun(t, 'error', t.review);
+  }
+  if (t.row.stuck) {
+    // The stuck transition notifies before its GitLab writes, so a write cut
+    // short there leaves the banner and reply for this pass to finish.
+    if (t.row.variant === variantKey({ state: 'error-stuck' })) {
+      t.result.skipped++;
+      return;
+    }
+    if (await showStuck(t)) {
+      audit(t, 'repaired');
+      t.result.repaired++;
+    } else {
+      t.result.skipped++;
+    }
+    return;
+  }
+  const m = memoryFor(t);
+  const { decision, wait } = decide(t, m);
+  if (decision.action === 'dispatch') {
+    auditDecision(t, decision, m);
+    return dispatch(t, 'error', m);
+  }
+  return waitError(t, wait);
+}
+
+async function waitError(t: Tick, wait: WaitReason): Promise<void> {
+  const variant = retryingVariant(wait);
+  if (variantKey(variant) === t.row.variant) {
+    t.result.skipped++;
+    return;
+  }
+  const moved = t.rows.cas(t.mr.mrUrl, ['error'], { wait }, t.now, {
+    discussionId: t.canon.discussionId,
+  });
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  await show(t, 'error', variant, 'keep');
+  audit(t, 'error', { reason: wait });
+  t.result.errored++;
+}
+
+/** The error strip has no review-in-flight wait: a run in flight would have
+    moved the latch to running instead. */
+function retryingVariant(wait: WaitReason): BannerVariant {
+  return {
+    state: 'error-retrying',
+    wait: wait === 'review-in-flight' ? 'next-sweep' : wait,
+  };
+}
+
+/** One failed attempt: the run errored, or its pane never started. The cas
+    on the phase this tick read keeps a server write in between (a landing)
+    from being overwritten; the cron lock is what keeps two passes from both
+    recording the same attempt. */
+async function fail(t: Tick, message: string | undefined): Promise<void> {
+  const { deps, rows, mr, canon, now } = t;
+  // A relaunch from the board mid-pass is the follow-up running again, not
+  // a failure: this tick's lane snapshot is older than that launch.
+  const lane = deps.readReviewStates().get(mr.mrUrl);
+  if (lane && (lane.status === 'queued' || lane.status === 'reviewing')) {
+    t.result.skipped++;
+    return;
+  }
+  const failures = t.row.failures + 1;
+  const stuck = failures >= LATCH_MAX_FAILURES;
+  const { wait } = decide(t, memoryFor(t));
+  const moved = rows.cas(
+    mr.mrUrl,
+    [t.row.phase],
+    stuck
+      ? {
+          phase: 'error',
+          failures,
+          wait: null,
+          stuck: true,
+          replyDue: STUCK_REPLY,
+        }
+      : { phase: 'error', failures, wait },
+    now,
+    { discussionId: canon.discussionId }
+  );
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  const outcome = message ? { outcome: message } : {};
+  if (!stuck) {
+    await show(t, 'error', retryingVariant(wait), threadClosed(t));
+    await supersede(deps, mr, canon, t.carriers);
+    audit(t, 'error', { reason: wait, ...outcome });
+    t.result.errored++;
+    return;
+  }
+  // Stuck needs a person, and the stuck repair redoes the banner and reply
+  // but never re-notifies, so the notification goes before any GitLab write
+  // that could throw.
+  await t.notifyStuck(
+    `Follow-up review stuck on !${mr.iid}`,
+    `It failed ${LATCH_MAX_FAILURES} times. Relaunch it from the board.`,
+    mr.mrUrl
+  );
+  audit(t, 'stuck', outcome);
+  t.result.errored++;
+  t.result.stuck++;
+  await showStuck(t);
+}
+
+/** The stuck banner, then the stuck reply while the row still owes it. A row
+    still showing another variant has not had the banner, which is how a
+    cut-short write is repaired. False when a landing moved the row first and
+    nothing was written. */
+async function showStuck(t: Tick): Promise<boolean> {
+  if (!t.rows.read(t.mr.mrUrl)?.stuck) return false;
+  if (!(await show(t, 'error', STUCK, threadClosed(t)))) return false;
+  const reply = STUCK_REPLY;
+  if (t.rows.read(t.mr.mrUrl)?.replyDue === reply) {
+    try {
+      await postReplyDue(
+        t.deps.gateway,
+        t.mr,
+        t.canon.discussionId,
+        reply,
+        t.deps.db
+      );
+    } catch (err) {
+      // Still owed on the row: a later tick posts it.
+      console.error(
+        `latch pass: !${t.mr.iid} stuck reply not posted: ${err instanceof Error ? err.message : err}`
+      );
+    }
+  }
+  await supersede(t.deps, t.mr, t.canon, t.carriers);
+  return true;
+}
+
+async function queue(t: Tick, wait: WaitReason): Promise<void> {
+  const moved = t.rows.cas(
+    t.mr.mrUrl,
+    ['armed'],
+    { phase: 'queued', wait, launchAt: t.now },
+    t.now,
+    { discussionId: t.canon.discussionId }
+  );
+  if (!moved) {
+    t.result.skipped++;
+    return;
+  }
+  await show(t, 'queued', { state: 'queued', wait }, threadClosed(t));
+  await supersede(t.deps, t.mr, t.canon, t.carriers);
+  audit(t, 'queued', { reason: wait });
+  t.result.queued++;
+}
+
+/** Queued and running latches sit on a resolved thread; a request carried by
+    an extra copy leaves the canon open until the rewrite closes it. */
+function threadClosed(t: Tick): 'keep' | 'resolve' {
+  return t.canon.resolved ? 'keep' : 'resolve';
+}
+
+/** Writes the note only while the row still shows `phase` for this latch:
+    a landing that moved it since this tick read it owns the note. False when
+    it wrote nothing. */
+async function show(
+  t: Tick,
+  phase: LatchPhase,
+  variant: BannerVariant,
+  thread: 'resolve' | 'unresolve' | 'keep'
+): Promise<boolean> {
+  const cur = t.rows.read(t.mr.mrUrl);
+  if (cur?.phase !== phase || cur.discussionId !== t.target.discussionId)
+    return false;
+  await rewriteLatch(
+    t.deps.gateway,
+    t.target,
+    phase,
+    variant,
+    thread,
+    t.now,
+    t.deps.db
+  );
+  return true;
+}
+
+function memoryFor(t: Tick): MrMemory {
+  const m = rollDay(
+    t.deps.memory.mrs[t.mr.mrUrl] ?? emptyMrMemory(t.dayStamp),
+    t.dayStamp
+  );
+  t.deps.memory.mrs[t.mr.mrUrl] = m;
+  return m;
+}
+
+function requestOf(t: Tick): ReReviewRequest {
+  return {
+    mrUrl: t.mr.mrUrl,
+    iid: t.mr.iid,
+    source: 'latch',
+    receivedAt: null,
+    handled: false,
+  };
+}
+
+function audit(
+  t: Tick,
+  action: string,
+  extra: Pick<AuditEntry, 'reason' | 'outcome'> = {}
+): void {
+  t.deps.appendAudit({
+    ts: t.now,
+    mrUrl: t.mr.mrUrl,
+    iid: t.mr.iid,
+    event: 'latch',
+    action,
+    ...extra,
+  });
+}
+
+function auditDecision(
+  t: Tick,
+  decision: { action: string; reason: string },
+  m: MrMemory
+): void {
+  t.deps.appendAudit({
+    ts: t.now,
+    mrUrl: t.mr.mrUrl,
+    iid: t.mr.iid,
+    event: 'latch',
+    decision: decision.action,
+    reason: decision.reason,
+    attempt: m.attemptsToday + 1,
+  });
+}
+
+/** Spend every request carrier but the canon. "superseded", not approved: the
+    canon carries the request on, so these copies go defunct rather than
+    recording a verdict that did not happen. */
+async function supersede(
   deps: LatchPassDeps,
   mr: LatchMrFacts,
   canon: LatchRef,
   carriers: LatchRef[]
 ): Promise<void> {
-  if (canon.resolved) {
-    await deps.gateway.unresolveDiscussion(
-      mr.projectPath,
-      mr.iid,
-      canon.discussionId
-    );
-  }
   for (const c of carriers) {
     if (c.discussionId === canon.discussionId) continue;
-    // "duplicate", not the approved default: the canon is being rearmed for
-    // another cycle here, not approved, so this extra copy is going defunct
-    // rather than recording a verdict that did not happen.
     await spendLatch(
       deps.gateway,
       mr.projectId,
       mr.projectPath,
+      mr.mrUrl,
       mr.iid,
       c,
-      'duplicate'
+      { state: 'superseded' },
+      deps.now(),
+      deps.db
     );
   }
-}
-
-/** Terminal disposal of every copy of this reviewer's latch once they approve. */
-async function spendAll(
-  deps: LatchPassDeps,
-  mr: LatchMrFacts,
-  latches: LatchRef[]
-): Promise<void> {
-  await spendAllLatches(
-    deps.gateway,
-    mr.projectId,
-    mr.projectPath,
-    mr.iid,
-    latches
-  );
 }

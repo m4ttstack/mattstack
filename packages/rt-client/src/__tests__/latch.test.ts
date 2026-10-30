@@ -1,7 +1,28 @@
 import { describe, expect, test } from "bun:test";
-import { LATCH_MARKER, LATCH_MARKER_SPENT, latchKindOf } from "../latch.ts";
+import {
+  LATCH_MARKER,
+  LATCH_MARKER_ERROR,
+  LATCH_MARKER_QUEUED,
+  LATCH_MARKER_RUNNING,
+  LATCH_MARKER_SPENT,
+  latchKindOf,
+} from "../latch.ts";
 
 describe("latchKindOf", () => {
+  test("recognizes queued, running and error latches", () => {
+    expect(latchKindOf(`${LATCH_MARKER_QUEUED}\n\nbanner`)).toBe("queued");
+    expect(latchKindOf(`${LATCH_MARKER_RUNNING}\n\nbanner`)).toBe("running");
+    expect(latchKindOf(`${LATCH_MARKER_ERROR}\n\nbanner`)).toBe("error");
+  });
+
+  test("ignores a new marker that is not on the first line", () => {
+    expect(latchKindOf(`intro\n${LATCH_MARKER_RUNNING}`)).toBeNull();
+  });
+
+  test("treats an unknown v2 running marker as null", () => {
+    expect(latchKindOf("<!-- mattstack:board re-review-latch v2 running -->")).toBeNull();
+  });
+
   test("recognizes an armed latch", () => {
     expect(latchKindOf(`${LATCH_MARKER}\n\nbanner`)).toBe("armed");
   });

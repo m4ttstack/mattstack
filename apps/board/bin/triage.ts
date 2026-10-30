@@ -2,7 +2,12 @@
 // rt cron is the intended caller (spec §5); a human running it by hand gets
 // the same one idempotent evaluation pass. The board server NEVER runs this.
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
-import { GitLabProvider, parseRepoId, type MRDetail } from '@mattstack/glance';
+import {
+  GitLabProvider,
+  MRDetailFetcher,
+  parseRepoId,
+  type MRDetail,
+} from '@mattstack/glance';
 import {
   listOrgs,
   readDiscussions,
@@ -23,6 +28,13 @@ import {
 } from '../src/doctor-state.ts';
 import { launchDoctor, sendPaneText } from '../src/herdr.ts';
 import { latchGateway } from '../src/latch/gateway.ts';
+import { fetchNewDiscussionCount } from '../src/latch/land.ts';
+import {
+  casLatch,
+  putLatchRow,
+  readLatchRow,
+  readLatchRows,
+} from '../src/latch/latch-state.ts';
 import { packForLaunch } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
@@ -54,7 +66,11 @@ import {
   loadTriageConfig,
 } from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
-import { runLatchPass, type LatchMrFacts } from '../src/triage/latch.ts';
+import {
+  latchInScope,
+  runLatchPass,
+  type LatchMrFacts,
+} from '../src/triage/latch.ts';
 import {
   CRON_CLAIM_STALE_MS,
   readMemory,
@@ -132,12 +148,15 @@ try {
   // once per run and only when something actually notifies. Null (deck not
   // answering) sends the notification without a click target.
   let boardUrl: Promise<string | null> | undefined;
-  const notify = async (title: string, message: string, mrUrl: string) => {
-    if (triage.notify !== 'rt') return;
+  const boardLinkFor = async (mrUrl: string): Promise<string | null> => {
     boardUrl ??= deckAppUrl('board');
     const base = await boardUrl;
+    return base ? boardMrLink(base, mrUrl) : null;
+  };
+  const notify = async (title: string, message: string, mrUrl: string) => {
+    if (triage.notify !== 'rt') return;
     await notifyEscalation(title, message, triage.notify, {
-      url: base ? boardMrLink(base, mrUrl) : null,
+      url: await boardLinkFor(mrUrl),
     });
   };
 
@@ -185,40 +204,33 @@ try {
       .map(m => ownMrFacts({ ...m, webUrl: m.webUrl! }));
   };
 
-  // The latch pass's mirror image of fetchOwnMrs: every MR this board holds a
-  // done review state for, whatever its outcome, rather than the MRs this
-  // identity authored. Approve-outcome states stay in scope so a half-finished
-  // spend can be repaired; without them nothing ever would be. A commented
-  // TOMBSTONE also qualifies: its MR left the board with review state and came
-  // back without it, and the pass decides between resurrecting and dropping.
+  // The latch pass's mirror image of fetchOwnMrs: MRs this board reviewed
+  // rather than the MRs this identity authored (latchInScope says which).
   const fetchLatchMrs = async (): Promise<LatchMrFacts[]> => {
-    const states = readReviewStates();
-    const pruned = readPrunedReviewStates();
-    const inScope = (url: string | null | undefined): boolean => {
-      if (!url) return false;
-      if (states.get(url)?.status === 'done') return true;
-      const tomb = pruned.get(url);
-      return tomb?.status === 'done' && tomb.outcome === 'comment';
-    };
     const { prs, tags, windows } = await collectProjectPRs(
       boardConfig,
       readProjectMRs
     );
-    return buildBoard(prs, boardConfig, undefined, tags, windows)
-      .filter(m => inScope(m.webUrl))
-      .map(m => ({
-        mrUrl: m.webUrl!,
-        iid: m.iid,
-        projectId: parseRepoId(m.repositoryId),
-        projectPath:
-          projectPathFromWebUrl(m.webUrl!, boardConfig.gitlabHost) ?? '',
-        // Encoded, not the bare rtRepos value: readDetail below passes this
-        // straight to readDiscussions, which is daemon-identity-keyed.
-        rtRepo: repoIdentityField(m.rtRepo) ?? '',
-        approvedBySelf: m.reviews.approvedBy.some(
-          r => r.username.toLowerCase() === username.toLowerCase()
-        ),
-      }));
+    return latchInScope(
+      buildBoard(prs, boardConfig, undefined, tags, windows),
+      {
+        rows: readLatchRows(),
+        states: readReviewStates(),
+        pruned: readPrunedReviewStates(),
+      }
+    ).map(m => ({
+      mrUrl: m.webUrl!,
+      iid: m.iid,
+      projectId: parseRepoId(m.repositoryId),
+      projectPath:
+        projectPathFromWebUrl(m.webUrl!, boardConfig.gitlabHost) ?? '',
+      // Encoded, not the bare rtRepos value: readDetail below passes this
+      // straight to readDiscussions, which is daemon-identity-keyed.
+      rtRepo: repoIdentityField(m.rtRepo) ?? '',
+      approvedBySelf: m.reviews.approvedBy.some(
+        r => r.username.toLowerCase() === username.toLowerCase()
+      ),
+    }));
   };
 
   if (!peerMode) {
@@ -355,6 +367,24 @@ try {
         reReview,
         appendAudit,
         notify,
+        notifyStuck: async (title, message, mrUrl) =>
+          notifyEscalation(title, message, 'rt', {
+            url: await boardLinkFor(mrUrl),
+          }),
+        countNew: (mr, launchAt) =>
+          fetchNewDiscussionCount(
+            () =>
+              new MRDetailFetcher(
+                boardConfig.gitlabHost,
+                latchToken
+              ).fetchDetail(mr.projectId, mr.iid),
+            username,
+            launchAt
+          ),
+        readLatchRow: mrUrl => readLatchRow(mrUrl),
+        casLatch: (mrUrl, from, patch, at, opts) =>
+          casLatch(mrUrl, from, patch, at, undefined, opts),
+        putLatchRow: row => putLatchRow(row),
         now: () => Date.now(),
       });
       console.log(`latch pass: ${JSON.stringify(latchResult)}`);

@@ -8,7 +8,7 @@ import { getKvValue } from './kv-blob.ts';
 import { importLegacyState } from './legacy-import.ts';
 
 export type DbFlavor = 'server' | 'cli';
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const BUSY_TIMEOUT_MS: Record<DbFlavor, number> = { server: 250, cli: 5000 };
 const MIGRATION_BUSY_TIMEOUT_MS = 5000;
@@ -162,6 +162,29 @@ const MIGRATIONS: Migration[] = [
     }>;
     if (!cols.some(c => c.name === 'outcome'))
       db.run('ALTER TABLE respond_rounds ADD COLUMN outcome TEXT');
+  },
+  // v7: the re-review latch's record (one row per MR, since this board is one
+  // reviewer) and the banner uploads already made per variant.
+  db => {
+    db.run(`CREATE TABLE IF NOT EXISTS latch_state (
+  mr_url        TEXT PRIMARY KEY,
+  discussion_id TEXT NOT NULL,
+  root_note_id  INTEGER NOT NULL,
+  phase         TEXT NOT NULL,
+  wait          TEXT,
+  launch_at     INTEGER,
+  failures      INTEGER NOT NULL DEFAULT 0,
+  stuck         INTEGER NOT NULL DEFAULT 0,
+  variant       TEXT,
+  reply_due     TEXT,
+  updated_at    INTEGER NOT NULL
+)`);
+    db.run(`CREATE TABLE IF NOT EXISTS latch_uploads (
+  mr_url   TEXT NOT NULL,
+  variant  TEXT NOT NULL,
+  markdown TEXT NOT NULL,
+  PRIMARY KEY (mr_url, variant)
+)`);
   },
 ];
 

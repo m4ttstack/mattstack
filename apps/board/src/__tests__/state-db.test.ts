@@ -132,7 +132,7 @@ describe('state db', () => {
     expect(again.query('SELECT COUNT(*) AS n FROM agent_states').get()).toEqual(
       { n: 1 }
     );
-    expect(SCHEMA_VERSION).toBe(6);
+    expect(SCHEMA_VERSION).toBe(7);
   });
 
   test('v5 adds respond_rounds, and a v4 db upgrades in place with its rows intact', () => {

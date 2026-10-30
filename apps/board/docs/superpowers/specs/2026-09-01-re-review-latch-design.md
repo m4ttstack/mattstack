@@ -1,5 +1,7 @@
 # Re-review latch
 
+> Banner states and the queue/retry lifecycle are superseded by [2026-10-29-latch-animated-states-design.md](2026-10-29-latch-animated-states-design.md).
+
 Give an MR author a way to ask for a re-review from inside the MR, so a
 re-review no longer depends on another board user poking the reviewer through
 the switchboard.
