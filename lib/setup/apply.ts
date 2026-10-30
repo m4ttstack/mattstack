@@ -224,8 +224,8 @@ export interface ApplyRunOptions {
   record?: "fresh" | "continue";
   /** Steps a resumed run already finished: each applicable one streams `done` right after `plan`, and none runs again. */
   replay?: StepId[];
-  /** Runs once the record's end is written and before `done` goes out, so whatever starts on `done` (the app's Retry) finds the run lock free. */
-  beforeDone?: () => void;
+  /** Runs, and is awaited, once the record's end is written and before `done` goes out, so whatever starts on `done` (the app's Retry, a form read) finds its work finished and the run lock free. */
+  beforeDone?: (result: { ok: boolean }) => void | Promise<void>;
 }
 
 type RunFailure = NonNullable<SetupRun["failed"]>;
@@ -411,7 +411,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: Ap
     // required terminal event.
     persistTerminalState(ctx, result.ok, lastRanId, opts.only !== undefined, record ? { failure } : undefined);
     try {
-      opts.beforeDone?.();
+      await opts.beforeDone?.({ ok: result.ok });
     } catch {
       // Nothing before `done` may cost the stream its terminal event.
     }

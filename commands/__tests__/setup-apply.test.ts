@@ -630,19 +630,66 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     expect(finished(deps.probes)).toBe(false);
   });
 
-  test("--only and --from are partial runs and never finish setup", async () => {
-    for (const flag of ["--only", "--from"]) {
-      let asked = false;
-      const deps = baseApplyDeps({
-        steps: [fakeStep("path.link", { state: "done" })],
-        planForFinish: async () => {
-          asked = true;
-          return { finishBlockedBy: [] };
-        },
-      });
-      await setupApply([flag, "path.link", "--json"], {}, deps);
-      expect(finished(deps.probes)).toBe(false);
-      expect(asked).toBe(false);
+  test("an --only run fixes one row and never finishes setup", async () => {
+    let asked = false;
+    const deps = baseApplyDeps({
+      steps: [fakeStep("path.link", { state: "done" })],
+      planForFinish: async () => {
+        asked = true;
+        return { finishBlockedBy: [] };
+      },
+    });
+    await setupApply(["--only", "path.link", "--json"], {}, deps);
+    expect(finished(deps.probes)).toBe(false);
+    expect(asked).toBe(false);
+  });
+
+  test("a resumed run that ends ok finishes setup when nothing blocks it", async () => {
+    const probes = fakeProbes();
+    updateSetupState(probes, (s) => ({ ...s, run: { startedAt: "2025-12-31T23:00:00.000Z", done: ["home.init"] } }));
+    const deps = baseApplyDeps({ probes, steps: [neverRunsStep("home.init"), fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [] });
+
+    await setupApply(["--resume", "--json"], {}, deps);
+
+    expect(finished(probes)).toBe(true);
+    expect(readSetupState(probes).lastUpdate?.version).toBe("2.15.0");
+  });
+
+  test("a retry from a step finishes setup too", async () => {
+    const probes = fakeProbes();
+    updateSetupState(probes, (s) => ({ ...s, run: { startedAt: "x", done: ["home.init"], endedAt: "y", ok: false, failed: { step: "path.link", detail: "boom" } } }));
+    const deps = baseApplyDeps({ probes, steps: [neverRunsStep("home.init"), fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [] });
+
+    await setupApply(["--from", "path.link", "--json"], {}, deps);
+
+    expect(finished(probes)).toBe(true);
+    expect(readSetupState(probes).lastUpdate?.version).toBe("2.15.0");
+  });
+
+  test("a retry that fails again finishes nothing", async () => {
+    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" })] });
+    await runExpectingExit(() => setupApply(["--from", "path.link", "--json"], {}, deps));
+    expect(finished(deps.probes)).toBe(false);
+  });
+
+  // The app starts a Retry or reads the form the moment `done` arrives; neither may race these writes.
+  test("setup is finished before the app hears the run is done, and the lock is free by then", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-apply-finish-"));
+    try {
+      const lockPath = join(dir, "setup-apply.lock");
+      const seen: { finished: boolean; lockFree: boolean }[] = [];
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], runLock: createUpdateLock(lockPath, { pid: 222, alive: () => true }) });
+      const json = deps.json;
+      deps.json = (v) => {
+        json(v);
+        if ((v as ApplyEvent).event === "done") seen.push({ finished: finished(deps.probes), lockFree: !existsSync(lockPath) });
+      };
+
+      await setupApply(["--json"], {}, deps);
+
+      expect(seen).toEqual([{ finished: true, lockFree: true }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

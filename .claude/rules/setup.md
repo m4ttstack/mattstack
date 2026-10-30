@@ -69,10 +69,15 @@ pending migrations, then `team.identity` and the other `StepDef`s with
 throws is one more failed item; only a step that throws a plain error
 ends the run, as a bug (exit 1, no stamp). Otherwise the version is
 stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Two
-other verbs feed that stamp: a full `rt setup apply` that ends ok stamps it
-too, unless a migration is still pending, and `rt setup finish` starts an
+other verbs feed that stamp: a full, `--from` or `--resume` `rt setup apply`
+that ends ok stamps it too, unless a migration is still pending, and records
+Finish once nothing blocks it, both before it lets go of the run lock and
+sends `done`; `rt setup finish` starts an
 update run of its own, since the launch-time one skipped the Mac while setup
-was open. `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
+was open. A whole `rt setup form` read (no `--section`) after a run that
+ended ok records Finish the same way, so a leftover fixed by its own action
+needs no second run; `lib/setup/form.ts` owns which screen setup is on
+(`formStage`). `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
 the update stamp and the Install stamp (`installRanAt`) off the record, so a
 reinstalled app opens setup again with rows only Install sets up waiting for it. Mark a
 step update-safe only when it is idempotent, never calls `ctx.need`, and

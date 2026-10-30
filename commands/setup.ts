@@ -365,6 +365,8 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   let result: { ok: boolean; failedStep?: StepId };
   let selection: ApplySelection = { resume: false };
   let claim: { attach: boolean; lock?: UpdateLock } = { attach: false };
+  // Printed after the summary: mid-run, a line would land inside the live step view.
+  const warnings: RunWarning[] = [];
   try {
     selection = resolveApplySelection(args);
     claim = claimRun(selection, deps);
@@ -387,7 +389,15 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       await human?.settle();
       const steps = deps.steps ?? STEPS;
       const lock = claim.lock;
-      result = await runApplyWith(steps, ctx, { ...runOptions(selection, steps, ctx, deps.probes), beforeDone: () => lock?.release() });
+      const whole = selection.only === undefined;
+      const beforeDone = async ({ ok }: { ok: boolean }): Promise<void> => {
+        try {
+          if (ok && whole) await finishWholeRun(deps, warnings);
+        } finally {
+          lock?.release();
+        }
+      };
+      result = await runApplyWith(steps, ctx, { ...runOptions(selection, steps, ctx, deps.probes), beforeDone });
     }
   } catch (err) {
     claim.lock?.release();
@@ -407,40 +417,56 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   }
 
   await human?.flush();
+  for (const w of warnings) warnLine(json, w.title, w.detail);
   if (!result.ok) return deps.exit(2);
-  if (!claim.attach && selection.from === undefined && selection.only === undefined) {
-    stampUpdateWhenNothingPends(deps, json);
-    await finishIfClear(deps, json);
-  }
+}
+
+interface RunWarning {
+  title: string;
+  detail: string;
+}
+
+function warningOf(title: string, err: unknown): RunWarning {
+  return { title, detail: err instanceof Error ? err.message : String(err) };
+}
+
+/** A full, `--from` or resumed run that ended ok has run every step that was left, so it stamps and finishes like a full one. */
+async function finishWholeRun(deps: ApplyDeps, warnings: RunWarning[]): Promise<void> {
+  const stamp = stampUpdateWhenNothingPends(deps);
+  if (stamp) warnings.push(stamp);
+  const finish = await finishIfClear(deps);
+  if (finish) warnings.push(finish);
 }
 
 /**
- * A full run just did everything an update run re-applies, so only a pending
+ * A whole run just did everything an update run re-applies, so only a pending
  * migration still needs one. Unstamped, the update run a fresh Mac's Finish
  * starts would redo the whole Install.
  */
-function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
+function stampUpdateWhenNothingPends(deps: ApplyDeps): RunWarning | null {
   try {
     const applied = readSetupState(deps.probes).migrations;
-    if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return;
+    if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return null;
     updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version: deps.version ?? rtVersion(), at: deps.probes.now().toISOString() } }));
+    return null;
   } catch (err) {
-    warnLine(json, "The update version was not saved", err instanceof Error ? err.message : String(err));
+    return warningOf("The update version was not saved", err);
   }
 }
 
 /**
- * The wizard's Finish waits on the plan's finish blockers; a full run that
+ * The wizard's Finish waits on the plan's finish blockers; a whole run that
  * leaves none has done everything Finish would, and a terminal or
  * `--post-install` setup has no wizard to press it in.
  */
-async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
+async function finishIfClear(deps: ApplyDeps): Promise<RunWarning | null> {
   try {
     const plan = await (deps.planForFinish?.() ??
       composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
+    return null;
   } catch (err) {
-    warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
+    return warningOf("Setup was left unfinished because the finish check failed", err);
   }
 }
 

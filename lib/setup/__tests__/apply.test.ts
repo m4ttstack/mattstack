@@ -321,10 +321,31 @@ describe("runApplyWith: the run record", () => {
 
     await runApplyWith([fakeStep("home.init", { state: "done" })], ctx, {
       record: "fresh",
-      beforeDone: () => order.push(`beforeDone, record ended: ${runOf(ctx)?.endedAt !== undefined}`),
+      beforeDone: () => {
+        order.push(`beforeDone, record ended: ${runOf(ctx)?.endedAt !== undefined}`);
+      },
     });
 
     expect(order).toEqual(["beforeDone, record ended: true", "done event, record ended: true"]);
+  });
+
+  test("an async beforeDone hears how the run ended and finishes before the done event", async () => {
+    for (const outcome of [{ state: "done" as const }, { state: "failed" as const, detail: "boom" }]) {
+      const order: string[] = [];
+      const { ctx } = testCtx({
+        emit: (ev) => {
+          if (ev.event === "done") order.push("done event");
+        },
+      });
+      await runApplyWith([fakeStep("home.init", outcome)], ctx, {
+        record: "fresh",
+        beforeDone: async ({ ok }) => {
+          await Promise.resolve();
+          order.push(`beforeDone ok: ${ok}`);
+        },
+      });
+      expect(order).toEqual([`beforeDone ok: ${outcome.state === "done"}`, "done event"]);
+    }
   });
 
   test("a beforeDone that throws still lets the done event out", async () => {

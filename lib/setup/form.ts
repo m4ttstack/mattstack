@@ -1,14 +1,18 @@
 /**
  * The fast-setup form: every question setup still needs a person to answer,
- * grouped the way the app's screens draw them. rt decides each row's state and
- * action; the app only lays them out. The macos, invite and restore sections
- * read only what their screen needs; the connect section is built from the
- * full plan, which one call composes at most once and shares between sections.
+ * grouped the way the app's screens draw them, and which screen setup is on.
+ * rt decides each row's state and action; the app only lays them out. The
+ * macos, invite and restore sections read only what their screen needs; the
+ * connect section is built from the full plan, which one call composes at most
+ * once and shares between sections.
  */
 import { join } from "path";
-import { readTeamLocal } from "../team/team-local.ts";
+import { approvalState, type ApprovalState } from "../team/approval.ts";
+import { readTeamLocal, type TeamLocalRecord } from "../team/team-local.ts";
+import { warn } from "../ui/warn.ts";
+import { applyEventsPath } from "./apply-run.ts";
 import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from "./cli-login.ts";
-import { applyStepAction, isSolo, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
+import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { homeGitDir } from "./home-paths.ts";
 import { integrationDef } from "./integrations.ts";
@@ -20,8 +24,9 @@ import type { Probes } from "./probes.ts";
 import { configuredRepoRoots } from "./repo-placement.ts";
 import { detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
+import { STEP_PHASES } from "./run-phases.ts";
 import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
-import { isSetupFinished, readSetupState, type HomeBackupChoice } from "./state.ts";
+import { isSetupFinished, markSetupFinished, readSetupState, type HomeBackupChoice, type SetupRun, type SetupState } from "./state.ts";
 import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
@@ -56,6 +61,10 @@ export interface FormPaused {
   title: string;
   detail: string;
   remedy: string | null;
+  /** The failed step's last lines from the events file, so Show log has them after a relaunch. */
+  log: string[];
+  /** Open Login Items, beside Retry, while macOS holds the background item. */
+  action: Action | null;
 }
 
 export interface SetupForm {
@@ -147,9 +156,15 @@ export const FORM_COPY = {
     footer: "About 10 minutes once you start",
     start: "Set up this Mac",
   },
+  home: {
+    board: { label: "Open the board", url: "https://board.mattstack" },
+    console: { label: "Open the console", url: "https://console.mattstack" },
+  },
 } as const;
 
-const HOME_APP = { label: "Open the board", url: "https://board.mattstack" };
+export function homeApp(path: FormPath | null): { label: string; url: string } {
+  return path === "solo" ? FORM_COPY.home.console : FORM_COPY.home.board;
+}
 
 type NotificationStatus = PermissionsReply["notifications"]["status"];
 
@@ -207,8 +222,7 @@ export function macosRows(i: { permissions: Row[]; notifications: NotificationSt
   return [fdaRow(i.permissions), notificationsRow(i.notifications), fancyUrlsRow(i.fancyUrls)];
 }
 
-async function macosSection(p: Probes): Promise<FormRow[]> {
-  const reply = await fetchPermissions(p.tray);
+async function macosSection(p: Probes, reply: PermissionsReply | null): Promise<FormRow[]> {
   return macosRows({ permissions: permissionRows(reply, null), notifications: reply?.notifications.status ?? null, fancyUrls: await fancyUrlsState(p) });
 }
 
@@ -666,10 +680,23 @@ async function restoreSection(p: Probes): Promise<FormRow[]> {
   return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
 }
 
-function joinTeam(p: Probes): SetupForm["team"] {
-  const intent = readIntent(p);
+interface Clone {
+  slug: string;
+  record: TeamLocalRecord;
+}
+
+/** The redeem clears the join intent, so the joined team's own record keeps the names the wait and this-Mac screens show. */
+function formTeam(intent: SetupIntent | null, joined: Clone | undefined): SetupForm["team"] {
   const pointer = intent?.mode === "join" ? intent.join?.pointer : undefined;
-  return pointer ? { slug: pointer.team, name: pointer.name, invitedBy: pointer.owner } : null;
+  if (pointer) return { slug: pointer.team, name: pointer.name, invitedBy: pointer.owner };
+  if (!joined) return null;
+  return { slug: joined.slug, name: joined.record.teamName ?? joined.slug, invitedBy: joined.record.invitedBy ?? null };
+}
+
+/** With several joined teams, one still waiting on its admin comes first: a Join from Settings lands on the wait. */
+function joinedClone(p: Probes, clones: Clone[]): { clone: Clone; approval: ApprovalState } | undefined {
+  const joined = clones.filter((c) => c.record.joinedByRt).map((clone) => ({ clone, approval: approvalState(p, clone.slug) }));
+  return joined.find((j) => j.approval.kind === "waiting") ?? joined[0];
 }
 
 /** Every row answered, or optional. */
@@ -677,15 +704,98 @@ export function allAnswered(rows: FormRow[] | undefined): boolean {
   return rows !== undefined && rows.every((r) => r.optional || r.state === "done");
 }
 
-function formPath(p: Probes, intent: SetupIntent | null, plan: Plan): FormPath {
-  if (intent?.mode === "join" || intent?.mode === "create" || intent?.mode === "solo" || intent?.mode === "restore") return intent.mode;
-  if (isSolo(plan.team)) return "solo";
-  return readTeamLocal(p, plan.team.slug).createdByRt ? "create" : "join";
+/**
+ * The choice from the four cards while it is pending. A run that ends ok
+ * clears it, so the team on disk answers after that, and a Mac with no team
+ * that has run or finished is Just me.
+ */
+export function formPath(i: { intent: SetupIntent | null; joined: boolean; created: boolean; orgs: string[]; ranOrFinished: boolean }): FormPath | null {
+  const mode = i.intent?.mode;
+  if (mode === "join" || mode === "create" || mode === "solo" || mode === "restore") return mode;
+  if (i.joined) return "join";
+  if (i.created) return "create";
+  if (i.orgs.length > 0) return "join";
+  return i.ranOrFinished ? "solo" : null;
+}
+
+export interface StageInputs {
+  finished: boolean;
+  path: FormPath | null;
+  macosDone: boolean;
+  join: "unredeemed" | ApprovalState["kind"] | null;
+  run: SetupRun | undefined;
+  connectDone: boolean;
+  thisMacDone: boolean;
+  needsRun: boolean;
+}
+
+/**
+ * The screen setup is on. An approval rt cannot read lets the member on. A run
+ * that ended ok with rows left standing lands on this-mac, where its leftovers
+ * are, never back on the bar: `--resume` against an ended run runs it all again.
+ */
+export function formStage(i: StageInputs): FormStage {
+  if (i.finished) return finishedStage(i);
+  if (!i.macosDone) return "macos";
+  if (i.run !== undefined && i.run.endedAt === undefined) return "running";
+  if (i.run !== undefined && i.run.ok !== true) return "paused";
+  if (i.path === null) return "path";
+  if (i.join === "unredeemed") return "invite";
+  if (i.join === "waiting") return "waiting";
+  if (i.path === "restore" && i.run === undefined) return "running";
+  if (!i.connectDone) return "connect";
+  return "this-mac";
+}
+
+/** A Join from Settings in flight outranks the finished state. */
+function finishedStage(i: StageInputs): FormStage {
+  if (i.join === "unredeemed") return "invite";
+  if (i.join === "waiting") return "waiting";
+  if (!i.macosDone) return "macos";
+  if (!i.connectDone) return "connect";
+  if (!i.thisMacDone || i.needsRun) return "this-mac";
+  return "ready";
+}
+
+/** A row only the bar sets up still blocks Install or Finish. Before an ok run no screen draws it, so Set up this Mac is its fix. */
+export function needsRun(plan: Plan): boolean {
+  const blocking = new Set([...plan.requiredMissing, ...plan.finishBlockedBy]);
+  return planRows(plan).some((r) => blocking.has(r.id) && runFixes(r));
+}
+
+const PAUSED_LOG_LINES = 50;
+
+function stepLog(events: string | null, step: string): string[] {
+  const lines: string[] = [];
+  for (const raw of (events ?? "").split("\n")) {
+    if (raw === "") continue;
+    try {
+      const ev = JSON.parse(raw) as { event?: unknown; id?: unknown; line?: unknown } | null;
+      if (ev?.event === "log" && ev.id === step && typeof ev.line === "string") lines.push(ev.line);
+    } catch {
+      // A line a crash cut off mid-write.
+    }
+  }
+  return lines.slice(-PAUSED_LOG_LINES);
+}
+
+export function pausedFor(run: SetupRun | undefined, extras: { events: string | null; loginItems: Row | undefined }): FormPaused | null {
+  const failed = run?.failed;
+  if (!failed) return null;
+  return {
+    step: failed.step,
+    // A record an older rt wrote can name a step this one no longer has.
+    title: STEP_PHASES[failed.step]?.paused ?? failed.detail,
+    detail: failed.detail,
+    remedy: failed.remedy ?? null,
+    log: stepLog(extras.events, failed.step),
+    action: extras.loginItems?.status === "needs-you" ? extras.loginItems.action : null,
+  };
 }
 
 const LOGIN_TOOLS: readonly LoginTool[] = ["claude", "doppler", "ldcli"];
 
-async function connectSection(p: Probes, plan: Plan, orgs: string[]): Promise<FormRow[]> {
+async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormPath): Promise<FormRow[]> {
   const intent = readIntent(p);
   const slug = plan.team.slug;
   const snapshot = enrichSnapshotForge(slug ? readTeamSnapshot(p, slug) : EMPTY_SNAPSHOT, intent);
@@ -696,7 +806,7 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[]): Promise<Fo
     if (live) logins[tool] = live;
   }
   return connectRows({
-    path: formPath(p, intent, plan),
+    path,
     plan,
     forge: snapshot.integrations.forge ?? null,
     forgeLogin: (slug && orgs.includes(slug) ? readTeamLocal(p, slug).forgeUsername : undefined) ?? pointerLogin,
@@ -714,15 +824,14 @@ async function homeRemote(p: Probes, backup: HomeBackupChoice | undefined): Prom
   return (origin.code === 0 && origin.stdout.trim()) || staged;
 }
 
-async function thisMacSection(p: Probes, plan: Plan): Promise<FormRow[]> {
+async function thisMacSection(p: Probes, plan: Plan, path: FormPath, state: SetupState): Promise<FormRow[]> {
   const rows = new Map(planRows(plan).map((r) => [r.id, r]));
-  const backup = readSetupState(p).homeBackup;
+  const backup = state.homeBackup;
   return thisMacRows({
-    path: formPath(p, readIntent(p), plan),
+    path,
     plan,
     signIn: signInTools(readPackRequirements(p, plan.team.slug)),
-    // The run record that says how the last run ended is not written yet.
-    ranOk: false,
+    ranOk: state.run?.ok === true,
     cltInstalled: isReady(rows, "tool.clt"),
     prepare: macosPrepare(p),
     backup,
@@ -732,23 +841,79 @@ async function thisMacSection(p: Probes, plan: Plan): Promise<FormRow[]> {
   });
 }
 
-export async function composeForm(p: Probes, opts: { sections: FormSection[]; secrets: SecretPresence; orgs: string[] }): Promise<SetupForm> {
+export type PlanMode = "plan" | "status";
+
+export interface FormOptions {
+  /** Only these sections. Without it the form is whole: every section, the stage, what paused, and Finish once nothing blocks it. */
+  sections?: readonly FormSection[];
+  secrets: SecretPresence;
+  orgs: string[];
+  plan?: (mode: PlanMode) => Promise<Plan>;
+}
+
+/**
+ * A whole read marks setup finished after a run that ended ok once nothing
+ * blocks Finish, the same test the run's own finish makes. `requiredMissing`
+ * is not read: a row a section draws as done, such as denied notifications,
+ * can sit there for good.
+ */
+export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupForm> {
+  const wanted = opts.sections ?? FORM_SECTIONS;
+  const state = readSetupState(p);
+  const finished = isSetupFinished(state);
+  const intent = readIntent(p);
+  const clones: Clone[] = opts.orgs.map((slug) => ({ slug, record: readTeamLocal(p, slug) }));
+  const joined = joinedClone(p, clones);
+  const path = formPath({
+    intent,
+    joined: clones.some((c) => c.record.joinedByRt),
+    created: clones.some((c) => c.record.createdByRt),
+    orgs: opts.orgs,
+    ranOrFinished: state.run !== undefined || finished,
+  });
+  const mode: PlanMode = finished ? "status" : "plan";
   let planned: Promise<Plan> | undefined;
-  const plan = () => (planned ??= composePlan({ p, secrets: opts.secrets, ci: p.env.CI === "true", mode: isSetupFinished(readSetupState(p)) ? "status" : "plan", orgs: opts.orgs }));
+  const plan = () => (planned ??= opts.plan?.(mode) ?? composePlan({ p, secrets: opts.secrets, ci: p.env.CI === "true", mode, orgs: opts.orgs }));
+
+  const permissions = wanted.includes("macos") ? await fetchPermissions(p.tray) : null;
   const sections: SetupForm["sections"] = {};
-  if (opts.sections.includes("macos")) sections.macos = await macosSection(p);
-  if (opts.sections.includes("invite")) sections.invite = await inviteSection(p, opts.secrets);
-  if (opts.sections.includes("restore")) sections.restore = await restoreSection(p);
-  if (opts.sections.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs);
-  if (opts.sections.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan());
-  return {
-    path: null,
-    team: joinTeam(p),
+  if (wanted.includes("macos")) sections.macos = await macosSection(p, permissions);
+  if (wanted.includes("invite")) sections.invite = await inviteSection(p, opts.secrets);
+  if (wanted.includes("restore")) sections.restore = await restoreSection(p);
+  if (wanted.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs, path ?? "solo");
+  if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state);
+  const form: SetupForm = {
+    path,
+    team: formTeam(intent, joined?.clone),
     stage: null,
     sections,
     continueReady: allAnswered(sections.connect),
     startReady: allAnswered(sections.thisMac),
     paused: null,
-    home: HOME_APP,
+    home: homeApp(path),
   };
+  if (opts.sections !== undefined) return form;
+
+  const run = state.run;
+  const loginItems = permissionRows(permissions, null).find((r) => r.id === "perm.login-items");
+  const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems });
+  if (!finished && run?.ok === true && (await plan()).finishBlockedBy.length === 0) {
+    try {
+      markSetupFinished(p);
+      return { ...form, stage: "ready", paused };
+    } catch (err) {
+      warn("setup.form", `setup not marked finished: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const stage = formStage({
+    finished,
+    path,
+    macosDone: allAnswered(sections.macos),
+    join: intent?.mode === "join" ? "unredeemed" : (joined?.approval.kind ?? null),
+    run,
+    connectDone: allAnswered(sections.connect),
+    thisMacDone: allAnswered(sections.thisMac),
+    needsRun: finished && needsRun(await plan()),
+  });
+  return { ...form, stage, paused };
 }
