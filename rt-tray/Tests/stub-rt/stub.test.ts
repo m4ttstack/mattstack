@@ -454,11 +454,18 @@ test("join-status answers waiting, then approved", async () => {
 
 const FORM_KEYS = ["path", "team", "stage", "sections", "continueReady", "startReady", "paused", "home"].sort();
 const ROW_KEYS = ["id", "title", "subtext", "state", "detail", "action", "waiting", "watch", "optional"].sort();
-type StubRow = { id: string; state: string; watch: boolean; action: { verb?: string[] } | null };
-type StubForm = { stage: string | null; sections: Record<string, StubRow[]>; continueReady: boolean; startReady: boolean; paused: unknown; home: unknown };
+type StubAction = {
+  type: string; label?: string; verb?: string[]; url?: string; target?: string; which?: string; integration?: string;
+  fields?: { name: string; label?: string; secret?: boolean }[]; identity?: string; clonePath?: string; options?: { id: string }[]; selected?: string;
+};
+type StubRow = { id: string; state: string; detail: string; watch: boolean; optional: boolean; action: StubAction | null };
+type StubForm = {
+  path: string | null; team: { slug: string; name: string; invitedBy: string | null } | null; stage: string | null;
+  sections: Record<string, StubRow[]>; continueReady: boolean; startReady: boolean; paused: unknown; home: unknown;
+};
 
-async function form(dir: string, section?: string): Promise<StubForm> {
-  const res = await run("join-happy", ["setup", "form", ...(section ? ["--section", section] : []), "--json"], "", dir);
+async function form(dir: string, section?: string, scenario = "join-happy", extra: string[] = []): Promise<StubForm> {
+  const res = await run(scenario, ["setup", "form", ...(section ? ["--section", section] : []), ...extra, "--json"], "", dir);
   expect(res.code).toBe(0);
   const { contract, at: _at, ...body } = res.lines[0];
   expect(contract).toBe(1);
@@ -469,55 +476,215 @@ async function form(dir: string, section?: string): Promise<StubForm> {
   return body as StubForm;
 }
 
-test("setup form walks the join scenario's stages", async () => {
+/** What the app does for a row's action: an rt verb, or (Test drive) the app's own side told to the stub. */
+async function answer(scenario: string, dir: string, row: StubRow): Promise<void> {
+  const a = row.action!;
+  const verb = async (args: string[], stdin: unknown = "") =>
+    expect((await run(scenario, [...args, "--json"], typeof stdin === "string" ? stdin : JSON.stringify(stdin), dir)).code).toBe(0);
+  const filled = Object.fromEntries((a.fields ?? []).map((f) => [f.name, `fake-${f.name}`]));
+  switch (a.type) {
+    case "run": case "oauth": return verb(a.verb!);
+    case "connect": return verb(a.verb ?? ["setup", a.integration!, "connect"], { token: "fake-token" });
+    case "form": return verb(a.verb!, a.verb![0] === "home" ? { url: "git@github.com:janedoe/mattstack-home.git" } : filled);
+    case "owner-once": return verb(["setup", a.integration!, "create-app"], filled);
+    case "open-url": return verb(["stub", "opened", a.url!]);
+    case "open-settings": return verb(["stub", "grant", a.target!]);
+    case "request-permission": return verb(["stub", "grant", a.which!]);
+    case "place-repo": return verb(["setup", "repo", "place"], { identity: a.identity, mode: "clone", path: a.clonePath });
+    case "choose-folder": return verb(["setup", "repo-root", "set"], { root: "/Users/janedoe/code" });
+    default: throw new Error(`no answer for ${a.type} on ${row.id}`);
+  }
+}
+
+/** Answers every open row in a section, once per state it shows, re-reading as the app's watch would. */
+async function settle(scenario: string, dir: string, section: string, extra: string[] = []): Promise<StubForm> {
+  const acted = new Set<string>();
+  const key = section === "this-mac" ? "thisMac" : section;
+  for (let round = 0; round < 12; round++) {
+    const read = await form(dir, section, scenario, extra);
+    const open = read.sections[key]!.filter((r) => r.state !== "done" && r.action !== null);
+    if (open.length === 0 && read.sections[key]!.every((r) => r.state === "done" || r.optional)) return read;
+    for (const row of open) {
+      if (acted.has(`${row.id}:${row.state}`)) continue;
+      acted.add(`${row.id}:${row.state}`);
+      await answer(scenario, dir, row);
+    }
+  }
+  throw new Error(`${section} never settled`);
+}
+
+/** Drives a scenario the way SetupCoordinator does, from P1 to the end, and returns the stages rt's whole reads named. */
+type Stage = () => Promise<string>;
+
+async function walk(scenario: string, choose: (dir: string, stage: Stage) => Promise<void>): Promise<{ dir: string; stages: string[] }> {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
   const stages: string[] = [];
   const stage = async () => {
-    const s = (await form(dir)).stage!;
+    const s = (await form(dir, undefined, scenario)).stage!;
     if (stages.at(-1) !== s) stages.push(s);
     return s;
   };
-
-  const first = await form(dir);
-  expect(first.home).toEqual({ label: "Open the board", url: "https://board.mattstack" });
-  expect(Object.keys(first.sections).sort()).toEqual(["connect", "invite", "macos", "restore", "thisMac"]);
-  await stage();
-  const fancy = (await form(dir, "macos")).sections.macos!.find((r) => r.id === "mac.fancy-urls")!;
-  expect(fancy.state).toBe("todo");
-  await run("join-happy", [...fancy.action!.verb!, "--json"], "", dir);
-  expect((await form(dir, "macos")).sections.macos!.every((r) => r.state === "done")).toBe(true);
-  await stage();
-
-  await run("join-happy", ["team", "join", "--dry-run", "--json"], JSON.stringify({ code: "ABCD-EFGH" }), dir);
-  await stage();
-  await run("join-happy", ["setup", "apply", "--only", "team.join", "--json"], "", dir);
-  expect((await run("join-happy", ["setup", "join-status", "--json"], "", dir)).lines[0].state).toBe("waiting");
-  await stage();
-  expect((await run("join-happy", ["setup", "join-status", "--json"], "", dir)).lines[0].state).toBe("approved");
-  expect(await stage()).toBe("connect");
-
-  const connect = await form(dir, "connect");
-  expect(connect.stage).toBeNull();
-  expect(connect.continueReady).toBe(false);
-  for (const row of connect.sections.connect!.filter((r) => r.state !== "done")) {
-    await run("join-happy", [...row.action!.verb!, "--json"], "", dir);
+  expect(await stage()).toBe("macos");
+  await settle(scenario, dir, "macos");
+  expect(await stage()).toBe("path");
+  await choose(dir, stage);
+  if (await stage() === "connect") {
+    expect((await settle(scenario, dir, "connect")).continueReady).toBe(true);
+    expect(await stage()).toBe("this-mac");
+    expect((await settle(scenario, dir, "this-mac")).startReady).toBe(true);
   }
-  const claude = (await form(dir, "connect")).sections.connect!.find((r) => r.id === "claude")!;
-  expect(claude).toMatchObject({ state: "waiting", watch: true });
-  expect((await form(dir, "connect")).continueReady).toBe(true);
-  expect(await stage()).toBe("this-mac");
+  const applied = await run(scenario, ["setup", "apply", "--resume", "--unattended", "--json"], "", dir);
+  expect(applied.lines.at(-1).event).toBe("done");
+  if (await stage() === "paused") {
+    const retried = await run(scenario, ["setup", "apply", "--from", applied.lines.at(-1).failedStep, "--json"], "", dir);
+    expect(retried.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
+    await stage();
+  }
+  return { dir, stages };
+}
 
-  expect((await form(dir, "this-mac")).startReady).toBe(true);
-  const applied = await run("join-happy", ["setup", "apply", "--resume", "--unattended", "--json"], "", dir);
-  expect(applied.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
-  await stage();
+const INVITE = JSON.stringify({ code: "ABCD-EFGH" });
+
+async function joinThroughWait(scenario: string, dir: string, stage: Stage): Promise<void> {
+  const dry = await run(scenario, ["team", "join", "--dry-run", "--json"], INVITE, dir);
+  expect(dry.lines[0].team.owner).toBe("Jane Doe");
+  expect(await stage()).toBe("invite");
+  await settle(scenario, dir, "invite");
+  await run(scenario, ["setup", "apply", "--only", "team.join", "--json"], "", dir);
+  for (let i = 0; i < 3 && (await run(scenario, ["setup", "join-status", "--json"], "", dir)).lines[0].state !== "approved"; i++) {
+    expect(await stage()).toBe("waiting");
+  }
+}
+
+test("setup form walks the join scenario's stages", async () => {
+  const { dir, stages } = await walk("join-happy", (dir, stage) => joinThroughWait("join-happy", dir, stage));
   expect(stages).toEqual(["macos", "path", "invite", "waiting", "connect", "this-mac", "ready"]);
+  const done = await form(dir);
+  expect(done.home).toEqual({ label: "Open the board", url: "https://board.mattstack" });
+  expect(done.team).toEqual({ slug: "acme", name: "Acme", invitedBy: "Jane Doe" });
+  expect(Object.keys(done.sections).sort()).toEqual(["connect", "invite", "macos", "restore", "thisMac"]);
+  expect(done.sections.connect!.map((r) => r.id)).toEqual(["forge", "slack", "claude", "signin.doppler", "linear", "fast-browser"]);
+});
+
+test("the slow scenario walks the join stages too", async () => {
+  const { stages } = await walk("slow", (dir, stage) => joinThroughWait("slow", dir, stage));
+  expect(stages).toEqual(["macos", "path", "invite", "waiting", "connect", "this-mac", "ready"]);
+});
+
+test("the paused scenario stops at a failed step, then Retry lands it", async () => {
+  const { stages } = await walk("apply-fail-retry", (dir, stage) => joinThroughWait("apply-fail-retry", dir, stage));
+  expect(stages).toEqual(["macos", "path", "invite", "connect", "this-mac", "paused", "ready"]);
+});
+
+test("the create scenario makes the team, connects the owner's accounts, and runs", async () => {
+  const { dir, stages } = await walk("create-happy", async (dir) => {
+    const create = await settle("create-happy", dir, "create", ["--forge", "gitlab"]);
+    expect(create.sections.create!.map((r) => [r.id, r.detail])).toEqual([["forge.token", "Connected"]]);
+    const made = await run("create-happy", ["team", "create", "Widgets", "--forge", "gitlab", "--group", "acme", "--others", "--json"], "", dir);
+    expect(made.lines[0]).toMatchObject({ slug: "widgets", name: "Widgets", created: true });
+  });
+  expect(stages).toEqual(["macos", "path", "connect", "this-mac", "ready"]);
+  const done = await form(dir, undefined, "create-happy");
+  expect(done.team).toEqual({ slug: "widgets", name: "Widgets", invitedBy: null });
+  expect(done.sections.connect!.map((r) => r.id)).toEqual(["forge", "slack-app", "slack", "claude", "fast-browser"]);
+  expect(done.sections.connect!.find((r) => r.id === "forge")!.detail).toBe("Connected");
+});
+
+test("the solo scenario connects nothing it need not and picks where clones go", async () => {
+  const { dir, stages } = await walk("solo", async (dir) => {
+    expect((await run("solo", ["setup", "intent", "solo", "--json"], "", dir)).code).toBe(0);
+  });
+  expect(stages).toEqual(["macos", "path", "connect", "this-mac", "ready"]);
+  const done = await form(dir, undefined, "solo");
+  expect(done.home).toEqual({ label: "Open the console", url: "https://console.mattstack" });
+  expect(done.sections.thisMac!.find((r) => r.id === "repos.root")).toMatchObject({ state: "done", detail: "/Users/janedoe/code" });
+});
+
+test("the restore scenario runs straight after the restore", async () => {
+  const { stages } = await walk("restore", async (dir) => {
+    const refused = await run("restore", ["home", "restore", "janedoe/mattstack-home", "--stdin", "--json"], "", dir);
+    expect(refused.code).toBe(2);
+    expect(refused.lines[0].error.code).toBe("bad-stdin");
+    const restored = await run("restore", ["home", "restore", "janedoe/mattstack-home", "--stdin", "--json"], "AGE-SECRET-KEY-1FAKE", dir);
+    expect(restored.lines[0]).toMatchObject({ ok: true, repo: "janedoe/mattstack-home" });
+  });
+  expect(stages).toEqual(["macos", "path", "running", "ready"]);
+});
+
+test("P1 starts with all three to do, and the app's grants answer them", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const fresh = (await form(dir, "macos")).sections.macos!;
+  expect(fresh.map((r) => [r.id, r.state, r.action?.type])).toEqual([
+    ["perm.fda", "todo", "open-settings"], ["perm.notifications", "todo", "request-permission"], ["mac.fancy-urls", "todo", "run"],
+  ]);
+  await run("join-happy", ["stub", "grant", "fda", "--json"], "", dir);
+  await run("join-happy", ["stub", "grant", "notifications", "--json"], "", dir);
+  const granted = (await form(dir, "macos")).sections.macos!;
+  expect(granted.slice(0, 2).map((r) => [r.state, r.detail])).toEqual([["done", "Granted"], ["done", "Allowed"]]);
+});
+
+test("the waiting Claude row carries rt's paste-code action, and claude code signs it in", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const early = await run("join-happy", ["setup", "claude", "code", "--json"], JSON.stringify({ code: "abc" }), dir);
+  expect(early.code).toBe(2);
+  expect(early.lines[0].error.code).toBe("no-login");
+  await run("join-happy", ["setup", "claude", "connect", "--json"], "", dir);
+  const claude = () => form(dir, "connect").then((f) => f.sections.connect!.find((r) => r.id === "claude")!);
+  const waiting = await claude();
+  expect(waiting).toMatchObject({ state: "waiting", detail: "Finish signing in in your browser", watch: true });
+  expect(waiting.action).toEqual({ type: "form", label: "Paste code", verb: ["setup", "claude", "code"], fields: [{ name: "code", label: "Code from your browser", secret: true }] });
+  expect((await claude()).state).toBe("waiting");
+  const empty = await run("join-happy", ["setup", "claude", "code", "--json"], JSON.stringify({ code: " " }), dir);
+  expect(empty.lines[0].error.code).toBe("bad-stdin");
+  const signed = await run("join-happy", ["setup", "claude", "code", "--json"], JSON.stringify({ code: "abc" }), dir);
+  expect(signed.lines[0]).toMatchObject({ integration: "claude", status: "ready", detail: "Signed in as janedoe@example.com" });
+  expect(await claude()).toMatchObject({ state: "done", action: null });
+});
+
+test("Fast Browser lands a few reads after the app opens the Web Store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const row = () => form(dir, "connect").then((f) => f.sections.connect!.find((r) => r.id === "fast-browser")!);
+  const todo = await row();
+  expect(todo).toMatchObject({ state: "todo", optional: false, watch: true, waiting: "Waiting for Chrome…" });
+  expect(todo.action).toMatchObject({ type: "open-url", label: "Add to Chrome", primary: true });
+  expect((await row()).state).toBe("todo");
+  await run("join-happy", ["stub", "opened", todo.action!.url!, "--json"], "", dir);
+  expect((await row()).state).toBe("todo");
+  expect((await row()).state).toBe("todo");
+  expect(await row()).toMatchObject({ state: "done", detail: "Added", action: null });
+});
+
+test("this-mac waits on a repo pick, and the settings choice opens and closes the remote row", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const read = () => form(dir, "this-mac");
+  const first = await read();
+  expect(first.startReady).toBe(false);
+  const repo = first.sections.thisMac![0]!;
+  expect(repo).toMatchObject({ id: "repos.place:github.com/acme/widgets", state: "todo", detail: "Choose where your repos go" });
+  expect(repo.action).toMatchObject({ type: "place-repo", mode: "clone", oneClick: { label: "Clone here", mode: "clone" }, segmentRecords: true, awaitsRun: false });
+  const placed = await run("join-happy", ["setup", "repo", "place", "--json"], JSON.stringify({ identity: "github.com/acme/widgets", mode: "checkout", path: "/Users/janedoe/src/widgets" }), dir);
+  expect(placed.lines[0]).toMatchObject({ identity: "github.com/acme/widgets", mode: "checkout", path: "/Users/janedoe/src/widgets" });
+  const second = await read();
+  expect(second.startReady).toBe(true);
+  expect(second.sections.thisMac![0]).toMatchObject({ state: "done", detail: "rt uses your checkout at ~/src/widgets next" });
+  expect(second.sections.thisMac![0]!.action).toMatchObject({ mode: "checkout", checkoutPath: "/Users/janedoe/src/widgets", oneClick: null, awaitsRun: true });
+
+  const remote = await run("join-happy", ["setup", "home-backup", "remote", "--json"], "", dir);
+  expect(remote.lines[0].homeBackup).toEqual({ mode: "remote" });
+  const third = await read();
+  expect(third.startReady).toBe(false);
+  expect(third.sections.thisMac!.map((r) => [r.id, r.state])).toEqual([["repos.place:github.com/acme/widgets", "done"], ["settings.backup", "done"], ["settings.remote", "todo"]]);
+  const staged = await run("join-happy", ["home", "remote", "set", "--json"], JSON.stringify({ alternative: "create" }), dir);
+  expect(staged.lines[0]).toMatchObject({ staged: true, url: null, created: false, pushed: false });
+  expect((await read()).sections.thisMac!.find((r) => r.id === "settings.remote")).toMatchObject({ state: "done", detail: "rt creates a private GitHub repo when setup runs" });
+  await run("join-happy", ["setup", "home-backup", "local", "--json"], "", dir);
+  expect((await read()).sections.thisMac!.map((r) => r.id)).toEqual(["repos.place:github.com/acme/widgets", "settings.backup"]);
 });
 
 test("setup form reads running while an apply holds the run, and paused with what failed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
   const read = async () => (await run("apply-fail-retry", ["setup", "form", "--json"], "", dir)).lines[0];
-  for (const key of ["proxy-installed", "path-join", "team-joined", "join-status-calls", "slack-connected","claude-connect-calls"]) writeFileSync(join(dir, key), "2");
+  for (const key of ["granted-fda", "granted-notifications", "proxy-installed", "path-join", "team-joined", "join-status-calls"]) writeFileSync(join(dir, key), "2");
   writeFileSync(join(dir, "run-live"), "1");
   expect((await read()).stage).toBe("running");
   await run("apply-fail-retry", ["setup", "apply", "--resume", "--unattended", "--json"], "", dir);
@@ -530,10 +697,70 @@ test("setup form reads running while an apply holds the run, and paused with wha
 });
 
 test("setup form --section create answers only the create rows for the forge it names", async () => {
-  const res = await run("create-happy", ["setup", "form", "--section", "create", "--forge", "gitlab", "--json"]);
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const res = await run("create-happy", ["setup", "form", "--section", "create", "--forge", "gitlab", "--json"], "", dir);
   expect(res.lines[0].stage).toBeNull();
   expect(Object.keys(res.lines[0].sections)).toEqual(["create"]);
-  expect(res.lines[0].sections.create[0]).toMatchObject({ id: "forge.token", title: "GitLab", state: "done" });
+  const row = res.lines[0].sections.create[0];
+  expect(row).toMatchObject({ id: "forge.token", title: "GitLab", state: "todo" });
+  expect(row.action).toMatchObject({ type: "connect", integration: "gitlab", create: { label: "Create token" } });
+  expect(row.action.create.url).toStartWith("https://gitlab.com/-/user_settings/personal_access_tokens?");
+});
+
+// Test drive setup's pacing: the waits a person sits through, and the bar's motion.
+const INSTANT = { RT_STUB_SPEED: "instant" };
+
+test("an instant speed holds the approval until its wait has passed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  await run("join-happy", ["setup", "apply", "--only", "team.join", "--json"], "", dir, INSTANT);
+  const status = async () => (await run("join-happy", ["setup", "join-status", "--json"], "", dir, INSTANT)).lines[0].state;
+  expect(await status()).toBe("waiting");
+  expect(await status()).toBe("waiting");
+  await Bun.sleep(1600);
+  expect(await status()).toBe("approved");
+  expect(await status()).toBe("approved");
+});
+
+test("an instant prepare reads busy while it installs, and git leads the screens that clone", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const prepare = run("join-happy", ["setup", "prepare", "macos", "--json"], "", dir, INSTANT);
+  await Bun.sleep(250);
+  const busy = (await form(dir, "invite")).sections.invite!;
+  expect(busy.map((r) => [r.id, r.state])).toEqual([["tool.clt", "busy"], ["forge.token", "todo"]]);
+  expect((await prepare).lines[0]).toMatchObject({ stage: "macos", installed: ["apple-clt"] });
+  expect((await form(dir, "invite")).sections.invite!.map((r) => r.id)).toEqual(["forge.token"]);
+});
+
+test("the slow scenario's installs take several waits", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const proc = Bun.spawn(["bun", STUB, "setup", "prepare", "accounts", "--json"], {
+    env: { ...process.env, RT_STUB_SCENARIO: "slow", RT_STUB_STATE_DIR: dir, ...INSTANT }, stdout: "pipe",
+  });
+  try {
+    await Bun.sleep(400);
+    const until = Number(readFileSync(join(dir, "prepare-accounts-until"), "utf8"));
+    expect(until - Date.now()).toBeGreaterThan(3000);
+    const claude = (await form(dir, "connect", "slow")).sections.connect!.find((r) => r.id === "claude")!;
+    expect(claude).toMatchObject({ state: "busy", detail: "Installing…" });
+  } finally {
+    proc.kill();
+  }
+});
+
+test("an instant run reports progress inside its long steps", async () => {
+  const res = await run("join-happy", ["setup", "apply", "--from", "plugins.install", "--json"], "", undefined, INSTANT);
+  const progress = res.lines.filter((l) => l.event === "progress");
+  expect(progress.length).toBeGreaterThan(0);
+  expect(progress.every((p) => p.id === "plugins.install" && p.percent > 0 && p.percent < 100)).toBe(true);
+  expect(res.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
+});
+
+test("the run's own proxy step asks for no admin password once P1 installed it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const allow = await run("join-happy", ["setup", "apply", "--only", "proxy.install", "--json"], "", dir);
+  expect(allow.lines.filter((l) => l.event === "need").map((l) => l.request.type)).toEqual(["app-privileged"]);
+  const full = await run("join-happy", ["setup", "apply", "--resume", "--unattended", "--json"], "", dir);
+  expect(full.lines.filter((l) => l.event === "need").map((l) => l.request.type)).toEqual(["app-register-services"]);
 });
 
 test("apply --resume streams phases and ends ok", async () => {

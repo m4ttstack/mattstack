@@ -16,11 +16,14 @@ import { isFinishGatedRowId, WAIVABLE_ROW_IDS } from "../../../lib/setup/contrac
 import { WAIVED_NOTES } from "../../../lib/setup/finish-gate.ts";
 import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION } from "../../../lib/setup/validators/tools.ts";
 import { allAnswered, FORM_COPY, FORM_SECTIONS, homeApp, macosRows, type FormPath, type FormRow, type FormSection, type FormStage, type SetupForm } from "../../../lib/setup/form.ts";
-import type { Row, StepId } from "../../../lib/setup/contract.ts";
+import type { Action, Row, StepId } from "../../../lib/setup/contract.ts";
 import { FINISH_IN_BROWSER } from "../../../lib/setup/cli-login.ts";
 import { FANCY_URLS_DETAIL } from "../../../lib/setup/fancy-urls.ts";
+import { integrationDef } from "../../../lib/setup/integrations.ts";
 import { STEP_PHASES } from "../../../lib/setup/run-phases.ts";
 import { PREPARE_STAGES } from "../../../lib/setup/prepare-record.ts";
+import { TITLES, tokenCreateLink, tokenField } from "../../../lib/setup/token-create.ts";
+import { PLACE_REPO_LABELS } from "../../../lib/setup/validators/repos.ts";
 
 const scenario = process.env.RT_STUB_SCENARIO ?? "join-happy";
 const stateDir = process.env.RT_STUB_STATE_DIR ?? join(import.meta.dir, ".state", scenario);
@@ -38,6 +41,25 @@ function stateBump(key: string): number {
   return n;
 }
 function stateSet(key: string, n: number): void { writeFileSync(join(stateDir, key), String(n)); }
+function textGet(key: string): string | null {
+  const p = join(stateDir, key);
+  return existsSync(p) ? readFileSync(p, "utf8") : null;
+}
+function textSet(key: string, value: string): void { writeFileSync(join(stateDir, key), value); }
+
+// RT_STUB_SPEED paces the waits a person sits through in Test drive setup.
+// Unset, every wait is counted in reads alone, so the unit tests never sleep.
+type Speed = "instant" | "realistic";
+const PACE: Record<Speed, { wait: number; bar: number }> = { instant: { wait: 750, bar: 6_000 }, realistic: { wait: 4_000, bar: 60_000 } };
+const speed = (Object.keys(PACE) as Speed[]).find((s) => s === process.env.RT_STUB_SPEED) ?? null;
+const slow = scenario === "slow";
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+function waitMs(units: number): number { return speed ? PACE[speed].wait * units : 0; }
+function stampNow(key: string): void { if (!stateGet(key)) stateSet(key, Date.now()); }
+function waited(key: string, units: number): boolean {
+  const since = stateGet(key);
+  return waitMs(units) === 0 || (since > 0 && Date.now() - since >= waitMs(units));
+}
 function emit(obj: unknown) { process.stdout.write(JSON.stringify({ contract: 1, at, ...(obj as object) }) + "\n"); }
 function fail(code: string, message: string): never { emit({ error: { code, message } }); process.exit(2); }
 async function readStdinJSON(): Promise<Record<string, unknown>> {
@@ -302,25 +324,29 @@ async function apply() {
   const onlyIdx = args.indexOf("--only");
   const onlyId = onlyIdx >= 0 ? args[onlyIdx + 1] : null;
   const steps = onlyId ? STEPS.filter((s) => s[0] === onlyId) : STEPS.slice(start < 0 ? 0 : start);
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const line = (o: unknown) => process.stdout.write(JSON.stringify(o) + "\n");
   // An --only run is a row's own fix, never the run the bar follows.
   const holdsRun = !onlyId;
+  // P1's Allow already installed the proxy, so the run's own step asks for no admin password.
+  const asksAdmin = onlyId === "proxy.install" || stateGet("proxy-installed") === 0;
   if (onlyId === "proxy.install") stateSet("proxy-installed", 1);
-  if (onlyId === "team.join") stateSet("team-joined", 1);
+  if (onlyId === "team.join") { stateSet("team-joined", 1); stampNow("team-joined-at"); }
   if (holdsRun) stateSet("run-live", 1);
   line({ event: "plan", steps: steps.map(([id, title, kind]) => ({ id, title, kind, ...STEP_PHASES[id as StepId] })) });
+  const weightOf = (id: string) => STEP_PHASES[id as StepId]?.weight ?? 1;
+  const totalWeight = STEPS.reduce((sum, [id]) => sum + weightOf(id), 0);
+  const stepMs = (id: string) => speed && holdsRun ? (PACE[speed].bar * (slow ? 2.5 : 1) * weightOf(id)) / totalWeight : speed ? waitMs(1) : 120;
   for (const [id, , kind] of steps) {
     line({ event: "step", id, state: "running" });
-    await sleep(120);
     const log = `${id}: working…`;
     if (kind === "app") {
       line({ event: "need", id, request: { type: "app-register-services", plists: ["com.mattstack.daemon.plist", "com.mattstack.deck.plist"] } });
-    } else if (kind === "privileged") {
+    } else if (kind === "privileged" && asksAdmin) {
       line({ event: "need", id, request: { type: "app-privileged", op: "proxy-install" } });
     } else {
       line({ event: "log", id, line: log });
     }
+    await working(id, stepMs(id), line);
     if (scenario === "apply-fail-retry" && id === "plugins.install" && stateBump("plugins-attempts") === 1) {
       const failed = { step: id, detail: "claude plugin install exited 1", remedy: "Open Claude Code once so it finishes first-run, then Retry.", log: [log] };
       line({ event: "step", id, state: "failed", detail: failed.detail, remedy: failed.remedy });
@@ -342,6 +368,17 @@ async function apply() {
   line({ event: "done", ok: true, failedStep: null });
 }
 
+/** A long step reports its percent as it goes, so the bar moves inside it. */
+async function working(id: string, ms: number, line: (o: unknown) => void): Promise<void> {
+  const tick = 500;
+  if (ms <= tick * 2) return sleep(ms);
+  const label = id === "repos.clone" ? "Receiving objects" : "Working";
+  for (let done = 0; done < ms; done += tick) {
+    await sleep(Math.min(tick, ms - done));
+    line({ event: "progress", id, label, percent: Math.min(99, Math.round(((done + tick) / ms) * 100)) });
+  }
+}
+
 type RunFailure = { step: string; detail: string; remedy: string; log: string[] };
 const RUN_FAILED = "run-failed.json";
 
@@ -356,13 +393,16 @@ function runFailure(): RunFailure | null {
   return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
 }
 
-// The join scenarios wait on the admin at their first check and are approved
-// from the second, so the fast-setup walk passes through the wait; every
-// other joiner is approved at once.
-const WAITING_JOINS = ["join", "join-happy"];
+// The join scenarios wait on the admin and are approved from their second
+// check, once the scenario's wait has passed, so the fast-setup walk passes
+// through P4; every other joiner is approved at once.
+const WAITING_JOINS = ["join", "join-happy", "slow"];
+const INVITER = "Jane Doe";
 function joinStatus(): unknown {
   if (["create-happy", "restore", "solo"].includes(scenario)) fail("no-join", "This Mac has not joined a team");
-  const approved = !WAITING_JOINS.includes(scenario) || stateBump("join-status-calls") > 1;
+  const calls = stateBump("join-status-calls");
+  const approved = !WAITING_JOINS.includes(scenario) || stateGet("join-approved") > 0 || (calls > 1 && waited("team-joined-at", 2));
+  if (approved) stateSet("join-approved", 1);
   return {
     team: { slug: "acme", name: "Acme" },
     state: approved ? "approved" : "waiting",
@@ -385,64 +425,228 @@ function chosenPath(): FormPath | null {
 const formRow = (r: Omit<FormRow, "waiting" | "watch" | "optional"> & Partial<Pick<FormRow, "waiting" | "watch" | "optional">>): FormRow =>
   ({ waiting: null, watch: false, optional: false, ...r });
 const TOKEN_SUBTEXT = FORM_COPY.invite.tokenSubtext("github");
+type Forge = "github" | "gitlab";
 
+/** The app answers these two outside rt: `stub grant` is the person back from System Settings or a macOS prompt. */
 function macosSection(): FormRow[] {
-  const granted = scenario !== "perm-denied-then-granted" || stateBump("plan-calls") >= 3;
+  const granted = scenario === "perm-denied-then-granted" ? stateBump("plan-calls") >= 3 : stateGet("granted-fda") > 0;
   const fda = { id: "perm.fda", status: granted ? "ready" : "needs-you", detail: granted ? "Granted" : "Not granted" } as Row;
   const fancy = stateGet("proxy-installed") > 0;
   return macosRows({
     permissions: [fda],
-    notifications: "authorized",
+    notifications: stateGet("granted-notifications") > 0 ? "authorized" : "notDetermined",
     fancyUrls: { state: fancy ? "done" : "todo", detail: fancy ? FANCY_URLS_DETAIL.done : FANCY_URLS_DETAIL.noProxy, brewMissing: false },
   });
 }
 
+/** Each prepare stage runs for the scenario's install time; its rows read busy until it ends. */
+function prepareMs(): number { return waitMs(slow ? 6 : 1); }
+function preparing(stage: string): boolean { return Date.now() < stateGet(`prepare-${stage}-until`); }
+
+/** Git leads the screens that clone, and only while the macos stage is still installing it. */
+function cltRows(): FormRow[] {
+  if (!preparing("macos")) return [];
+  const c = FORM_COPY.clt;
+  return [formRow({ id: "tool.clt", title: c.title, subtext: c.subtext, state: "busy", detail: c.installing, action: null, watch: true })];
+}
+
+function connected(forge: string): boolean { return stateGet(`${forge}-connected`) > 0; }
+
+/** A forge token row the way rt's forgeAccountRow draws it before and after the token lands. */
+function forgeTokenRow(id: string, forge: Forge, role: "member" | "owner", subtext: string, done: string, optional = false): FormRow {
+  const base = { id, title: TITLES[forge], subtext, optional };
+  if (connected(forge)) return formRow({ ...base, state: "done", detail: done, action: null });
+  return formRow({
+    ...base,
+    state: "todo",
+    detail: `No ${TITLES[forge]} token yet`,
+    action: { type: "connect", label: FORM_COPY.invite.connect, integration: forge, fields: [tokenField(forge, role)],
+              create: { label: FORM_COPY.invite.createToken, url: tokenCreateLink(forge, role, null).url } },
+  });
+}
+
 function inviteSection(): FormRow[] {
-  return [formRow({ id: "forge.token", title: "GitHub", subtext: TOKEN_SUBTEXT, state: "done", detail: FORM_COPY.invite.connectedAs("janedoe"), action: null })];
+  return [...cltRows(), forgeTokenRow("forge.token", "github", "member", TOKEN_SUBTEXT, FORM_COPY.invite.connectedAs("janedoe"))];
 }
 
-function createSection(forge: "github" | "gitlab"): FormRow[] {
-  return [formRow({ id: "forge.token", title: forge === "gitlab" ? "GitLab" : "GitHub", subtext: FORM_COPY.invite.tokenSubtext(forge),
-                    state: "done", detail: FORM_COPY.invite.connectedAs("janedoe"), action: null })];
+function createSection(forge: Forge): FormRow[] {
+  return [...cltRows(), forgeTokenRow("forge.token", forge, "owner", FORM_COPY.invite.tokenSubtext(forge), FORM_COPY.invite.connected)];
 }
 
-// One `claude connect` answers needs-you and leaves the row waiting; the
-// second read after it sees the sign-in land, as rt does once the browser finishes.
+function createdForge(): Forge { return textGet("create-forge") === "github" ? "github" : "gitlab"; }
+
+// `claude connect` answers needs-you and leaves the row waiting on the code
+// Claude shows in the browser; `claude code` with that code signs it in.
 function claudeRow(): FormRow {
   const c = FORM_COPY.connect.claude;
   const base = { id: "claude", title: c.title, subtext: c.subtext, watch: true };
   const calls = stateGet("claude-connect-calls");
-  const signedIn = calls >= 2 || (calls === 1 && stateBump("claude-waiting-reads") >= 2);
-  if (signedIn) return formRow({ ...base, state: "done", detail: "Signed in as janedoe@example.com", action: null });
-  if (calls === 1) return formRow({ ...base, state: "waiting", detail: FINISH_IN_BROWSER, action: null });
+  if (preparing("accounts")) return formRow({ ...base, state: "busy", detail: FORM_COPY.installing, action: null });
+  if (stateGet("claude-signed-in") > 0 || calls >= 2) return formRow({ ...base, state: "done", detail: "Signed in as janedoe@example.com", action: null });
+  if (calls === 1) {
+    return formRow({ ...base, state: "waiting", detail: FINISH_IN_BROWSER,
+                     action: { type: "form", label: c.pasteCode, verb: ["setup", "claude", "code"], fields: [{ name: "code", label: c.codeField, secret: true }] } });
+  }
   return formRow({ ...base, state: "todo", detail: "Not signed in yet", action: CLAUDE_SIGNIN_ACTION });
+}
+
+const DOPPLER_CODE = "WIDGET-4271";
+const DOPPLER_LOGIN = "https://dashboard.doppler.com/workplace/auth/cli";
+
+/** The team's sign-in tool: its browser sign-in lands on its own after a while, the way doppler's does. */
+function dopplerSignedIn(): boolean {
+  if (stateGet("doppler-signed-in") > 0) return true;
+  if (!stateGet("doppler-login-at")) return false;
+  const landed = stateBump("doppler-reads") > 2 && waited("doppler-login-at", 3);
+  if (landed) stateSet("doppler-signed-in", 1);
+  return landed;
+}
+
+function dopplerRow(): FormRow {
+  const c = FORM_COPY.connect.teamTool;
+  const base = { id: "signin.doppler", title: integrationDef("doppler").title, subtext: c.subtext, watch: true };
+  if (dopplerSignedIn()) return formRow({ ...base, state: "done", detail: "Signed in to doppler", action: null });
+  if (stateGet("doppler-login-at")) return formRow({ ...base, state: "waiting", detail: c.code(DOPPLER_CODE), action: { type: "open-url", label: c.openAgain, url: DOPPLER_LOGIN } });
+  return formRow({ ...base, state: "todo", detail: "Not signed in to doppler", action: { type: "run", label: c.label, verb: ["setup", "doppler", "connect"] } });
+}
+
+function linearRow(): FormRow {
+  const c = FORM_COPY.connect.linear;
+  const base = { id: "linear", title: c.title, subtext: c.subtext };
+  if (connected("linear")) return formRow({ ...base, state: "done", detail: FORM_COPY.connect.connected, action: null });
+  return formRow({ ...base, state: "todo", detail: "Not connected yet",
+                   action: { type: "connect", label: FORM_COPY.invite.connect, integration: "linear", fields: integrationDef("linear").fields,
+                             create: { label: c.label, url: "https://linear.app/settings/account/security" } } });
+}
+
+/** Opening the Web Store is the app's; the extension then lands a few reads later, as Chrome installs it. */
+function fastBrowserAdded(): boolean {
+  if (stateGet("fast-browser-added") > 0) return true;
+  if (!stateGet("fast-browser-opened-at")) return false;
+  const landed = stateBump("fast-browser-reads") > 2 && waited("fast-browser-opened-at", 2);
+  if (landed) stateSet("fast-browser-added", 1);
+  return landed;
+}
+
+function fastBrowserRow(optional: boolean): FormRow {
+  const c = FORM_COPY.connect.fastBrowser;
+  const base = { id: "fast-browser", title: c.title, subtext: c.subtext, watch: true, optional };
+  if (fastBrowserAdded()) return formRow({ ...base, state: "done", detail: c.done, action: null });
+  return formRow({ ...base, state: "todo", detail: "Not added yet", action: FAST_BROWSER_ADD_ACTION, waiting: c.waiting });
+}
+
+function connectSlackRow(forge: Forge, appReady: boolean): FormRow {
+  const c = FORM_COPY.connect.slack;
+  const base = { id: "slack", title: c.title, subtext: c.subtext(forge), waiting: c.waiting, watch: true };
+  if (connected("slack")) return formRow({ ...base, state: "done", detail: FORM_COPY.connect.connected, action: null });
+  if (!appReady) return formRow({ ...base, state: "todo", detail: "Waits for the team's Slack app", action: null, waiting: null, optional: true });
+  return formRow({ ...base, state: "todo", detail: "Not connected yet", action: { type: "oauth", label: c.label, integration: "slack", verb: ["setup", "slack", "connect"] } });
+}
+
+function slackAppRow(): FormRow {
+  const c = FORM_COPY.connect.slackApp;
+  const base = { id: "slack-app", title: c.title, subtext: c.subtext };
+  if (stateGet("slack-app-created") > 0) return formRow({ ...base, state: "done", detail: FORM_COPY.connect.connected, action: null });
+  return formRow({ ...base, state: "todo", detail: "The team has no Slack app yet",
+                   action: { type: "owner-once", label: "Create the team's Slack app…", integration: "slack",
+                             fields: [{ name: "configToken", label: "App configuration token", secret: true }] } });
 }
 
 function connectSection(path: FormPath | null): FormRow[] {
   const c = FORM_COPY.connect;
   if (path === "solo") {
-    return [formRow({ id: "forge", title: "GitHub", subtext: c.soloForge, state: "done", detail: FORM_COPY.invite.connectedAs("janedoe"), action: null, optional: true }), claudeRow()];
+    return [forgeTokenRow("forge", "github", "member", c.soloForge, FORM_COPY.invite.connectedAs("janedoe"), true), claudeRow(), fastBrowserRow(true)];
   }
-  const slack = stateGet("slack-connected") > 0;
+  if (path === "create") {
+    const forge = createdForge();
+    const app = stateGet("slack-app-created") > 0;
+    return [
+      formRow({ id: "forge", title: TITLES[forge], subtext: FORM_COPY.invite.tokenSubtext(forge), state: "done", detail: FORM_COPY.invite.connected, action: null }),
+      slackAppRow(), connectSlackRow(forge, app), claudeRow(), fastBrowserRow(false),
+    ];
+  }
   return [
     formRow({ id: "forge", title: "GitHub", subtext: TOKEN_SUBTEXT, state: "done", detail: c.connectedFromInvite("janedoe"), action: null }),
-    formRow({ id: "slack", title: c.slack.title, subtext: c.slack.subtext("github"), state: slack ? "done" : "todo", detail: slack ? c.connected : "Not connected yet",
-              action: slack ? null : { type: "oauth", label: c.slack.label, integration: "slack", verb: ["setup", "slack", "connect"] }, waiting: c.slack.waiting, watch: true }),
-    claudeRow(),
+    connectSlackRow("github", true), claudeRow(), dopplerRow(), linearRow(), fastBrowserRow(false),
   ];
 }
 
+// Paths the screens show; the member's own pick from a folder panel shows as picked.
+const SHOWN_HOME = "/Users/janedoe";
+const BOARD_REPO = "github.com/acme/widgets";
+function tildify(path: string): string { return path.startsWith(`${SHOWN_HOME}/`) ? `~${path.slice(SHOWN_HOME.length)}` : path; }
+
+type Placement = { mode: "checkout" | "clone"; path: string };
+function placement(): Placement | null {
+  const raw = textGet("repo-placement");
+  return raw ? (JSON.parse(raw) as Placement) : null;
+}
+
+/** A new Mac's repo row waits on a pick, as rt's deferred placement does; a recorded pick is done and lands at the run. */
+function repoRow(): FormRow {
+  const c = FORM_COPY.thisMac.repos;
+  const recorded = placement();
+  const clonePath = recorded?.mode === "clone" ? recorded.path : `${SHOWN_HOME}/Documents/GitHub/widgets`;
+  const note = recorded
+    ? recorded.mode === "clone" ? `rt clones it to ${tildify(recorded.path)} next` : `rt uses your checkout at ${tildify(recorded.path)} next`
+    : "Choose where your repos go";
+  const action: Action = {
+    type: "place-repo",
+    label: recorded?.mode === "checkout" ? PLACE_REPO_LABELS.checkout : PLACE_REPO_LABELS.clone,
+    labels: PLACE_REPO_LABELS,
+    identity: BOARD_REPO,
+    repo: "widgets",
+    mode: recorded?.mode ?? "clone",
+    checkoutPath: recorded?.mode === "checkout" ? recorded.path : null,
+    clonePath,
+    note,
+    problem: null,
+    then: null,
+    oneClick: recorded ? null : { label: "Clone here", mode: "clone", path: clonePath },
+    segmentRecords: true,
+    board: c.board,
+    awaitsRun: recorded !== null,
+  };
+  return formRow({ id: `repos.place:${BOARD_REPO}`, title: "widgets", subtext: c.board, state: recorded ? "done" : "todo", detail: note, action });
+}
+
+function repoRootRow(): FormRow {
+  const c = FORM_COPY.thisMac.repos;
+  const chosen = textGet("repo-root");
+  return formRow({ id: "repos.root", title: c.title, subtext: c.root, state: chosen ? "done" : "todo", detail: chosen ?? "",
+                   action: { type: "choose-folder", label: c.choose, startAt: `${SHOWN_HOME}/Documents/GitHub` } });
+}
+
+type Backup = { mode: "local" } | { mode: "remote"; url?: string; create?: boolean };
+function backup(): Backup {
+  const raw = textGet("home-backup");
+  return raw ? (JSON.parse(raw) as Backup) : { mode: "local" };
+}
+
+function backupRow(): FormRow {
+  const c = FORM_COPY.thisMac.settings;
+  const selected = backup().mode;
+  return formRow({ id: "settings.backup", title: c.title, subtext: c.subtext, state: "done", detail: c[selected],
+                   action: { type: "choose", label: c.change, verb: ["setup", "home-backup"], selected,
+                             options: [{ id: "local", label: c.local, detail: "" }, { id: "remote", label: c.remote, detail: "" }] } });
+}
+
+/** Choosing remote stages nothing, so the row stays open until a url or a create is staged. */
+function remoteRow(): FormRow | null {
+  const b = backup();
+  if (b.mode !== "remote") return null;
+  const c = FORM_COPY.thisMac.remote;
+  const base = { id: "settings.remote", title: c.title, subtext: c.subtext };
+  if (b.url) return formRow({ ...base, state: "done", detail: b.url, action: null });
+  if (b.create) return formRow({ ...base, state: "done", detail: c.creates, action: null });
+  return formRow({ ...base, state: "todo", detail: "",
+                   action: { type: "form", label: c.use, verb: ["home", "remote", "set"], fields: [{ name: "url", label: c.field, secret: false, hint: c.hint }],
+                             alternatives: [{ id: "create", label: c.create }] } });
+}
+
 function thisMacSection(path: FormPath | null): FormRow[] {
-  const c = FORM_COPY.thisMac;
-  const repos = path === "solo"
-    ? formRow({ id: "repos.root", title: c.repos.title, subtext: c.repos.root, state: "done", detail: "~/code", action: null })
-    : formRow({ id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: c.repos.board, state: "done", detail: "~/code/widgets", action: null });
-  return [
-    repos,
-    formRow({ id: "settings.backup", title: c.settings.title, subtext: c.settings.subtext, state: "done", detail: c.settings.local,
-              action: { type: "choose", label: c.settings.change, verb: ["setup", "home-backup"], selected: "local",
-                        options: [{ id: "local", label: c.settings.local, detail: "" }, { id: "remote", label: c.settings.remote, detail: "" }] } }),
-  ];
+  const repos = path === "solo" ? repoRootRow() : repoRow();
+  return [...cltRows(), repos, backupRow(), remoteRow()].filter((r): r is FormRow => r !== null);
 }
 
 function formStage(path: FormPath | null, sections: SetupForm["sections"]): FormStage {
@@ -452,10 +656,15 @@ function formStage(path: FormPath | null, sections: SetupForm["sections"]): Form
   if (stateGet("run-ok") > 0) return "ready";
   if (path === null) return "path";
   if (path === "join" && stateGet("team-joined") === 0) return "invite";
-  if (path === "join" && WAITING_JOINS.includes(scenario) && stateGet("join-status-calls") < 2) return "waiting";
+  if (path === "join" && WAITING_JOINS.includes(scenario) && stateGet("join-approved") === 0) return "waiting";
   if (path === "restore") return "running";
   if (!allAnswered(sections.connect)) return "connect";
   return "this-mac";
+}
+
+function createdTeam(): { slug: string; name: string } {
+  const raw = textGet("created-team");
+  return raw ? (JSON.parse(raw) as { slug: string; name: string }) : { slug: "acme", name: "Acme" };
 }
 
 function setupForm(): SetupForm {
@@ -466,11 +675,11 @@ function setupForm(): SetupForm {
   const sections: SetupForm["sections"] = {};
   if (wanted.includes("macos")) sections.macos = macosSection();
   if (wanted.includes("invite")) sections.invite = inviteSection();
-  if (wanted.includes("restore")) sections.restore = [];
+  if (wanted.includes("restore")) sections.restore = cltRows();
   if (wanted.includes("connect")) sections.connect = connectSection(path);
   if (wanted.includes("this-mac")) sections.thisMac = thisMacSection(path);
-  if (wanted.includes("create")) sections.create = createSection(at("--forge") === "gitlab" ? "gitlab" : "github");
-  const team = path === "join" || path === "create" ? { slug: "acme", name: "Acme", invitedBy: path === "join" ? "Mithrandir" : null } : null;
+  if (wanted.includes("create")) sections.create = createSection(at("--forge") === "github" ? "github" : "gitlab");
+  const team = path === "join" ? { slug: "acme", name: "Acme", invitedBy: INVITER } : path === "create" ? { ...createdTeam(), invitedBy: null } : null;
   const failed = runFailure();
   return {
     path,
@@ -496,17 +705,78 @@ else if (a0 === "setup" && a1 === "form") emit(setupForm());
 else if (a0 === "setup" && a1 === "prepare") {
   const stage = PREPARE_STAGES.find((s) => s === a2);
   if (!stage) fail("bad-stage", `${a2 ?? "(none)"} is not a part of setup that installs anything. Use macos or accounts`);
+  const ms = prepareMs();
+  stateSet(`prepare-${stage}-until`, Date.now() + ms);
+  await sleep(ms);
   emit({ stage, installed: stage === "macos" ? ["apple-clt"] : ["claude", "herdr"], failed: [] });
 }
 else if (a0 === "setup" && a1 === "claude" && a2 === "connect") {
-  const ready = stateBump("claude-connect-calls") > 1;
+  await sleep(waitMs(1));
+  const ready = stateBump("claude-connect-calls") > 1 || stateGet("claude-signed-in") > 0;
   emit({ integration: "claude", status: ready ? "ready" : "needs-you", detail: ready ? "Signed in as janedoe@example.com" : FINISH_IN_BROWSER });
 }
+else if (a0 === "setup" && a1 === "claude" && a2 === "code") {
+  if (stateGet("claude-connect-calls") === 0) fail("no-login", "Start signing in again");
+  const body = await readStdinJSON();
+  if (typeof body.code !== "string" || body.code.trim() === "") fail("bad-stdin", 'No code given. Pipe {"code": "<code>"} on stdin');
+  await sleep(waitMs(1));
+  stateSet("claude-signed-in", 1);
+  emit({ integration: "claude", status: "ready", detail: "Signed in as janedoe@example.com" });
+}
 else if (a0 === "setup" && a1 === "slack" && a2 === "connect") {
+  await sleep(waitMs(1));
   stateBump("slack-connected");
   emit({ integration: "slack", status: "ready", detail: FORM_COPY.connect.connected });
 }
-else if (a0 === "setup" && a1 === "home-backup") emit({ ok: true, mode: a2 });
+else if (a0 === "setup" && a1 === "slack" && a2 === "create-app") {
+  const body = await readStdinJSON();
+  if (!body.configToken) fail("bad-stdin", "Paste the app configuration token");
+  await sleep(waitMs(1));
+  stateSet("slack-app-created", 1);
+  emit({ integration: "slack", status: "ready", detail: "Slack app created", scopesSeen: [] });
+}
+else if (a0 === "setup" && a1 === "doppler" && a2 === "connect") {
+  await sleep(waitMs(1));
+  if (dopplerSignedIn()) emit({ integration: "doppler", status: "ready", detail: "Signed in to doppler", scopesSeen: [] });
+  else {
+    stampNow("doppler-login-at");
+    emit({ integration: "doppler", status: "needs-you", detail: FORM_COPY.connect.teamTool.code(DOPPLER_CODE), scopesSeen: [] });
+  }
+}
+else if (a0 === "setup" && a1 === "home-backup") {
+  if (a2 !== "local" && a2 !== "remote") fail("usage", `${a2 ?? "Nothing"} is not a place for your settings. Use local or remote`);
+  const homeBackup: Backup = a2 === "local" ? { mode: "local" } : { ...backup(), mode: "remote" };
+  textSet("home-backup", JSON.stringify(homeBackup));
+  emit({ homeBackup });
+}
+else if (a0 === "home" && a1 === "remote" && a2 === "set") {
+  const body = await readStdinJSON();
+  const url = typeof body.url === "string" && body.url.trim() ? body.url.trim() : null;
+  if (!url && body.alternative !== "create") fail("bad-stdin", 'No remote given. Pipe {"url": "<git url>"} or {"alternative": "create"} on stdin');
+  textSet("home-backup", JSON.stringify(url ? { mode: "remote", url } : { mode: "remote", create: true }));
+  emit({ staged: true, url, created: false, pushed: false });
+}
+else if (a0 === "setup" && a1 === "repo" && a2 === "place") {
+  const body = await readStdinJSON();
+  if (body.identity !== BOARD_REPO || (body.mode !== "checkout" && body.mode !== "clone") || typeof body.path !== "string") {
+    fail("bad-stdin", 'Pipe {"identity", "mode", "path"} on stdin');
+  }
+  textSet("repo-placement", JSON.stringify({ mode: body.mode, path: body.path }));
+  emit({ identity: body.identity, mode: body.mode, path: body.path });
+}
+else if (a0 === "setup" && a1 === "repo-root" && a2 === "set") {
+  const body = await readStdinJSON();
+  if (typeof body.root !== "string" || !body.root) fail("bad-stdin", 'No folder given. Pipe {"root": "<path>"} on stdin');
+  textSet("repo-root", body.root);
+  emit({ path: body.root, tccWarning: null });
+}
+// The app's own side of Test drive setup: a System Settings pane or a macOS
+// prompt answered, and a link opened in the browser rt never sees.
+else if (a0 === "stub" && a1 === "grant" && a2) { stateSet(`granted-${a2}`, 1); emit({ ok: true, granted: a2 }); }
+else if (a0 === "stub" && a1 === "opened" && a2) {
+  if (FAST_BROWSER_ADD_ACTION.type === "open-url" && a2 === FAST_BROWSER_ADD_ACTION.url) stampNow("fast-browser-opened-at");
+  emit({ ok: true, opened: a2 });
+}
 else if (a0 === "setup" && a1 === "finish") {
   const rtDir = join(process.env.HOME ?? stateDir, ".mattstack", "rt");
   mkdirSync(rtDir, { recursive: true });
@@ -539,20 +809,28 @@ else if (a0 === "setup" && a2 === "status") emit({ integration: a1, status: stat
 else if (a0 === "setup" && a2 === "connect") {
   const body = await readStdinJSON();
   if (!body.token && !body.useGh) fail("no-token", "Paste a token or use gh.");
+  await sleep(waitMs(0.5));
   stateBump(`${a1}-connected`);
   emit({ integration: a1, status: "ready", detail: "token can see group acme", scopesSeen: ["api"] });
 }
 else if (a0 === "team" && a1 === "create") {
   choosePath("create");
-  emit({ slug: "my-team", name: args[2] ?? "My team", remote: "https://github.com/matt/mattstack-team-my-team.git", created: true });
+  const name = args[2] ?? "My team";
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "my-team";
+  const forgeAt = args.indexOf("--forge");
+  textSet("create-forge", forgeAt >= 0 ? args[forgeAt + 1]! : "github");
+  textSet("created-team", JSON.stringify({ slug, name }));
+  await sleep(waitMs(1));
+  emit({ slug, name, remote: `https://github.com/acme/mattstack-team-${slug}.git`, created: true });
 }
 else if (a0 === "team" && a1 === "join") {
   const body = await readStdinJSON();
   if (!body.code) fail("invite-malformed", "Paste an invite code.");
   choosePath("join");
-  if (scenario === "join-no-account") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "no-account", peering: "idle", intent: "written", message: "Joining Acme (owner matt). Connect your GitLab account on the next screen so rt can reach gitlab.com/acme/mattstack-team-acme." });
-  else if (scenario === "join-no-access") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "denied", peering: "idle", intent: "written", message: "Joining Acme. Your GitHub account cannot see acme/team yet: ask matt or your org admin to grant read access." });
-  else emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "ok", peering: "idle", intent: "written", message: "Joining Acme (owner matt)" });
+  const team = { slug: "acme", name: "Acme", owner: INVITER };
+  if (scenario === "join-no-account") emit({ team, access: "no-account", peering: "idle", intent: "written", message: `Joining Acme (owner ${INVITER}). Connect your GitLab account on the next screen so rt can reach gitlab.com/acme/mattstack-team-acme.` });
+  else if (scenario === "join-no-access") emit({ team, access: "denied", peering: "idle", intent: "written", message: `Joining Acme. Your GitHub account cannot see acme/team yet: ask ${INVITER} or your org admin to grant read access.` });
+  else emit({ team, access: "ok", peering: "idle", intent: "written", message: `Joining Acme (owner ${INVITER})` });
 }
 else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { slug: "acme", name: "Acme", remote: "git@github.com:acme/mattstack-team-acme.git", lastPush: "2026-08-21T03:00:00Z", members: [{ username: "matt" }, { username: "bob" }] });
 else if (a0 === "apps" && a1 === "list") emit({ apps: [
@@ -583,6 +861,8 @@ else if (a0 === "uninstall") {
   line({ event: "done", ok: true, failedStep: null }); }
 else if (a0 === "settings" && a1 === "set") emit({ ok: true, key: a2 });
 else if (a0 === "home" && a1 === "restore") {
+  if (args.includes("--stdin") && !(await new Response(Bun.stdin.stream()).text()).trim()) fail("bad-stdin", "Paste the recovery key from your other Mac");
+  await sleep(waitMs(1));
   choosePath("restore");
   emit({ ok: true, repo: a2, url: `https://github.com/${a2}.git`, key: "imported" });
 }
