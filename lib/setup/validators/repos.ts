@@ -24,7 +24,7 @@ import {
   type ResolvedPlacement,
 } from "../repo-placement.ts";
 import { detectCandidate } from "../repo-root.ts";
-import { homeGitDir } from "../steps/home.ts";
+import { installHasRun, readSetupState } from "../state.ts";
 import { skippedIdentities } from "../steps/repos.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 
@@ -59,7 +59,8 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
   const resolved = await resolvePlacements(p, tracked, rootPaths);
   const { placements, deferred, failed } = readPlacements(p);
   const placedParents = [...new Set(Object.values(resolved).filter((pl) => pl.mode === "checkout").map((pl) => dirname(pl.path)))];
-  const installed = p.exists(homeGitDir(p.home));
+  // The Join page creates the home repo before Install, so only Install's own stamp says an answer can land now.
+  const installed = installHasRun(readSetupState(p));
   const boardRepo = snapshot.boardRepo ?? null;
   // The board's repo also repoints the board and restarts it: an --only board.restart run lands the placement through repos.clone, then board.cwds, while either is unsatisfied.
   const thenFor = (identity: string) => (installed ? ["setup", "apply", "--only", identity === boardRepo ? "board.restart" : "repos.clone"] : null);

@@ -14,6 +14,7 @@ import type { ApplyEvent } from "../../lib/setup/contract.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import type { Plan, Row } from "../../lib/setup/contract.ts";
 import { markDeferred } from "../../lib/setup/repo-placement.ts";
+import { updateSetupState } from "../../lib/setup/state.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -152,8 +153,9 @@ describe("the setup plan's shape and copy", () => {
     const teamPath = sharedStorePath("acme");
     mkdirSync(dirname(teamPath), { recursive: true });
     writeFileSync(teamPath, JSON.stringify({ "mattstack.tracking": { repos: { "gitlab.com/acme/widgets": {}, "gitlab.com/acme/acme-api": {} } } }));
-    // After Install, where a joiner first sees the rows: the home repo exists.
+    // After Install: the home repo exists and Install stamped its start.
     const p = fakeProbes({ exec: readyExec, dirs: { "/fake-home/.mattstack/user/.git": [] } });
+    updateSetupState(p, (state) => ({ ...state, installRanAt: "2026-10-29T00:00:00.000Z" }));
     markDeferred(p, "gitlab.com/acme/acme-api");
     const { machine, copy } = views(await composePlan({ p, secrets, ci: false, mode: "status", orgs: ["acme"], waived: [] }));
     expect(machine.groups.find((g) => g.id === "repos")).toMatchSnapshot();

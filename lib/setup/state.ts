@@ -123,6 +123,11 @@ export function isSetupFinished(state: SetupState): boolean {
   return typeof state.finishedAt === "string" && state.finishedAt !== "";
 }
 
+/** A Mac that finished setup before `installRanAt` existed has run Install too. */
+export function installHasRun(state: SetupState): boolean {
+  return state.installRanAt !== undefined || isSetupFinished(state);
+}
+
 export function markSetupFinished(p: StateWriteProbes): SetupState {
   return updateSetupState(p, (s) => ({ ...s, finishedAt: p.now().toISOString() }));
 }

@@ -20,7 +20,7 @@ import { APPROVAL_DEPENDENT_IDS, APPROVAL_WAIT_DETAIL, approvalState, type Appro
 import { applyExpectations } from "./expectations.ts";
 import { applyFinishGate, gateTeamAccounts, readWaived } from "./finish-gate.ts";
 import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
-import { isSetupFinished, readSetupState, type SetupState } from "./state.ts";
+import { installHasRun, readSetupState } from "./state.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
 import { readPackRequirements } from "./requirements.ts";
@@ -159,11 +159,6 @@ function isInstallSatisfied(r: Row): boolean {
   const packRow = r.id === "tool.plugins" || r.id.startsWith("pack.");
   if (packRow && r.status === "needs-you" && r.action === null) return false;
   return INSTALL_SATISFIED_IDS.has(r.id) || r.id.startsWith("pack.");
-}
-
-/** A Mac that finished setup before `installRanAt` existed has run Install too. */
-function installHasRun(state: SetupState): boolean {
-  return state.installRanAt !== undefined || isSetupFinished(state);
 }
 
 /** The writing-style row before the home repo exists: no choice to offer until Install creates it. Its error row is a fault, never this. */

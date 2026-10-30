@@ -7,6 +7,7 @@ import { setKvValue } from "../../state/index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import type { OrgRef, Row } from "../contract.ts";
 import { markDeferred, recordCloneFailure, writePlacement } from "../repo-placement.ts";
+import { updateSetupState } from "../state.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import { repoPlacementRows } from "../validators/repos.ts";
 import { gitRepo, realFsProbes } from "./fakes.ts";
@@ -33,9 +34,15 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-/** After Install: the home repo exists, so an answer lands right away. */
-function installed(): void {
+/** The home repo the Join page creates before Install. */
+function homeRepo(): void {
   mkdirSync(join(home, ".mattstack", "user", ".git"), { recursive: true });
+}
+
+/** After Install: Install stamped its start, so an answer lands right away. */
+function installed(): void {
+  homeRepo();
+  updateSetupState(realFsProbes(home), (state) => ({ ...state, installRanAt: "2026-10-29T00:00:00.000Z" }));
 }
 
 describe("repoPlacementRows: one row per tracked repo", () => {
@@ -120,6 +127,15 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     expect(action((await repoPlacementRows(p, TEAM, snapshot([ACME_API])))[0])).toMatchObject({ then: null, segmentRecords: true });
     installed();
     expect(action((await repoPlacementRows(p, TEAM, snapshot([ACME_API])))[0])).toMatchObject({ then: THEN, segmentRecords: false });
+  });
+  test("a home repo the Join page created is not Install: no follow-up, the segment records, the board is not repointed", async () => {
+    homeRepo();
+    const rows = await repoPlacementRows(realFsProbes(home), TEAM, { ...snapshot([WIDGETS, ACME_API]), boardRepo: ACME_API });
+
+    expect(rows.map((r) => action(r))).toMatchObject([
+      { then: null, segmentRecords: true },
+      { then: null, segmentRecords: true },
+    ]);
   });
 });
 
