@@ -61,30 +61,12 @@ chmod +x "$MINT_HOME/bin/security"
 case "$FORGE" in gitlab) GIT_USER=oauth2;; *) GIT_USER=x-access-token;; esac
 LOG="${VM_RUN_DIR:-$MINT_HOME}/logs/mint.log"; mkdir -p "$(dirname "$LOG")"
 
-# env -i: nothing of the operator's environment reaches rt, git or gh. The
-# credential helper reads the token from the environment, so it is never
-# written into a git config file or an argv. The empty helper first clears
-# every helper configured before it (an osxkeychain helper from an Xcode or
-# system config would otherwise answer with the operator's own login).
-mint_rt() {
-  ( cd "$MINT_HOME" && env -i HOME="$MINT_HOME" USER="${USER:-vmtest}" LOGNAME="${USER:-vmtest}" TMPDIR="${TMPDIR:-/tmp}" \
-      PATH="$MINT_HOME/bin:/usr/bin:/bin:/usr/sbin:/sbin" RT_BATCH=1 \
-      GH_TOKEN="$TOKEN" GITLAB_TOKEN="$TOKEN" VM_MINT_TOKEN="$TOKEN" VM_MINT_GIT_USER="$GIT_USER" \
-      GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=4 \
-      GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
-      GIT_CONFIG_KEY_1=credential.helper \
-      GIT_CONFIG_VALUE_1='!f() { echo "username=$VM_MINT_GIT_USER"; echo "password=$VM_MINT_TOKEN"; }; f' \
-      GIT_CONFIG_KEY_2=user.name GIT_CONFIG_VALUE_2="mattstack vmtest owner" \
-      GIT_CONFIG_KEY_3=user.email GIT_CONFIG_VALUE_3="vmtest-owner@mattstack.invalid" \
-      "$RT_BIN" "$@" )
-}
-
 # The verb's last stdout line, its stderr and a redacted copy of that line in
 # the log. The code, the link and the paste block all carry the invite.
 step() {  # <label> <rt args...>
   local label="$1" out rc; shift
   printf '== rt %s\n' "$*" >> "$LOG"
-  out=$(mint_rt "$@" 2>>"$LOG"); rc=$?
+  out=$(vm_mint_rt "$@" 2>>"$LOG"); rc=$?
   out=$(printf '%s\n' "$out" | tail -1)
   printf '%s\n' "$out" | jq -c 'del(.code, .link, .pasteBlock)' >> "$LOG" 2>/dev/null || echo "(unparseable stdout)" >> "$LOG"
   [ "$rc" -eq 0 ] || vm_die "$label failed (exit $rc): $(printf '%s' "$out" | jq -r '.message // .error.message // empty' 2>/dev/null) (logs/mint.log)"

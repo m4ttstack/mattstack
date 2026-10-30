@@ -419,7 +419,7 @@ const ROWS: readonly SettingDef[] = [
     default: [],
     merge: "replace",
     description:
-      "Finish-gated setup rows the user skipped on this Mac through `rt setup waive` (today only tool.fast-browser-extension); the wizard's Finish no longer waits on them. Machine-only: a loaded Chrome extension is a per-profile fact and the choice is per machine, so it never travels with a team or user store.",
+      "Finish-gated setup rows the user skipped on this Mac through `rt setup waive` (skills.overrides, tool.chrome-signin, tool.mission-control); the wizard's Finish no longer waits on them. Machine-only: the choice is per machine, so it never travels with a team or user store.",
   },
   {
     key: "rt.integrations",

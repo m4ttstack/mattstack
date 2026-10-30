@@ -1,5 +1,5 @@
 #!/bin/bash
-# Clean-room walkthrough: clone golden → install DMG → five screens → assert → Sparkle update → teardown.
+# Clean-room walkthrough: clone golden → install DMG → setup screens → assert → Sparkle update → teardown.
 set -uo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/lib/common.sh"
 
@@ -47,7 +47,7 @@ vm_log "golden: $GOLDEN"
 RUN_VM="mattstack-run-$VER-$(date +%H%M%S)-$$"
 GUEST_RUN="/Volumes/My Shared Files/run"
 GUEST_BIN="/Users/$VM_TESTER_USER/vmrun"
-TART_PID=""; SHOT_PID=""; CLONED=0; MINT_HOME=""
+TART_PID=""; SHOT_PID=""; APPROVE_PID=""; CLONED=0; MINT_HOME=""
 APP_VERSION=""
 FRESH_SLUG=""
 # The longest passing screens phase on record ran 3353s, 23 minutes of it a
@@ -63,6 +63,7 @@ cleanup() {
   trap 'vm_warn "teardown in progress; signal ignored"' INT TERM HUP
   vm_say_or_log "  ── cleanup"
   [ -n "$SHOT_PID" ] && kill "$SHOT_PID" 2>/dev/null
+  [ -n "$APPROVE_PID" ] && kill "$APPROVE_PID" 2>/dev/null
   mint_detach; drop_mint_home
   vm_phase_abandon "walkthrough exited mid-phase"
   if [ "$DRY" = 0 ]; then teardown; fi
@@ -183,6 +184,27 @@ shot_watcher() {  # host loop: in/shot-<name>.req → screenshots/<name>.png
   done
 }
 
+# Host loop for the join scenario: the guest's Join page writes
+# in/join-waiting.req once it shows the waiting state, and approve-join.sh
+# answers it as the team owner, under the mint's HOME. The outcome goes back as
+# in/join-approve.done or in/join-approve.failed.
+approve_watcher() {
+  local key
+  until [ -e "$VM_RUN_DIR/in/join-waiting.req" ]; do sleep 1; done
+  rm -f "$VM_RUN_DIR/in/join-waiting.req"
+  if [ -z "$MINT_HOME" ] || [ -z "$RT_FOR_MINT" ]; then
+    echo "no mint HOME: only a --fresh-team-repo join is approved by the host; approve it from the owner's Mac" >> "$VM_RUN_DIR/logs/approve.log"
+    : > "$VM_RUN_DIR/in/join-approve.failed"; return
+  fi
+  key=$(vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "/Applications/mattstack.app/Contents/Helpers/jq -r '.agePublicKey // empty' \$HOME/.mattstack/rt/teams/$SLUG.json" 2>>"$VM_RUN_DIR/logs/approve.log")
+  if VM_MINT_TOKEN="${!PAT_ENV:-}" bash "$VM_ROOT/run/host/approve-join.sh" --rt "$RT_FOR_MINT" --home "$MINT_HOME" --slug "$SLUG" \
+      ${FORGE:+--forge "$FORGE"} ${key:+--key "$key"} >>"$VM_RUN_DIR/logs/approve.log" 2>&1; then
+    : > "$VM_RUN_DIR/in/join-approve.done"
+  else
+    : > "$VM_RUN_DIR/in/join-approve.failed"
+  fi
+}
+
 skip_if_dry() { [ "$DRY" = 1 ] && { vm_phase_end "$1" skip "dry-run"; return 0; }; return 1; }
 
 # ── preflight ────────────────────────────────────────────────────────────────
@@ -267,13 +289,14 @@ if [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ]; then
     VM_MINT_TOKEN="${!PAT_ENV:-}" vm_guest_cmd bash "$VM_ROOT/run/host/mint-invite.sh" --rt "$RT_FOR_MINT" --home "$MINT_HOME" \
       --remote "$TEAM_REMOTE" --out "$CODE_FILE" --slug "$SLUG" ${FORGE:+--forge "$FORGE"} >>"$VM_RUN_DIR/logs/mint.log" 2>&1
     rc=$?
-    mint_detach; drop_mint_home
+    # approve-join.sh reuses the mint's HOME and rt in the screens phase.
+    [ "$rc" -eq 0 ] || { mint_detach; drop_mint_home; }
     if [ "$rc" -eq 0 ] && [ -s "$CODE_FILE" ]; then vm_phase_end invite pass "team $SLUG scaffolded on $TEAM_REMOTE; invite minted on the host"
     else vm_phase_end invite fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/mint.log" "host mint failed: $(tail -1 "$VM_RUN_DIR/logs/mint.log" 2>/dev/null || echo 'see logs/mint.log')")"; exit 1; fi
   fi
 fi
 if [ "$DRY" = 1 ]; then
-  vm_log "[dry-run] would: tart clone $GOLDEN $RUN_VM; tart run $RUN_VM --dir=run:$VM_RUN_DIR $([ $GRAPHICS = 0 ] && echo --no-graphics); wait ssh; stage; install; $([ $SCENARIO = headless ] && echo e2e-cleanroom || echo 'five screens'); assert; $([ -n "$UPD" ] && echo update || echo 'update(skip)'); teardown"
+  vm_log "[dry-run] would: tart clone $GOLDEN $RUN_VM; tart run $RUN_VM --dir=run:$VM_RUN_DIR $([ $GRAPHICS = 0 ] && echo --no-graphics); wait ssh; stage; install; $([ $SCENARIO = headless ] && echo e2e-cleanroom || echo 'setup screens'); assert; $([ -n "$UPD" ] && echo update || echo 'update(skip)'); teardown"
   for p in clone boot stage install launch screens assert update teardown; do vm_phase_begin $p; skip_if_dry $p; done
   exit 0
 fi
@@ -360,8 +383,11 @@ if [ "$SCENARIO" = headless ]; then
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "open -a /Applications/mattstack.app; sleep 8" >>"$VM_RUN_DIR/logs/screens.log" 2>&1 || true
 else
   CODE_ARG=""; [ -n "$CODE_FILE" ] && { cp "$CODE_FILE" "$VM_RUN_DIR/in/invite-code.txt"; CODE_ARG="--invite-code-file '$GUEST_RUN/in/invite-code.txt'"; }
+  if [ "$SCENARIO" = join ]; then approve_watcher & APPROVE_PID=$!; fi
   vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   rc=$?
+  if [ -n "$APPROVE_PID" ]; then kill "$APPROVE_PID" 2>/dev/null; APPROVE_PID=""; fi
+  mint_detach; drop_mint_home
   if [ "$rc" -eq 0 ]; then
     vm_phase_end screens pass "" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
   else

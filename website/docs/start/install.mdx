@@ -23,16 +23,37 @@ rt ships inside **mattstack.app**, the mattstack menu bar app. Installing the ap
 
 A summary of what setup does. Everything it installs is reversible from Settings → Uninstall.
 
+### Full Disk Access
+
+mattstack reads your repos and Chrome's profile, so it asks for Full Disk Access before it does anything else. The page lists three steps:
+
+1. Click **Open Full Disk Access**. System Settings opens at Privacy & Security → Full Disk Access.
+2. Turn on mattstack in the list.
+3. Click **Reopen mattstack** so the grant takes effect. The app reopens at Your team.
+
+The page shows **Checking Full Disk Access** while it reads the grant, and **Check again** if that check fails. **Continue** unlocks once Full Disk Access is on. Setup that opens again after an update skips this page.
+
 ### Your team
 
 Pick one:
 
 - **Create a team**: name it, then paste the URL of an empty repo for it, or let mattstack create a private GitHub repo when the `gh` CLI is signed in.
-- **Join a team**: paste the invite code a teammate sent you.
+- **Join a team**: paste the invite code a teammate sent you. The [Join page](#join-your-team) comes next.
 - **Just me**: no team repo, no forge account. See [Just me](/start/setup).
 - **Restore**: bring back your own setup on a new Mac from your home repo and its age key.
 
 See [Teams and invites](/start/teams) for how teams, invites, and team packs work.
+
+### Join your team
+
+Only a joiner sees this page. It joins the team before the checklist, so the checklist can list everything the team uses.
+
+1. If your forge token cannot reach the team repo yet, the page asks you to connect the team repo's forge first.
+2. Click **Join acme**. Joining accepts your invite and copies your team's settings.
+3. The page then reads **Waiting for your team admin to approve your request to join the team**. Its three rows show **Invite accepted**, **Team settings copied** with what the team uses, and **Waiting for approval** with how long ago you asked. Your admin gets your request in mattstack and approves it there.
+4. When they approve, the page reads **You're in the acme team**. Click **Continue**.
+
+**Continue** unlocks once they approve. The page checks again every 15 seconds, and **Check again** checks now. When mattstack cannot tell whether you were approved, the page shows a warning and reads **Check again, or continue**. **Back** returns to Your team, where you can use another invite.
 
 ### The checklist
 
@@ -40,13 +61,15 @@ The checklist of everything setup needs, one page for each group: Your Mac, Acco
 
 Each page sorts its rows into up to three sections:
 
-- **Needs you**: the rows that hold up Install or Finish. Each has a **Required** or **Before you finish** badge and its own button. The button grants a permission, chooses a folder, connects an account, or shows the steps to take.
-- **Optional**: rows you can act on now or leave for later.
-- **No action needed**: the rows that are ready, and the ones Install sets up. It folds to one line that names them. Click the line to open it.
+- **Needs you**: every step still to do. Each row has its own button, which grants a permission, chooses a folder, connects an account, or shows the steps to take. A row you can finish after Install carries a **Before you finish** badge.
+- **You can skip**: the steps you can skip, only if you won't use them. Each row has a **Skip** button.
+- **No action needed**: the rows that are ready, the information rows, and the rows Install sets up, which read **Install does this**. It folds to one line that names them. Click the line to open it.
+
+Every step is expected. Three can be skipped: **Skill overrides**, **Chrome sign-in** (shown only when a team pack needs it), and **Mission Control shortcut**. Two are information only and never ask anything of you: **PATH precedence** and **Push access**. Install sets up Login Items, the daemon, the Claude plugins, and your team's packs itself.
 
 **Continue** unlocks once no row on the page holds up Install. A row that only holds up Finish does not hold Continue. The last page's button is **Install**. Click **Re-check** to refresh every row.
 
-**Your Mac** covers macOS, the Command Line Tools, PATH precedence, and three permissions: Full Disk Access, Login Items, and Notifications. Each permission row asks for it or opens the matching pane in System Settings.
+**Your Mac** covers macOS, the Command Line Tools, PATH precedence, Login Items, and Notifications. Full Disk Access has its own page before this one, and shows here under No action needed once it is on.
 
 **Accounts** has one row for each integration your team or its packs use. That covers the team's GitHub or GitLab, plus Linear, Slack, StrongDM, and others when the team declares them. **Connect** opens a sheet with a **Create a token on GitLab…** (or GitHub) link to the forge's new-token page. The page opens with the scopes rt requires already checked and the token named `mattstack`:
 
@@ -59,9 +82,9 @@ On GitLab, rt requires only `api`. The link also pre-checks `read_api`, `read_us
 
 Paste the token and Connect. A pasted token missing a scope is refused, naming the scope it lacks; a token already stored that falls short shows as needing you, with the same Connect sheet. A GitLab member needs `api` because the board posts review comments and replies on merge requests as you. The GitHub row is ready without a token when the `gh` CLI is already signed in. The GitLab link targets GitLab 16 or newer.
 
-**Your repos** has one row for each repo your team tracks. Each row is either **Current checkout** (a copy you already have on this Mac; **Locate…** points at it) or **New checkout** (rt clones the repo where you choose; **Choose location…** picks where). A repo rt finds on this Mac starts on Current checkout. A git worktree never counts as a checkout: **Locate…** refuses one and names the main checkout to pick instead. A repo rt can't place shows what to fix on its row. If you join a team, you choose where your repos go after Install (each offers **Clone here**), and those rows must be answered before Finish, not Install.
+**Your repos** has one row for each repo your team tracks. Each row is either **Current checkout** (a copy you already have on this Mac; **Locate…** points at it) or **New checkout** (rt clones the repo where you choose; **Choose location…** picks where). A repo rt finds on this Mac starts on Current checkout. A git worktree never counts as a checkout: **Locate…** refuses one and names the main checkout to pick instead. A repo rt can't place shows what to fix on its row. The row for the board's repo also says **The board's review, respond and doctor agents start here**.
 
-A joiner's checklist cannot list the team's own accounts yet, because Install is what joins the team. The Accounts page says so in a line: **Your team's accounts and repos**. After Install, the team's Slack and Linear rows join **Needs you** and hold **Finish** until you connect them.
+A joiner joined the team on the Join page, so their checklist already lists the team's accounts, like Slack and Linear, and the team's repos.
 
 ### Installing
 
@@ -70,6 +93,7 @@ Install runs each step and streams its progress:
 - links `rt`, `fast-browser`, `gitq`, and `deck` into `~/.local/bin`, puts that folder first on your PATH, and adds the `rtcd` alias to your shell
 - registers the rt daemon and deck (which serves the bundled apps) as background services and starts them
 - clones the repos set to **New checkout**, with git's clone progress under the running step
+- points the board at its repo (**Point the board at widgets**), then restarts it (**Restart the board**), so the board's agents start in that checkout. The board's repo is the first repo in the team's board projects, else the first repo the team tracks
 - installs the mattstack Claude Code plugins, turns on your team's pack, and seeds Claude Code's permissions (see [Claude Code setup](#claude-code-setup))
 - installs the `rt-context` and `skill-blocks` editor extensions into every VS Code-family editor it finds
 
@@ -79,18 +103,20 @@ The last screen checks the checklist again and shows it with a sidebar: **Overvi
 
 **Overview** says whether anything is left and shows where things live: the **m** icon in the menu bar, `rt` in a new terminal window, and the board at `board.mattstack`. A step that needs another try is listed there with **Retry from here**. Owners also get **Invite teammates…**.
 
-**Needs you** holds any required row that is still not ready, a joiner's repo and team account rows, and the two rows that gate **Finish** on every Mac:
+Above the sidebar, counts such as **12 ready** and **1 skipped** sum up the checklist.
+
+**Needs you** holds every step still to do, apart from the ones you can skip. **Finish** waits on all of them. Some only need to be done before Finish, not before Install, such as **Home repo backup** and **State backup tools**. Two rows gate **Finish** on every Mac:
 
 - **Writing style**: the voice agents use for the reviews, replies, and PR descriptions they post under your name. **Choose style…** offers the mattstack presets or any skill of your own.
-- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension. **Show steps…** walks through it. Install Fast Browser from the Chrome Web Store. Install already ran Fast Browser's setup, so there is nothing to configure. Only a Mac set to auto connection also pairs. Its row then reads **Loaded in Chrome but not paired yet**, and **Show steps…** walks through the pairing. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
+- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension. Click **Add to Chrome** to open its Chrome Web Store page and add it there. The row then reads **Waiting for Chrome**, with **Open again** to reopen the page, and turns ready when you come back with the extension added. Install already ran Fast Browser's setup, so there is nothing to configure. Only a Mac set to auto connection also pairs. Its row then reads **Loaded in Chrome but not paired yet**, and **Show steps…** walks through the pairing. This row cannot be skipped. Without Chrome installed, this row is skipped.
 
-Optional rows left open sit under **Optional** in their group.
+A step you can skip still holds **Finish** until you do it or click **Skip**.
 
 **Finish** closes the window and starts herdr, the terminal server your agents run in. If herdr cannot start, a notification says why and how to try again.
 
 ## After setup
 
-**Setup status…**, just under **Settings…** in the menu bar menu, reopens the checklist at any time, with the same sidebar and no Overview. It opens on **Needs you** when a row needs you, else on **All**, which lists every group. Click a group to see only its rows; click it again, or **All**, to go back. Click a count above the sidebar, such as **2 optional**, to list those rows from every group. Until setup is finished, **Resume setup…** right below it reopens the wizard at the step you left. On the checklist, it opens the first page that still has a required row, or the last page when none does. Use it to connect an account, rotate a token, or fix a row that slipped. It also warns when a token is close to expiring.
+**Setup status…**, just under **Settings…** in the menu bar menu, reopens the checklist at any time, with the same sidebar and no Overview. It opens on **Needs you** when a row needs you, else on **All**, which lists every group. Click a group to see only its rows; click it again, or **All**, to go back. Click a count above the sidebar, such as **1 skipped**, to list those rows from every group. Until setup is finished, **Resume setup…** right below it reopens the wizard at the step you left. On the checklist, it opens the first page that still has a required row, or the last page when none does. Use it to connect an account, rotate a token, or fix a row that slipped. It also warns when a token is close to expiring.
 
 **Settings…** covers the rest: your writing style, startup and updates, team invites, permissions, Fast Browser, and Uninstall. See [The menu bar app](/start/menu-bar-app).
 
@@ -115,7 +141,7 @@ rt setup repo place github.com/acme/widgets --checkout ~/code/widgets   # or --c
 rt setup repo-root set ~/code      # the folder new clones go in
 rt home remote set <url>           # or --create
 rt skills writing-style use <id>   # omit the id to pick
-rt setup waive tool.fast-browser-extension
+rt setup waive tool.mission-control   # skip one of the three steps you can skip
 ```
 
 Until setup has run, other `rt` commands print a one-line hint pointing at mattstack.app or `rt setup install`.

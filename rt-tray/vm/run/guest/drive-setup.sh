@@ -1,5 +1,7 @@
 #!/bin/bash
-# Drive the five setup screens of mattstack.app in the guest, as tester.
+# Drive mattstack.app's setup wizard in the guest, as tester: Welcome, Full
+# Disk Access, Your team, the Join page (join only), the checklist pages,
+# Install and the summary.
 # Usage: drive-setup.sh <create|join|restore|solo> [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT] [--invite-code-file <p>] [--team-remote <url>] [--forge github|gitlab]
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; source "$HERE/ax.sh"; source "$HERE/screens.sh"
@@ -19,5 +21,7 @@ PAT="${!PAT_ENV:-}"
 DRIVER_LAUNCH_ARGS="${DRIVER_LAUNCH_ARGS:-}"
 
 ax_log "scenario=$SCENARIO slug=$SLUG forge=$FORGE"
-screen_welcome; screen_team; screen_readiness; screen_install; screen_done
-ax_log "five screens complete"
+screen_welcome; screen_full_disk_access; screen_team
+if [ "$SCENARIO" = join ]; then screen_join; fi
+screen_readiness; screen_install; screen_done
+ax_log "setup screens complete"

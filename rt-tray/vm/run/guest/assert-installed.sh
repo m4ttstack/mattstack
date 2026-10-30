@@ -71,6 +71,16 @@ if [ -n "$JOIN_SLUG" ]; then
       *)   bad "join-rows.jq printed an unexpected line: $kind $msg";;
     esac
   done <<< "$JOIN_VERDICT"
+  # Install points all three of the board's folders at the board's repo.
+  if "$JQ" -e '[.groups[]?.rows[]? | select(.id | startswith("repos.place:"))] | length == 0' "$LOGS/setup-status-join.json" >/dev/null 2>&1; then
+    ok "join: the team tracks no repo, so board.cwds is not asserted"
+  else
+    rt settings get board.cwds --json 2>/dev/null | tail -1 > "$LOGS/board-cwds.json"
+    CWDS=$("$JQ" -r '[.value.review, .value.respond, .value.doctor] | map(. // "") | unique | if length == 1 then .[0] else "" end' "$LOGS/board-cwds.json" 2>/dev/null)
+    CWDS_PATH="${CWDS/#\~/$HOME}"
+    if [ -n "$CWDS" ] && [ -e "$CWDS_PATH/.git" ]; then ok "join: board.cwds points review, respond and doctor at the checkout $CWDS"
+    else bad "join: board.cwds is not one checkout for review, respond and doctor (logs/board-cwds.json)"; fi
+  fi
 fi
 
 # tray.sock /version
@@ -103,33 +113,29 @@ else
 fi
 
 # The finish gate: drive-setup.sh probes and drives each finish-gated Done
-# row on its own (Fast Browser, writing-style, either, or neither), writing
-# one line per row it resolved, or the single word "open" when it found none.
-# `rt settings get`/`rt skills writing-style show --json` are the one
-# undecorated reads of the store either row's own record lives in.
+# row on its own (writing-style, the steps you can skip, any mix, or none),
+# writing one line per row it resolved, or the single word "open" when it
+# found none. The Fast Browser extension can never be skipped, so
+# setup.waived must never hold it. `rt settings get`/`rt skills
+# writing-style show --json` are the one undecorated reads of the store
+# either row's own record lives in.
 GATE_FILE="$LOGS/finish-gate.txt"
 if [ ! -f "$GATE_FILE" ]; then
   if [ "$HEADLESS" = 1 ]; then ok "finish gate not driven (headless)"; else bad "no finish-gate.txt from drive-setup.sh"; fi
-elif [ "$(cat "$GATE_FILE")" = "open" ]; then
+else
   WAIVED=$(rt settings get setup.waived --json 2>/dev/null)
   case "$WAIVED" in
-    *tool.fast-browser-extension*) bad "nothing was skipped on the Done screen but setup.waived holds the id: $WAIVED";;
-    *) ok "setup.waived is empty (the gate never closed)";;
+    *tool.fast-browser-extension*) bad "setup.waived holds tool.fast-browser-extension, which cannot be skipped: $WAIVED";;
+    *) ok "setup.waived does not hold tool.fast-browser-extension";;
   esac
-else
-  if grep -qx 'fast-browser-extension=skipped' "$GATE_FILE"; then
-    WAIVED=$(rt settings get setup.waived --json 2>/dev/null)
-    case "$WAIVED" in
-      *tool.fast-browser-extension*) ok "setup.waived holds tool.fast-browser-extension after Skip for now";;
-      *) bad "Skip for now was confirmed but setup.waived does not hold the id: $WAIVED";;
-    esac
-  else
-    WAIVED=$(rt settings get setup.waived --json 2>/dev/null)
-    case "$WAIVED" in
-      *tool.fast-browser-extension*) bad "fast-browser-extension was not skipped on the Done screen but setup.waived holds the id: $WAIVED";;
-      *) ok "setup.waived does not hold tool.fast-browser-extension (it was not skipped)";;
-    esac
-  fi
+  SKIPPED=$(sed -n 's/^\(.*\)=skipped$/\1/p' "$GATE_FILE")
+  for id in skills.overrides tool.chrome-signin tool.mission-control; do
+    if printf '%s\n' "$SKIPPED" | grep -qx "$id"; then
+      case "$WAIVED" in *"\"$id\""*) ok "setup.waived holds $id after Skip";; *) bad "$id was skipped on the summary but setup.waived does not hold it: $WAIVED";; esac
+    else
+      case "$WAIVED" in *"\"$id\""*) bad "$id was not skipped on the summary but setup.waived holds it: $WAIVED";; *) ok "setup.waived does not hold $id (it was not skipped)";; esac
+    fi
+  done
   STYLE_LINE=$(grep '^writing-style=' "$GATE_FILE" || true)
   if [ -n "$STYLE_LINE" ]; then
     STYLE_ID="${STYLE_LINE#writing-style=}"

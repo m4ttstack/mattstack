@@ -1,6 +1,6 @@
 #!/bin/bash
-# Screen-driving functions shared by drive-setup.sh (the wizard, all five
-# screens) and upgrade-to-team.sh (the in-place Settings > Team leg, which
+# Screen-driving functions shared by drive-setup.sh (the wizard, every
+# screen) and upgrade-to-team.sh (the in-place Settings > Team leg, which
 # reuses screen_team/screen_readiness/screen_install/screen_done). Sourced
 # only: declares functions and returns, never runs the flow itself, so a
 # caller's own SCENARIO/PAT/TEAM_REMOTE/etc. stay whatever it set them to.
@@ -35,6 +35,65 @@ screen_welcome() {
   ax_wait_screen welcome 10 || ax_fail "setup.welcome.screen axid missing"
   ax_shot 01-welcome
   ax_click setup.welcome.continue
+}
+
+# First run only, between Welcome and Your team: open Full Disk Access, turn
+# mattstack on in System Settings, then the page's own Reopen mattstack, which
+# relaunches in place (same arguments and environment, so the appcast override
+# survives) and resumes at Your team. The OS applying the grant is asserted
+# later, through the perm.fda row on Your Mac.
+screen_full_disk_access() {
+  local deadline
+  ax_wait_screen fullDiskAccess 30 || ax_fail "setup.fullDiskAccess.screen did not appear after Welcome"
+  # The page reads Checking until the plan lands, and Check again when it failed.
+  deadline=$((SECONDS + 90))
+  until ax_find setup.fullDiskAccess.open >/dev/null 2>&1 || ax_find setup.fullDiskAccess.reopen >/dev/null 2>&1 \
+      || [ "$(ax_enabled setup.fullDiskAccess.continue || true)" = true ]; do
+    [ "$SECONDS" -lt "$deadline" ] || ax_fail "the Full Disk Access page never left Checking"
+    if ax_find setup.fullDiskAccess.loadFailed >/dev/null 2>&1; then
+      ax_log "Full Disk Access check failed: $(ax_value setup.fullDiskAccess.loadFailed || true); pressing Check again"
+      ax_click setup.fullDiskAccess.checkAgain
+    fi
+    sleep 1
+  done
+  ax_shot 01b-full-disk-access
+  if ax_find setup.fullDiskAccess.open >/dev/null 2>&1; then
+    ax_click setup.fullDiskAccess.open
+    ax_toggle_in_system_settings mattstack "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" || ax_fail "could not toggle FDA in System Settings"
+    ax_shot 01c-fda-toggled
+    # The page checks again when the app comes back to the front.
+    ax_osa 'tell application "mattstack" to activate' >/dev/null 2>&1 || true
+    deadline=$((SECONDS + 30))
+    until ax_find setup.fullDiskAccess.reopen >/dev/null 2>&1 || [ "$(ax_enabled setup.fullDiskAccess.continue || true)" = true ]; do
+      [ "$SECONDS" -lt "$deadline" ] && { sleep 1; continue; }
+      # A granted switch the running app cannot see leaves a real user stuck
+      # here too. Quit and reopen the way they eventually would, and leave
+      # the finding in the log.
+      ax_log "FINDING: FDA is on in System Settings but the page offers neither Reopen mattstack nor Continue; quitting and reopening it"
+      ax_osa 'tell application "mattstack" to quit' >/dev/null 2>&1 || true
+      sleep 3
+      relaunch_app || ax_fail "app did not come back after the driver's FDA relaunch"
+      ax_wait_window "mattstack" 60 || ax_fail "app did not come back after the driver's FDA relaunch"
+      screen_welcome
+      ax_wait_screen fullDiskAccess 30 || ax_fail "setup.fullDiskAccess.screen did not return after the driver's relaunch"
+      ax_wait_enabled setup.fullDiskAccess.continue 60 || ax_fail "Full Disk Access still reads off after a quit and reopen"
+      break
+    done
+  fi
+  if ax_find setup.fullDiskAccess.reopen >/dev/null 2>&1; then
+    ax_shot 01d-fda-reopen
+    ax_click setup.fullDiskAccess.reopen
+    sleep 3
+    if ! ax_wait_window "mattstack" 60; then
+      ax_log "app did not come back by itself after Reopen mattstack; relaunching with the driver's env/args"
+      relaunch_app || ax_fail "app did not come back after Reopen mattstack"
+      ax_wait_window "mattstack" 60 || ax_fail "app did not come back after Reopen mattstack"
+    fi
+    ax_wait_screen team 60 || ax_fail "Reopen mattstack did not resume at Your team"
+    return 0
+  fi
+  ax_click setup.fullDiskAccess.continue
+  ax_wait_screen team 30 || ax_fail "setup.team.screen did not appear after Full Disk Access"
 }
 
 screen_team() {
@@ -73,8 +132,61 @@ screen_team() {
     restore) ax_log "restore scenario not implemented"; exit 3;;
   esac
   ax_click setup.team.continue
-  # Continue validates the remote(s) with git ls-remote; allow time, then the checklist must appear.
-  ax_wait_screen checklist 60 || ax_fail "setup.checklist.screen did not appear after team Continue"
+  # Continue validates the remote(s) with git ls-remote; allow time. A joiner
+  # goes to the Join page, everyone else to the checklist.
+  if [ "$SCENARIO" = join ]; then
+    ax_wait_screen join 60 || ax_fail "setup.join.screen did not appear after team Continue"
+  else
+    ax_wait_screen checklist 60 || ax_fail "setup.checklist.screen did not appear after team Continue"
+  fi
+}
+
+# The joiner's own page: connect the team repo's forge if the access row asks,
+# join, then hold on the waiting state until the host approves (walkthrough.sh
+# runs run/host/approve-join.sh when in/join-waiting.req appears), then
+# Continue to the checklist.
+screen_join() {
+  local deadline
+  # The page shows the access.team-repo row only while the token cannot reach the repo.
+  deadline=$((SECONDS + 60))
+  until ax_find setup.join.run >/dev/null 2>&1; do
+    if ax_find setup.checklist.row.access.team-repo.action >/dev/null 2>&1 \
+        && [ "$(ax_status access.team-repo || true)" != ready ]; then
+      [ -n "$PAT" ] || ax_fail "the Join page asks for the team repo's forge but \$$PAT_ENV is empty on the host"
+      ax_shot 02a-join-token
+      ax_click setup.checklist.row.access.team-repo.action
+      ax_set_field setup.checklist.connect.field.token "$PAT"
+      ax_click setup.checklist.connect.submit
+      deadline=$((SECONDS + 60))
+    fi
+    [ "$SECONDS" -lt "$deadline" ] || ax_fail "the Join page never offered setup.join.run"
+    sleep 1
+  done
+  ax_click setup.join.run
+  # Joining clones the team's settings: allow for the network.
+  deadline=$((SECONDS + 300))
+  until ax_find setup.join.waiting >/dev/null 2>&1 || ax_find setup.join.approved >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || ax_fail "the Join page reached neither waiting nor approved within 300s"
+    sleep 2
+  done
+  if ax_find setup.join.approved >/dev/null 2>&1; then
+    ax_log "FINDING: the Join page went straight to approved; the waiting screen never showed"
+  else
+    ax_shot 02b-join-waiting
+    rm -f "$GUEST_RUN/in/join-approve.done" "$GUEST_RUN/in/join-approve.failed"
+    : > "$GUEST_RUN/in/join-waiting.req"
+    ax_log "join: waiting for approval; asked the host to approve"
+    deadline=$((SECONDS + 300))
+    until ax_find setup.join.approved >/dev/null 2>&1; do
+      [ -e "$GUEST_RUN/in/join-approve.failed" ] && ax_fail "the host could not approve the join (logs/approve.log)"
+      [ "$SECONDS" -lt "$deadline" ] || ax_fail "the Join page was not approved within 300s of asking the host"
+      sleep 3
+    done
+  fi
+  ax_shot 02c-join-approved
+  ax_wait_enabled setup.join.continue 30 || ax_fail "Continue did not enable on the approved Join page"
+  ax_click setup.join.continue
+  ax_wait_screen checklist 60 || ax_fail "setup.checklist.screen did not appear after the Join page"
 }
 
 # The checklist opens before its first plan lands: no row, no page, and a
@@ -115,41 +227,21 @@ screen_row_account() {
   fi
 }
 
-# Full Disk Access: button → System Settings → toggle (admin auth for a standard user) → Relaunch.
+# The Full Disk Access page drove the grant before Your team; here the row
+# only confirms the OS applied it.
 screen_row_fda() {
-  if [ "$(ax_status perm.fda || true)" != ready ]; then
-    ax_click setup.checklist.row.perm.fda.action
-    ax_toggle_in_system_settings mattstack "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" || ax_fail "could not toggle FDA in System Settings"
-    ax_shot 03-fda-toggled
-    # Relaunch re-execs the app in place with its current arguments + environment, so the appcast
-    # override survives.
-    # The grant reaches the running process live; the app then offers its own
-    # relaunch (its probe flips denied → granted), which re-execs in place.
-    local n=20
-    while [ "$n" -gt 0 ] && ! ax_find setup.checklist.relaunch >/dev/null 2>&1; do sleep 1; n=$((n-1)); done
-    if ax_find setup.checklist.relaunch >/dev/null 2>&1; then
-      ax_click setup.checklist.relaunch
-    else
-      # A granted switch the running process cannot see: the app shows no
-      # relaunch hint, so a real user would be stuck here. Quit and reopen the
-      # way they eventually would, and leave the finding in the log.
-      ax_log "FINDING: FDA is on in System Settings but the app offers no setup.checklist.relaunch; quitting and reopening it"
-      ax_osa 'tell application "mattstack" to quit' >/dev/null 2>&1 || true
-      sleep 3
-      relaunch_app || ax_fail "app did not come back after the driver's FDA relaunch"
-    fi
-    sleep 3
-    if ! ax_wait_window "mattstack" 60; then
-      ax_log "app did not come back by itself after FDA relaunch — relaunching with the driver's env/args"
-      relaunch_app || ax_fail "app did not come back after FDA relaunch"
-      ax_wait_window "mattstack" 60 || ax_fail "app did not come back after FDA relaunch"
-    fi
-    ax_wait_screen checklist 30 || ax_fail "checklist did not return after FDA relaunch"
-    # The wizard reopens on the first page that still holds a required row,
-    # which need not be this one; the status wait turns back to it.
-    screen_wait_plan 60 || ax_fail "the checklist drew no row after the FDA relaunch"
-    ax_wait_status perm.fda ready 30 || ax_fail "FDA not applied after relaunch"
-  fi
+  local s
+  s=$(ax_status perm.fda || true)
+  [ "$s" = ready ] || ax_fail "perm.fda is '${s:-?}' on the checklist after the Full Disk Access page"
+}
+
+# A tracked repo the joiner has not placed holds Install: accept the location
+# the row shows with its one-click button (rt clones there at Install).
+screen_row_repo() {  # <repos.place:<identity>>
+  [ "$(ax_status "$1" || true)" = ready ] && return 0
+  ax_find "setup.checklist.row.$1.oneClick" >/dev/null 2>&1 || ax_fail "$1 needs a placement but offers no one-click button"
+  ax_click "setup.checklist.row.$1.oneClick"
+  ax_wait_status "$1" ready 60 || ax_fail "$1 not ready after its one-click button"
 }
 
 # Background services (Login Items): register → if requiresApproval, open pane and toggle.
@@ -209,7 +301,7 @@ screen_row_tool() {  # <herdr|claude>
 # answers that are on it, then its primary button, which is Install on the
 # last page.
 screen_readiness() {
-  local n=12 turned=0 paged=0 ids page wording tool
+  local n=12 turned=0 paged=0 ids page wording tool repo
   SCREEN_ROWS_DONE=" "
   ax_shot 03-readiness-initial
   screen_wait_plan 60 || ax_fail "the checklist drew no row within 60s"
@@ -234,6 +326,9 @@ screen_readiness() {
     if screen_row_due "$ids" tool.proxy; then
       screen_proxy_row
     fi
+    for repo in $(printf '%s\n' "$ids" | sed -n 's/^setup\.checklist\.row\.\(repos\.place:.*\)\.status$/\1/p'); do
+      if screen_row_due "$ids" "$repo"; then screen_row_repo "$repo"; fi
+    done
     # Every row's status on the page, before its button: the one record that
     # explains a page that does not advance.
     ax_log "checklist page ${page:-?}: $(ax_row_statuses | tr '\n' ' ')"
@@ -340,32 +435,19 @@ screen_done() {
     || ax_fail "the summary drew neither Overview nor Needs you"
   ax_shot 05-done
   # Neither the Needs you pane showing, nor one gated row's presence, says
-  # anything about another: this guest may carry the Fast Browser row (gated
-  # when Chrome is missing), the writing-style row, both, or neither, and each
+  # anything about another: this guest may carry the Fast Browser row, the
+  # writing-style row, a step you can skip, any mix of them, or none, and each
   # is handled on its own. A row's container id may not surface where its
   # .action/.status children do, so presence is always probed by the .action
   # id, never by the bare row id or by "the pane is showing".
   ax_wait_done_gate 60 || ax_fail "the summary never settled: no Needs you entry and Finish still disabled (or a refresh error is up)"
   : > "$GUEST_RUN/logs/finish-gate.txt"
 
+  # The extension is added in Chrome by hand and can never be skipped, so a
+  # summary that still waits on it is one this walkthrough cannot finish.
   if ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1; then
-    ax_click setup.done.skip.tool.fast-browser-extension
-    ax_wait_text "Skip the Fast Browser extension?" 10 || ax_fail "skip confirm sheet did not appear"
-    ax_wait_text "Without the Fast Browser extension, agents cannot capture screenshots or annotate evidence from your browser. You can load it later from Settings." 5 || ax_fail "skip confirm sheet body is not the pinned copy"
-    ax_shot 05-skip-confirm
-    ax_click_sheet_button "Skip for now" || ax_fail "could not click Skip for now in the sheet"
-    local n=30
-    while [ "$n" -gt 0 ] && ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1; do sleep 1; n=$((n-1)); done
-    ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1 && ax_fail "the Fast Browser row is still under Needs you after Skip for now"
-    # A skipped row is back in its own group's pane, under the checklist's row
-    # ids; ax_find turns the sidebar to it. Probed by its .status child, which
-    # surfaces where a row's container id may not.
-    ax_find setup.checklist.row.tool.fast-browser-extension.status >/dev/null 2>&1 || ax_fail "the skipped row is not in its group's pane on the summary"
-    ax_shot 05-skipped
-    echo "fast-browser-extension=skipped" >> "$GUEST_RUN/logs/finish-gate.txt"
-    # The sidebar keeps the pane that probe picked, and the next row is looked
-    # for under Needs you.
-    if ax_find setup.checklist.group.needs-you >/dev/null 2>&1; then ax_click setup.checklist.group.needs-you; fi
+    ax_shot 05-fast-browser-extension
+    ax_fail "the Fast Browser extension row holds Finish ($(ax_value setup.done.beforeYouFinish.tool.fast-browser-extension.status || true)); it cannot be skipped and the walkthrough cannot add a Chrome extension"
   fi
 
   if ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1; then
@@ -400,6 +482,23 @@ screen_done() {
     echo "$row=placed" >> "$GUEST_RUN/logs/finish-gate.txt"
   done
   [ -n "$repo_buttons" ] && ax_shot 05-repos-placed
+
+  # The steps you can skip sit in their group's You can skip card, never under
+  # Needs you, and still hold Finish. ax_find turns the sidebar to the row's
+  # group by its .status id.
+  local id
+  for id in skills.overrides tool.chrome-signin tool.mission-control; do
+    ax_find "setup.checklist.row.$id.status" >/dev/null 2>&1 || continue
+    ax_find "setup.done.skip.$id" >/dev/null 2>&1 || continue
+    ax_click "setup.done.skip.$id"
+    ax_wait_sheet_id setup.done.skipConfirm.skip 10 || ax_fail "the skip confirm sheet did not open for $id"
+    ax_shot "05-skip-$id"
+    ax_click_sheet_id setup.done.skipConfirm.skip || ax_fail "could not click Skip in the confirm sheet for $id"
+    local n=30
+    while [ "$n" -gt 0 ] && ax_find "setup.done.skip.$id" >/dev/null 2>&1; do sleep 1; n=$((n-1)); done
+    ax_find "setup.done.skip.$id" >/dev/null 2>&1 && ax_fail "$id still offers Skip after the confirm sheet"
+    echo "$id=skipped" >> "$GUEST_RUN/logs/finish-gate.txt"
+  done
 
   ax_wait_enabled setup.done.continue 30 || ax_fail "Finish did not enable after resolving the Needs you rows"
   ax_find setup.done.refreshError >/dev/null 2>&1 && ax_fail "the summary fell open on a failed re-check: $(ax_value setup.done.refreshError || true)"

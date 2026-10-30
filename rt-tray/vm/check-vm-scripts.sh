@@ -21,6 +21,7 @@ t "served-apps-sh.test.ts"       bun test run/helpers/__tests__/served-apps-sh.t
 t "walkthrough-teardown.test.ts" bun test run/helpers/__tests__/walkthrough-teardown.test.ts
 t "mint-invite.test.ts"          bun test run/helpers/__tests__/mint-invite.test.ts
 t "join-rows.test.ts"            bun test run/helpers/__tests__/join-rows.test.ts
+t "approve-join.test.ts"         bun test run/helpers/__tests__/approve-join.test.ts
 t "build-golden --dry-run"       bash golden/build-golden.sh 26 --dry-run
 # A pause nobody can answer used to exit mute under set -e, killing the VM
 # through the EXIT trap after 15 minutes of provisioning, with the failure
@@ -68,6 +69,14 @@ t "walkthrough refuses to mint with a dev-flavor --app" bash -c '
   [ "$rc" -ne 0 ] && printf "%s" "$out" | grep -q "dev-flavor bundle" && [ "$with" = /x/rt ]'
 t "mint-invite.sh usage (missing args)" bash -c \
   'out=$(bash run/host/mint-invite.sh 2>&1); rc=$?; [ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "Usage: mint-invite.sh"'
+t "approve-join.sh usage (missing args)" bash -c \
+  'out=$(bash run/host/approve-join.sh 2>&1); rc=$?; [ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "Usage: approve-join.sh"'
+t "walkthrough answers the guest's join request with approve-join.sh" bash -c \
+  'grep -q "approve_watcher & APPROVE_PID" run/walkthrough.sh && grep -q "run/host/approve-join.sh" run/walkthrough.sh \
+   && grep -q "join-waiting.req" run/guest/screens.sh && grep -q "join-approve.failed" run/guest/screens.sh'
+t "drive-setup.sh walks Full Disk Access before Your team, and the Join page after it" bash -c \
+  'grep -q "^screen_welcome; screen_full_disk_access; screen_team$" run/guest/drive-setup.sh \
+   && grep -q "then screen_join; fi" run/guest/drive-setup.sh'
 t "xcuitest.sh usage (missing args)" bash -c \
   'out=$(bash run/xcuitest.sh 2>&1); rc=$?; [ "$rc" -ne 0 ] && printf "%s" "$out" | grep -q "usage: xcuitest.sh"'
 # --ver 99 keeps this deterministic: no ghcr image maps to 99, so no real -xcode golden can
@@ -162,10 +171,15 @@ t "ax_shot skips instantly under --no-graphics"   env GUEST_RUN=/tmp/vmcheck-ax 
 # 10s of headroom still catches a genuine hang without being a coin flip.
 t "ax_admin_auth_once returns fast with no SecurityAgent" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c 'source run/guest/ax.sh; s=$SECONDS; ax_admin_auth_once; rc=$?; [ "$rc" -eq 1 ] && [ $((SECONDS-s)) -le 10 ]'
 t "ax_set_field escapes an embedded quote/backslash" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; ( ax_set_field setup.team.create.name "weird\"value\\here" ) 2>/dev/null; [ $? -eq 1 ] && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
-t "ax finish-gate helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_enabled ax_wait_enabled ax_wait_text ax_click_sheet_button ax_find_sheet_id ax_click_sheet_id >/dev/null && ! ax_enabled x >/dev/null 2>&1 && ! ax_wait_enabled x 1 && ! ax_wait_text "Skip the Fast Browser extension?" 1 && ! ax_click_sheet_button "Skip for now" && ! ax_find_sheet_id x >/dev/null 2>&1 && ! ax_click_sheet_id x >/dev/null 2>&1 && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
-t "screens.sh drives Skip for now by its wording"   bash -c 'grep -q "ax_click_sheet_button \"Skip for now\"" run/guest/screens.sh && grep -q "Skip the Fast Browser extension?" run/guest/screens.sh'
-t "screens.sh probes the skipped row in its group by its .status id, not the bare row id" bash -c \
-  'grep -q "setup.checklist.row.tool.fast-browser-extension.status" run/guest/screens.sh'
+t "ax finish-gate helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_enabled ax_wait_enabled ax_wait_text ax_click_sheet_button ax_find_sheet_id ax_click_sheet_id >/dev/null && ! ax_enabled x >/dev/null 2>&1 && ! ax_wait_enabled x 1 && ! ax_wait_text "Skip Mission Control shortcut?" 1 && ! ax_click_sheet_button "Skip for now" && ! ax_find_sheet_id x >/dev/null 2>&1 && ! ax_click_sheet_id x >/dev/null 2>&1 && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+# The Fast Browser extension can never be skipped; only the three steps rt
+# lets you skip are, through their own Skip button and the confirm sheet.
+t "screens.sh skips only the three skippable steps, never the Fast Browser extension" bash -c \
+  'grep -q "for id in skills.overrides tool.chrome-signin tool.mission-control" run/guest/screens.sh \
+   && grep -q "ax_click_sheet_id setup.done.skipConfirm.skip" run/guest/screens.sh \
+   && ! grep -qE "setup\.done\.skip\.tool\.fast-browser-extension|Skip for now|Skip the Fast Browser extension" run/guest/screens.sh'
+t "screens.sh probes a skippable row in its group by its .status id, not the bare row id" bash -c \
+  'grep -qF "ax_find \"setup.checklist.row.\$id.status\"" run/guest/screens.sh'
 # grep exits 2 on a missing directory, so only 1 (no match) passes.
 t "nothing under vm reads an id the summary dropped" bash -c \
   'grep -rqE "setup\.done\.stillToDo|ax_find setup\.done\.beforeYouFinish( |$)|setup\.checklist\.continueLimited" run golden lib; [ $? -eq 1 ]'
@@ -210,11 +224,13 @@ t "screens.sh waits for the sheet with a bounded poll before looking for the opt
 t "screens.sh waits for Use this style to enable before clicking it" bash -c \
   'grep -q "ax_wait_sheet_enabled setup.choose.submit" run/guest/screens.sh'
 t "assert-installed.sh parses finish-gate.txt's per-row line format, not just skipped/open" bash -c \
-  'grep -q "fast-browser-extension=skipped" run/guest/assert-installed.sh \
+  'grep -q "for id in skills.overrides tool.chrome-signin tool.mission-control" run/guest/assert-installed.sh \
    && grep -q "writing-style=" run/guest/assert-installed.sh \
    && grep -q "writing-style show --json" run/guest/assert-installed.sh'
-t "assert-installed.sh asserts setup.waived is empty when no fast-browser-extension=skipped line is present" bash -c \
-  'grep -q "was not skipped on the Done screen but setup.waived holds the id" run/guest/assert-installed.sh'
+t "assert-installed.sh fails a setup.waived that holds the Fast Browser extension or an unskipped step" bash -c \
+  'grep -q "tool.fast-browser-extension, which cannot be skipped" run/guest/assert-installed.sh \
+   && grep -q "was not skipped on the summary but setup.waived holds it" run/guest/assert-installed.sh \
+   && ! grep -q "fast-browser-extension=skipped" run/guest/assert-installed.sh'
 t "ax_enabled_or_fail names a missing axid"             env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; out=$( (ax_enabled_or_fail setup.done.continue) 2>&1 ); [ $? -ne 0 ] && printf "%s" "$out" | grep -q "setup.done.continue not found"'
 t "assert-installed.sh asserts setup.waived"            bash -c 'grep -q "rt settings get setup.waived --json" run/guest/assert-installed.sh'
 t "assert-installed.sh takes a backup and asserts the .age plus the LFS filter" bash -c \

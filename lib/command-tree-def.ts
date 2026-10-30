@@ -2798,7 +2798,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "setupWaive",
         omitBehavior: "picker",
         args: [
-          { name: "Row", type: "text", placeholder: "tool.fast-browser-extension", hint: "Waivable row id (today only tool.fast-browser-extension)" },
+          { name: "Row", type: "text", placeholder: "tool.mission-control", hint: "Row id you can skip: skills.overrides, tool.chrome-signin or tool.mission-control" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2808,7 +2808,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "setupUnwaive",
         omitBehavior: "picker",
         args: [
-          { name: "Row", type: "text", placeholder: "tool.fast-browser-extension", hint: "Waivable row id (today only tool.fast-browser-extension)" },
+          { name: "Row", type: "text", placeholder: "tool.mission-control", hint: "Skipped row id to bring back" },
           SETUP_JSON_ARG,
         ],
       },

@@ -10,8 +10,8 @@ Every run's deliverable is `artifacts/<run-id>/` (screenshots, logs,
 | Layer | Verifies | Cannot verify / not automated |
 |---|---|---|
 | (a) `scripts/e2e-cleanroom.sh` (same recipe as the release workflow's "Clean-room install + verify" step) | artifact extracts; Gatekeeper accepts the app with `com.apple.quarantine` stamped on the way a browser download would; `rt --post-install` installs `~/.local/bin/rt`, the app, the daemon config; `rt verify --ci` exit 0; every bundled helper runs from inside the signed bundle | anything needing a GUI session or approval (daemon boot is a warn under CI); Gatekeeper **where the xattr cannot be written** — that prints `Gatekeeper path NOT exercised` and the run still passes, so a green run is not proof it was tested |
-| (b) `run/walkthrough.sh` (Tart clone of a golden image) | real DMG → /Applications → first launch under Gatekeeper; five setup screens; FDA + Login Items + Notifications dances; `rt verify --json` green; tray.sock `/version`; Sparkle vN→vN+1 and daemon restart; screenshots per screen | the **"Background Items Added" notification** (a banner, not a dialog — it is neither clicked nor asserted; the Login Items row is asserted through `GET /services` / `rt setup status` instead); the **FDA relaunch** is driven (the app's own "Relaunch" button) but the OS applying FDA is asserted only via the app's probe row; notarisation/stapling of Matt's signing (a locally built DMG is unnotarised → run with `--no-quarantine`, reported in the ledger) |
-| (c) `run/second-user.sh` | layer (a) under a second real macOS user on Matt's Mac, with a live GUI session so SMAppService registration is real | nothing about the five screens; the user must be created and logged in once by Matt |
+| (b) `run/walkthrough.sh` (Tart clone of a golden image) | real DMG → /Applications → first launch under Gatekeeper; every setup screen (Welcome, Full Disk Access, Your team, the Join page on a join, the checklist pages, Install, the summary); FDA + Login Items + Notifications dances; `rt verify --json` green; tray.sock `/version`; Sparkle vN→vN+1 and daemon restart; screenshots per screen | the **"Background Items Added" notification** (a banner, not a dialog — it is neither clicked nor asserted; the Login Items row is asserted through `GET /services` / `rt setup status` instead); the **FDA relaunch** is driven (the Full Disk Access page's own "Reopen mattstack" button) but the OS applying FDA is asserted only via the app's probe row; notarisation/stapling of Matt's signing (a locally built DMG is unnotarised → run with `--no-quarantine`, reported in the ledger) |
+| (c) `run/second-user.sh` | layer (a) under a second real macOS user on Matt's Mac, with a live GUI session so SMAppService registration is real | nothing about the setup screens; the user must be created and logged in once by Matt |
 
 ## Status
 
@@ -70,10 +70,36 @@ Facts a join run depends on:
   a `skipped` forge grant still clones.
 - The driven join asserts the Join card's note (the green "Joining ..."
   summary or `setup.team.join.warning`) is on the Team screen before
-  Continue, and the assert phase runs `assert-installed.sh --join <slug>`:
-  `rt team status` names the team, and `run/guest/jq/join-rows.jq` requires
+  Continue. The Join page comes next (`screen_join` in
+  `run/guest/screens.sh`): it connects the token when the page shows the
+  `access.team-repo` row, presses `setup.join.run`, waits for
+  `setup.join.waiting`, shoots `02b-join-waiting` and writes
+  `in/join-waiting.req` to the share. `walkthrough.sh` answers it with
+  `run/host/approve-join.sh`, which runs `rt team members sync` and
+  `rt team publish` under the mint's HOME (kept from the invite phase until
+  the screens phase ends) and fails unless the joiner's age key, read from
+  the guest's `~/.mattstack/rt/teams/<slug>.json`, is a recipient in the
+  clone's `.sops.yaml`. The page then has 300s to read `setup.join.approved`
+  (`02c-join-approved`) before Continue. Only a `--fresh-team-repo` join has
+  a mint HOME; any other join writes `in/join-approve.failed` and the page
+  must be approved from the owner's Mac. The host's side is in
+  `logs/approve.log`.
+- The assert phase runs `assert-installed.sh --join <slug>`: `rt team
+  status` names the team, `run/guest/jq/join-rows.jq` requires
   `tool.plugins`, `access.team-repo` and any `team.marketplace` ready, and
-  each `access.repo.*` ready or a clear partial (a detail plus an action).
+  each `access.repo.*` ready or a clear partial (a detail plus an action),
+  and when the team tracks a repo, `board.cwds` points review, respond and
+  doctor at one checkout.
+- The checklist's Your repos rows hold Install now: `screen_readiness`
+  accepts each unplaced `repos.place:*` row's one-click location before
+  pressing the page's button.
+- The summary can only finish when nothing it cannot skip is left. The Fast
+  Browser extension can never be skipped, so a guest that reaches the summary
+  with that row open fails there by name. A step you can skip (Skill
+  overrides, Chrome sign-in, Mission Control shortcut) is skipped through
+  `setup.done.skip.<id>` and the confirm sheet, and written to
+  `logs/finish-gate.txt` as `<id>=skipped`; `assert-installed.sh` then
+  requires each in `setup.waived` and nothing else there.
 - One PAT per run, the joiner's own, through `--pat-env`; `--forge gitlab`
   when the invite is not derivable from a remote. Invite codes come from
   `team-load.sh` (`--out <dir>/code-<handle>.txt`) or, for the bare
@@ -169,7 +195,7 @@ rt-tray/vm/
   run/walkthrough.sh             host orchestrator: clone → boot → stage → install → screens → assert → update → teardown → report
   run/guest/install-app.sh       guest: quarantine DMG, mount, copy to /Applications (admin) , launch as tester with env
   run/guest/ax.sh                guest: osascript helpers (find by AXIdentifier, click, type, wait, admin-auth, notification prompts)
-  run/guest/drive-setup.sh       guest: screens 1–5 + FDA/Login Items/Notifications dances, screenshot hooks
+  run/guest/drive-setup.sh       guest: every setup screen, Full Disk Access and the Join page included, + Login Items/Notifications dances, screenshot hooks
   run/guest/assert-installed.sh  guest: rt verify --json, tray.sock /version, daemon pid/label, symlink target, served apps, every .mattstack route
   run/guest/trigger-update.sh    guest: loopback appcast server, POST /update/check, drive Sparkle, assert vN+1 + daemon restart + served apps
   run/guest/served-apps.sh       guest: sourced by both; deck's served set from the bundle's deps.lock, every .mattstack route
@@ -180,6 +206,7 @@ rt-tray/vm/
   run/make-dmg.sh                host: wrap a built mattstack.app in a DMG (pre-L4 runs)
   run/make-appcast.sh            host: bump CFBundleVersion copy → zip → generate_appcast with a test EdDSA key
   run/host/mint-invite.sh        host: owner side of join --fresh-team-repo; team create/publish/invite under a throwaway HOME
+  run/host/approve-join.sh       host: approves that join from the same HOME; members sync + publish, joiner's key in .sops.yaml
   run/team-setup.sh              host, ORCHESTRATOR/MATT: reset the throwaway org's repos; mint invite (real or stub)
   run/second-user.sh             host: layer (c) — run e2e-cleanroom as the second macOS user (MATT creates the user)
   run/xcuitest.sh                host: layer (b) XCUITest mode, gated on Xcode + the -xcode golden
@@ -218,7 +245,7 @@ run/second-user.sh run --artifact ~/Downloads/mattstack-2.9.0.zip
 ```
 Today, the first line's `screens` phase and both lines' `update` phase report `fail`/`skip` honestly (see Status above). `--scenario headless` (line 2) is no longer blocked by anything known, but no scenario has yet been run end to end against a golden image, so none is *known* green either. `--dry-run` exercises the whole orchestrator (phase ledger, report) against any golden name without Tart or a real DMG/app.
 
-Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `02-team-*`, `03-readiness-*`, `04-install-*`, `05-done`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
+Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `01b-full-disk-access`, `01c-fda-toggled`, `01d-fda-reopen`, `02-team-*`, `02a-join-token`, `02b-join-waiting`, `02c-join-approved`, `03-readiness-*`, `04-install-*`, `05-done`, `05-skip-<id>`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
 
 Every host-to-guest ssh sends keepalives (`ServerAliveInterval=10`, `ServerAliveCountMax=3`), so a session whose guest end vanished fails its phase in about 30s as `ssh to the guest failed or dropped after <n>s in <phase> (exit 255)`. The screens, team-upgrade and update scripts run through `vm_guest_run`, which writes their output and exit code into the share (`logs/screens.log`, `logs/upgrade.log`, `logs/update.log`, each with a `.rc` beside it): when only the channel drops, the phase waits for the script's own code instead, and fails as a drop only if none arrives by the phase limit. Each phase also has a wall-clock limit: 20 minutes by default, 90 for screens, 60 for team-upgrade, 30 for update, 10 for the invite mint and for teardown's log collection; `VM_PHASE_LIMIT_<PHASE>=<seconds>` overrides one (dashes become underscores). A phase that reaches it fails as `<phase> timed out after <n>s (limit <n>s)`. Both reasons end with the last lines of the phase's log (`logs/drive.log` for the driven screens). Teardown runs after either, and after SIGINT, SIGTERM or SIGHUP, which ledger the phase they interrupted as failed: it collects guest logs, stops and deletes the guest, deletes the `--fresh-team-repo` repo, and records anything it left behind in its own `teardown` row.
 
@@ -240,7 +267,7 @@ The release walkthrough (`rt:release`, `walkthrough.sh --scenario create`) runs 
 ## What is not automated (and how the scripts treat it)
 
 - **"Background Items Added" banner**: not clicked, not asserted (it is a notification). The design (once `run/guest/drive-setup.sh` lands, T6) is: the Login Items row is asserted through `GET /services` / `rt setup status`; if SMAppService returns `.requiresApproval`, the driver opens Login Items and toggles the app (admin auth as a standard user).
-- **FDA relaunch**: same T6 gate. Once built, the driver clicks "Relaunch mattstack" (`setup.checklist.relaunch`) and waits for the window to return (the app re-execs with its own args + env, so the appcast override survives; if it does not come back the driver relaunches it with the same `--env`/`--arg`); FDA taking effect is asserted only through the app's probe row (`perm.fda` = ready). No `tccutil` is used in the guest.
+- **FDA relaunch**: the Full Disk Access page comes right after Welcome, on first run only (`screen_full_disk_access`). The driver presses "Open Full Disk Access" (`setup.fullDiskAccess.open`), toggles mattstack in System Settings, brings the app back to the front, then presses "Reopen mattstack" (`setup.fullDiskAccess.reopen`) and waits for the window to return at Your team (the app re-execs with its own args + env, so the appcast override survives; if it does not come back the driver relaunches it with the same `--env`/`--arg`). A page that offers neither Reopen nor Continue after the toggle is logged as a FINDING, quit and reopened. FDA taking effect is asserted only through the app's probe row (`perm.fda` = ready on Your Mac). No `tccutil` is used in the guest.
 - **Gatekeeper with unnotarised builds**: real today, in `run/guest/install-app.sh`. A locally built DMG is quarantined by default to exercise the real path; it will be blocked (`launch fail`, screenshot of the dialog). Use `--no-quarantine` for local builds and say so in the ticket.
 - **Apple CLT install** in the clean room is real (Apple's dialog, network, minutes) once T6 lands; the driver clicks Install/Agree and waits up to 20 min.
 - **Sparkle update** needs L4's signed zip + appcast, L3's `MATTSTACK_APPCAST_URL` hook (prod builds honour it only when launched with `--allow-appcast-override`), and `run/guest/trigger-update.sh` (T8); until all three land the phase is `skip` with that reason. The appcast is served on **loopback inside the guest** to stay clear of macOS 15's Local Network Privacy prompt; the real feed is the GitHub Release asset `https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml`. `CFBundleVersion` follows L4's `major*1000000+minor*1000+patch`.

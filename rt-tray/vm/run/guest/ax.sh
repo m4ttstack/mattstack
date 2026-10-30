@@ -511,7 +511,8 @@ ax_enabled_or_fail() {  # <axid> -> true|false
 # The summary's gate settles only once its post-install re-check lands: until
 # then Finish is disabled and the Overview is the only pane, which is neither
 # of the two states a driver can act on. Waits for any of: the sidebar's Needs
-# you entry, either finish-gated row's own .action id, or Finish enabled.
+# you entry, either finish-gated row's own .action id, Finish enabled, or a
+# group entry in the sidebar.
 ax_wait_done_gate() {  # <timeout-s>
   local deadline=$((SECONDS + ${1:-60}))
   while [ "$SECONDS" -lt "$deadline" ]; do
@@ -519,6 +520,9 @@ ax_wait_done_gate() {  # <timeout-s>
     ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1 && { ax_log "done gate: Fast Browser row present"; return 0; }
     ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1 && { ax_log "done gate: writing-style row present"; return 0; }
     [ "$(ax_enabled setup.done.continue || true)" = true ] && { ax_log "done gate: Finish enabled"; return 0; }
+    # The group entries draw only once the re-check confirmed the rows; a step
+    # you can skip then holds Finish from its group's pane, not Needs you.
+    ax_dump_ids 2>/dev/null | grep -qE '^setup\.checklist\.group\.' && { ax_log "done gate: rows confirmed"; return 0; }
     sleep 1
   done
   ax_log "done gate did not settle within ${1:-60}s"; return 1

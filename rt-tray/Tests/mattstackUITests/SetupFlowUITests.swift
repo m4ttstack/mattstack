@@ -142,6 +142,25 @@ final class SetupFlowUITests: XCTestCase {
         add(a)
     }
 
+    /// Every stub plan reads Full Disk Access as granted (perm-denied-then-granted
+    /// aside), so the page between Welcome and Your team only needs Continue.
+    private func passFullDiskAccess() {
+        waitFor("setup.fullDiskAccess.screen")
+        waitUntilEnabled("setup.fullDiskAccess.continue")
+        el("setup.fullDiskAccess.continue").click()
+        waitFor("setup.team.screen")
+    }
+
+    /// Every join scenario but `join` answers join-status as approved at once.
+    private func passJoinPage() {
+        waitFor("setup.join.screen")
+        waitFor("setup.join.run")
+        el("setup.join.run").click()
+        waitFor("setup.join.approved", 30)
+        waitUntilEnabled("setup.join.continue")
+        el("setup.join.continue").click()
+    }
+
     /// Welcome through Install for a join scenario whose plan is installable
     /// out of the box, leaving the summary on screen.
     private func joinThroughInstall(_ scenario: String, appearance: String? = nil) {
@@ -150,17 +169,18 @@ final class SetupFlowUITests: XCTestCase {
         app.launch()
         waitFor("setup.welcome.screen")
         el("setup.welcome.continue").click()
-        waitFor("setup.team.screen")
+        passFullDiskAccess()
         el("setup.team.card.join").click()
         el("setup.team.join.code").click()
         el("setup.team.join.code").typeText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ-2345-6789-ABCD-EFGH")
         el("setup.team.continue").click()
+        passJoinPage()
         waitFor("setup.checklist.screen")
         waitFor("setup.checklist.page.mac")
         // Asserted on a row the page draws: the ready rows sit folded under No action needed.
         XCTAssertTrue(el("setup.checklist.row.perm.notifications.status").waitForExistence(timeout: 20), "the first page drew its rows")
         XCTAssertEqual(el("setup.checklist.row.perm.notifications.status").value as? String, "skipped")
-        XCTAssertEqual(el("setup.window.progress").value as? String, "3 of 8", "four pages sit between Your team and Install")
+        XCTAssertEqual(el("setup.window.progress").value as? String, "5 of 10", "Full Disk Access and the Join page sit before the four pages")
         pageThroughChecklist()
         waitFor("setup.install.screen")
         // Not waited on individually: the stub's apply() finishes all 11
@@ -249,7 +269,7 @@ final class SetupFlowUITests: XCTestCase {
         launch("create-happy")
         waitFor("setup.welcome.screen")
         el("setup.welcome.continue").click()
-        waitFor("setup.team.screen")
+        passFullDiskAccess()
         el("setup.team.card.create").click()
         el("setup.team.create.name").click()
         el("setup.team.create.name").typeText("Acme Claims")
@@ -267,7 +287,7 @@ final class SetupFlowUITests: XCTestCase {
         launch("solo")
         waitFor("setup.welcome.screen")
         el("setup.welcome.continue").click()
-        waitFor("setup.team.screen")
+        passFullDiskAccess()
         el("setup.team.card.solo").click()
         XCTAssertTrue(app.staticTexts["rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."].waitForExistence(timeout: 3))
         XCTAssertTrue(el("setup.team.continue").isEnabled, "Just me needs no fields")
@@ -277,7 +297,7 @@ final class SetupFlowUITests: XCTestCase {
         let pages = ["mac", "accounts", "tools"]
         for (index, page) in pages.enumerated() {
             waitFor("setup.checklist.page.\(page)")
-            XCTAssertEqual(el("setup.window.progress").value as? String, "\(index + 3) of 7", "an empty group is not a page")
+            XCTAssertEqual(el("setup.window.progress").value as? String, "\(index + 4) of 8", "an empty group is not a page")
             XCTAssertFalse(el("setup.checklist.row.access.team-repo").exists, "a solo plan has no team repo row (\(page))")
             XCTAssertFalse(app.staticTexts["Team repo reachable"].exists, "a solo plan has no team repo row (\(page))")
             waitUntilEnabled("setup.checklist.continue")
@@ -292,7 +312,7 @@ final class SetupFlowUITests: XCTestCase {
             app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
             app.launch()
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
-            waitFor("setup.team.screen"); el("setup.team.card.solo").click(); shoot("team-\(scheme)")
+            passFullDiskAccess(); el("setup.team.card.solo").click(); shoot("team-\(scheme)")
             el("setup.team.continue").click(); waitFor("setup.checklist.screen")
             waitFor("setup.checklist.page.mac"); shoot("page-mac-\(scheme)")
             pageThroughChecklist()
@@ -317,7 +337,7 @@ final class SetupFlowUITests: XCTestCase {
             app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
             app.launch()
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
-            waitFor("setup.team.screen"); el("setup.team.card.solo").click()
+            passFullDiskAccess(); el("setup.team.card.solo").click()
             el("setup.team.continue").click(); waitFor("setup.checklist.screen")
             pageThroughChecklist(); waitFor("setup.done.screen", 60)
             app.typeKey(",", modifierFlags: .command)
@@ -353,18 +373,21 @@ final class SetupFlowUITests: XCTestCase {
 
     /// A denial rt actually checked warns instead of blocking, so the warning
     /// is only readable back on the team screen: Continue has already carried
-    /// the joiner to the checklist by the time it renders.
+    /// the joiner past the Join page to the checklist by the time it renders.
     func testJoinDeniedWarnsAndStillReachesChecklist() {
         launch("join-no-access")
         waitFor("setup.welcome.screen")
         el("setup.welcome.continue").click()
-        waitFor("setup.team.screen")
+        passFullDiskAccess()
         el("setup.team.card.join").click()
         el("setup.team.join.code").click()
         el("setup.team.join.code").typeText("ABCD")
         el("setup.team.continue").click()
+        passJoinPage()
         waitFor("setup.checklist.screen")
         el("setup.checklist.back").click()
+        waitFor("setup.join.screen")
+        el("setup.join.back").click()
         waitFor("setup.team.screen")
         waitFor("setup.team.join.warning")
         XCTAssertTrue(app.staticTexts["Joining Acme. Your GitHub account cannot see acme/team yet: ask matt or your org admin to grant read access."].exists)
@@ -378,7 +401,7 @@ final class SetupFlowUITests: XCTestCase {
             app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
             app.launch()
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
-            waitFor("setup.team.screen")
+            passFullDiskAccess()
             el("setup.team.card.join").click()
             el("setup.team.join.code").click()
             el("setup.team.join.code").typeText("01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC")
@@ -399,11 +422,12 @@ final class SetupFlowUITests: XCTestCase {
             app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
             app.launch()
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
-            waitFor("setup.team.screen")
+            passFullDiskAccess()
             el("setup.team.card.join").click()
             el("setup.team.join.code").click()
             el("setup.team.join.code").typeText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ-2345-6789-ABCD-EFGH")
             el("setup.team.continue").click()
+            passJoinPage()
             waitFor("setup.checklist.page.mac")
             waitUntilEnabled("setup.checklist.continue")
             let before = el("setup.window.progress").value as? String ?? ""
@@ -441,34 +465,62 @@ final class SetupFlowUITests: XCTestCase {
         }
     }
 
-    func testPermissionDeniedThenGrantedEnablesInstall() {
+    /// The stub grants Full Disk Access from its third plan read; each return
+    /// to the app is one more read, as coming back from System Settings is.
+    /// The `join` scenario answers its first join-status as waiting and every
+    /// later one as approved: Continue stays off on the waiting screen until
+    /// Check again reads the approval.
+    func testJoinWaitsForApprovalThenContinues() {
+        launch("join")
+        waitFor("setup.welcome.screen")
+        el("setup.welcome.continue").click()
+        passFullDiskAccess()
+        el("setup.team.card.join").click()
+        el("setup.team.join.code").click()
+        el("setup.team.join.code").typeText("ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ-2345-6789-ABCD-EFGH")
+        el("setup.team.continue").click()
+        waitFor("setup.join.screen")
+        waitFor("setup.join.run")
+        el("setup.join.run").click()
+        waitFor("setup.join.waiting", 30)
+        XCTAssertFalse(el("setup.join.continue").isEnabled, "Continue waits for the admin")
+        XCTAssertTrue(app.staticTexts["Waiting for your team admin to approve your request to join the team"].exists)
+        shootWindow("join-waiting")
+        el("setup.join.checkAgain").click()
+        waitFor("setup.join.approved", 30)
+        waitUntilEnabled("setup.join.continue")
+        shootWindow("join-approved")
+        el("setup.join.continue").click()
+        waitFor("setup.checklist.screen")
+    }
+
+    func testPermissionDeniedThenGrantedEnablesContinue() {
         launch("perm-denied-then-granted")
         waitFor("setup.welcome.screen")
         el("setup.welcome.continue").click()
-        waitFor("setup.team.screen")
-        el("setup.team.card.join").click()
-        el("setup.team.join.code").click(); el("setup.team.join.code").typeText("ABCD")
-        el("setup.team.continue").click()
-        waitFor("setup.checklist.screen")
-        // Continue is also off while the plan loads, so wait for the blocked row itself.
-        waitFor("setup.checklist.row.perm.fda.action")
-        XCTAssertFalse(el("setup.checklist.continue").isEnabled)
-        el("setup.checklist.recheck").click()
-        Thread.sleep(forTimeInterval: 1)
-        el("setup.checklist.recheck").click()
-        let enabled = NSPredicate(format: "isEnabled == true")
-        expectation(for: enabled, evaluatedWith: el("setup.checklist.continue"))
-        waitForExpectations(timeout: 15)
+        waitFor("setup.fullDiskAccess.screen")
+        // Continue is also off while the plan loads, so wait for the page's own button.
+        waitFor("setup.fullDiskAccess.open")
+        XCTAssertFalse(el("setup.fullDiskAccess.continue").isEnabled)
+        let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+        for _ in 0..<2 {
+            finder.activate()
+            app.activate()
+            Thread.sleep(forTimeInterval: 1)
+        }
+        waitUntilEnabled("setup.fullDiskAccess.continue", 15)
+        XCTAssertFalse(el("setup.fullDiskAccess.open").exists, "a granted page offers no Open button")
     }
 
     func testApplyFailureShowsRemedyAndRetryCompletes() {
         launch("apply-fail-retry")
         waitFor("setup.welcome.screen")
         el("setup.welcome.continue").click()
-        waitFor("setup.team.screen")
+        passFullDiskAccess()
         el("setup.team.card.join").click()
         el("setup.team.join.code").click(); el("setup.team.join.code").typeText("ABCD")
         el("setup.team.continue").click()
+        passJoinPage()
         waitFor("setup.checklist.screen")
         pageThroughChecklist()
         waitFor("setup.install.retry", 30)

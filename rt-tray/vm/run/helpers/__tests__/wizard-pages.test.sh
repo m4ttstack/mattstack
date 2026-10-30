@@ -363,4 +363,99 @@ screen_wait_plan() { return 1; }
 readiness
 check "a checklist that never draws a row fails before any press" '[ "$rc" -ne 0 ] && [ -z "$(calls)" ]'
 
+# The two steps before the checklist, each against a model of its page. A
+# sleep moves the clock, so a wait that never ends runs out at once.
+sleep() { SECONDS=$((SECONDS + ${1%.*})); }
+P="$GUEST_RUN/pages"; mkdir -p "$P"
+pset() { printf '%s' "$2" > "$P/$1"; }
+pget() { cat "$P/$1" 2>/dev/null; }
+pnote() { printf '%s\n' "$1" >> "$P/calls"; }
+pcalls() { tr '\n' ' ' < "$P/calls"; }
+drive() { set +e; ( set -e; "$@" ) >/dev/null 2>&1; rc=$?; set -e; }
+ax_wait_screen() { [ "$(pget screen)" = "$1" ]; }
+ax_wait_window() { :; }
+ax_osa() { pnote "osa"; }
+ax_value() { :; }
+ax_set_field() { pnote "set:$1"; }
+relaunch_app() { pnote relaunch; pset screen welcome; pset fda on; }
+
+# Full Disk Access: fda is off, granted-but-stale (reopen), on, or stuck (a
+# grant the running app never sees).
+ax_find() {
+  case "$1" in
+    setup.fullDiskAccess.open) [ "$(pget screen)" = fullDiskAccess ] && { [ "$(pget fda)" = off ] || [ "$(pget fda)" = stuck ]; } ;;
+    setup.fullDiskAccess.reopen) [ "$(pget screen)" = fullDiskAccess ] && [ "$(pget fda)" = reopen ] ;;
+    *) return 1 ;;
+  esac
+}
+ax_enabled() { if [ "$1" = setup.fullDiskAccess.continue ] && [ "$(pget fda)" = on ]; then echo true; else echo false; fi; }
+ax_wait_enabled() { [ "$(ax_enabled "$1")" = true ]; }
+ax_toggle_in_system_settings() { pnote toggle; [ "$(pget fda)" = stuck ] || pset fda reopen; }
+ax_click() {
+  pnote "click:$1"
+  case "$1" in
+    setup.welcome.continue) pset screen fullDiskAccess ;;
+    setup.fullDiskAccess.reopen) pset screen team ;;
+    setup.fullDiskAccess.continue) [ "$(pget fda)" = on ] && pset screen team ;;
+  esac
+}
+fda() { : > "$P/calls"; pset screen fullDiskAccess; pset fda "$1"; drive screen_full_disk_access; }
+
+fda off
+check "Full Disk Access: open, toggle, then Reopen mattstack resumes at Your team" \
+  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = team ] && [ "$(pcalls)" = "click:setup.fullDiskAccess.open toggle osa click:setup.fullDiskAccess.reopen " ]'
+fda on
+check "Full Disk Access already on: only Continue is pressed" \
+  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = team ] && [ "$(pcalls)" = "click:setup.fullDiskAccess.continue " ]'
+fda stuck
+check "a grant the page never sees: quit, reopen, walk Welcome again, then Continue" \
+  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = team ] && [ "$(pcalls)" = "click:setup.fullDiskAccess.open toggle osa osa relaunch click:setup.welcome.continue click:setup.fullDiskAccess.continue " ]'
+
+# The Join page: token (the access row asks), ready, waiting, approved. The
+# host answers in/join-waiting.req with done or failed.
+HOST_ANSWER=done
+host_turn() {
+  [ -e "$GUEST_RUN/in/join-waiting.req" ] || return 0
+  rm -f "$GUEST_RUN/in/join-waiting.req"
+  : > "$GUEST_RUN/in/join-approve.$HOST_ANSWER"
+  [ "$HOST_ANSWER" = done ] && pset join approved
+  return 0
+}
+ax_find() {
+  host_turn
+  case "$1" in
+    setup.checklist.row.access.team-repo.action) [ "$(pget join)" = token ] ;;
+    setup.join.run) [ "$(pget join)" = ready ] ;;
+    setup.join.waiting) [ "$(pget join)" = waiting ] ;;
+    setup.join.approved) [ "$(pget join)" = approved ] ;;
+    *) return 1 ;;
+  esac
+}
+ax_status() { [ "$1" = access.team-repo ] && echo needs-you; }
+ax_enabled() { if [ "$1" = setup.join.continue ] && [ "$(pget join)" = approved ]; then echo true; else echo false; fi; }
+ax_click() {
+  pnote "click:$1"
+  case "$1" in
+    setup.checklist.connect.submit) pset join ready ;;
+    setup.join.run) pset join waiting ;;
+    setup.join.continue) pset screen checklist ;;
+  esac
+}
+join_page() { : > "$P/calls"; rm -f "$GUEST_RUN"/in/join-*; pset screen join; pset join "$1"; drive screen_join; }
+
+PAT=test-token; PAT_ENV=MATTSTACK_VMTEST_PAT
+join_page token
+check "Join: the token first, then Join, then the host is asked once and Continue follows approval" \
+  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = checklist ] && [ "$(pcalls)" = "click:setup.checklist.row.access.team-repo.action set:setup.checklist.connect.field.token click:setup.checklist.connect.submit click:setup.join.run click:setup.join.continue " ] && [ -e "$GUEST_RUN/in/join-approve.done" ]'
+HOST_ANSWER=failed
+join_page ready
+count_join_continue() { grep -c "click:setup.join.continue" "$P/calls" || true; }
+check "Join: a host that could not approve fails the page, and Continue is never pressed" \
+  '[ "$rc" -ne 0 ] && [ "$(count_join_continue)" = 0 ] && grep -q "the host could not approve the join" "$AX_LOG"'
+HOST_ANSWER=done
+PAT=""
+join_page token
+check "Join: a page that asks for the token with no token on the host fails before pressing anything" \
+  '[ "$rc" -ne 0 ] && ! grep -q "^click:" "$P/calls" && grep -q "asks for the team repo.s forge but" "$AX_LOG"'
+
 echo; [ "$fails" -eq 0 ] && echo "  all wizard paging checks ok" || { echo "  $fails check(s) failed"; exit 1; }

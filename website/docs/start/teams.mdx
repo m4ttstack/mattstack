@@ -139,10 +139,14 @@ The same pane shows the org's name, your team, the remote, the last push, and yo
 
 ## What a joiner sees
 
-The joiner opens the invite link, or pastes the code into **Join a team** in setup's team step. A Mac holds one org: a join is refused while another org is set up on it, and joining your own org again is fine: **Settings → Team → Rejoin this org…** takes a new invite from your org admin. The checklist then runs a forge-auth preflight against the org repo:
+The joiner opens the invite link, or pastes the code into **Join a team** in setup's team step. A Mac holds one org: a join is refused while another org is set up on it, and joining your own org again is fine: **Settings → Team → Rejoin this org…** takes a new invite from your org admin. The [Join page](/start/install#join-your-team) comes next. It checks the org repo first:
 
-- If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking for access. The `access.team-repo` checklist row holds Install until access is resolved.
-- If access is confirmed, setup continues normally.
+- If the joiner's forge account (GitHub or GitLab) cannot see the repo, the page asks them to connect the team repo's forge, or names the problem and suggests asking for access.
+- Once access is confirmed, **Join acme** accepts the invite and copies the team's settings.
+
+The page then waits for an admin to approve the request: **Waiting for your team admin to approve your request to join the team**. Nothing else runs on the joiner's Mac while it waits. The admin approves from the notification described in [When an invitee replies](#when-an-invitee-replies). The page checks every 15 seconds, reads **You're in the acme team** once approved, and **Continue** opens the checklist with the team's accounts and repos on it.
+
+From a terminal, `rt setup join-status` reports whether the admin approved this Mac, and `rt setup install` joins at Install with no waiting page.
 
 A rejoin on a Mac whose copy of the org was cloned before the org moved to a data branch moves that copy onto the data branch first, the same way a pull does. When the move is held, for example by unsaved changes or a copy that is not on a branch, the join refuses and says what is in the way. The invite is still unused, so join again once it's fixed.
 
@@ -152,7 +156,7 @@ The join clones only the org's data branch, then narrows it to the folders the j
 
 An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one" and removes the clone it just made; ask an admin for a new invite.
 
-The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the admin's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code). The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the org only when that Mac holds the switchboard admin token, in which case `rt team peer` connects its board. It shows an error with a **Re-check** when the switchboard does not answer.
+The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It holds Finish, never Install, and the setup check after an app update notifies you about it. The fix is on the admin's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code). The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the org only when that Mac holds the switchboard admin token, in which case `rt team peer` connects its board. It shows an error with a **Re-check** when the switchboard does not answer.
 
 ## Connecting the admin's board
 
@@ -172,7 +176,7 @@ Your settings then read that team's folder over the org's, and its pack is turne
 
 ## When an invitee replies
 
-While you have outstanding invites, the daemon checks each one for a reply every few minutes and notifies you once per reply. The notification's **Add member…** action runs `rt team members sync`, which adds the invitee's key so the org's secrets decrypt for them.
+While you have outstanding invites, the daemon checks each one for a reply every few minutes and notifies you once per reply. The notification's **Add member…** action runs `rt team members sync`, which adds the invitee's key so the org's secrets decrypt for them. That is what approves the request: the invitee's Join page turns to **You're in the acme team** at its next check.
 
 ## How changes travel
 
@@ -230,7 +234,7 @@ No other Mac moves. The real move refuses when the org repo already has its data
 
 Once the pointer is on `main`, each member's Mac on an updated app moves its clone onto the data branch by itself, at its next pull or `rt team pull`. Unpublished org commits move with it. Uncommitted changes, a detached HEAD, or commits outside the org's data hold the move, and the **Org layout** row says which. A member's app that cannot read the new layout holds at the last commit it can read, and the row says to update the app.
 
-A clone someone switched to `main` or to a branch that holds no org data comes back to the data branch the same way, and a clone with no branch checked out is told to switch to the data branch, never to `main`.
+A clone someone switched to `main`, or to a branch that holds no org data, comes back to the data branch the same way. A clone with no branch checked out is told to switch to the data branch, never to `main`.
 
 ### Moving the pointer to `.mattstack.jsonc`
 
@@ -246,7 +250,7 @@ Phase 1 adds `.mattstack.jsonc` beside the old file. Every version of rt reads o
 bun scripts/move-pointer-to-root.ts ~/.mattstack/orgs/<org> --admin <your forge username> --phase drop --members-confirmed --write
 ```
 
-Phase 2 deletes `mattstack/mattstack.jsonc`, leaving `.mattstack.jsonc` as the org's only file on `main`. rt v2.25.1 and older read only the old file, so a Mac still on one would treat the org as not moved. rt keeps no record of which version each member runs, so check that every member has updated, then pass `--members-confirmed`. Without it, phase 2 refuses and says what to confirm. When `main` refuses the push, the change goes to a `mattstack-root-pointer` branch instead; land it the way your repo takes changes.
+Phase 2 deletes `mattstack/mattstack.jsonc`, leaving `.mattstack.jsonc` as the org's only file on `main`. Versions of rt up to v2.25.1 read only the old file, so a Mac still on one would treat the org as not moved. Nothing records which version each member runs, so check that every member has updated. Then pass `--members-confirmed`. Without it, phase 2 refuses and says what to confirm. When `main` refuses the push, the change goes to a `mattstack-root-pointer` branch instead; land it the way your repo takes changes.
 
 ## Moving to block packs
 
