@@ -90,6 +90,22 @@ enum AXID {
     static let chooseCancel = "setup.choose.cancel"
     static let chooseSubmit = "setup.choose.submit"
 
+    // Fast setup
+    static func fastScreen(_ name: String) -> String { "setup.fast.\(name)" }
+    static func fastPrimary(_ name: String) -> String { "setup.fast.\(name).primary" }
+    static func fastSecondary(_ name: String) -> String { "setup.fast.\(name).secondary" }
+    static func fastRow(_ id: String) -> String { "setup.fast.row.\(id)" }
+    /// `part` names a row's other buttons: an alternative's id, `link` for its create link, `oneClick` for a repo row's one-click.
+    static func fastRowAction(_ id: String, _ part: String? = nil) -> String {
+        "setup.fast.row.\(id).action" + (part.map { ".\($0)" } ?? "")
+    }
+    /// A row with more than one field passes each field's `name`.
+    static func fastRowField(_ id: String, _ name: String? = nil) -> String {
+        "setup.fast.row.\(id).field" + (name.map { ".\($0)" } ?? "")
+    }
+    static func fastRowWaiting(_ id: String) -> String { "setup.fast.row.\(id).waiting" }
+    static func fastRowError(_ id: String) -> String { "setup.fast.row.\(id).error" }
+
     // Install
     static func installStep(_ id: String) -> String { "setup.install.step.\(id)" }
     static func installStepLog(_ id: String) -> String { "setup.install.step.\(id).log" }
