@@ -30,7 +30,9 @@ public enum RowActionDispatcher {
         case .requestPermission: return .requestPermission(which: action.which ?? "")
         case .connect:
             guard let integration = action.integration else { return .none }
-            let verb = action.verb.flatMap { $0.isEmpty ? nil : $0 } ?? ["setup", integration, "connect"]
+            // A credential rides on stdin, so rt's verb is only ever trusted to add flags to this integration's own connect.
+            let connect = ["setup", integration, "connect"]
+            let verb = action.verb.flatMap { $0.starts(with: connect) ? $0 : nil } ?? connect
             if alternative == "use-gh" { return .rtVerb(args: verb + ["--json"], stdin: json(["useGh": true])) }
             if let values = fieldValues { return .rtVerb(args: verb + ["--json"], stdin: json(values)) }
             return .collectFields(action.fields ?? [], integration: integration, alternatives: action.alternatives ?? [], create: httpsOnly(action.create))

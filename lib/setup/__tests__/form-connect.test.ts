@@ -186,6 +186,14 @@ describe("connectRows", () => {
     expect(forge.detail).toBe("Connected as jdoe-gh");
   });
 
+  test("a team's declared self-hosted GitLab is never confirmed for the member", () => {
+    const rows = swap(joinerRows(), r("account.gitlab", "missing", "No GitLab account connected yet"));
+    for (const path of ["join", "create"] as const) {
+      const forge = pick(connectRows(inputs({ plan: plan(rows), forge: { provider: "gitlab", host: "gitlab.example.com" }, path })), "forge");
+      expect(forge.action && "verb" in forge.action).toBe(false);
+    }
+  });
+
   test("a forge without a token asks for one with Create token", () => {
     const rows = swap(joinerRows(), r("account.gitlab", "missing", "No GitLab account connected yet"));
     const forge = pick(connectRows(inputs({ plan: plan(rows), path: "create" })), "forge");

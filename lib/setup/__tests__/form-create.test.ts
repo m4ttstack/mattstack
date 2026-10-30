@@ -54,6 +54,17 @@ describe("createRows", () => {
     expect(github.action && "verb" in github.action).toBe(false);
   });
 
+  test("the create host goes to connect exactly as typed, and never a local or IP address", () => {
+    const verbOf = (host: string) => {
+      const action = pick(createRows(inputs({ forge: { provider: "gitlab", host } })), "forge.token").action;
+      return action && "verb" in action ? action.verb : undefined;
+    };
+    expect(verbOf("GitLab.Example.com")).toEqual(["setup", "gitlab", "connect", "--host", "GitLab.Example.com"]);
+    for (const host of ["gitlab.com", "localhost", "127.0.0.1", "10.0.0.5", "--json", "gitlab.example.com:8443"]) {
+      expect(verbOf(host)).toBeUndefined();
+    }
+  });
+
   test("GitHub with gh signed in asks for no token", () => {
     const rows = new Map([["account.github", accountRow("account.github", "ready", "Signed in through the gh CLI as janedoe")]]);
     expect(createRows(inputs({ forge: GITHUB, rows, ghSignedIn: true }))).toEqual([]);

@@ -253,7 +253,12 @@ export interface InviteInputs {
   prepare: MacosPrepare;
 }
 
-function forgeAccountRow(o: { id: string; forge: { provider: Forge; host: string }; account: Row | undefined; role: ForgeRole; subtext: string; connected: string }): FormRow {
+/**
+ * `confirmsHost` only where the host is the member's own input (a create
+ * read's `--host`). An invite's or a team's declared host is shown, never
+ * confirmed for them: connect refuses it until they pass `--host` themselves.
+ */
+function forgeAccountRow(o: { id: string; forge: { provider: Forge; host: string }; account: Row | undefined; role: ForgeRole; subtext: string; connected: string; confirmsHost?: boolean }): FormRow {
   const c = FORM_COPY.invite;
   const base = { id: o.id, title: TITLES[o.forge.provider], subtext: o.subtext, waiting: null, watch: false, optional: false };
   if (o.account?.status === "ready") return { ...base, state: "done", detail: o.connected, action: null };
@@ -267,15 +272,22 @@ function forgeAccountRow(o: { id: string; forge: { provider: Forge; host: string
       integration: o.forge.provider,
       fields: [tokenField(o.forge.provider, o.role)],
       create: { label: c.createToken, url: tokenCreateLink(o.forge.provider, o.role, o.forge.host).url },
-      ...selfHostedConnect(o.forge),
+      ...(o.confirmsHost ? userHostConnect(o.forge) : {}),
     },
   };
 }
 
-/** `rt setup gitlab connect` checks a token against gitlab.com unless `--host` names the team's own host, which it then records as confirmed. */
-function selfHostedConnect(forge: { provider: Forge; host: string }): { verb?: string[] } {
-  const host = forge.host.toLowerCase();
-  if (forge.provider !== "gitlab" || host === "gitlab.com" || !isValidHostname(host)) return {};
+/**
+ * A plain `rt setup gitlab connect` checks the token against the host this Mac
+ * already confirmed, else gitlab.com, so a self-hosted create passes `--host`,
+ * which connect records once the token works. The host goes through as typed:
+ * `rt team create` compares it to the recorded one exactly. localhost and IP
+ * literals are never a forge's address.
+ */
+function userHostConnect(forge: { provider: Forge; host: string }): { verb?: string[] } {
+  const { provider, host } = forge;
+  if (provider !== "gitlab" || host === "gitlab.com" || !isValidHostname(host)) return {};
+  if (!host.includes(".") || /^[0-9.]+$/.test(host)) return {};
   return { verb: ["setup", "gitlab", "connect", "--host", host] };
 }
 
@@ -322,6 +334,7 @@ export function createRows(i: CreateInputs): FormRow[] {
         role: "owner",
         subtext: c.tokenSubtext(i.forge.provider),
         connected: c.connected,
+        confirmsHost: true,
       }),
     );
   }

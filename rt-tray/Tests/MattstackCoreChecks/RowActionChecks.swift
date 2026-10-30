@@ -27,6 +27,14 @@ let rowActionChecks: [Check] = [
         c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: ["token": "glpat-xyz"], alternative: nil),
                       .rtVerb(args: ["setup", "gitlab", "connect", "--host", "gitlab.example.com", "--json"], stdin: Data("{\"token\":\"glpat-xyz\"}".utf8)))
     },
+    Check("connect: a verb that is not this integration's connect, or is empty, falls back to setup <integration> connect") { c in
+        let fields = [ActionField(name: "token", label: "Token", secret: true)]
+        let plain = DispatchedAction.rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"token\":\"glpat-xyz\"}".utf8))
+        for verb: [String] in [[], ["home", "remote", "set"], ["setup", "github", "connect"], ["setup", "gitlab"], ["setup", "gitlab", "create-app"]] {
+            let a = RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: fields, verb: verb)
+            c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: ["token": "glpat-xyz"], alternative: nil), plain, "\(verb)")
+        }
+    },
     Check("form: collect first, then the action's own verb with JSON on stdin; an alternative sends its id") { c in
         let fields = [ActionField(name: "url", label: "Remote URL", secret: false, hint: "an empty private repo")]
         let alts = [ActionAlternative(id: "create", label: "Create a private repo for me")]
