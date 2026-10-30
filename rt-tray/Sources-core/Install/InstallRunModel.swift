@@ -39,6 +39,9 @@ public final class InstallRunModel: ObservableObject {
     @Published public private(set) var steps: [InstallStep] = []
     @Published public private(set) var phase: Phase = .idle
     @Published public private(set) var logs: [String: [String]] = [:]
+    /// The bar's highest point this run. A step that ends or reports a new detail drops its own
+    /// percent, so the raw fraction dips; the drawn bar holds here. A retry keeps it.
+    @Published public private(set) var peakFraction: Double = 0
     /// Parse failures and contract events this build doesn't recognize —
     /// surfaced for diagnostics, never blocks the run.
     @Published public private(set) var streamNotes: [String] = []
@@ -87,6 +90,7 @@ public final class InstallRunModel: ObservableObject {
             steps = []
             logs = [:]
             streamNotes = []
+            peakFraction = 0
         }
         // Captured up front, without touching self, so the needs-ledger
         // clear and stream creation never hold a strong self across their
@@ -148,6 +152,8 @@ public final class InstallRunModel: ObservableObject {
             guard generation == gen else { return }
         }
         Self.apply(event, to: &steps)
+        let peak = RunProgress.monotonic(previous: peakFraction, current: RunProgress.bar(steps: steps, elapsed: 0)).fraction
+        if peak != peakFraction { peakFraction = peak }
         switch event {
         case .log(let id, let line):
             appendLog(line, to: id)

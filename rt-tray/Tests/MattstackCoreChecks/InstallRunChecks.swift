@@ -137,6 +137,35 @@ let installRunChecks: [Check] = [
         }
         c.expectEqual(count.froms, [nil, "plugins.install"])
     },
+    Check("InstallRun: the peak survives a step's progress clearing on failure; a retry keeps it, a fresh start resets it") { c in
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        let stream: ApplyStreamFactory = { from in
+            if from == nil {
+                return lines([planLine,
+                              #"{"event":"step","id":"home.init","state":"done"}"#,
+                              #"{"event":"step","id":"services.register","state":"running"}"#,
+                              #"{"event":"progress","id":"services.register","label":"Registering","percent":50}"#,
+                              #"{"event":"step","id":"services.register","state":"failed","detail":"exit 1"}"#,
+                              #"{"event":"done","ok":false,"failedStep":"services.register"}"#])
+            }
+            return lines([#"{"event":"step","id":"services.register","state":"running"}"#])
+        }
+        let m = await MainActor.run { InstallRunModel(stream: stream, needs: broker) }
+        await MainActor.run { m.start() }
+        for _ in 0..<50 { if await MainActor.run(body: { m.failedStepId != nil }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(RunProgress.bar(steps: m.steps, elapsed: 0).fraction, 1.0 / 3, "the failed step's percent is gone from the raw fraction")
+            c.expectEqual(m.peakFraction, 0.5)
+            m.retryFromFailure()
+            c.expectEqual(m.peakFraction, 0.5, "a retry carries the peak over")
+        }
+        for _ in 0..<50 { if await MainActor.run(body: { m.steps.first { $0.id == "services.register" }?.state == .running }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.peakFraction, 0.5, "the re-running step starts below the peak")
+            m.start()
+            c.expectEqual(m.peakFraction, 0)
+        }
+    },
     Check("a partial step keeps the run going to succeeded; retry(from:) re-streams from that step") { c in
         final class Count: @unchecked Sendable { var froms: [String?] = [] }
         let count = Count()

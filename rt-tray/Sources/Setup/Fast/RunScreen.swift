@@ -13,8 +13,6 @@ struct RunScreen: View {
     let onRetry: () -> Void
     let onPausedAction: ((RowAction) -> Void)?
     @State private var showLog = false
-    /// The run's highest drawn fraction, so the bar never slides back.
-    @State private var highWater: Double = 0
 
     /// After a relaunch this app holds no lines for the step, so rt's copy from the events file stands in.
     static func logLines(_ paused: FormPaused, appLines: [String]) -> [String] {
@@ -23,11 +21,7 @@ struct RunScreen: View {
 
     private func bar(at date: Date) -> RunBar? {
         guard !model.steps.isEmpty else { return nil }
-        return RunProgress.monotonic(previous: highWater, current: RunProgress.bar(steps: model.steps, elapsed: date.timeIntervalSince(startedAt)))
-    }
-
-    private var rawFraction: Double {
-        model.steps.isEmpty ? 0 : RunProgress.bar(steps: model.steps, elapsed: 0).fraction
+        return RunProgress.monotonic(previous: model.peakFraction, current: RunProgress.bar(steps: model.steps, elapsed: date.timeIntervalSince(startedAt)))
     }
 
     var body: some View {
@@ -35,9 +29,6 @@ struct RunScreen: View {
             RunScreenBody(bar: bar(at: context.date), paused: paused, onHide: onHide, onShowLog: { showLog = true },
                           onRetry: onRetry, onPausedAction: onPausedAction)
         }
-        .onAppear { highWater = rawFraction }
-        .onChange(of: rawFraction) { _, raw in highWater = max(highWater, raw) }
-        .onChange(of: startedAt) { highWater = rawFraction }
         .sheet(isPresented: $showLog) {
             if let paused {
                 LogSheet(title: paused.title, lines: Self.logLines(paused, appLines: model.logLines(for: paused.step)))
@@ -129,18 +120,16 @@ struct RunScreenBody: View {
 /// The one bar. A sheen crosses the fill while it runs, so a long step that
 /// sends no progress still reads as working; stopped, it goes grey and still.
 /// With no fraction yet, a short segment sweeps the track instead. Motion
-/// rests while the window is not active and under Reduce Motion.
+/// rests while the window is hidden or fully covered, and under Reduce Motion.
 private struct RunBarView: View {
     let fraction: Double?
     let stopped: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.controlActiveState) private var activeState
+    @State private var windowVisible = false
 
     private static let height: CGFloat = 8
     private static let sheenPeriod: TimeInterval = 2.4
     private static let sweepPeriod: TimeInterval = 1.6
-    /// Where a resting sweep sits, so a frozen frame is the same every time.
-    private static let restingSweep: Double = 0.35
     private static let track = NSColor(name: nil) { appearance in
         NSColor.labelColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.14 : 0.08)
     }
@@ -151,7 +140,7 @@ private struct RunBarView: View {
         NSColor.white.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.28 : 0.4)
     }
 
-    private var moving: Bool { !stopped && !reduceMotion && activeState != .inactive }
+    private var moving: Bool { !stopped && !reduceMotion && windowVisible }
 
     var body: some View {
         GeometryReader { geo in
@@ -159,7 +148,7 @@ private struct RunBarView: View {
                 Capsule().fill(Color(nsColor: Self.track))
                 if let fraction {
                     fill(fraction, in: geo.size.width)
-                } else if !stopped && !reduceMotion {
+                } else if moving {
                     sweep(in: geo.size.width)
                 } else {
                     Capsule().fill(Color.accentColor).frame(width: Self.height)
@@ -167,6 +156,7 @@ private struct RunBarView: View {
             }
         }
         .frame(height: Self.height)
+        .background(WindowVisibilityProbe(visible: $windowVisible))
         .accessibilityElement()
         .accessibilityLabel(stopped ? "Setup paused" : "Setup progress")
         .accessibilityValue(fraction.map(RunProgress.percentText) ?? "Getting ready")
@@ -181,7 +171,7 @@ private struct RunBarView: View {
             .frame(width: width)
             .animation(.easeOut(duration: 0.6), value: clamped)
         if moving {
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
                 let band: CGFloat = 90
                 let phase = Self.phase(context.date, period: Self.sheenPeriod)
                 LinearGradient(colors: [.clear, Color(nsColor: Self.sheen), .clear], startPoint: .leading, endPoint: .trailing)
@@ -195,9 +185,9 @@ private struct RunBarView: View {
     }
 
     private func sweep(in trackWidth: CGFloat) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
             let band = trackWidth * 0.22
-            let phase = moving ? Self.phase(context.date, period: Self.sweepPeriod) : Self.restingSweep
+            let phase = Self.phase(context.date, period: Self.sweepPeriod)
             Capsule()
                 .fill(Color.accentColor.opacity(0.7))
                 .frame(width: band)
@@ -210,5 +200,44 @@ private struct RunBarView: View {
 
     private static func phase(_ date: Date, period: TimeInterval) -> Double {
         date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+    }
+}
+
+/// Reports whether the hosting window shows any part of itself on screen. A
+/// visible window behind another app still counts; hidden or fully covered does not.
+private struct WindowVisibilityProbe: NSViewRepresentable {
+    @Binding var visible: Bool
+
+    func makeNSView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.onChange = { visible = $0 }
+        return view
+    }
+
+    func updateNSView(_ view: ProbeView, context: Context) {
+        view.onChange = { visible = $0 }
+    }
+
+    final class ProbeView: NSView {
+        var onChange: ((Bool) -> Void)?
+        private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            if let window {
+                observer = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.report() }
+                }
+            }
+            report()
+        }
+
+        private func report() {
+            let visible = window?.occlusionState.contains(.visible) ?? false
+            // Deferred: this can run inside a SwiftUI update, which must not write state.
+            DispatchQueue.main.async { [weak self] in self?.onChange?(visible) }
+        }
     }
 }
