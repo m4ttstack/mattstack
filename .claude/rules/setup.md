@@ -142,7 +142,9 @@ is the engine's end step, run after a failed step too, in a whole
 in an update run (after `verify`). It runs `deck restart --managed`, so deck
 decides which apps count, and never fails a run: a restart deck refuses is
 `partial`. Its wait for the apps to answer has one short deadline, so a hung
-deck never holds a run's `done`. An attach and a skipped update run restart
+deck never holds a run's `done`. `board.restart` stands down in a run that
+ends this way, and the end restart clears its pending mark once deck says it
+restarted the board, so the board restarts once. An attach and a skipped update run restart
 nothing. An `--only` run that ends ok restarts nothing either but sets
 `appsRestartOwed` in setup-state. The end step clears it whatever its
 outcome (Finish's own restart only on done or skipped), and `rt setup finish`

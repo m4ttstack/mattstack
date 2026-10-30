@@ -1467,6 +1467,28 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(readSetupState(p).boardRestartPending).toBe(true);
     });
 
+    // apps.restart at the run's end restarts the board too, so restarting it here would do it twice.
+    test("board.restart stands down in a run that ends by restarting every app, and leaves the flag for that restart", async () => {
+      const p = fakeProbes({ home });
+      updateSetupState(p, (s) => ({ ...s, boardRestartPending: true }));
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+      ctx.restartsAppsAtEnd = true;
+      let restarts = 0;
+      expect(await makeBoardRestartStep({ restartBoard: async () => ++restarts > 0 }).run(ctx)).toMatchObject({ state: "skipped" });
+      expect(restarts).toBe(0);
+      expect(readSetupState(p).boardRestartPending).toBe(true);
+    });
+
+    test("a whole run tells its steps the apps restart at the end; an --only run does not", async () => {
+      const seen: Array<boolean | undefined> = [];
+      const steps = STEPS.map((s) => ({ ...s, run: async (c: ApplyContext) => (s.id === "board.restart" && seen.push(c.restartsAppsAtEnd), { state: "skipped" as const, detail: "inert" }) }));
+      const p = fakeProbes({ home });
+      const { ctx } = makeCtx(p, { snapshot: boardSnapshot });
+      await runApplyWith(steps, ctx);
+      await runApplyWith(steps, ctx, { only: "board.restart" });
+      expect(seen).toEqual([true, undefined]);
+    });
+
     /** The real registry, with every body replaced, so only the queue and the plan are under test. */
     function inertSteps(ran: string[]): StepDef[] {
       return STEPS.map((s) => ({ ...s, run: async () => (ran.push(s.id), { state: "skipped" as const, detail: "inert" }) }));

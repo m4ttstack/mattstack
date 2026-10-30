@@ -85,6 +85,15 @@ function clearOwed(p: Probes): void {
   }
 }
 
+/** The board has read its new `board.cwds`, so `board.restart` (which stands down in a run that ends here) has nothing left to do. */
+function clearBoardPending(p: Probes): void {
+  try {
+    updateSetupState(p, ({ boardRestartPending: _, ...s }) => s);
+  } catch {
+    // The next board.restart restarts it once more; nothing is lost.
+  }
+}
+
 async function restart(p: Probes, log: (line: string) => void, seams: AppsRestartSeams): Promise<StepOutcome> {
   const deck = bundledToolPath(p, "deck");
   if (deck === null) return { state: "skipped", detail: "Deck is not in this build yet" };
@@ -95,6 +104,7 @@ async function restart(p: Probes, log: (line: string) => void, seams: AppsRestar
   const { restarted, failed } = parseManagedRestart(r.stdout, r.stderr);
   for (const name of restarted) log(`Restarted ${name}`);
   for (const name of failed) log(`deck restart ${name} failed`);
+  if (restarted.includes("board")) clearBoardPending(p);
 
   if (r.code === EXEC_TIMEOUT_CODE) return { state: "partial", detail: "Deck took too long to restart your apps", remedy: MANAGED_REMEDY };
   if (failed.length > 0) {

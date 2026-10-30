@@ -210,6 +210,18 @@ describe("restartServedApps", () => {
     expect(readSetupState(partial).appsRestartOwed).toBe(true);
   });
 
+  test("a restart that reached the board settles board.restart's pending mark; one that missed it keeps it", async () => {
+    const reached = bundledProbes({ exec: reply(0, "restarted board\nrestarted chat\n") });
+    updateSetupState(reached, (s) => ({ ...s, boardRestartPending: true }));
+    await restartServedApps(reached, () => {}, seams());
+    expect(readSetupState(reached).boardRestartPending).toBeUndefined();
+
+    const missed = bundledProbes({ exec: reply(1, "restarted chat\n", `${failedLine("board")}\n`) });
+    updateSetupState(missed, (s) => ({ ...s, boardRestartPending: true }));
+    await restartServedApps(missed, () => {}, seams());
+    expect(readSetupState(missed).boardRestartPending).toBe(true);
+  });
+
   // Else a partial end restart plus Finish's own restart catches the board as P7 opens it.
   test("as a run's end step it settles the owed mark whatever the outcome", async () => {
     const partial = bundledProbes({ exec: reply(1, "", `${failedLine("board")}\n`) });

@@ -266,6 +266,8 @@ export interface BoardRestartSeams {
 export function makeBoardRestartStep(seams: BoardRestartSeams = { restartBoard: (p) => restartAppWithDeck(p, "board") }): StepDef {
   async function run(ctx: ApplyContext): Promise<StepOutcome> {
     if (readSetupState(ctx.p).boardRestartPending !== true) return { state: "skipped", detail: "Nothing new for the board to read" };
+    // apps.restart clears the pending mark once deck says it restarted the board.
+    if (ctx.restartsAppsAtEnd) return { state: "skipped", detail: "The board restarts with your other apps when setup ends" };
     let restarted = false;
     try {
       restarted = await seams.restartBoard(ctx.p);

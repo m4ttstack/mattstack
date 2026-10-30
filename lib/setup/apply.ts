@@ -66,6 +66,8 @@ export interface ApplyContext {
   update?: true;
   /** The step an `--only` run names; `runApplyWith` sets it. */
   only?: StepId;
+  /** This run ends with `apps.restart`, which restarts the board with every other app; `runApplyWith` sets it. */
+  restartsAppsAtEnd?: true;
   teamOfOne: boolean;
   appPath: string | null;
   ci: boolean;
@@ -352,7 +354,12 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: Ap
     queue = applicable.slice(resumeStart(applicable, opts.from)).filter((s) => !replayed.includes(s));
   }
   const endStep = opts.only === undefined ? queue.find((s) => s.id === RUN_END_STEP) : undefined;
-  if (endStep) queue = queue.filter((s) => s !== endStep);
+  if (endStep) {
+    queue = queue.filter((s) => s !== endStep);
+    ctx.restartsAppsAtEnd = true;
+  } else {
+    delete ctx.restartsAppsAtEnd;
+  }
   const record = opts.only === undefined ? opts.record : undefined;
   const scrub = (text: string): string => ctx.redacted?.(text) ?? text;
 
