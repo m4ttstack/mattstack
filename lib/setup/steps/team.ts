@@ -165,7 +165,8 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
   try {
     const outcome = outcomeFromJoin(await joinRedeem(ctx.p, ctx.relay, ctx.teamSecrets, {}, seams));
     // joinRedeem deletes the intent on success, so repos.clone in a resumed Install reads the join from here.
-    if (outcome.state === "done" || outcome.state === "partial") markJoining(ctx.p);
+    // A join run on its own (the Join page) comes before the checklist shows the repo rows, so Install clones their defaults.
+    if ((outcome.state === "done" || outcome.state === "partial") && ctx.only === undefined) markJoining(ctx.p);
     return outcome;
   } catch (err) {
     return outcomeFromJoinError(err);

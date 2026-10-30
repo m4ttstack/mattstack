@@ -643,6 +643,26 @@ describe("team.join", () => {
     expect(readPlacements(p).joining).toBe(true);
   });
 
+  test.each([
+    ["an Install that joins inside its own run marks the join for repos.clone", {}, true],
+    ["the Join page's --only team.join leaves no mark, so Install clones the repos the checklist showed", { only: "team.join" as const }, undefined],
+  ] as const)("%s", async (_label, opts, joining) => {
+    const p = fakeProbes({
+      home: "/fake-home",
+      files: intentFile("/fake-home", joinIntent),
+      exec: async (argv) => {
+        if (argv[0] === "git" && argv[1] === "clone") return ok();
+        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
+        return layout3Main(argv);
+      },
+    });
+    const relay: RelayClient = { ...fakeRelay, redeem: async () => "redeemed", reply: async () => {} };
+    const { ctx } = makeCtx(p, { intent: joinIntent, relay, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await runApplyWith([teamJoinStep], ctx, opts)).toEqual({ ok: true });
+    expect(readPlacements(p).joining).toBe(joining);
+  });
+
   test("idempotent re-run: already cloned + relay says 'already' resumes cleanly instead of throwing invite-unknown", async () => {
     const dir = "/fake-home/.mattstack/orgs/acme";
     const p = fakeProbes({

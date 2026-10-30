@@ -63,6 +63,8 @@ export interface ApplyContext {
   appDriven?: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
   update?: true;
+  /** The step an `--only` run names; `runApplyWith` sets it. */
+  only?: StepId;
   teamOfOne: boolean;
   appPath: string | null;
   ci: boolean;
@@ -273,6 +275,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   const applicable = steps.filter((s) => s.applies(ctx));
   let queue: StepDef[];
   if (opts.only !== undefined) {
+    ctx.only = opts.only;
     const target = applicable[onlyIndex(applicable, opts.only)];
     queue = target ? await onlyQueue(applicable, target, ctx) : [];
   } else {

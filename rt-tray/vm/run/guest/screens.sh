@@ -488,23 +488,14 @@ screen_done() {
     echo "writing-style=$style" >> "$GUEST_RUN/logs/finish-gate.txt"
   fi
 
-  # A joiner's Install leaves each unfound tracked repo waiting on the summary,
-  # finish-gated and not skippable: accept the shown location with its one-click
-  # button, then wait out the clone that rt's follow-up verb starts.
-  local repo_buttons button row
-  repo_buttons=$(ax_dump_ids | grep -E '^setup\.done\.beforeYouFinish\.repos\.place:.*\.oneClick$' || true)
-  for button in $repo_buttons; do
-    row="${button#setup.done.beforeYouFinish.}"; row="${row%.oneClick}"
-    ax_click "$button"
-    local n=600
-    while [ "$n" -gt 0 ] && ax_find "setup.done.beforeYouFinish.$row.status" >/dev/null 2>&1; do
-      ax_find "setup.checklist.row.$row.error" >/dev/null 2>&1 && ax_fail "placing $row failed: $(ax_value "setup.checklist.row.$row.error" || true)"
-      sleep 1; n=$((n-1))
-    done
-    ax_find "setup.done.beforeYouFinish.$row.status" >/dev/null 2>&1 && ax_fail "the $row row is still under Needs you after its one-click button"
-    echo "$row=placed" >> "$GUEST_RUN/logs/finish-gate.txt"
-  done
-  [ -n "$repo_buttons" ] && ax_shot 05-repos-placed
+  # A joiner's one Install clones every tracked repo the checklist showed, so
+  # a repo row back under Needs you means Install left it for later.
+  local repo_rows
+  repo_rows=$(ax_dump_ids | grep -E '^setup\.done\.beforeYouFinish\.repos\.place:.*\.status$' || true)
+  if [ -n "$repo_rows" ]; then
+    ax_shot 05-repos-waiting
+    ax_fail "Install left these repos waiting on the summary: $(printf '%s\n' "$repo_rows" | sed -e 's/^setup\.done\.beforeYouFinish\.//' -e 's/\.status$//' | tr '\n' ' ')"
+  fi
 
   # The steps you can skip sit in their group's You can skip card, never under
   # Needs you, and still hold Finish. ax_find turns the sidebar to the row's
