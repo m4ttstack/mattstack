@@ -28,7 +28,9 @@ import { UserActionableError } from "../errors.ts";
 import { readIntent, writeIntent } from "../setup/intent.ts";
 import { gitUsable } from "../setup/home-git.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
-import { forgeFromRemote, parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
+import { forgeFromRemote, parseOriginUrl, probeUserSettingsReader, readUserIntegrationOverrides, stripUserinfo } from "../setup/team-settings.ts";
+import { mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
+import { createForgeRepo } from "./create-repo.ts";
 import { withoutUrls } from "./redact.ts";
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
@@ -44,6 +46,8 @@ export interface CreateTeamOpts {
   others: boolean;
   /** The first team folder; defaults to the org slug or team-<slug>. */
   firstTeam?: string;
+  /** Create `<namespace>/mattstack-team-<slug>` on this forge with the token rt holds for its host. */
+  forgeRepo?: { provider: "github" | "gitlab"; host: string; namespace: string };
 }
 
 export interface CreateTeamResult {
@@ -279,20 +283,55 @@ function cachedRemoteFromIntent(p: Probes, slug: string): string | null {
   return intent?.mode === "create" && intent.team?.slug === slug ? (intent.team.remote ?? null) : null;
 }
 
-async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Promise<string> {
+const teamRepoName = (slug: string) => `mattstack-team-${slug}`;
+
+/** A token goes only to github.com, gitlab.com, or the host `rt setup gitlab connect --host` confirmed. */
+async function createOnForge(p: Probes, slug: string, forge: NonNullable<CreateTeamOpts["forgeRepo"]>, seams: CreateTeamSeams): Promise<string> {
+  const confirmedHost = readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }).forgeHost;
+  const token = mayOfferTokenToHost(forge.host, confirmedHost) ? await seams.forgeToken(p, tokenLookupRemoteForHost(forge.host)) : null;
+  if (!token) {
+    if (forge.provider === "github") return createWithGh(p, slug, forge.namespace);
+    throw new UserActionableError("create-repo-no-token", `rt has no GitLab token for ${forge.host}`, {}, {
+      why: "Connect your GitLab account, then create the team again.",
+      next: forge.host === "gitlab.com" ? "rt setup gitlab connect" : `rt setup gitlab connect --host ${forge.host}`,
+    });
+  }
+  const login = forge.provider === "github" ? await seams.forgeLogin(p, "github", forge.host, token) : null;
+  return (await createForgeRepo(p, { ...forge, name: teamRepoName(slug), token, login })).remote;
+}
+
+async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts, seams: CreateTeamSeams): Promise<string> {
   if (opts.remote) return opts.remote;
 
   const cached = cachedRemoteFromIntent(p, slug);
   if (cached) return cached;
 
-  if (!opts.createRepoOwner) {
+  let url: string;
+  if (opts.forgeRepo) url = await createOnForge(p, slug, opts.forgeRepo, seams);
+  else if (opts.createRepoOwner) url = await createWithGh(p, slug, opts.createRepoOwner);
+  else {
     throw new UserActionableError("remote-required", "The team needs a repo", {}, {
-      why: "Give rt the address of an empty repo, or let it create one on GitHub.",
+      why: "Give rt the address of an empty repo, or let it create one on GitHub or GitLab.",
       next: "rt team create <name> --remote <url>",
     });
   }
 
-  const repoPath = `${opts.createRepoOwner}/mattstack-team-${slug}`;
+  // Provenance, recorded at the one moment it is knowable: rt just created
+  // this remote. It confers no rights: it only lets the membership permission
+  // be OFFERED later, so rt never asks whether it should administer a repo it
+  // was merely pointed at. The permission itself stays off until a
+  // human grants it.
+  // Clears a stale joinedByRt from an earlier joined-then-deleted clone of
+  // this same slug: updateTeamLocal merges, so an unset field here would
+  // leave both flags true and this brand-new team pull-only from birth.
+  updateTeamLocal(p, slug, { createdByRt: true, joinedByRt: false });
+
+  writeIntent(p, { v: 1, at: p.now().toISOString(), mode: "create", team: { slug, name: opts.name, remote: url, others: opts.others, ...(opts.firstTeam ? { firstTeam: opts.firstTeam } : {}) } });
+  return url;
+}
+
+async function createWithGh(p: Probes, slug: string, owner: string): Promise<string> {
+  const repoPath = `${owner}/${teamRepoName(slug)}`;
   const result = await p.exec([...forgeArgv(p, "gh"), "repo", "create", repoPath, "--private"]);
   if (result.code !== 0) {
     const text = `${result.stdout}\n${result.stderr}`;
@@ -310,18 +349,6 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
       log: `gh repo create ${repoPath} printed no URL to use as the remote`,
     });
   }
-
-  // Provenance, recorded at the one moment it is knowable: rt just created
-  // this remote. It confers no rights: it only lets the membership permission
-  // be OFFERED later, so rt never asks whether it should administer a repo it
-  // was merely pointed at (MAT-387). The permission itself stays off until a
-  // human grants it.
-  // Clears a stale joinedByRt from an earlier joined-then-deleted clone of
-  // this same slug: updateTeamLocal merges, so an unset field here would
-  // leave both flags true and this brand-new team pull-only from birth.
-  updateTeamLocal(p, slug, { createdByRt: true, joinedByRt: false });
-
-  writeIntent(p, { v: 1, at: p.now().toISOString(), mode: "create", team: { slug, name: opts.name, remote: url, others: opts.others, ...(opts.firstTeam ? { firstTeam: opts.firstTeam } : {}) } });
   return url;
 }
 
@@ -403,7 +430,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   // Past here the zone is either absent or partially built (dir exists, but
   // not yet fully scaffolded/committed); every step below is a no-op when a
   // prior attempt already got that far.
-  const remote = originConfigured ?? (await resolveRemote(p, slug, opts));
+  const remote = originConfigured ?? (await resolveRemote(p, slug, opts, seams));
 
   p.mkdirp(dir);
 

@@ -2,7 +2,7 @@
  * The fast-setup form: every question setup still needs a person to answer,
  * grouped the way the app's screens draw them, and which screen setup is on.
  * rt decides each row's state and action; the app only lays them out. The
- * macos, invite and restore sections read only what their screen needs; the
+ * macos, invite, restore and create sections read only what their screen needs; the
  * connect section is built from the full plan, which one call composes at most
  * once and shares between sections.
  */
@@ -33,8 +33,10 @@ import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
 import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION } from "./validators/tools.ts";
 
-export type FormSection = "macos" | "invite" | "restore" | "connect" | "this-mac";
+export type FormSection = "macos" | "invite" | "restore" | "connect" | "this-mac" | "create";
+/** A whole read's sections. The create section needs a forge picked first, so only a section read asks for it. */
 export const FORM_SECTIONS: readonly FormSection[] = ["macos", "invite", "restore", "connect", "this-mac"];
+export const SECTION_READS: readonly FormSection[] = [...FORM_SECTIONS, "create"];
 
 export type FormRowState = "done" | "todo" | "busy" | "waiting";
 
@@ -71,7 +73,7 @@ export interface SetupForm {
   path: FormPath | null;
   team: { slug: string; name: string; invitedBy: string | null } | null;
   stage: FormStage | null;
-  sections: { macos?: FormRow[]; invite?: FormRow[]; restore?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[] };
+  sections: { macos?: FormRow[]; invite?: FormRow[]; restore?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[]; create?: FormRow[] };
   continueReady: boolean;
   startReady: boolean;
   paused: FormPaused | null;
@@ -282,6 +284,35 @@ export function inviteRows(i: InviteInputs): FormRow[] {
         role: "member",
         subtext: c.tokenSubtext(i.forge.provider),
         connected: i.forgeLogin ? c.connectedAs(i.forgeLogin) : c.connected,
+      }),
+    );
+  }
+  return rows;
+}
+
+export interface CreateInputs {
+  rows: ReadonlyMap<string, Row>;
+  forge: { provider: Forge; host: string };
+  ghSignedIn: boolean;
+  cltInstalled: boolean;
+  prepare: MacosPrepare;
+}
+
+/** Create team clones the new repo with git, and makes it with the token unless gh is signed in on GitHub. */
+export function createRows(i: CreateInputs): FormRow[] {
+  const rows: FormRow[] = [];
+  const clt = cltRow(i);
+  if (clt) rows.push(clt);
+  if (i.forge.provider === "gitlab" || !i.ghSignedIn) {
+    const c = FORM_COPY.invite;
+    rows.push(
+      forgeAccountRow({
+        id: "forge.token",
+        forge: i.forge,
+        account: i.rows.get(`account.${i.forge.provider}`),
+        role: "owner",
+        subtext: c.tokenSubtext(i.forge.provider),
+        connected: c.connected,
       }),
     );
   }
@@ -676,6 +707,22 @@ async function inviteSection(p: Probes, secrets: SecretPresence): Promise<FormRo
   });
 }
 
+export interface CreateChoice {
+  forge: Forge;
+  /** A self-hosted forge's host; null reads the forge's own. */
+  host: string | null;
+}
+
+const DEFAULT_HOST: Record<Forge, string> = { github: "github.com", gitlab: "gitlab.com" };
+
+async function createSection(p: Probes, secrets: SecretPresence, choice: CreateChoice): Promise<FormRow[]> {
+  const forge = { provider: choice.forge, host: choice.host ?? DEFAULT_HOST[choice.forge] };
+  const snapshot: TeamSnapshot = { ...EMPTY_SNAPSHOT, integrations: { forge } };
+  const [mac, accounts] = await Promise.all([macRows(p), accountRows(p, snapshot, [], secrets, null, readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }))]);
+  const rows = new Map([...mac, ...accounts].map((r) => [r.id, r]));
+  return createRows({ rows, forge, ghSignedIn: ghSignedIn(rows), cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
+}
+
 async function restoreSection(p: Probes): Promise<FormRow[]> {
   const rows = new Map((await macRows(p)).map((r) => [r.id, r]));
   return restoreRows({ cltInstalled: isReady(rows, "tool.clt"), prepare: macosPrepare(p) });
@@ -867,6 +914,8 @@ export interface FormOptions {
   secrets: SecretPresence;
   orgs: string[];
   plan?: (mode: PlanMode) => Promise<Plan>;
+  /** The forge the create section reads; that section is left out without it. */
+  create?: CreateChoice;
 }
 
 /**
@@ -908,6 +957,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   if (wanted.includes("restore")) sections.restore = await restoreSection(p);
   if (wanted.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs, path ?? "solo");
   if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state);
+  if (wanted.includes("create") && opts.create) sections.create = await createSection(p, opts.secrets, opts.create);
   const form: SetupForm = {
     path,
     team: formTeam(intent, joined?.clone),

@@ -114,6 +114,46 @@ describe("teamCreate", () => {
     });
   });
 
+  test("team create with --forge gitlab uses the stored token and the new remote", async () => {
+    const remote = "https://gitlab.example.com/acme/mattstack-team-acme.git";
+    const probes = fakeProbes({
+      home: "/home/x",
+      files: { ...adminFiles, "/home/x/.mattstack/user/settings.user.jsonc": JSON.stringify({ "rt.integrations": { forgeHost: "gitlab.example.com" } }) },
+      fetch: async (url) => (url.includes("/namespaces/") ? { status: 200, body: JSON.stringify({ id: 42 }), headers: {} } : { status: 201, body: JSON.stringify({ http_url_to_repo: remote }), headers: {} }),
+    });
+    const deps = baseDeps({ probes, forgeToken: async (_p, at) => (at.startsWith("https://gitlab.example.com/") ? "glpat-sekrit" : null) });
+
+    await teamCreate(["Acme", "--forge", "gitlab", "--group", "acme", "--host", "gitlab.example.com", "--json"], {}, deps);
+
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ slug: "acme", name: "Acme", remote, created: true });
+    const create = probes.calls.fetchInits.find((c) => c.url === "https://gitlab.example.com/api/v4/projects");
+    expect(create?.init?.headers).toMatchObject({ "PRIVATE-TOKEN": "glpat-sekrit" });
+  });
+
+  test("--forge without --group is a usage error", async () => {
+    const deps = baseDeps();
+    expect(await runExpectingProcessExit(() => teamCreate(["Acme", "--forge", "gitlab", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "usage", message: "usage: rt team create <name> --forge <github|gitlab> --group <namespace> [--host <host>] [--others] [--json]" });
+
+    const humanProbes = fakeProbes({ home: "/home/x", files: adminFiles });
+    const human = baseDeps({ probes: humanProbes });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      expect(await runExpectingProcessExit(() => teamCreate(["Acme", "--forge", "gitlab"], {}, human))).toBe(2);
+      expect(io.stderr()).toStartWith("Which group or account should the team repo go in?");
+    } finally {
+      io.restore();
+    }
+    expect(humanProbes.calls.fetch).toEqual([]);
+  });
+
+  test("--forge names GitHub or GitLab", async () => {
+    const deps = baseDeps();
+    expect(await runExpectingProcessExit(() => teamCreate(["Acme", "--forge", "bitbucket", "--group", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("usage");
+  });
+
   test("--others is recorded on the intent, not the printed envelope", async () => {
     const deps = baseDeps();
     await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--others", "--json"], {}, deps);
@@ -165,7 +205,7 @@ describe("teamCreate", () => {
       const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toBe("What should the team be called?\n  next: rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]\n");
+      expect(io.stderr()).toBe("What should the team be called?\n  next: rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner> | --forge <github|gitlab> --group <namespace> [--host <host>]) [--others] [--json]\n");
     } finally {
       io.restore();
     }

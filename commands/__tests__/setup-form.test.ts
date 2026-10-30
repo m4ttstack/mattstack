@@ -102,6 +102,25 @@ describe("rt setup form", () => {
     expect(quiet.stderr()).toStartWith("Pick a part of setup");
   });
 
+  test("--section create --forge reads the create screen's rows", async () => {
+    const t = deps();
+    expect(await exitCode(() => setupForm(["--section", "create", "--forge", "gitlab", "--host", "gitlab.example.com", "--json"], {}, t.d))).toBeUndefined();
+    const body = JSON.parse(t.lines[0]!);
+    expect(Object.keys(body.sections)).toEqual(["create"]);
+    expect(body.sections.create.map((r: { id: string }) => r.id)).toContain("forge.token");
+  });
+
+  test("the create section needs --forge naming GitHub or GitLab", async () => {
+    for (const args of [["--section", "create"], ["--section", "create", "--forge", "bitbucket"]]) {
+      const t = deps();
+      expect(await exitCode(() => setupForm([...args, "--json"], {}, t.d))).toBe(2);
+      expect(JSON.parse(t.lines[0]!).error).toMatchObject({ code: "bad-forge" });
+    }
+    const human = deps();
+    expect(await exitCode(() => setupForm(["--section", "create"], {}, human.d))).toBe(2);
+    expect(quiet.stderr()).toStartWith("Pick where the team's repo goes: github or gitlab");
+  });
+
   test("human output prints one line per row", async () => {
     const t = deps();
     await setupForm(["--section", "macos"], {}, t.d);
@@ -192,6 +211,10 @@ describe("rt setup form finishes setup once nothing blocks it", () => {
       expect(finishedAt(t)).toBeUndefined();
       expect(JSON.parse(t.lines[0]!).stage).toBeNull();
     }
+    const create = deps({ run: ENDED_OK, plan: CLEAR });
+    await setupForm(["--section", "create", "--forge", "github", "--json"], {}, create.d);
+    expect(finishedAt(create)).toBeUndefined();
+    expect(JSON.parse(create.lines[0]!).stage).toBeNull();
   });
 
   test("a run that ended failed is never finished by the form", async () => {

@@ -14,7 +14,7 @@ import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
  * rt team create|publish|rename|invite|join|members|status: the team-repo
  * lifecycle verbs.
  *
- *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
+ *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner> | --forge <github|gitlab> --group <namespace> [--host <host>]) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
  *   rt team rename <name> [--team <org>] [--json]
  *   rt team branch use <branch> [--team <org>] [--json]
@@ -56,7 +56,7 @@ import { forgeLogin } from "../lib/team/forge.ts";
 import { addTeam, type AddTeamSeams } from "../lib/team/add.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
-import { createTeam } from "../lib/team/create.ts";
+import { createTeam, type CreateTeamOpts } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
@@ -276,13 +276,27 @@ function realAddTeamSeams(): AddTeamSeams {
   };
 }
 
+const CREATE_USAGE = "rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner> | --forge <github|gitlab> --group <namespace> [--host <host>]) [--others] [--json]";
+const FORGE_CREATE_USAGE = "rt team create <name> --forge <github|gitlab> --group <namespace> [--host <host>] [--others] [--json]";
+const DEFAULT_FORGE_HOST = { github: "github.com", gitlab: "gitlab.com" } as const;
+
+function forgeRepoArgs(args: string[], json: boolean, deps: TeamDeps): CreateTeamOpts["forgeRepo"] {
+  if (!args.includes("--forge")) return undefined;
+  const provider = flagValue(args, "--forge");
+  if (provider !== "github" && provider !== "gitlab") usageError(deps, json, "Pick where the team's repo goes: github or gitlab", FORGE_CREATE_USAGE);
+  const namespace = flagValue(args, "--group");
+  if (!namespace || namespace.startsWith("--")) usageError(deps, json, "Which group or account should the team repo go in?", FORGE_CREATE_USAGE);
+  return { provider, host: flagValue(args, "--host") ?? DEFAULT_FORGE_HOST[provider], namespace };
+}
+
 export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   const others = args.includes("--others");
   const remote = flagValue(args, "--remote") ?? null;
   const createRepoOwner = flagValue(args, "--create-repo");
   const firstTeam = flagValue(args, "--first-team");
-  let name = positional(args, ["--remote", "--create-repo", "--first-team"])[0];
+  let name = positional(args, ["--remote", "--create-repo", "--first-team", "--forge", "--group", "--host"])[0];
+  const forgeRepo = forgeRepoArgs(args, json, deps);
 
   if (!name) {
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
@@ -290,12 +304,12 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
       name = await textInput({ message: "Team name", placeholder: "Platform Team" });
       if (!name) process.exit(0);
     } else {
-      usageError(deps, json, "What should the team be called?", "rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]");
+      usageError(deps, json, "What should the team be called?", CREATE_USAGE);
     }
   }
 
   try {
-    const result = await createTeam(deps.probes, { name, remote, createRepoOwner, others, firstTeam }, deps.ageKeySeam, { forgeLogin, forgeToken: deps.forgeToken ?? storedForgeToken });
+    const result = await createTeam(deps.probes, { name, remote, createRepoOwner, others, firstTeam, ...(forgeRepo ? { forgeRepo } : {}) }, deps.ageKeySeam, { forgeLogin, forgeToken: deps.forgeToken ?? storedForgeToken });
     const peered = result.created ? await autoPeer(deps, result.slug) : null;
     if (json) {
       deps.print(JSON.stringify(envelope(result)));

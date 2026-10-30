@@ -2806,7 +2806,12 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/setup-form.ts",
         fn: "setupForm",
         hidden: true,
-        args: [SETUP_JSON_ARG, { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect or this-mac" }],
+        args: [
+          SETUP_JSON_ARG,
+          { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect, this-mac or create" },
+          { name: "Forge", flag: "--forge", type: "text", placeholder: "gitlab", hint: "github or gitlab, for the create section" },
+          { name: "Host", flag: "--host", type: "text", placeholder: "gitlab.com", hint: "A self-hosted forge's host" },
+        ],
       },
       prepare: {
         description: "Install what setup can while you answer its questions",
@@ -3051,6 +3056,9 @@ export const TREE: Record<string, CommandNode> = {
           { name: "First team", flag: "--first-team", type: "text", placeholder: "widgets", hint: "The first team's name; the org's own name when left out" },
           { name: "Remote", flag: "--remote", type: "text", placeholder: "https://github.com/acme/mattstack-team-acme.git", hint: "An existing empty repo's URL" },
           { name: "Create repo", flag: "--create-repo", type: "text", placeholder: "acme", hint: "Owner (user or org) to create <owner>/mattstack-team-<slug> under via gh, instead of pasting --remote" },
+          { name: "Forge", flag: "--forge", type: "text", placeholder: "gitlab", hint: "github or gitlab: create the repo there with your stored token" },
+          { name: "Group", flag: "--group", type: "text", placeholder: "acme", hint: "The group, org or account to create <group>/mattstack-team-<slug> under" },
+          { name: "Host", flag: "--host", type: "text", placeholder: "gitlab.com", hint: "A self-hosted forge's host" },
           { name: "Others", flag: "--others", type: "boolean", default: false, hint: "Mark the team as having members beyond you" },
           SETUP_JSON_ARG,
         ],
