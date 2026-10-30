@@ -175,7 +175,7 @@
   - place-repo action gains `board: string | null`: `"The board's review, respond and doctor agents start here"` on the board repo's row, else null. That row's `then` becomes `["setup", "apply", "--only", "board.restart"]` once installed.
 
 - [ ] **Step 1: Write the failing tests** in `board-folder.test.ts`:
-  - `"the first board project picks its tracked repo by path, whatever the host"` (`["assured/assured-dev"]`, tracked `["gitlab.example.com/assured/assured-dev", "github.com/x/y"]`).
+  - `"the first board project picks its tracked repo by path, whatever the host"` (`["acme/widgets"]`, tracked `["gitlab.example.com/acme/widgets", "github.com/x/y"]`).
   - `"no board projects: the first tracked repo, as before"`.
   - `"a project two tracked repos match on different hosts picks none"` → null.
   - `"install: an empty value is written"`; `"install: the value rt wrote last is replaced"`; `"install: a value set by hand is left alone"` → `{ leave: "hand-set" }`; `"install: the target already in place writes nothing"` → `{ leave: "current" }`; `"no board repo writes nothing"` → `{ leave: "no-repo" }`.
@@ -191,7 +191,7 @@
   - `"board.restart with nothing new skips without calling deck"`.
   - `"a restart deck refuses is partial with the command to run"` → `{ state: "partial", remedy: "Run deck restart board" }`.
   - `"an --only board.restart run clones and repoints first"` via `runApplyWith(STEPS, ctx, { only: "board.restart" })`: the queue is `repos.clone`, `board.cwds`, `board.restart` when unsatisfied.
-  - `"the plan event names the board's repo"` (`plan` event title for `board.cwds` is `"Point the board at assured-dev"`; `board.restart` is `"Restart the board"`).
+  - `"the plan event names the board's repo"` (`plan` event title for `board.cwds` is `"Point the board at widgets"`; `board.restart` is `"Restart the board"`).
   - `contract.test.ts`: update `"matches the contract's 29 ids in order"` to 31 ids; `apply.test.ts`'s `"has exactly one def per STEP_IDS entry"` keeps passing.
   - `validators-repos.test.ts`: `"the board repo's row says the board's agents start there, and its then repoints the board"`; other rows carry `board: null` and the `repos.clone` then.
   - `PlanModelsChecks.swift`: `Check("PlanModels: a place-repo action's board line decodes, and absent reads nil")`.

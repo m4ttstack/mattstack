@@ -47,7 +47,7 @@ Success: a new member goes from invite to a working board in one pass, without a
 - **Full Disk Access:** its button deep-links to Privacy & Security › Full Disk Access (`SystemSettingsLinks.fullDiskAccess`, already `...?Privacy_AllFiles`). Once it is on but the running app predates it (`fdaNeedsRelaunch`), a "Reopen mattstack" button relaunches through `AppRelaunch.relaunchInPlace(resumeAt:)` and setup resumes at Join.
 - **Skippable steps:** Skill overrides, Chrome sign-in (only shown when a pack declares `chrome.signedIntoApp`), Mission Control shortcut. Each has a Skip button and sits in a "You can skip" card. Every other step must be done before Finish.
 - **Information only:** Push access and PATH precedence show in "No action needed", never as tasks.
-- **Board folder:** `board.cwds` = `{review, respond, doctor}` all set to the local path of the board's repo, which is the first entry of `board.projects` (for an assured member, `assured/assured-dev`). Written when that repo is placed or cloned, rewritten if the placement changes, then the board restarts.
+- **Board folder:** `board.cwds` = `{review, respond, doctor}` all set to the local path of the board's repo, which is the first entry of `board.projects` (for an acme member, `acme/widgets`). Written when that repo is placed or cloned, rewritten if the placement changes, then the board restarts.
 - **Installers:** claude and herdr install with their own scripts, never brew (PR #952).
 - **Board defaults for the org:** `board.agent.model`, `board.agent.effort` and `board.triage` accept org and team scope (PR #954); the org values are set after the release that reads them.
 
