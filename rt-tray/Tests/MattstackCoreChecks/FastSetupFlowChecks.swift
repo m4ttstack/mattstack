@@ -38,6 +38,32 @@ let fastSetupFlowChecks: [Check] = [
             c.expectEqual(status.screen, .loading, "a finished Mac that lost a permission resumes where rt says, not on the cards")
         }
     },
+    Check("FastSetupFlow: macOS done on a first run past the cards asks rt, never the cards") { c in
+        await MainActor.run {
+            let chose = FastSetupFlow(entry: .firstRun)
+            chose.land(on: .macos, path: "join")
+            chose.macosDone()
+            c.expectEqual(chose.screen, .loading, "a path already chosen resumes where rt says")
+            let live = FastSetupFlow(entry: .firstRun)
+            live.land(on: .running)
+            live.land(on: .macos)
+            live.land(on: .running, path: "solo")
+            live.macosDone()
+            c.expectEqual(live.screen, .loading, "a live run is rt's to route, so the bar is never left for the cards")
+            let unread = FastSetupFlow(entry: .firstRun)
+            unread.macosDone()
+            c.expectEqual(unread.screen, .loading, "with no whole read yet nothing says this Mac is fresh")
+            let ended = FastSetupFlow(entry: .firstRun)
+            ended.startRun()
+            ended.runEnded(stage: .macos, path: "create")
+            ended.macosDone()
+            c.expectEqual(ended.screen, .loading, "a run's end read keeps the path it saw")
+            let fresh = FastSetupFlow(entry: .firstRun)
+            fresh.land(on: .macos, path: nil)
+            fresh.macosDone()
+            c.expectEqual(fresh.screen, .path, "only a Mac rt saw as fresh takes the cards at once")
+        }
+    },
     Check("FastSetupFlow: an upgrade's Join skips the cards") { c in
         await MainActor.run {
             let join = flow(.upgrade, on: .macos, requested: .join)
@@ -380,6 +406,12 @@ let fastSetupFlowChecks: [Check] = [
         _ = await status.land(reading: form)
         c.expectEqual(await status.screen, .connect, "a finished Mac that got macOS back resumes where rt says")
         c.expectEqual(rt.calls.last?.args, ["setup", "form", "--json"])
+
+        rt.answers = ["setup form --json": (0, wholeForm(stage: "macos"))]
+        let joined = await FastSetupFlow(entry: .firstRun)
+        _ = await joined.land(reading: form)
+        await joined.macosDone()
+        c.expectEqual(await joined.screen, .loading, "a whole read that names a path sends P1 back to rt, not to the cards")
     },
     Check("FastSetupFlow: Setup status on an unfinished Mac is the first run") { c in
         c.expectEqual(FastSetupLaunch.entry(.status, finished: false), .firstRun, "an unfinished Mac still offers Just me")

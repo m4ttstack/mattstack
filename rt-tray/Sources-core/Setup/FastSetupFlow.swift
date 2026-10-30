@@ -118,6 +118,8 @@ public final class FastSetupFlow: ObservableObject {
     public var requested: TeamChoice?
     /// Set only by a card picked in this window: a relaunch onto accounts has no cards behind it.
     private var chosen: TeamChoice?
+    /// rt's last whole read saw a fresh Mac: no path chosen and nothing past the cards.
+    private var wholeSawFreshMac = false
 
     public init(entry: SetupEntry = .firstRun) { self.entry = entry }
 
@@ -172,7 +174,8 @@ public final class FastSetupFlow: ObservableObject {
     /// `stage` comes from a whole-form read only: a section read carries none.
     /// A finished Mac whose Join or Create from Settings has not started yet
     /// still reads `ready`; once the join is in flight rt says so itself.
-    public func land(on stage: FormStage) {
+    public func land(on stage: FormStage, path: String? = nil) {
+        wholeSawFreshMac = Self.freshMac(stage: stage, path: path)
         if let c = chosen, stage != .path, Self.screen(for: stage) != Self.start(of: c) { chosen = nil }
         if stage == .ready, let target = requestedScreen {
             screen = target
@@ -181,10 +184,15 @@ public final class FastSetupFlow: ObservableObject {
         }
     }
 
-    /// Off a first run, only rt knows where a Mac that already got past the cards resumes:
-    /// `.loading` asks the coordinator for a whole-form read.
+    /// Only a first run on a Mac rt last saw as fresh goes straight to the cards. Anywhere else only rt
+    /// knows where it resumes (a run under way, a path already chosen): `.loading` asks the coordinator
+    /// for a whole-form read.
     public func macosDone() {
-        screen = requestedScreen ?? (entry == .firstRun ? .path : .loading)
+        screen = requestedScreen ?? (entry == .firstRun && wholeSawFreshMac ? .path : .loading)
+    }
+
+    private nonisolated static func freshMac(stage: FormStage, path: String?) -> Bool {
+        path == nil && (stage == .macos || stage == .path)
     }
 
     public func choose(_ c: TeamChoice) {
@@ -211,7 +219,8 @@ public final class FastSetupFlow: ObservableObject {
     public func retry() { screen = .running }
 
     /// Unlike `land(on:)`, never reopens an upgrade's requested screen: the run it asked for is over.
-    public func runEnded(stage: FormStage) {
+    public func runEnded(stage: FormStage, path: String? = nil) {
+        wholeSawFreshMac = Self.freshMac(stage: stage, path: path)
         requested = nil
         chosen = nil
         screen = Self.screen(for: stage)
@@ -221,7 +230,7 @@ public final class FastSetupFlow: ObservableObject {
     @discardableResult
     public func land(reading form: SetupFormModel) async -> SetupForm? {
         guard let read = await form.load(section: nil), let stage = read.stage else { return nil }
-        land(on: stage)
+        land(on: stage, path: read.path)
         return read
     }
 
@@ -229,7 +238,7 @@ public final class FastSetupFlow: ObservableObject {
     @discardableResult
     public func landAfterRun(reading form: SetupFormModel) async -> SetupForm? {
         guard let read = await form.load(section: nil), let stage = read.stage else { return nil }
-        runEnded(stage: stage)
+        runEnded(stage: stage, path: read.path)
         return read
     }
 

@@ -843,11 +843,14 @@ export interface StageInputs {
  * The screen setup is on. An approval rt cannot read lets the member on. A run
  * that ended ok with rows left standing lands on this-mac, where its leftovers
  * are, never back on the bar: `--resume` against an ended run runs it all again.
+ * A run still going outranks macOS: a permission that reads unanswered for a
+ * moment (the app slow to reply) must not pull the window off the bar it is watching.
  */
 export function formStage(i: StageInputs): FormStage {
   if (i.finished) return finishedStage(i);
-  if (!i.macosDone) return "macos";
   const bar = runStage(i.run);
+  if (bar === "running") return bar;
+  if (!i.macosDone) return "macos";
   if (bar) return bar;
   if (i.path === null) return "path";
   if (i.join === "unredeemed") return "invite";

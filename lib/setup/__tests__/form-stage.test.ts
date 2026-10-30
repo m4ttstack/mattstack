@@ -64,6 +64,17 @@ describe("formStage on a Mac setting up", () => {
     expect(stage({ run: FAILED })).toBe("paused");
   });
 
+  // A notifications row reads unanswered whenever the app is slow to reply, mid-run.
+  test("an unended run with macOS not done stays on the bar", () => {
+    expect(stage({ run: RUNNING, macosDone: false })).toBe("running");
+    expect(stage({ path: null, join: null, run: RUNNING, macosDone: false, connectDone: false })).toBe("running");
+  });
+
+  test("an ended run with macOS not done goes back to macOS", () => {
+    expect(stage({ run: FAILED, macosDone: false })).toBe("macos");
+    expect(stage({ run: ENDED_OK, macosDone: false })).toBe("macos");
+  });
+
   test("no choice yet is the four cards", () => {
     expect(stage({ path: null, join: null, connectDone: false })).toBe("path");
   });
