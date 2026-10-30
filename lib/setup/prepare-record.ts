@@ -61,17 +61,20 @@ export function readPrepare(
   return { ...record, running };
 }
 
-/** Polls until the stage's run ends, `holds` stops holding, or `maxMs` passes. */
+export const PREPARE_WAIT_LINE = "Waiting for the background installs to finish";
+
+/** Polls until the stage's run ends, `holds` stops holding, or `maxMs` passes. `onWait` runs once, before the first wait. */
 export async function waitWhilePreparing(
   p: Probes,
   stage: PrepareStage,
-  opts: { holds?: (record: PrepareRecord) => boolean; alive?: (pid: number) => boolean; maxMs?: number } = {},
+  opts: { holds?: (record: PrepareRecord) => boolean; alive?: (pid: number) => boolean; maxMs?: number; onWait?: (line: string) => void } = {},
 ): Promise<void> {
   const holds = opts.holds ?? (() => true);
   const maxPolls = (opts.maxMs ?? PREPARE_BUDGET_MS[stage]) / (POLL_SECONDS * 1000);
   for (let poll = 0; poll < maxPolls; poll++) {
     const record = readPrepare(p, stage, opts.alive ?? pidAlive, () => p.now());
     if (!record?.running || !holds(record)) return;
+    if (poll === 0) opts.onWait?.(PREPARE_WAIT_LINE);
     await p.exec(["sleep", String(POLL_SECONDS)], { timeoutMs: (POLL_SECONDS + 5) * 1000 });
   }
 }

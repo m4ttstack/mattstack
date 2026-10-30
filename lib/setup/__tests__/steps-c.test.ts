@@ -1672,13 +1672,15 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
             return ok("[]");
           },
         });
-        await step.run(makeCtx(p).ctx);
+        const { ctx, logs } = makeCtx(p);
+        await step.run(ctx);
         const calls = (p as ReturnType<typeof fakeProbes>).calls.exec;
         expect(calls.slice(0, 2)).toEqual([
           ["sleep", "5"],
           ["sleep", "5"],
         ]);
         expect(calls.length).toBeGreaterThan(2);
+        expect(logs.filter((l) => l.line === "Waiting for the background installs to finish")).toEqual([{ id: step.id, line: "Waiting for the background installs to finish" }]);
       }
     });
 

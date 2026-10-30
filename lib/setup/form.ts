@@ -113,7 +113,7 @@ export const FORM_COPY = {
   },
   clt: {
     title: "Command Line Tools",
-    subtext: "Git and the build tools setup needs",
+    subtext: "Gives setup git and Apple's build tools",
     installing: "Installing Command Line Tools…",
     install: "Install",
     notInstalled: "Not installed yet",

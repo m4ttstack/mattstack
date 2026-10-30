@@ -82,7 +82,7 @@ export const fastbrowserSetupStep: StepDef = {
   updateSafe: true,
   applies: () => true,
   run: async (ctx) => {
-    await waitWhilePreparing(ctx.p, "accounts");
+    await waitWhilePreparing(ctx.p, "accounts", { onWait: (line) => ctx.log("fastbrowser.setup", line) });
     return setUpFastBrowser(ctx.p, { nonInteractive: ctx.nonInteractive });
   },
 };

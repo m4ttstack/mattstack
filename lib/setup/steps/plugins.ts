@@ -463,7 +463,7 @@ export const pluginsInstallStep: StepDef = {
   // A running `rt setup prepare accounts` may still be installing Claude Code
   // or driving its plugin commands through Fast Browser's setup.
   run: async (ctx) => {
-    await waitWhilePreparing(ctx.p, "accounts");
+    await waitWhilePreparing(ctx.p, "accounts", { onWait: (line) => ctx.log("plugins.install", line) });
     return installPlugins(ctx);
   },
 };
