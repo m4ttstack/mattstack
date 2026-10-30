@@ -127,6 +127,7 @@ enum FastSetupSnapshot {
             ("invite-clt-busy", page(code, hasGoodVerdict: true, line: line, rows: [Rows.cltInstalling, Rows.gitlabTokenConnected])),
             ("invite-clt-todo", page(code, hasGoodVerdict: true, line: line, rows: [Rows.clt, Rows.githubToken])),
             ("invite-ready", page(code, hasGoodVerdict: true, line: line, rows: [Rows.gitlabTokenConnected])),
+            ("invite-self-hosted", page(code, hasGoodVerdict: true, line: line, rows: [Rows.gitlabTokenUnconfirmed])),
         ]
     }
 
@@ -198,6 +199,13 @@ enum FastSetupSnapshot {
             ("connect-done", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.fastBrowserDone], ready: true)),
             ("connect-solo", page(team: false, [C.soloForge, C.claudeSignIn, C.soloFastBrowser])),
             ("connect-get-chrome", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.getChrome])),
+            ("connect-steps", page([C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserSteps],
+                                   ready: FastSetupFlow.footerReady(false, rows: [C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserSteps]))),
+            ("connect-newer-action-only", page([C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserDone],
+                                               ready: FastSetupFlow.footerReady(false, rows: [C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserDone]))),
+            ("sheet-steps", AnyView(StepsSheet(title: C.fastBrowserSteps.title, steps: C.fastBrowserSteps.action?.steps ?? []))),
+            ("sheet-steps-terminal", AnyView(StepsSheet(title: Rows.gitlabTokenUnconfirmed.title, steps: Rows.gitlabTokenUnconfirmed.action?.steps ?? []))),
+            ("sheet-choose", AnyView(ChooseSheet(row: FormRowPlan.planRow(Self.wideChoice), submitLabel: "Choose") { _ in nil })),
         ]
     }
 
@@ -217,8 +225,17 @@ enum FastSetupSnapshot {
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupLocal], ready: false)),
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
             ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false)),
+            ("this-mac-backup-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.backupLeftover], ready: false)),
         ]
     }
+
+    /// A choose wider than a segment, which the fast screens open in a sheet.
+    static let wideChoice = FormRow(id: "editor", title: "Your editor", subtext: "Where Open in editor goes", state: .done, detail: "Zed",
+                                    action: RowAction(type: .choose, label: "Change", verb: ["setup", "editor"], options: [
+                                        ChooseOption(id: "zed", label: "Zed", detail: "Opens files at the line"),
+                                        ChooseOption(id: "cursor", label: "Cursor", detail: "Opens the folder, then the file"),
+                                        ChooseOption(id: "vscode", label: "VS Code", detail: "Opens the folder, then the file"),
+                                    ], selected: "zed"))
 
     @MainActor
     private static func readyPages() -> [(String, AnyView)] {
@@ -524,6 +541,13 @@ enum FastSetupSnapshot {
                                            detail: "Shell integration not added yet",
                                            action: RowAction(type: .run, label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"]),
                                            watch: true)
+        /// A push that did not land: `HOME_BACKUP_PUSH_ACTION` in lib/setup/validators/rt-health.ts.
+        static let backupLeftover = FormRow(id: "home.backup", title: "Home repo backup",
+                                            subtext: "Shows whether your settings are backed up off this Mac. Keeping them local only is fine.",
+                                            state: .todo, detail: "Remote set, nothing pushed yet",
+                                            action: RowAction(type: .steps, label: "Show steps…", steps: [
+                                                "git -C ~/.mattstack/user push origin HEAD, or wait for the daemon to push on its next cycle (up to 30 minutes)",
+                                            ]), watch: true)
     }
 
     /// What `connectRows` in lib/setup/form.ts emits for a GitLab team with Doppler, StrongDM and Linear, and for Just me.
@@ -587,6 +611,15 @@ enum FastSetupSnapshot {
         static let getChrome = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
                                        detail: "Google Chrome is not installed",
                                        action: RowAction(type: .openURL, label: "Get Chrome", url: "https://www.google.com/chrome/"), watch: true)
+        /// doctor can't read Chrome's profile: `FAST_BROWSER_PROFILE_ACCESS_STEPS` in lib/setup/validators/tools.ts.
+        static let fastBrowserSteps = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
+                                              detail: "Installed, but Fast Browser can't read Chrome's profile yet",
+                                              action: RowAction(type: .steps, label: "Show steps…", steps: [
+                                                  "Turn on Full Disk Access for mattstack in System Settings, then Re-check",
+                                              ]), watch: true)
+        /// An action type from an rt newer than this app.
+        static let newerAction = FormRow(id: "tool.team.acme-cli", title: "acme-cli", subtext: "Runs acme's dev servers", state: .todo,
+                                         detail: "Not installed", action: RowAction(type: .unknown, label: "Install"), watch: true)
     }
 
     enum Rows {
@@ -603,6 +636,13 @@ enum FastSetupSnapshot {
                                                                url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api%2Cread_api%2Cread_user%2Cread_repository%2Cwrite_repository%2Cai_features")))
         static let gitlabTokenConnected = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                                   state: .done, detail: "Connected as janedoe")
+        /// A self-hosted invite host this Mac has not confirmed: `forgeAccountRow` in lib/setup/form.ts.
+        static let gitlabTokenUnconfirmed = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
+                                                    state: .todo, detail: "Connect gitlab.example.com from the terminal first",
+                                                    action: RowAction(type: .steps, label: "Show steps…", steps: [
+                                                        "Run: rt setup gitlab connect --host gitlab.example.com",
+                                                        "This confirms the host yourself before rt talks to it",
+                                                    ]))
         static let gitlabTokenCreated = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                                 state: .done, detail: "Connected")
         static let githubToken = FormRow(id: "forge.token", title: "GitHub", subtext: "Lets mattstack reach the team's repo and open PRs",

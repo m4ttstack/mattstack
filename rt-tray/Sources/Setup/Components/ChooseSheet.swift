@@ -10,6 +10,7 @@ struct ChooseSheet: View {
     let options: [ChooseOption]
     let other: ChooseOther?
     let footnote: String?
+    let submitLabel: String
     let onChoose: (String) async -> String?
 
     private enum Choice: Hashable { case option(String), own }
@@ -23,13 +24,14 @@ struct ChooseSheet: View {
     @FocusState private var ownFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
-    init(row: PlanRow, onChoose: @escaping (String) async -> String?) {
+    init(row: PlanRow, submitLabel: String = "Use this style", onChoose: @escaping (String) async -> String?) {
         let action = row.action
         self.title = row.title
         self.subtitle = action?.subtitle
         self.options = action?.options ?? []
         self.other = action?.other
         self.footnote = action?.footnote
+        self.submitLabel = submitLabel
         self.onChoose = onChoose
         // A current value that is not a listed option (a skill picked by id) opens on the own-skill card.
         if let selected = action?.selected {
@@ -245,7 +247,7 @@ struct ChooseSheet: View {
                 .keyboardShortcut(.cancelAction)
                 .disabled(busy)
                 .accessibilityIdentifier(AXID.chooseCancel)
-            Button(busy ? "Saving…" : "Use this style") { submit() }
+            Button(busy ? "Saving…" : submitLabel) { submit() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(busy || chosenId == nil)

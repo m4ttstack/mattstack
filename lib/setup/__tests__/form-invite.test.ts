@@ -58,11 +58,21 @@ describe("inviteRows", () => {
   test("an invite's self-hosted GitLab host is shown, never confirmed for the joiner", () => {
     for (const host of ["gitlab.example.com", "--json"]) {
       const token = pick(inviteRows(inputs({ forge: { provider: "gitlab", host } })), "forge.token");
-      expect(token.action).toMatchObject({ type: "connect", integration: "gitlab" });
-      expect(token.action && "verb" in token.action).toBe(false);
-      expect(token.action && "create" in token.action).toBe(false);
       expect(token.detail).toBe(host === "--json" ? "Connect your team's GitLab from the terminal first" : `Connect ${host} from the terminal first`);
+      expect(token.state).toBe("todo");
     }
+  });
+
+  // A plain connect checks the token against gitlab.com, so a field here could only fail.
+  test("an unconfirmed self-hosted host offers the terminal command, never a token field", () => {
+    const token = pick(inviteRows(inputs({ forge: { provider: "gitlab", host: "gitlab.example.com" } })), "forge.token");
+    expect(token.action).toEqual({
+      type: "steps",
+      label: "Show steps…",
+      steps: ["Run: rt setup gitlab connect --host gitlab.example.com", "This confirms the host yourself before rt talks to it"],
+    });
+    const planted = pick(inviteRows(inputs({ forge: { provider: "gitlab", host: "--json" } })), "forge.token");
+    expect(planted.action).toBeNull();
   });
 
   test("Create token opens a self-hosted GitLab once the member confirmed that host", () => {
@@ -164,6 +174,7 @@ describe("composeForm", () => {
     const form = await composeForm(p, { sections: ["invite"], secrets: NO_SECRETS, orgs: [] });
     const token = pick(form.sections.invite!, "forge.token");
     expect(token.detail).toBe("Connect gitlab.example.com from the terminal first");
+    expect(token.action?.type).toBe("steps");
     expect(token.action && "create" in token.action).toBe(false);
     expect(token.action && "verb" in token.action).toBe(false);
   });

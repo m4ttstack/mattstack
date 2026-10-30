@@ -46,6 +46,9 @@ struct FastSetupView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .frame(minWidth: SetupWindowController.width, minHeight: SetupWindowController.minHeight)
             .controlSize(.large)
+            .sheet(item: $actions.sheet, onDismiss: { Task { await actions.sheetClosed() } }) { sheet in
+                FastSetupSheet(sheet: sheet, actions: actions)
+            }
     }
 
     private var back: (() -> Void)? { flow.canGoBack ? { flow.back() } : nil }
@@ -86,13 +89,17 @@ struct FastSetupView: View {
             WaitingScreenBody(team: latest?.team?.name ?? "", admin: latest?.team?.invitedBy, onHide: handlers.hide)
         case .connect:
             let read = form.read(carrying: "connect")
-            ConnectScreenBody(teamFirst: teamPath, rows: form.rows(for: "connect") ?? [],
-                              waiting: actions.waiting, errors: actions.errors, continueReady: read?.continueReady ?? false,
+            let rows = form.rows(for: "connect") ?? []
+            ConnectScreenBody(teamFirst: teamPath, rows: rows,
+                              waiting: actions.waiting, errors: actions.errors,
+                              continueReady: FastSetupFlow.footerReady(read?.continueReady ?? false, rows: rows),
                               onAction: perform, onBack: back, onContinue: { flow.continueToThisMac() })
         case .thisMac:
             let read = form.read(carrying: "this-mac")
-            ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, rows: form.rows(for: "this-mac") ?? [],
-                              waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false,
+            let rows = form.rows(for: "this-mac") ?? []
+            ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, rows: rows,
+                              waiting: actions.waiting, errors: actions.errors,
+                              startReady: FastSetupFlow.footerReady(read?.startReady ?? false, rows: rows),
                               onAction: perform, onBack: back, onStart: handlers.start)
         case .running:
             RunScreen(model: install, startedAt: status.runStartedAt, paused: nil, onHide: handlers.hide,
@@ -128,6 +135,21 @@ struct FastSetupView: View {
 
     /// rt names no failed step when the run's holder died, and Retry then runs setup again from the top.
     private static let unknownPause = FormPaused(step: "", title: "Setup stopped before it finished", detail: "Retry runs it again")
+}
+
+/// A row's sheet: rt's steps for something only the person can do, or a pick wider than a segment.
+struct FastSetupSheet: View {
+    let sheet: FormSheet
+    let actions: FormActionRunner
+
+    var body: some View {
+        switch sheet {
+        case .steps(let row, let steps):
+            StepsSheet(title: row.title, steps: steps)
+        case .choose(let row):
+            ChooseSheet(row: FormRowPlan.planRow(row), submitLabel: "Choose") { id in await actions.choose(row, id: id) }
+        }
+    }
 }
 
 /// Before rt's first whole read: nothing says which screen setup is on yet.

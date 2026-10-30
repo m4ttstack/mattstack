@@ -217,4 +217,67 @@ let formActionRunnerChecks: [Check] = [
         c.expectEqual(await MainActor.run { runner.waiting["account.slack"] }, nil)
         c.expectEqual(log.all, ["reload"])
     },
+    Check("FormActionRunner: every action type but unknown has a control on the fast screens that does something") { c in
+        for type in ActionType.allCases {
+            let action: RowAction
+            let expected: FormActionControl
+            switch type {
+            case .openSettings: action = RowAction(type: type, label: "Open settings", target: "fda"); expected = .press
+            case .requestPermission: action = RowAction(type: type, label: "Allow", which: "notifications"); expected = .press
+            case .connect: action = RowAction(type: type, label: "Connect", integration: "gitlab", fields: [ActionField(name: "token", label: "Token", secret: true)]); expected = .inRow
+            case .oauth: action = RowAction(type: type, label: "Connect Slack", integration: "slack", verb: ["setup", "slack", "connect"]); expected = .press
+            case .install: action = RowAction(type: type, label: "Install", tool: "apple-clt", via: "apple-clt"); expected = .press
+            case .steps: action = RowAction(type: type, label: "Show steps…", steps: ["Run: rt setup gitlab connect --host gitlab.example.com"]); expected = .sheet
+            case .run: action = RowAction(type: type, label: "Sign in", verb: ["setup", "doppler", "connect"]); expected = .press
+            case .choose:
+                action = RowAction(type: type, label: "Change", verb: ["setup", "home-backup"], options: [
+                    ChooseOption(id: "a", label: "A", detail: ""), ChooseOption(id: "b", label: "B", detail: ""), ChooseOption(id: "c", label: "C", detail: ""),
+                ])
+                expected = .sheet
+            case .form: action = RowAction(type: type, label: "Paste code", fields: [ActionField(name: "code", label: "Code", secret: true)], verb: ["setup", "claude", "code"]); expected = .inRow
+            case .ownerOnce: action = RowAction(type: type, label: "Create", integration: "slack", fields: [ActionField(name: "secret", label: "Secret", secret: true)]); expected = .inRow
+            case .linkBundled: action = RowAction(type: type, label: "Link", tool: "herdr"); expected = .press
+            case .openURL: action = RowAction(type: type, label: "Add to Chrome", url: "https://chromewebstore.google.com/detail/fast-browser"); expected = .press
+            case .chooseFolder: action = RowAction(type: type, label: "Choose…"); expected = .inRow
+            case .placeRepo: action = RowAction(type: type, label: "Locate…", identity: "github.com/acme/acme-api", mode: "checkout"); expected = .inRow
+            case .unknown: action = RowAction(type: type, label: "Something new"); expected = .none
+            }
+            c.expectEqual(FormActionRunner.control(for: action), expected, "\(type)")
+        }
+        c.expectEqual(FormActionRunner.control(for: RowAction(type: .run, label: "Sign in")), .none, "a verb rt left out leaves nothing to run")
+        c.expectEqual(FormActionRunner.control(for: RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: [])), .none,
+                      "a connect with no field to fill has nothing the row can draw")
+    },
+    Check("FormActionRunner: Show steps presents rt's steps, runs nothing, and reloads once the sheet closes") { c in
+        let rt = ScriptedRt()
+        let log = EventLog()
+        let (runner, _) = await makeRunner(rt, log: log)
+        let row = FormRow(id: "tool.fast-browser-extension", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
+                          detail: "Fast Browser can't read Chrome's profile yet",
+                          action: RowAction(type: .steps, label: "Show steps…", steps: ["Quit Chrome", "Run: fast-browser doctor"]))
+        await runner.perform(row)
+        c.expectEqual(await MainActor.run { runner.sheet }, .steps(row, ["Quit Chrome", "Run: fast-browser doctor"]))
+        c.expect(rt.calls.isEmpty, "showing steps runs no verb")
+        c.expectEqual(log.all, [], "nothing to re-read until the person has done the steps")
+        await runner.sheetClosed()
+        c.expectEqual(await MainActor.run { runner.sheet }, nil)
+        c.expectEqual(log.all, ["reload"])
+    },
+    Check("FormActionRunner: a choose wider than a segment opens a sheet whose pick runs rt's verb and hands back a refusal") { c in
+        let rt = ScriptedRt()
+        let log = EventLog()
+        let (runner, _) = await makeRunner(rt, log: log)
+        let action = RowAction(type: .choose, label: "Change", verb: ["setup", "pick"], options: [
+            ChooseOption(id: "a", label: "A", detail: ""), ChooseOption(id: "b", label: "B", detail: ""), ChooseOption(id: "c", label: "C", detail: ""),
+        ])
+        let row = FormRow(id: "pick", title: "Pick one", subtext: "s", state: .todo, detail: "", action: action)
+        await runner.perform(row)
+        c.expectEqual(await MainActor.run { runner.sheet }, .choose(row))
+        c.expect(rt.calls.isEmpty)
+        rt.answers = ["setup pick c --json": (2, #"{"contract":1,"error":{"code":"nope","message":"C is not on offer here"}}"#)]
+        c.expectEqual(await runner.choose(row, id: "c"), "C is not on offer here")
+        rt.answers = ["setup pick b --json": (0, "{}")]
+        c.expectEqual(await runner.choose(row, id: "b"), nil)
+        c.expectEqual(rt.calls.map(\.args), [["setup", "pick", "c", "--json"], ["setup", "pick", "b", "--json"]])
+    },
 ]

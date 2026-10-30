@@ -8,6 +8,7 @@ typealias FormRowPerform = (FormRow, [String: String]?, String?) -> Void
 /// and `error` are the app's own overlays from `FormActionRunner`. Neither
 /// overlay hides the control, so a wait that outlives rt's read can be retried.
 struct FormRowView: View {
+    static let needsNewerApp = "Needs a newer mattstack"
     let row: FormRow
     let waiting: String?
     let error: String?
@@ -135,8 +136,10 @@ struct FormRowView: View {
     @ViewBuilder private func button(_ action: RowAction) -> some View {
         let label = row.state == .waiting || waiting != nil ? (action.again ?? action.label) : action.label
         switch action.type {
-        case .unknown:
-            EmptyView()
+        case _ where FormActionRunner.control(for: action) == .none:
+            // A button that does nothing would hold the footer with no way on; FastSetupFlow.allDone lets it pass.
+            Text(Self.needsNewerApp).font(.callout).foregroundStyle(.secondary).fixedSize()
+                .accessibilityIdentifier(AXID.fastRowAction(row.id))
         case .chooseFolder:
             Button(label) { chooseFolder(action) }.fixedSize().accessibilityIdentifier(AXID.fastRowAction(row.id))
         default:

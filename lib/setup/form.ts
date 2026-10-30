@@ -31,6 +31,7 @@ import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
 import { installHasRun, isSetupFinished, markSetupFinished, readSetupState, type HomeBackupChoice, type SetupRun, type SetupState } from "./state.ts";
 import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
+import { connectHostSteps } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
 import { PLACE_REPO_LABELS } from "./validators/repos.ts";
@@ -287,22 +288,28 @@ interface ForgeAccountInputs {
  * An invite's or a team's declared host is shown, never confirmed for the
  * member: connect refuses it, and Create token never sends them there, until
  * they pass `--host` themselves (the same gate as the org rows' Connect).
+ * Until then the row offers that terminal command, not a token field: a plain
+ * connect checks the token against gitlab.com, so a self-hosted one could only fail.
  */
 function forgeAccountRow(o: ForgeAccountInputs): FormRow {
   const c = FORM_COPY.invite;
   const base = { id: o.id, title: TITLES[o.forge.provider], subtext: o.subtext, waiting: null, watch: false, optional: false };
   if (o.account?.status === "ready") return { ...base, state: "done", detail: o.connected, action: null };
   const trusted = o.confirmsHost === true || mayOfferTokenToHost(o.forge.host, o.confirmedHost);
+  if (!trusted) {
+    const steps = isValidHostname(o.forge.host) ? connectHostSteps(o.forge.provider, o.forge.host) : null;
+    return { ...base, state: "todo", detail: c.confirmHost(o.forge), action: steps };
+  }
   return {
     ...base,
     state: "todo",
-    detail: trusted ? (o.account?.detail ?? "") : c.confirmHost(o.forge),
+    detail: o.account?.detail ?? "",
     action: {
       type: "connect",
       label: c.connect,
       integration: o.forge.provider,
       fields: [tokenField(o.forge.provider, o.role)],
-      ...(trusted ? { create: { label: c.createToken, url: tokenCreateLink(o.forge.provider, o.role, o.forge.host).url } } : {}),
+      create: { label: c.createToken, url: tokenCreateLink(o.forge.provider, o.role, o.forge.host).url },
       ...(o.confirmsHost ? userHostConnect(o.forge) : {}),
     },
   };

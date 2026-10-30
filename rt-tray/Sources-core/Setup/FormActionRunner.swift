@@ -8,6 +8,33 @@ public protocol FormEffects: Sendable {
     func requestPermission(_ which: String) async -> Bool
 }
 
+/// What a fast screen presents for a row whose action needs more than a press.
+public enum FormSheet: Identifiable, Equatable, Sendable {
+    /// rt's own steps for something only the person can do, such as a terminal command.
+    case steps(FormRow, [String])
+    /// A pick from more options than a segment holds.
+    case choose(FormRow)
+
+    public var id: String {
+        switch self {
+        case .steps(let row, _): return "steps:\(row.id)"
+        case .choose(let row): return "choose:\(row.id)"
+        }
+    }
+}
+
+/// How the fast screens carry out a row's action.
+public enum FormActionControl: Equatable, Sendable {
+    /// The press itself does it: an rt verb, a page, a settings pane, a permission prompt.
+    case press
+    /// The press opens a `FormSheet`.
+    case sheet
+    /// The row draws its own control: fields, a folder panel, a repo placement.
+    case inRow
+    /// Nothing this app can do: a type from a newer rt, or an action missing what it needs.
+    case none
+}
+
 /// Performs a fast-setup row's action and holds its wait or error until rt's
 /// next read. Neither is a row state: `reconcile` drops both once rt says
 /// the row is done.
@@ -15,6 +42,18 @@ public protocol FormEffects: Sendable {
 public final class FormActionRunner: ObservableObject {
     @Published public private(set) var waiting: [String: String] = [:]
     @Published public private(set) var errors: [String: String] = [:]
+    /// The sheet a fast screen is presenting for a row; the screen sets it back to nil when it closes.
+    @Published public var sheet: FormSheet?
+
+    public nonisolated static func control(for action: RowAction) -> FormActionControl {
+        switch RowActionDispatcher.dispatch(action, fieldValues: nil, alternative: nil) {
+        case .openURL, .openSettings, .requestPermission, .rtVerb: return .press
+        case .showSteps, .chooseOption: return .sheet
+        case .collectFields(let fields, _, _, _): return fields.isEmpty ? .none : .inRow
+        case .chooseFolder, .placeRepo: return .inRow
+        case .none: return .none
+        }
+    }
 
     /// rt holds a connect verb up to 10 s and `setup claude code` up to 30 s before it answers.
     public nonisolated static let signInTimeout: TimeInterval = 60
@@ -48,11 +87,29 @@ public final class FormActionRunner: ObservableObject {
                 if placed, action.type == .placeRepo, let then = action.then, !then.isEmpty {
                     _ = await runVerb(then + ["--json"], stdin: nil, row: row)
                 }
-            case .showSteps, .chooseFolder, .collectFields, .chooseOption, .placeRepo, .none:
+            case .showSteps(let steps):
+                sheet = .steps(row, steps)
+                return
+            case .chooseOption:
+                sheet = .choose(row)
+                return
+            case .chooseFolder, .collectFields, .placeRepo, .none:
                 break
             }
         }
         await reload()
+    }
+
+    /// The person closed a sheet: whatever it asked them to do may have landed by now.
+    public func sheetClosed() async {
+        sheet = nil
+        await reload()
+    }
+
+    /// A choose sheet's pick. rt's refusal comes back for the sheet to show.
+    public func choose(_ row: FormRow, id: String) async -> String? {
+        await perform(row, values: ["id": id])
+        return errors[row.id]
     }
 
     public func reconcile(with rows: [FormRow]) {
