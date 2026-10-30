@@ -183,7 +183,7 @@ export async function askAppDirectly(
  * Lives here (not apply.ts, which re-exports it) so a step file can import
  * it without a runtime cycle back through steps/index.ts.
  */
-export function outcomeFromNeed(reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal"): StepOutcome {
+export function outcomeFromNeed(reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal" | "unattended"): StepOutcome {
   if (reply === "no-app") return { state: "skipped", detail: "mattstack.app is not running, and this step needs it" };
   if (reply === "app-unanswerable") {
     return {
@@ -192,6 +192,7 @@ export function outcomeFromNeed(reply: NeedReply | "timeout" | "app-gone" | "no-
     };
   }
   if (reply === "needs-terminal") return { state: "failed", detail: "This step raises an admin prompt, which needs a person at a terminal" };
+  if (reply === "unattended") return { state: "failed", detail: "This step needs your admin password, so setup paused here" };
   if (reply === "timeout") return { state: "failed", detail: "mattstack.app did not answer in time" };
   if (reply === "app-gone") return { state: "failed", detail: "mattstack.app stopped answering" };
   return reply.ok ? { state: "done", detail: reply.detail } : { state: "failed", detail: reply.detail ?? "mattstack.app reported failure" };

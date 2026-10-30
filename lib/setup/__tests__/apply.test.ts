@@ -1621,6 +1621,63 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
   });
 });
 
+// Nothing on the progress bar may raise a dialog, whichever way the request would reach the app.
+describe("createApplyContext: an unattended run pauses instead of prompting", () => {
+  const reachable = { "GET /version": () => ({ status: 200, json: { version: "1.0.0" } }) };
+  const APP_SOCKET = { RT_APP_SOCKET: "/fake-home/.mattstack/rt/tray.sock" };
+
+  async function unattendedCtx(tray: ReturnType<typeof fakeTray>, env: Record<string, string>) {
+    const events: ApplyEvent[] = [];
+    const ctx = await createApplyContext({
+      probes: fakeProbes({ tray, env }),
+      emit: (ev) => events.push(ev),
+      secrets: fakeSecrets,
+      relay: fakeRelay,
+      flags: { nonInteractive: false, teamOfOne: false, ci: false, tty: true, unattended: true },
+      needOpts: { timeoutMs: 0, sleep: async () => {} },
+    });
+    return { ctx, events };
+  }
+
+  test("an unattended run never emits an admin need", async () => {
+    const posts: string[] = [];
+    const routes = Object.fromEntries(
+      ["proxy-install", "proxy-trust", "homebrew"].map((op) => [
+        `POST /privileged/${op}`,
+        () => {
+          posts.push(op);
+          return { status: 200, json: { ok: true, detail: "done" } };
+        },
+      ]),
+    );
+    for (const env of [{}, APP_SOCKET]) {
+      const { ctx, events } = await unattendedCtx(fakeTray({ ...reachable, ...routes }), env);
+      for (const op of ["proxy-install", "proxy-trust", "homebrew"] as const) {
+        expect(await ctx.need("proxy.install", { type: "app-privileged", op, homebrew: true })).toBe("unattended");
+      }
+      expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-remove" })).toBe("unattended");
+      expect(events).toEqual([]);
+    }
+    expect(posts).toEqual([]);
+  });
+
+  test("services needs still go to the app when unattended", async () => {
+    const direct = fakeTray({
+      ...reachable,
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [{ plist: "d.plist", ok: true, status: "enabled" }] } }),
+    });
+    expect(await (await unattendedCtx(direct, {})).ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({
+      ok: true,
+      detail: "d.plist: enabled",
+    });
+
+    const pumped = fakeTray({ ...reachable, "GET /setup/need/services.register": () => ({ status: 200, json: { state: "done", detail: "pumped" } }) });
+    const { ctx, events } = await unattendedCtx(pumped, APP_SOCKET);
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "pumped" });
+    expect(events).toContainEqual({ event: "need", id: "services.register", request: { type: "app-register-services", plists: ["d.plist"] } });
+  });
+});
+
 describe("ApplyContext.redact", () => {
   test("a registered exact value never appears in log lines or step details", async () => {
     const p = fakeProbes();

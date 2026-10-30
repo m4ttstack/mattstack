@@ -4,7 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { HELPERS_DIR, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { setSetting } from "../../settings/write.ts";
-import { askAppDirectly, awaitNeed, deckHelperLabel, servicePlists, SERVICE_PLISTS } from "../need.ts";
+import { askAppDirectly, awaitNeed, deckHelperLabel, outcomeFromNeed, servicePlists, SERVICE_PLISTS } from "../need.ts";
+import { needOutcome } from "../steps/step-utils.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
 
 const DECK_LOCK = {
@@ -297,5 +298,18 @@ describe("askAppDirectly", () => {
       unserved: true,
       detail: "mattstack.app answered /privileged/proxy-install with status 500",
     });
+  });
+});
+
+describe("an unattended pause", () => {
+  test("the step fails with the pause copy and the Retry remedy", () => {
+    const pause = { state: "failed" as const, detail: "This step needs your admin password, so setup paused here" };
+    expect(outcomeFromNeed("unattended")).toEqual(pause);
+    for (const nonInteractive of [false, true]) {
+      expect(needOutcome("unattended", { nonInteractive }, { noAppDetail: "x", noAppRemedy: "x", timeoutRemedy: "x" })).toEqual({
+        ...pause,
+        remedy: "Press Retry and answer the macOS prompt",
+      });
+    }
   });
 });

@@ -2741,6 +2741,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "From", flag: "--from", type: "text", placeholder: "path.link", hint: "Resume from this step id" },
           { name: "Only", flag: "--only", type: "text", placeholder: "proxy.install", hint: "Run this step id, plus any earlier step it needs that has not landed (the checklist's row remedies use it)" },
           { name: "Resume", flag: "--resume", type: "boolean", default: false, hint: "Follow the run already going, or pick up where the last one stopped" },
+          { name: "Unattended", flag: "--unattended", type: "boolean", default: false, hint: "Pause at an admin password prompt instead of raising it" },
           { name: "Non-interactive", flag: "--non-interactive", type: "boolean", default: false, hint: "Never prompt; skip steps that need a human" },
           { name: "Team of one", flag: "--team-of-one", type: "boolean", default: false, hint: "Solo install, no team" },
           { name: "CI", flag: "--ci", type: "boolean", default: false, hint: "Headless CI run" },

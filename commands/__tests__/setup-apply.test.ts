@@ -354,6 +354,31 @@ describe("setupApply: flags reach the engine", () => {
   });
 });
 
+describe("setupApply: --unattended", () => {
+  test("--unattended reaches the context", async () => {
+    const replies: unknown[] = [];
+    const step = (args: string[]) =>
+      setupApply(args, {}, baseApplyDeps({
+        steps: [
+          {
+            id: "proxy.install",
+            title: "x",
+            kind: "privileged",
+            applies: () => true,
+            run: async (ctx) => {
+              replies.push(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" }));
+              return { state: "done" };
+            },
+          },
+        ],
+      }));
+
+    await step(["--json", "--unattended"]);
+
+    expect(replies).toEqual(["unattended"]);
+  });
+});
+
 describe("setupInteractive: TTY-vs-json branch", () => {
   const readyExec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.6") : ok());
 

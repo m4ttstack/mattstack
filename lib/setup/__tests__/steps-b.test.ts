@@ -702,6 +702,15 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(readSetupState(p).homebrew).toBeUndefined();
     });
 
+    // An unattended run never reached a person, so the attended Retry must still ask.
+    test("an unattended pause records nothing about Homebrew, on either prompt", async () => {
+      for (const p of [fakeProbes({ home }), proxyInPlace()]) {
+        const { ctx } = makeCtx(p, { need: async () => "unattended" });
+        expect(await proxyInstallStep.run(ctx)).toMatchObject({ state: "failed", remedy: "Press Retry and answer the macOS prompt" });
+        expect(readSetupState(p).homebrew).toBeUndefined();
+      }
+    });
+
     test("a request without Homebrew records nothing", async () => {
       const p = fakeProbes({ home, files: { [BREW]: "bin" } });
       const { need } = capture("copy: ok\nMATTSTACK_TRUST=ok");

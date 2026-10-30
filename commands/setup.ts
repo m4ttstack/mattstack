@@ -221,9 +221,10 @@ export function realApplyDeps(): ApplyDeps {
   };
 }
 
-function applyFlags(args: string[]): { nonInteractive: boolean; teamOfOne: boolean; ci: boolean } {
+function applyFlags(args: string[]): { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; unattended: boolean } {
   return {
     nonInteractive: args.includes("--non-interactive"),
+    unattended: args.includes("--unattended"),
     teamOfOne: args.includes("--team-of-one"),
     ci: args.includes("--ci") || process.env.CI === "true",
   };

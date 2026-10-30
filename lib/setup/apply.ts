@@ -108,7 +108,7 @@ export interface ApplyContext {
    * `EventId` (not `StepId`) so `rt uninstall`'s action ids — which share
    * this same need protocol and this same context type — typecheck too.
    */
-  need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal">;
+  need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal" | "unattended">;
 }
 
 export interface StepDef {
@@ -555,7 +555,7 @@ export interface CreateApplyContextDeps {
   /** Defaults to `realSecretPresence()` — override for a fully-faked run/test so `verify` (and anything else reading `ctx.secretPresence`) can never reach the real keychain/sops. */
   secretPresence?: SecretPresence;
   /** `tty` defaults to whether stdin is a terminal: an admin prompt is only raised for a person at one. */
-  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true; appDriven?: boolean };
+  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true; appDriven?: boolean; unattended?: boolean };
   /** Threaded straight into `awaitNeed`'s poll loop for the reachable/interactive branch of `need()` — real timers and `Date.now` by default. Tests inject a fake clock/sleep so that branch is driven deterministically instead of pinned to a real 10-minute deadline and 1 s polls. */
   needOpts?: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number };
 }
@@ -647,7 +647,9 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     secretPresence: deps.secretPresence ?? realSecretPresence(),
     redact: redactor.redact,
     redacted: redactor.apply,
-    async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal"> {
+    async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal" | "unattended"> {
+      // The progress bar must never raise a dialog, by either route below.
+      if (flags.unattended && request.type === "app-privileged") return "unattended";
       // The app pumps needs only for the rt it spawned, which it marks with
       // RT_APP_SOCKET. Any other run asks the app's plain route for the same
       // work, failing fast when no app is there to take it. An admin prompt
