@@ -111,7 +111,7 @@ function allVariants(): BannerVariant[] {
   return out;
 }
 
-const BY_KEY = new Map(allVariants().map((v) => [variantKey(v), v]));
+const BY_KEY = new Map(allVariants().map(v => [variantKey(v), v]));
 
 /** Stable order: BannerState order, then waits, then counts 1..20, 20plus, none. */
 export function allVariantKeys(): string[] {
@@ -155,7 +155,8 @@ export function copyFor(v: BannerVariant): VariantCopy {
         sub: 'Results post here when done',
         accent: '#7fbfe8',
         indicator: 'ring',
-        sentence: "Follow-up review in progress. I'll reply here when it's done.",
+        sentence:
+          "Follow-up review in progress. I'll reply here when it's done.",
       };
     case 'error-retrying':
       return {

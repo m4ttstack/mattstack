@@ -49,24 +49,48 @@ describe('variant keys', () => {
   });
 
   test('counts map to their keys', () => {
-    expect(variantKey({ state: 'done-comments', count: 3 })).toBe('done-comments-3');
-    expect(variantKey({ state: 'done-comments', count: 21 })).toBe('done-comments-20plus');
-    expect(variantKey({ state: 'done-comments', count: 0 })).toBe('done-comments-none');
-    expect(variantKey({ state: 'done-comments', count: null })).toBe('done-comments-none');
-    expect(variantKey({ state: 'queued', wait: 'cooldown' })).toBe('queued-cooldown');
+    expect(variantKey({ state: 'done-comments', count: 3 })).toBe(
+      'done-comments-3'
+    );
+    expect(variantKey({ state: 'done-comments', count: 21 })).toBe(
+      'done-comments-20plus'
+    );
+    expect(variantKey({ state: 'done-comments', count: 0 })).toBe(
+      'done-comments-none'
+    );
+    expect(variantKey({ state: 'done-comments', count: null })).toBe(
+      'done-comments-none'
+    );
+    expect(variantKey({ state: 'queued', wait: 'cooldown' })).toBe(
+      'queued-cooldown'
+    );
   });
 
   test('fractional counts floor and non-finite counts read as none', () => {
-    expect(variantKey({ state: 'done-comments', count: 2.5 })).toBe('done-comments-2');
-    expect(variantKey({ state: 'done-comments', count: NaN })).toBe('done-comments-none');
-    expect(variantKey({ state: 'done-comments', count: Infinity })).toBe('done-comments-none');
-    expect(SUB({ state: 'done-comments', count: 2.5 })).toBe('2 new comments. Resolve when ready');
-    expect(SUB({ state: 'done-comments', count: NaN })).toBe('Review posted. Resolve when ready');
+    expect(variantKey({ state: 'done-comments', count: 2.5 })).toBe(
+      'done-comments-2'
+    );
+    expect(variantKey({ state: 'done-comments', count: NaN })).toBe(
+      'done-comments-none'
+    );
+    expect(variantKey({ state: 'done-comments', count: Infinity })).toBe(
+      'done-comments-none'
+    );
+    expect(SUB({ state: 'done-comments', count: 2.5 })).toBe(
+      '2 new comments. Resolve when ready'
+    );
+    expect(SUB({ state: 'done-comments', count: NaN })).toBe(
+      'Review posted. Resolve when ready'
+    );
   });
 
   test('a null wait reads as the next sweep', () => {
-    expect(variantKey({ state: 'queued', wait: null })).toBe('queued-next-sweep');
-    expect(variantKey({ state: 'error-retrying', wait: null })).toBe('error-retrying-next-sweep');
+    expect(variantKey({ state: 'queued', wait: null })).toBe(
+      'queued-next-sweep'
+    );
+    expect(variantKey({ state: 'error-retrying', wait: null })).toBe(
+      'error-retrying-next-sweep'
+    );
   });
 
   test('dot pitch is shared in 2x px', () => {
@@ -84,12 +108,37 @@ describe('variant keys', () => {
 describe('copy', () => {
   test('titles and fixed subtitles match the spec', () => {
     const rows: [BannerVariant, string, string, string][] = [
-      [{ state: 'armed' }, 'Ready for another pass?', 'Resolve this thread to ask', '#f08fb0'],
-      [{ state: 'running' }, 'Follow-up review running', 'Results post here when done', '#7fbfe8'],
-      [{ state: 'error-stuck' }, 'Follow-up review stuck', 'Reviewer notified', '#f2917e'],
-      [{ state: 'done-approved' }, 'Follow-up review done', 'Approved. Nothing more to do', '#86cfa0'],
+      [
+        { state: 'armed' },
+        'Ready for another pass?',
+        'Resolve this thread to ask',
+        '#f08fb0',
+      ],
+      [
+        { state: 'running' },
+        'Follow-up review running',
+        'Results post here when done',
+        '#7fbfe8',
+      ],
+      [
+        { state: 'error-stuck' },
+        'Follow-up review stuck',
+        'Reviewer notified',
+        '#f2917e',
+      ],
+      [
+        { state: 'done-approved' },
+        'Follow-up review done',
+        'Approved. Nothing more to do',
+        '#86cfa0',
+      ],
       [{ state: 'approved' }, 'Approved', 'Nothing more to do', '#86cfa0'],
-      [{ state: 'superseded' }, 'Superseded', 'A newer latch is live', '#8e88a0'],
+      [
+        { state: 'superseded' },
+        'Superseded',
+        'A newer latch is live',
+        '#8e88a0',
+      ],
     ];
     for (const [v, title, sub, accent] of rows) {
       expect(copyFor(v)).toMatchObject({ title, sub, accent });
@@ -98,7 +147,9 @@ describe('copy', () => {
       title: 'Follow-up review queued',
       accent: '#e6b860',
     });
-    expect(copyFor({ state: 'error-retrying', wait: 'next-sweep' })).toMatchObject({
+    expect(
+      copyFor({ state: 'error-retrying', wait: 'next-sweep' })
+    ).toMatchObject({
       title: 'Follow-up review hit a snag',
       accent: '#f2917e',
     });
@@ -109,29 +160,51 @@ describe('copy', () => {
   });
 
   test('queued subtitles name the wait', () => {
-    expect(SUB({ state: 'queued', wait: 'next-sweep' })).toBe('Starts on the next sweep');
-    expect(SUB({ state: 'queued', wait: 'cooldown' })).toBe('Waiting out the cooldown');
-    expect(SUB({ state: 'queued', wait: 'budget' })).toBe('Daily limit hit; starts tomorrow');
+    expect(SUB({ state: 'queued', wait: 'next-sweep' })).toBe(
+      'Starts on the next sweep'
+    );
+    expect(SUB({ state: 'queued', wait: 'cooldown' })).toBe(
+      'Waiting out the cooldown'
+    );
+    expect(SUB({ state: 'queued', wait: 'budget' })).toBe(
+      'Daily limit hit; starts tomorrow'
+    );
     expect(SUB({ state: 'queued', wait: 'review-in-flight' })).toBe(
       'Waiting for the running review'
     );
   });
 
   test('error-retrying subtitles name the wait', () => {
-    expect(SUB({ state: 'error-retrying', wait: 'next-sweep' })).toBe('Retrying on the next sweep');
-    expect(SUB({ state: 'error-retrying', wait: 'cooldown' })).toBe('Retrying after the cooldown');
+    expect(SUB({ state: 'error-retrying', wait: 'next-sweep' })).toBe(
+      'Retrying on the next sweep'
+    );
+    expect(SUB({ state: 'error-retrying', wait: 'cooldown' })).toBe(
+      'Retrying after the cooldown'
+    );
     expect(SUB({ state: 'error-retrying', wait: 'budget' })).toBe(
       'Daily limit hit; retrying tomorrow'
     );
   });
 
   test('done-comments subtitles count what landed', () => {
-    expect(SUB({ state: 'done-comments', count: 1 })).toBe('1 new comment. Resolve when ready');
-    expect(SUB({ state: 'done-comments', count: 2 })).toBe('2 new comments. Resolve when ready');
-    expect(SUB({ state: 'done-comments', count: 20 })).toBe('20 new comments. Resolve when ready');
-    expect(SUB({ state: 'done-comments', count: 21 })).toBe('20+ new comments. Resolve when ready');
-    expect(SUB({ state: 'done-comments', count: 0 })).toBe('Review posted. Resolve when ready');
-    expect(SUB({ state: 'done-comments', count: null })).toBe('Review posted. Resolve when ready');
+    expect(SUB({ state: 'done-comments', count: 1 })).toBe(
+      '1 new comment. Resolve when ready'
+    );
+    expect(SUB({ state: 'done-comments', count: 2 })).toBe(
+      '2 new comments. Resolve when ready'
+    );
+    expect(SUB({ state: 'done-comments', count: 20 })).toBe(
+      '20 new comments. Resolve when ready'
+    );
+    expect(SUB({ state: 'done-comments', count: 21 })).toBe(
+      '20+ new comments. Resolve when ready'
+    );
+    expect(SUB({ state: 'done-comments', count: 0 })).toBe(
+      'Review posted. Resolve when ready'
+    );
+    expect(SUB({ state: 'done-comments', count: null })).toBe(
+      'Review posted. Resolve when ready'
+    );
   });
 
   test('sentences under the image', () => {
@@ -150,9 +223,9 @@ describe('copy', () => {
     expect(copyFor({ state: 'running' }).sentence).toBe(
       "Follow-up review in progress. I'll reply here when it's done."
     );
-    expect(copyFor({ state: 'error-retrying', wait: 'cooldown' }).sentence).toBe(
-      "The follow-up review didn't finish. I'll try again."
-    );
+    expect(
+      copyFor({ state: 'error-retrying', wait: 'cooldown' }).sentence
+    ).toBe("The follow-up review didn't finish. I'll try again.");
     expect(copyFor({ state: 'error-stuck' }).sentence).toBe(
       "The follow-up review didn't finish after 3 tries. The reviewer has been told."
     );
