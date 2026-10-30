@@ -12,6 +12,7 @@ import type { MigrationDef } from "../migrations/index.ts";
 import type { Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
+import { STEP_PHASES } from "../run-phases.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
@@ -19,6 +20,9 @@ import { fakeProbes, fakeTray } from "./fakes.ts";
 import { needOutcome } from "../steps/step-utils.ts";
 import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 import { logsDir } from "../../rt-paths.ts";
+
+/** A fake step's entry in an apply run's plan: its id doubles as its title. */
+const planStep = (id: StepId) => ({ id, title: id, kind: "rt" as const, ...STEP_PHASES[id] });
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -369,6 +373,40 @@ describe("runApplyWith: the run record", () => {
   });
 });
 
+describe("the plan event's bar phases", () => {
+  test("the apply plan event carries each step's phase, weight and paused line", async () => {
+    const { ctx, events } = testCtx();
+    await runApplyWith([fakeStep("repos.clone", { state: "done" }), fakeStep("verify", { state: "done" })], ctx);
+    expect(events[0]).toEqual({
+      event: "plan",
+      steps: [
+        { id: "repos.clone", title: "repos.clone", kind: "rt", phase: "Cloning your repos", weight: 10, paused: "Couldn't clone your repos" },
+        { id: "verify", title: "verify", kind: "rt", phase: "Checking everything", weight: 2, paused: "Couldn't check everything" },
+      ],
+    });
+
+    const resumed = testCtx();
+    await runApplyWith([fakeStep("org.pull", { state: "done" }), fakeStep("verify", { state: "done" })], resumed.ctx, { replay: ["org.pull"] });
+    expect(resumed.events[0]).toEqual({
+      event: "plan",
+      steps: [
+        { id: "org.pull", title: "org.pull", kind: "rt", phase: "Getting your team's settings", weight: 1, paused: "Couldn't get your team's settings" },
+        { id: "verify", title: "verify", kind: "rt", phase: "Checking everything", weight: 2, paused: "Couldn't check everything" },
+      ],
+    });
+  });
+
+  test("the update plan event keeps its old shape", async () => {
+    const { ctx, events } = testCtx();
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
+    const plan = events.find((e) => e.event === "plan");
+    expect(plan && plan.event === "plan" ? plan.steps.map((s) => Object.keys(s).sort()) : []).toEqual(
+      plan && plan.event === "plan" ? plan.steps.map(() => ["id", "kind", "title"]) : [[]],
+    );
+    expect(plan && plan.event === "plan" ? plan.steps.length : 0).toBeGreaterThan(0);
+  });
+});
+
 describe("runApplyWith — happy path", () => {
   test("three done steps stream plan, running/done per step, then done ok:true", async () => {
     const { ctx, events } = testCtx();
@@ -385,9 +423,9 @@ describe("runApplyWith — happy path", () => {
       {
         event: "plan",
         steps: [
-          { id: "home.init", title: "home.init", kind: "rt" },
-          { id: "home.restore", title: "home.restore", kind: "rt" },
-          { id: "team.create", title: "team.create", kind: "rt" },
+          planStep("home.init"),
+          planStep("home.restore"),
+          planStep("team.create"),
         ],
       },
       { event: "step", id: "home.init", state: "running" },
@@ -652,9 +690,9 @@ describe("runApplyWith — --from resume", () => {
       {
         event: "plan",
         steps: [
-          { id: "home.init", title: "home.init", kind: "rt" },
-          { id: "home.restore", title: "home.restore", kind: "rt" },
-          { id: "team.create", title: "team.create", kind: "rt" },
+          planStep("home.init"),
+          planStep("home.restore"),
+          planStep("team.create"),
         ],
       },
       { event: "step", id: "home.restore", state: "running" },
@@ -678,8 +716,8 @@ describe("runApplyWith — --from resume", () => {
     expect(events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "home.init", title: "home.init", kind: "rt" },
-        { id: "home.restore", title: "home.restore", kind: "rt" },
+        planStep("home.init"),
+        planStep("home.restore"),
       ],
     });
   });
@@ -731,8 +769,8 @@ describe("runApplyWith — --from resume", () => {
     expect(events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "home.init", title: "home.init", kind: "rt" },
-        { id: "team.create", title: "team.create", kind: "rt" },
+        planStep("home.init"),
+        planStep("team.create"),
       ],
     });
   });
@@ -851,9 +889,9 @@ describe("runApplyWith: --only", () => {
     expect(events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "home.init", title: "home.init", kind: "rt" },
-        { id: "home.restore", title: "home.restore", kind: "rt" },
-        { id: "team.create", title: "team.create", kind: "rt" },
+        planStep("home.init"),
+        planStep("home.restore"),
+        planStep("team.create"),
       ],
     });
   });

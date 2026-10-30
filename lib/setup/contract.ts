@@ -214,7 +214,7 @@ export type MigrationEventId = `migration.${string}`;
 export type EventId = StepId | UninstallActionId | MigrationEventId;
 
 export type ApplyEvent =
-  | { event: "plan"; steps: { id: EventId; title: string; kind: StepKind }[] }
+  | { event: "plan"; steps: { id: EventId; title: string; kind: StepKind; phase?: string; weight?: number; paused?: string }[] }
   | { event: "step"; id: EventId; state: StepState; detail?: string; remedy?: string }
   | { event: "log"; id: EventId; line: string }
   | { event: "progress"; id: EventId; label: string; percent: number; note?: string }

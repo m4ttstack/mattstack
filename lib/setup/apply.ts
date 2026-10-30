@@ -21,6 +21,7 @@ import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, SHARED_STORE_MIGRATIONS, SHARED_STORE_REFUSAL, type MigrationDef } from "./migrations/index.ts";
+import { STEP_PHASES } from "./run-phases.ts";
 import { readSetupState, setupStatePath, storedVersion, updateSetupState, type SetupRun } from "./state.ts";
 import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
@@ -337,7 +338,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: Ap
   // Before `plan`: an attach that has seen this run's plan trusts the record to be this run's.
   if (record) startRun(ctx, record);
   const titleOf = (s: StepDef) => s.titleFor?.(ctx) ?? s.title;
-  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: titleOf(s), kind: s.kind })) });
+  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: titleOf(s), kind: s.kind, ...STEP_PHASES[s.id] })) });
   for (const s of replayed) ctx.emit({ event: "step", id: s.id, state: "done" });
   settleLegacyFinish(ctx);
   if (opts.only === undefined && !ctx.update) stampInstallRan(ctx);

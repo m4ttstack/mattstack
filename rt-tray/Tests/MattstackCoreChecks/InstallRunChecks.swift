@@ -20,6 +20,17 @@ let installRunChecks: [Check] = [
         try c.requireEqual(steps.count, 3)
         c.expectEqual(steps[1].kind, .app)
     },
+    Check("InstallRun: a plan step's phase, weight and paused decode, and absent reads nil") { c in
+        let line = #"{"event":"plan","steps":[{"id":"repos.clone","title":"Clone your repos","kind":"rt","phase":"Cloning your repos","weight":10,"paused":"Couldn't clone your repos"},{"id":"path.link","title":"Link rt","kind":"rt"}]}"#
+        guard case .plan(let steps) = try ApplyEvent.decode(line) else { c.fail("plan"); return }
+        try c.requireEqual(steps.count, 2)
+        c.expectEqual(steps[0].phase, "Cloning your repos")
+        c.expectEqual(steps[0].weight, 10)
+        c.expectEqual(steps[0].paused, "Couldn't clone your repos")
+        c.expectEqual(steps[1].phase, nil)
+        c.expectEqual(steps[1].weight, nil)
+        c.expectEqual(steps[1].paused, nil)
+    },
     Check("ApplyEvent decodes git's clone progress, with and without a note") { c in
         c.expectEqual(try ApplyEvent.decode(#"{"event":"progress","id":"repos.clone","label":"Receiving objects","percent":42,"note":"1 GiB"}"#),
                       .progress(id: "repos.clone", label: "Receiving objects", percent: 42, note: "1 GiB"))

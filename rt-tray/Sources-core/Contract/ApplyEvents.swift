@@ -33,7 +33,13 @@ public struct StepInfo: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String
     public var kind: StepKind
-    public init(id: String, title: String, kind: StepKind) { self.id = id; self.title = title; self.kind = kind }
+    /// The bar's phase words, its share of the run and the P6b line; an update run's plan leaves them out.
+    public var phase: String?
+    public var weight: Double?
+    public var paused: String?
+    public init(id: String, title: String, kind: StepKind, phase: String? = nil, weight: Double? = nil, paused: String? = nil) {
+        self.id = id; self.title = title; self.kind = kind; self.phase = phase; self.weight = weight; self.paused = paused
+    }
 }
 
 /// One line of `rt setup apply --json`. `decode` never throws on an event
