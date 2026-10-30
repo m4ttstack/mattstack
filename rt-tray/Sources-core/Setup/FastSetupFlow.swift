@@ -41,7 +41,7 @@ public final class FastSetupFlow: ObservableObject {
     /// A finished Mac whose Join or Create from Settings has not started yet
     /// still reads `ready`; once the join is in flight rt says so itself.
     public func land(on stage: FormStage) {
-        if stage != .path { chosen = nil }
+        if let c = chosen, stage != .path, Self.screen(for: stage) != Self.start(of: c) { chosen = nil }
         if stage == .ready, let target = requestedScreen {
             screen = target
         } else {
