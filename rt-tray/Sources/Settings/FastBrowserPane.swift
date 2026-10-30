@@ -40,6 +40,9 @@ struct FastBrowserPane: View {
                     Text("Couldn't re-read the checklist: \(e)").font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.settingsFastBrowserError)
                 }
             }
+            if let row = readiness.row(SettingsExtras.chromeSignIn), SettingsExtras.shows(row) {
+                SettingsExtraSection(title: "Chrome sign-in", row: row, isChecking: readiness.checkingRowIds.contains(row.id)) { show(row) }
+            }
         }
         .formStyle(.grouped)
         .task { await readiness.refreshUnlessLoading() }
