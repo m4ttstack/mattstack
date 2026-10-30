@@ -22,7 +22,7 @@ public enum RunProgress {
                 done += weight(s) * Double(min(max(p.percent, 0), 100)) / 100
             }
         }
-        let fraction = total > 0 ? done / total : 0
+        let fraction = total > 0 ? min(max(done / total, 0), 1) : 0
         let message = steps.first(where: { $0.state == .running })?.info.phase
             ?? steps.last(where: { finished.contains($0.state) && $0.info.phase != nil })?.info.phase
             ?? "Getting ready"
@@ -36,7 +36,8 @@ public enum RunProgress {
     public static func timeLeftText(_ seconds: Int?) -> String? {
         guard let seconds else { return nil }
         if seconds < 60 { return "Less than a minute left" }
-        return "About \((seconds + 59) / 60) minutes left"
+        let minutes = (seconds + 59) / 60
+        return minutes == 1 ? "About 1 minute left" : "About \(minutes) minutes left"
     }
 
     public static func percentText(_ fraction: Double) -> String {
