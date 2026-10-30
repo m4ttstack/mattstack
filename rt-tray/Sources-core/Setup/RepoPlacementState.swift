@@ -14,12 +14,11 @@ public enum RepoPlacementState {
         return again ? "Locate again…" : "Locate…"
     }
 
-    /// The fast screen's wording. rt's `label` names the recorded segment's button, so it stands while that
-    /// segment shows with no refused pick of its own; otherwise this mirrors rt's rule in validators/repos.ts.
+    /// The fast screen picks one of rt's `labels` for the shown segment; an rt without them has only `label`.
     public static func fastButtonLabel(mode: String, lastError: String?, action: RowAction) -> String {
-        if mode == action.mode, lastError == action.problem { return action.label }
-        if mode == clone { return "Choose…" }
-        return lastError != nil ? "Locate again…" : "Locate…"
+        guard let labels = action.labels else { return action.label }
+        if mode == clone { return labels.clone }
+        return lastError != nil ? labels.checkoutAgain : labels.checkout
     }
 
     /// `shown` is the segment on screen; rt's `problem` and `mode` describe its recorded segment only.

@@ -215,6 +215,7 @@ enum FastSetupSnapshot {
             ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
             ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupLocal], ready: false)),
+            ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
             ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false)),
         ]
     }
@@ -228,31 +229,40 @@ enum FastSetupSnapshot {
                 ChooseOption(id: "remote", label: "Store in a remote repo", detail: ""),
             ], selected: selected)
         }
+        private static let labels = PlaceRepoLabels(checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…")
         /// Before Install has run, a segment switch records and no `then` run follows.
         static let boardFound = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here",
                                         state: .done, detail: "Found your acme-api checkout",
                                         action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/acme-api", repo: "acme-api",
                                                           mode: "checkout", checkoutPath: "/Users/janedoe/code/acme-api",
                                                           clonePath: "/Users/janedoe/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
-                                                          segmentRecords: true, board: "The board starts here", awaitsRun: false))
+                                                          segmentRecords: true, board: "The board starts here", awaitsRun: false, labels: labels))
         static let widgetsClone = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
                                           state: .done, detail: "rt clones it here when setup runs",
                                           action: RowAction(type: .placeRepo, label: "Choose…", identity: "github.com/acme/widgets", repo: "widgets",
                                                             mode: "clone", clonePath: "/Users/janedoe/Documents/GitHub/widgets",
-                                                            note: "rt clones it here when setup runs", segmentRecords: true, awaitsRun: false))
+                                                            note: "rt clones it here when setup runs", segmentRecords: true, awaitsRun: false, labels: labels))
         static let boardFoundAfterRun = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here",
                                                 state: .done, detail: "Found your acme-api checkout",
                                                 action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/acme-api", repo: "acme-api",
                                                                   mode: "checkout", checkoutPath: "/Users/janedoe/code/acme-api",
                                                                   clonePath: "/Users/janedoe/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
                                                                   then: ["setup", "apply", "--only", "board.restart"], segmentRecords: false,
-                                                                  board: "The board starts here", awaitsRun: false))
+                                                                  board: "The board starts here", awaitsRun: false, labels: labels))
         static let widgetsFoundAfterRun = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
                                                   state: .done, detail: "Found your widgets checkout",
                                                   action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/widgets", repo: "widgets",
                                                                     mode: "checkout", checkoutPath: "/Users/janedoe/Documents/GitHub/widgets",
                                                                     clonePath: "/Users/janedoe/Documents/GitHub/widgets-2", note: "Found your widgets checkout",
-                                                                    then: ["setup", "apply", "--only", "repos.clone"], segmentRecords: false, awaitsRun: false))
+                                                                    then: ["setup", "apply", "--only", "repos.clone"], segmentRecords: false, awaitsRun: false, labels: labels))
+        /// A recorded checkout that moved since: rt's problem is the row's detail and note.
+        static let widgetsMoved = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
+                                          state: .todo, detail: "~/old/widgets isn't a git checkout.",
+                                          action: RowAction(type: .placeRepo, label: "Locate again…", identity: "github.com/acme/widgets", repo: "widgets",
+                                                            mode: "checkout", checkoutPath: "/Users/janedoe/old/widgets",
+                                                            clonePath: "/Users/janedoe/Documents/GitHub/widgets", note: "~/old/widgets isn't a git checkout.",
+                                                            problem: "~/old/widgets isn't a git checkout.", segmentRecords: true, awaitsRun: false,
+                                                            labels: labels))
         static let repoRoot = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
                                       detail: "/Users/janedoe/Documents/GitHub",
                                       action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "/Users/janedoe/Documents/GitHub"))
@@ -432,15 +442,8 @@ enum FastSetupSnapshot {
                                         ActionField(name: "url", label: "Repo URL", secret: false, hint: "git@github.com:janedoe/mattstack-home.git"),
                                     ], alternatives: [ActionAlternative(id: "create", label: "Create a private GitHub repo")],
                                     verb: ["home", "remote", "set"]))
-        static let repo = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here", state: .done,
-                                  detail: "~/code/acme-api",
-                                  action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/acme-api", repo: "acme/acme-api",
-                                                    mode: "checkout", checkoutPath: "~/code/acme-api", clonePath: "~/Documents/GitHub/acme-api",
-                                                    note: "Found your checkout", board: "The board starts here", awaitsRun: true))
-        static let repoClone = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "Shared settings and packs",
-                                       state: .todo, detail: "",
-                                       action: RowAction(type: .placeRepo, label: "Choose…", identity: "github.com/acme/widgets", repo: "acme/widgets",
-                                                         mode: "clone", clonePath: "~/Documents/GitHub/widgets", note: "Clones when setup runs"))
+        static let repo = ThisMacRows.boardFound
+        static let repoClone = ThisMacRows.widgetsClone
         static let repoRoot = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
                                       detail: "~/Documents/GitHub",
                                       action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "~/Documents/GitHub"))

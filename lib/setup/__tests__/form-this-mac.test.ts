@@ -24,6 +24,7 @@ function placeAction(identity: string, board: string | null, over: Partial<Place
   const base: PlaceRepo = {
     type: "place-repo",
     label: "Choose…",
+    labels: { checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…" },
     identity,
     repo,
     mode: "clone",

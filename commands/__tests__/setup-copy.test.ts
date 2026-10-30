@@ -29,7 +29,7 @@ async function plan(mode: "plan" | "status"): Promise<Plan> {
 }
 
 /** The only keys inside an action that a person reads and no program does. Everything else in an action is the app's to act on. */
-const ACTION_COPY_KEYS = new Set(["label", "subtitle", "footnote", "steps", "hint", "detail", "sample", "note", "problem"]);
+const ACTION_COPY_KEYS = new Set(["label", "labels", "subtitle", "footnote", "steps", "hint", "detail", "sample", "note", "problem"]);
 
 /** Splits an action: the copy keys leave the machine half and land in `copy` by path; every other key and value stays. */
 function splitAction(value: unknown, path: string, copy: Record<string, unknown>): unknown {

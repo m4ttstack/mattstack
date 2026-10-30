@@ -33,6 +33,7 @@ import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
+import { PLACE_REPO_LABELS } from "./validators/repos.ts";
 import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION } from "./validators/tools.ts";
 
 export type FormSection = "macos" | "invite" | "restore" | "connect" | "this-mac" | "create";
@@ -141,7 +142,16 @@ export const FORM_COPY = {
   thisMac: {
     title: "Last bit: this Mac",
     subtitle: (team: string) => `Where ${team}'s repos and your settings live`,
-    repos: { title: "Your repos", current: "Current checkout", locate: "Locate…", fresh: "New checkout", choose: "Choose…", board: "The board starts here", root: "Where new clones go" },
+    repos: {
+      title: "Your repos",
+      current: "Current checkout",
+      locate: PLACE_REPO_LABELS.checkout,
+      locateAgain: PLACE_REPO_LABELS.checkoutAgain,
+      fresh: "New checkout",
+      choose: PLACE_REPO_LABELS.clone,
+      board: "The board starts here",
+      root: "Where new clones go",
+    },
     settings: {
       title: "Your settings",
       local: "Keep on this Mac",

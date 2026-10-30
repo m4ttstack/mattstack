@@ -30,7 +30,8 @@ struct FormRowView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if showsTitle { Text(row.title).fontWeight(.medium) }
                     if !row.subtext.isEmpty {
-                        Text(row.subtext).font(.callout).foregroundStyle(.secondary)
+                        // Without its title the subtext is the row's only words, so it takes the title's ink.
+                        Text(row.subtext).font(.callout).foregroundStyle(showsTitle ? .secondary : .primary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }

@@ -221,6 +221,15 @@ let planModelsChecks: [Check] = [
         c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","awaitsRun":false"#).utf8)).awaitsRun, false)
         c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action("").utf8)).awaitsRun, nil)
     },
+    Check("PlanModels: a place-repo action's labels decode, and an older rt without them reads nil") { c in
+        func action(_ extra: String) -> String {
+            #"{"type":"place-repo","label":"Choose…","identity":"gitlab.com/acme/widgets","repo":"widgets""# + extra + "}"
+        }
+        let labels = #","labels":{"checkout":"Locate…","checkoutAgain":"Locate again…","clone":"Choose…"}"#
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(labels).utf8)).labels,
+                      PlaceRepoLabels(checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…"))
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action("").utf8)).labels, nil)
+    },
     Check("PlanModels: an open-url action's waiting, again and primary decode") { c in
         let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
         let json = #"{"type":"open-url","label":"Add to Chrome","url":"\#(url)","primary":true,"waiting":"Waiting for Chrome","again":"Open again"}"#

@@ -131,6 +131,17 @@ public struct PlaceRepoOneClick: Codable, Equatable, Sendable {
     public init(label: String, mode: String, path: String) { self.label = label; self.mode = mode; self.path = path }
 }
 
+/// Every segment's button on a `place-repo` row; `label` names only the recorded one's.
+public struct PlaceRepoLabels: Codable, Equatable, Sendable {
+    public var checkout: String
+    /// The checkout button once rt or the app has refused that checkout.
+    public var checkoutAgain: String
+    public var clone: String
+    public init(checkout: String, checkoutAgain: String, clone: String) {
+        self.checkout = checkout; self.checkoutAgain = checkoutAgain; self.clone = clone
+    }
+}
+
 /// One shape for every contract action; which optionals are present is
 /// discriminated by `type`. Kept flat so rt can add a field without a
 /// decoder change here.
@@ -175,6 +186,8 @@ public struct RowAction: Codable, Equatable, Sendable {
     public var board: String?
     /// The member's answer is recorded and only a run is left to land it.
     public var awaitsRun: Bool?
+    /// Nil from an rt older than the field.
+    public var labels: PlaceRepoLabels?
     /// `open-url` only, from here down: the line the row shows once the page is open, until the row reads ready.
     public var waiting: String?
     /// The button label while waiting; it opens the page again.
@@ -190,7 +203,8 @@ public struct RowAction: Codable, Equatable, Sendable {
                 identity: String? = nil, repo: String? = nil, mode: String? = nil, checkoutPath: String? = nil,
                 clonePath: String? = nil, note: String? = nil, problem: String? = nil, then: [String]? = nil,
                 oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil, board: String? = nil,
-                awaitsRun: Bool? = nil, waiting: String? = nil, again: String? = nil, primary: Bool? = nil) {
+                awaitsRun: Bool? = nil, labels: PlaceRepoLabels? = nil, waiting: String? = nil, again: String? = nil,
+                primary: Bool? = nil) {
         self.type = type; self.label = label; self.target = target; self.which = which
         self.integration = integration; self.fields = fields; self.alternatives = alternatives
         self.verb = verb; self.tool = tool; self.via = via; self.steps = steps; self.url = url
@@ -199,7 +213,7 @@ public struct RowAction: Codable, Equatable, Sendable {
         self.identity = identity; self.repo = repo; self.mode = mode; self.checkoutPath = checkoutPath
         self.clonePath = clonePath; self.note = note; self.problem = problem; self.then = then
         self.oneClick = oneClick; self.segmentRecords = segmentRecords; self.board = board
-        self.awaitsRun = awaitsRun
+        self.awaitsRun = awaitsRun; self.labels = labels
         self.waiting = waiting; self.again = again; self.primary = primary
     }
 }

@@ -8,7 +8,7 @@
 import { dirname, join } from "path";
 import { resolveIndexPathForIdentity } from "../../repo-index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
-import { REPO_PLACE_ROW_PREFIX, row, type Action, type OrgRef, type PlacementMode, type Row, type RowStatus } from "../contract.ts";
+import { REPO_PLACE_ROW_PREFIX, row, type Action, type OrgRef, type PlaceRepoLabels, type PlacementMode, type Row, type RowStatus } from "../contract.ts";
 import type { Probes } from "../probes.ts";
 import {
   checkCheckout,
@@ -31,6 +31,8 @@ import type { TeamSnapshot } from "../team-settings.ts";
 type PlaceRepo = Extract<Action, { type: "place-repo" }>;
 
 const CLONES_AT_INSTALL = "rt clones it here when setup runs";
+/** `FORM_COPY.thisMac.repos` reads these: form.ts reaches this file through plan.ts, so the import runs that way. */
+export const PLACE_REPO_LABELS: PlaceRepoLabels = { checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…" };
 const BOARD_LINE = "The board starts here";
 
 async function indexedCheckout(p: Probes, identity: string): Promise<string | null> {
@@ -120,10 +122,12 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
     shown.map(async (identity) => {
       const base = repoBasename(identity);
       const s = await stateOf(identity, resolved[identity]!);
-      const label = s.mode === "clone" ? "Choose…" : s.problem ? "Locate again…" : "Locate…";
+      const labels = { ...PLACE_REPO_LABELS };
+      const label = s.mode === "clone" ? labels.clone : s.problem ? labels.checkoutAgain : labels.checkout;
       const action: PlaceRepo = {
         type: "place-repo",
         label,
+        labels,
         identity,
         repo: base,
         mode: s.mode,

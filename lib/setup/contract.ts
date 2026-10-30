@@ -47,10 +47,12 @@ export type Action =
   | { type: "choose-folder"; label: string; startAt: string | null }
   // The app answers through `rt setup repo place`, then runs `then` when set, the way it runs a `run`
   // action's verb (appending --json). `segmentRecords`: whether switching the segment alone records the
-  // shown path; `oneClick` records `path` under `mode` in one press.
+  // shown path; `oneClick` records `path` under `mode` in one press. `label` is the recorded segment's
+  // button; `labels` names every segment's, so an app showing the other segment never words one itself.
   | {
       type: "place-repo";
       label: string;
+      labels: PlaceRepoLabels;
       identity: string;
       repo: string;
       mode: PlacementMode;
@@ -78,6 +80,13 @@ export type Action =
       selected?: string;
       other?: { label: string; hint: string; suggestions?: string[] };
     };
+
+export interface PlaceRepoLabels {
+  checkout: string;
+  /** The checkout button once rt or the app has refused that checkout. */
+  checkoutAgain: string;
+  clone: string;
+}
 
 export interface Row {
   id: string;

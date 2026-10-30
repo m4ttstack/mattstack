@@ -61,6 +61,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     expect(action(byId(rows, ACME_API))).toEqual({
       type: "place-repo",
       label: "Choose…",
+      labels: { checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…" },
       identity: ACME_API,
       repo: "acme-api",
       mode: "clone",
@@ -100,7 +101,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([WIDGETS])), WIDGETS);
 
     expect(r).toMatchObject({ status: "needs-you", detail: "~/old/widgets isn't a git checkout." });
-    expect(action(r)).toMatchObject({ label: "Locate again…", mode: "checkout", problem: "~/old/widgets isn't a git checkout." });
+    expect(action(r)).toMatchObject({ label: "Locate again…", labels: { checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…" }, mode: "checkout", problem: "~/old/widgets isn't a git checkout." });
   });
 
   test("two repos sharing a basename: the second row shows the clash", async () => {
