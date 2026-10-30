@@ -62,7 +62,7 @@ struct FormRowView: View {
     @ViewBuilder private var trailing: some View {
         if let action = row.action, let options = FormRowChoice.segments(action) {
             HStack(spacing: 12) {
-                status
+                progress
                 FormRowChoice(row: row, action: action, options: options, disabled: row.state == .busy || waiting != nil,
                               error: error, onAction: onAction)
             }
@@ -80,6 +80,14 @@ struct FormRowView: View {
     }
 
     @ViewBuilder private var status: some View {
+        if progressLine != nil {
+            progress
+        } else if row.state == .done {
+            doneCheck
+        }
+    }
+
+    @ViewBuilder private var progress: some View {
         if let line = progressLine {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
@@ -89,17 +97,20 @@ struct FormRowView: View {
             .modifier(CappedWidth(max: 320))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
-        } else if row.state == .done {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                if !row.detail.isEmpty {
-                    Text(row.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
-            .modifier(CappedWidth(max: 300))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier(AXID.fastRowDone(row.id))
         }
+    }
+
+    /// Never beside a segment: the segment already reads as the answer.
+    private var doneCheck: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            if !row.detail.isEmpty {
+                Text(row.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .modifier(CappedWidth(max: 300))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(AXID.fastRowDone(row.id))
     }
 
     @ViewBuilder private func button(_ action: RowAction) -> some View {
