@@ -26,7 +26,7 @@ import { detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
 import { STEP_PHASES } from "./run-phases.ts";
 import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
-import { isSetupFinished, markSetupFinished, readSetupState, type HomeBackupChoice, type SetupRun, type SetupState } from "./state.ts";
+import { installHasRun, isSetupFinished, markSetupFinished, readSetupState, type HomeBackupChoice, type SetupRun, type SetupState } from "./state.ts";
 import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
@@ -870,16 +870,25 @@ export interface FormOptions {
 }
 
 /**
- * A whole read marks setup finished after a run that ended ok once nothing
- * blocks Finish, the same test the run's own finish makes, then answers the
- * stage a finished Mac gets, so the next read lands on the same screen.
- * `requiredMissing` is not read for Finish: a row a section draws as done,
- * such as denied notifications, can sit there for good.
+ * A whole read decides Finish first, then builds every section and the stage
+ * from the plan the Mac reads from then on (status mode once finished), so the
+ * next read lands on the same screen. `requiredMissing` is not read for
+ * Finish: a row a section draws as done, such as denied notifications, can sit
+ * there for good.
  */
 export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupForm> {
   const wanted = opts.sections ?? FORM_SECTIONS;
   const state = readSetupState(p);
-  const finished = isSetupFinished(state);
+  const plans = new Map<PlanMode, Promise<Plan>>();
+  const planFor = (mode: PlanMode): Promise<Plan> => {
+    let planned = plans.get(mode);
+    if (!planned) {
+      planned = opts.plan?.(mode) ?? composePlan({ p, secrets: opts.secrets, ci: p.env.CI === "true", mode, orgs: opts.orgs });
+      plans.set(mode, planned);
+    }
+    return planned;
+  };
+  const finished = isSetupFinished(state) || (opts.sections === undefined && (await finishOnRead(p, state, planFor)));
   const intent = readIntent(p);
   const clones: Clone[] = opts.orgs.map((slug) => ({ slug, record: readTeamLocal(p, slug) }));
   const joined = joinedClone(p, clones);
@@ -890,9 +899,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     orgs: opts.orgs,
     ranOrFinished: state.run !== undefined || finished,
   });
-  const mode: PlanMode = finished ? "status" : "plan";
-  let planned: Promise<Plan> | undefined;
-  const plan = () => (planned ??= opts.plan?.(mode) ?? composePlan({ p, secrets: opts.secrets, ci: p.env.CI === "true", mode, orgs: opts.orgs }));
+  const plan = () => planFor(finished ? "status" : "plan");
 
   const permissions = wanted.includes("macos") ? await fetchPermissions(p.tray) : null;
   const sections: SetupForm["sections"] = {};
@@ -916,24 +923,33 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   const run = state.run;
   const loginItems = permissionRows(permissions, null).find((r) => r.id === "perm.login-items");
   const paused = pausedFor(run, { events: run?.failed ? p.readFile(applyEventsPath(p.home)) : null, loginItems });
-  let nowFinished = finished;
-  if (!finished && run?.ok === true && (await plan()).finishBlockedBy.length === 0) {
-    try {
-      markSetupFinished(p);
-      nowFinished = true;
-    } catch (err) {
-      warn("setup.form", `setup not marked finished: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
   const stage = formStage({
-    finished: nowFinished,
+    finished,
     path,
     macosDone: allAnswered(sections.macos),
     join: intent?.mode === "join" ? "unredeemed" : (joined?.approval.kind ?? null),
     run,
     connectDone: allAnswered(sections.connect),
     thisMacDone: allAnswered(sections.thisMac),
-    needsRun: nowFinished && needsRun(await plan()),
+    needsRun: finished && needsRun(await plan()),
   });
   return { ...form, stage, paused };
+}
+
+/**
+ * Finish after a run that ended ok, once Install has run and nothing blocks
+ * Finish: the same test the run's own finish makes. Install's stamp guards a
+ * run record that outlived it. False when the write fails, so the read stays
+ * on the unfinished screens.
+ */
+async function finishOnRead(p: Probes, state: SetupState, planFor: (mode: PlanMode) => Promise<Plan>): Promise<boolean> {
+  if (state.run?.ok !== true || !installHasRun(state)) return false;
+  if ((await planFor("plan")).finishBlockedBy.length > 0) return false;
+  try {
+    markSetupFinished(p);
+    return true;
+  } catch (err) {
+    warn("setup.form", `setup not marked finished: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
 }

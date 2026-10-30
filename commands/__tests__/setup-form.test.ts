@@ -28,10 +28,15 @@ function grantedTray(notifications: "authorized" | "denied") {
   return fakeTray({ "GET /permissions": () => ({ status: 200, json: { fda: { status: "granted" }, notifications: { status: notifications }, loginItems: { status: "enabled" } } }) });
 }
 
-function deps(o: { run?: SetupRun; plan?: Plan; answered?: boolean; notifications?: "authorized" | "denied" } = {}) {
+/**
+ * `plan` answers plan mode and `status` (else `plan`) answers status mode. A
+ * seeded run carries the Install stamp a real run writes unless `stamped` is false.
+ */
+function deps(o: { run?: SetupRun; stamped?: boolean; plan?: Plan; status?: Plan; answered?: boolean; notifications?: "authorized" | "denied" } = {}) {
   const lines: string[] = [];
+  const state = o.run ? { v: 2, run: o.run, ...(o.stamped === false ? {} : { installRanAt: o.run.startedAt }) } : null;
   const files: Record<string, string> = {
-    ...(o.run ? { [STATE]: JSON.stringify({ v: 2, run: o.run }) } : {}),
+    ...(state ? { [STATE]: JSON.stringify(state) } : {}),
     ...(o.answered ? ANSWERED_FILES : {}),
   };
   const d: FormDeps = {
@@ -42,7 +47,7 @@ function deps(o: { run?: SetupRun; plan?: Plan; answered?: boolean; notification
       throw new ExitSentinel(code);
     },
     orgs: () => [],
-    ...(o.plan ? { plan: async () => o.plan! } : {}),
+    ...(o.plan ? { plan: async (mode) => (mode === "status" ? (o.status ?? o.plan!) : o.plan!) } : {}),
   };
   return { d, lines };
 }
@@ -155,6 +160,29 @@ describe("rt setup form finishes setup once nothing blocks it", () => {
     expect(first.sections.macos.map((x: { state: string }) => x.state)).toEqual(["done", "done", "done"]);
     expect(first.sections.connect.find((x: { id: string }) => x.id === "account.sdm")).toMatchObject({ state: "todo" });
     expect([first.stage, next.stage]).toEqual(["connect", "connect"]);
+  });
+
+  // Once Install has run, plan mode reads the rows only Install sets up as not required; status mode reads them as required again.
+  test("finishing on a read reads the plan the next read will, so a row only the bar fixes still shows", async () => {
+    const daemon = (required: boolean) => r("tool.daemon", "missing", "Not running", { required, action: { type: "run", label: "Register services", verb: ["setup", "apply", "--only", "services.register"] } });
+    const asPlan = plan([...SETTLED, daemon(false)]);
+    const asStatus = plan([...SETTLED, daemon(true)]);
+    expect([asPlan.requiredMissing, asPlan.finishBlockedBy, asStatus.requiredMissing]).toEqual([[], [], ["tool.daemon"]]);
+    const t = deps({ run: ENDED_OK, plan: asPlan, status: asStatus, answered: true });
+
+    await setupForm(["--json"], {}, t.d);
+    await setupForm(["--json"], {}, t.d);
+
+    expect(finishedAt(t)).toBeDefined();
+    const [first, next] = t.lines.map((l) => JSON.parse(l));
+    expect(first.sections.thisMac.find((x: { id: string }) => x.id === "tool.daemon")).toMatchObject({ state: "todo" });
+    expect([first.stage, next.stage]).toEqual(["this-mac", "this-mac"]);
+  });
+
+  test("a run record without the Install stamp never finishes setup", async () => {
+    const t = deps({ run: ENDED_OK, stamped: false, plan: CLEAR, answered: true });
+    await setupForm(["--json"], {}, t.d);
+    expect(finishedAt(t)).toBeUndefined();
   });
 
   test("a section read never finishes setup", async () => {

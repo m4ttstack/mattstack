@@ -78,8 +78,9 @@ was open. A whole `rt setup form` read (no `--section`) after a run that
 ended ok records Finish the same way, so a leftover fixed by its own action
 needs no second run; `lib/setup/form.ts` owns which screen setup is on
 (`formStage`). `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish,
-the update stamp and the Install stamp (`installRanAt`) off the record, so a
-reinstalled app opens setup again with rows only Install sets up waiting for it. Mark a
+the update stamp, the Install stamp (`installRanAt`) and the last run's record
+(`run`) off the record, so a reinstalled app opens setup again with rows only
+Install sets up waiting for it, and its form never finishes on the old run. Mark a
 step update-safe only when it is idempotent, never calls `ctx.need`, and
 never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed

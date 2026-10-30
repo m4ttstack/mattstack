@@ -287,6 +287,17 @@ describe("rt uninstall", () => {
       expect(readSetupState(p).installRanAt).toBeUndefined();
     });
 
+    test("a run that keeps the data takes the last run off the record, so a reinstalled app's form never finishes on it", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes();
+      updateSetupState(p, (s) => ({ ...s, run: { startedAt: "2026-10-29T10:00:00.000Z", done: ["home.init", "verify"], endedAt: "2026-10-29T10:10:00.000Z", ok: true } }));
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      await runUninstall(ctx, actions);
+
+      expect(readSetupState(p).run).toBeUndefined();
+    });
+
     test("a legacy Mac with only daemon.json comes out of a kept-data run unfinished", async () => {
       const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
       const p = bareProbes({ files: { [join(home, ".mattstack", "rt", "daemon.json")]: "{}" } });
