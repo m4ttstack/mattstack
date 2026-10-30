@@ -225,6 +225,14 @@ describe("runPrepare", () => {
       expect(p.calls.exec.filter((argv) => argv[0] === "/usr/local/bin/fast-browser")).toEqual([["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"]]);
       expect(result.failed).toEqual([{ tool: "fast-browser", detail: "No Claude Code or Codex found, so there is nothing to integrate with" }]);
     });
+
+    test("any other failed Fast Browser setup reaches the record with rt's detail", async () => {
+      const p = withFastBrowser((argv) => (argv[0] === "/usr/local/bin/fast-browser" ? { code: 1, stdout: "", stderr: "fast-browser: runtime checksum mismatch" } : machine()(argv)));
+      const result = await runPrepare(p, "accounts", { reqs, install: fakeInstall([]), alive, pid: OWN_PID });
+      const failed = [{ tool: "fast-browser", detail: "Fast Browser's setup failed (exit 1): fast-browser: runtime checksum mismatch" }];
+      expect(result.failed).toEqual(failed);
+      expect(readPrepare(p, "accounts", alive)!.failed).toEqual(failed);
+    });
   });
 
   test("the record carries the items while it runs and loses its pid when it ends", async () => {

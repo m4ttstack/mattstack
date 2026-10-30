@@ -5,9 +5,10 @@
  * runtime start once the member is approved. Each stage keeps its own record,
  * which the form reads to show a row as installing.
  */
-import { dirname, join } from "path";
+import { dirname } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import type { StepOutcome } from "./apply.ts";
+import { FAST_BROWSER, preparePath, readPrepare, waitWhilePreparing, type PrepareRecord, type PrepareStage } from "./prepare-record.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements, ToolRequirement } from "./requirements.ts";
 import { signInTools } from "./sign-in-tools.ts";
@@ -15,20 +16,7 @@ import { setUpFastBrowser } from "./steps/tools.ts";
 import { CLT_INSTALL_TIMEOUT_MS, installRoute, installTool } from "./tools-install.ts";
 import { pidAlive } from "./update-lock.ts";
 
-/** The accounts item for Fast Browser's setup, which the connect form's Fast Browser row reads. */
-export const FAST_BROWSER = "fast-browser";
-
-export type PrepareStage = "macos" | "accounts";
-export const PREPARE_STAGES: readonly PrepareStage[] = ["macos", "accounts"];
-
-export interface PrepareRecord {
-  stage: PrepareStage;
-  startedAt: string;
-  pid?: number;
-  endedAt?: string;
-  items: string[];
-  failed: { tool: string; detail: string }[];
-}
+export { FAST_BROWSER, PREPARE_BUDGET_MS, PREPARE_STAGES, preparePath, readPrepare, type PrepareRecord, type PrepareStage } from "./prepare-record.ts";
 
 export interface PrepareResult {
   stage: PrepareStage;
@@ -38,44 +26,6 @@ export interface PrepareResult {
 }
 
 const PROBE_TIMEOUT_MS = 5000;
-const MACOS_POLL_SECONDS = 5;
-
-/**
- * How long a run of each stage may take before its record stops counting as
- * running, whatever its pid says: a run killed before it could end its record
- * leaves the pid behind, and after a reboot that pid can belong to anything.
- * macos is the Command Line Tools install plus its catalog scans; accounts can
- * wait that long for macos and then install several tools.
- */
-export const PREPARE_BUDGET_MS: Record<PrepareStage, number> = {
-  macos: CLT_INSTALL_TIMEOUT_MS + 15 * 60_000,
-  accounts: CLT_INSTALL_TIMEOUT_MS + 90 * 60_000,
-};
-
-export function preparePath(home: string, stage: PrepareStage): string {
-  return join(home, ".mattstack", "rt", `setup-prepare-${stage}.json`);
-}
-
-export function readPrepare(
-  p: Pick<Probes, "readFile" | "home">,
-  stage: PrepareStage,
-  alive: (pid: number) => boolean = pidAlive,
-  now: () => Date = () => new Date(),
-): (PrepareRecord & { running: boolean }) | null {
-  const text = p.readFile(preparePath(p.home, stage));
-  if (text === null) return null;
-  let record: PrepareRecord;
-  try {
-    record = JSON.parse(text) as PrepareRecord;
-  } catch {
-    return null;
-  }
-  if (typeof record !== "object" || record === null || !Array.isArray(record.items)) return null;
-  const age = now().getTime() - Date.parse(record.startedAt);
-  const withinBudget = age <= PREPARE_BUDGET_MS[stage];
-  const running = typeof record.pid === "number" && record.endedAt === undefined && withinBudget && alive(record.pid);
-  return { ...record, running };
-}
 
 function writeRecord(p: Probes, record: PrepareRecord, pid: number): void {
   const path = preparePath(p.home, record.stage);
@@ -118,12 +68,7 @@ export async function prepareTools(p: Probes, stage: PrepareStage, reqs: PackReq
 
 /** brew and the vendor scripts need git, which arrives with Command Line Tools. */
 async function waitForCommandLineTools(p: Probes, alive: (pid: number) => boolean): Promise<void> {
-  const maxPolls = CLT_INSTALL_TIMEOUT_MS / (MACOS_POLL_SECONDS * 1000);
-  for (let poll = 0; poll < maxPolls; poll++) {
-    const macos = readPrepare(p, "macos", alive, () => p.now());
-    if (!macos?.running || !macos.items.includes("apple-clt")) return;
-    await p.exec(["sleep", String(MACOS_POLL_SECONDS)], { timeoutMs: (MACOS_POLL_SECONDS + 5) * 1000 });
-  }
+  await waitWhilePreparing(p, "macos", { holds: (macos) => macos.items.includes("apple-clt"), alive, maxMs: CLT_INSTALL_TIMEOUT_MS });
 }
 
 function errorDetail(err: unknown): string {

@@ -324,11 +324,14 @@ describe("connectRows", () => {
   const UNREAD = r("tool.fast-browser-extension", "skipped", "Fast Browser's doctor report could not be read. See the Fast Browser row", { required: false, finishGated: true });
   const NOT_ADDED = r("tool.fast-browser-extension", "needs-you", "The pinned Chrome extension is not installed.", { required: false, finishGated: true, action: FAST_BROWSER_ADD_ACTION });
 
-  test("while prepare sets up Fast Browser the row reads Installing and holds Continue", () => {
-    for (const ext of [UNREAD, NOT_ADDED]) {
-      const fb = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), ext)), prepare: prepare({ items: ["claude", "fast-browser"] }) })), "fast-browser");
-      expect([fb.state, fb.detail, fb.action, fb.optional]).toEqual(["busy", "Installing…", null, false]);
-    }
+  test("while prepare sets up Fast Browser and there is no report yet, the row reads Installing and holds Continue", () => {
+    const fb = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), UNREAD)), prepare: prepare({ items: ["claude", "fast-browser"] }) })), "fast-browser");
+    expect([fb.state, fb.detail, fb.action, fb.optional]).toEqual(["busy", "Installing…", null, false]);
+  });
+
+  test("Add to Chrome wins over Installing while prepare is still running", () => {
+    const fb = pick(connectRows(inputs({ plan: plan(swap(joinerRows(), NOT_ADDED)), prepare: prepare({ items: ["claude", "fast-browser"] }) })), "fast-browser");
+    expect([fb.state, fb.action, fb.waiting]).toEqual(["todo", FAST_BROWSER_ADD_ACTION, "Waiting for Chrome…"]);
   });
 
   test("an added extension reads Added even while prepare is still running", () => {

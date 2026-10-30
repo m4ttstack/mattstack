@@ -12,10 +12,11 @@ import { resolveTool } from "../../deps/resolve.ts";
 import type { SnapshotResult } from "../../daemon/home-snapshot.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
-import { fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
+import { claudeMarketplaces, fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { hasRemote } from "../home-git.ts";
 import { fetchPermissions } from "../permissions.ts";
+import { waitWhilePreparing } from "../prepare-record.ts";
 import type { Probes } from "../probes.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { claudeConfigDirs, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
@@ -38,14 +39,16 @@ async function fastbrowserSetupRun(p: Probes, nonInteractive: boolean): Promise<
   const resolved = resolveTool(p, "fast-browser");
   if (!resolved.exec) return { state: "skipped", detail: "Fast Browser is not in this build" };
 
-  const registered = await registeredMattstackMarketplace(p);
+  const before = await claudeMarketplaces(p);
+  const registered = before?.find((m) => m.name === "mattstack") ?? null;
   const source = fastBrowserMarketplaceSource(p.env, registered);
   const result = await setupTool(p, "fast-browser", { configDirs: [], marketplaceSource: source });
   if (result.ok) {
     // fast-browser setup adds the mattstack marketplace when it is missing,
-    // as it is when prepare runs this before plugins.install; setup-state is
-    // the uninstall record of what rt added.
-    if (registered === null && (await registeredMattstackMarketplace(p)) !== null) {
+    // as it is when prepare runs this before plugins.install. setup-state is
+    // the uninstall record of what rt added, so only a listing that read
+    // before setup and lacked it proves this run added it.
+    if (before !== null && registered === null && (await registeredMattstackMarketplace(p)) !== null) {
       updateSetupState(p, (s) => ({ ...s, marketplaces: [...s.marketplaces, source] }));
     }
     return { state: "done", detail: result.detail };
@@ -78,7 +81,10 @@ export const fastbrowserSetupStep: StepDef = {
   kind: "rt",
   updateSafe: true,
   applies: () => true,
-  run: (ctx) => setUpFastBrowser(ctx.p, { nonInteractive: ctx.nonInteractive }),
+  run: async (ctx) => {
+    await waitWhilePreparing(ctx.p, "accounts");
+    return setUpFastBrowser(ctx.p, { nonInteractive: ctx.nonInteractive });
+  },
 };
 
 // ─── herdr.integration ───────────────────────────────────────────────────────

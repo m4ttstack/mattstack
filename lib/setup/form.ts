@@ -21,7 +21,7 @@ import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "./permissions.ts";
 import { composePlan, enrichSnapshotForge } from "./plan.ts";
-import { FAST_BROWSER, readPrepare, type PrepareRecord } from "./prepare.ts";
+import { FAST_BROWSER, readPrepare, type PrepareRecord } from "./prepare-record.ts";
 import type { Probes } from "./probes.ts";
 import { configuredRepoRoots } from "./repo-placement.ts";
 import { detectCandidate, readStagedRepoRoot } from "./repo-root.ts";
@@ -598,7 +598,12 @@ function isStoreInstall(action: Action | null): boolean {
   return action?.type === "open-url" && FAST_BROWSER_ADD_ACTION.type === "open-url" && action.url === FAST_BROWSER_ADD_ACTION.url;
 }
 
-/** Without Fast Browser's report there is no way to see the extension land, so a failed setup leaves the row optional with its reason. */
+/**
+ * The accounts record runs for every install in it, so Installing only
+ * stands in when Fast Browser's report offers nothing to press. A row still
+ * without an action once that ends can never see the extension land, so it
+ * stays optional with the setup's reason.
+ */
 function fastBrowserRow(rows: ReadonlyMap<string, Row>, prepare: AccountsPrepare): ConnectRow {
   const c = FORM_COPY.connect.fastBrowser;
   const base = { id: "fast-browser", title: c.title, subtext: c.subtext, waiting: null, watch: true };
@@ -606,9 +611,9 @@ function fastBrowserRow(rows: ReadonlyMap<string, Row>, prepare: AccountsPrepare
   if (chrome && chrome.status !== "ready") return { ...base, state: "todo", detail: chrome.detail, action: GET_CHROME };
   const extension = rows.get("tool.fast-browser-extension");
   if (extension?.status === "ready") return { ...base, state: "done", detail: c.done, action: null };
-  if (installing(prepare, FAST_BROWSER)) return { ...base, state: "busy", detail: FORM_COPY.installing, action: null };
   if (isStoreInstall(extension?.action ?? null)) return { ...base, state: "todo", detail: extension!.detail, action: FAST_BROWSER_ADD_ACTION, waiting: c.waiting };
   const action = extension?.action ?? null;
+  if (action === null && installing(prepare, FAST_BROWSER)) return { ...base, state: "busy", detail: FORM_COPY.installing, action: null };
   return { ...base, state: "todo", detail: (action === null ? installFailure(prepare, FAST_BROWSER) : null) ?? extension?.detail ?? "", action };
 }
 
