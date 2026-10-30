@@ -111,11 +111,14 @@ public enum TestDrive {
     public static let probeArguments = ["stub", "grant", "--probe", "--json"]
 
     /// Why no drive can start on this stub, or nil when it answered the probe. A nil result is a stub bun could not run.
+    /// Only a stub that does not know the probe (or took it for a grant) is too old; any other failure is one that won't run.
     public static func stubProblem(probe: RtResult?) -> String? {
         guard let probe else { return TestDriveCopy.stubWontRun }
         struct Reply: Decodable { let probe: Bool? }
-        guard probe.exitCode == 0, (try? probe.decode(Reply.self))?.probe == true else { return TestDriveCopy.stubTooOld }
-        return nil
+        if probe.exitCode == 0 {
+            return (try? probe.decode(Reply.self))?.probe == true ? nil : TestDriveCopy.stubTooOld
+        }
+        return probe.userError?.code == "unknown-verb" ? TestDriveCopy.stubTooOld : TestDriveCopy.stubWontRun
     }
 }
 

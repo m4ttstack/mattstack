@@ -88,6 +88,9 @@ let testDriveChecks: [Check] = [
         c.expectEqual(TestDrive.stubProblem(probe: result(0, #"{"contract":1,"at":"x","ok":true,"granted":"--probe"}"#)), TestDriveCopy.stubTooOld,
                       "a stub that took --probe as a grant is no drive stub either")
         c.expectEqual(TestDrive.stubProblem(probe: nil), TestDriveCopy.stubWontRun, "bun could not start it")
+        c.expectEqual(TestDrive.stubProblem(probe: result(1, "")), TestDriveCopy.stubWontRun, "a stub that crashed is not too old, it won't run")
+        c.expectEqual(TestDrive.stubProblem(probe: result(2, #"{"contract":1,"at":"x","error":{"code":"bad-state","message":"state dir is not writable"}}"#)),
+                      TestDriveCopy.stubWontRun, "only an unknown verb means the stub predates the probe")
     },
     Check("Test drive: a retired rt refuses every call, ends its streams, and cancels what the pretend person had still to do") { c in
         let inner = ScriptedRt()
@@ -142,6 +145,10 @@ let testDriveChecks: [Check] = [
         guard let notified = text.range(of: "private func notified("),
               let next = text.range(of: "\n    }\n", range: notified.upperBound..<text.endIndex) else { return c.fail("notified missing") }
         c.expect(!text[notified.upperBound..<next.lowerBound].contains("resumeSetup"), "a pretend notification waits on Show")
+        let coordinator = try source("Sources/Setup/SetupCoordinator.swift")
+        guard let shutDown = coordinator.range(of: "func shutDown() {") else { return c.fail("shutDown missing") }
+        c.expect(coordinator[shutDown.upperBound...].prefix(120).contains("guard host.isTestDrive else"),
+                 "shutDown cancels the run, so the real setup's coordinator must refuse it first")
     },
     Check("Test drive: its sources never reach the Mac's native effects or the real setup's records") { c in
         let dir = trayRoot.appendingPathComponent("Sources/Setup/TestDrive")

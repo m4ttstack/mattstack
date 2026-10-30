@@ -13,8 +13,12 @@ final class TestDriveController {
     private let toasts = TestDriveToasts()
     private var picker: NSWindow?
     private var drive: Drive?
-    /// Bumped by every probe and start: an answer for an older one is dropped.
-    private var attempt = 0
+    /// Bumped by every picker probe and every start: a probe answer for an older one is dropped.
+    private var probeAttempt = 0
+    /// Bumped by every start, so only the newest Start or Reset begins a drive.
+    private var startAttempt = 0
+    /// A start's probe is running; it answers for the picker too, so the picker never cancels it.
+    private var starting = false
 
     private struct Drive {
         let id: UUID
@@ -33,19 +37,24 @@ final class TestDriveController {
     }
 
     func showPicker() {
+        presentPicker()
+        guard !starting else { return }
+        probeAttempt += 1
+        let mine = probeAttempt
+        model.checking = true
+        Task {
+            let problem = await Self.problem()
+            guard mine == probeAttempt, !starting else { return }
+            model.checking = false
+            model.problem = problem
+        }
+    }
+
+    private func presentPicker() {
         let window = picker ?? makePicker()
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        attempt += 1
-        let mine = attempt
-        model.checking = true
-        Task {
-            let problem = await Self.problem()
-            guard mine == attempt else { return }
-            model.checking = false
-            model.problem = problem
-        }
     }
 
     /// The app is quitting: no drive outlives it, and neither does any drive's folder.
@@ -85,24 +94,31 @@ final class TestDriveController {
         start(drive?.run ?? TestDriveRun(scenario: model.scenario, speed: model.speed))
     }
 
+    /// Scenarios… pressed while this probes only brings the picker forward; this start still runs.
     private func start(_ run: TestDriveRun) {
         endDrive()
         Self.removeStaleRoots()
-        attempt += 1
-        let mine = attempt
+        startAttempt += 1
+        probeAttempt += 1
+        let mine = startAttempt
+        starting = true
         model.checking = true
         Task {
             let problem = await Self.problem()
-            guard mine == attempt else { return }
+            guard mine == startAttempt else { return }
+            starting = false
             model.checking = false
             model.problem = problem
-            if problem != nil { return showPicker() }
+            if problem != nil { return presentPicker() }
             begin(run)
         }
     }
 
     private func begin(_ run: TestDriveRun) {
-        guard let location = Self.stubLocation() else { return }
+        guard let location = Self.stubLocation() else {
+            model.problem = TestDriveCopy.noStub
+            return presentPicker()
+        }
         let id = UUID()
         let root = Self.newRoot(id)
         let stateDir = root.appendingPathComponent("state"), home = root.appendingPathComponent("home")
@@ -111,7 +127,7 @@ final class TestDriveController {
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         } catch {
             model.problem = "Couldn't make a folder for the test drive"
-            return showPicker()
+            return presentPicker()
         }
         let rt = TestDriveRt(RtClient(location: location, environment: TestDrive.environment(scenario: run.scenario, speed: run.speed,
                                                                                            stateDir: stateDir.path, home: home.path)))

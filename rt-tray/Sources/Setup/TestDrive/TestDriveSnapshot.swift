@@ -39,6 +39,10 @@ extension FastSetupSnapshot {
             ("test-drive-window-refused", window(join, toast: TestDriveCopy.stubRefused("stub grant fda", "stub has no answer for: stub grant fda"), failed: true,
                                                  Container().landed(.macos, Container.whole(.macos, sections: FormSections(
                                                      macos: [Rows.fda, Rows.notificationsAsk, Rows.fancyUrls]))).page())),
+            ("test-drive-window-refused-over-notice", window(join, toast: TestDriveCopy.stubRefused("stub grant notifications", "state dir is not writable"),
+                                                             failed: true, notice: TestDriveCopy.wouldNotify(FastSetupLaunch.approvedNotice),
+                                                             Container().landed(.macos, Container.whole(.macos, sections: FormSections(
+                                                                 macos: [Rows.fdaGranted, Rows.notificationsAsk, Rows.fancyUrls]))).page())),
             ("test-drive-window-notice", window(join, notice: TestDriveCopy.wouldNotify(FastSetupLaunch.approvedNotice),
                                                 Container().landed(.connect, Container.whole(.connect, sections: FormSections(
                                                     connect: [C.forge, C.slack, C.claudeSignIn, C.dopplerSignIn, C.linear, C.fastBrowser]))).page())),

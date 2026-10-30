@@ -2,7 +2,8 @@ import Foundation
 import MattstackCore
 
 /// What a test drive shows in place of each native effect it fakes. The latest line stays on the banner a
-/// few seconds; a notification stays until the person shows the window, as a real banner waits for its click.
+/// few seconds; a refusal stays until the next line replaces it; a notification stays until the person
+/// shows or looks at the window, as a real banner waits for its click.
 @MainActor
 final class TestDriveToasts: ObservableObject {
     @Published private(set) var latest: String?
@@ -17,7 +18,8 @@ final class TestDriveToasts: ObservableObject {
     }
 
     func fail(_ line: String) {
-        show(line)
+        shown += 1
+        latest = line
         latestFailed = true
     }
 

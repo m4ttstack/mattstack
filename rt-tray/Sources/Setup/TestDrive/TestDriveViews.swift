@@ -120,6 +120,7 @@ struct TestDriveFrame: View {
     let onScenarios: () -> Void
     let onReset: () -> Void
     let content: AnyView
+    @Environment(\.controlActiveState) private var activeState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,6 +129,8 @@ struct TestDriveFrame: View {
             content
         }
         .environment(\.openSetupLink) { [toasts] url in toasts.show(TestDriveCopy.wouldOpen(url)) }
+        // Looking at the window is the click a real notification waits for, and it frees the banner for later lines.
+        .onChange(of: activeState) { _, state in if state == .key { toasts.clearNotice() } }
     }
 }
 
@@ -163,7 +166,8 @@ struct TestDriveBanner: View {
                 Button("Reset", action: onReset).controlSize(.small).fixedSize()
                     .accessibilityIdentifier(AXID.testDriveReset)
             }
-            if let notice {
+            // A refusal outranks a waiting notice: it is why a row will never move.
+            if let notice, !(toastFailed && toast != nil) {
                 HStack(spacing: 8) {
                     Label {
                         Text(notice).lineLimit(1)

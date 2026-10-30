@@ -507,8 +507,12 @@ final class SetupCoordinator {
     }
 
     /// A test drive's Reset: nothing this coordinator started keeps polling once a new one takes over,
-    /// and closing its window this way records no Finish.
+    /// and closing its window this way records no Finish. The real setup never stops its run this way.
     func shutDown() {
+        guard host.isTestDrive else {
+            TrayLog.warn("setup shutDown refused outside a test drive")
+            return
+        }
         setupWindow?.onClose = nil
         setupWindow?.close()
         install.cancel()
