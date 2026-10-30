@@ -130,6 +130,13 @@ describe("rt setup form", () => {
     expect(lines[2]).toContain("Fancy URLs");
   });
 
+  test("human output draws turned-off notifications as off, not ok", async () => {
+    const t = deps({ answered: true, notifications: "denied" });
+    await setupForm(["--section", "macos"], {}, t.d);
+    const notifications = quiet.stdout().split("\n").find((l) => l.includes("Notifications"));
+    expect(notifications).toStartWith("[off]");
+  });
+
   test("no --section prints every section, the stage and home", async () => {
     const t = deps({ plan: CLEAR });
     await setupForm(["--json"], {}, t.d);

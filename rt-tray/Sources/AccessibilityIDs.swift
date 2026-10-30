@@ -62,6 +62,7 @@ enum AXID {
         "setup.fast.row.\(id).field" + (name.map { ".\($0)" } ?? "")
     }
     static func fastRowWaiting(_ id: String) -> String { "setup.fast.row.\(id).waiting" }
+    static func fastRowReason(_ id: String) -> String { "setup.fast.row.\(id).reason" }
     static func fastRowError(_ id: String) -> String { "setup.fast.row.\(id).error" }
     static func fastRowDone(_ id: String) -> String { "setup.fast.row.\(id).done" }
     static func fastRowStatus(_ id: String) -> String { "setup.fast.row.\(id).status" }

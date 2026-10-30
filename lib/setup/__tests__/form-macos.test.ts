@@ -50,8 +50,13 @@ describe("macosRows", () => {
   test("notifications denied count as answered", () => {
     const n = pick(rows("granted", "denied"), "perm.notifications");
     expect(n.state).toBe("done");
+    expect(n.tone).toBe("off");
     expect(n.detail).toBe("Turned off");
     expect(n.action).toMatchObject({ type: "open-settings", target: "notifications" });
+  });
+
+  test("only a denied row carries a tone", () => {
+    for (const r of [...rows("granted", "authorized"), ...rows("denied", "notDetermined", FANCY_TODO)]) expect(r.tone).toBeUndefined();
   });
 
   test("a not-yet-asked status is to do whatever the row's words say", () => {

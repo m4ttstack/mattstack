@@ -11,6 +11,17 @@ public enum FormRowState: String, Decodable, Sendable {
     }
 }
 
+/// How a done row reads. `off`: answered, and the answer was no, so it draws no green check.
+/// A tone from a newer rt decodes as `.unknown` and draws as a plain done row.
+public enum FormRowTone: String, Decodable, Sendable {
+    case off, unknown
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = FormRowTone(rawValue: raw) ?? .unknown
+    }
+}
+
 public enum FormStage: String, Decodable, Sendable {
     case macos, path, invite, waiting, connect, running, paused, ready
     case thisMac = "this-mac"
@@ -22,6 +33,8 @@ public struct FormRow: Decodable, Equatable, Identifiable, Sendable {
     public var title: String
     public var subtext: String
     public var state: FormRowState
+    /// Only on a done row whose answer is not a yes; rt decides it, never the detail's words.
+    public var tone: FormRowTone?
     public var detail: String
     public var action: RowAction?
     /// The line the app shows while this row's action runs.
@@ -30,9 +43,9 @@ public struct FormRow: Decodable, Equatable, Identifiable, Sendable {
     public var watch: Bool
     /// Never holds Continue.
     public var optional: Bool
-    public init(id: String, title: String, subtext: String, state: FormRowState, detail: String,
+    public init(id: String, title: String, subtext: String, state: FormRowState, tone: FormRowTone? = nil, detail: String,
                 action: RowAction? = nil, waiting: String? = nil, watch: Bool = false, optional: Bool = false) {
-        self.id = id; self.title = title; self.subtext = subtext; self.state = state; self.detail = detail
+        self.id = id; self.title = title; self.subtext = subtext; self.state = state; self.tone = tone; self.detail = detail
         self.action = action; self.waiting = waiting; self.watch = watch; self.optional = optional
     }
 }

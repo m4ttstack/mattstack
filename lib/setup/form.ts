@@ -42,12 +42,16 @@ export const FORM_SECTIONS: readonly FormSection[] = ["macos", "invite", "restor
 export const SECTION_READS: readonly FormSection[] = [...FORM_SECTIONS, "create"];
 
 export type FormRowState = "done" | "todo" | "busy" | "waiting";
+/** `off`: answered, and the answer was no (notifications turned off), so the app draws no green check. */
+export type FormRowTone = "off";
 
 export interface FormRow {
   id: string;
   title: string;
   subtext: string;
   state: FormRowState;
+  /** Only on a done row whose answer is not a yes. */
+  tone?: FormRowTone;
   detail: string;
   action: Action | null;
   /** The line the app shows while this row's action runs. */
@@ -207,7 +211,7 @@ function notificationsRow(status: NotificationStatus | null): FormRow {
     case "provisional":
       return { ...base, state: "done", detail: c.allowed, action: null };
     case "denied":
-      return { ...base, state: "done", detail: c.turnedOff, action: { type: "open-settings", label: c.openSettings, target: "notifications" } };
+      return { ...base, state: "done", tone: "off", detail: c.turnedOff, action: { type: "open-settings", label: c.openSettings, target: "notifications" } };
     default:
       return {
         ...base,

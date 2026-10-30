@@ -623,7 +623,7 @@ enum FastSetupSnapshot {
         static let notificationsAllowed = FormRow(id: "perm.notifications", title: "Notifications",
                                                   subtext: "Tells you when setup is done", state: .done, detail: "Allowed")
         static let notificationsOff = FormRow(id: "perm.notifications", title: "Notifications", subtext: "Tells you when setup is done",
-                                              state: .done, detail: "Turned off",
+                                              state: .done, tone: .off, detail: "Turned off",
                                               action: RowAction(type: .openSettings, label: "Open settings", target: "notifications"))
         static let fancyUrls = FormRow(id: "mac.fancy-urls", title: "Fancy URLs", subtext: "Grant mattstack apps permission to use .mattstack",
                                        state: .todo, detail: "Not set up yet",

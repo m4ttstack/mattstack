@@ -34,6 +34,12 @@ struct FormRowView: View {
                         Text(row.subtext).font(.callout).foregroundStyle(showsTitle ? .secondary : .primary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if let reason {
+                        Text(reason).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 2)
+                            .accessibilityIdentifier(AXID.fastRowReason(row.id))
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 trailing.layoutPriority(1)
@@ -52,6 +58,12 @@ struct FormRowView: View {
         .padding(.horizontal, 14).padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastRow(row.id))
+    }
+
+    /// rt's word on why a row still waits on the person. While its action runs, the spinner's line says it instead.
+    private var reason: String? {
+        guard row.state == .todo, waiting == nil, !row.detail.isEmpty else { return nil }
+        return row.detail
     }
 
     /// The line beside the control: a spinner while anything runs, else a done row's check.
@@ -102,10 +114,14 @@ struct FormRowView: View {
         }
     }
 
-    /// Never beside a segment: the segment already reads as the answer.
+    /// Never beside a segment: the segment already reads as the answer. An answer of no (rt's `off` tone) draws a grey dash.
     private var doneCheck: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            if row.tone == .off {
+                Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            }
             if !row.detail.isEmpty {
                 Text(row.detail).font(.callout).foregroundStyle(.secondary)
                     .lineLimit(2).truncationMode(.middle).fixedSize(horizontal: false, vertical: true)

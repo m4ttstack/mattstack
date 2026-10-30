@@ -82,5 +82,5 @@ export async function setupForm(args: string[], _ctx: CommandContext = {}, deps:
     return;
   }
   const rows: FormRow[] = [...(form.sections.macos ?? []), ...(form.sections.invite ?? []), ...(form.sections.restore ?? []), ...(form.sections.connect ?? []), ...(form.sections.thisMac ?? []), ...(form.sections.create ?? [])];
-  out.print(...rows.map((r) => out.line(ROW_STATUS[r.state], r.title, r.detail)));
+  out.print(...rows.map((r) => out.line(r.tone === "off" ? "off" : ROW_STATUS[r.state], r.title, r.detail)));
 }

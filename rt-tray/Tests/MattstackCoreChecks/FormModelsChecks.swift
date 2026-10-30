@@ -115,6 +115,16 @@ let formModelsChecks: [Check] = [
         let form = try decodeForm(sectionJSON("connect", [row("claude", state: "pondering")]))
         c.expectEqual(form.sections.connect?.first?.state, .todo)
     },
+    Check("FormModels: a turned-off done row decodes its tone; no tone reads nil and a new one unknown") { c in
+        let denied = #"{"id":"perm.notifications","title":"Notifications","subtext":"Tells you when setup is done","state":"done","tone":"off","detail":"Turned off","action":{"type":"open-settings","label":"Open settings","target":"notifications"},"waiting":null,"watch":false,"optional":false}"#
+        let form = try decodeForm(sectionJSON("macos", [denied, row("perm.fda", state: "done"), row("mac.fancy-urls", state: "done", extra: #","tone":"muted""#)]))
+        let rows = try c.requireSome(form.sections.macos)
+        c.expectEqual(rows[0].state, .done)
+        c.expectEqual(rows[0].tone, .off)
+        c.expectEqual(rows[0].action?.target, "notifications")
+        c.expectEqual(rows[1].tone, nil, "an rt older than the field sends none")
+        c.expectEqual(rows[2].tone, .unknown, "a tone this app does not know never fails the read")
+    },
     Check("FormModels: a section rt left out reads nil") { c in
         let form = try decodeForm(sectionJSON("connect", [row("claude")]))
         c.expectEqual(form.sections.connect?.count, 1)
