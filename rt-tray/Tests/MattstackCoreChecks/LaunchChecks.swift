@@ -68,12 +68,17 @@ let launchChecks: [Check] = [
         c.expectEqual(SetupCompletion.resumeStep(stateJSON: untouched, intentExists: false), .checklist)
         c.expectEqual(SetupCompletion.resumeStep(stateJSON: nil, intentExists: false), nil)
 
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: true, resume: .done), .none)
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, resume: .done), .show(.done))
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, resume: nil), .show(nil))
-        // --resume-setup is honored whatever the state reads.
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .team, finished: true, resume: .done), .show(.team))
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .checklist, finished: false, resume: nil), .show(.checklist))
+    },
+    // rt's whole read decides the screen; the launch only decides whether setup opens.
+    Check("Launch: an unfinished Mac still opens setup at launch") { c in
+        c.expect(SetupCompletion.onLaunch(relaunched: false, finished: false))
+        c.expect(!SetupCompletion.onLaunch(relaunched: false, finished: true), "a finished Mac opens nothing")
+        c.expect(SetupCompletion.onLaunch(relaunched: true, finished: true), "a relaunch from setup reopens it whatever the state reads")
+        c.expect(SetupCompletion.onLaunch(relaunched: true, finished: false))
+        let args = SetupResume.relaunchArguments(passthrough: ["--allow-appcast-override", "--resume-setup", "checklist"], resumeScreen: .macos)
+        c.expectEqual(args, ["--allow-appcast-override", "--resume-setup", "macos"])
+        c.expectEqual(SetupResume.screen(from: ["mattstack"] + args), .macos)
+        c.expectEqual(SetupResume.screen(from: ["mattstack"]), nil)
     },
     Check("SetupCompletion: the tray menu offers Resume setup only while unfinished, Setup status always") { c in
         c.expectEqual(SetupCompletion.menuEntries(finished: false), [.status, .resume])

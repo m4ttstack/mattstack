@@ -52,9 +52,4 @@ enum SetupSession {
                                                     readFile: { FileManager.default.contents(atPath: $0) },
                                                     fileExists: { FileManager.default.fileExists(atPath: $0) })
     }
-    static var resumeStep: SetupStep? {
-        SetupCompletion.resumeStep(home: AppHome.current,
-                                   readFile: { FileManager.default.contents(atPath: $0) },
-                                   fileExists: { FileManager.default.fileExists(atPath: $0) })
-    }
 }

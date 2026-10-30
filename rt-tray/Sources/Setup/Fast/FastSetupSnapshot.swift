@@ -38,7 +38,7 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages, containerPages]
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
@@ -252,6 +252,184 @@ enum FastSetupSnapshot {
             ("paused-after-relaunch", page(nil, paused: RunPaused.clone)),
             ("paused-after-progress", page(RunPaused.heldBar(), paused: RunPaused.clone)),
         ]
+    }
+
+    /// The whole window, through `FastSetupView`, on each screen rt's fixture form lands on.
+    @MainActor
+    private static func containerPages() -> [(String, AnyView)] {
+        typealias C = ConnectRows
+        typealias T = ThisMacRows
+        let code = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
+        return [
+            ("container-loading", Container().page()),
+            ("container-loading-failed", Container(failing: true).loaded(nil).page()),
+            ("container-macos", Container().landed(.macos, Container.whole(.macos, sections: FormSections(macos: [Rows.fdaGranted, Rows.notificationsAsk, Rows.fancyUrls]))).page()),
+            ("container-path", Container().landed(.path, Container.whole(.path)).page()),
+            ("container-invite", Container().landed(.invite, Container.whole(.invite, sections: FormSections(invite: [Rows.cltInstalling, Rows.gitlabTokenConnected])))
+                .invite(code).page()),
+            ("container-create-team", Container().landed(.path, Container.whole(.path)).picking(.create)
+                .absorbing(Container.section(FormSections(create: [Rows.gitlabTokenCreated]))).named("Widgets", group: "acme").page()),
+            ("container-restore", Container().landed(.path, Container.whole(.path)).picking(.restore)
+                .absorbing(Container.section(FormSections(restore: []))).restoring("janedoe/mattstack-home").page()),
+            ("container-waiting", Container().landed(.waiting, Container.whole(.waiting)).page()),
+            ("container-connect", Container().landed(.connect, Container.whole(.connect, sections: FormSections(
+                connect: [C.forge, C.slack, C.claudeInstalling, C.dopplerSignIn, C.linear, C.fastBrowser]))).page()),
+            ("container-this-mac", Container().landed(.thisMac, Container.whole(.thisMac, sections: FormSections(
+                thisMac: [T.boardFound, T.widgetsClone, T.backupLocal]), startReady: true)).page()),
+            ("container-running", Container().landed(.running, Container.whole(.running)).running(Container.cloning, startedAgo: 120).page()),
+            ("container-paused", Container().landed(.paused, Container.whole(.paused, paused: RunPaused.clone))
+                .running(Container.cloning + Container.cloneFailed, startedAgo: 140).page()),
+            ("container-paused-after-relaunch", Container().landed(.paused, Container.whole(.paused, paused: RunPaused.clone)).page()),
+            ("container-ready", Container().landed(.ready, Container.whole(.ready)).page()),
+        ]
+    }
+
+    /// One window's models, built from fixtures. Its rt answers only the invite's dry run and never spawns.
+    @MainActor
+    final class Container {
+        let flow = FastSetupFlow(entry: .firstRun)
+        let form: SetupFormModel
+        let actions: FormActionRunner
+        let install: InstallRunModel
+        let team: TeamChoiceModel
+        let status = FastSetupStatus()
+        private let rt: SnapshotRt
+        private var lines: [String] = []
+
+        init(failing: Bool = false) {
+            let rt = SnapshotRt(failing: failing)
+            self.rt = rt
+            let needs = NeedBroker(services: StubServicesProvider(), privileged: StubPrivilegedInstaller())
+            form = SetupFormModel(rt: rt)
+            actions = FormActionRunner(rt: rt, needs: needs, effects: SnapshotEffects(), reload: {})
+            install = InstallRunModel(stream: { _ in rt.stream([], stdin: nil) }, needs: needs)
+            team = TeamChoiceModel(rt: rt, pasteboard: SystemPasteboard())
+        }
+
+        func landed(_ stage: FormStage, _ read: SetupForm) -> Container {
+            form.absorb(read)
+            flow.land(on: stage)
+            return self
+        }
+
+        func loaded(_ section: String?) -> Container {
+            Task { await form.load(section: section) }
+            Container.settle { !self.form.isLoading && self.form.error != nil }
+            return self
+        }
+
+        func absorbing(_ read: SetupForm) -> Container {
+            form.absorb(read)
+            return self
+        }
+
+        func picking(_ choice: TeamChoice) -> Container {
+            team.choice = choice
+            flow.choose(choice)
+            return self
+        }
+
+        func named(_ name: String, group: String) -> Container {
+            team.teamName = name
+            team.group = group
+            return self
+        }
+
+        func restoring(_ repo: String) -> Container {
+            team.restoreRepo = repo
+            team.restoreAgeKey = "placeholder"
+            return self
+        }
+
+        func invite(_ code: String) -> Container {
+            team.choice = .join
+            team.inviteCode = code
+            Task { await team.previewInvite() }
+            Container.settle { self.team.hasGoodVerdict }
+            return self
+        }
+
+        func running(_ lines: [String], startedAgo seconds: TimeInterval) -> Container {
+            rt.streamLines = lines
+            status.runStartedAt = Date().addingTimeInterval(-seconds)
+            install.start()
+            let ends = lines.contains { $0.contains(#""event":"done""#) }
+            Container.settle {
+                self.install.steps.contains { $0.id == "repos.clone" && ($0.progress != nil || $0.state == .failed) }
+                    && (!ends || !self.install.isRunning)
+            }
+            return self
+        }
+
+        func page() -> AnyView {
+            AnyView(FastSetupView(flow: flow, form: form, actions: actions, install: install, team: team, status: status, handlers: .inert)
+                .frame(height: 620))
+        }
+
+        /// Lets the models' main-actor work land before the page renders.
+        static func settle(until done: () -> Bool) {
+            let deadline = Date().addingTimeInterval(2)
+            while !done(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        }
+
+        static let home = FormHome(label: "Open the board", url: "https://board.mattstack")
+        static let team = FormTeam(slug: "mithrandir", name: "Mithrandir", invitedBy: "Jane Doe")
+
+        static func whole(_ stage: FormStage, sections: FormSections = FormSections(), startReady: Bool = false, paused: FormPaused? = nil) -> SetupForm {
+            SetupForm(path: stage == .path ? nil : "join", team: stage == .path ? nil : team, stage: stage, sections: sections,
+                      continueReady: false, startReady: startReady, paused: paused, home: home)
+        }
+
+        static func section(_ sections: FormSections) -> SetupForm {
+            SetupForm(path: nil, team: nil, stage: nil, sections: sections, home: home)
+        }
+
+        private static func plan() -> String {
+            let steps = [("org.pull", "Getting your team's settings", 2), ("path.link", "Setting up rt", 3), ("repos.clone", "Cloning your repos", 10),
+                         ("plugins.install", "Installing Claude plugins", 6), ("verify", "Checking everything", 2)]
+            let listed = steps.map { #"{"id":"\#($0.0)","title":"\#($0.0)","kind":"rt","phase":"\#($0.1)","weight":\#($0.2)}"# }
+            return #"{"event":"plan","steps":[\#(listed.joined(separator: ","))]}"#
+        }
+
+        static let cloning = [
+            plan(),
+            #"{"event":"step","id":"org.pull","state":"done"}"#,
+            #"{"event":"step","id":"path.link","state":"done"}"#,
+            #"{"event":"step","id":"repos.clone","state":"running","detail":"Cloning acme-api (1 of 2)"}"#,
+            #"{"event":"progress","id":"repos.clone","label":"Receiving objects","percent":60}"#,
+        ]
+        static let cloneFailed = [
+            #"{"event":"step","id":"repos.clone","state":"failed","detail":"GitLab says your token can't see acme/acme-api"}"#,
+            #"{"event":"done","ok":false,"failedStep":"repos.clone"}"#,
+        ]
+    }
+
+    /// Answers the invite's dry run, fails the form read when asked to, and streams only the lines a page sets.
+    final class SnapshotRt: RtRunning, @unchecked Sendable {
+        let failing: Bool
+        var streamLines: [String] = []
+        init(failing: Bool) { self.failing = failing }
+
+        func run(_ args: [String], stdin: Data?) async throws -> RtResult {
+            if args.starts(with: ["team", "join", "--dry-run"]) {
+                let reply = #"{"team":{"slug":"mithrandir","name":"Mithrandir","owner":"Jane Doe"},"access":"ok","intent":"written","message":"Joining Mithrandir"}"#
+                return RtResult(exitCode: 0, stdout: Data(reply.utf8), stderr: Data())
+            }
+            if failing { return RtResult(exitCode: 1, stdout: Data(), stderr: Data("could not read ~/.mattstack/rt/setup-state.json".utf8)) }
+            throw RtClientError.spawnFailed("snapshots run no rt")
+        }
+
+        /// Never finishes: a page's run stays live, as one still streaming would.
+        func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> {
+            let lines = streamLines
+            return AsyncThrowingStream { cont in for line in lines { cont.yield(line) } }
+        }
+    }
+
+    struct SnapshotEffects: FormEffects {
+        @MainActor func openURL(_ url: URL) {}
+        @MainActor func openSettings(_ target: String) {}
+        func requestPermission(_ which: String) async -> Bool { false }
     }
 
     /// What `pausedFor` in lib/setup/form.ts emits, its titles from `STEP_PHASES` in lib/setup/run-phases.ts.

@@ -16,7 +16,7 @@ public enum NotificationClick {
     /// that runs `rt team members sync` for that team.
     public static let memberJoinedCategory = "member_joined"
     /// A setup update run left something for the person: the click opens
-    /// the Setup status checklist.
+    /// setup as Setup status, on whatever screen rt says needs them.
     public static let setupUpdateCategory = "setup_update"
     /// Setup moved on while its window may be hidden ("You're in"): the
     /// click brings fast setup back on whatever screen rt says is next.

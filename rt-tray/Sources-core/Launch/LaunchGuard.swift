@@ -66,16 +66,10 @@ public enum SetupCompletion {
         resumeStep(stateJSON: readFile(statePath(home: home)), intentExists: fileExists(intentPath(home: home)))
     }
 
-    public enum Launch: Equatable, Sendable {
-        case none
-        /// nil opens the wizard where it starts.
-        case show(SetupStep?)
-    }
-
-    public static func onLaunch(resumeFlag: SetupStep?, finished: Bool, resume: SetupStep?) -> Launch {
-        if let resumeFlag { return .show(resumeFlag) }
-        if finished { return .none }
-        return .show(resume)
+    /// Whether setup opens at launch. rt's whole read decides the screen, so a
+    /// relaunch from setup only says that setup was open.
+    public static func onLaunch(relaunched: Bool, finished: Bool) -> Bool {
+        relaunched || !finished
     }
 
     public enum MenuEntry: Equatable, Sendable { case resume, status }

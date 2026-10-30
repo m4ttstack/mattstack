@@ -215,7 +215,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(handleSystemSessionEnding), name: NSWorkspace.willPowerOffNotification, object: nil)
 
-        // Setup / Settings surfaces, posted by the tray menu and the setup summary
+        // Setup / Settings surfaces, posted by the tray menu and the setup banners:
+        // a setup_update click is Setup status, a setup_progress click resumes, both in the one setup window.
         NotificationCenter.default.addObserver(self, selector: #selector(showSetupStatus), name: .rtShowSetupStatus, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resumeSetup), name: .rtResumeSetup, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettings), name: .rtShowSettings, object: nil)
@@ -250,7 +251,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             // First-run Setup has no daemon dependency, so it shows before the
             // agent wait below; a genuine first run (daemon not installed yet)
             // would otherwise sit at a blank menu bar for the whole wait.
-            coordinator?.showSetupOnLaunch(resumeFlag: SetupResume.step(from: CommandLine.arguments))
+            coordinator?.showSetupOnLaunch(arguments: CommandLine.arguments)
 
             if let launch {
                 if let takeover = launchTakeover, let failure = await takeover.value {
@@ -611,7 +612,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         notificationManager.rt = rtClient
         if let rt = rtClient {
             Task { await NotificationManager.sounds.load(rt: rt) }
-            coordinator = SetupCoordinator(rt: rt, permissions: permissionsService, permissionProbe: permissionProbe, needs: needBroker, updater: updater)
+            let notifications = notificationManager
+            coordinator = SetupCoordinator(rt: rt, permissions: permissionsService, permissionProbe: permissionProbe, needs: needBroker, updater: updater,
+                                           notify: { notifications.fireSetupProgress(title: $0.title, body: $0.body) })
             if let code = pendingJoinCode {
                 pendingJoinCode = nil
                 coordinator?.handleJoin(code: code)

@@ -6,6 +6,16 @@ import MattstackCore
 /// next launch).
 enum AppRelaunch {
     static func relaunchInPlace(resumeAt step: SetupStep? = nil) {
+        relaunch(passthrough: SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeAt: step))
+    }
+
+    /// Fast setup reopens after the relaunch; rt's whole read decides the screen.
+    static func relaunchInPlace(resumeScreen: FastSetupScreen) {
+        relaunch(passthrough: SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeScreen: resumeScreen))
+    }
+
+    /// Never stops a child rt: a run or a background install outlives the app and is attached to again.
+    private static func relaunch(passthrough: [String]) {
         let path = Bundle.main.bundlePath
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -15,7 +25,6 @@ enum AppRelaunch {
         task.environment = [:]
         var args = ["-n", path]
         if let feed = ProcessInfo.processInfo.environment[UpdatePolicy.overrideEnv] { args += ["--env", "\(UpdatePolicy.overrideEnv)=\(feed)"] }
-        let passthrough = SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeAt: step)
         if !passthrough.isEmpty { args += ["--args"] + passthrough }
         task.arguments = args
         try? task.run()
