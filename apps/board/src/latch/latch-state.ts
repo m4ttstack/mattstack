@@ -106,18 +106,18 @@ export function putLatchRow(row: LatchRow, db: Database = getStateDb()): void {
   );
 }
 
-/** Clears the reply owed once it posted, only while the row still owes that
-    same reply on that discussion; true when it cleared. */
+/** Clears the reply owed, only while the row still owes that same reply; true
+    when it cleared. Not guarded on the discussion: a re-point between a post
+    and this clear must not leave the reply owed to the new copy. */
 export function clearReplyDue(
   mrUrl: string,
-  discussionId: string,
   body: string,
   db: Database = getStateDb()
 ): boolean {
   const result = db.run(
     `UPDATE latch_state SET reply_due = NULL
-     WHERE mr_url = ? AND discussion_id = ? AND reply_due = ?`,
-    [mrUrl, discussionId, body]
+     WHERE mr_url = ? AND reply_due = ?`,
+    [mrUrl, body]
   );
   return result.changes > 0;
 }

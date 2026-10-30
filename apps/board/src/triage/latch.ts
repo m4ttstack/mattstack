@@ -25,6 +25,7 @@ import {
 import { landFollowUp, spendForApproval } from '../latch/land.ts';
 import {
   casLatch as casLatchIn,
+  clearReplyDue,
   putLatchRow as putLatchRowIn,
   readLatchRow as readLatchRowIn,
   type LatchPhase,
@@ -149,6 +150,14 @@ export const LATCH_POST_GRACE_MS = 5 * 60_000;
 
 /** Failed attempts in one request cycle before the latch stops retrying. */
 export const LATCH_MAX_FAILURES = 3;
+
+/** How long an owed reply keeps being retried after the transition that owed
+    it; a failed retry never moves the row, so this measures from the
+    transition. */
+export const LATCH_REPLY_GIVE_UP_MS = 24 * 60 * 60_000;
+
+const STUCK: BannerVariant = { state: 'error-stuck' };
+const STUCK_REPLY = copyFor(STUCK).sentence;
 
 /** The wait a decision maps to, or null for a refusal that never clears by
     itself. */
@@ -378,6 +387,16 @@ export async function runLatchPass(
       // descoped case: arming a second review cycle is the server's job. A
       // row mid-request proves a latch exists the read cannot show yet.
       if (!canon) {
+        // The latch a reply is owed to is gone. An empty read can be the
+        // daemon's empty-but-ok answer, so only a read showing threads, or
+        // the give-up age, drops it.
+        if (
+          stored?.replyDue != null &&
+          (detail.discussions.length > 0 ||
+            now - stored.updatedAt > LATCH_REPLY_GIVE_UP_MS)
+        ) {
+          dropOwedReply(deps, mr, stored.replyDue, now);
+        }
         if (
           !(stored && IN_FLIGHT.has(stored.phase)) &&
           review?.status === 'done' &&
@@ -426,30 +445,7 @@ export async function runLatchPass(
         continue;
       }
 
-      // A reply a landing or stuck transition owes but failed to post. Read
-      // fresh, and only once the transition is past the grace: the server
-      // may still be posting a reply it owed seconds ago.
-      const owing = rows.read(mr.mrUrl);
-      if (
-        owing?.replyDue != null &&
-        owing.discussionId === canon.discussionId &&
-        now - owing.updatedAt >= LATCH_POST_GRACE_MS
-      ) {
-        await postReplyDue(
-          deps.gateway,
-          mr,
-          owing.discussionId,
-          owing.replyDue,
-          deps.db
-        );
-        deps.appendAudit({
-          ts: now,
-          mrUrl: mr.mrUrl,
-          iid: mr.iid,
-          event: 'latch',
-          action: 'replied',
-        });
-      }
+      await settleOwedReply(deps, rows, mr, canon, now);
 
       // Step 1: spent wins over everything, unconditionally.
       if (canon.kind === 'spent') {
@@ -561,6 +557,61 @@ export async function runLatchPass(
     }
   }
   return result;
+}
+
+/** Posts the reply a landing or stuck transition owes but failed to post.
+    At least once: a post that landed but whose response errored stays owed
+    and goes out again on a later tick. A failure is logged and the tick goes
+    on, so a reply GitLab keeps refusing never blocks the latch. */
+async function settleOwedReply(
+  deps: LatchPassDeps,
+  rows: Rows,
+  mr: LatchMrFacts,
+  canon: LatchRef,
+  now: number
+): Promise<void> {
+  const owing = rows.read(mr.mrUrl);
+  const body = owing?.replyDue;
+  if (!owing || body == null) return;
+  const age = now - owing.updatedAt;
+  if (age > LATCH_REPLY_GIVE_UP_MS || (body === STUCK_REPLY && !owing.stuck)) {
+    dropOwedReply(deps, mr, body, now);
+    return;
+  }
+  // The server may still be posting a reply it owed seconds ago.
+  if (owing.discussionId !== canon.discussionId || age < LATCH_POST_GRACE_MS)
+    return;
+  try {
+    await postReplyDue(deps.gateway, mr, owing.discussionId, body, deps.db);
+  } catch (err) {
+    console.error(
+      `latch pass: !${mr.iid} owed reply not posted: ${err instanceof Error ? err.message : err}`
+    );
+    return;
+  }
+  deps.appendAudit({
+    ts: now,
+    mrUrl: mr.mrUrl,
+    iid: mr.iid,
+    event: 'latch',
+    action: 'replied',
+  });
+}
+
+function dropOwedReply(
+  deps: LatchPassDeps,
+  mr: LatchMrFacts,
+  body: string,
+  now: number
+): void {
+  if (!clearReplyDue(mr.mrUrl, body, deps.db)) return;
+  deps.appendAudit({
+    ts: now,
+    mrUrl: mr.mrUrl,
+    iid: mr.iid,
+    event: 'latch',
+    action: 'reply-dropped',
+  });
 }
 
 /** The row for the canonical latch: adopted from the note when there is
@@ -810,7 +861,13 @@ async function adoptRun(
   const moved = t.rows.cas(
     t.mr.mrUrl,
     [from],
-    { phase: 'running', launchAt: runStamp(review), wait: null, stuck: false },
+    {
+      phase: 'running',
+      launchAt: runStamp(review),
+      wait: null,
+      stuck: false,
+      ...leavingError(t, from),
+    },
     t.now,
     { discussionId: t.canon.discussionId }
   );
@@ -822,6 +879,14 @@ async function adoptRun(
   if (from === 'armed') await supersede(t.deps, t.mr, t.canon, t.carriers);
   if (from === 'error') audit(t, 'recovered');
   else audit(t, 'dispatched', { outcome: 'review already running' });
+}
+
+/** A row leaving error drops the stuck reply it may still owe; a finished
+    reply still owed from an earlier landing stands. */
+function leavingError(t: Tick, from: LatchPhase): LatchPatch {
+  return from === 'error' && t.row.replyDue === STUCK_REPLY
+    ? { replyDue: null }
+    : {};
 }
 
 /** The row moved to armed but the note still shows a later phase: either the
@@ -894,7 +959,7 @@ async function dispatch(
   const moved = rows.cas(
     mr.mrUrl,
     [from],
-    { phase: 'running', launchAt: now, wait: null },
+    { phase: 'running', launchAt: now, wait: null, ...leavingError(t, from) },
     now,
     { discussionId: canon.discussionId }
   );
@@ -1007,7 +1072,7 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
           failures,
           wait: null,
           stuck: true,
-          replyDue: copyFor(STUCK).sentence,
+          replyDue: STUCK_REPLY,
         }
       : { phase: 'error', failures, wait },
     now,
@@ -1039,8 +1104,6 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
   await showStuck(t);
 }
 
-const STUCK: BannerVariant = { state: 'error-stuck' };
-
 /** The stuck banner, then the stuck reply while the row still owes it. A row
     still showing another variant has not had the banner, which is how a
     cut-short write is repaired. False when a landing moved the row first and
@@ -1048,7 +1111,7 @@ const STUCK: BannerVariant = { state: 'error-stuck' };
 async function showStuck(t: Tick): Promise<boolean> {
   if (!t.rows.read(t.mr.mrUrl)?.stuck) return false;
   if (!(await show(t, 'error', STUCK, threadClosed(t)))) return false;
-  const reply = copyFor(STUCK).sentence;
+  const reply = STUCK_REPLY;
   if (t.rows.read(t.mr.mrUrl)?.replyDue === reply) {
     try {
       await postReplyDue(

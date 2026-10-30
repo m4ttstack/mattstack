@@ -161,8 +161,16 @@ describe('landFollowUp', () => {
     });
   });
 
-  test('an abandoned landing owes no reply', async () => {
-    const h = harness({ outcome: null });
+  test('an abandoned landing owes no reply, and drops a stuck reply still owed', async () => {
+    const h = harness(
+      { outcome: null },
+      row({
+        phase: 'error',
+        stuck: true,
+        variant: 'error-stuck',
+        replyDue: copyFor({ state: 'error-stuck' }).sentence,
+      })
+    );
     expect(await h.land()).toBe('landed');
     expect(h.replies).toEqual([]);
     expect(readLatchRow(MR, h.db)?.replyDue).toBeNull();

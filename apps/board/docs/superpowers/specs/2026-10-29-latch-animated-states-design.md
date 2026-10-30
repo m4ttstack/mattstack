@@ -179,7 +179,10 @@ current kind, and the note is rewritten only after the row moves.
 A landing (comment or approve) or a stuck transition also writes the reply
 it owes into the row's `reply_due` in that same compare-and-set; the writer
 posts it at once and clears it, and a post that fails stays owed until a
-later cron tick, past the post grace, posts it to the canonical latch.
+later cron tick, past the post grace, posts it to the canonical latch
+(at least once). An owed reply is dropped, with an audit line, a day after
+its transition, when its latch is gone, or when it is the stuck reply and
+the row has left stuck.
 
 This is what makes the daemon's stale discussion reads harmless: a
 stale note showing `queued` or `armed`+resolved after the row already

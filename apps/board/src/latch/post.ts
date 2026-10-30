@@ -71,7 +71,7 @@ export async function postReplyDue(
   db: Database = getStateDb()
 ): Promise<void> {
   await gw.createNote(mr.projectId, mr.iid, body, discussionId);
-  clearReplyDue(mr.mrUrl, discussionId, body, db);
+  clearReplyDue(mr.mrUrl, body, db);
 }
 
 /** This MR's banner for `variant`, uploaded only the first time the MR shows it. */

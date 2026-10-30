@@ -16,6 +16,7 @@ import { parseTriageBlock } from '../triage/config.ts';
 import {
   LATCH_MAX_FAILURES,
   LATCH_POST_GRACE_MS,
+  LATCH_REPLY_GIVE_UP_MS,
   latchInScope,
   runLatchPass,
   runStamp,
@@ -1843,6 +1844,38 @@ describe('error, retry and stuck', () => {
     expect(h.stuckNotices).toHaveLength(1);
   });
 
+  test('a stuck reply still owed when a relaunch adopts the latch is never posted', async () => {
+    const db = tempDb();
+    putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
+    let note = runningBody();
+    let lane: ReviewState = failed;
+    const h = harness({
+      db,
+      readReviewStates: () => new Map([[MR, lane]]),
+      readDetail: async () =>
+        detail(disc('d1', note, '2026-09-01T10:00:00Z', true)),
+    });
+    failNextReply(h.deps.gateway);
+    expect((await runLatchPass(h.deps)).stuck).toBe(1);
+    expect(readLatchRow(MR, db)?.replyDue).toBe(
+      copyFor({ state: 'error-stuck' }).sentence
+    );
+
+    note = errorBody();
+    lane = { ...commented, status: 'reviewing', runStartedAt: NOW };
+    await runLatchPass(h.deps);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      stuck: false,
+      replyDue: null,
+    });
+
+    note = runningBody();
+    h.deps.now = () => NOW + LATCH_POST_GRACE_MS;
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+  });
+
   test('a relaunch mid-pass is not a failure', async () => {
     const db = tempDb();
     putLatchRow(runningRow({ failures: LATCH_MAX_FAILURES - 1 }), db);
@@ -2215,6 +2248,73 @@ describe('landing a follow-up from the pass', () => {
 
     expect((await runLatchPass(h.deps)).skipped).toBe(1);
     expect(h.replies).toHaveLength(1);
+  });
+
+  test('a reply GitLab keeps refusing does not stop the rest of the tick', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        replyDue: 'Follow-up review done.',
+        updatedAt: NOW - LATCH_POST_GRACE_MS,
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, true)),
+    });
+    h.deps.gateway.createNote = async () => {
+      throw new Error('gitlab 500');
+    };
+    const r = await runLatchPass(h.deps);
+    expect(r.failed).toBe(0);
+    expect(r.dispatched).toBe(1);
+    expect(h.launches).toEqual([MR]);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      phase: 'running',
+      replyDue: 'Follow-up review done.',
+    });
+  });
+
+  test('an owed reply older than a day is dropped and audited, never posted', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        replyDue: 'Follow-up review done.',
+        updatedAt: NOW - LATCH_REPLY_GIVE_UP_MS - 1,
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      detail: detail(disc('d1', armedLatchBody(IMG), OLD, false)),
+    });
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('reply-dropped');
+  });
+
+  test('an owed reply whose latch is gone is dropped and audited', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        phase: 'spent',
+        variant: 'done-approved',
+        replyDue: 'Follow-up review done: approved.',
+      }),
+      db
+    );
+    const h = harness({
+      db,
+      readReviewStates: () => new Map(),
+      detail: detail(disc('x1', 'Nice catch.', OLD, false, 'river')),
+      now: () => NOW + LATCH_POST_GRACE_MS,
+    });
+    await runLatchPass(h.deps);
+    expect(h.replies).toEqual([]);
+    expect(readLatchRow(MR, db)?.replyDue).toBeNull();
+    expect(h.audits.map(a => a.action)).toContain('reply-dropped');
   });
 
   test('an owed reply is never posted to a latch other than the canon', async () => {

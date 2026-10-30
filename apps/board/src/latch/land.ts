@@ -86,12 +86,12 @@ export async function landFollowUp(
         : ARMED;
   const key = variantKey(variant);
   // Owed in the same write that lands, so a reply that fails to post is
-  // still owed to the latch pass rather than lost.
+  // still owed to the latch pass rather than lost. An abandoned landing owes
+  // nothing, and replaces any stuck reply still owed from before the run.
   const reply = i.outcome ? finishedReply(i.outcome, count) : null;
-  const owed = reply === null ? {} : { replyDue: reply };
   const patch: Partial<Omit<LatchRow, 'mrUrl'>> =
     i.outcome === 'approve'
-      ? { phase: 'spent', variant: key, ...owed }
+      ? { phase: 'spent', variant: key, replyDue: reply }
       : {
           phase: 'armed',
           failures: 0,
@@ -99,7 +99,7 @@ export async function landFollowUp(
           wait: null,
           launchAt: null,
           variant: key,
-          ...owed,
+          replyDue: reply,
         };
 
   // The re-check and the move share one write transaction: a retry that

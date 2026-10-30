@@ -157,17 +157,32 @@ describe('latch state', () => {
     expect(cols).toContain('reply_due');
   });
 
-  test('clearReplyDue clears only the reply still owed on that discussion', () => {
+  test('clearReplyDue clears only the reply still owed', () => {
     const db = openStateDb(tempPath());
     putLatchRow(row({ replyDue: 'Follow-up review done.' }), db);
-    expect(clearReplyDue(MR, 'disc-2', 'Follow-up review done.', db)).toBe(
-      false
-    );
-    expect(clearReplyDue(MR, 'disc-1', 'Other reply.', db)).toBe(false);
+    expect(clearReplyDue(MR, 'Other reply.', db)).toBe(false);
     expect(readLatchRow(MR, db)!.replyDue).toBe('Follow-up review done.');
-    expect(clearReplyDue(MR, 'disc-1', 'Follow-up review done.', db)).toBe(
-      true
-    );
+    expect(clearReplyDue(MR, 'Follow-up review done.', db)).toBe(true);
     expect(readLatchRow(MR, db)!.replyDue).toBeNull();
+  });
+
+  test('clearReplyDue still clears after a re-point moved the row to another copy', () => {
+    const db = openStateDb(tempPath());
+    putLatchRow(row({ replyDue: 'Follow-up review done.' }), db);
+    expect(
+      casLatch(
+        MR,
+        ['armed'],
+        { discussionId: 'disc-2', rootNoteId: 12 },
+        200,
+        db,
+        { discussionId: 'disc-1' }
+      )
+    ).toBe(true);
+    expect(clearReplyDue(MR, 'Follow-up review done.', db)).toBe(true);
+    expect(readLatchRow(MR, db)).toMatchObject({
+      discussionId: 'disc-2',
+      replyDue: null,
+    });
   });
 });
