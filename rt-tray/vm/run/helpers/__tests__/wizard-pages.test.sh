@@ -88,9 +88,9 @@ screen_done() { ! awk -v sc="$1" '$1 == sc && $4 != "done" { found = 1 } END { e
 # FDA_LIVE: the running app sees the Full Disk Access grant without a relaunch.
 # HOST: what the admin's host answers (done, failed, manual, none).
 # RUN_END: where the bar ends (ready or paused). ADMIN_IN_RUN: a dialog comes up on P6.
-FDA_LIVE=0; CLT_SLOW=0; CLAUDE_AFTER=done; HOST=done; HAND_AFTER=-1; RUN_END=ready; ADMIN_IN_RUN=0; STRAIGHT_IN=0
+FDA_LIVE=0; CLT_SLOW=0; CLAUDE_AFTER=done; CLAUDE_LAG=0; HOST=done; HAND_AFTER=-1; RUN_END=ready; ADMIN_IN_RUN=0; STRAIGHT_IN=0
 model() {  # <scenario>
-  : > "$M/calls"; rm -f "$M"/claude "$M"/clt "$M"/dialog "$M"/looks "$M"/hand "$M"/admin-shown "$GUEST_RUN"/in/join-*
+  : > "$M/calls"; rm -f "$M"/claude "$M"/claude-lag "$M"/clt "$M"/dialog "$M"/looks "$M"/hand "$M"/admin-shown "$GUEST_RUN"/in/join-*
   mset screen macos; mset code ""
   cat > "$M/rows" <<ROWS
 macos perm.fda action todo
@@ -160,6 +160,11 @@ world_turn() {
     [ "$(mget looks)" -ge 3 ] && mset screen "$RUN_END"
   fi
   if [ "$s" = macos ] && screen_done macos; then mset screen path; fi
+  # rt's read after the press lands a couple of looks later: the row still offers Install.
+  if [ -e "$M/claude-lag" ]; then
+    mset claude-lag $(($(mget claude-lag) + 1))
+    [ "$(mget claude-lag)" -ge 2 ] && { rm -f "$M/claude-lag"; set_row claude installing connect; mset claude 0; }
+  fi
   if [ -e "$M/claude" ]; then
     mset claude $(($(mget claude) + 1))
     [ "$(mget claude)" -ge 3 ] && { set_row claude "$CLAUDE_AFTER" connect; rm -f "$M/claude"; note claude-installed; }
@@ -172,8 +177,10 @@ world_turn() {
 }
 ax_dump_ids() { world_turn; screen_ids; }
 ax_find_raw() {
+  local r
   ax_ids_have "$(ax_dump_ids)" "$1" || return 1
-  case "$1" in setup.fast.row.settings.backup.action) echo "radio group" ;; *) echo button ;; esac
+  r="${1#setup.fast.row.}"; r="${r%.action}"
+  if awk -v id="$r" '$2 == id && $3 == "segment" { found = 1 } END { exit !found }' "$M/rows"; then echo "radio group"; else echo button; fi
 }
 ax_fast_status() { if [ "$(row_state "$1")" = done ]; then echo ready; else echo needs-you; fi; }
 ax_enabled() {
@@ -202,7 +209,10 @@ ax_click_raw() {
     setup.fast.row.mac.fancy-urls.action) : > "$M/dialog"; set_row mac.fancy-urls waiting ;;
     setup.fast.row.tool.clt.action) if [ "$CLT_SLOW" = 1 ]; then set_row tool.clt waiting; mset clt 0; else drop_row tool.clt; fi ;;
     setup.fast.row.forge.token.action) set_row forge.token done ;;
-    setup.fast.row.claude.action) [ "$(row_state claude)" = install ] && { set_row claude installing; mset claude 0; } ;;
+    setup.fast.row.claude.action)
+      if [ "$(row_state claude)" = install ]; then
+        if [ "$CLAUDE_LAG" = 1 ]; then mset claude-lag 0; else set_row claude installing; mset claude 0; fi
+      fi ;;
     setup.fast.row.repos.root.action) set_row repos.root done ;;
     setup.fast.row.*.action.oneClick) r="${1#setup.fast.row.}"; set_row "${r%.action.oneClick}" done ;;
     setup.fast.path.card.join) mset screen invite ;;
@@ -298,6 +308,18 @@ check "Claude installed but signed out: Sign in is left for the operator, logged
 model solo; set_row claude signin connect; CONNECT_WAIT_S=60; drive whole_run; CONNECT_WAIT_S=900
 check "Claude already installed: nothing is pressed on its row" '[ "$rc" -ne 0 ] && [ "$(count "click:setup.fast.row.claude")" -eq 0 ]'
 CLAUDE_AFTER=done
+CLAUDE_LAG=1
+: > "$AX_LOG"
+model solo; drive whole_run
+check "Claude still offering Install just after the press is waited out as the install, not taken for the sign-in" \
+  '[ "$rc" -eq 0 ] && [ "$(count "^click:setup.fast.row.claude.action$")" -eq 1 ] && ! grep -q "FINDING: Sign in to Claude" "$AX_LOG" && c=$(calls) && case "$c" in *claude-installed*"shot:claude-installed"*) true ;; *) false ;; esac'
+CLAUDE_LAG=0
+
+# Only a settings choice reads answered by its segment alone.
+: > "$AX_LOG"
+model solo; echo "this-mac repos.mode segment todo" >> "$M/rows"; drive whole_run
+check "a segment that is not a settings choice is not taken as answered" \
+  '[ "$rc" -ne 0 ] && [ "$(mget screen)" = this-mac ] && grep -q "this-mac: no answer for row repos.mode" "$AX_LOG" && ! grep -q "no answer for row settings.backup" "$AX_LOG"'
 
 CLT_SLOW=1
 model create; drive whole_run

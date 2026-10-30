@@ -254,10 +254,13 @@ screen_row_claude() {
 }
 
 # Installing draws the spinner with no control; waiting on the sign-in draws
-# it beside the code field and its button.
+# it beside the code field and its button. Until rt's next read lands the
+# row can still offer Install, which is the install still to come.
 screen_claude_installing() {  # <ax_dump_ids output>
   local p=setup.fast.row.claude
-  ax_ids_have "$1" "$p.waiting" && ! ax_ids_have "$1" "$p.action" && ! ax_ids_have "$1" "$p.field"
+  ax_ids_have "$1" "$p.field" && return 1
+  ax_ids_have "$1" "$p.action" || { ax_ids_have "$1" "$p.waiting"; return; }
+  [ "$(ax_title "$p.action" || true)" = Install ]
 }
 
 # The chrome phase force-installs the extension by policy, so Add to Chrome

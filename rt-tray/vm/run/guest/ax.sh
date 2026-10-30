@@ -350,8 +350,9 @@ ax_fast_status() {  # <rowId> → ready, needs-you, checking...
 
 # done, waiting, error or todo: a done row draws its check, a running one its
 # spinner, a refused one its error line. A spinner beside a field waits on the
-# member (a code to paste), so it reads todo. A two-option choice draws its
-# segment and never a check: it always holds an answer, so it reads done.
+# member (a code to paste), so it reads todo. A settings choice (where your
+# settings live) draws its segment and never a check, and rt always sends it
+# with a selection, so it reads done. Any other segment reads by its own children.
 ax_fast_row_state() {  # <ax_dump_ids output> <rowId>
   local p="setup.fast.row.$2" s
   if ax_ids_have "$1" "$p.done"; then echo done
@@ -361,7 +362,8 @@ ax_fast_row_state() {  # <ax_dump_ids output> <rowId>
   elif ax_ids_have "$1" "$p.waiting" && ax_ids_have "$1" "$p.field"; then echo todo
   elif ax_ids_have "$1" "$p.waiting"; then echo waiting
   elif ax_ids_have "$1" "$p.error"; then echo error
-  elif ax_ids_have "$1" "$p.action" && [ "$(ax_find_raw "$p.action" 2>/dev/null || true)" = "radio group" ]; then echo done
+  elif case "$2" in settings.*) true ;; *) false ;; esac && ax_ids_have "$1" "$p.action" \
+      && [ "$(ax_find_raw "$p.action" 2>/dev/null || true)" = "radio group" ]; then echo done
   else echo todo
   fi
 }

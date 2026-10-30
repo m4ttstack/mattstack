@@ -30,7 +30,8 @@ function world(opts: {
   slowCreate?: boolean;
   scenario?: "create" | "join";
   mint?: "ok" | "fails";
-  viewMissing?: boolean;
+  /** created: absent at preflight, there by teardown. */
+  view?: "created" | "exists" | "missing" | "error" | "teardownError";
   env?: Record<string, string>;
 }): World {
   const root = mkdtempSync(join(tmpdir(), "walkthrough-"));
@@ -46,7 +47,7 @@ function world(opts: {
   writeFileSync(join(root, "gh-delete"), opts.ghDelete ?? "ok");
   if (opts.cloneFails) writeFileSync(join(root, "clone-fails"), "");
   if (opts.slowCreate) writeFileSync(join(root, "slow-create"), "");
-  if (opts.viewMissing) writeFileSync(join(root, "view-missing"), "");
+  writeFileSync(join(root, "view"), opts.view ?? "created");
   const stub = (name: string, body: string) => {
     writeFileSync(join(bin, name), `#!/bin/bash\nROOT="${root}"\n${body}`);
     chmodSync(join(bin, name), 0o755);
@@ -82,13 +83,29 @@ exit 0
   stub("gh", `echo "gh $*" >> "$ROOT/calls"
 case "$1 $2" in
   "repo create") : > "$ROOT/creating"; [ -e "$ROOT/slow-create" ] && sleep 1.5;;
-  "repo view") [ -e "$ROOT/view-missing" ] && { echo "GraphQL: Could not resolve to a Repository" >&2; exit 1; };;
+  "repo view")
+    n=$(cat "$ROOT/views" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$ROOT/views"
+    missing() { echo "GraphQL: Could not resolve to a Repository with the name '$3'. (repository)" >&2; exit 1; }
+    case "$(cat "$ROOT/view")" in
+      exists) ;;
+      missing) missing "$@" ;;
+      error) echo "HTTP 401: Bad credentials (https://api.github.com/graphql)" >&2; exit 1 ;;
+      teardownError) [ "$n" -eq 1 ] && missing "$@"; echo "error connecting to api.github.com" >&2; exit 1 ;;
+      *) [ "$n" -eq 1 ] && missing "$@" ;;
+    esac;;
   "repo delete") [ "$(cat "$ROOT/gh-delete")" = ok ] || { echo "HTTP 403: Must have admin rights to Repository." >&2; exit 1; };;
   "api user") echo vmtest-joiner;;
 esac
 exit 0
 `);
-  stub("glab", `echo "glab $*" >> "$ROOT/calls"\n[ "$1 $2" = "api user" ] && echo '{"username":"vmtest-joiner"}'\nexit 0\n`);
+  stub("glab", `echo "glab $*" >> "$ROOT/calls"
+[ "$1 $2" = "api user" ] && echo '{"username":"vmtest-joiner"}'
+if [ "$1 $2" = "repo view" ]; then
+  n=$(cat "$ROOT/glab-views" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$ROOT/glab-views"
+  [ "$n" -eq 1 ] && { echo "ERROR: 404 Not Found" >&2; exit 1; }
+fi
+exit 0
+`);
   // The host mint's rt runs under env -i, so it finds ROOT only through the
   // path baked into it here.
   stub("rt-mint", `echo "rt-mint $* HOME=$HOME" >> "$ROOT/calls"
@@ -298,12 +315,63 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
   }, RUN_MS);
 
   test("a create run cut before Create team ran notes the repo was never made, and passes teardown", async () => {
-    const w = world({ screens: "drop", viewMissing: true });
+    const w = world({ screens: "drop", view: "missing" });
     await walk(w);
     expect(calls(w)).not.toContain("gh repo delete");
     const teardown = phase(w, "teardown");
     expect(teardown?.status).toBe("pass");
     expect(teardown?.reason).toMatch(/mattstack-vmtest\/mattstack-team-vmtest-\S+ was never created/);
+  }, RUN_MS);
+
+  test("a create target that already exists fails preflight, and nothing is deleted", async () => {
+    const w = world({ screens: "drop", view: "exists" });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.reason).toMatch(/^mattstack-vmtest\/mattstack-team-vmtest-\S+ already exists, so Create team would refuse it and teardown must not delete it/);
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+    expect(calls(w)).not.toMatch(/^tart clone/m);
+  }, RUN_MS);
+
+  test("a create target --team-slug points at an existing repo is never deleted", async () => {
+    const w = world({ screens: "drop", view: "exists" });
+    w.args.push("--team-slug", "vmtest-taken");
+    await walk(w);
+    expect(phase(w, "preflight")?.status).toBe("fail");
+    expect(calls(w)).toContain("gh repo view mattstack-vmtest/mattstack-team-vmtest-taken");
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+  }, RUN_MS);
+
+  test("a lookup that fails at preflight fails it, arming nothing", async () => {
+    const w = world({ screens: "drop", view: "error" });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.reason).toMatch(/^could not look up mattstack-vmtest\/mattstack-team-vmtest-\S+ \(logs\/preflight\.log\)$/);
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+  }, RUN_MS);
+
+  test("a lookup that fails at teardown leaves the repo and fails the teardown row", async () => {
+    const w = world({ screens: "drop", view: "teardownError" });
+    await walk(w);
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+    const teardown = phase(w, "teardown");
+    expect(teardown?.status).toBe("fail");
+    expect(teardown?.reason).toMatch(/could not look up mattstack-vmtest\/mattstack-team-vmtest-\S+, so it was left alone/);
+  }, RUN_MS);
+
+  test("an ssh --team-remote names the group the same way the guest reads it", async () => {
+    const w = world({ screens: "drop" });
+    w.args.push("--team-remote", "git@github.com:acme-vmtest/widgets.git");
+    await walk(w);
+    expect(calls(w)).toMatch(/gh repo delete acme-vmtest\/mattstack-team-vmtest-\d{8}-\d{6} --yes/);
+  }, RUN_MS);
+
+  test("a --team-remote under an org that is not visibly vmtest fails preflight before any lookup", async () => {
+    const w = world({ screens: "drop" });
+    w.args.push("--team-remote", "git@github.com:acme/widgets.git");
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.reason).toMatch(/^acme lacks 'vmtest'; set MATTSTACK_VMTEST_ORG_CONFIRM=acme to confirm$/);
+    expect(calls(w)).not.toMatch(/^gh repo/m);
   }, RUN_MS);
 
   test("a token that cannot delete the fresh repo archives it and says so", async () => {

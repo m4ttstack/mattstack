@@ -153,18 +153,34 @@ mint_detach() {
 
 # Deleting needs a token with delete rights, which the vmtest PAT may lack;
 # archiving needs only the repo scope, so a run never leaves a live repo.
+# exists, absent or error. Only the forge's own not-found reads absent: a
+# lookup that failed any other way says nothing about the repo.
+team_repo_state() {  # <owner/repo> <log>
+  local out token="${!PAT_ENV:-}"
+  if [ "$FORGE" = gitlab ]; then
+    out=$(GITLAB_TOKEN="$token" glab repo view "$1" 2>&1) && { echo exists; return 0; }
+    printf 'glab repo view %s: %s\n' "$1" "$out" >>"$2"
+    case "$out" in *404*"Not Found"*) echo absent ;; *) echo error ;; esac
+  else
+    out=$(GH_TOKEN="$token" gh repo view "$1" --json name 2>&1) && { echo exists; return 0; }
+    printf 'gh repo view %s: %s\n' "$1" "$out" >>"$2"
+    case "$out" in *"Could not resolve to a Repository"*) echo absent ;; *) echo error ;; esac
+  fi
+}
+
 retire_fresh_repo() {
   local log="$VM_RUN_DIR/logs/teardown.log" token="${!PAT_ENV:-}"
   case "$FRESH_SLUG" in
     */mattstack-vmtest-team-*) ;;
     */mattstack-team-vmtest-*)
       [ "$FRESH_SLUG" = "$CREATE_TARGET" ] || { printf 'refused to delete %s: not the repo this run created' "$FRESH_SLUG"; return 1; }
-      # Create team may never have run (a run cut before the screens).
-      if [ "$FORGE" = gitlab ]; then
-        GITLAB_TOKEN="$token" glab repo view "$FRESH_SLUG" >>"$log" 2>&1 || { printf '%s was never created' "$FRESH_SLUG"; return 0; }
-      else
-        GH_TOKEN="$token" gh repo view "$FRESH_SLUG" >>"$log" 2>&1 || { printf '%s was never created' "$FRESH_SLUG"; return 0; }
-      fi ;;
+      # Preflight saw no repo there, so one there now is Create team's; none
+      # means the run ended before Create team.
+      case "$(team_repo_state "$FRESH_SLUG" "$log")" in
+        exists) ;;
+        absent) printf '%s was never created' "$FRESH_SLUG"; return 0 ;;
+        *) printf 'could not look up %s, so it was left alone; check it by hand (logs/teardown.log)' "$FRESH_SLUG"; return 1 ;;
+      esac ;;
     *) printf 'refused to delete %s: not a repo this run minted' "$FRESH_SLUG"; return 1 ;;
   esac
   if [ "$FORGE" = gitlab ]; then
@@ -299,23 +315,45 @@ fi
 if [ "$SCENARIO" = create ] || [ "$SCENARIO" = solo ]; then
   [ "$SLUG_SET" = 1 ] || SLUG="vmtest-${VM_RUN_ID%%-walk-*}"
   if [ "$TEAM_REMOTE_SET" = 1 ]; then
-    CREATE_GROUP="${TEAM_REMOTE%.git}"; CREATE_GROUP="${CREATE_GROUP#*://}"; CREATE_GROUP="${CREATE_GROUP#*/}"; CREATE_GROUP="${CREATE_GROUP%/*}"
+    # The guest's own reading of a remote (screen_remote_group): https or scp-style ssh.
+    CREATE_GROUP="${TEAM_REMOTE%.git}"
+    case "$CREATE_GROUP" in
+      *://*) CREATE_GROUP="${CREATE_GROUP#*://}"; CREATE_GROUP="${CREATE_GROUP#*/}" ;;
+      *:*) CREATE_GROUP="${CREATE_GROUP#*:}" ;;
+    esac
+    case "$CREATE_GROUP" in */*) CREATE_GROUP="${CREATE_GROUP%/*}" ;; *) vm_phase_end preflight fail "no owner or group in --team-remote $TEAM_REMOTE"; exit 1 ;; esac
   elif [ "$FORGE" = gitlab ]; then
     CREATE_GROUP="${MATTSTACK_VMTEST_GITLAB_GROUP:-}"
     [ -n "$CREATE_GROUP" ] || [ "$DRY" = 1 ] || { vm_phase_end preflight fail "a gitlab create needs MATTSTACK_VMTEST_GITLAB_GROUP (where Create team makes the repo)"; exit 1; }
   else
     CREATE_GROUP="${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}"
-    case "$CREATE_GROUP" in
-      *vmtest*) ;;
-      *) [ "${MATTSTACK_VMTEST_ORG_CONFIRM:-}" = "$CREATE_GROUP" ] || [ "$DRY" = 1 ] || { vm_phase_end preflight fail "org $CREATE_GROUP lacks 'vmtest'; set MATTSTACK_VMTEST_ORG_CONFIRM=$CREATE_GROUP to confirm"; exit 1; };;
-    esac
   fi
+  # Teardown deletes a repo under this group, so the group is visibly a
+  # vmtest one, or one the operator confirmed by name, wherever it came from.
+  case "$CREATE_GROUP" in
+    ""|*vmtest*) ;;
+    *) [ "${MATTSTACK_VMTEST_ORG_CONFIRM:-}" = "$CREATE_GROUP" ] || { vm_phase_end preflight fail "$CREATE_GROUP lacks 'vmtest'; set MATTSTACK_VMTEST_ORG_CONFIRM=$CREATE_GROUP to confirm"; exit 1; };;
+  esac
   CREATE_HOST=github.com; [ "$FORGE" = gitlab ] && CREATE_HOST=gitlab.com
   CREATE_TARGET="$CREATE_GROUP/mattstack-team-$SLUG"
   [ "$TEAM_REMOTE_SET" = 1 ] || TEAM_REMOTE="https://$CREATE_HOST/$CREATE_TARGET.git"
-  # Set before the screens: a signal during Create team must still delete the repo.
-  [ "$DRY" = 1 ] || FRESH_SLUG="$CREATE_TARGET"
   echo "$TEAM_REMOTE" > "$VM_RUN_DIR/in/team-repo.txt"
+  if [ "$DRY" = 0 ]; then
+    case "$CREATE_TARGET" in
+      */mattstack-team-vmtest-*) ;;
+      *) vm_phase_end preflight fail "--team-slug $SLUG makes $CREATE_TARGET, which teardown would not delete; use a slug starting vmtest-"; exit 1 ;;
+    esac
+    if [ "$FORGE" = gitlab ]; then vm_require_cmd glab "brew install glab"; else vm_require_cmd gh "brew install gh"; fi
+    # Teardown deletes the target, so it is armed only for a repo that is not
+    # there yet: one that already exists was never this run's to delete.
+    case "$(team_repo_state "$CREATE_TARGET" "$VM_RUN_DIR/logs/preflight.log")" in
+      absent) ;;
+      exists) vm_phase_end preflight fail "$CREATE_TARGET already exists, so Create team would refuse it and teardown must not delete it; pass a --team-slug no repo uses"; exit 1 ;;
+      *) vm_phase_end preflight fail "could not look up $CREATE_TARGET (logs/preflight.log)"; exit 1 ;;
+    esac
+    # Set before the screens: a signal during Create team must still delete the repo.
+    FRESH_SLUG="$CREATE_TARGET"
+  fi
   vm_log "team slug $SLUG; Create team makes $CREATE_TARGET, which teardown deletes"
 fi
 if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
