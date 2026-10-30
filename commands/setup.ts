@@ -251,6 +251,9 @@ function resolveStepSelection(args: string[]): { from?: StepId; only?: StepId } 
  */
 const HARD_PRECONDITION_IDS = new Set(["tool.macos", "tool.clt"]);
 
+/** A row's Allow runs these with `--only` and raises its dialog at once: no git, and no slow plan before it. */
+const HARD_PRECONDITION_FREE_STEPS: ReadonlySet<StepId> = new Set(["proxy.install"]);
+
 const NOT_READY_TITLE = "This Mac is not ready to install yet";
 
 const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
@@ -279,8 +282,8 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   let result: { ok: boolean; failedStep?: StepId };
   let selection: { from?: StepId; only?: StepId } = {};
   try {
-    await gateHardPreconditions(args, deps);
     selection = resolveStepSelection(args);
+    if (selection.only === undefined || !HARD_PRECONDITION_FREE_STEPS.has(selection.only)) await gateHardPreconditions(args, deps);
     const ctx: ApplyContext = await createApplyContext({
       probes: deps.probes,
       emit,

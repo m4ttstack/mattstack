@@ -201,7 +201,7 @@ export type StepId = (typeof STEP_IDS)[number];
 export type NeedRequest =
   | { type: "app-register-services"; plists: string[] }
   | { type: "app-unregister-services"; plists: string[] }
-  | { type: "app-privileged"; op: "proxy-install" | "proxy-remove" | "proxy-trust" };
+  | { type: "app-privileged"; op: "proxy-install" | "proxy-remove" | "proxy-trust" | "homebrew"; homebrew?: true };
 
 /** Uninstall streams the same event shapes with these ids (contract §uninstall: "NDJSON like apply"). */
 export type UninstallActionId = "services.unregister" | "deck.managed-remove" | "proxy.remove" | "path.unlink" | "shell.remove" | "extension.uninstall" | "plugins.uninstall" | "cron.uninstall" | "data" | "app.trash";

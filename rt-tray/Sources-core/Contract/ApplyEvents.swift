@@ -3,8 +3,12 @@ import Foundation
 public struct NeedRequest: Codable, Equatable, Sendable {
     public var type: String      // app-register-services | app-unregister-services | app-privileged
     public var plists: [String]?
-    public var op: String?       // proxy-install | proxy-remove
-    public init(type: String, plists: [String]?, op: String?) { self.type = type; self.plists = plists; self.op = op }
+    public var op: String?       // proxy-install | proxy-remove | proxy-trust | homebrew
+    /// Asks the helper to install Homebrew in the same admin prompt as `op`.
+    public var homebrew: Bool?
+    public init(type: String, plists: [String]?, op: String?, homebrew: Bool? = nil) {
+        self.type = type; self.plists = plists; self.op = op; self.homebrew = homebrew
+    }
 }
 
 /// Raw-value decoding is deliberately lenient: an unrecognized `kind`/`state`

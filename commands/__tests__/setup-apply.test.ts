@@ -692,6 +692,27 @@ describe("setupApply: hard-precondition gate", () => {
 
     expect(deps.exitCodes).toEqual([]);
   });
+
+  test("--only proxy.install skips the hard-precondition gate", async () => {
+    const deps = baseApplyDeps({
+      steps: [fakeStep("proxy.install", { state: "done", detail: "ok" })],
+      planForGate: async () => {
+        throw new Error("planForGate must not run for --only proxy.install");
+      },
+    });
+
+    await setupApply(["--json", "--only", "proxy.install"], {}, deps);
+
+    expect(deps.exitCodes).toEqual([]);
+  });
+
+  test("a full run still refuses without Command Line Tools", async () => {
+    const deps = baseApplyDeps({ steps: [neverRunsStep("proxy.install")], planForGate: async () => ({ requiredMissing: ["tool.clt"] }) });
+
+    await runExpectingExit(() => setupApply(["--json"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+  });
 });
 
 describe("setup apply --json bytes", () => {

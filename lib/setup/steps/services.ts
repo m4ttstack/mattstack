@@ -14,6 +14,8 @@ import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { servicePlists } from "../need.ts";
 import type { Probes } from "../probes.ts";
+import { brewInstalled } from "../fancy-urls.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 import { needOutcome, toFailedOutcome } from "./step-utils.ts";
 
 async function servicesRegisterRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -132,18 +134,47 @@ export function proxyVersionDrift(p: Probes): { deployed: string; pinned: string
  * row that offered the remedy would otherwise carry a button that reports
  * success and changes nothing, forever.
  */
-async function proxyTrustOnly(ctx: ApplyContext): Promise<StepOutcome> {
-  if (await proxyCaIsTrusted(ctx.p)) return { state: "done", detail: "Already installed" };
+async function proxyTrustOnly(ctx: ApplyContext, askBrew: boolean): Promise<StepOutcome> {
+  if (await proxyCaIsTrusted(ctx.p)) return askBrew ? await homebrewOnly(ctx) : { state: "done", detail: "Already installed" };
 
-  const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust" });
-  return withTrustOutcome(needOutcome(reply, ctx, {
+  const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust", ...brewFlag(askBrew) });
+  return privilegedOutcome(ctx, askBrew, needOutcome(reply, ctx, {
     noAppDetail: "mattstack.app is not running; open it to trust the local proxy's certificate",
     noAppRemedy: "Open mattstack.app, then Retry",
     timeoutRemedy: "Retry with mattstack.app running",
   }));
 }
 
+/**
+ * The proxy is in place, so Homebrew is the only work left for the admin
+ * prompt. The P1 row offers Allow in exactly this state, so answering
+ * "Already installed" here would leave a button that never does anything.
+ */
+async function homebrewOnly(ctx: ApplyContext): Promise<StepOutcome> {
+  if (proxyInstallerMissing(ctx.p)) return { state: "done", detail: "Already installed" };
+
+  const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "homebrew" });
+  return privilegedOutcome(ctx, true, needOutcome(reply, ctx, {
+    noAppDetail: "mattstack.app is not running; open it to install Homebrew",
+    noAppRemedy: "Open mattstack.app, then Retry",
+    timeoutRemedy: "Retry with mattstack.app running",
+  }));
+}
+
+function brewFlag(askBrew: boolean): { homebrew?: true } {
+  return askBrew ? { homebrew: true } : {};
+}
+
+/**
+ * Asked for only while no attempt is on record, so once Homebrew has been
+ * tried, neither a P1 Allow nor the bar's run ever pauses on it again.
+ */
+async function shouldAskForHomebrew(p: Probes): Promise<boolean> {
+  return !(await brewInstalled(p)) && readSetupState(p).homebrew === undefined;
+}
+
 async function proxyInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
+  const askBrew = await shouldAskForHomebrew(ctx.p);
   // Adoption and drift both fall through to the install op below, which IS the
   // update path (the helper boots the running daemon out before bootstrapping
   // the replacement). So either costs the same one prompt an install does, and
@@ -160,7 +191,7 @@ async function proxyInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       if (deployed === null) return { state: "done", detail: `Could not read ${PROXY_VERSION_PATH}` };
 
       const drift = proxyVersionDrift(ctx.p);
-      if (!drift) return await proxyTrustOnly(ctx);
+      if (!drift) return await proxyTrustOnly(ctx, askBrew);
       ctx.log("proxy.install", `updating: proxy runs portless ${drift.deployed}, bundle pins ${drift.pinned}`);
     }
   }
@@ -175,11 +206,45 @@ async function proxyInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     return { state: "skipped", detail: PROXY_INSTALLER_MISSING };
   }
 
-  const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" });
-  return withTrustOutcome(needOutcome(reply, ctx, {
+  const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install", ...brewFlag(askBrew) });
+  return privilegedOutcome(ctx, askBrew, needOutcome(reply, ctx, {
     noAppDetail: "mattstack.app is not running; open it to install the local proxy",
     noAppRemedy: "Open mattstack.app, then Retry",
     timeoutRemedy: "Retry with mattstack.app running",
+  }));
+}
+
+function privilegedOutcome(ctx: ApplyContext, askedBrew: boolean, outcome: StepOutcome): StepOutcome {
+  const final = withHomebrewOutcome(withTrustOutcome(outcome));
+  if (askedBrew) recordHomebrew(ctx.p, final);
+  return final;
+}
+
+const HOMEBREW_UNREPORTED = "The helper did not report on Homebrew";
+
+function homebrewReport(detail: string | undefined): "ok" | "present" | "failed" | undefined {
+  return /^MATTSTACK_HOMEBREW=(ok|present|failed)$/m.exec(detail ?? "")?.[1] as "ok" | "present" | "failed" | undefined;
+}
+
+/**
+ * Like the certificate, Homebrew reports on its own line: a failed Homebrew
+ * still leaves a working proxy, so the step stays done and only says so.
+ */
+function withHomebrewOutcome(outcome: StepOutcome): StepOutcome {
+  if (outcome.state !== "done") return outcome;
+  const state = homebrewReport(outcome.detail);
+  if (state !== "failed") return outcome;
+  const note = `Homebrew did not install (${state})`;
+  return { ...outcome, detail: outcome.detail ? `${note}\n${outcome.detail}` : note };
+}
+
+/** A prompt that never ran the helper (no app, cancelled) records nothing, so the next Allow asks again. */
+function recordHomebrew(p: Probes, outcome: StepOutcome): void {
+  const reported = homebrewReport(outcome.detail);
+  if (outcome.state !== "done" && reported === undefined) return;
+  updateSetupState(p, (s) => ({
+    ...s,
+    homebrew: { at: p.now().toISOString(), outcome: reported ?? "failed", ...(reported === undefined ? { detail: HOMEBREW_UNREPORTED } : {}) },
   }));
 }
 
