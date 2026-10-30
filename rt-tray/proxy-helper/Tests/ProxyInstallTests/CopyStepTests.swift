@@ -6,14 +6,18 @@ extension PinsValues {
     static func fixture(
         treeSha256: String = "cafe",
         portlessVersion: String = "0.0.0",
-        nodeBinSha256: String = "n0de"
+        nodeBinSha256: String = "n0de",
+        homebrewPkgUrl: String = "https://github.com/Homebrew/brew/releases/download/9.9.9/Homebrew.pkg",
+        homebrewPkgSha256: String = "b4e4"
     ) -> PinsValues {
         PinsValues(
             portlessVersion: portlessVersion,
             portlessTarballSha256: "0000",
             portlessTreeSha256: treeSha256,
             nodeBinSha256: nodeBinSha256,
-            appVersion: "0.0.0-test")
+            appVersion: "0.0.0-test",
+            homebrewPkgUrl: homebrewPkgUrl,
+            homebrewPkgSha256: homebrewPkgSha256)
     }
 }
 
@@ -110,6 +114,9 @@ final class FakeFileOps: FileOps {
         }
         return PathStat(uid: 0, isDirectory: true)
     }
+
+    // CopyStep stages into an ordinary directory; only HomebrewStep asks for a private one.
+    func makePrivateDirectory(_ path: URL) throws { log.append("mkdir-private \(path.lastPathComponent)") }
 
     func mkdir(_ path: URL) throws {
         log.append("mkdir \(path.lastPathComponent)")

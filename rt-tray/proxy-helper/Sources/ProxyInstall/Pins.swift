@@ -10,4 +10,8 @@ struct PinsValues {
     let portlessTreeSha256: String
     let nodeBinSha256: String
     let appVersion: String
+    /// From homebrew-pin.json. HomebrewStep downloads exactly this URL and
+    /// installs only bytes whose sha256 is this value.
+    let homebrewPkgUrl: String
+    let homebrewPkgSha256: String
 }

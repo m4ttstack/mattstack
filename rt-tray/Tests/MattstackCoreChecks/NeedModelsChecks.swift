@@ -7,6 +7,13 @@ let needModelsChecks: [Check] = [
                       "/Applications/mattstack.app/Contents/Helpers/mattstack-proxy-install")
         c.expect(ProxyHelper.promptText.contains("administrator"))
     },
+    Check("ProxyHelper: the homebrew flag rides the install and trust verbs' argv, and nothing else") { c in
+        c.expectEqual(ProxyHelper.arguments(verb: "install", homebrew: true), ["install", "--homebrew"])
+        c.expectEqual(ProxyHelper.arguments(verb: "trust", homebrew: true), ["trust", "--homebrew"])
+        c.expectEqual(ProxyHelper.arguments(verb: "install", homebrew: false), ["install"])
+        c.expect(ProxyHelper.homebrewPromptText.contains("administrator"))
+        c.expect(ProxyHelper.homebrewPromptText.contains("Homebrew"))
+    },
     Check("NeedResult encodes {ok, detail}") { c in
         let j = String(decoding: try JSONEncoder().encode(NeedResult(ok: true, detail: "proxy installed")), as: UTF8.self)
         c.expect(j.contains("\"ok\":true") && j.contains("\"detail\":\"proxy installed\""))

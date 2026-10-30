@@ -90,7 +90,8 @@ install portless as a root LaunchDaemon on 443 instead of skipping. portless
 itself is vendored and pinned through `rt-tray/deps.lock` like any other
 third-party tool (`bundlePath: Contents/Helpers/portless-dist`); the already
 bundled `node` row runs it, so no extra runtime ships. The helper's argv
-contract (`install`, `remove`, `trust`, `--version`) is consumed by
+contract (`install [--homebrew]`, `remove`, `trust [--homebrew]`, `homebrew`,
+`--version`) is consumed by
 `PrivilegedInstaller.swift` in this same repo, which is why it is a checked-in
 SwiftPM target rather than a deps.lock-pinned release artifact.
 
@@ -138,6 +139,22 @@ helper's `trust` op, reached through its own tray route
 `POST /privileged/proxy-trust` beside
 `/privileged/proxy-install`), so no remedy can point at a route that disagrees
 with what the row reported.
+
+Homebrew rides the same admin prompt. When rt's need carries `homebrew: true`
+(no brew on the Mac and no earlier attempt on record), the tray passes
+`--homebrew` to `install` or `trust`; a Mac whose proxy needs nothing gets the
+`homebrew` verb alone, through `POST /privileged/homebrew`. The helper skips it
+when `/opt/homebrew/bin/brew` or `/usr/local/bin/brew` exists. Otherwise it
+downloads the package pinned in `rt-tray/proxy-helper/homebrew-pin.json` into a
+fresh 0700 directory under the root-owned proxy tree, refuses bytes whose
+sha256 differs from the pin, runs `installer -pkg <package> -target /`, and
+deletes the download whatever happened. `gen-pins.sh` compiles the pin in and
+accepts only a `.pkg` on Homebrew's own GitHub release for the pinned version,
+so nothing at run time (argv, the request, a user-writable file) names what
+root installs. Homebrew runs first and is never fatal: its outcome travels on
+its own line (`MATTSTACK_HOMEBREW=ok|present|failed`) just before the trust
+line. Moving to a newer Homebrew is a pin-file change: the version, the release
+asset's URL and its sha256.
 
 A version-drifted proxy (the deployed `/Library/Application
 Support/mattstack/proxy/VERSION` disagreeing with the bundle's pinned

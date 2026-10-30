@@ -4,8 +4,9 @@ set -euo pipefail
 # Swift side matches exactly.
 export LC_ALL=C
 
-# Writes Sources/ProxyInstall/Pins.generated.swift from rt-tray/deps.lock plus
-# the payload the helper will copy. Nothing in the package supplies a fallback,
+# Writes Sources/ProxyInstall/Pins.generated.swift from rt-tray/deps.lock, the
+# payload the helper will copy, and homebrew-pin.json (the one package the helper
+# downloads rather than copies). Nothing in the package supplies a fallback,
 # so this has to run before ANY swift build or swift test of the helper.
 #
 # The payload paths are arguments, never derived, and there is no default. In a
@@ -109,8 +110,10 @@ TRAY_DIR="$(cd "$HELPER_DIR/.." && pwd)"
 LOCK="$TRAY_DIR/deps.lock"
 OUT="$HELPER_DIR/Sources/ProxyInstall/Pins.generated.swift"
 LOCK_NAME="portless"
+HOMEBREW_PIN="$HELPER_DIR/homebrew-pin.json"
 
 [ -f "$LOCK" ] || { echo "  x gen-pins: $LOCK not found" >&2; exit 1; }
+[ -f "$HOMEBREW_PIN" ] || { echo "  x gen-pins: $HOMEBREW_PIN not found" >&2; exit 1; }
 
 JQ=""
 for candidate in "$TRAY_DIR/deps/arm64/jq" "$(command -v jq 2>/dev/null || true)"; do
@@ -137,6 +140,26 @@ PY
     fi
 }
 
+read_homebrew_pin() { # version<TAB>url<TAB>sha256
+    if [ -n "$JQ" ]; then
+        "$JQ" -r '[.version, .url, .sha256]
+             | if all(type == "string" and length > 0) then @tsv
+               else ("homebrew-pin.json needs a version, url and sha256" | halt_error(1)) end' "$HOMEBREW_PIN"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -I - "$HOMEBREW_PIN" <<'PY'
+import json, sys
+pin = json.load(open(sys.argv[1]))
+values = [pin.get(k) for k in ("version", "url", "sha256")]
+if not all(isinstance(v, str) and v for v in values):
+    sys.exit("homebrew-pin.json needs a version, url and sha256")
+print("\t".join(values))
+PY
+    else
+        echo "  x gen-pins: no jq (bundled or on PATH) and no python3 to read $HOMEBREW_PIN" >&2
+        exit 1
+    fi
+}
+
 ROW="$(read_row)"
 IFS=$'\t' read -r P_NAME P_VERSION P_SHA <<< "$ROW"
 [ -n "$P_NAME" ] && [ -n "$P_VERSION" ] && [ -n "$P_SHA" ] || {
@@ -157,13 +180,27 @@ if [ ! -f "$NODE_BIN" ]; then
 fi
 NODE_SHA="$(file_hash "$NODE_BIN")"
 
+HB_ROW="$(read_homebrew_pin)"
+IFS=$'\t' read -r HB_VERSION HB_URL HB_SHA <<< "$HB_ROW"
+
 # Every value below lands inside a Swift string literal, so anything that could
 # close one is refused rather than escaped.
-for value in "$P_VERSION" "$P_SHA" "$TREE_SHA" "$NODE_SHA" "$APP_VERSION"; do
+for value in "$P_VERSION" "$P_SHA" "$TREE_SHA" "$NODE_SHA" "$APP_VERSION" "$HB_VERSION" "$HB_SHA"; do
     case "$value" in
         *[!A-Za-z0-9._+-]*) echo "  x gen-pins: refusing unsafe pin value '$value'" >&2; exit 1 ;;
     esac
 done
+
+# The helper downloads this URL as root, so the pin may only name a package on
+# Homebrew's own release for the pinned version, and the digest must be one.
+if [[ ! "$HB_SHA" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "  x gen-pins: homebrew-pin.json sha256 '$HB_SHA' is not 64 lowercase hex characters" >&2; exit 1
+fi
+HB_PREFIX="https://github.com/Homebrew/brew/releases/download/$HB_VERSION/"
+HB_ASSET="${HB_URL#"$HB_PREFIX"}"
+if [ "$HB_ASSET" = "$HB_URL" ] || [[ ! "$HB_ASSET" =~ ^[A-Za-z0-9._+-]+\.pkg$ ]]; then
+    echo "  x gen-pins: homebrew-pin.json url '$HB_URL' is not a .pkg on ${HB_PREFIX}" >&2; exit 1
+fi
 
 mkdir -p "$(dirname "$OUT")"
 cat > "$OUT" <<EOF
@@ -173,8 +210,10 @@ let PINS_CURRENT = PinsValues(
     portlessTarballSha256: "$P_SHA",
     portlessTreeSha256: "$TREE_SHA",
     nodeBinSha256: "$NODE_SHA",
-    appVersion: "$APP_VERSION")
+    appVersion: "$APP_VERSION",
+    homebrewPkgUrl: "$HB_URL",
+    homebrewPkgSha256: "$HB_SHA")
 enum Pins { static let current = PINS_CURRENT }
 enum HelperVersion { static let value = Pins.current.appVersion }
 EOF
-echo "  ✓ Pins.generated.swift (portless $P_VERSION, tree ${TREE_SHA:0:12}, node ${NODE_SHA:0:12}, app $APP_VERSION)"
+echo "  ✓ Pins.generated.swift (portless $P_VERSION, tree ${TREE_SHA:0:12}, node ${NODE_SHA:0:12}, homebrew $HB_VERSION ${HB_SHA:0:12}, app $APP_VERSION)"
