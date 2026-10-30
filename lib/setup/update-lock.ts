@@ -21,7 +21,7 @@ export function updateLockPath(home: string): string {
   return join(home, ".mattstack", "rt", "setup-update.lock");
 }
 
-function pidAlive(pid: number): boolean {
+export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

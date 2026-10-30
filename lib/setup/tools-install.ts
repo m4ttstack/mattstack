@@ -102,7 +102,7 @@ function firstLine(s: string): string {
 /** softwareupdate only lists Command Line Tools while this marker exists — the same trigger Homebrew and MDM tooling use. Best-effort removed afterwards; a stale marker only costs an extra listing. */
 const CLT_ON_DEMAND_MARKER = "/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress";
 const CLT_LIST_TIMEOUT_MS = 120_000;
-const CLT_INSTALL_TIMEOUT_MS = 45 * 60_000;
+export const CLT_INSTALL_TIMEOUT_MS = 45 * 60_000;
 
 /**
  * The newest CLT label wins — softwareupdate lists one label per available
@@ -174,6 +174,16 @@ async function installAppleClt(p: Probes): Promise<InstallResult> {
 
 function linkOutcomeDetail(outcome: LinkOutcome): string {
   return outcome.ok ? (outcome.state === "already" ? `already linked at ${outcome.path}` : `linked at ${outcome.path}`) : outcome.detail;
+}
+
+/** The branch `installTool` would take for `tool`, without installing; null where it would refuse (a team's download URL, a tap formula, or no method at all). */
+export async function installRoute(p: Probes, tool: string, reqs: PackRequirements[], hasBrew: boolean, seams: ToolsInstallSeams = REAL_SEAMS): Promise<"bundled" | "brew" | "vendor" | null> {
+  if (seams.bundledToolExec(p, tool)) return "bundled";
+  const teamBrew = reqs.flatMap((r) => r.tools).find((t) => t.name === tool)?.install?.brew;
+  const formula = BREW_FORMULAE[tool] ?? (teamBrew !== undefined && isValidBrewFormula(teamBrew) ? teamBrew : undefined);
+  if (hasBrew && formula) return "brew";
+  if (VENDOR_INSTALLERS[tool]) return "vendor";
+  return null;
 }
 
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<InstallResult> {
