@@ -66,6 +66,6 @@ rt so nothing pending reaches the stub, and deletes its folder; quitting the
 app does the same. The stub comes from the tree the dev app was last built
 from, then the checkout its rt wrapper runs (`DevSourceConfigReader`); bun
 from `RT_STUB_BUN`, that config, or the usual install paths. A stub that
-does not answer `stub grant --probe` is too old for the app and the picker
-says so. A new setup verb or screen needs a stub answer too, or the drive
+does not know `stub grant --probe` is too old for the app, one that fails it
+any other way won't run, and the picker says which. A new setup verb or screen needs a stub answer too, or the drive
 stops on it.

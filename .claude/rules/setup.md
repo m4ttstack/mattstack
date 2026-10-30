@@ -44,7 +44,11 @@ Setup is screens drawn from one verb and one run. `rt setup form` (hidden,
 on (`formStage`: macos, path, invite, waiting, connect, this-mac, running,
 paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|create`).
 The tray draws what it returns: no decision in Swift about which rows a
-member needs, where setup resumes or a row's state. `rt setup prepare
+member needs, where setup resumes or a row's state. A run still going
+outranks the macos stage, and P1 skips rt's read for the cards only on a Mac
+the last whole read saw as fresh. A done row answered no (notifications
+off) carries `tone: "off"`, drawn as a grey dash; the tray keys on `tone`,
+never the detail's words. `rt setup prepare
 <macos|accounts>` (`lib/setup/prepare.ts`) runs the installs setup can do
 while the member answers: Command Line Tools at the macos stage; Claude
 Code, herdr, the team's sign-in and required tools, then Fast Browser's
@@ -89,7 +93,12 @@ never the note's wording. A finish-gated row carries `waivable` on every
 emit (an app reading a row without it treats the row as waivable).
 
 A required row with a fault must offer an action that can clear it: an
-actionless required row is an Install nobody can reach. A connect action may
+actionless required row is an Install nobody can reach. On the fast screens
+a `steps` action opens rt's steps in a sheet (`FormActionRunner.sheet`), a
+`choose` wider than a two-option segment opens a picker sheet, and a todo
+row shows its `detail` as rt's reason under the subtext. An action type the
+app does not know draws "Needs a newer mattstack" and never holds the
+footer (`FastSetupFlow.stranded`), so an app older than its rt cannot dead-end. A connect action may
 prefill a field through `ConnectField.value`; the tray renders it as the
 field's initial text. It may also carry `create`, a link opened in the
 browser: for the forges that is the new-token page with rt's scopes
@@ -99,7 +108,8 @@ scopes (the link alone reads them), the only place either lives, so a scope
 rt newly needs is added there and nowhere else. A team's declared forge host
 is shown, never trusted: Create token and the token check reach only a host
 the member confirmed with `rt setup gitlab connect --host <host>`
-(`rt.integrations` at user scope). Add a row by following an existing
+(`rt.integrations` at user scope). Until then the forge token row offers that
+command as steps, not a token field. Add a row by following an existing
 validator in `lib/setup/validators/` and its `steps-*.test.ts` twin; the
 tray's `PlanModels.swift` decodes the same contract, so a new field needs the
 Swift side too.
