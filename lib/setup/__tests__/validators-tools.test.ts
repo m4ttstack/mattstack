@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { setSetting } from "../../settings/write.ts";
-import { FINISH_GATED_ROW_IDS, STEP_IDS, WAIVABLE_ROW_IDS } from "../contract.ts";
+import { FINISH_GATED_ROW_IDS, STEP_IDS } from "../contract.ts";
 import { FAST_BROWSER_ADD_ACTION, toolRows, extractVersion } from "../validators/tools.ts";
 import type { ToolsSeams } from "../validators/tools.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
@@ -652,8 +652,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   test("the extension row is finish-gated, matching the contract's finish-gated ids", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")));
     const rows = await toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
-    // The can-skip rows are gated by applyExpectations, not by their validators.
-    expect(rows.filter((r) => r.finishGated).map((r) => r.id)).toEqual(FINISH_GATED_ROW_IDS.filter((id) => !WAIVABLE_ROW_IDS.includes(id)));
+    expect(rows.filter((r) => r.finishGated).map((r) => r.id)).toEqual([...FINISH_GATED_ROW_IDS]);
   });
 
   test("every state the extension row can reach carries an action the app can run", async () => {

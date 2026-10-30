@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoginSession } from "../cli-login.ts";
 import { finalizePlan, row, type Action, type OrgRef, type Plan, type Row } from "../contract.ts";
+import { applyExpectations } from "../expectations.ts";
 import { allAnswered, composeForm, connectRows, extraRows, formOwnedIds, runFixes, type ConnectInputs, type FormRow } from "../form.ts";
 import type { PrepareRecord } from "../prepare.ts";
 import type { ToolRequirement } from "../requirements.ts";
@@ -138,6 +139,18 @@ describe("connectRows", () => {
     expect(p.finishBlockedBy).toContain("tool.herdr");
     const rows = connectRows(inputs({ plan: p }));
     expect(rows.map((x) => x.id)).not.toContain("tool.herdr");
+    expect(allAnswered(rows)).toBe(true);
+  });
+
+  test("a Mission Control shortcut still to set is never an extra row and never holds Continue", () => {
+    const allDone = joinerRows().map((x) => ({ ...x, status: "ready" as const }));
+    const keyboard: Action = { type: "open-settings", label: "Open Keyboard Settings", target: "keyboard" };
+    const mission = r("tool.mission-control", "needs-you", "Control+Up still opens Mission Control", { required: false, action: keyboard });
+    const p = finalizePlan(JOIN, applyExpectations([{ id: "mac", title: "Your Mac", rows: swap(allDone, mission) }]), NOW);
+    expect(p.finishBlockedBy).toEqual([]);
+    expect(p.requiredMissing).toEqual([]);
+    const rows = connectRows(inputs({ plan: p }));
+    expect(rows.map((x) => x.id)).not.toContain("tool.mission-control");
     expect(allAnswered(rows)).toBe(true);
   });
 

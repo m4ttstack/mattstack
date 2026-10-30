@@ -141,11 +141,11 @@ export const GROUP_TITLES: Record<GroupId, string> = {
   team: "Team and backup",
 };
 
-/** The finish-gated rows `rt setup waive` may skip; the gate honors a stored waiver only for these. */
+/** The rows `rt setup waive` may skip; a stored waiver is honored only for these. */
 export const WAIVABLE_ROW_IDS: readonly string[] = ["skills.overrides", "tool.chrome-signin", "tool.mission-control"];
 
-/** The rows that gate Finish. Enumerated here so `rt setup waive` can refuse anything else and offer a picker over the set. */
-export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension", "skills.writing-style", ...WAIVABLE_ROW_IDS];
+/** The rows that gate Finish by id rather than by their `ROW_TARGETS` entry. `rt setup unwaive` refuses an id outside these, the account ids, the repos.place rows and the waivable ids. */
+export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension"];
 
 /** One `repos.place:<identity>` row per tracked repo, so those ids cannot be enumerated above. */
 export const REPO_PLACE_ROW_PREFIX = "repos.place:";

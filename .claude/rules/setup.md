@@ -30,9 +30,11 @@ also uses (`WRITING_STYLE_SOURCE_LABEL`), so never restate it elsewhere.
 the user's own skill, normalising CRLF and renaming the frontmatter so the
 copy is a skill of its own. The presets themselves ship in the mattstack
 plugin under `plugins/mattstack`; a preset id must exist there before
-`use` will accept it, and the `skills.writing-style` setup row is
-finish-gated and not waivable, so a machine with no resolvable style cannot
-Finish.
+`use` will accept it. A new Mac gets sparse at Install: when no store sets
+the key, `settings.seed` writes `mattstack:writing-style-sparse` at user
+scope. It never writes one on an update run or on a finished Mac, so the
+registry default stays as it is for anyone who never chose. The
+`skills.writing-style` row never blocks Finish.
 
 ## Setup checklist rows: required vs finish-gated
 
@@ -41,7 +43,14 @@ and never Install (`finalizePlan` and `finishBlockers` in
 `lib/setup/contract.ts`). A finish-gated row must carry `waivable` on every
 emit (an app reading a row without it treats the row as waivable) and only
 ids in `WAIVABLE_ROW_IDS` may be waived by `rt setup waive`; `waived` is what
-the app's Un-skip keys on, never the note's wording. A required row with a
+the app's Un-skip keys on, never the note's wording. The contract's one
+finish-gated id is `tool.fast-browser-extension` (`FINISH_GATED_ROW_IDS`);
+the rest gate through their `ROW_TARGETS` entry in
+`lib/setup/expectations.ts`, the team's accounts, the `repos.place` rows and the approval wait.
+A `settings` target (Mission Control, Chrome sign-in, skill overrides) is
+never required and never finish-gated, and carries no `waivable`; those
+three stay in `WAIVABLE_ROW_IDS`, so a stored waiver still reads on the row
+and `rt setup unwaive` can still clear it. A required row with a
 fault must offer an action that can clear it: an actionless required row is
 an Install nobody can reach (RT-260). A connect action may prefill a field
 through `ConnectField.value`; the tray renders it as the field's initial

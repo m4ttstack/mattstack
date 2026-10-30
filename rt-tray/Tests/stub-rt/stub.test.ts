@@ -345,7 +345,7 @@ test("writing-style real-data mode: options and suggestions come from the fixtur
   const first = await run("writing-style", ["setup", "plan", "--json"], "", state, extraEnv);
   expect(first.code).toBe(0);
   const row = writingStyleRow(first.lines[0])!;
-  expect(row).toMatchObject({ status: "needs-you", detail: "Not chosen yet", finishGated: true, waivable: false });
+  expect(row).toMatchObject({ status: "needs-you", detail: "Not chosen yet", finishGated: false });
   const action = row.action as ChooseAction;
   const ids = action.options.map((o) => o.id);
   expect(ids).toEqual([SPARSE, "mattstack:writing-style-conversational", "mattstack:writing-style-structured"]);

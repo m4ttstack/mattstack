@@ -154,6 +154,15 @@ describe("rt setup unwaive", () => {
     expect(JSON.parse(t.lines[0]!)).toMatchObject({ ok: true, id: "tool.fast-browser-extension", changed: true, waived: ["tool.mission-control"] });
   });
 
+  test("unwaive still clears an old waiver", async () => {
+    for (const id of ["tool.mission-control", "tool.chrome-signin", "skills.overrides"]) {
+      const t = deps({ initial: [id, "tool.fast-browser-extension"] });
+      await setupUnwaive([id, "--json"], {}, t.d);
+      expect(t.writes).toEqual([["tool.fast-browser-extension"]]);
+      expect(JSON.parse(t.lines[0]!)).toMatchObject({ ok: true, id, changed: true, waived: ["tool.fast-browser-extension"] });
+    }
+  });
+
   test("removes the id and prints the remaining list", async () => {
     const t = deps({ initial: ["tool.mission-control"] });
     await setupUnwaive(["tool.mission-control", "--json"], {}, t.d);

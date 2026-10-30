@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finishBlockers } from "../contract.ts";
 import { unwaiveRow } from "../finish-gate.ts";
+import { UserActionableError } from "../../errors.ts";
 import { writingStyleRow, writingStyleRowFor } from "../validators/writing-style.ts";
 import { listWritingStyles, type SkillInventory } from "../../skills/writing-style-sources.ts";
 
@@ -15,7 +16,7 @@ describe("writingStyleRow", () => {
     expect(r.status).toBe("needs-you");
     expect(r.action).toBeNull();
     expect(r.detail).toBe("You choose this after Install");
-    expect(r.finishGated).toBe(true);
+    expect(r.finishGated).toBe(false);
     expect(r.kind).toBe("tool");
   });
 
@@ -101,12 +102,24 @@ describe("writingStyleRow", () => {
   });
 });
 
-describe("writing-style row in the finish gate", () => {
-  test("the row id is finish-gated and not waivable; unwaive still clears a stale entry", () => {
-    expect(FINISH_GATED_ROW_IDS).toContain("skills.writing-style");
+describe("writing-style row and the finish gate", () => {
+  test("writing style never blocks Finish", () => {
+    expect(FINISH_GATED_ROW_IDS).not.toContain("skills.writing-style");
     expect(WAIVABLE_ROW_IDS).not.toContain("skills.writing-style");
+    const rows = [
+      writingStyleRow({ homeReady: false, resolved: { skill: "x", source: "fallback" }, inventory: inv(), options: opts }),
+      writingStyleRow({ homeReady: true, resolved: { skill: "x", source: "fallback" }, inventory: inv(), options: opts }),
+      writingStyleRow({ homeReady: true, resolved: { skill: "nobody:writing-style-x", source: "user" }, inventory: inv(), options: opts }),
+    ];
+    expect(rows.map((r) => r.status)).toEqual(["needs-you", "needs-you", "invalid"]);
+    for (const r of rows) expect(r.finishGated).toBe(false);
+    expect(finishBlockers([{ id: "tools", title: "Tools", rows }])).toEqual([]);
+  });
+
+  test("unwaive refuses the row id, since it neither blocks Finish nor can be skipped", () => {
     const store = { ids: ["skills.writing-style"], read() { return this.ids; }, write(ids: string[]) { this.ids = ids; } };
-    expect(unwaiveRow("skills.writing-style", store)).toEqual({ waived: [], changed: true });
+    expect(() => unwaiveRow("skills.writing-style", store)).toThrow(UserActionableError);
+    expect(store.ids).toEqual(["skills.writing-style"]);
   });
 
   test("an error row never blocks Finish: a gate that could not be evaluated must not strand the wizard", () => {

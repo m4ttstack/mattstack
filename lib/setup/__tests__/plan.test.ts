@@ -8,6 +8,7 @@ import { renderSopsYamlRules } from "../../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../../secrets/team-store.ts";
 import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finalizePlan, row, type Group, type Plan, type Row } from "../contract.ts";
 import { applyFinishGate, waivedNote } from "../finish-gate.ts";
+import { applyExpectations } from "../expectations.ts";
 import { markDeferred } from "../repo-placement.ts";
 import { setSetting } from "../../settings/write.ts";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -334,8 +335,7 @@ describe("composePlan — install-satisfied flip", () => {
       const r = everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
-      // The fake home has no home repo, so skills.writing-style also blocks Finish here.
-      expect(plan.finishBlockedBy).toEqual(["tool.mission-control", "skills.writing-style", "tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.state-backup", "home.backup"]);
+      expect(plan.finishBlockedBy).toEqual(["tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.state-backup", "home.backup"]);
       expect(plan.requiredMissing).not.toContain("tool.fast-browser-extension");
     }
   });
@@ -391,8 +391,7 @@ test("before Install, a row only Install can make ready waits for Install; after
           action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
     row({ id: "pack.acme-skills", kind: "tool", title: "acme-skills", why: "x", required: false, status: "missing", detail: "d",
           action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
-    row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "You choose this after Install",
-          finishGated: true }),
+    row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "You choose this after Install" }),
   ];
   const flip = (mode: "plan" | "status") => applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows }], mode)[0]!.rows;
   expect(flip("plan").map((r) => [r.id, r.waitsForInstall])).toEqual(rows.map((r) => [r.id, true]));
@@ -412,7 +411,7 @@ test("after Install has run, a row Install could not finish asks for it again", 
   const register = { type: "run" as const, label: "Register services", verb: ["setup", "apply", "--only", "services.register"] };
   const daemon = row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "needs-you", detail: "Not running", action: register });
   const waiting = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you",
-                        detail: "You choose this after Install", finishGated: true });
+                        detail: "You choose this after Install" });
   const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [daemon, waiting] }], "plan", { installRan: true })[0]!.rows;
   expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined]);
   expect(flipped[0]!.action).toEqual(register);
@@ -432,12 +431,12 @@ test("composePlan reads whether Install has run from setup state, and a Mac that
   expect(plan.groups.flatMap((g) => g.rows).filter((r) => r.waitsForInstall)).toEqual([]);
 });
 
-test("a writing-style error is never folded as waiting for Install", () => {
+test("a writing-style error is never folded as waiting for Install, and the actionless row before Install is", () => {
   const error = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "error",
                       detail: "Could not read the writing style: boom", finishGated: false });
-  const unGated = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "d" });
-  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [error, unGated] }], "plan")[0]!.rows;
-  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined]);
+  const beforeInstall = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "d" });
+  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [error, beforeInstall] }], "plan")[0]!.rows;
+  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, true]);
 });
 
 function gatedRow(status: Row["status"], id = "tool.fast-browser-extension"): Row {
@@ -461,9 +460,14 @@ function gatedPlan(status: Row["status"], mode: "plan" | "status", waived: strin
 }
 
 describe("finish gate", () => {
-  test("the contract names the finish-gated rows and the three that can be skipped", () => {
+  test("the contract's finish-gated ids are the extension alone, and the finish targets stay gated", () => {
+    expect([...FINISH_GATED_ROW_IDS]).toEqual(["tool.fast-browser-extension"]);
     expect([...WAIVABLE_ROW_IDS]).toEqual(["skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
-    expect([...FINISH_GATED_ROW_IDS]).toEqual(["tool.fast-browser-extension", "skills.writing-style", "skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
+    const shell = row({ id: "tool.shell", kind: "tool", title: "Shell", why: "x", required: false, status: "missing", detail: "d",
+                        action: { type: "run", label: "Install", verb: ["setup", "apply", "--only", "path.link"] } });
+    const gated = applyExpectations([{ id: "tools", title: "Tools", rows: [shell] }]);
+    expect(gated[0]!.rows[0]).toMatchObject({ finishGated: true, waivable: false });
+    expect(finalizePlan({ slug: "acme", name: "Acme", mode: "join" }, gated).finishBlockedBy).toEqual(["tool.shell"]);
   });
 
   test("a needs-you finish-gated row blocks Finish in both modes and never Install", () => {
@@ -531,7 +535,7 @@ describe("finish gate", () => {
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
       const r = everyRow(plan).rows.find((r) => r.id === "tool.mission-control")!;
       expect(r.optionalNote).toBe(waivedNote("tool.mission-control"));
-      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.proxy", "tool.state-backup", "home.backup"]);
+      expect(plan.finishBlockedBy).toEqual(["tool.proxy", "tool.state-backup", "home.backup"]);
     } finally {
       process.env.HOME = prevHome;
       rmSync(home, { recursive: true, force: true });

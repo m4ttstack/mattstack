@@ -131,20 +131,20 @@ describe("waiveRow / unwaiveRow", () => {
 });
 
 describe("non-waivable finish gates", () => {
-  const style = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "d", finishGated: true });
+  const shell = row({ id: "tool.shell", kind: "tool", title: "Shell", why: "x", required: false, status: "needs-you", detail: "d", finishGated: true });
   const ext = row({ id: "tool.fast-browser-extension", kind: "tool", title: "Ext", why: "x", required: false, status: "needs-you", detail: "d", finishGated: true });
   const mission = row({ id: "tool.mission-control", kind: "tool", title: "Mission Control", why: "x", required: false, status: "needs-you", detail: "d", finishGated: true });
-  const groups = [{ id: "tools" as const, title: "Tools", rows: [style, ext, mission] }];
+  const groups = [{ id: "tools" as const, title: "Tools", rows: [shell, ext, mission] }];
 
   test("only the three can-skip rows are waivable", () => {
     expect(WAIVABLE_ROW_IDS).toEqual(["skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
   });
 
   test("a stored waiver for a non-waivable row is ignored where the gate is read", () => {
-    const waived = ["skills.writing-style", "tool.mission-control"];
-    expect(finishBlockers(groups, waived)).toEqual(["skills.writing-style", "tool.fast-browser-extension"]);
+    const waived = ["tool.shell", "tool.mission-control"];
+    expect(finishBlockers(groups, waived)).toEqual(["tool.shell", "tool.fast-browser-extension"]);
     const applied = applyFinishGate(groups, "status", waived)[0]!.rows;
-    expect(applied.find((r) => r.id === "skills.writing-style")?.waived).toBeFalsy();
+    expect(applied.find((r) => r.id === "tool.shell")?.waived).toBeFalsy();
     expect(applied.find((r) => r.id === "tool.mission-control")?.waived).toBe(true);
   });
 
@@ -175,13 +175,33 @@ describe("non-waivable finish gates", () => {
 
   test("every finish-gated row carries waivable", () => {
     const applied = applyFinishGate(groups, "plan", [])[0]!.rows;
-    expect(applied.map((r) => [r.id, r.waivable])).toEqual([["skills.writing-style", false], ["tool.fast-browser-extension", false], ["tool.mission-control", true]]);
+    expect(applied.map((r) => [r.id, r.waivable])).toEqual([["tool.shell", false], ["tool.fast-browser-extension", false], ["tool.mission-control", true]]);
   });
 
   test("waive refuses a finish-gated row that is not waivable", () => {
     const store = { ids: [] as string[], read() { return this.ids; }, write(ids: string[]) { this.ids = ids; } };
-    expect(() => waiveRow("skills.writing-style", store)).toThrow(UserActionableError);
+    expect(() => waiveRow("tool.shell", store)).toThrow(UserActionableError);
     expect(store.ids).toEqual([]);
+  });
+
+  test("a can-skip row that no longer blocks Finish still reads its stored waiver, and gains no gate", () => {
+    const settingsRow = row({ id: "tool.mission-control", kind: "tool", title: "Mission Control", why: "x", required: false, status: "needs-you", detail: "d" });
+    const settingsGroups = [{ id: "tools" as const, title: "Tools", rows: [settingsRow] }];
+    for (const mode of ["plan", "status"] as const) {
+      const waivedRow = applyFinishGate(settingsGroups, mode, ["tool.mission-control"])[0]!.rows[0]!;
+      expect(waivedRow).toMatchObject({ required: false, waived: true, optionalNote: waivedNote("tool.mission-control") });
+      expect(waivedRow.finishGated).toBeUndefined();
+      expect(waivedRow.waivable).toBeUndefined();
+      expect(applyFinishGate(settingsGroups, mode, [])[0]!.rows[0]).toEqual(settingsRow);
+    }
+    expect(finishBlockers(settingsGroups)).toEqual([]);
+  });
+
+  test("unwaive accepts a can-skip id that no longer blocks Finish, and still refuses one that is neither", () => {
+    const { store, writes } = fakeStore(["tool.chrome-signin", "skills.overrides"]);
+    expect(unwaiveRow("tool.chrome-signin", store)).toEqual({ waived: ["skills.overrides"], changed: true });
+    expect(writes).toEqual([["skills.overrides"]]);
+    expect(() => unwaiveRow("skills.writing-style", store)).toThrow(UserActionableError);
   });
 });
 

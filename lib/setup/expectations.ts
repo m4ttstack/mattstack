@@ -1,13 +1,14 @@
 /**
  * Every checklist step is expected on every path: before Install, before
- * Finish, skippable before Finish, or information only. The validators keep
- * their own shape; this pass raises it to the row's target and never lowers
- * a `required` a validator set.
+ * Finish, in Settings only, or information only. The validators keep their
+ * own shape; this pass raises it to the row's target and never lowers a
+ * `required` a validator set, except on a Settings row, which never blocks
+ * Install or Finish.
  */
 
 import type { Action, Group, Row } from "./contract.ts";
 
-export type Target = "install" | "finish" | "skip" | "info";
+export type Target = "install" | "finish" | "settings" | "info";
 
 export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "tool.editor": "install",
@@ -28,9 +29,9 @@ export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "team.marketplace": "finish",
   "home.backup": "finish",
   "tool.state-backup": "finish",
-  "skills.overrides": "skip",
-  "tool.chrome-signin": "skip",
-  "tool.mission-control": "skip",
+  "skills.overrides": "settings",
+  "tool.chrome-signin": "settings",
+  "tool.mission-control": "settings",
   "tool.path": "info",
   "team.push-access": "info",
 };
@@ -46,12 +47,13 @@ function waitForFinish(r: Row): Row {
 }
 
 function toTarget(r: Row, target: Target): Row {
-  if (target === "info") {
+  const settled = r.status === "ready" || r.status === "skipped";
+  if (target === "info" || target === "settings") {
     const { finishGated: _gated, waivable: _waivable, ...rest } = r;
-    return { ...rest, required: false, information: true };
+    if (target === "info") return { ...rest, required: false, information: true };
+    return settled ? { ...rest, required: false, optionalNote: null } : { ...rest, required: false };
   }
-  if (r.status === "ready" || r.status === "skipped") return { ...r, optionalNote: null };
-  if (target === "skip") return { ...r, finishGated: true, waivable: true };
+  if (settled) return { ...r, optionalNote: null };
   if (r.required) return r;
   // An install row nobody can press anything on would strand Install, so it waits for Finish instead.
   if (target === "install" && r.action !== null && !isRecheck(r.action)) return { ...r, required: true, optionalNote: null };

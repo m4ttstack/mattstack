@@ -7,6 +7,11 @@
  * saved as bare repo names each repo's folder, on every update, since a repo
  * can reach this Mac after the migration that first tried.
  *
+ * On a Mac setting up for the first time where no store chose a writing
+ * style, it writes the sparse preset at user scope. Never on an update run
+ * or a finished Mac, so someone who never picked a style keeps reading the
+ * registry default.
+ *
  * A staged repo root is the user's own choice (`rt setup repo-root set`),
  * not something this step detects or creates. By step 8 the home repo
  * exists, so a staged answer can safely be written to the machine store; see
@@ -21,6 +26,8 @@ import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { repairGitqBoard } from "../gitq-board-repair.ts";
 import { promoteStagedRepoRoot } from "../repo-root.ts";
+import { isSetupFinished, readSetupState } from "../state.ts";
+import { resolveWritingStyle, WRITING_STYLE_KEY } from "../../skills/writing-style.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -28,6 +35,12 @@ import { toFailedOutcome } from "./step-utils.ts";
 /** The DMG mount or a Gatekeeper-translocated copy — a bundle running from either is a transient location `mattstack.appPath` must never point at, since the app can vanish out from under that path the moment the DMG is ejected. Also `commands/post-install.ts`'s own pre-apply refusal — same predicate, single source. */
 export function isTransientAppRoot(root: string): boolean {
   return root.startsWith("/Volumes/") || root.includes("/AppTranslocation/");
+}
+
+const NEW_MAC_WRITING_STYLE = "mattstack:writing-style-sparse";
+
+function seedsWritingStyle(ctx: ApplyContext): boolean {
+  return !ctx.update && !isSetupFinished(readSetupState(ctx.p)) && resolveWritingStyle().source === "fallback";
 }
 
 async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -55,6 +68,11 @@ async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
   const repair = repairGitqBoard();
   if (repair.state === "failed") throw repair.error;
   if (repair.state === "repaired") written.push("gitq.board");
+
+  if (seedsWritingStyle(ctx)) {
+    setSetting(WRITING_STYLE_KEY, NEW_MAC_WRITING_STYLE, "user");
+    written.push(WRITING_STYLE_KEY);
+  }
 
   return { state: "done", detail: written.length > 0 ? `Wrote ${written.join(", ")}` : "Nothing to write" };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { row, type Action, type Group, type Row, type RowStatus } from "../contract.ts";
+import { finishBlockers, row, type Action, type Group, type Row, type RowStatus } from "../contract.ts";
 import { applyExpectations, ROW_TARGETS } from "../expectations.ts";
 
 const RECHECK: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
@@ -57,9 +57,18 @@ describe("applyExpectations", () => {
     }
   });
 
-  test("a skip row is finish-gated and waivable", () => {
-    const out = one(rowOf("tool.mission-control", "needs-you", { action: OPEN_KEYBOARD }));
-    expect(out).toMatchObject({ required: false, finishGated: true, waivable: true, action: OPEN_KEYBOARD });
+  test("Mission Control, Chrome sign-in and skill overrides never block Finish", () => {
+    for (const id of ["tool.mission-control", "tool.chrome-signin", "skills.overrides"]) {
+      expect(ROW_TARGETS[id]).toBe("settings");
+      for (const status of ["needs-you", "missing", "invalid"] as const) {
+        const out = one(rowOf(id, status, { required: true, action: OPEN_KEYBOARD, finishGated: true, waivable: true }));
+        expect(out).toMatchObject({ status, required: false, action: OPEN_KEYBOARD });
+        expect(out.finishGated).toBeUndefined();
+        expect(out.waivable).toBeUndefined();
+        expect(out.information).toBeUndefined();
+        expect(finishBlockers([{ id: "tools", title: "Tools", rows: [out] }])).toEqual([]);
+      }
+    }
   });
 
   test("an info row is never a task, whatever its state", () => {

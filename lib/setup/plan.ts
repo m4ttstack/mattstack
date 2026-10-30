@@ -163,7 +163,7 @@ function isInstallSatisfied(r: Row): boolean {
 
 /** The writing-style row before the home repo exists: no choice to offer until Install creates it. Its error row is a fault, never this. */
 function isWritingStyleBeforeInstall(r: Row): boolean {
-  return r.id === WRITING_STYLE_ROW_ID && r.status === "needs-you" && r.finishGated === true && r.action === null;
+  return r.id === WRITING_STYLE_ROW_ID && r.status === "needs-you" && r.action === null;
 }
 
 /**

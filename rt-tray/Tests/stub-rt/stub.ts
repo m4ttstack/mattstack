@@ -356,7 +356,7 @@ else if (a0 === "setup" && a1 === "finish") {
   emit({ ok: true, finishedAt: at });
 }
 else if (a0 === "setup" && (a1 === "waive" || a1 === "unwaive")) {
-  if (a2 === undefined || !isFinishGatedRowId(a2)) fail("not-finish-gated", `${a2} is not a row that blocks Finish`);
+  if (a2 === undefined || (!isFinishGatedRowId(a2) && !WAIVABLE_ROW_IDS.includes(a2))) fail("not-finish-gated", `${a2} is not a row that blocks Finish`);
   if (a1 === "waive" && !WAIVABLE_ROW_IDS.includes(a2)) fail("not-waivable", `${a2} cannot be skipped. Rows that can: ${WAIVABLE_ROW_IDS.join(", ")}`);
   const wasWaived = stateGet("waived") > 0;
   stateSet("waived", a1 === "waive" ? 1 : 0);

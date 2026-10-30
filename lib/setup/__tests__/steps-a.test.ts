@@ -34,7 +34,8 @@ import { stageSecret, stagingDir } from "../staging.ts";
 import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
 import { markDeferred, markJoining, readPlacements, writePlacement } from "../repo-placement.ts";
 import { fakeProbes, gitRepo, realFsProbes } from "./fakes.ts";
-import { readSetupState, updateSetupState } from "../state.ts";
+import { markSetupFinished, readSetupState, updateSetupState } from "../state.ts";
+import { resolveWritingStyle } from "../../skills/writing-style.ts";
 
 import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
@@ -1162,6 +1163,10 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     }
   });
 
+  const SPARSE = "mattstack:writing-style-sparse";
+  /** These seed tests are about other keys, so the Mac has already chosen a style and the step writes none. */
+  const styleChosen = () => setSetting("skills.writingStyle", SPARSE, "user");
+
   test("settings.seed: writes mattstack.appPath from ctx.appPath, never touches rt.repoRoots", async () => {
     const p = fakeProbes({ home });
     const { ctx } = makeCtx(p, { appPath: appRoot });
@@ -1177,6 +1182,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     // so the first run's write is real, not a no-op from the fixture setup.
     const newAppPath = "/Applications/mattstack.app";
     const p = fakeProbes({ home });
+    styleChosen();
 
     const first = await settingsSeedStep.run(makeCtx(p, { appPath: newAppPath }).ctx);
     expect(first).toEqual({ state: "done", detail: "Wrote mattstack.appPath" });
@@ -1201,6 +1207,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
   test("settings.seed: a gitq.board still saved as repo names gets each folder once the repo is on this Mac", async () => {
     setSetting("gitq.board", { repos: ["widgets"], port: 11008 }, "machine");
+    styleChosen();
     const p = fakeProbes({ home });
 
     expect(await settingsSeedStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Nothing to write" });
@@ -1219,11 +1226,13 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
   test("settings.seed: a gitq.board that already names folders is left alone", async () => {
     const value = { repos: [{ path: "/work/widgets", name: "widgets" }], port: 11008 };
     setSetting("gitq.board", value, "machine");
+    styleChosen();
     expect(await settingsSeedStep.run(makeCtx(fakeProbes({ home })).ctx)).toEqual({ state: "done", detail: "Nothing to write" });
     expect(getSetting("gitq.board").value).toEqual(value);
   });
 
   test("settings.seed: no candidate directory and nothing to track -> nothing created, nothing written", async () => {
+    styleChosen();
     const p = fakeProbes({ home });
     const { ctx } = makeCtx(p, { appPath: null });
 
@@ -1270,6 +1279,33 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     await settingsSeedStep.run(ctx);
     expect(getSetting<string[]>("rt.repoRoots").value).toEqual([join(home, "fresh")]);
     expect(readStagedRepoRoot(p)).toBeNull();
+  });
+
+  test("a new Mac with no style gets sparse at Install", async () => {
+    const outcome = await settingsSeedStep.run(makeCtx(fakeProbes({ home })).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Wrote skills.writingStyle" });
+    expect(resolveWritingStyle()).toEqual({ skill: SPARSE, source: "user" });
+  });
+
+  test("an update run never writes a style", async () => {
+    const outcome = await settingsSeedStep.run(makeCtx(fakeProbes({ home }), { update: true }).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
+    expect(resolveWritingStyle().source).toBe("fallback");
+  });
+
+  test("a finished Mac keeps the style it had, even none", async () => {
+    const p = fakeProbes({ home });
+    markSetupFinished(p);
+    const outcome = await settingsSeedStep.run(makeCtx(p).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
+    expect(resolveWritingStyle().source).toBe("fallback");
+  });
+
+  test("a chosen style is never replaced", async () => {
+    setSetting("skills.writingStyle", "mattstack:writing-style-structured", "user");
+    const outcome = await settingsSeedStep.run(makeCtx(fakeProbes({ home })).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
+    expect(resolveWritingStyle()).toEqual({ skill: "mattstack:writing-style-structured", source: "user" });
   });
 
   const SSH_REFUSED: ExecResult = { code: 128, stdout: "", stderr: "git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository." };

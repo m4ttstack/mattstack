@@ -43,18 +43,19 @@ export function readWaived(opts: { read?: SettingsReader; warn?: (message: strin
  * there is nothing to load into, and so does a waivable one, so verify never
  * nags about a step the member may skip. Plan mode leaves the validator's
  * shape alone, so Install stays reachable. A waived row reads optional with
- * the note that states the cost, in either mode. A stored waiver is honored only
- * for a waivable id; every finish-gated row carries `waivable` so the app
- * knows whether Skip for now applies.
+ * the note that states the cost, in either mode, finish-gated or not. A stored
+ * waiver is honored only for a waivable id; every finish-gated row carries
+ * `waivable` so the app knows whether Skip for now applies.
  */
 export function applyFinishGate(groups: Group[], mode: "plan" | "status", waived: readonly string[] = []): Group[] {
   const honored = waived.filter((id) => WAIVABLE_ROW_IDS.includes(id));
+  const asWaived = (r: Row): Row => ({ ...r, required: false, waived: true, optionalNote: waivedNote(r.id) });
   return groups.map((g) => ({
     ...g,
     rows: g.rows.map((r) => {
-      if (!r.finishGated) return r;
+      if (!r.finishGated) return honored.includes(r.id) ? asWaived(r) : r;
       const gated = { ...r, waivable: WAIVABLE_ROW_IDS.includes(r.id) };
-      if (honored.includes(r.id)) return { ...gated, required: false, waived: true, optionalNote: waivedNote(r.id) };
+      if (honored.includes(r.id)) return asWaived(gated);
       if (mode === "status" && r.status !== "skipped" && !gated.waivable) return { ...gated, required: true, optionalNote: null };
       return gated;
     }),
@@ -86,8 +87,9 @@ export function realWaiverStore(): WaiverStore {
   return { read: () => readWaived(), write: (ids) => setSetting(WAIVED_SETTING_KEY, ids, "machine") };
 }
 
+/** A waivable id passes even where it no longer blocks Finish, so a waiver stored for it can still be cleared. */
 function assertFinishGated(id: string): void {
-  if (isFinishGatedRowId(id)) return;
+  if (isFinishGatedRowId(id) || WAIVABLE_ROW_IDS.includes(id)) return;
   throw new UserActionableError("not-finish-gated", `${id} is not a row that blocks Finish. Rows that do: ${[...FINISH_GATED_ROW_IDS, ...FINISH_GATED_ACCOUNT_IDS].join(", ")}, and each repos.place row`);
 }
 
