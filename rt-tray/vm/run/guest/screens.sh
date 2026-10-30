@@ -84,13 +84,17 @@ screen_full_disk_access() {
     ax_shot 01d-fda-reopen
     ax_click setup.fullDiskAccess.reopen
     sleep 3
-    if ! ax_wait_window "mattstack" 60; then
-      ax_log "app did not come back by itself after Reopen mattstack; relaunching with the driver's env/args"
-      relaunch_app || ax_fail "app did not come back after Reopen mattstack"
-      ax_wait_window "mattstack" 60 || ax_fail "app did not come back after Reopen mattstack"
+    if ax_wait_window "mattstack" 60; then
+      ax_wait_screen team 60 || ax_fail "Reopen mattstack did not resume at Your team"
+      return 0
     fi
-    ax_wait_screen team 60 || ax_fail "Reopen mattstack did not resume at Your team"
-    return 0
+    # The driver's relaunch carries no resume argument, so the app opens at Welcome.
+    ax_log "app did not come back by itself after Reopen mattstack; relaunching with the driver's env/args"
+    relaunch_app || ax_fail "app did not come back after Reopen mattstack"
+    ax_wait_window "mattstack" 60 || ax_fail "app did not come back after Reopen mattstack"
+    screen_welcome
+    ax_wait_screen fullDiskAccess 30 || ax_fail "setup.fullDiskAccess.screen did not return after the driver's relaunch"
+    ax_wait_enabled setup.fullDiskAccess.continue 60 || ax_fail "Full Disk Access reads off after the driver's relaunch"
   fi
   ax_click setup.fullDiskAccess.continue
   ax_wait_screen team 30 || ax_fail "setup.team.screen did not appear after Full Disk Access"
@@ -173,13 +177,23 @@ screen_join() {
     ax_log "FINDING: the Join page went straight to approved; the waiting screen never showed"
   else
     ax_shot 02b-join-waiting
-    rm -f "$GUEST_RUN/in/join-approve.done" "$GUEST_RUN/in/join-approve.failed"
+    rm -f "$GUEST_RUN/in/join-approve.done" "$GUEST_RUN/in/join-approve.failed" "$GUEST_RUN/in/join-approve.manual"
     : > "$GUEST_RUN/in/join-waiting.req"
     ax_log "join: waiting for approval; asked the host to approve"
+    local by_hand=0 hand_wait="${JOIN_HAND_WAIT_S:-1800}"
     deadline=$((SECONDS + 300))
     until ax_find setup.join.approved >/dev/null 2>&1; do
       [ -e "$GUEST_RUN/in/join-approve.failed" ] && ax_fail "the host could not approve the join (logs/approve.log)"
-      [ "$SECONDS" -lt "$deadline" ] || ax_fail "the Join page was not approved within 300s of asking the host"
+      # The host minted no team (an --invite-code-file join), so the team's
+      # owner has to run rt team members sync on their own Mac.
+      if [ "$by_hand" = 0 ] && [ -e "$GUEST_RUN/in/join-approve.manual" ]; then
+        by_hand=1; deadline=$((SECONDS + hand_wait))
+        ax_log "join: the host cannot approve this join; approve this join by hand within ${hand_wait}s: on the team owner's Mac run rt team members sync"
+      fi
+      if [ "$SECONDS" -ge "$deadline" ]; then
+        [ "$by_hand" = 1 ] && ax_fail "the Join page was not approved by hand within ${hand_wait}s (the owner runs rt team members sync)"
+        ax_fail "the Join page was not approved within 300s of asking the host"
+      fi
       sleep 3
     done
   fi
@@ -443,11 +457,20 @@ screen_done() {
   ax_wait_done_gate 60 || ax_fail "the summary never settled: no Needs you entry and Finish still disabled (or a refresh error is up)"
   : > "$GUEST_RUN/logs/finish-gate.txt"
 
-  # The extension is added in Chrome by hand and can never be skipped, so a
-  # summary that still waits on it is one this walkthrough cannot finish.
+  # The chrome phase force-installed the extension by policy; it can never be
+  # skipped, so the summary waits for its row to read ready. Coming back to
+  # the app is what re-checks the row, as a member's return from Chrome does.
   if ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1; then
     ax_shot 05-fast-browser-extension
-    ax_fail "the Fast Browser extension row holds Finish ($(ax_value setup.done.beforeYouFinish.tool.fast-browser-extension.status || true)); it cannot be skipped and the walkthrough cannot add a Chrome extension"
+    local fb_deadline=$((SECONDS + ${FB_EXTENSION_WAIT_S:-300}))
+    while ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1; do
+      [ "$SECONDS" -lt "$fb_deadline" ] || ax_fail "the Fast Browser extension row still holds Finish after ${FB_EXTENSION_WAIT_S:-300}s ($(ax_value setup.done.beforeYouFinish.tool.fast-browser-extension.status || true)); it cannot be skipped (logs/chrome.log)"
+      ax_osa 'tell application "Finder" to activate' >/dev/null 2>&1 || true
+      sleep 2
+      ax_osa 'tell application "mattstack" to activate' >/dev/null 2>&1 || true
+      sleep 13
+    done
+    echo "fast-browser-extension=ready" >> "$GUEST_RUN/logs/finish-gate.txt"
   fi
 
   if ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1; then

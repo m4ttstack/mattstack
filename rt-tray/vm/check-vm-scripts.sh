@@ -22,6 +22,8 @@ t "walkthrough-teardown.test.ts" bun test run/helpers/__tests__/walkthrough-tear
 t "mint-invite.test.ts"          bun test run/helpers/__tests__/mint-invite.test.ts
 t "join-rows.test.ts"            bun test run/helpers/__tests__/join-rows.test.ts
 t "approve-join.test.ts"         bun test run/helpers/__tests__/approve-join.test.ts
+t "board-cwds.test.ts"           bun test run/helpers/__tests__/board-cwds.test.ts
+t "install-chrome.test.ts"       bun test run/helpers/__tests__/install-chrome.test.ts
 t "build-golden --dry-run"       bash golden/build-golden.sh 26 --dry-run
 # A pause nobody can answer used to exit mute under set -e, killing the VM
 # through the EXIT trap after 15 minutes of provisioning, with the failure
@@ -74,6 +76,36 @@ t "approve-join.sh usage (missing args)" bash -c \
 t "walkthrough answers the guest's join request with approve-join.sh" bash -c \
   'grep -q "approve_watcher & APPROVE_PID" run/walkthrough.sh && grep -q "run/host/approve-join.sh" run/walkthrough.sh \
    && grep -q "join-waiting.req" run/guest/screens.sh && grep -q "join-approve.failed" run/guest/screens.sh'
+# A join with no mint HOME (an --invite-code-file run) is approved by the
+# team's owner by hand: the watcher says so and never fails the page.
+t "approve_watcher with no mint HOME asks for a hand approval, never a failure" bash -c '
+  rm -rf /tmp/vmcheck-aw; mkdir -p /tmp/vmcheck-aw/in /tmp/vmcheck-aw/logs; : > /tmp/vmcheck-aw/in/join-waiting.req
+  src=$(sed -n "/^approve_watcher()/,/^}/p" run/walkthrough.sh)
+  VM_RUN_DIR=/tmp/vmcheck-aw MINT_HOME= RT_FOR_MINT= SLUG=vmtest bash -c "$src""; approve_watcher"
+  rc=0; [ -e /tmp/vmcheck-aw/in/join-approve.manual ] && [ ! -e /tmp/vmcheck-aw/in/join-approve.failed ] \
+    && grep -q "approve it by hand" /tmp/vmcheck-aw/logs/approve.log || rc=1
+  rm -rf /tmp/vmcheck-aw; exit $rc'
+t "walkthrough stops the approval watcher with its whole process group before dropping the mint HOME" bash -c '
+  kill=$(grep -n "kill -- -\"\$APPROVE_PID\"" run/walkthrough.sh | tail -1 | cut -d: -f1)
+  drop=$(grep -n "^  mint_detach; drop_mint_home$" run/walkthrough.sh | tail -1 | cut -d: -f1)
+  [ -n "$kill" ] && [ -n "$drop" ] && [ "$kill" -lt "$drop" ] && grep -q "wait \"\$APPROVE_PID\"" run/walkthrough.sh'
+# The clean room gets Chrome and the extension the way a member's Mac has
+# them, before the app first launches; the extension id is the one rt names.
+t "walkthrough installs Chrome and the extension policy before launching the app" bash -c '
+  chrome=$(grep -n "^vm_phase_begin chrome$" run/walkthrough.sh | cut -d: -f1)
+  launch=$(grep -n "^vm_phase_begin launch$" run/walkthrough.sh | cut -d: -f1)
+  [ -n "$chrome" ] && [ -n "$launch" ] && [ "$chrome" -lt "$launch" ] \
+    && grep -q "install-chrome.sh. install" run/walkthrough.sh && grep -q "install-chrome.sh open" run/walkthrough.sh'
+t "walkthrough reads the extension id from rt's own store link" bash -c '
+  src=$(sed -n "/^fb_extension_id()/,/^}/p" run/walkthrough.sh)
+  want=$(sed -n "s|.*chromewebstore.google.com/detail/\([a-p]\{32\}\).*|\1|p" ../../lib/setup/validators/tools.ts | head -1)
+  got=$(VM_ROOT="$PWD" bash -c "$src""; fb_extension_id")
+  [ -n "$want" ] && [ "$got" = "$want" ]'
+t "screens.sh waits for the Fast Browser row to read ready, never skips it" bash -c \
+  'grep -q "FB_EXTENSION_WAIT_S" run/guest/screens.sh && ! grep -q "the walkthrough cannot add a Chrome extension" run/guest/screens.sh'
+t "walkthrough has the minted team track a repo and names it to the board assert" bash -c \
+  'grep -qF -- "--track \"\$TRACK_REPO\"" run/walkthrough.sh && grep -qF -- "--board-repo" run/walkthrough.sh \
+   && grep -q -- "--board-repo)" run/guest/assert-installed.sh && grep -q "jq/board-cwds.jq" run/guest/assert-installed.sh'
 t "drive-setup.sh walks Full Disk Access before Your team, and the Join page after it" bash -c \
   'grep -q "^screen_welcome; screen_full_disk_access; screen_team$" run/guest/drive-setup.sh \
    && grep -q "then screen_join; fi" run/guest/drive-setup.sh'

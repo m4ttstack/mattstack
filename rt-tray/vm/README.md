@@ -64,7 +64,10 @@ Facts a join run depends on:
   credential helper fed from the environment. The rt is the bundle under test
   (read from `--app`; from the zip beside the DMG when there is one, as in a
   rehearsal artifact; else from the DMG, attached read-only) unless `--mint-rt`
-  names another. The HOME is deleted when the phase ends, the code lands in
+  names another. The mint also makes the team track one repo (`--track`: the
+  `fixtures/team-minimal` repo, or `MATTSTACK_VMTEST_TRACK_REPO`), committed
+  in the clone before the publish, so the joiner has a board repo to place.
+  The HOME is kept until the screens phase ends (the approval reuses it), the code lands in
   `mint/invite-code.txt` (0600, redacted from `logs/mint.log`), and teardown
   deletes the repo as for create. Invitee and owner are the same account, so
   a `skipped` forge grant still clones.
@@ -81,21 +84,38 @@ Facts a join run depends on:
   the guest's `~/.mattstack/rt/teams/<slug>.json`, is a recipient in the
   clone's `.sops.yaml`. The page then has 300s to read `setup.join.approved`
   (`02c-join-approved`) before Continue. Only a `--fresh-team-repo` join has
-  a mint HOME; any other join writes `in/join-approve.failed` and the page
-  must be approved from the owner's Mac. The host's side is in
-  `logs/approve.log`.
+  a mint HOME; any other join (`--invite-code-file`) gets
+  `in/join-approve.manual`, and the page then waits up to
+  `JOIN_HAND_WAIT_S` (default 1800s) for the team's owner to run
+  `rt team members sync` on their Mac by hand, naming that in `drive.log`.
+  The host's side is in `logs/approve.log`; the watcher and any
+  approve-join.sh it started share one process group, stopped before the
+  mint HOME is deleted.
 - The assert phase runs `assert-installed.sh --join <slug>`: `rt team
   status` names the team, `run/guest/jq/join-rows.jq` requires
   `tool.plugins`, `access.team-repo` and any `team.marketplace` ready, and
-  each `access.repo.*` ready or a clear partial (a detail plus an action),
-  and when the team tracks a repo, `board.cwds` points review, respond and
-  doctor at one checkout.
+  each `access.repo.*` ready or a clear partial (a detail plus an action).
+  `run/guest/jq/board-cwds.jq` then requires all three `board.cwds` folders
+  to be the placed checkout of the board's repo (`--board-repo`, the tracked
+  repo, on a `--fresh-team-repo` run), and fails a team that tracks no repo
+  rather than passing it unchecked.
 - The checklist's Your repos rows hold Install now: `screen_readiness`
   accepts each unplaced `repos.place:*` row's one-click location before
   pressing the page's button.
+- The golden image has no Chrome, and Install needs it. The `chrome` phase,
+  after the app is copied and before it launches, runs
+  `run/guest/install-chrome.sh` as admin (the same sudo path the install
+  phase uses): it copies Google Chrome from Google's dmg into /Applications
+  and writes Chrome's `ExtensionInstallForcelist` policy to
+  `/Library/Managed Preferences/com.google.Chrome.plist` with the Fast
+  Browser extension id (read from the store link in
+  `lib/setup/validators/tools.ts`) and the Chrome Web Store update URL.
+  Then, as tester, it opens Chrome once and waits for the extension to land
+  in the profile (`logs/chrome.log`). Headless runs skip it.
 - The summary can only finish when nothing it cannot skip is left. The Fast
-  Browser extension can never be skipped, so a guest that reaches the summary
-  with that row open fails there by name. A step you can skip (Skill
+  Browser extension can never be skipped: the summary waits up to
+  `FB_EXTENSION_WAIT_S` (default 300s) for its row to read ready, bringing
+  the app back to the front to re-check it, and fails by name after that. A step you can skip (Skill
   overrides, Chrome sign-in, Mission Control shortcut) is skipped through
   `setup.done.skip.<id>` and the confirm sheet, and written to
   `logs/finish-gate.txt` as `<id>=skipped`; `assert-installed.sh` then
@@ -194,6 +214,7 @@ rt-tray/vm/
   golden/verify-golden.sh        host: asserts every golden property over ssh incl. the manual TCC grants
   run/walkthrough.sh             host orchestrator: clone → boot → stage → install → screens → assert → update → teardown → report
   run/guest/install-app.sh       guest: quarantine DMG, mount, copy to /Applications (admin) , launch as tester with env
+  run/guest/install-chrome.sh    guest: Google Chrome into /Applications + the extension force-install policy (admin), first open (tester)
   run/guest/ax.sh                guest: osascript helpers (find by AXIdentifier, click, type, wait, admin-auth, notification prompts)
   run/guest/drive-setup.sh       guest: every setup screen, Full Disk Access and the Join page included, + Login Items/Notifications dances, screenshot hooks
   run/guest/assert-installed.sh  guest: rt verify --json, tray.sock /version, daemon pid/label, symlink target, served apps, every .mattstack route
@@ -245,7 +266,7 @@ run/second-user.sh run --artifact ~/Downloads/mattstack-2.9.0.zip
 ```
 Today, the first line's `screens` phase and both lines' `update` phase report `fail`/`skip` honestly (see Status above). `--scenario headless` (line 2) is no longer blocked by anything known, but no scenario has yet been run end to end against a golden image, so none is *known* green either. `--dry-run` exercises the whole orchestrator (phase ledger, report) against any golden name without Tart or a real DMG/app.
 
-Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `01b-full-disk-access`, `01c-fda-toggled`, `01d-fda-reopen`, `02-team-*`, `02a-join-token`, `02b-join-waiting`, `02c-join-approved`, `03-readiness-*`, `04-install-*`, `05-done`, `05-skip-<id>`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
+Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · chrome · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `01b-full-disk-access`, `01c-fda-toggled`, `01d-fda-reopen`, `02-team-*`, `02a-join-token`, `02b-join-waiting`, `02c-join-approved`, `03-readiness-*`, `04-install-*`, `05-done`, `05-skip-<id>`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
 
 Every host-to-guest ssh sends keepalives (`ServerAliveInterval=10`, `ServerAliveCountMax=3`), so a session whose guest end vanished fails its phase in about 30s as `ssh to the guest failed or dropped after <n>s in <phase> (exit 255)`. The screens, team-upgrade and update scripts run through `vm_guest_run`, which writes their output and exit code into the share (`logs/screens.log`, `logs/upgrade.log`, `logs/update.log`, each with a `.rc` beside it): when only the channel drops, the phase waits for the script's own code instead, and fails as a drop only if none arrives by the phase limit. Each phase also has a wall-clock limit: 20 minutes by default, 90 for screens, 60 for team-upgrade, 30 for update, 10 for the invite mint and for teardown's log collection; `VM_PHASE_LIMIT_<PHASE>=<seconds>` overrides one (dashes become underscores). A phase that reaches it fails as `<phase> timed out after <n>s (limit <n>s)`. Both reasons end with the last lines of the phase's log (`logs/drive.log` for the driven screens). Teardown runs after either, and after SIGINT, SIGTERM or SIGHUP, which ledger the phase they interrupted as failed: it collects guest logs, stops and deletes the guest, deletes the `--fresh-team-repo` repo, and records anything it left behind in its own `teardown` row.
 

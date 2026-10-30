@@ -90,6 +90,12 @@ exit 0
   // path baked into it here.
   stub("rt-mint", `echo "rt-mint $* HOME=$HOME" >> "$ROOT/calls"
 case "$1 $2" in
+  "team create")
+    mkdir -p "$HOME/.mattstack/orgs/vmtest" && /usr/bin/git -C "$HOME/.mattstack/orgs/vmtest" init -q
+    echo '{"contract":1}';;
+  "settings set")
+    printf '%s\\n' "$4" > "$HOME/.mattstack/orgs/vmtest/tracking.json"
+    echo '{"contract":1}';;
   "team invite")
     [ "${opts.mint ?? "ok"}" = fails ] && { echo '{"error":{"code":"relay-down","message":"the invite relay answered 503"}}'; exit 2; }
     echo '{"contract":1,"code":"VMTEST-CODE","forgeAccess":"skipped"}';;
@@ -316,6 +322,7 @@ describe("walkthrough.sh --scenario join --fresh-team-repo mints the invite on t
     const mintCalls = calls(w).split("\n").filter((l) => l.startsWith("rt-mint "));
     expect(mintCalls.map((l) => l.replace(/ HOME=.*$/, ""))).toEqual([
       expect.stringMatching(/^rt-mint team create vmtest --remote https:\/\/github\.com\/mattstack-vmtest\/mattstack-vmtest-team-\S+\.git --others --json$/),
+      expect.stringMatching(/^rt-mint settings set mattstack\.tracking \{"repos":\{"[^"]+":\{"caches":\["branches"\]\}\}\} --scope team --team vmtest$/),
       "rt-mint team publish --team vmtest --json",
       "rt-mint team invite --handle vmtest-joiner --team vmtest --json",
     ]);

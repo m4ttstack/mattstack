@@ -452,7 +452,35 @@ join_page ready
 count_join_continue() { grep -c "click:setup.join.continue" "$P/calls" || true; }
 check "Join: a host that could not approve fails the page, and Continue is never pressed" \
   '[ "$rc" -ne 0 ] && [ "$(count_join_continue)" = 0 ] && grep -q "the host could not approve the join" "$AX_LOG"'
+# With no mint HOME the host cannot approve: it says so, and the page waits
+# for a hand approval (the model's admin approves after a few looks).
+HOST_ANSWER=manual; HAND_LOOKS=0
+host_turn() {
+  if [ -e "$GUEST_RUN/in/join-waiting.req" ]; then
+    rm -f "$GUEST_RUN/in/join-waiting.req"; : > "$GUEST_RUN/in/join-approve.$HOST_ANSWER"
+    [ "$HOST_ANSWER" = done ] && pset join approved
+  fi
+  if [ "$HOST_ANSWER" = manual ] && [ -e "$GUEST_RUN/in/join-approve.manual" ] && [ "$HAND_AFTER" -ge 0 ]; then
+    HAND_LOOKS=$((HAND_LOOKS + 1)); [ "$HAND_LOOKS" -gt "$HAND_AFTER" ] && pset join approved
+  fi
+  return 0
+}
+HAND_AFTER=5; JOIN_HAND_WAIT_S=600
+join_page ready
+check "Join: with no mint HOME the page waits for a hand approval, then Continues" \
+  '[ "$rc" -eq 0 ] && [ "$(pget screen)" = checklist ] && grep -q "approve this join by hand" "$AX_LOG"'
+HAND_AFTER=-1; JOIN_HAND_WAIT_S=30
+join_page ready
+check "Join: a hand approval that never comes fails within its bound, naming the hand approval" \
+  '[ "$rc" -ne 0 ] && [ "$(count_join_continue)" = 0 ] && grep -q "not approved by hand within 30s" "$AX_LOG"'
 HOST_ANSWER=done
+host_turn() {
+  [ -e "$GUEST_RUN/in/join-waiting.req" ] || return 0
+  rm -f "$GUEST_RUN/in/join-waiting.req"
+  : > "$GUEST_RUN/in/join-approve.$HOST_ANSWER"
+  [ "$HOST_ANSWER" = done ] && pset join approved
+  return 0
+}
 PAT=""
 join_page token
 check "Join: a page that asks for the token with no token on the host fails before pressing anything" \

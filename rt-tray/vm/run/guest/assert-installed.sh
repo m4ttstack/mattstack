@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assert the installed state in the guest, through rt and tray.sock (never UI text).
-# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted] [--solo] [--join <team slug>]
+# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted] [--solo] [--join <team slug> [--board-repo <host/path>]]
 #
 # --expect-untrusted is the declined-certificate scenario: the install ran, the
 # user said no to macOS's trust prompt, and the claim under test is that the
@@ -13,11 +13,14 @@
 # --join is the invite scenario: the team named by the slug is cloned, and
 # the rows a join produces (team plugins, the team repo, the team
 # marketplace, every tracked repo) are ready or a clear partial.
+# All three board.cwds folders must be the placed checkout of the board's
+# repo (--board-repo names it; else the row carrying the board line), and a
+# team that tracks no repo fails rather than passing unchecked.
 set -uo pipefail
 GUEST_RUN="${GUEST_RUN:-/Volumes/My Shared Files/run}"; LOGS="$GUEST_RUN/logs"
 mkdir -p "$LOGS" || { echo "assert-installed.sh: cannot write $LOGS" >&2; exit 2; }
-EXPECT=""; HEADLESS=0; UNTRUSTED=0; SOLO=0; JOIN_SLUG=""
-while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; --solo) SOLO=1; shift;; --join) [ -n "${2:-}" ] || { echo "assert-installed.sh: --join needs a team slug" >&2; exit 2; }; JOIN_SLUG="$2"; shift 2;; *) shift;; esac; done
+EXPECT=""; HEADLESS=0; UNTRUSTED=0; SOLO=0; JOIN_SLUG=""; BOARD_REPO=""
+while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; --solo) SOLO=1; shift;; --join) [ -n "${2:-}" ] || { echo "assert-installed.sh: --join needs a team slug" >&2; exit 2; }; JOIN_SLUG="$2"; shift 2;; --board-repo) BOARD_REPO="${2:-}"; shift 2;; *) shift;; esac; done
 export PATH="$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 fails=0
 ok()   { echo "ASSERT ok   $1"; }
@@ -71,16 +74,15 @@ if [ -n "$JOIN_SLUG" ]; then
       *)   bad "join-rows.jq printed an unexpected line: $kind $msg";;
     esac
   done <<< "$JOIN_VERDICT"
-  # Install points all three of the board's folders at the board's repo.
-  if "$JQ" -e '[.groups[]?.rows[]? | select(.id | startswith("repos.place:"))] | length == 0' "$LOGS/setup-status-join.json" >/dev/null 2>&1; then
-    ok "join: the team tracks no repo, so board.cwds is not asserted"
-  else
-    rt settings get board.cwds --json 2>/dev/null | tail -1 > "$LOGS/board-cwds.json"
-    CWDS=$("$JQ" -r '[.value.review, .value.respond, .value.doctor] | map(. // "") | unique | if length == 1 then .[0] else "" end' "$LOGS/board-cwds.json" 2>/dev/null)
-    CWDS_PATH="${CWDS/#\~/$HOME}"
-    if [ -n "$CWDS" ] && [ -e "$CWDS_PATH/.git" ]; then ok "join: board.cwds points review, respond and doctor at the checkout $CWDS"
-    else bad "join: board.cwds is not one checkout for review, respond and doctor (logs/board-cwds.json)"; fi
-  fi
+  # Install points all three of the board's folders at the placed checkout of the board's repo.
+  rt settings get board.cwds --json 2>/dev/null | tail -1 > "$LOGS/board-cwds.json"
+  CWDS_JSON=$(cat "$LOGS/board-cwds.json" 2>/dev/null); "$JQ" -e . >/dev/null 2>&1 <<< "$CWDS_JSON" || CWDS_JSON='{}'
+  BOARD_VERDICT=$("$JQ" -r --argjson cwds "$CWDS_JSON" --arg want "$BOARD_REPO" --arg home "$HOME" \
+      -f "$(cd "$(dirname "$0")" && pwd)/jq/board-cwds.jq" "$LOGS/setup-status-join.json" 2>&1) \
+    || BOARD_VERDICT="bad"$'\t'"board-cwds.jq failed: $(printf '%s' "$BOARD_VERDICT" | tr '\n' ' ' | head -c 200)"
+  while IFS=$'\t' read -r kind msg; do
+    case "$kind" in ok) ok "join: $msg";; *) bad "join: $msg (logs/board-cwds.json)";; esac
+  done <<< "$BOARD_VERDICT"
 fi
 
 # tray.sock /version

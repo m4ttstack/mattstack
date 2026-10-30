@@ -3,16 +3,18 @@
 # remote, push it, and mint an invite for the joiner, all under a throwaway
 # HOME so nothing reads or writes the operator's own ~/.mattstack or keychain.
 # Usage: mint-invite.sh --rt <rt binary> --home <empty vm-mint.* dir> --remote <url> --out <file>
-#          [--slug vmtest] [--handle <forge user>] [--forge github|gitlab]
+#          [--slug vmtest] [--handle <forge user>] [--forge github|gitlab] [--track <host/path>]
+# --track makes the team track that repo, so the joiner places it, Install
+# points the board at it, and the assert can check board.cwds.
 # The forge token comes from $VM_MINT_TOKEN, never argv. The code lands in
 # --out (0600) and is never echoed.
 set -uo pipefail
 source "$(cd "$(dirname "$0")/../.." && pwd)/lib/common.sh"
 
-RT_BIN=""; MINT_HOME=""; REMOTE=""; OUT=""; SLUG=vmtest; HANDLE=""; FORGE=""
+RT_BIN=""; MINT_HOME=""; REMOTE=""; OUT=""; SLUG=vmtest; HANDLE=""; FORGE=""; TRACK=""
 while [ $# -gt 0 ]; do case "$1" in
   --rt) RT_BIN="$2"; shift 2;; --home) MINT_HOME="$2"; shift 2;; --remote) REMOTE="$2"; shift 2;;
-  --out) OUT="$2"; shift 2;; --slug) SLUG="$2"; shift 2;; --handle) HANDLE="$2"; shift 2;; --forge) FORGE="$2"; shift 2;;
+  --out) OUT="$2"; shift 2;; --slug) SLUG="$2"; shift 2;; --handle) HANDLE="$2"; shift 2;; --forge) FORGE="$2"; shift 2;; --track) TRACK="$2"; shift 2;;
   *) vm_die "unknown arg $1";; esac; done
 [ -n "$RT_BIN" ] && [ -n "$MINT_HOME" ] && [ -n "$REMOTE" ] && [ -n "$OUT" ] || { sed -n '5,6p' "$0" >&2; exit 2; }
 [ -x "$RT_BIN" ] || vm_die "no executable rt at $RT_BIN"
@@ -74,6 +76,15 @@ step() {  # <label> <rt args...>
 }
 
 step "rt team create" team create "$SLUG" --remote "$REMOTE" --others --json >/dev/null
+if [ -n "$TRACK" ]; then
+  step "rt settings set mattstack.tracking" settings set mattstack.tracking "$(jq -cn --arg r "$TRACK" '{repos: {($r): {caches: ["branches"]}}}')" --scope team --team "$SLUG" >/dev/null
+  # No daemon runs under this HOME to commit the write, and publish pushes only commits.
+  ( cd "$MINT_HOME/.mattstack/orgs/$SLUG" && env -i HOME="$MINT_HOME" PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 \
+      git -c user.name="mattstack vmtest owner" -c user.email=vmtest-owner@mattstack.invalid add -A \
+    && env -i HOME="$MINT_HOME" PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 \
+      git -c user.name="mattstack vmtest owner" -c user.email=vmtest-owner@mattstack.invalid commit -q -m "team: track $TRACK" ) >>"$LOG" 2>&1 \
+    || vm_die "could not commit the tracked repo in the team clone (logs/mint.log)"
+fi
 step "rt team publish" team publish --team "$SLUG" --json >/dev/null
 INVITE=$(step "rt team invite" team invite --handle "$HANDLE" --team "$SLUG" --json) || exit 1
 CODE=$(printf '%s' "$INVITE" | jq -r '.code // empty')
