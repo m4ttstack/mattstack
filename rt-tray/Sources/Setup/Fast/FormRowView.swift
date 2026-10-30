@@ -61,7 +61,11 @@ struct FormRowView: View {
 
     @ViewBuilder private var trailing: some View {
         if let action = row.action, let options = FormRowChoice.segments(action) {
-            FormRowChoice(row: row, action: action, options: options, onAction: onAction)
+            HStack(spacing: 12) {
+                status
+                FormRowChoice(row: row, action: action, options: options, disabled: row.state == .busy || waiting != nil,
+                              error: error, onAction: onAction)
+            }
         } else if let action = row.action, FormRowFields.collects(action) {
             VStack(alignment: .trailing, spacing: 8) {
                 status
@@ -82,7 +86,7 @@ struct FormRowView: View {
                 Text(line).font(.callout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: 320, alignment: .trailing)
+            .modifier(CappedWidth(max: 320))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
         } else if row.state == .done {
@@ -92,9 +96,9 @@ struct FormRowView: View {
                     Text(row.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
             }
-            .frame(maxWidth: 300, alignment: .trailing)
+            .modifier(CappedWidth(max: 300))
             .accessibilityElement(children: .combine)
-            .accessibilityIdentifier(AXID.fastRow(row.id) + ".done")
+            .accessibilityIdentifier(AXID.fastRowDone(row.id))
         }
     }
 
@@ -224,6 +228,8 @@ struct FormRowChoice: View {
     let row: FormRow
     let action: RowAction
     let options: [ChooseOption]
+    let disabled: Bool
+    let error: String?
     let onAction: FormRowPerform
     @State private var shown: String
 
@@ -233,8 +239,9 @@ struct FormRowChoice: View {
         return options
     }
 
-    init(row: FormRow, action: RowAction, options: [ChooseOption], onAction: @escaping FormRowPerform) {
-        self.row = row; self.action = action; self.options = options; self.onAction = onAction
+    init(row: FormRow, action: RowAction, options: [ChooseOption], disabled: Bool, error: String?, onAction: @escaping FormRowPerform) {
+        self.row = row; self.action = action; self.options = options
+        self.disabled = disabled; self.error = error; self.onAction = onAction
         _shown = State(initialValue: action.selected ?? "")
     }
 
@@ -248,9 +255,32 @@ struct FormRowChoice: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .fixedSize()
-        .disabled(row.state == .busy)
+        .disabled(disabled)
         .accessibilityIdentifier(AXID.fastRowAction(row.id))
         .onChange(of: action.selected) { _, selected in if let selected { shown = selected } }
+        // A refused pick puts the segment back on what rt has recorded.
+        .onChange(of: error) { _, error in if error != nil { shown = action.selected ?? "" } }
+    }
+}
+
+/// Takes only the width its content needs, up to `max`: a short line leaves the
+/// subtext its room and a long one wraps. A `maxWidth` frame would claim all of `max`.
+struct CappedWidth: ViewModifier {
+    let max: CGFloat
+    func body(content: Content) -> some View { CappedWidthLayout(max: max) { content } }
+}
+
+private struct CappedWidthLayout: Layout {
+    let max: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return child.sizeThatFits(ProposedViewSize(width: Swift.min(proposal.width ?? max, max), height: nil))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing,
+                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 
@@ -271,6 +301,6 @@ enum FormRowPlan {
 }
 
 extension RowIDs {
-    static let fast = RowIDs(row: AXID.fastRow, action: { AXID.fastRowAction($0) }, status: { AXID.fastRow($0) + ".status" },
-                             segment: { AXID.fastRow($0) + ".segment" }, oneClick: { AXID.fastRowAction($0, "oneClick") })
+    static let fast = RowIDs(row: AXID.fastRow, action: { AXID.fastRowAction($0) }, status: AXID.fastRowStatus,
+                             segment: AXID.fastRowSegment, oneClick: { AXID.fastRowAction($0, "oneClick") })
 }

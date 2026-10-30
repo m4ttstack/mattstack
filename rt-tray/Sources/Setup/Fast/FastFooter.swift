@@ -28,7 +28,7 @@ struct FastFooter: View {
                     .accessibilityIdentifier(AXID.fastPrimary(screen))
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 12)
+        .padding(.horizontal, 24).padding(.vertical, 12)
         .overlay(alignment: .top) { Divider() }
     }
 }

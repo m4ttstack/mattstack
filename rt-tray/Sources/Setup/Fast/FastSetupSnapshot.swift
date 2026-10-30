@@ -57,6 +57,8 @@ enum FastSetupSnapshot {
             ("rows-choose", card([Rows.backup, Rows.remote])),
             ("rows-repo", card([Rows.repo, Rows.repoClone], title: "Your repos")),
             ("rows-folder", card([Rows.repoRoot])),
+            ("rows-done-action", card([Rows.repoRootLong])),
+            ("rows-choose-waiting", card([Rows.backup], waiting: [Rows.backup.id: "Saving…"])),
             ("card-connect", AnyView(connectScreen)),
             ("footer-ready", AnyView(FastFooter(screen: "this-mac", note: "About 10 minutes once you start",
                                                 secondary: ("Back", {}), primary: ("Set up this Mac", true, {})))),
@@ -129,6 +131,10 @@ enum FastSetupSnapshot {
         static let repoRoot = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
                                       detail: "~/Documents/GitHub",
                                       action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "~/Documents/GitHub"))
+        static let repoRootLong = FormRow(id: "repos.root", title: "Your repos",
+                                          subtext: "Where new clones go. Every repo mattstack clones for you lands in this folder, and you can move it later",
+                                          state: .done, detail: "~/Documents/GitHub",
+                                          action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "~/Documents/GitHub"))
     }
     #endif
 }
