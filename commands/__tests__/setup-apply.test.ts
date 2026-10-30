@@ -1071,7 +1071,7 @@ describe("setup apply --json bytes", () => {
       const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done", detail: "ok" })], json: realJson });
       await setupApply(["--json"], {}, deps);
       expect(cap.stdout()).toBe(
-        '{"event":"plan","steps":[{"id":"path.link","title":"path.link","kind":"rt"}]}\n' +
+        '{"event":"plan","steps":[{"id":"path.link","title":"path.link","kind":"rt","phase":"Setting up rt","weight":1,"paused":"Couldn\'t set up rt"}]}\n' +
           '{"event":"step","id":"path.link","state":"running"}\n' +
           '{"event":"step","id":"path.link","state":"done","detail":"ok"}\n' +
           '{"event":"done","ok":true}\n',
