@@ -152,8 +152,7 @@ test("uninstall real run streams every v1 action id, the two need events, and ho
   expect(del.lines.at(-1)).toMatchObject({ event: "done", ok: true });
 });
 
-// The finish-gate scenario's shape is a contract with
-// mattstackUITests.testFinishGateSkipEnablesFinish.
+// The finish-gate scenario's shapes mirror rt's finish-gated rows and waive verbs.
 const EXTENSION = "tool.fast-browser-extension";
 const MISSION_CONTROL = "tool.mission-control";
 const WAIVED_NOTE = "Skipped on this Mac: Control+Up stays with Mission Control.";
@@ -165,7 +164,7 @@ test("finish-gate: the extension row is rt's Add to Chrome, finish-gated and nev
   const row = rowById(plan.lines[0], EXTENSION)!;
   expect(row).toMatchObject({ finishGated: true, waivable: false, waived: false, required: false });
   expect(row.action).toEqual({ type: "open-url", label: "Add to Chrome", url: "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm",
-                               primary: true, waiting: "Waiting for Chrome", again: "Open again" });
+                               primary: true, waiting: "Waiting for Chrome…", again: "Open again" });
   const refused = await run("finish-gate", ["setup", "waive", EXTENSION, "--json"], "", state);
   expect(refused.code).toBe(2);
   expect(refused.lines[0].error.code).toBe("not-waivable");
@@ -446,9 +445,125 @@ test("join-status answers waiting, then approved", async () => {
   const second = await run("join", ["setup", "join-status", "--json"], "", dir);
   expect(second.lines[0].state).toBe("approved");
   expect(second.lines[0].since).toBeNull();
-  const happy = await run("join-happy", ["setup", "join-status", "--json"]);
-  expect(happy.lines[0].state).toBe("approved");
+  const quick = await run("join-team-accounts", ["setup", "join-status", "--json"]);
+  expect(quick.lines[0].state).toBe("approved");
   const creator = await run("create-happy", ["setup", "join-status", "--json"]);
   expect(creator.code).toBe(2);
   expect(creator.lines[0].error.code).toBe("no-join");
+});
+
+const FORM_KEYS = ["path", "team", "stage", "sections", "continueReady", "startReady", "paused", "home"].sort();
+const ROW_KEYS = ["id", "title", "subtext", "state", "detail", "action", "waiting", "watch", "optional"].sort();
+type StubRow = { id: string; state: string; watch: boolean; action: { verb?: string[] } | null };
+type StubForm = { stage: string | null; sections: Record<string, StubRow[]>; continueReady: boolean; startReady: boolean; paused: unknown; home: unknown };
+
+async function form(dir: string, section?: string): Promise<StubForm> {
+  const res = await run("join-happy", ["setup", "form", ...(section ? ["--section", section] : []), "--json"], "", dir);
+  expect(res.code).toBe(0);
+  const { contract, at: _at, ...body } = res.lines[0];
+  expect(contract).toBe(1);
+  expect(Object.keys(body).sort()).toEqual(FORM_KEYS);
+  for (const rows of Object.values(body.sections as Record<string, StubRow[]>)) {
+    for (const row of rows) expect(Object.keys(row).sort()).toEqual(ROW_KEYS);
+  }
+  return body as StubForm;
+}
+
+test("setup form walks the join scenario's stages", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const stages: string[] = [];
+  const stage = async () => {
+    const s = (await form(dir)).stage!;
+    if (stages.at(-1) !== s) stages.push(s);
+    return s;
+  };
+
+  const first = await form(dir);
+  expect(first.home).toEqual({ label: "Open the board", url: "https://board.mattstack" });
+  expect(Object.keys(first.sections).sort()).toEqual(["connect", "invite", "macos", "restore", "thisMac"]);
+  await stage();
+  const fancy = (await form(dir, "macos")).sections.macos!.find((r) => r.id === "mac.fancy-urls")!;
+  expect(fancy.state).toBe("todo");
+  await run("join-happy", [...fancy.action!.verb!, "--json"], "", dir);
+  expect((await form(dir, "macos")).sections.macos!.every((r) => r.state === "done")).toBe(true);
+  await stage();
+
+  await run("join-happy", ["team", "join", "--dry-run", "--json"], JSON.stringify({ code: "ABCD-EFGH" }), dir);
+  await stage();
+  await run("join-happy", ["setup", "apply", "--only", "team.join", "--json"], "", dir);
+  expect((await run("join-happy", ["setup", "join-status", "--json"], "", dir)).lines[0].state).toBe("waiting");
+  await stage();
+  expect((await run("join-happy", ["setup", "join-status", "--json"], "", dir)).lines[0].state).toBe("approved");
+  expect(await stage()).toBe("connect");
+
+  const connect = await form(dir, "connect");
+  expect(connect.stage).toBeNull();
+  expect(connect.continueReady).toBe(false);
+  for (const row of connect.sections.connect!.filter((r) => r.state !== "done")) {
+    await run("join-happy", [...row.action!.verb!, "--json"], "", dir);
+  }
+  const claude = (await form(dir, "connect")).sections.connect!.find((r) => r.id === "claude")!;
+  expect(claude).toMatchObject({ state: "waiting", watch: true });
+  expect((await form(dir, "connect")).continueReady).toBe(true);
+  expect(await stage()).toBe("this-mac");
+
+  expect((await form(dir, "this-mac")).startReady).toBe(true);
+  const applied = await run("join-happy", ["setup", "apply", "--resume", "--unattended", "--json"], "", dir);
+  expect(applied.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
+  await stage();
+  expect(stages).toEqual(["macos", "path", "invite", "waiting", "connect", "this-mac", "ready"]);
+});
+
+test("setup form reads running while an apply holds the run, and paused with what failed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const read = async () => (await run("apply-fail-retry", ["setup", "form", "--json"], "", dir)).lines[0];
+  for (const key of ["proxy-installed", "path-join", "team-joined", "join-status-calls", "slack-connected","claude-connect-calls"]) writeFileSync(join(dir, key), "2");
+  writeFileSync(join(dir, "run-live"), "1");
+  expect((await read()).stage).toBe("running");
+  await run("apply-fail-retry", ["setup", "apply", "--resume", "--unattended", "--json"], "", dir);
+  const paused = await read();
+  expect(paused.stage).toBe("paused");
+  expect(paused.paused).toEqual({ step: "plugins.install", title: "Couldn't install Claude plugins", detail: "claude plugin install exited 1",
+    remedy: "Open Claude Code once so it finishes first-run, then Retry.", log: ["plugins.install: working…"], action: null });
+  await run("apply-fail-retry", ["setup", "apply", "--from", "plugins.install", "--json"], "", dir);
+  expect((await read()).stage).toBe("ready");
+});
+
+test("setup form --section create answers only the create rows for the forge it names", async () => {
+  const res = await run("create-happy", ["setup", "form", "--section", "create", "--forge", "gitlab", "--json"]);
+  expect(res.lines[0].stage).toBeNull();
+  expect(Object.keys(res.lines[0].sections)).toEqual(["create"]);
+  expect(res.lines[0].sections.create[0]).toMatchObject({ id: "forge.token", title: "GitLab", state: "done" });
+});
+
+test("apply --resume streams phases and ends ok", async () => {
+  const res = await run("join-happy", ["setup", "apply", "--resume", "--unattended", "--json"]);
+  const plan = res.lines[0];
+  expect(plan.event).toBe("plan");
+  for (const step of plan.steps) {
+    expect(typeof step.phase).toBe("string");
+    expect(step.weight).toBeGreaterThan(0);
+    expect(step.paused).toStartWith("Couldn't ");
+  }
+  expect(plan.steps.find((s: { id: string }) => s.id === "repos.clone")).toMatchObject({ phase: "Cloning your repos", weight: 10 });
+  expect(res.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
+});
+
+test("prepare answers what it installed", async () => {
+  const macos = await run("join-happy", ["setup", "prepare", "macos", "--json"]);
+  expect(macos.code).toBe(0);
+  expect(macos.lines[0]).toMatchObject({ contract: 1, stage: "macos", installed: ["apple-clt"], failed: [] });
+  const accounts = await run("join-happy", ["setup", "prepare", "accounts", "--json"]);
+  expect(accounts.lines[0]).toMatchObject({ stage: "accounts", installed: ["claude", "herdr"], failed: [] });
+  const bad = await run("join-happy", ["setup", "prepare", "later", "--json"]);
+  expect(bad.code).toBe(2);
+  expect(bad.lines[0].error.code).toBe("bad-stage");
+});
+
+test("setup claude connect answers needs-you, then ready", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const first = await run("join-happy", ["setup", "claude", "connect", "--json"], "", dir);
+  expect(first.lines[0]).toMatchObject({ integration: "claude", status: "needs-you", detail: "Finish signing in in your browser" });
+  const second = await run("join-happy", ["setup", "claude", "connect", "--json"], "", dir);
+  expect(second.lines[0]).toMatchObject({ integration: "claude", status: "ready" });
 });

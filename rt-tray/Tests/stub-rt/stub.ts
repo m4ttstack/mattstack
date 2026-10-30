@@ -14,7 +14,13 @@ import { writingStyleRow as buildWritingStyleRow } from "../../../lib/setup/vali
 import { AFTER_INSTALL_ROW } from "../../../lib/setup/plan.ts";
 import { isFinishGatedRowId, WAIVABLE_ROW_IDS } from "../../../lib/setup/contract.ts";
 import { WAIVED_NOTES } from "../../../lib/setup/finish-gate.ts";
-import { FAST_BROWSER_ADD_ACTION } from "../../../lib/setup/validators/tools.ts";
+import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION } from "../../../lib/setup/validators/tools.ts";
+import { allAnswered, FORM_COPY, FORM_SECTIONS, homeApp, macosRows, type FormPath, type FormRow, type FormSection, type FormStage, type SetupForm } from "../../../lib/setup/form.ts";
+import type { Row, StepId } from "../../../lib/setup/contract.ts";
+import { FINISH_IN_BROWSER } from "../../../lib/setup/cli-login.ts";
+import { FANCY_URLS_DETAIL } from "../../../lib/setup/fancy-urls.ts";
+import { STEP_PHASES } from "../../../lib/setup/run-phases.ts";
+import { PREPARE_STAGES } from "../../../lib/setup/prepare-record.ts";
 
 const scenario = process.env.RT_STUB_SCENARIO ?? "join-happy";
 const stateDir = process.env.RT_STUB_STATE_DIR ?? join(import.meta.dir, ".state", scenario);
@@ -297,20 +303,27 @@ async function apply() {
   const steps = onlyId ? STEPS.filter((s) => s[0] === onlyId) : STEPS.slice(start < 0 ? 0 : start);
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const line = (o: unknown) => process.stdout.write(JSON.stringify(o) + "\n");
-  line({ event: "plan", steps: steps.map(([id, title, kind]) => ({ id, title, kind })) });
+  // An --only run is a row's own fix, never the run the bar follows.
+  const holdsRun = !onlyId;
+  if (onlyId === "proxy.install") stateSet("proxy-installed", 1);
+  if (onlyId === "team.join") stateSet("team-joined", 1);
+  if (holdsRun) stateSet("run-live", 1);
+  line({ event: "plan", steps: steps.map(([id, title, kind]) => ({ id, title, kind, ...STEP_PHASES[id as StepId] })) });
   for (const [id, , kind] of steps) {
     line({ event: "step", id, state: "running" });
     await sleep(120);
+    const log = `${id}: working…`;
     if (kind === "app") {
       line({ event: "need", id, request: { type: "app-register-services", plists: ["com.mattstack.daemon.plist", "com.mattstack.deck.plist"] } });
     } else if (kind === "privileged") {
       line({ event: "need", id, request: { type: "app-privileged", op: "proxy-install" } });
     } else {
-      line({ event: "log", id, line: `${id}: working…` });
+      line({ event: "log", id, line: log });
     }
     if (scenario === "apply-fail-retry" && id === "plugins.install" && stateBump("plugins-attempts") === 1) {
-      line({ event: "step", id, state: "failed", detail: "claude plugin install exited 1",
-             remedy: "Open Claude Code once so it finishes first-run, then Retry." });
+      const failed = { step: id, detail: "claude plugin install exited 1", remedy: "Open Claude Code once so it finishes first-run, then Retry.", log: [log] };
+      line({ event: "step", id, state: "failed", detail: failed.detail, remedy: failed.remedy });
+      if (holdsRun) endRun(failed);
       line({ event: "done", ok: false, failedStep: id });
       return;
     }
@@ -324,15 +337,31 @@ async function apply() {
     line({ event: "step", id, state: "done", detail: kind === "rt" ? "ok" : "done by the app" });
   }
   stateSet("applied", 1);
+  if (holdsRun) endRun(null);
   line({ event: "done", ok: true, failedStep: null });
 }
 
-// The join scenario waits on the admin at its first check and is approved
-// from the second; every other joiner is approved at once, so the walks
-// that join never stop on the wait.
+type RunFailure = { step: string; detail: string; remedy: string; log: string[] };
+const RUN_FAILED = "run-failed.json";
+
+function endRun(failed: RunFailure | null): void {
+  stateSet("run-live", 0);
+  stateSet("run-ok", failed ? 0 : 1);
+  writeFileSync(join(stateDir, RUN_FAILED), JSON.stringify(failed));
+}
+
+function runFailure(): RunFailure | null {
+  const p = join(stateDir, RUN_FAILED);
+  return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+}
+
+// The join scenarios wait on the admin at their first check and are approved
+// from the second, so the fast-setup walk passes through the wait; every
+// other joiner is approved at once.
+const WAITING_JOINS = ["join", "join-happy"];
 function joinStatus(): unknown {
   if (["create-happy", "restore", "solo"].includes(scenario)) fail("no-join", "This Mac has not joined a team");
-  const approved = scenario !== "join" || stateBump("join-status-calls") > 1;
+  const approved = !WAITING_JOINS.includes(scenario) || stateBump("join-status-calls") > 1;
   return {
     team: { slug: "acme", name: "Acme" },
     state: approved ? "approved" : "waiting",
@@ -342,13 +371,141 @@ function joinStatus(): unknown {
   };
 }
 
+// Fast setup: `setup form` walks the scenario off the verbs the app has
+// already run, which each leave a mark in the state dir.
+const PATHS: readonly FormPath[] = ["join", "create", "solo", "restore"];
+function choosePath(path: FormPath): void {
+  for (const p of PATHS) stateSet(`path-${p}`, p === path ? 1 : 0);
+}
+function chosenPath(): FormPath | null {
+  return PATHS.find((p) => stateGet(`path-${p}`) > 0) ?? null;
+}
+
+const formRow = (r: Omit<FormRow, "waiting" | "watch" | "optional"> & Partial<Pick<FormRow, "waiting" | "watch" | "optional">>): FormRow =>
+  ({ waiting: null, watch: false, optional: false, ...r });
+const TOKEN_SUBTEXT = FORM_COPY.invite.tokenSubtext("github");
+
+function macosSection(): FormRow[] {
+  const granted = scenario !== "perm-denied-then-granted" || stateBump("plan-calls") >= 3;
+  const fda = { id: "perm.fda", status: granted ? "ready" : "needs-you", detail: granted ? "Granted" : "Not granted" } as Row;
+  const fancy = stateGet("proxy-installed") > 0;
+  return macosRows({
+    permissions: [fda],
+    notifications: "authorized",
+    fancyUrls: { state: fancy ? "done" : "todo", detail: fancy ? FANCY_URLS_DETAIL.done : FANCY_URLS_DETAIL.noProxy, brewMissing: false },
+  });
+}
+
+function inviteSection(): FormRow[] {
+  return [formRow({ id: "forge.token", title: "GitHub", subtext: TOKEN_SUBTEXT, state: "done", detail: FORM_COPY.invite.connectedAs("janedoe"), action: null })];
+}
+
+function createSection(forge: "github" | "gitlab"): FormRow[] {
+  return [formRow({ id: "forge.token", title: forge === "gitlab" ? "GitLab" : "GitHub", subtext: FORM_COPY.invite.tokenSubtext(forge),
+                    state: "done", detail: FORM_COPY.invite.connectedAs("janedoe"), action: null })];
+}
+
+// One `claude connect` answers needs-you and leaves the row waiting; the
+// second read after it sees the sign-in land, as rt does once the browser finishes.
+function claudeRow(): FormRow {
+  const c = FORM_COPY.connect.claude;
+  const base = { id: "claude", title: c.title, subtext: c.subtext, watch: true };
+  const calls = stateGet("claude-connect-calls");
+  const signedIn = calls >= 2 || (calls === 1 && stateBump("claude-waiting-reads") >= 2);
+  if (signedIn) return formRow({ ...base, state: "done", detail: "Signed in as janedoe@example.com", action: null });
+  if (calls === 1) return formRow({ ...base, state: "waiting", detail: FINISH_IN_BROWSER, action: null });
+  return formRow({ ...base, state: "todo", detail: "Not signed in yet", action: CLAUDE_SIGNIN_ACTION });
+}
+
+function connectSection(path: FormPath | null): FormRow[] {
+  const c = FORM_COPY.connect;
+  if (path === "solo") {
+    return [formRow({ id: "forge", title: "GitHub", subtext: c.soloForge, state: "done", detail: FORM_COPY.invite.connectedAs("janedoe"), action: null, optional: true }), claudeRow()];
+  }
+  const slack = stateGet("slack-connected") > 0;
+  return [
+    formRow({ id: "forge", title: "GitHub", subtext: TOKEN_SUBTEXT, state: "done", detail: c.connectedFromInvite("janedoe"), action: null }),
+    formRow({ id: "slack", title: c.slack.title, subtext: c.slack.subtext("github"), state: slack ? "done" : "todo", detail: slack ? c.connected : "Not connected yet",
+              action: slack ? null : { type: "oauth", label: c.slack.label, integration: "slack", verb: ["setup", "slack", "connect"] }, waiting: c.slack.waiting, watch: true }),
+    claudeRow(),
+  ];
+}
+
+function thisMacSection(path: FormPath | null): FormRow[] {
+  const c = FORM_COPY.thisMac;
+  const repos = path === "solo"
+    ? formRow({ id: "repos.root", title: c.repos.title, subtext: c.repos.root, state: "done", detail: "~/code", action: null })
+    : formRow({ id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: c.repos.board, state: "done", detail: "~/code/widgets", action: null });
+  return [
+    repos,
+    formRow({ id: "settings.backup", title: c.settings.title, subtext: c.settings.subtext, state: "done", detail: c.settings.local,
+              action: { type: "choose", label: c.settings.change, verb: ["setup", "home-backup"], selected: "local",
+                        options: [{ id: "local", label: c.settings.local, detail: "" }, { id: "remote", label: c.settings.remote, detail: "" }] } }),
+  ];
+}
+
+function formStage(path: FormPath | null, sections: SetupForm["sections"]): FormStage {
+  if (!allAnswered(sections.macos)) return "macos";
+  if (stateGet("run-live") > 0) return "running";
+  if (runFailure()) return "paused";
+  if (stateGet("run-ok") > 0) return "ready";
+  if (path === null) return "path";
+  if (path === "join" && stateGet("team-joined") === 0) return "invite";
+  if (path === "join" && WAITING_JOINS.includes(scenario) && stateGet("join-status-calls") < 2) return "waiting";
+  if (path === "restore") return "running";
+  if (!allAnswered(sections.connect)) return "connect";
+  return "this-mac";
+}
+
+function setupForm(): SetupForm {
+  const at = (flag: string) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; };
+  const section = at("--section") as FormSection | undefined;
+  const wanted: readonly FormSection[] = section ? [section] : FORM_SECTIONS;
+  const path = chosenPath();
+  const sections: SetupForm["sections"] = {};
+  if (wanted.includes("macos")) sections.macos = macosSection();
+  if (wanted.includes("invite")) sections.invite = inviteSection();
+  if (wanted.includes("restore")) sections.restore = [];
+  if (wanted.includes("connect")) sections.connect = connectSection(path);
+  if (wanted.includes("this-mac")) sections.thisMac = thisMacSection(path);
+  if (wanted.includes("create")) sections.create = createSection(at("--forge") === "gitlab" ? "gitlab" : "github");
+  const team = path === "join" || path === "create" ? { slug: "acme", name: "Acme", invitedBy: path === "join" ? "Mithrandir" : null } : null;
+  const failed = runFailure();
+  return {
+    path,
+    team,
+    stage: section ? null : formStage(path, sections),
+    sections,
+    continueReady: allAnswered(sections.connect),
+    startReady: allAnswered(sections.thisMac),
+    paused: section || !failed ? null : { step: failed.step, title: STEP_PHASES[failed.step as StepId]?.paused ?? failed.detail,
+                                          detail: failed.detail, remedy: failed.remedy, log: failed.log, action: null },
+    home: homeApp(path),
+  };
+}
+
 const [a0, a1, a2] = args;
 if (a0 === "setup" && (a1 === "plan" || a1 === "status")) emit(plan());
 else if (a0 === "setup" && a1 === "apply") await apply();
 else if (a0 === "setup" && a1 === "join-status") emit(joinStatus());
 else if (a0 === "setup" && a1 === "github" && a2 === "status") emit({ integration: "github", status: "ready", detail: "gh authenticated as matt", scopesSeen: ["repo", "read:org"], handle: "matt", owners: ["matt", "acme"] });
 else if (a0 === "setup" && a1 === "intent" && a2 === "restore") emit({ ok: true, intent: "restore", repo: args[3] });
-else if (a0 === "setup" && a1 === "intent" && a2 === "solo") emit({ mode: "solo" });
+else if (a0 === "setup" && a1 === "intent" && a2 === "solo") { choosePath("solo"); emit({ mode: "solo" }); }
+else if (a0 === "setup" && a1 === "form") emit(setupForm());
+else if (a0 === "setup" && a1 === "prepare") {
+  const stage = PREPARE_STAGES.find((s) => s === a2);
+  if (!stage) fail("bad-stage", `${a2 ?? "(none)"} is not a part of setup that installs anything. Use macos or accounts`);
+  emit({ stage, installed: stage === "macos" ? ["apple-clt"] : ["claude", "herdr"], failed: [] });
+}
+else if (a0 === "setup" && a1 === "claude" && a2 === "connect") {
+  const ready = stateBump("claude-connect-calls") > 1;
+  emit({ integration: "claude", status: ready ? "ready" : "needs-you", detail: ready ? "Signed in as janedoe@example.com" : FINISH_IN_BROWSER });
+}
+else if (a0 === "setup" && a1 === "slack" && a2 === "connect") {
+  stateBump("slack-connected");
+  emit({ integration: "slack", status: "ready", detail: FORM_COPY.connect.connected });
+}
+else if (a0 === "setup" && a1 === "home-backup") emit({ ok: true, mode: a2 });
 else if (a0 === "setup" && a1 === "finish") {
   const rtDir = join(process.env.HOME ?? stateDir, ".mattstack", "rt");
   mkdirSync(rtDir, { recursive: true });
@@ -384,10 +541,14 @@ else if (a0 === "setup" && a2 === "connect") {
   stateBump(`${a1}-connected`);
   emit({ integration: a1, status: "ready", detail: "token can see group acme", scopesSeen: ["api"] });
 }
-else if (a0 === "team" && a1 === "create") emit({ slug: "my-team", name: args[2] ?? "My team", remote: "https://github.com/matt/mattstack-team-my-team.git", created: true });
+else if (a0 === "team" && a1 === "create") {
+  choosePath("create");
+  emit({ slug: "my-team", name: args[2] ?? "My team", remote: "https://github.com/matt/mattstack-team-my-team.git", created: true });
+}
 else if (a0 === "team" && a1 === "join") {
   const body = await readStdinJSON();
   if (!body.code) fail("invite-malformed", "Paste an invite code.");
+  choosePath("join");
   if (scenario === "join-no-account") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "no-account", peering: "idle", intent: "written", message: "Joining Acme (owner matt). Connect your GitLab account on the next screen so rt can reach gitlab.com/acme/mattstack-team-acme." });
   else if (scenario === "join-no-access") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "denied", peering: "idle", intent: "written", message: "Joining Acme. Your GitHub account cannot see acme/team yet: ask matt or your org admin to grant read access." });
   else emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "ok", peering: "idle", intent: "written", message: "Joining Acme (owner matt)" });
@@ -420,7 +581,10 @@ else if (a0 === "uninstall") {
   }
   line({ event: "done", ok: true, failedStep: null }); }
 else if (a0 === "settings" && a1 === "set") emit({ ok: true, key: a2 });
-else if (a0 === "home" && a1 === "restore") emit({ ok: true, repo: a2, url: `https://github.com/${a2}.git`, key: "imported" });
+else if (a0 === "home" && a1 === "restore") {
+  choosePath("restore");
+  emit({ ok: true, repo: a2, url: `https://github.com/${a2}.git`, key: "imported" });
+}
 else if (a0 === "home" && a1 === "init") emit({ ok: true });
 else if (a0 === "version" || a0 === "--version") emit({ version: "2.8.0-stub", build: 0 });
 else if (a0 === "logins") {
