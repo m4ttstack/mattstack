@@ -63,7 +63,8 @@ struct FormCard: View {
                                     showsTitle: style == .labelled || row.title != title, onAction: onAction)
                     case .repos(let run):
                         FastLabelledRow(label: title) {
-                            VStack(alignment: .leading, spacing: 14) {
+                            // P5b's CSS gap is 14, but SF's 11-point note line is 2 taller than Inter's, so the blocks pitch as the mock's at 12.
+                            VStack(alignment: .leading, spacing: 12) {
                                 ForEach(run, id: \.id) { row in
                                     FormRowView(row: row, waiting: waiting[row.id], error: errors[row.id], style: style,
                                                 bare: true, onAction: onAction)

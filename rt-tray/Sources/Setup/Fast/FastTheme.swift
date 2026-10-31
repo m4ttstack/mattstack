@@ -542,10 +542,44 @@ struct FastHint: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: symbol).font(.system(size: size + 1, weight: .light))
-            Text(text).font(.system(size: size)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: textWidth, alignment: .leading)
+            Text(text).font(.system(size: size)).lineSpacing(1).fixedSize(horizontal: false, vertical: true)
+                .modifier(FastWrapWidth(max: textWidth))
         }
         .foregroundColor(tint)
+    }
+}
+
+/// Caps a wrapping line's width at `max` (or the space offered), and narrows it
+/// when the last line would hold only a word or two, so the lines balance.
+/// A last line of a quarter of the width or more stays as the mocks wrap it.
+struct FastWrapWidth: ViewModifier {
+    let max: CGFloat?
+    func body(content: Content) -> some View { FastWrapWidthLayout(max: max) { content } }
+}
+
+private struct FastWrapWidthLayout: Layout {
+    let max: CGFloat?
+
+    private func width(_ proposal: ProposedViewSize, _ child: LayoutSubview) -> CGFloat? {
+        let offered = [proposal.width, max].compactMap { $0 }.min()
+        guard let offered, offered > 0 else { return offered }
+        let ideal = child.sizeThatFits(.unspecified).width
+        guard ideal > offered else { return offered }
+        let lines = (ideal / offered).rounded(.up)
+        let last = ideal - (lines - 1) * offered
+        guard last < offered / 4 else { return offered }
+        // Word wrapping loses some of each line; the margin keeps the balanced text on the same number of lines.
+        return Swift.min(offered, (ideal / lines * 1.08 + 12).rounded(.up))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return child.sizeThatFits(ProposedViewSize(width: width(proposal, child), height: nil))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        child.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: width(proposal, child), height: nil))
     }
 }
 

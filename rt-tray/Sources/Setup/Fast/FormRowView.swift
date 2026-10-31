@@ -234,22 +234,34 @@ struct FormRowView: View {
                 doneMark(size: 11, iconSize: 13, spacing: 10)
                 if let action = row.action { button(action) }
             }
+        } else if row.subtext.isEmpty {
+            controlsLine
         } else {
-            BesideOrBelow {
+            // P5's words sit beside the controls when the line has room; else they drop below as a hint, so they
+            // share the leading edge and style of the hint lines under them.
+            ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
-                    if let line = progressLine {
-                        FastBusyChip(text: line)
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
-                    }
-                    if let action = row.action { button(action) }
+                    controlsLine
+                    Text(row.subtext).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).fixedSize()
                 }
-                if !row.subtext.isEmpty {
-                    Text(row.subtext).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary)
+                VStack(alignment: .leading, spacing: 6) {
+                    controlsLine
+                    subtextHint
                 }
             }
         }
         notes
+    }
+
+    private var controlsLine: some View {
+        HStack(spacing: 10) {
+            if let line = progressLine {
+                FastBusyChip(text: line)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
+            }
+            if let action = row.action { button(action) }
+        }
     }
 
     @ViewBuilder private var subtextHint: some View {
@@ -527,59 +539,6 @@ struct FormRowChoice: View {
             .onChange(of: action.selected) { _, selected in if let selected { shown = selected } }
             // A refused pick puts the segment back on what rt has recorded.
             .onChange(of: error) { _, error in if error != nil { shown = action.selected ?? "" } }
-    }
-}
-
-/// The controls with their words beside them when the line has room (P5's
-/// "Connect Slack  Lets mattstack…"), else the words wrap under them.
-struct BesideOrBelow: Layout {
-    var spacing: CGFloat = 10
-    var lineSpacing: CGFloat = 6
-
-    private func beside(_ width: CGFloat?, _ subviews: Subviews) -> Bool {
-        guard subviews.count == 2 else { return true }
-        let controls = subviews[0].sizeThatFits(.unspecified).width
-        let words = subviews[1].sizeThatFits(.unspecified).width
-        return controls + spacing + words <= (width ?? .infinity)
-    }
-
-    /// The controls at their own width, or narrowed to the column, where a long busy line wraps inside its chip.
-    private func controlsProposal(_ width: CGFloat?, _ first: LayoutSubview) -> ProposedViewSize {
-        let ideal = first.sizeThatFits(.unspecified).width
-        guard let width, ideal > width else { return .unspecified }
-        return ProposedViewSize(width: width, height: nil)
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let first = subviews.first else { return .zero }
-        let controls = first.sizeThatFits(controlsProposal(proposal.width, first))
-        guard subviews.count == 2 else { return controls }
-        if beside(proposal.width, subviews) {
-            let words = subviews[1].sizeThatFits(.unspecified)
-            return CGSize(width: controls.width + spacing + words.width, height: max(controls.height, words.height))
-        }
-        let width = proposal.width ?? controls.width
-        let words = subviews[1].sizeThatFits(ProposedViewSize(width: width, height: nil))
-        return CGSize(width: max(min(controls.width, width), words.width), height: controls.height + lineSpacing + words.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard let first = subviews.first else { return }
-        let fit = controlsProposal(bounds.width, first)
-        let controls = first.sizeThatFits(fit)
-        guard subviews.count == 2 else {
-            first.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: fit)
-            return
-        }
-        if beside(bounds.width, subviews) {
-            first.place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
-            subviews[1].place(at: CGPoint(x: bounds.minX + controls.width + spacing, y: bounds.midY), anchor: .leading,
-                              proposal: .unspecified)
-        } else {
-            first.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: fit)
-            subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + controls.height + lineSpacing), anchor: .topLeading,
-                              proposal: ProposedViewSize(width: bounds.width, height: nil))
-        }
     }
 }
 
