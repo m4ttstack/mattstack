@@ -1089,6 +1089,15 @@ describe("toolRows — team-declared tool.team.<name>", () => {
     expect(r.action).toEqual({ type: "open-url", label: "Download", url: "https://x/sdm" });
   });
 
+  test("an install url that is not https never becomes a Download link, only the steps remedy", async () => {
+    for (const url of ["http://x/sdm", "file:///Applications/sdm", "javascript:alert(1)", "not a url", "https://"]) {
+      const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "sdm", why: "db tunnels", install: { url } }] }];
+      const exec: ExecScript = (argv) => (argv[0] === "sdm" && argv[1] === "--version" ? missing("sdm") : ok());
+      const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: false, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.sdm");
+      expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Install sdm", "Then re-run rt setup status"] });
+    }
+  });
+
   test("missing with neither brew nor url -> steps action", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things" }] }];
     const exec: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? missing("widget") : ok());

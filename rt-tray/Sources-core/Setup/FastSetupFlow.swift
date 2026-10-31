@@ -137,21 +137,10 @@ public final class FastSetupFlow: ObservableObject {
         }
     }
 
-    /// An empty list is done, so a section with nothing to wait on never holds a button. Nor does a row
-    /// whose action this app cannot carry out: the row says it needs a newer mattstack, and holding the
-    /// button would leave the person nothing to press.
+    /// An empty list is done, so a section with nothing to wait on never holds a button. A row rt counts
+    /// open always holds it, even one whose action needs a newer mattstack: the row says so.
     public nonisolated static func allDone(_ rows: [FormRow]) -> Bool {
-        rows.allSatisfy { $0.optional || $0.state == .done || stranded($0) }
-    }
-
-    public nonisolated static func stranded(_ row: FormRow) -> Bool {
-        guard row.state == .todo, let action = row.action else { return false }
-        return FormActionRunner.control(for: action) == .none
-    }
-
-    /// rt's Continue or Set up this Mac, unless the only rows holding it are ones this app cannot act on.
-    public nonisolated static func footerReady(_ rtReady: Bool, rows: [FormRow]) -> Bool {
-        rtReady || (!rows.isEmpty && allDone(rows))
+        rows.allSatisfy { $0.optional || $0.state == .done }
     }
 
     /// The invite read holds Join until it is good, then rt's rows do. Before

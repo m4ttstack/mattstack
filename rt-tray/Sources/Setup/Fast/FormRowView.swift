@@ -151,7 +151,7 @@ struct FormRowView: View {
         let label = row.state == .waiting || waiting != nil ? (action.again ?? action.label) : action.label
         switch action.type {
         case _ where FormActionRunner.control(for: action) == .none:
-            // A button that does nothing would hold the footer with no way on; FastSetupFlow.allDone lets it pass.
+            // A button that does nothing would read as a way on; the row still holds the footer until rt reads it done.
             Text(Self.needsNewerApp).font(.callout).foregroundStyle(.secondary).fixedSize()
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
         case .chooseFolder:

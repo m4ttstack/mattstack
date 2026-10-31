@@ -38,20 +38,16 @@ let fastSetupFlowChecks: [Check] = [
             c.expectEqual(status.screen, .loading, "a finished Mac that lost a permission resumes where rt says, not on the cards")
         }
     },
-    Check("FastSetupFlow: a row whose action this app cannot carry out never holds a button") { c in
+    Check("FastSetupFlow: a row rt counts open holds the button even when this app cannot act on it") { c in
         let newer = FormRow(id: "x", title: "X", subtext: "", state: .todo, detail: "", action: RowAction(type: .unknown, label: "Do it"))
         let steps = FormRow(id: "s", title: "S", subtext: "", state: .todo, detail: "",
                             action: RowAction(type: .steps, label: "Show steps…", steps: ["Run: rt setup gitlab connect --host gitlab.example.com"]))
-        let bare = FormRow(id: "b", title: "B", subtext: "", state: .todo, detail: "")
-        c.expect(FastSetupFlow.stranded(newer))
-        c.expect(!FastSetupFlow.stranded(steps), "Show steps opens rt's steps, so it still holds the button until rt reads it done")
-        c.expect(!FastSetupFlow.stranded(bare), "an actionless row is rt's to make optional")
-        c.expect(FastSetupFlow.allDone([macosRow("a", .done), newer]))
-        c.expect(!FastSetupFlow.allDone([newer, steps]))
-        c.expect(FastSetupFlow.footerReady(false, rows: [macosRow("a", .done), newer]), "rt held Continue only for a row this app cannot act on")
-        c.expect(!FastSetupFlow.footerReady(false, rows: [newer, steps]))
-        c.expect(!FastSetupFlow.footerReady(false, rows: []), "before rt's rows land, rt's answer stands")
-        c.expect(FastSetupFlow.footerReady(true, rows: [steps]))
+        c.expectEqual(FormActionRunner.control(for: newer.action!), .none, "the row says it needs a newer mattstack")
+        c.expect(!FastSetupFlow.allDone([macosRow("a", .done), newer]), "a required row rt still counts open never passes the footer")
+        c.expect(!FastSetupFlow.allDone([macosRow("a", .done), steps]))
+        c.expect(!FastSetupFlow.macosReady([macosRow("a", .done), newer]), "P1 never moves on past it either")
+        c.expect(!FastSetupFlow.joinEnabled(verdictOK: true, rows: [newer]))
+        c.expect(FastSetupFlow.allDone([macosRow("a", .done), macosRow("b", .todo, optional: true)]), "an optional row still never holds it")
     },
     Check("FastSetupFlow: macOS done on a first run past the cards asks rt, never the cards") { c in
         await MainActor.run {

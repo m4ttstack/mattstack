@@ -494,13 +494,23 @@ function dedupeTeamTools(reqs: PackRequirements[]): ToolRequirement[] {
   return [...seen.values()];
 }
 
+function isHttpsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname !== "";
+  } catch {
+    return false;
+  }
+}
+
 function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Install" | "Upgrade"): Action {
   const brew = req.install?.brew;
   // Tap syntax (owner/tap/formula) or anything else outside a bare formula
   // name never becomes a one-click Install button — matches installTool's
   // own refusal, so the row and the action it offers agree.
   if (brew && hasBrew && isValidBrewFormula(brew)) return { type: "install", label: verb, tool: req.name, via: "brew" };
-  if (req.install?.url) return { type: "open-url", label: "Download", url: req.install.url };
+  // A pack is team-authored, so its link opens in the browser only over https.
+  if (req.install?.url && isHttpsUrl(req.install.url)) return { type: "open-url", label: "Download", url: req.install.url };
   if (brew && !isValidBrewFormula(brew)) {
     return { type: "steps", label: "Show steps…", steps: [`This pack's install.brew (${brew}) is not a plain formula name, so rt will not run it for you`, `brew install ${brew}`, "Then re-run rt setup status"] };
   }

@@ -97,8 +97,9 @@ actionless required row is an Install nobody can reach. On the fast screens
 a `steps` action opens rt's steps in a sheet (`FormActionRunner.sheet`), a
 `choose` wider than a two-option segment opens a picker sheet, and a todo
 row shows its `detail` as rt's reason under the subtext. An action type the
-app does not know draws "Needs a newer mattstack" and never holds the
-footer (`FastSetupFlow.stranded`), so an app older than its rt cannot dead-end. A connect action may
+app does not know draws "Needs a newer mattstack", and its row still holds
+the footer while rt counts it open. A pack tool's Download link is offered
+only over https; any other `install.url` falls back to steps. A connect action may
 prefill a field through `ConnectField.value`; the tray renders it as the
 field's initial text. It may also carry `create`, a link opened in the
 browser: for the forges that is the new-token page with rt's scopes

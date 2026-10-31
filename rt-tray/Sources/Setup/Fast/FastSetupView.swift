@@ -90,17 +90,13 @@ struct FastSetupView: View {
             WaitingScreenBody(team: latest?.team?.name ?? "", admin: latest?.team?.invitedBy, onHide: handlers.hide)
         case .connect:
             let read = form.read(carrying: "connect")
-            let rows = form.rows(for: "connect") ?? []
-            ConnectScreenBody(teamFirst: teamPath, rows: rows,
-                              waiting: actions.waiting, errors: actions.errors,
-                              continueReady: FastSetupFlow.footerReady(read?.continueReady ?? false, rows: rows),
+            ConnectScreenBody(teamFirst: teamPath, rows: form.rows(for: "connect") ?? [],
+                              waiting: actions.waiting, errors: actions.errors, continueReady: read?.continueReady ?? false,
                               onAction: perform, onBack: back, onContinue: { flow.continueToThisMac() })
         case .thisMac:
             let read = form.read(carrying: "this-mac")
-            let rows = form.rows(for: "this-mac") ?? []
-            ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, rows: rows,
-                              waiting: actions.waiting, errors: actions.errors,
-                              startReady: FastSetupFlow.footerReady(read?.startReady ?? false, rows: rows),
+            ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, rows: form.rows(for: "this-mac") ?? [],
+                              waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false,
                               onAction: perform, onBack: back, onStart: handlers.start)
         case .running:
             RunScreen(model: install, startedAt: status.runStartedAt, paused: nil, onHide: handlers.hide,
