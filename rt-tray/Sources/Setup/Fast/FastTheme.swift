@@ -538,10 +538,10 @@ struct FastSegmented<ID: Hashable>: View {
 /// `textWidth` caps the words alone, as P5b's CSS gives its note text 440.
 struct FastHint: View {
     let text: String
-    var size: CGFloat = 11
-    var symbol = "info.circle"
-    var tint = FastTheme.textTertiary
-    var textWidth: CGFloat? = nil
+    let size: CGFloat
+    let symbol: String
+    let tint: Color
+    let textWidth: CGFloat?
 
     init(_ text: String, size: CGFloat = 11, symbol: String = "info.circle", tint: Color = FastTheme.textTertiary,
          textWidth: CGFloat? = nil) {
@@ -600,11 +600,15 @@ private struct FastWrapWidthLayout: Layout {
 /// P5's done row spaces the two 10 apart; P5b's note and P1's "On" use 6.
 struct FastDoneLine: View {
     let text: String
-    var size: CGFloat = 11
-    var weight: Font.Weight = .regular
-    var spacing: CGFloat = 6
-    var iconSize: CGFloat? = nil
-    var textWidth: CGFloat? = nil
+    let size: CGFloat
+    let weight: Font.Weight
+    let spacing: CGFloat
+    let iconSize: CGFloat?
+    let textWidth: CGFloat?
+
+    /// How far the text's baseline sits below the tick's centre, as a share of the text size: half SF's cap height
+    /// (about 0.72), so the tick centres on the capitals as the mocks' flex centring does.
+    private static let baselineBelowCentre: CGFloat = 0.36
 
     init(_ text: String, size: CGFloat = 11, weight: Font.Weight = .regular, spacing: CGFloat = 6, iconSize: CGFloat? = nil,
          textWidth: CGFloat? = nil) {
@@ -620,7 +624,7 @@ struct FastDoneLine: View {
         let box = iconSize ?? size + 2
         HStack(alignment: .firstTextBaseline, spacing: spacing) {
             FastLucideGlyph(symbol: "checkmark", box: box)
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + size * 0.36 }
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + size * Self.baselineBelowCentre }
             Text(text).font(.system(size: size, weight: weight)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: textWidth, alignment: .leading)
         }

@@ -48,7 +48,7 @@ struct StepsSheet: View {
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }
-                    .buttonStyle(FastPrimaryButtonStyle(glow: false))
+                    .buttonStyle(FastPrimaryButtonStyle(glow: false, shape: .retry))
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier(AXID.stepsDone)
             }

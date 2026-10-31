@@ -25,7 +25,9 @@ struct ChooseSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fastSheet) private var fast
 
-    init(row: PlanRow, submitLabel: String = "Use this style", onChoose: @escaping (String) async -> String?) {
+    /// `suggestionsOpen` starts with the own card's dropdown showing, for a snapshot.
+    init(row: PlanRow, submitLabel: String = "Use this style", suggestionsOpen: Bool = false,
+         onChoose: @escaping (String) async -> String?) {
         let action = row.action
         self.title = row.title
         self.subtitle = action?.subtitle
@@ -34,6 +36,7 @@ struct ChooseSheet: View {
         self.footnote = action?.footnote
         self.submitLabel = submitLabel
         self.onChoose = onChoose
+        _suggestionsOpen = State(initialValue: suggestionsOpen)
         // A current value that is not a listed option (a skill picked by id) opens on the own-skill card.
         if let selected = action?.selected {
             if options.contains(where: { $0.id == selected }) {
@@ -116,7 +119,7 @@ struct ChooseSheet: View {
                                 .position(x: rect.midX, y: rect.midY)
                                 .onTapGesture { suggestionsOpen = false }
                         }
-                        SuggestionList(matches: ownMatches, height: height, pick: pickSuggestion)
+                        SuggestionList(matches: ownMatches, height: height, fast: fast, pick: pickSuggestion)
                             .frame(width: field.width)
                             .offset(x: dropdown.minX, y: dropdown.minY)
                     }
@@ -380,7 +383,10 @@ private struct OwnFieldBounds: PreferenceKey {
 private struct SuggestionList: View {
     let matches: [String]
     let height: CGFloat
+    /// Hangs from the sheet's root overlay, outside its colour scheme, so the fast look is drawn in explicit tokens.
+    let fast: Bool
     let pick: (String) -> Void
+    @Environment(\.fastFlipsShadows) private var flipsShadows
 
     /// Short lists size to fit; long ones scroll past about six rows so every match stays reachable.
     static func height(for count: Int) -> CGFloat {
@@ -390,29 +396,35 @@ private struct SuggestionList: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(matches, id: \.self) { s in SuggestionRow(id: s) { pick(s) } }
+                ForEach(matches, id: \.self) { s in SuggestionRow(id: s, fast: fast) { pick(s) } }
             }
             .padding(4)
         }
         .frame(height: height)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
-        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+        .background(RoundedRectangle(cornerRadius: fast ? 8 : 6, style: .continuous)
+            .fill(fast ? FastTheme.card : Color(nsColor: .controlBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: fast ? 8 : 6, style: .continuous)
+            .strokeBorder(fast ? FastTheme.outline : Color(nsColor: .separatorColor)))
+        .shadow(color: .black.opacity(fast ? 0.4 : 0.2), radius: 4, y: flipsShadows ? -2 : 2)
     }
 }
 
 private struct SuggestionRow: View {
     static let height: CGFloat = 24
     let id: String
+    let fast: Bool
     let pick: () -> Void
     @State private var hovering = false
 
+    private var hoverFill: Color { fast ? FastTheme.outline : Color.secondary.opacity(0.3) }
+
     var body: some View {
         Button(action: pick) {
-            Text(id).font(.system(.callout, design: .monospaced))
+            Text(id).font(fast ? .system(size: 12, weight: .light, design: .monospaced) : .system(.callout, design: .monospaced))
+                .foregroundColor(fast ? FastTheme.textPrimary : nil)
                 .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? Color.secondary.opacity(0.3) : Color.clear))
+                .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? hoverFill : Color.clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

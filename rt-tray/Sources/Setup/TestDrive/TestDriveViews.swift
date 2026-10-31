@@ -32,7 +32,7 @@ struct TestDrivePickerActions {
 /// Picks what the next test drive rehearses, and reaches the one already
 /// running. It draws the setup window's dark theme, so the two read as one tool.
 struct TestDrivePickerView: View {
-    static let width: CGFloat = 480
+    static let width: CGFloat = 520
     @ObservedObject var model: TestDrivePickerModel
     @ObservedObject var toasts: TestDriveToasts
     let actions: TestDrivePickerActions

@@ -286,6 +286,8 @@ enum FastSetupSnapshot {
             ("sheet-steps", sheet(StepsSheet(title: C.fastBrowserSteps.title, steps: C.fastBrowserSteps.action?.steps ?? []))),
             ("sheet-steps-terminal", sheet(StepsSheet(title: Rows.gitlabTokenUnconfirmed.title, steps: Rows.gitlabTokenUnconfirmed.action?.steps ?? []))),
             ("sheet-choose", sheet(ChooseSheet(row: FormRowPlan.planRow(Self.wideChoice), submitLabel: "Choose") { _ in nil })),
+            ("sheet-choose-suggestions", sheet(ChooseSheet(row: FormRowPlan.planRow(Self.ownChoice), submitLabel: "Choose",
+                                                           suggestionsOpen: true) { _ in nil })),
             ("sheet-log", sheet(LogSheet(title: RunPaused.clone.title, lines: RunPaused.clone.log))),
         ]
     }
@@ -325,6 +327,15 @@ enum FastSetupSnapshot {
                                         ChooseOption(id: "cursor", label: "Cursor", detail: "Opens the folder, then the file"),
                                         ChooseOption(id: "vscode", label: "VS Code", detail: "Opens the folder, then the file"),
                                     ], selected: "zed"))
+
+    /// A choose whose own-id card is open on a partial id, so its suggestions show.
+    static let ownChoice = FormRow(id: "skills.writing-style", title: "Writing style", subtext: "How drafted replies read", state: .done,
+                                   detail: "acme:writing",
+                                   action: RowAction(type: .choose, label: "Change", verb: ["skills", "writing-style", "use"], options: [
+                                       ChooseOption(id: "mattstack:writing-style-sparse", label: "Sparse", detail: "Short and plain"),
+                                   ], selected: "acme:writing",
+                                   other: ChooseOther(label: "Use my own skill…", hint: "A skill id from an installed plugin",
+                                                      suggestions: ["acme:writing-plain", "acme:writing-terse", "widgets:acme-writing"])))
 
     @MainActor
     private static func readyPages() -> [(String, AnyView)] {

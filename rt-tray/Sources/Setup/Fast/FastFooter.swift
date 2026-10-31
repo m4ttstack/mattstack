@@ -9,8 +9,6 @@ struct FastFooter: View {
     let secondary: (String, () -> Void)?
     /// The label, whether it is enabled, and what it does.
     let primary: (String, Bool, () -> Void)?
-    /// A button rt sent, drawn before the secondary.
-    var extra: (String, () -> Void)? = nil
     var insets: EdgeInsets = FastTheme.footerInsets
     var spacing: CGFloat = FastTheme.footerGap
     /// P4 and P6 draw their Hide outlined: still the primary's id and Return key, in the secondary style.
@@ -30,12 +28,6 @@ struct FastFooter: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            if let extra {
-                Button(extra.0, action: extra.1)
-                    .buttonStyle(FastSecondaryButtonStyle(size: .large))
-                    .fixedSize()
-                    .accessibilityIdentifier(AXID.fastExtra(screen))
-            }
             if let secondary {
                 secondaryButton(secondary)
                     .fixedSize()
