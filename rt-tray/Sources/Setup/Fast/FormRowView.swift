@@ -405,10 +405,6 @@ struct FormRowFields: View {
                     input(field)
                     if index == fields.count - 1 { trailing }
                 }
-                // rt's own words on the field (a forge token's scopes, an example value).
-                if let hint = field.hint, !hint.isEmpty {
-                    FastHint(hint, textWidth: FormRowStyle.hintWidth).hintSpill()
-                }
             }
             if let alternatives = action.alternatives, !alternatives.isEmpty {
                 HStack(spacing: 8) {
@@ -448,6 +444,8 @@ struct FormRowFields: View {
         FastField(field.label, text: binding(field.name), monospaced: field.secret, secure: field.secret,
                   id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name))
             .onSubmit(submit)
+            // rt's hint is a format note (a forge token's scopes, a key's prefix), not screen copy: the mocks show none.
+            .help(field.hint ?? "")
     }
 
     private func submit() {

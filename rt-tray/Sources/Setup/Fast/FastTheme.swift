@@ -516,13 +516,37 @@ struct FastIconTile: View {
     }
 
     var body: some View {
-        Image(systemName: symbol)
-            // The CSS's 18 is Lucide's icon box; an SF glyph fills more of its box, so 16 matches the drawn size.
-            .font(.system(size: 16, weight: symbol == "globe" ? .ultraLight : .light))
+        glyph
             .foregroundColor(done ? FastTheme.success : FastTheme.accent)
             .frame(width: 36, height: 36)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(done ? FastTheme.successTile : FastTheme.accentTile))
             .accessibilityHidden(true)
+    }
+}
+
+extension FastIconTile {
+    @ViewBuilder fileprivate var glyph: some View {
+        if symbol == "globe" {
+            FastGlobeGlyph()
+        } else {
+            // The CSS's 18 is Lucide's icon box; an SF glyph fills more of its box, so 16 matches the drawn size.
+            Image(systemName: symbol).font(.system(size: 16, weight: .light))
+        }
+    }
+}
+
+/// Lucide's globe in its 18-point box: a ring, the lens of one meridian and
+/// the equator. SF's globe draws three of each, a dense mesh at tile size.
+private struct FastGlobeGlyph: View {
+    var body: some View {
+        let ring: CGFloat = 15
+        let stroke: CGFloat = 1.2
+        ZStack {
+            Circle().strokeBorder(lineWidth: stroke).frame(width: ring, height: ring)
+            Ellipse().strokeBorder(lineWidth: stroke).frame(width: 6.5, height: ring)
+            Rectangle().frame(width: ring - stroke, height: stroke)
+        }
+        .frame(width: 18, height: 18)
     }
 }
 
