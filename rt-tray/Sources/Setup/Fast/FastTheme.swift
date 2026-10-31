@@ -428,7 +428,8 @@ struct FastField: View {
     /// remaining character at the mono advance.
     private var bullets: some View {
         let advance = size.points * 0.6
-        let dot = size.points * 0.24
+        // Whole points: layout snaps each edge to the pixel grid (whole points on a 1x backing), so a fractional dot drew 2pt or 3pt by where it landed.
+        let dot = (size.points * 0.24).rounded()
         let shown = SecretPrefix.shown(of: text, prefix: maskPrefix)
         return HStack(spacing: 0) {
             if !shown.isEmpty {
