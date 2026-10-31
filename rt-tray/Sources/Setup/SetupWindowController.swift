@@ -6,7 +6,7 @@ import MattstackCore
 /// One dedicated NSWindow hosting fast setup (AppKit lifecycle stays). Each
 /// screen opens at `width` and its own height, as the mocks do, between
 /// `minHeight` and the screen's visible height; a screen taller than that
-/// scrolls inside. The person may drag it wider or taller: the screen stays
+/// scrolls inside. The person may drag it taller, never wider: the screen stays
 /// top-aligned with its footer at the bottom. A drag holds until the screen
 /// changes, which fits the window to the new screen again. Dark whatever the system appearance. Always closable:
 /// closing never stops the join's approval check or a run, which the coordinator owns.
@@ -44,10 +44,11 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         }
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: Self.width, height: Self.minHeight + chromeHeight)
+        window.contentMaxSize = NSSize(width: Self.width, height: .greatestFiniteMagnitude)
         window.center()
         super.init(window: window)
         window.delegate = self
-        let hosting = FittingHostingController(rootView: AnyView(root.frame(minWidth: Self.width, idealWidth: Self.width, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)))
+        let hosting = FittingHostingController(rootView: AnyView(root.frame(width: Self.width).frame(maxHeight: .infinity, alignment: .top)))
         hosting.sizingOptions = [.preferredContentSize]
         hosting.safeAreaRegions = []
         hosting.onPreferredSize = { [weak self] size in DispatchQueue.main.async { self?.fit(to: size) } }

@@ -43,7 +43,7 @@ struct FastSetupView: View {
 
     var body: some View {
         FastWindowChrome(step: FastStep.counter(for: flow.screen, path: stepPath)) { screen }
-            .frame(minWidth: SetupWindowController.width, idealWidth: SetupWindowController.width, maxWidth: .infinity)
+            .frame(width: SetupWindowController.width)
             .frame(minHeight: SetupWindowController.minHeight)
             .controlSize(.large)
             .environment(\.formRowsRunning, actions.running)
