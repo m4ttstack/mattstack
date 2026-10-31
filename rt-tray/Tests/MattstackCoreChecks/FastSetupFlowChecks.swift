@@ -447,6 +447,28 @@ let fastSetupFlowChecks: [Check] = [
         ]
         for (screen, section) in pairs { c.expectEqual(screen.section, section, "\(screen)") }
     },
+    Check("FastStep: each path counts its own screens, paused counts as the bar") { c in
+        let join: [FastSetupScreen] = [.macos, .path, .invite, .waiting, .connect, .thisMac, .running]
+        for (i, screen) in join.enumerated() { c.expectEqual(FastStep.counter(for: screen, path: "join"), "\(i + 1) of 7", "\(screen)") }
+        c.expectEqual(FastStep.counter(for: .paused, path: "join"), "7 of 7")
+        c.expectEqual(FastStep.counter(for: .createTeam, path: "create"), "3 of 6")
+        c.expectEqual(FastStep.counter(for: .connect, path: "create"), "4 of 6")
+        c.expectEqual(FastStep.counter(for: .paused, path: "create"), "6 of 6")
+        c.expectEqual(FastStep.counter(for: .connect, path: "solo"), "3 of 5")
+        c.expectEqual(FastStep.counter(for: .running, path: "solo"), "5 of 5")
+        c.expectEqual(FastStep.counter(for: .restore, path: "restore"), "3 of 4")
+        c.expectEqual(FastStep.counter(for: .paused, path: "restore"), "4 of 4")
+        c.expectEqual(FastStep.counter(for: .ready, path: "join"), "Done")
+        c.expectEqual(FastStep.counter(for: .ready, path: nil), "Done")
+        c.expectEqual(FastStep.counter(for: .loading, path: "join"), nil, "loading shows nothing")
+    },
+    Check("FastStep: before rt names a path, join counts, unless the screen names its own") { c in
+        c.expectEqual(FastStep.counter(for: .macos, path: nil), "1 of 7")
+        c.expectEqual(FastStep.counter(for: .path, path: nil), "2 of 7")
+        c.expectEqual(FastStep.counter(for: .createTeam, path: nil), "3 of 6")
+        c.expectEqual(FastStep.counter(for: .restore, path: nil), "3 of 4")
+        c.expectEqual(FastStep.counter(for: .waiting, path: "solo"), "4 of 7", "a screen its path never walks falls back to join")
+    },
 ]
 
 private let clonePaused = #"{"step":"repos.clone","title":"Couldn't clone your repos","detail":"GitLab says your token can't see acme/acme-api","log":[]}"#

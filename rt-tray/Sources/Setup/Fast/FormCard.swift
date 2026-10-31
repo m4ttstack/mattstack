@@ -12,10 +12,10 @@ struct FormCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let title { Text(title).font(.headline) }
-            ChecklistCard {
+            if let title { Text(title).font(FastTheme.cardTitle).foregroundColor(FastTheme.textSecondary) }
+            FastCard {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { Divider().padding(.leading, 14) }
+                    if index > 0 { FastRowDivider() }
                     FormRowView(row: row, waiting: waiting[row.id], error: errors[row.id], showsTitle: row.title != title, onAction: onAction)
                 }
             }

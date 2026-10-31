@@ -49,6 +49,7 @@ enum AXID {
 
     // Fast setup
     static func fastScreen(_ name: String) -> String { "setup.fast.\(name)" }
+    static let fastStep = "setup.fast.step"
     static func fastPrimary(_ name: String) -> String { "setup.fast.\(name).primary" }
     static func fastSecondary(_ name: String) -> String { "setup.fast.\(name).secondary" }
     static func fastExtra(_ name: String) -> String { "setup.fast.\(name).extra" }

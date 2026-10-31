@@ -42,9 +42,9 @@ struct FastSetupView: View {
     let handlers: FastSetupHandlers
 
     var body: some View {
-        screen
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .frame(minWidth: SetupWindowController.width, minHeight: SetupWindowController.minHeight)
+        FastWindowChrome(step: FastStep.counter(for: flow.screen, path: stepPath)) { screen }
+            .frame(width: SetupWindowController.width)
+            .frame(minHeight: SetupWindowController.minHeight)
             .controlSize(.large)
             .environment(\.formRowsRunning, actions.running)
             .sheet(item: $actions.sheet, onDismiss: { Task { await actions.sheetClosed() } }) { sheet in
@@ -112,6 +112,21 @@ struct FastSetupView: View {
         }
     }
 
+    /// rt's path, else the card picked in this window once past the cards: `team.choice` holds a default before then.
+    private var stepPath: String? {
+        if let path = latest?.path ?? form.whole?.path { return path }
+        switch flow.screen {
+        case .loading, .macos, .path: return nil
+        default:
+            switch team.choice {
+            case .join: return "join"
+            case .create: return "create"
+            case .restore: return "restore"
+            case .solo: return "solo"
+            }
+        }
+    }
+
     /// Join and Create land here through the invite or create screens; Just me has no team.
     private var teamPath: Bool {
         if let path = latest?.path { return path != "solo" }
@@ -160,10 +175,11 @@ struct FastLoadingBody: View {
             if let error {
                 FastFailureLine(text: error)
                 Button("Try again", action: onRetry)
+                    .buttonStyle(FastSecondaryButtonStyle(size: .large))
                     .accessibilityIdentifier(AXID.fastPrimary(FastSetupScreen.loading.rawValue))
             } else {
                 ProgressView().controlSize(.regular)
-                Text("Checking where setup left off…").foregroundStyle(.secondary)
+                Text("Checking where setup left off…").font(FastTheme.sub).foregroundColor(FastTheme.textSecondary)
             }
             Spacer(minLength: 0)
         }

@@ -3,8 +3,10 @@ import SwiftUI
 import MattstackCore
 
 /// `rt-tray --render-fast-setup-snapshots <out-dir>` renders the fast setup
-/// views from fixture rows, light and dark, as `<name>-<light|dark>.png`, then
-/// exits before any window, status item, socket or daemon work exists. DEBUG builds only.
+/// views from fixture rows as `<name>-<light|dark>.png`, then exits before any
+/// window, status item, socket or daemon work exists. The window is dark only,
+/// so both files draw the dark design. Screens render at their own height in
+/// the mock's window chrome, so a render lines up with its mock. DEBUG builds only.
 enum FastSetupSnapshot {
     @MainActor
     static func runIfRequested() -> Bool {
@@ -23,9 +25,10 @@ enum FastSetupSnapshot {
             for scheme in ["light", "dark"] {
                 SnapshotRenderer.render(
                     page.frame(width: SetupWindowController.width)
-                        .background(Color(nsColor: .windowBackgroundColor))
+                        .background(FastTheme.windowBackground)
+                        .environment(\.colorScheme, .dark)
                         .controlSize(.large),
-                    appearance: scheme == "dark" ? .darkAqua : .aqua,
+                    appearance: FastAppearance.window.name,
                     to: out.appendingPathComponent("\(name)-\(scheme).png"))
             }
         }
@@ -38,10 +41,58 @@ enum FastSetupSnapshot {
 
     #if DEBUG
     /// Each screen adds its own pages here.
-    private static let registered: [@MainActor () -> [(String, AnyView)]] = [rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages, containerPages, testDrivePages]
+    private static let registered: [@MainActor () -> [(String, AnyView)]] = [themePages, rowPages, macosPages, pathPages, invitePages, createPages, restorePages, waitingPages, connectPages, thisMacPages, runPages, readyPages, containerPages, testDrivePages]
+
+    /// A screen body in the window the mocks draw: outline, rounded corners, title bar dots, glow.
+    static func window(_ view: some View, _ screen: FastSetupScreen, path: String? = nil) -> AnyView {
+        AnyView(FastSnapshotWindow { FastWindowChrome(step: FastStep.counter(for: screen, path: path)) { view } })
+    }
 
     static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
         AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
+    }
+
+    /// FastTheme's shared views on their own, for the screens that build on them.
+    @MainActor
+    private static func themePages() -> [(String, AnyView)] {
+        let kit = VStack(alignment: .leading, spacing: 18) {
+            FastScreenHeader(label: nil, title: "Three things from macOS", subtitle: "mattstack can't do these itself. It notices the moment you do")
+            HStack(spacing: 10) {
+                Button("Allow") {}.buttonStyle(FastPrimaryButtonStyle(size: .small))
+                Button("Continue") {}.buttonStyle(FastPrimaryButtonStyle())
+                Button("Continue") {}.buttonStyle(FastPrimaryButtonStyle()).disabled(true)
+                Button("Hide") {}.buttonStyle(FastSecondaryButtonStyle(size: .large))
+            }
+            HStack(spacing: 10) {
+                Button { } label: { Label("Connect Slack", systemImage: "message") }.buttonStyle(FastOutlineButtonStyle())
+                Button { } label: { Label("Sign in to Claude", systemImage: "arrow.right.to.line") }.buttonStyle(FastOutlineButtonStyle())
+                Button("Create token") {}.buttonStyle(FastSecondaryButtonStyle())
+                Button("Create token") {}.buttonStyle(FastSecondaryButtonStyle(filled: true))
+            }
+            HStack(spacing: 8) {
+                FastField("API key", text: .constant("lin_api_\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"), monospaced: true)
+                FastField("Team name", text: .constant(""), size: .large)
+            }
+            FastField("Invite code", text: .constant("01234-56789-ABCDE"), size: .large, monospaced: true, highlighted: true)
+            HStack(spacing: 12) {
+                FastSegmented(options: [(id: "gitlab", label: "GitLab"), (id: "github", label: "GitHub")], selection: .constant("gitlab"))
+                FastSegmented(options: [(id: "current", label: "Current checkout"), (id: "new", label: "New checkout")],
+                              selection: .constant("new"), size: .small)
+                FastTeamChip(name: "Mithrandir")
+            }
+            HStack(spacing: 14) {
+                FastIconTile(symbol: "internaldrive", done: true)
+                FastIconTile(symbol: "bell")
+                FastIconTile(symbol: "globe")
+                VStack(alignment: .leading, spacing: 6) {
+                    FastHint("So mattstack can read and write Linear tickets")
+                    FastDoneLine("Connected as janedoe from your invite")
+                    FastDoneLine("On", size: 13, weight: .semibold)
+                }
+            }
+            FormCard(title: "Your repos", rows: [Rows.gitlab, Rows.fastBrowserAdded]) { _, _, _ in }
+        }
+        return [("theme-kit", window(kit.padding(FastTheme.bodyInsets), .macos))]
     }
 
     @MainActor
@@ -85,7 +136,7 @@ enum FastSetupSnapshot {
     @MainActor
     private static func macosPages() -> [(String, AnyView)] {
         func page(_ rows: [FormRow], waiting: [String: String] = [:]) -> AnyView {
-            AnyView(MacOSScreenBody(rows: rows, waiting: waiting, errors: [:]) { _, _, _ in })
+            window(MacOSScreenBody(rows: rows, waiting: waiting, errors: [:]) { _, _, _ in }, .macos)
         }
         return [
             ("macos-fresh", page([Rows.fda, Rows.notificationsAsk, Rows.fancyUrls])),
@@ -93,18 +144,18 @@ enum FastSetupSnapshot {
                                          waiting: [Rows.fancyUrls.id: Rows.fancyUrls.waiting ?? ""])),
             ("macos-done", page([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsAllowed])),
             ("macos-notifications-off", page([Rows.fdaGranted, Rows.notificationsOff, Rows.fancyUrls])),
-            ("macos-fancy-urls-long-detail", AnyView(VStack(spacing: 0) {
+            ("macos-fancy-urls-long-detail", window(VStack(spacing: 0) {
                 MacOSScreenBody(rows: [Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsNoInstaller], waiting: [:], errors: [:]) { _, _, _ in }
                 card([Rows.fancyUrlsBrewFailed]).padding(.horizontal, 4).padding(.top, -20)
-            })),
+            }, .macos)),
         ]
     }
 
     @MainActor
     private static func pathPages() -> [(String, AnyView)] {
         [
-            ("path", AnyView(PathScreenBody(showsSolo: true) { _ in })),
-            ("path-upgrade", AnyView(PathScreenBody(showsSolo: false) { _ in })),
+            ("path", window(PathScreenBody(showsSolo: true) { _ in }, .path)),
+            ("path-upgrade", window(PathScreenBody(showsSolo: false) { _ in }, .path)),
         ]
     }
 
@@ -116,9 +167,9 @@ enum FastSetupSnapshot {
         func page(_ code: String, hasGoodVerdict: Bool = false, line: String? = nil, failure: String? = nil, checking: Bool = false,
                   rows: [FormRow]? = nil, waiting: [String: String] = [:]) -> AnyView {
             let enabled = FastSetupFlow.joinEnabled(verdictOK: hasGoodVerdict, rows: rows)
-            return AnyView(InviteScreenBody(code: .constant(code), inviteLine: line, failure: failure, isChecking: checking,
-                                            rows: rows, waiting: waiting, errors: [:], joinEnabled: enabled,
-                                            onPaste: {}, onAction: { _, _, _ in }, onBack: {}, onJoin: {}))
+            return window(InviteScreenBody(code: .constant(code), inviteLine: line, failure: failure, isChecking: checking,
+                                           rows: rows, waiting: waiting, errors: [:], joinEnabled: enabled,
+                                           onPaste: {}, onAction: { _, _, _ in }, onBack: {}, onJoin: {}), .invite)
         }
         return [
             ("invite-empty", page("")),
@@ -140,9 +191,9 @@ enum FastSetupSnapshot {
                   creating: Bool = false, failure: String? = nil) -> AnyView {
             let canCreateTeam = !Slug.make(name).isEmpty && !group.trimmingCharacters(in: .whitespaces).isEmpty
             let enabled = FastSetupFlow.createEnabled(nameAndGroup: canCreateTeam, rows: rows)
-            return AnyView(CreateTeamScreenBody(name: .constant(name), forge: .constant(forge), group: .constant(group), rows: rows,
-                                                waiting: [:], errors: [:], isCreating: creating, failure: failure, createEnabled: enabled,
-                                                onAction: { _, _, _ in }, onBack: {}, onCreate: {}))
+            return window(CreateTeamScreenBody(name: .constant(name), forge: .constant(forge), group: .constant(group), rows: rows,
+                                               waiting: [:], errors: [:], isCreating: creating, failure: failure, createEnabled: enabled,
+                                               onAction: { _, _, _ in }, onBack: {}, onCreate: {}), .createTeam)
         }
         return [
             ("create-empty", page(rows: [Rows.gitlabToken])),
@@ -162,9 +213,9 @@ enum FastSetupSnapshot {
         let key = "placeholder"
         func page(repo: String = "", key: String = "", rows: [FormRow]?, restoring: Bool = false, failure: String? = nil) -> AnyView {
             let enabled = FastSetupFlow.restoreEnabled(repo: repo, key: key, rows: rows)
-            return AnyView(RestoreScreenBody(repo: .constant(repo), key: .constant(key), rows: rows, waiting: [:], errors: [:],
-                                             isRestoring: restoring, failure: failure, restoreEnabled: enabled,
-                                             onAction: { _, _, _ in }, onBack: {}, onRestore: {}))
+            return window(RestoreScreenBody(repo: .constant(repo), key: .constant(key), rows: rows, waiting: [:], errors: [:],
+                                            isRestoring: restoring, failure: failure, restoreEnabled: enabled,
+                                            onAction: { _, _, _ in }, onBack: {}, onRestore: {}), .restore)
         }
         return [
             ("restore-empty", page(rows: [])),
@@ -179,20 +230,18 @@ enum FastSetupSnapshot {
     @MainActor
     private static func waitingPages() -> [(String, AnyView)] {
         [
-            ("waiting", AnyView(WaitingScreenBody(team: "Mithrandir", admin: "Jane Doe", onHide: {}))),
-            ("waiting-no-admin", AnyView(WaitingScreenBody(team: "Mithrandir", admin: nil, onHide: {}))),
+            ("waiting", window(WaitingScreenBody(team: "Mithrandir", admin: "Jane Doe", onHide: {}), .waiting)),
+            ("waiting-no-admin", window(WaitingScreenBody(team: "Mithrandir", admin: nil, onHide: {}), .waiting)),
         ]
     }
 
     @MainActor
     private static func connectPages() -> [(String, AnyView)] {
         typealias C = ConnectRows
-        /// The window opens at this height, so a page shows whether the card fits or scrolls.
-        let windowHeight: CGFloat = 620
         func page(team: Bool = true, _ rows: [FormRow], waiting: [String: String] = [:], ready: Bool = false) -> AnyView {
-            AnyView(ConnectScreenBody(teamFirst: team, rows: rows, waiting: waiting, errors: [:], continueReady: ready,
-                                      onAction: { _, _, _ in }, onBack: team ? nil : {}, onContinue: {})
-                .frame(height: windowHeight))
+            window(ConnectScreenBody(teamFirst: team, rows: rows, waiting: waiting, errors: [:], continueReady: ready,
+                                     onAction: { _, _, _ in }, onBack: team ? nil : {}, onContinue: {}),
+                   .connect, path: team ? "join" : "solo")
         }
         return [
             ("connect-fresh", page([C.forge, C.slack, C.claudeInstalling, C.dopplerSignIn, C.herdrInstalling, C.sdm, C.linear, C.fastBrowser])),
@@ -212,12 +261,10 @@ enum FastSetupSnapshot {
     @MainActor
     private static func thisMacPages() -> [(String, AnyView)] {
         typealias T = ThisMacRows
-        /// The window opens at this height, so a page shows whether the cards fit or scroll.
-        let windowHeight: CGFloat = 620
         func page(team: String? = "Mithrandir", _ rows: [FormRow], ready: Bool) -> AnyView {
-            AnyView(ThisMacScreenBody(teamName: team, rows: rows, waiting: [:], errors: [:], startReady: ready,
-                                      onAction: { _, _, _ in }, onBack: {}, onStart: {})
-                .frame(height: windowHeight))
+            window(ThisMacScreenBody(teamName: team, rows: rows, waiting: [:], errors: [:], startReady: ready,
+                                     onAction: { _, _, _ in }, onBack: {}, onStart: {}),
+                   .thisMac, path: team == nil ? "solo" : "join")
         }
         return [
             ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
@@ -239,10 +286,8 @@ enum FastSetupSnapshot {
 
     @MainActor
     private static func readyPages() -> [(String, AnyView)] {
-        /// The window opens at this height, so a page shows how the screen balances.
-        let windowHeight: CGFloat = 620
         func page(_ home: FormHome) -> AnyView {
-            AnyView(ReadyScreenBody(home: home, onOpen: {}).frame(height: windowHeight))
+            window(ReadyScreenBody(home: home, onOpen: {}), .ready)
         }
         return [
             ("ready", page(FormHome(label: "Open the board", url: "https://board.mattstack"))),
@@ -252,11 +297,9 @@ enum FastSetupSnapshot {
 
     @MainActor
     private static func runPages() -> [(String, AnyView)] {
-        /// The window opens at this height, so a page shows where the footer sits.
-        let windowHeight: CGFloat = 620
         func page(_ bar: RunBar?, paused: FormPaused? = nil) -> AnyView {
-            AnyView(RunScreenBody(bar: bar, paused: paused, onHide: {}, onShowLog: {}, onRetry: {}, onPausedAction: { _ in })
-                .frame(height: windowHeight))
+            window(RunScreenBody(bar: bar, paused: paused, onHide: {}, onShowLog: {}, onRetry: {}, onPausedAction: { _ in }),
+                   paused == nil ? .running : .paused, path: "join")
         }
         let cloning = RunBar(fraction: 0.42, message: "Cloning your repos", secondsLeft: 230)
         return [
@@ -278,26 +321,28 @@ enum FastSetupSnapshot {
         typealias T = ThisMacRows
         let code = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
         return [
-            ("container-loading", Container().page()),
-            ("container-loading-failed", Container(failing: true).loaded(nil).page()),
-            ("container-macos", Container().landed(.macos, Container.whole(.macos, sections: FormSections(macos: [Rows.fdaGranted, Rows.notificationsAsk, Rows.fancyUrls]))).page()),
-            ("container-path", Container().landed(.path, Container.whole(.path)).page()),
+            ("container-loading", Container().window()),
+            ("container-loading-failed", Container(failing: true).loaded(nil).window()),
+            ("container-macos", Container().landed(.macos, Container.whole(.macos, sections: FormSections(macos: [Rows.fdaGranted, Rows.notificationsAsk, Rows.fancyUrls]))).window()),
+            ("container-path", Container().landed(.path, Container.whole(.path)).window()),
             ("container-invite", Container().landed(.invite, Container.whole(.invite, sections: FormSections(invite: [Rows.cltInstalling, Rows.gitlabTokenConnected])))
-                .invite(code).page()),
+                .invite(code).window()),
             ("container-create-team", Container().landed(.path, Container.whole(.path)).picking(.create)
-                .absorbing(Container.section(FormSections(create: [Rows.gitlabTokenCreated]))).named("Widgets", group: "acme").page()),
+                .absorbing(Container.section(FormSections(create: [Rows.gitlabTokenCreated]))).named("Widgets", group: "acme").window()),
             ("container-restore", Container().landed(.path, Container.whole(.path)).picking(.restore)
-                .absorbing(Container.section(FormSections(restore: []))).restoring("janedoe/mattstack-home").page()),
-            ("container-waiting", Container().landed(.waiting, Container.whole(.waiting)).page()),
+                .absorbing(Container.section(FormSections(restore: []))).restoring("janedoe/mattstack-home").window()),
+            ("container-waiting", Container().landed(.waiting, Container.whole(.waiting)).window()),
             ("container-connect", Container().landed(.connect, Container.whole(.connect, sections: FormSections(
-                connect: [C.forge, C.slack, C.claudeInstalling, C.dopplerSignIn, C.linear, C.fastBrowser]))).page()),
+                connect: [C.forge, C.slack, C.claudeInstalling, C.dopplerSignIn, C.linear, C.fastBrowser]))).window()),
             ("container-this-mac", Container().landed(.thisMac, Container.whole(.thisMac, sections: FormSections(
-                thisMac: [T.boardFound, T.widgetsClone, T.backupLocal]), startReady: true)).page()),
-            ("container-running", Container().landed(.running, Container.whole(.running)).running(Container.cloning, startedAgo: 120).page()),
+                thisMac: [T.boardFound, T.widgetsClone, T.backupLocal]), startReady: true)).window()),
+            ("container-running", Container().landed(.running, Container.whole(.running)).running(Container.cloning, startedAgo: 120).window()),
             ("container-paused", Container().landed(.paused, Container.whole(.paused, paused: RunPaused.clone))
-                .running(Container.cloning + Container.cloneFailed, startedAgo: 140).page()),
-            ("container-paused-after-relaunch", Container().landed(.paused, Container.whole(.paused, paused: RunPaused.clone)).page()),
-            ("container-ready", Container().landed(.ready, Container.whole(.ready)).page()),
+                .running(Container.cloning + Container.cloneFailed, startedAgo: 140).window()),
+            ("container-paused-after-relaunch", Container().landed(.paused, Container.whole(.paused, paused: RunPaused.clone)).window()),
+            ("container-ready", Container().landed(.ready, Container.whole(.ready)).window()),
+            ("container-connect-short", Container().landed(.connect, Container.whole(.connect, sections: FormSections(
+                connect: [C.forge, C.slack, C.claudeInstalling, C.dopplerSignIn, C.linear, C.fastBrowser]))).window(height: 420)),
         ]
     }
 
@@ -378,9 +423,14 @@ enum FastSetupSnapshot {
             return self
         }
 
+        /// The window's content at its own height, as the live window fits it.
         func page() -> AnyView {
-            AnyView(FastSetupView(flow: flow, form: form, actions: actions, install: install, team: team, status: status, handlers: .inert)
-                .frame(height: 620))
+            AnyView(FastSetupView(flow: flow, form: form, actions: actions, install: install, team: team, status: status, handlers: .inert))
+        }
+
+        /// `page` in the mock's window outline; `height` caps it as a short screen would, to show the body scrolling.
+        func window(height: CGFloat? = nil) -> AnyView {
+            AnyView(FastSnapshotWindow { page().frame(height: height) })
         }
 
         /// Lets the models' main-actor work land before the page renders.
