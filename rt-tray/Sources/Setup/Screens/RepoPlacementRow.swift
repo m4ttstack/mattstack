@@ -88,6 +88,90 @@ struct RepoPlacementRow: View {
     private var style: RepoPlacementState.NoteStyle { RepoPlacementState.noteStyle(action: action, shown: shown, lastError: shownError) }
 
     var body: some View {
+        if fast { fastBody } else { checklistBody }
+    }
+
+    /// P5b's repo block: name and segment, the path field and its button, then the note.
+    private var fastBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(action.repo ?? row.title).font(.system(size: 13, weight: .semibold)).foregroundColor(FastTheme.textPrimary)
+                    .lineLimit(1).layoutPriority(1)
+                if !row.why.isEmpty {
+                    Text(row.why).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                if isChecking { FastSpinner() }
+                FastSegmented(options: [(id: RepoPlacementState.checkout, label: "Current checkout"),
+                                        (id: RepoPlacementState.clone, label: "New checkout")],
+                              selection: segment, size: .small)
+                    .disabled(isChecking)
+                    // Scripts read the segment by a radio group's role, which the drawn buttons do not have.
+                    .accessibilityRepresentation {
+                        Picker("Where this repo lives", selection: segment) {
+                            Text("Current checkout").tag(RepoPlacementState.checkout)
+                            Text("New checkout").tag(RepoPlacementState.clone)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(isChecking)
+                    }
+                    .accessibilityIdentifier(ids.segment(row.id))
+            }
+            HStack(spacing: 8) {
+                FastValueField(value: RepoPlacementState.path(mode: shown, action: action).map(FormRowView.displayPath),
+                               placeholder: "No checkout chosen yet", size: .slim)
+                Button(buttonLabel) { pick(shown) }
+                    .buttonStyle(FastSecondaryButtonStyle(shape: .slim))
+                    .fixedSize()
+                    .disabled(isChecking)
+                    .accessibilityIdentifier(ids.action(row.id))
+                if let oneClick = action.oneClick {
+                    Button(oneClick.label) { record(oneClick.mode, oneClick.path) }
+                        .buttonStyle(FastPrimaryButtonStyle(size: .small, shape: .slim))
+                        .fixedSize()
+                        .disabled(isChecking)
+                        .accessibilityIdentifier(ids.oneClick(row.id))
+                }
+            }
+            fastNote
+        }
+        // Behind the block, so the 1-point probe adds no stack gap under the note.
+        .background(alignment: .topLeading) { RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id)) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(ids.row(row.id))
+        .onChange(of: action.mode) { _, mode in if let mode { shown = mode } }
+    }
+
+    /// rt's note in its style, with the board line joined on when the checkout is found (P5b's
+    /// "Found your checkout. The board starts here"); on any other note the board line stands alone.
+    @ViewBuilder private var fastNote: some View {
+        let noteID = shownError != nil ? ids.error(row.id) : ids.row(row.id) + ".note"
+        let board = action.board.flatMap { $0.isEmpty ? nil : $0 }
+        if let note, !note.isEmpty {
+            Group {
+                switch style {
+                case .ok: FastDoneLine(board.map { Self.joined(note, $0) } ?? note)
+                case .problem: FastHint(note, symbol: "exclamationmark.circle", tint: FastTheme.warning)
+                case .secondary: FastHint(note)
+                }
+            }
+            .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(noteID)
+        }
+        if let board, style != .ok || (note ?? "").isEmpty {
+            FastHint(board, symbol: "rectangle.3.group")
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(ids.row(row.id) + ".board")
+        }
+    }
+
+    static func joined(_ note: String, _ board: String) -> String {
+        let stop = note.last.map { ".!?".contains($0) } ?? true
+        return stop ? "\(note) \(board)" : "\(note). \(board)"
+    }
+
+    private var checklistBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 stateIcon.frame(width: 16)

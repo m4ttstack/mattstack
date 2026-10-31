@@ -20,7 +20,7 @@ struct ConnectScreenBody: View {
                 VStack(alignment: .leading, spacing: 18) {
                     FastScreenHeader(label: nil, title: teamFirst ? "You're in. Connect your accounts" : "Connect your accounts",
                                      subtitle: "One click each. Most open in your browser")
-                    FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, onAction: onAction)
+                    FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .topLeading)

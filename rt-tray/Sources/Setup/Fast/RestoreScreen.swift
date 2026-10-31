@@ -35,7 +35,7 @@ struct RestoreScreenBody: View {
                     }
                 }
                 if let rows, !rows.isEmpty {
-                    FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, onAction: onAction)
+                    FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
                 }
                 outcome
             }

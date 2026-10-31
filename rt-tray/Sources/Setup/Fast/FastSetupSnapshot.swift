@@ -50,8 +50,11 @@ enum FastSetupSnapshot {
         AnyView(FastSnapshotWindow { FastWindowChrome(step: FastStep.counter(for: screen, path: path)) { view } })
     }
 
-    static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:]) -> AnyView {
-        AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors) { _, _, _ in }.padding(20))
+    /// A card at a screen's 48-point side gutter, so its rows line up with the mocks' x positions.
+    static func card(_ rows: [FormRow], title: String? = nil, waiting: [String: String] = [:], errors: [String: String] = [:],
+                     style: FormRowStyle = .labelled) -> AnyView {
+        AnyView(FormCard(title: title, rows: rows, waiting: waiting, errors: errors, style: style) { _, _, _ in }
+            .padding(.horizontal, 48).padding(.vertical, 20))
     }
 
     /// FastTheme's shared views on their own, for the screens that build on them.
@@ -107,6 +110,19 @@ enum FastSetupSnapshot {
     @MainActor
     private static func rowPages() -> [(String, AnyView)] {
         [
+            ("rows-tile", card([Rows.fdaGranted, Rows.notificationsAsk, Rows.fancyUrls], style: .tile)),
+            ("rows-tile-long-done", card([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsBrewFailed], style: .tile)),
+            ("rows-tile-states", card([Rows.notificationsOff, Rows.fancyUrls, Rows.fda],
+                                      waiting: [Rows.fancyUrls.id: Rows.fancyUrls.waiting ?? ""],
+                                      errors: [Rows.fda.id: "System Settings did not open. Open it yourself, then come back"], style: .tile)),
+            ("rows-p5", card([MockRows.gitlab, MockRows.slack, MockRows.claude, MockRows.doppler, MockRows.linear, MockRows.fastBrowser])),
+            ("rows-p5s", card([MockRows.github, MockRows.claude, MockRows.repoRoot, MockRows.backup, MockRows.fastBrowser])),
+            ("rows-p3-forge", AnyView(card([Rows.gitlabToken]).environment(\.fastLinkIcon, true))),
+            ("rows-p5b", card([ThisMacRows.boardFound, ThisMacRows.widgetsClone, ThisMacRows.backupLocal], title: "Your repos")),
+            ("rows-todo-reason", card([ConnectRows.slack, ConnectRows.dopplerSignIn, ConnectRows.sdm, ConnectRows.linear])),
+            ("rows-repo-problem", card([ThisMacRows.widgetsMoved, ThisMacRows.boardFound], title: "Your repos",
+                                       errors: [ThisMacRows.boardFound.id: "That folder is not a git checkout of acme-api"])),
+            ("rows-off", card([Rows.notificationsOff, Rows.fdaGranted])),
             ("rows-todo", card([Rows.notifications, Rows.slack])),
             ("rows-busy", card([Rows.claudeInstalling])),
             ("rows-waiting", card([Rows.doppler, Rows.claudeCode])),
@@ -679,6 +695,35 @@ enum FastSetupSnapshot {
         /// An action type from an rt newer than this app.
         static let newerAction = FormRow(id: "tool.team.acme-cli", title: "acme-cli", subtext: "Runs acme's dev servers", state: .todo,
                                          detail: "Not installed", action: RowAction(type: .unknown, label: "Install"), watch: true)
+    }
+
+    /// The rows the P5 and P5s mocks draw, with no reason lines, so a render lines up with its mock row by row.
+    enum MockRows {
+        static let gitlab = FormRow(id: "forge", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs", state: .done,
+                                    detail: "Connected as janedoe from your invite")
+        static let github = FormRow(id: "forge", title: "GitHub", subtext: "Optional. Lets mattstack open PRs and MRs", state: .done,
+                                    detail: "Using your gh sign-in. Optional", optional: true)
+        static let slack = FormRow(id: "slack", title: "Slack", subtext: "Lets mattstack track and post MRs in Slack", state: .todo, detail: "",
+                                   action: RowAction(type: .oauth, label: "Connect Slack", integration: "slack", verb: ["setup", "slack", "connect"]))
+        static let claude = FormRow(id: "claude", title: "Claude", subtext: "You know, to do agentic stuff.", state: .todo, detail: "",
+                                    action: RowAction(type: .run, label: "Sign in to Claude", verb: ["setup", "claude", "connect"]))
+        static let doppler = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .busy,
+                                     detail: "Installing…")
+        static let linear = FormRow(id: "linear", title: "Linear", subtext: "So mattstack can read and write Linear tickets", state: .todo,
+                                    detail: "", action: RowAction(type: .connect, label: "Connect", integration: "linear", fields: [
+                                        ActionField(name: "apiKey", label: "Linear API key", secret: true, hint: "lin_api_…",
+                                                    value: "placeholderkeyvalue"),
+                                    ], create: ActionLink(label: "Create token", url: "https://example.com/settings/api")))
+        static let fastBrowser = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
+                                         detail: "", action: RowAction(type: .openURL, label: "Add to Chrome", url: "https://example.com/store"))
+        static let repoRoot = FormRow(id: "repos.root", title: "Repos go in", subtext: "Where mattstack keeps the repos you add", state: .done,
+                                      detail: "~/code", action: RowAction(type: .chooseFolder, label: "Change", startAt: "~/code"))
+        static let backup = FormRow(id: "settings.backup", title: "Back up home", subtext: "Keeps your settings safe if this Mac is lost",
+                                    state: .done, detail: "Private GitHub repo",
+                                    action: RowAction(type: .choose, label: "Change", verb: ["setup", "home-backup"], options: [
+                                        ChooseOption(id: "remote", label: "Private GitHub repo", detail: ""),
+                                        ChooseOption(id: "local", label: "Only this Mac", detail: ""),
+                                    ], selected: "remote"))
     }
 
     enum Rows {

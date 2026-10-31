@@ -12,7 +12,7 @@ struct MacOSScreenBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             FastScreenHeader(label: nil, title: "Three things from macOS", subtitle: nil)
-            FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, onAction: onAction)
+            FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .tile, onAction: onAction)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .topLeading)

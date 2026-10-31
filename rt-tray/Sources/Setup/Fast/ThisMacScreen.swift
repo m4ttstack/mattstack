@@ -49,6 +49,6 @@ struct ThisMacScreenBody: View {
     }
 
     private func card(_ title: String, _ rows: [FormRow]) -> some View {
-        FormCard(title: title, rows: rows, waiting: waiting, errors: errors, onAction: onAction)
+        FormCard(title: title, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
     }
 }
