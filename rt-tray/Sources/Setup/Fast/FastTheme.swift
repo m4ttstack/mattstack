@@ -637,6 +637,23 @@ struct FastDoneLine: View {
     }
 }
 
+/// A finished row's trailing mark: a green disc holding a dark tick, or a grey disc and dash for an answer of no.
+struct FastDoneDisc: View {
+    var off = false
+
+    var body: some View {
+        ZStack {
+            Circle().fill(off ? FastTheme.outline : FastTheme.success)
+            if off {
+                Capsule().fill(FastTheme.textSecondary).frame(width: 7, height: 1.5)
+            } else if let tick = FastLucideGlyph(symbol: "checkmark", box: 10, lineWidth: 1.8) {
+                tick.foregroundColor(FastTheme.windowBackground)
+            }
+        }
+        .frame(width: 16, height: 16)
+    }
+}
+
 /// P1's 36-point row tile: the icon in accent on a faint accent square, or in green once the row is done.
 struct FastIconTile: View {
     let symbol: String

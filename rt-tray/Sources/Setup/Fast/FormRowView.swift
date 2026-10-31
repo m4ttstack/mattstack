@@ -214,7 +214,7 @@ struct FormRowView: View {
             }
             subtextHint
         } else if let action = row.action, FormRowFields.collects(action) {
-            if row.state == .done && progressLine == nil { doneMark(size: 11, iconSize: 13, spacing: 10) }
+            if row.state == .done && progressLine == nil { doneMark(size: 13, iconSize: 14, spacing: 8) }
             FormRowFields(row: row, action: action, large: style == .stacked, onAction: onAction)
             if let line = progressLine { inlineProgress(line) }
             subtextHint
@@ -230,10 +230,7 @@ struct FormRowView: View {
             if let line = progressLine { inlineProgress(line) }
             subtextHint
         } else if row.state == .done && progressLine == nil {
-            HStack(spacing: 10) {
-                doneMark(size: 11, iconSize: 13, spacing: 10)
-                if let action = row.action { button(action) }
-            }
+            trailingDone
         } else if row.subtext.isEmpty {
             controlsLine
         } else {
@@ -314,6 +311,23 @@ struct FormRowView: View {
         if let waiting { return waiting }
         guard row.state == .busy || row.state == .waiting else { return nil }
         return row.detail.isEmpty ? row.waiting : row.detail
+    }
+
+    /// rt's words in grey and the mark at the row's end, so a card of finished rows reads as one calm column.
+    /// The label's padding centres it on a 28pt control line, so this line takes that height too.
+    private var trailingDone: some View {
+        HStack(spacing: 12) {
+            Text(row.detail).font(.system(size: 13)).foregroundColor(FastTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityHidden(true)
+            if let action = row.action { button(action) }
+            FastDoneDisc(off: row.tone == .off)
+                .accessibilityElement()
+                .accessibilityLabel(row.detail.isEmpty ? "Done" : row.detail)
+                .accessibilityIdentifier(AXID.fastRowDone(row.id))
+        }
+        .frame(minHeight: 28)
     }
 
     /// Never beside a segment: the segment already reads as the answer. An answer of no (rt's `off` tone) draws a grey dash.
