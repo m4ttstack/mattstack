@@ -299,6 +299,7 @@ enum FastSetupSnapshot {
         }
         return [
             ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
+            ("this-mac-as-mock", page([T.mockWidgetsFound, T.mockApiClone, T.backupLocal], ready: true)),
             ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupLocal], ready: false)),
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
@@ -593,6 +594,19 @@ enum FastSetupSnapshot {
                                                                     mode: "checkout", checkoutPath: "\(home)/Documents/GitHub/widgets",
                                                                     clonePath: "\(home)/Documents/GitHub/widgets-2", note: "Found your widgets checkout",
                                                                     then: ["setup", "apply", "--only", "repos.clone"], segmentRecords: false, awaitsRun: false, labels: labels))
+        /// The P5b mock's two repos, in its order and words, so a render lines up with the mock.
+        static let mockWidgetsFound = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "The board starts here",
+                                              state: .done, detail: "Found your checkout",
+                                              action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/widgets", repo: "widgets",
+                                                                mode: "checkout", checkoutPath: "\(home)/code/widgets",
+                                                                clonePath: "\(home)/Documents/GitHub/widgets", note: "Found your checkout",
+                                                                segmentRecords: true, board: "The board starts here", awaitsRun: false, labels: labels))
+        static let mockApiClone = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "",
+                                          state: .done, detail: "Cloned here when you click Set up this Mac",
+                                          action: RowAction(type: .placeRepo, label: "Choose…", identity: "github.com/acme/acme-api", repo: "acme-api",
+                                                            mode: "clone", clonePath: "\(home)/code/acme-api",
+                                                            note: "Cloned here when you click Set up this Mac", segmentRecords: true, awaitsRun: false,
+                                                            labels: labels))
         /// A recorded checkout that moved since: rt's problem is the row's detail and note.
         static let widgetsMoved = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
                                           state: .todo, detail: "~/old/widgets isn't a git checkout.",

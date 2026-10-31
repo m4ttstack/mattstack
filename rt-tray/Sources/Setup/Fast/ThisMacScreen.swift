@@ -1,7 +1,8 @@
 import SwiftUI
 import MattstackCore
 
-/// P5b: rt's this-mac section split into cards by row id. Set up this Mac waits on rt's `startReady`.
+/// P5b: rt's this-mac section in one card, its repo rows under "Your repos" and each
+/// other row under its own label. Set up this Mac waits on rt's `startReady`.
 struct ThisMacScreenBody: View {
     /// Nil on Just me.
     let teamName: String?
@@ -12,6 +13,9 @@ struct ThisMacScreenBody: View {
     let onAction: FormRowPerform
     let onBack: (() -> Void)?
     let onStart: () -> Void
+
+    static let insets = EdgeInsets(top: 32, leading: 48, bottom: 24, trailing: 48)
+    static let footerInsets = EdgeInsets(top: 14, leading: 48, bottom: 22, trailing: 48)
 
     /// Git leads the repos card: rt sends `tool.clt` first because nothing clones without it.
     static func cards(_ rows: [FormRow]) -> (repos: [FormRow], settings: [FormRow], leftover: [FormRow]) {
@@ -28,24 +32,26 @@ struct ThisMacScreenBody: View {
 
     var body: some View {
         let cards = Self.cards(rows)
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    FastScreenHeader(label: nil, title: "Last bit: this Mac", subtitle: subtitle)
-                    // Leftovers lead: they are why a finished run came back here, and they hold Set up this Mac.
-                    if !cards.leftover.isEmpty { card("Still to do", cards.leftover) }
-                    if !cards.repos.isEmpty { card("Your repos", cards.repos) }
-                    if !cards.settings.isEmpty { card("Your settings", cards.settings) }
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .scrollBounceBehavior(.basedOnSize)
+        FastScreen(insets: Self.insets, spacing: 18) {
+            FastTheme.heading("Last bit: this Mac").fixedSize(horizontal: false, vertical: true)
+            FastTheme.sub(subtitle).fixedSize(horizontal: false, vertical: true)
+            // Leftovers lead: they are why a finished run came back here, and they hold Set up this Mac.
+            if !cards.leftover.isEmpty { card("Still to do", cards.leftover) }
+            if !cards.repos.isEmpty || !cards.settings.isEmpty { mainCard(cards.repos + cards.settings) }
+        } footer: {
             FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: "About 10 minutes once you start",
-                       secondary: onBack.map { ("Back", $0) }, primary: ("Set up this Mac", startReady, onStart))
+                       secondary: onBack.map { ("Back", $0) }, primary: ("Set up this Mac", startReady, onStart),
+                       insets: Self.footerInsets, quietSecondary: true)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.thisMac.rawValue))
+    }
+
+    /// "Your repos" labels the run of repo rows only; every other row carries its own label, so the card has no title above.
+    private func mainCard(_ rows: [FormRow]) -> some View {
+        let hasRepoRun = rows.contains { $0.action?.type == .placeRepo }
+        return FormCard(title: hasRepoRun ? "Your repos" : nil, rows: rows, waiting: waiting, errors: errors, style: .labelled,
+                        onAction: onAction)
     }
 
     private func card(_ title: String, _ rows: [FormRow]) -> some View {
