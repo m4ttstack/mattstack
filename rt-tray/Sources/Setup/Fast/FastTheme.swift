@@ -1,4 +1,5 @@
 import AppKit
+import MattstackCore
 import SwiftUI
 
 /// The fast setup mocks' one dark palette, type and metrics. Views name these
@@ -367,7 +368,7 @@ struct FastField: View {
     var size: Size = .compact
     var monospaced = false
     var secure = false
-    /// A secret's known public prefix (`lin_api_`), drawn in place of its bullets while the value starts with it.
+    /// A secret's known public prefix (`lin_api_`), drawn in place of its first dots per `SecretPrefix.shown`.
     var maskPrefix: String? = nil
     /// The accent edge the mock gives a pasted value (P3's invite code).
     var highlighted = false
@@ -388,22 +389,6 @@ struct FastField: View {
         self.highlighted = highlighted
         self.id = id
         self.label = label
-    }
-
-    /// A format hint that ends in an ellipsis (`lin_api_…`) names a prefix; any other hint (a token's scopes) names none.
-    static func prefix(fromHint hint: String?) -> String? {
-        guard let hint else { return nil }
-        for ellipsis in ["…", "..."] where hint.hasSuffix(ellipsis) {
-            let prefix = String(hint.dropLast(ellipsis.count))
-            return prefix.isEmpty ? nil : prefix
-        }
-        return nil
-    }
-
-    /// The value's leading characters, only as far as they equal `prefix`, so no more of a secret ever shows.
-    static func shownPrefix(of value: String, prefix: String?) -> String {
-        guard let prefix else { return "" }
-        return String(zip(value, prefix).prefix { $0.0 == $0.1 }.map(\.0))
     }
 
     var body: some View {
@@ -431,7 +416,7 @@ struct FastField: View {
     private var bullets: some View {
         let advance = size.points * 0.6
         let dot = size.points * 0.24
-        let shown = Self.shownPrefix(of: text, prefix: maskPrefix)
+        let shown = SecretPrefix.shown(of: text, prefix: maskPrefix)
         return HStack(spacing: 0) {
             if !shown.isEmpty {
                 Text(shown).font(font).foregroundColor(FastTheme.textPrimary).lineLimit(1).fixedSize()

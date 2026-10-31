@@ -35,7 +35,7 @@ struct RestoreScreenBody: View {
             FastStackedRow(label: "Recovery key") {
                 // The key is a secret: a secure field, so it is never drawn or read back.
                 FastField(Self.keyPlaceholder, text: key, size: .large, monospaced: true, secure: true,
-                          maskPrefix: FastField.prefix(fromHint: Self.keyPlaceholder), id: AXID.fastRestoreKey, label: "Recovery key")
+                          maskPrefix: SecretPrefix.fromHint(Self.keyPlaceholder), id: AXID.fastRestoreKey, label: "Recovery key")
             }
             keyHint
             ForEach(rows ?? [], id: \.id) { row in
