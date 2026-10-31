@@ -8,7 +8,8 @@ struct PathScreenBody: View {
     var failure: String? = nil
     let onChoose: (TeamChoice) -> Void
 
-    @State private var hovered: TeamChoice?
+    /// Never cleared on exit: the gaps between cards would light the first card as the pointer crosses them.
+    @State private var pointed: TeamChoice?
     @FocusState private var focused: TeamChoice?
 
     struct Card {
@@ -28,8 +29,8 @@ struct PathScreenBody: View {
 
     private var cards: [Card] { Self.allCards.filter { showsSolo || $0.choice != .solo } }
 
-    /// Exactly one card is lit, as in the mock: the hovered one, else the focused one, else the first.
-    private var lit: TeamChoice? { hovered ?? focused ?? cards.first?.choice }
+    /// Exactly one card is lit, as in the mock: the last one hovered or focused, else the first.
+    private var lit: TeamChoice? { pointed ?? cards.first?.choice }
 
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 20) {
@@ -39,11 +40,14 @@ struct PathScreenBody: View {
                     .buttonStyle(PathCardStyle(lit: lit == card.choice))
                     .focused($focused, equals: card.choice)
                     .onHover { inside in
-                        if inside { hovered = card.choice } else if hovered == card.choice { hovered = nil }
+                        if inside { pointed = card.choice }
                     }
                     .accessibilityIdentifier(AXID.fastPathCard(Self.name(card.choice)))
             }
             if let failure { FastFailureLine(text: failure) }
+        }
+        .onChange(of: focused) { _, now in
+            if let now { pointed = now }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.path.rawValue))
