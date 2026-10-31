@@ -148,7 +148,7 @@ export const FORM_COPY = {
     title: "Last bit: this Mac",
     subtitle: (team: string) => `Where ${team}'s repos and your settings live`,
     repos: {
-      title: "Your repos",
+      title: "Repos go in",
       current: "Current checkout",
       locate: PLACE_REPO_LABELS.checkout,
       locateAgain: PLACE_REPO_LABELS.checkoutAgain,
@@ -159,6 +159,7 @@ export const FORM_COPY = {
     },
     settings: {
       title: "Your settings",
+      soloTitle: "Back up home",
       local: "Keep on this Mac",
       remote: "Store in a remote repo",
       subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later",
@@ -688,7 +689,7 @@ function backupRow(i: ThisMacInputs): FormRow {
   const selected = i.backup?.mode ?? "local";
   return {
     id: "settings.backup",
-    title: c.title,
+    title: i.path === "solo" ? c.soloTitle : c.title,
     subtext: c.subtext,
     state: "done",
     detail: c[selected],

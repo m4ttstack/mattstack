@@ -194,12 +194,13 @@ describe("thisMacRows", () => {
     const empty = solo({ configured: null, staged: null, candidate: "/fake-home/Documents/GitHub" });
     expect(empty.map((x) => x.id)).toEqual(["repos.root", "settings.backup"]);
     expect(pick(empty, "repos.root")).toMatchObject({
-      title: "Your repos",
+      title: "Repos go in",
       subtext: "Where new clones go",
       state: "todo",
       action: { type: "choose-folder", label: "Choose…", startAt: "/fake-home/Documents/GitHub" },
     });
     expect(startReady(empty)).toBe(false);
+    expect(pick(empty, "settings.backup").title).toBe("Back up home");
 
     expect(pick(solo({ configured: null, staged: "/fake-home/code", candidate: null }), "repos.root")).toMatchObject({ state: "done", detail: "/fake-home/code" });
     expect(pick(solo({ configured: "/fake-home/src", staged: null, candidate: null }), "repos.root")).toMatchObject({ state: "done", detail: "/fake-home/src" });

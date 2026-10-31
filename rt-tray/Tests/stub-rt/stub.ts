@@ -629,10 +629,10 @@ function backup(): Backup {
   return raw ? (JSON.parse(raw) as Backup) : { mode: "local" };
 }
 
-function backupRow(): FormRow {
+function backupRow(path: FormPath | null): FormRow {
   const c = FORM_COPY.thisMac.settings;
   const selected = backup().mode;
-  return formRow({ id: "settings.backup", title: c.title, subtext: c.subtext, state: "done", detail: c[selected],
+  return formRow({ id: "settings.backup", title: path === "solo" ? c.soloTitle : c.title, subtext: c.subtext, state: "done", detail: c[selected],
                    action: { type: "choose", label: c.change, verb: ["setup", "home-backup"], selected,
                              options: [{ id: "local", label: c.local, detail: "" }, { id: "remote", label: c.remote, detail: "" }] } });
 }
@@ -652,7 +652,7 @@ function remoteRow(): FormRow | null {
 
 function thisMacSection(path: FormPath | null): FormRow[] {
   const repos = path === "solo" ? repoRootRow() : repoRow();
-  return [...cltRows(), repos, backupRow(), remoteRow()].filter((r): r is FormRow => r !== null);
+  return [...cltRows(), repos, backupRow(path), remoteRow()].filter((r): r is FormRow => r !== null);
 }
 
 function formStage(path: FormPath | null, sections: SetupForm["sections"]): FormStage {

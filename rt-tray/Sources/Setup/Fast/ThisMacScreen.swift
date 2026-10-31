@@ -37,6 +37,7 @@ struct ThisMacScreenBody: View {
             // Leftovers lead: they are why a finished run came back here, and they hold Set up this Mac.
             if !cards.leftover.isEmpty { card("Still to do", cards.leftover) }
             if !cards.repos.isEmpty || !cards.settings.isEmpty { mainCard(cards.repos + cards.settings) }
+            if teamName == nil { soloNote }
         } footer: {
             FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: teamName == nil ? "About 5 minutes once you start" : "About 10 minutes once you start",
                        secondary: onBack.map { ("Back", $0) }, primary: ("Set up this Mac", startReady, onStart),
@@ -51,6 +52,17 @@ struct ThisMacScreenBody: View {
         let hasRepoRun = rows.contains { $0.action?.type == .placeRepo }
         return FormCard(title: hasRepoRun ? "Your repos" : nil, rows: rows, waiting: waiting, errors: errors, style: .labelled,
                         onAction: onAction)
+    }
+
+    static let soloNoteText = "No questions for writing style (sparse), the board's folder or your editors"
+
+    /// P5s: what Just me settles without asking.
+    private var soloNote: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "sparkles").font(.system(size: 13, weight: .light))
+            Text(Self.soloNoteText).font(.system(size: 12))
+        }
+        .foregroundColor(FastTheme.textTertiary)
     }
 
     private func card(_ title: String, _ rows: [FormRow]) -> some View {

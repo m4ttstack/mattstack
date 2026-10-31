@@ -315,7 +315,7 @@ enum FastSetupSnapshot {
             ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
             ("this-mac-as-mock", page([T.mockWidgetsFound, T.mockApiClone, T.backupLocal], ready: true)),
             ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
-            ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupLocal], ready: false)),
+            ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupSolo], ready: false)),
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
             ("this-mac-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.shellLeftover], ready: false)),
             ("this-mac-backup-leftover", page([T.boardFoundAfterRun, T.widgetsFoundAfterRun, T.backupLocal, T.backupLeftover], ready: false)),
@@ -663,14 +663,16 @@ enum FastSetupSnapshot {
                                                             clonePath: "\(home)/Documents/GitHub/widgets", note: "~/old/widgets isn't a git checkout.",
                                                             problem: "~/old/widgets isn't a git checkout.", segmentRecords: true, awaitsRun: false,
                                                             labels: labels))
-        static let repoRoot = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
+        static let repoRoot = FormRow(id: "repos.root", title: "Repos go in", subtext: "Where new clones go", state: .done,
                                       detail: "\(home)/Documents/GitHub",
                                       action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "\(home)/Documents/GitHub"))
-        static let repoRootLongPath = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
+        static let repoRootLongPath = FormRow(id: "repos.root", title: "Repos go in", subtext: "Where new clones go", state: .done,
                                               detail: "\(home)/Library/Mobile Documents/com~apple~CloudDocs/Projects/clients/acme/engineering/checkouts/team-widgets",
                                               action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "\(home)/Documents/GitHub"))
         static let backupLocal = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
                                          detail: "Keep on this Mac", action: backupAction("local"))
+        static let backupSolo = FormRow(id: "settings.backup", title: "Back up home", subtext: settingsSubtext, state: .done,
+                                        detail: "Keep on this Mac", action: backupAction("local"))
         static let backupRemote = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
                                           detail: "Store in a remote repo", action: backupAction("remote"))
         static let remoteTodo = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .todo, detail: "",
@@ -902,10 +904,10 @@ enum FastSetupSnapshot {
                                     verb: ["home", "remote", "set"]))
         static let repo = ThisMacRows.boardFound
         static let repoClone = ThisMacRows.widgetsClone
-        static let repoRoot = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
+        static let repoRoot = FormRow(id: "repos.root", title: "Repos go in", subtext: "Where new clones go", state: .done,
                                       detail: "~/Documents/GitHub",
                                       action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "~/Documents/GitHub"))
-        static let repoRootLong = FormRow(id: "repos.root", title: "Your repos",
+        static let repoRootLong = FormRow(id: "repos.root", title: "Repos go in",
                                           subtext: "Where new clones go. Every repo mattstack clones for you lands in this folder, and you can move it later",
                                           state: .done, detail: "~/Documents/GitHub",
                                           action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "~/Documents/GitHub"))
