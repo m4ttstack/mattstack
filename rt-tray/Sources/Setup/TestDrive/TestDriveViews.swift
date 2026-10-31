@@ -126,7 +126,8 @@ struct TestDriveFrame: View {
         VStack(spacing: 0) {
             TestDriveBanner(toast: toasts.latest, toastFailed: toasts.latestFailed, notice: toasts.notice, run: run,
                             onShow: onShow, onScenarios: onScenarios, onReset: onReset)
-            content
+            // The window keeps macOS's title bar over the banner, so the traffic lights are not beside this one.
+            content.environment(\.fastLightsBesideTitle, false)
         }
         .environment(\.openSetupLink) { [toasts] url in toasts.show(TestDriveCopy.wouldOpen(url)) }
         // Looking at the window is the click a real notification waits for, and it frees the banner for later lines.

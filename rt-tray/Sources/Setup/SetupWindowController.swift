@@ -32,6 +32,8 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         window.title = title
         window.appearance = FastAppearance.window
         window.backgroundColor = FastTheme.windowFill
+        // The mocks blend their translucent tiles and glow in sRGB; a wide-gamut display's space blends them stronger.
+        window.colorSpace = .sRGB
         if chromeHeight == 0 {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden

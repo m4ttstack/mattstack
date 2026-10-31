@@ -6,7 +6,8 @@ import MattstackCore
 /// views from fixture rows as `<name>-<light|dark>.png`, then exits before any
 /// window, status item, socket or daemon work exists. The window is dark only,
 /// so both files draw the dark design. Screens render at their own height in
-/// the mock's window chrome, so a render lines up with its mock. DEBUG builds only.
+/// the mock's window chrome, at 2x and blended in sRGB like the mocks, so a
+/// render lines up with its mock. DEBUG builds only.
 enum FastSetupSnapshot {
     @MainActor
     static func runIfRequested() -> Bool {
@@ -29,7 +30,8 @@ enum FastSetupSnapshot {
                         .environment(\.colorScheme, .dark)
                         .controlSize(.large),
                     appearance: FastAppearance.window.name,
-                    to: out.appendingPathComponent("\(name)-\(scheme).png"))
+                    to: out.appendingPathComponent("\(name)-\(scheme).png"),
+                    scale: 2, colorSpace: .sRGB)
             }
         }
         print("wrote \(pages.count * 2) snapshots to \(out.path)")
@@ -62,18 +64,25 @@ enum FastSetupSnapshot {
                 Button("Continue") {}.buttonStyle(FastPrimaryButtonStyle())
                 Button("Continue") {}.buttonStyle(FastPrimaryButtonStyle()).disabled(true)
                 Button("Hide") {}.buttonStyle(FastSecondaryButtonStyle(size: .large))
+                Button("Retry") {}.buttonStyle(FastPrimaryButtonStyle(glow: false, shape: .retry))
+                Button("Show log") {}.buttonStyle(FastSecondaryButtonStyle(size: .large, shape: .log))
             }
             HStack(spacing: 10) {
                 Button { } label: { Label("Connect Slack", systemImage: "message") }.buttonStyle(FastOutlineButtonStyle())
                 Button { } label: { Label("Sign in to Claude", systemImage: "arrow.right.to.line") }.buttonStyle(FastOutlineButtonStyle())
                 Button("Create token") {}.buttonStyle(FastSecondaryButtonStyle())
-                Button("Create token") {}.buttonStyle(FastSecondaryButtonStyle(filled: true))
+                FastBusyChip(text: "Installing…")
             }
             HStack(spacing: 8) {
                 FastField("API key", text: .constant("lin_api_\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"), monospaced: true)
                 FastField("Team name", text: .constant(""), size: .large)
+                Button("Create token") {}.buttonStyle(FastSecondaryButtonStyle(shape: .besideLargeField))
             }
-            FastField("Invite code", text: .constant("01234-56789-ABCDE"), size: .large, monospaced: true, highlighted: true)
+            HStack(spacing: 8) {
+                FastField("Path", text: .constant("~/Documents/GitHub/widgets"), size: .slim, monospaced: true)
+                Button("Change") {}.buttonStyle(FastSecondaryButtonStyle(shape: .slim))
+            }
+            FastField("Invite code", text: .constant("01234-56789-ABCDE"), size: .invite, monospaced: true, highlighted: true)
             HStack(spacing: 12) {
                 FastSegmented(options: [(id: "gitlab", label: "GitLab"), (id: "github", label: "GitHub")], selection: .constant("gitlab"))
                 FastSegmented(options: [(id: "current", label: "Current checkout"), (id: "new", label: "New checkout")],

@@ -4,11 +4,21 @@ private struct FastDrawsLightsKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct FastLightsBesideTitleKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
     /// Snapshots draw the mock's three title bar dots; the live window leaves that space to macOS's traffic lights.
     var fastDrawsLights: Bool {
         get { self[FastDrawsLightsKey.self] }
         set { self[FastDrawsLightsKey.self] = newValue }
+    }
+
+    /// False where macOS's own title bar sits above this one (a test drive), so no traffic lights share it.
+    var fastLightsBesideTitle: Bool {
+        get { self[FastLightsBesideTitleKey.self] }
+        set { self[FastLightsBesideTitleKey.self] = newValue }
     }
 }
 
@@ -16,16 +26,19 @@ extension EnvironmentValues {
 struct FastTitleBar: View {
     let step: String?
     @Environment(\.fastDrawsLights) private var drawsLights
+    @Environment(\.fastLightsBesideTitle) private var lightsBesideTitle
 
     var body: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 8) {
-                ForEach(0..<3, id: \.self) { _ in
-                    Circle().fill(drawsLights ? FastTheme.outline : Color.clear).frame(width: 12, height: 12)
+            if lightsBesideTitle || drawsLights {
+                HStack(spacing: 8) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Circle().fill(drawsLights ? FastTheme.outline : Color.clear).frame(width: 12, height: 12)
+                    }
                 }
+                .padding(.trailing, 16)
+                .accessibilityHidden(true)
             }
-            .padding(.trailing, 16)
-            .accessibilityHidden(true)
             Text("mattstack").font(.system(size: 13, weight: .semibold)).foregroundColor(FastTheme.textSecondary)
             Spacer(minLength: 8)
             if let step {
@@ -47,11 +60,11 @@ struct FastTitleBar: View {
 struct FastWindowBackground: View {
     var body: some View {
         GeometryReader { geo in
-            let width = max(geo.size.width, 1), height = max(geo.size.height, 1)
-            RadialGradient(colors: [FastTheme.glow, FastTheme.glow.opacity(0)], center: .top,
-                           startRadius: 0, endRadius: 0.65 * width)
-                .frame(width: width, height: height)
-                .scaleEffect(x: 1, y: (0.45 * height) / (0.65 * width), anchor: .top)
+            let width = geo.size.width, height = geo.size.height
+            EllipticalGradient(colors: [FastTheme.glow, FastTheme.glow.opacity(0)], center: .center,
+                               startRadiusFraction: 0, endRadiusFraction: 0.5)
+                .frame(width: 1.3 * width, height: 0.9 * height)
+                .position(x: width / 2, y: 0)
         }
         .background(FastTheme.windowBackground)
         .clipped()

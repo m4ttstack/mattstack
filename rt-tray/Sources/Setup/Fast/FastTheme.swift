@@ -81,31 +81,60 @@ enum FastButtonSize {
     case large, small
 }
 
-/// The accent fill with white text. Large carries the mock's glow; disabled
-/// drops to 40% and loses it, so it never reads as the system's grey bezel.
+/// A screen's own padding and corner where its CSS differs from a button size's.
+struct FastButtonShape {
+    var vertical: CGFloat
+    var horizontal: CGFloat
+    var radius: CGFloat
+
+    /// P3c's Create token, the height of the large field beside it.
+    static let besideLargeField = FastButtonShape(vertical: 11, horizontal: 12, radius: 10)
+    /// P5b's Change, beside the slim path field.
+    static let slim = FastButtonShape(vertical: 6, horizontal: 12, radius: 8)
+    /// P6b's Show log.
+    static let log = FastButtonShape(vertical: 10, horizontal: 18, radius: 11)
+    /// P6b's Retry.
+    static let retry = FastButtonShape(vertical: 10, horizontal: 20, radius: 11)
+
+    static func standard(_ size: FastButtonSize, primary: Bool) -> FastButtonShape {
+        switch (size, primary) {
+        case (.large, true): return FastButtonShape(vertical: 11, horizontal: 22, radius: 11)
+        case (.small, true): return FastButtonShape(vertical: 7, horizontal: 14, radius: 8)
+        case (.large, false): return FastButtonShape(vertical: 10, horizontal: 20, radius: 11)
+        case (.small, false): return FastButtonShape(vertical: 7, horizontal: 12, radius: 8)
+        }
+    }
+}
+
+/// The accent fill with white text. Large carries the mock's glow unless
+/// `glow` is off (P6b's Retry); disabled drops to 40% and loses it, so it
+/// never reads as the system's grey bezel.
 struct FastPrimaryButtonStyle: ButtonStyle {
     var size: FastButtonSize = .large
+    var glow = true
+    var shape: FastButtonShape? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        Styled(configuration: configuration, size: size)
+        Styled(configuration: configuration, size: size, glow: glow, metrics: shape ?? .standard(size, primary: true))
     }
 
     private struct Styled: View {
         let configuration: Configuration
         let size: FastButtonSize
+        let glow: Bool
+        let metrics: FastButtonShape
         @Environment(\.isEnabled) private var isEnabled
 
         var body: some View {
             let large = size == .large
-            let shape = RoundedRectangle(cornerRadius: large ? 11 : 8, style: .continuous)
+            let shape = RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
             configuration.label
                 .font(.system(size: large ? 14 : 13, weight: .semibold))
                 .foregroundColor(.white)
                 .lineLimit(1)
-                .padding(.vertical, large ? 11 : 7).padding(.horizontal, large ? 22 : 14)
-                .background(shape.fill(FastTheme.accent))
-                .overlay(shape.fill(Color.black.opacity(configuration.isPressed ? 0.15 : 0)))
-                .shadow(color: large && isEnabled ? FastTheme.primaryGlow : .clear, radius: 12, y: 8)
+                .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
+                .background(shape.fill(FastTheme.accent).overlay(shape.fill(Color.black.opacity(configuration.isPressed ? 0.15 : 0))))
+                .shadow(color: large && glow && isEnabled ? FastTheme.primaryGlow : .clear, radius: 12, y: 8)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
         }
@@ -140,37 +169,53 @@ struct FastOutlineButtonStyle: ButtonStyle {
 }
 
 /// A quiet outlined button in primary text: small in a row (Create token,
-/// Change, Locate…), large in a footer (Hide, Show log, Back).
+/// Change, Locate…), large in a footer (Hide, Show log, Back). `shape`
+/// takes a screen's own padding and corner (`FastButtonShape.slim` and so on).
 struct FastSecondaryButtonStyle: ButtonStyle {
     var size: FastButtonSize = .small
-    /// P3c's Create token sits on the field fill; most draw on whatever is behind them.
-    var filled = false
+    var shape: FastButtonShape? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        Styled(configuration: configuration, size: size, filled: filled)
+        Styled(configuration: configuration, size: size, metrics: shape ?? .standard(size, primary: false))
     }
 
     private struct Styled: View {
         let configuration: Configuration
         let size: FastButtonSize
-        let filled: Bool
+        let metrics: FastButtonShape
         @Environment(\.isEnabled) private var isEnabled
 
         var body: some View {
             let large = size == .large
-            let shape = RoundedRectangle(cornerRadius: large ? 11 : 8, style: .continuous)
+            let shape = RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
             configuration.label
                 .labelStyle(FastIconLabelStyle(iconSize: large ? 14 : 13, spacing: 6))
                 .font(.system(size: large ? 14 : 12, weight: .medium))
                 .foregroundColor(FastTheme.textPrimary)
                 .lineLimit(1)
-                .padding(.vertical, large ? 10 : 7).padding(.horizontal, large ? 20 : 12)
-                .background(shape.fill(filled ? FastTheme.fieldFill : Color.clear))
-                .overlay(shape.fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0)))
+                .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
+                .background(shape.fill(Color.white.opacity(configuration.isPressed ? 0.06 : 0)))
                 .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
         }
+    }
+}
+
+/// P5's "Installing…": a spinner and grey text in a quiet outlined chip,
+/// where the row's button sits once the install is done.
+struct FastBusyChip: View {
+    let text: String
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini).frame(width: 13, height: 13)
+            Text(text).font(.system(size: 12, weight: .semibold)).foregroundColor(FastTheme.textSecondary).lineLimit(1)
+        }
+        .padding(.vertical, 7).padding(.horizontal, 12)
+        .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
+        .fixedSize()
     }
 }
 
@@ -190,9 +235,25 @@ struct FastIconLabelStyle: LabelStyle {
 // MARK: - Field
 
 /// A text field drawn by hand, as offscreen snapshots skip the system bezel.
-/// Compact sits in a row (P5's token field); large is a form field (P3c, P3r).
+/// Each size is one mock's field: compact in a row (P5's token, 8x10), slim
+/// (P5b's path, 7x10), large in a form (P3c, P3r, 11x12) and invite (P3's code, 12x14).
 struct FastField: View {
-    enum Size { case compact, large }
+    enum Size {
+        case compact, slim, large, invite
+
+        var vertical: CGFloat {
+            switch self { case .compact: 8; case .slim: 7; case .large: 11; case .invite: 12 }
+        }
+        var horizontal: CGFloat {
+            switch self { case .compact, .slim: 10; case .large: 12; case .invite: 14 }
+        }
+        var radius: CGFloat {
+            switch self { case .compact, .slim: 8; case .large, .invite: 10 }
+        }
+        var points: CGFloat {
+            switch self { case .compact, .slim: 12; case .large: 13; case .invite: 14 }
+        }
+    }
 
     let placeholder: String
     @Binding var text: String
@@ -214,22 +275,20 @@ struct FastField: View {
     }
 
     var body: some View {
-        let large = size == .large
-        let shape = RoundedRectangle(cornerRadius: large ? 10 : 8, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: size.radius, style: .continuous)
         ZStack(alignment: .leading) {
             if text.isEmpty {
                 Text(placeholder).font(font).foregroundColor(FastTheme.textTertiary).lineLimit(1).allowsHitTesting(false)
             }
             input.font(font).foregroundColor(FastTheme.textPrimary).textFieldStyle(.plain).focused($focused)
         }
-        .padding(.vertical, large ? 11 : 8).padding(.horizontal, large ? 12 : 10)
+        .padding(.vertical, size.vertical).padding(.horizontal, size.horizontal)
         .background(shape.fill(FastTheme.fieldFill))
         .overlay(shape.strokeBorder(focused || highlighted ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
     }
 
     private var font: Font {
-        let points: CGFloat = size == .large ? 13 : 12
-        return .system(size: points, design: monospaced ? .monospaced : .default)
+        .system(size: size.points, design: monospaced ? .monospaced : .default)
     }
 
     @ViewBuilder private var input: some View {
@@ -331,7 +390,7 @@ struct FastIconTile: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 16, weight: .regular))
+            .font(.system(size: 18, weight: .light))
             .foregroundColor(done ? FastTheme.success : FastTheme.accent)
             .frame(width: 36, height: 36)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(done ? FastTheme.successTile : FastTheme.accentTile))
@@ -352,6 +411,7 @@ struct FastTeamChip: View {
         .padding(.vertical, 5).padding(.horizontal, 12)
         .background(Capsule().fill(FastTheme.card))
         .overlay(Capsule().strokeBorder(FastTheme.outline, lineWidth: 1))
+        .fixedSize()
     }
 }
 
