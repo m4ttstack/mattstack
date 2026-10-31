@@ -92,7 +92,7 @@ struct FastSetupView: View {
                               onAction: perform, onBack: back, onContinue: { flow.continueToThisMac() })
         case .thisMac:
             let read = form.read(carrying: "this-mac")
-            ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, rows: form.rows(for: "this-mac") ?? [],
+            ThisMacScreenBody(teamName: teamPath ? latest?.team?.name : nil, solo: stepPath == "solo", rows: form.rows(for: "this-mac") ?? [],
                               waiting: actions.waiting, errors: actions.errors, startReady: read?.startReady ?? false,
                               onAction: perform, onBack: back, onStart: handlers.start)
         case .running:

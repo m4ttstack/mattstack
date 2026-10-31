@@ -4,8 +4,10 @@ import MattstackCore
 /// P5b: rt's this-mac section in one card, its repo rows under "Your repos" and each
 /// other row under its own label. Set up this Mac waits on rt's `startReady`.
 struct ThisMacScreenBody: View {
-    /// Nil on Just me.
+    /// Nil on Just me, or before rt names the team.
     let teamName: String?
+    /// rt's path is Just me.
+    let solo: Bool
     let rows: [FormRow]
     let waiting: [String: String]
     let errors: [String: String]
@@ -37,9 +39,9 @@ struct ThisMacScreenBody: View {
             // Leftovers lead: they are why a finished run came back here, and they hold Set up this Mac.
             if !cards.leftover.isEmpty { card("Still to do", cards.leftover) }
             if !cards.repos.isEmpty || !cards.settings.isEmpty { mainCard(cards.repos + cards.settings) }
-            if teamName == nil { soloNote }
+            if solo { soloNote }
         } footer: {
-            FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: teamName == nil ? "About 5 minutes once you start" : "About 10 minutes once you start",
+            FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: solo ? "About 5 minutes once you start" : "About 10 minutes once you start",
                        secondary: onBack.map { ("Back", $0) }, primary: ("Set up this Mac", startReady, onStart),
                        insets: Self.footerInsets, quietSecondary: true)
         }

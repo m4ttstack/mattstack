@@ -6,9 +6,9 @@ import MattstackCore
 /// One dedicated NSWindow hosting fast setup (AppKit lifecycle stays). Each
 /// screen opens at `width` and its own height, as the mocks do, between
 /// `minHeight` and the screen's visible height; a screen taller than that
-/// scrolls inside. The person may drag it taller, never wider: the screen stays
-/// top-aligned with its footer at the bottom. A drag holds until the screen
-/// changes, which fits the window to the new screen again. Dark whatever the system appearance. Always closable:
+/// scrolls inside. `SetupWindowSizer` lets the person drag it taller, never
+/// wider or shorter than the screen; the screen stays top-aligned with its
+/// footer at the bottom. Dark whatever the system appearance. Always closable:
 /// closing never stops the join's approval check or a run, which the coordinator owns.
 final class SetupWindowController: NSWindowController, NSWindowDelegate {
     static let width: CGFloat = FastTheme.windowWidth
@@ -19,8 +19,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     private let tracksSession: Bool
     private let chromeHeight: CGFloat
     private var cancellables = Set<AnyCancellable>()
-    /// The screen the person last resized the window on; while it shows, a fit only grows the window.
-    private var draggedOn: FastSetupScreen?
+    private var sizer: SetupWindowSizer!
 
     /// `chromeHeight` is what the root draws above the screens (a test drive's banner).
     /// Such a window keeps macOS's title bar over it, so the banner never sits under the traffic lights.
@@ -48,6 +47,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         window.center()
         super.init(window: window)
         window.delegate = self
+        sizer = SetupWindowSizer(window: window, floor: Self.minHeight + chromeHeight)
         let hosting = FittingHostingController(rootView: AnyView(root.frame(width: Self.width).frame(maxHeight: .infinity, alignment: .top)))
         hosting.sizingOptions = [.preferredContentSize]
         hosting.safeAreaRegions = []
@@ -56,10 +56,15 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         window.setContentSize(NSSize(width: Self.width, height: height))
         hosting.view.layoutSubtreeIfNeeded()
         fit(to: hosting.preferredContentSize)
-        flow.$screen.sink { [weak self] screen in
+        flow.$screen.sink { [weak self, weak hosting] screen in
             DispatchQueue.main.async {
-                if self?.draggedOn != screen { self?.draggedOn = nil }
-                self?.applyStyle()
+                guard let self else { return }
+                self.sizer.screenChanged(to: screen)
+                if let hosting {
+                    hosting.view.layoutSubtreeIfNeeded()
+                    self.fit(to: hosting.preferredContentSize)
+                }
+                self.applyStyle()
             }
         }
             .store(in: &cancellables)
@@ -79,25 +84,8 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// The window's content height for a screen whose ideal height is `ideal`, on a screen showing `visible` points.
-    static func fittedHeight(ideal: CGFloat, chromeHeight: CGFloat, visible: CGFloat) -> CGFloat {
-        min(max(ideal, minHeight + chromeHeight), visible).rounded()
-    }
-
-    /// Grows or shrinks from the top edge, so the title bar stays where the person left it.
     private func fit(to ideal: NSSize) {
-        guard let window, ideal.height > 0 else { return }
-        let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
-        let titlebar = window.frame.height - window.contentRect(forFrameRect: window.frame).height
-        let content = Self.fittedHeight(ideal: ideal.height, chromeHeight: chromeHeight,
-                                        visible: (visibleFrame?.height ?? 900) - titlebar)
-        var frame = window.frame
-        let target = content + titlebar
-        guard abs(frame.height - target) > 0.5, draggedOn != flow.screen || target > frame.height else { return }
-        frame.origin.y += frame.height - target
-        frame.size.height = target
-        if let visibleFrame, frame.minY < visibleFrame.minY { frame.origin.y = visibleFrame.minY }
-        window.setFrame(frame, display: true, animate: window.isVisible)
+        sizer.fit(ideal: ideal.height, on: flow.screen)
     }
 
     /// Ground truth, not "we just showed it": a late screen change after the
@@ -109,7 +97,12 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {
-        draggedOn = flow.screen
+        sizer.personResized(on: flow.screen)
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        sizer.personResized(on: flow.screen)
+        return true
     }
 
     func windowWillClose(_ notification: Notification) {

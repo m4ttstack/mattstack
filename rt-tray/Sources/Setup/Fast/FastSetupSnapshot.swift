@@ -307,7 +307,7 @@ enum FastSetupSnapshot {
     private static func thisMacPages() -> [(String, AnyView)] {
         typealias T = ThisMacRows
         func page(team: String? = "Mithrandir", _ rows: [FormRow], ready: Bool) -> AnyView {
-            window(ThisMacScreenBody(teamName: team, rows: rows, waiting: [:], errors: [:], startReady: ready,
+            window(ThisMacScreenBody(teamName: team, solo: team == nil, rows: rows, waiting: [:], errors: [:], startReady: ready,
                                      onAction: { _, _, _ in }, onBack: {}, onStart: {}),
                    .thisMac, path: team == nil ? "solo" : "join")
         }
