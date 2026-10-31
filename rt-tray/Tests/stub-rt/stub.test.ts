@@ -494,7 +494,7 @@ async function answer(scenario: string, dir: string, row: StubRow): Promise<void
   const filled = Object.fromEntries((a.fields ?? []).map((f) => [f.name, `fake-${f.name}`]));
   switch (a.type) {
     case "run": case "oauth": return verb(a.verb!);
-    case "connect": return verb(a.verb ?? ["setup", a.integration!, "connect"], { token: "fake-token" });
+    case "connect": return verb(a.verb ?? ["setup", a.integration!, "connect"], a.fields?.length ? filled : { token: "fake-token" });
     case "form": return verb(a.verb!, a.verb![0] === "home" ? { url: "git@github.com:janedoe/mattstack-home.git" } : filled);
     case "owner-once": return verb(["setup", a.integration!, "create-app"], filled);
     case "open-url": return verb(["stub", "opened", a.url!]);
@@ -806,6 +806,16 @@ test("setup claude connect answers needs-you, then ready", async () => {
   expect(first.lines[0]).toMatchObject({ integration: "claude", status: "needs-you", detail: "Finish signing in in your browser" });
   const second = await run("join-happy", ["setup", "claude", "connect", "--json"], "", dir);
   expect(second.lines[0]).toMatchObject({ integration: "claude", status: "ready" });
+});
+
+test("setup <integration> connect takes the integration's own field, so Linear's API key connects", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const linear = await run("join-happy", ["setup", "linear", "connect", "--json"], JSON.stringify({ apiKey: "lin_api_x" }), dir);
+  expect(linear.lines[0]).toMatchObject({ integration: "linear", status: "ready" });
+  const sdm = await run("join-happy", ["setup", "sdm", "connect", "--json"], JSON.stringify({ email: "janedoe@acme.dev" }), dir);
+  expect(sdm.lines[0]).toMatchObject({ integration: "sdm", status: "ready" });
+  const blank = await run("join-happy", ["setup", "linear", "connect", "--json"], JSON.stringify({ apiKey: "  " }), dir);
+  expect(blank.lines[0].error.code).toBe("no-token");
 });
 
 test("stub grant --probe answers without granting anything, so the app can tell an older stub before a drive", async () => {

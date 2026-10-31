@@ -820,7 +820,9 @@ else if (a0 === "skills" && a1 === "writing-style" && a2 === "use") {
 else if (a0 === "setup" && a2 === "status") emit({ integration: a1, status: stateGet(`${a1}-connected`) ? "ready" : "missing", detail: null });
 else if (a0 === "setup" && a2 === "connect") {
   const body = await readStdinJSON();
-  if (!body.token && !body.useGh) fail("no-token", "Paste a token or use gh.");
+  const named = integrationDef(a1!).fields.map((f) => f.name);
+  const filled = (named.length ? named : ["token"]).some((n) => typeof body[n] === "string" && (body[n] as string).trim() !== "");
+  if (!filled && !body.useGh) fail("no-token", "Paste a token or use gh.");
   await sleep(waitMs(0.5));
   stateBump(`${a1}-connected`);
   emit({ integration: a1, status: "ready", detail: "token can see group acme", scopesSeen: ["api"] });
