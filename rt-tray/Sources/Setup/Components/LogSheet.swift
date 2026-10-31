@@ -36,7 +36,7 @@ struct LogSheet: View {
     private var fastBody: some View {
         let well = RoundedRectangle(cornerRadius: 10, style: .continuous)
         return VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.system(size: 18, weight: .bold)).tracking(FastTheme.tracking(css: -0.5))
+            Text(title).font(FastTheme.sheetHeading).tracking(FastTheme.sheetHeadingTracking)
                 .foregroundColor(FastTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             ScrollView {

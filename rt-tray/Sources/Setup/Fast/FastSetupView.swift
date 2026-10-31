@@ -189,11 +189,12 @@ struct FastLoadingBody: View {
     }
 }
 
-/// A screen's own verb failed: rt's sentence in the warning colour, as P6b draws what failed.
+/// A screen's own verb failed: rt's sentence in the warning colour, as P6b draws what failed, at the 12-point hint size of
+/// the blocks it sits in. A row's error keeps its row's 11-point hints instead.
 struct FastFailureLine: View {
     let text: String
 
     var body: some View {
-        FastHint(text, size: 13, symbol: "exclamationmark.circle", tint: FastTheme.warning)
+        FastHint(text, size: 12, symbol: "exclamationmark.circle", tint: FastTheme.warning)
     }
 }

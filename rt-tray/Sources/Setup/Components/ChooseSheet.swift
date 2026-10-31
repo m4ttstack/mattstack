@@ -24,6 +24,7 @@ struct ChooseSheet: View {
     @FocusState private var ownFocused: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fastSheet) private var fast
+    @Environment(\.fastHidesScrollers) private var hidesScrollers
 
     /// `suggestionsOpen` starts with the own card's dropdown showing, for a snapshot.
     init(row: PlanRow, submitLabel: String = "Use this style", suggestionsOpen: Bool = false,
@@ -78,6 +79,7 @@ struct ChooseSheet: View {
                     if new != nil, choice == .own { proxy.scrollTo(Choice.own, anchor: .bottom) }
                 }
             }
+            .scrollIndicators(fast && hidesScrollers ? .never : .automatic)
             .frame(maxHeight: 420)
             if let error {
                 errorLine(error)
@@ -155,7 +157,7 @@ struct ChooseSheet: View {
 
     @ViewBuilder private func errorLine(_ error: String) -> some View {
         if fast {
-            FastHint(error, size: 13, symbol: "exclamationmark.circle", tint: FastTheme.warning)
+            FastFailureLine(text: error)
         } else {
             Label(error, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.red)
         }
@@ -170,7 +172,7 @@ struct ChooseSheet: View {
         HStack(alignment: .top, spacing: 14) {
             FastIconTile(symbol: "text.bubble")
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.system(size: 20, weight: .bold)).tracking(FastTheme.tracking(css: -0.6))
+                Text(title).font(FastTheme.sheetHeading).tracking(FastTheme.sheetHeadingTracking)
                     .foregroundColor(FastTheme.textPrimary)
                 if let subtitle {
                     FastTheme.sub(subtitle).fixedSize(horizontal: false, vertical: true)
@@ -199,7 +201,7 @@ struct ChooseSheet: View {
         let selected = choice == .option(o.id)
         return card(selected: selected, id: AXID.chooseOption(o.id), select: { choice = .option(o.id) }) {
             VStack(alignment: .leading, spacing: fast ? 3 : 4) {
-                Text(o.label).font(fast ? .system(size: 14, weight: .semibold) : .headline)
+                Text(o.label).font(fast ? .system(size: 14, weight: FastTheme.weight(css: .semibold)) : .headline)
                     .foregroundColor(fast ? FastTheme.textPrimary : nil)
                 Text(o.detail).font(fast ? .system(size: 12) : .callout)
                     .foregroundStyle(fast ? AnyShapeStyle(FastTheme.textSecondary) : AnyShapeStyle(.secondary))
@@ -208,7 +210,7 @@ struct ChooseSheet: View {
         } content: {
             if let sample = o.sample {
                 Text(LocalizedStringKey(sample))
-                    .font(.callout)
+                    .modifier(ChooseSampleStyle(fast: fast))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -220,27 +222,38 @@ struct ChooseSheet: View {
     private func ownCard(_ other: ChooseOther) -> some View {
         let selected = choice == .own
         return card(selected: selected, id: AXID.chooseOwn, select: { choice = .own }) {
-            Text(other.label).font(fast ? .system(size: 14, weight: .semibold) : .headline)
+            Text(other.label).font(fast ? .system(size: 14, weight: FastTheme.weight(css: .semibold)) : .headline)
                 .foregroundColor(fast ? FastTheme.textPrimary : nil)
         } content: {
             if selected {
-                SetupField(label: "Skill id", note: other.hint) {
-                    TextField(other.label, text: $ownId, prompt: Text("plugin:skill-name"))
-                        .labelsHidden()
-                        .modifier(ChooseFieldStyle(fast: fast, focused: ownFocused))
-                        .focused($ownFocused)
-                        .onSubmit(submit)
-                        .onKeyPress(.escape) {
-                            guard suggestionsOpen else { return .ignored }
-                            suggestionsOpen = false
-                            return .handled
+                if fast {
+                    FastStackedRow(label: "Skill id") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ownField(other)
+                            FastHint(other.hint, size: 12)
                         }
-                        .anchorPreference(key: OwnFieldBounds.self, value: .bounds) { $0 }
-                        .accessibilityLabel(other.label)
-                        .accessibilityIdentifier(AXID.chooseOther)
+                    }
+                } else {
+                    SetupField(label: "Skill id", note: other.hint) { ownField(other) }
                 }
             }
         }
+    }
+
+    private func ownField(_ other: ChooseOther) -> some View {
+        TextField(other.label, text: $ownId, prompt: Text("plugin:skill-name"))
+            .labelsHidden()
+            .modifier(ChooseFieldStyle(fast: fast, focused: ownFocused))
+            .focused($ownFocused)
+            .onSubmit(submit)
+            .onKeyPress(.escape) {
+                guard suggestionsOpen else { return .ignored }
+                suggestionsOpen = false
+                return .handled
+            }
+            .anchorPreference(key: OwnFieldBounds.self, value: .bounds) { $0 }
+            .accessibilityLabel(other.label)
+            .accessibilityIdentifier(AXID.chooseOther)
     }
 
     private var ownMatches: [String] {
@@ -375,6 +388,19 @@ private struct ChooseFieldStyle: ViewModifier {
     }
 }
 
+/// Fast setup's sample in the theme's note type and ink, its links in the accent; else the system's callout.
+private struct ChooseSampleStyle: ViewModifier {
+    let fast: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if fast {
+            content.font(FastTheme.note).foregroundColor(FastTheme.textPrimary).tint(FastTheme.accent)
+        } else {
+            content.font(.callout)
+        }
+    }
+}
+
 private struct OwnFieldBounds: PreferenceKey {
     static let defaultValue: Anchor<CGRect>? = nil
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
@@ -405,7 +431,7 @@ private struct SuggestionList: View {
             .fill(fast ? FastTheme.card : Color(nsColor: .controlBackgroundColor)))
         .overlay(RoundedRectangle(cornerRadius: fast ? 8 : 6, style: .continuous)
             .strokeBorder(fast ? FastTheme.outline : Color(nsColor: .separatorColor)))
-        .shadow(color: .black.opacity(fast ? 0.4 : 0.2), radius: 4, y: flipsShadows ? -2 : 2)
+        .shadow(color: fast ? FastTheme.popoverShadow : .black.opacity(0.2), radius: 4, y: flipsShadows ? -2 : 2)
     }
 }
 

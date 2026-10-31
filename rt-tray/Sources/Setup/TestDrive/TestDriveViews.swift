@@ -66,6 +66,7 @@ struct TestDrivePickerView: View {
             }
             .padding(.top, 28).padding(.horizontal, 28).padding(.bottom, 8)
             FastFooter(screen: "test-drive", note: model.problem ?? (model.checking ? TestDriveCopy.checking : model.note),
+                       noteTint: model.problem == nil ? FastTheme.textSecondary : FastTheme.warning,
                        secondary: ("Cancel", actions.cancel), primary: ("Start", model.problem == nil && !model.checking, actions.start),
                        insets: EdgeInsets(top: 12, leading: 28, bottom: 22, trailing: 28), spacing: 10)
         }

@@ -25,7 +25,7 @@ struct StepsSheet: View {
     /// Fast setup's sheet: the window's dark fill, its heading and text, and its primary button.
     private var fastBody: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(title).font(.system(size: 18, weight: .bold)).tracking(FastTheme.tracking(css: -0.5))
+            Text(title).font(FastTheme.sheetHeading).tracking(FastTheme.sheetHeadingTracking)
                 .foregroundColor(FastTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             FastCard {

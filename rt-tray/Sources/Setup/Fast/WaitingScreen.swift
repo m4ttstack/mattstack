@@ -20,7 +20,7 @@ struct WaitingScreenBody: View {
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 48, leading: 48, bottom: 32, trailing: 48), spacing: 18, alignment: .center) {
             FastHeroTile(symbol: "ticket", tint: FastTheme.accent)
-            FastTeamChip(name: team)
+            if !team.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { FastTeamChip(name: team) }
             // P4's heading is the mock's one 24-point heading, on 30-point lines.
             Text(Self.title(admin: admin))
                 .font(.system(size: 24, weight: .bold)).tracking(FastTheme.tracking(css: -0.7)).foregroundColor(FastTheme.textPrimary)

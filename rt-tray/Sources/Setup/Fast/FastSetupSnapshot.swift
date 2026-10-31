@@ -262,6 +262,7 @@ enum FastSetupSnapshot {
         [
             ("waiting", window(WaitingScreenBody(team: "Mithrandir", admin: "Jane Doe", onHide: {}), .waiting)),
             ("waiting-no-admin", window(WaitingScreenBody(team: "Mithrandir", admin: nil, onHide: {}), .waiting)),
+            ("waiting-no-team", window(WaitingScreenBody(team: "", admin: "Jane Doe", onHide: {}), .waiting)),
         ]
     }
 
@@ -288,6 +289,7 @@ enum FastSetupSnapshot {
             ("sheet-choose", sheet(ChooseSheet(row: FormRowPlan.planRow(Self.wideChoice), submitLabel: "Choose") { _ in nil })),
             ("sheet-choose-suggestions", sheet(ChooseSheet(row: FormRowPlan.planRow(Self.ownChoice), submitLabel: "Choose",
                                                            suggestionsOpen: true) { _ in nil })),
+            ("sheet-choose-styles", sheet(ChooseSheet(row: FormRowPlan.planRow(Self.styleChoice)) { _ in nil })),
             ("sheet-log", sheet(LogSheet(title: RunPaused.clone.title, lines: RunPaused.clone.log))),
         ]
     }
@@ -327,6 +329,24 @@ enum FastSetupSnapshot {
                                         ChooseOption(id: "cursor", label: "Cursor", detail: "Opens the folder, then the file"),
                                         ChooseOption(id: "vscode", label: "VS Code", detail: "Opens the folder, then the file"),
                                     ], selected: "zed"))
+
+    /// rt's writing-style presets with their samples; the last sample carries a link, which draws in the accent.
+    static let styleChoice = FormRow(id: "skills.writing-style", title: "Writing style", subtext: "How drafted replies read", state: .todo,
+                                     detail: "Not chosen yet",
+                                     action: RowAction(type: .choose, label: "Choose style…", verb: ["skills", "writing-style", "use"], options: [
+                                         ChooseOption(id: "mattstack:writing-style-sparse", label: "Sparse",
+                                                      detail: "Terse, lowercase for technical points, one tight paragraph per finding.",
+                                                      sample: "**issue:** cache is keyed on userId alone, so two tenants share an entry. key on (tenant, id)?"),
+                                         ChooseOption(id: "mattstack:writing-style-conversational", label: "Conversational",
+                                                      detail: "Short, friendly sentences in sentence case, like talking to a teammate.",
+                                                      sample: "**issue:** The cache is keyed on userId alone, so two tenants can share an entry. Could we key on both?"),
+                                         ChooseOption(id: "mattstack:writing-style-structured", label: "Structured",
+                                                      detail: "Labelled lines and short bullets for teams that like formal write-ups.",
+                                                      sample: "**issue:** Settings leak across tenants. Why: the cache key omits the tenant. Suggestion: key on (tenant, id). See [the cache notes](https://example.com/cache)."),
+                                     ], selected: "mattstack:writing-style-sparse",
+                                     other: ChooseOther(label: "Use my own skill…", hint: "Any installed skill id. Start one with rt skills writing-style new."),
+                                     subtitle: "The voice agents use for reviews, replies and PR descriptions posted under your name.",
+                                     footnote: "You can also choose from a terminal: rt skills writing-style use"))
 
     /// A choose whose own-id card is open on a partial id, so its suggestions show.
     static let ownChoice = FormRow(id: "skills.writing-style", title: "Writing style", subtext: "How drafted replies read", state: .done,

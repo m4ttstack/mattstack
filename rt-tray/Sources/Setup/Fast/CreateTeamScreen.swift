@@ -71,7 +71,7 @@ struct CreateTeamScreenBody: View {
                 Text("Creating your team…").font(.system(size: 12)).foregroundColor(FastTheme.textSecondary)
             }
         } else if let failure {
-            FastHint(failure, size: 12, symbol: "exclamationmark.circle", tint: FastTheme.warning)
+            FastFailureLine(text: failure)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastCreateFailure)
         }

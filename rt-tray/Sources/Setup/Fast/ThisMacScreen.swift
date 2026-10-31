@@ -38,7 +38,7 @@ struct ThisMacScreenBody: View {
             if !cards.leftover.isEmpty { card("Still to do", cards.leftover) }
             if !cards.repos.isEmpty || !cards.settings.isEmpty { mainCard(cards.repos + cards.settings) }
         } footer: {
-            FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: "About 10 minutes once you start",
+            FastFooter(screen: FastSetupScreen.thisMac.rawValue, note: teamName == nil ? "About 5 minutes once you start" : "About 10 minutes once you start",
                        secondary: onBack.map { ("Back", $0) }, primary: ("Set up this Mac", startReady, onStart),
                        insets: Self.footerInsets, quietSecondary: true)
         }

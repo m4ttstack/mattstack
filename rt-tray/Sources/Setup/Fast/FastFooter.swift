@@ -6,6 +6,8 @@ struct FastFooter: View {
     /// Names the buttons' accessibility ids (`setup.fast.<screen>.primary`).
     let screen: String
     let note: String?
+    /// Warning when the note is why the primary is disabled.
+    var noteTint: Color = FastTheme.textSecondary
     let secondary: (String, () -> Void)?
     /// The label, whether it is enabled, and what it does.
     let primary: (String, Bool, () -> Void)?
@@ -24,7 +26,7 @@ struct FastFooter: View {
     var body: some View {
         HStack(spacing: spacing) {
             if let note {
-                Text(note).font(FastTheme.note).foregroundColor(FastTheme.textSecondary)
+                Text(note).font(FastTheme.note).foregroundColor(noteTint)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)

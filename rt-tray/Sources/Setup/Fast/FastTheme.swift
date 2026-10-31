@@ -34,6 +34,10 @@ enum FastTheme {
     /// P2's card under the pointer or keyboard focus.
     static let accentWash = Color(hex: 0xE64980, alpha: 0x1A)
     static let primaryGlow = Color(hex: 0xE64980, alpha: 0x66)
+    /// P6's moving band of light across the bar fill.
+    static let barSheen = Color.white.opacity(0.28)
+    /// Under the choose sheet's suggestion list, which floats over the sheet's cards.
+    static let popoverShadow = Color.black.opacity(0.4)
 
     // MARK: Type
 
@@ -42,6 +46,9 @@ enum FastTheme {
     static let sub = Font.system(size: 14)
     static let cardTitle = Font.system(size: 12, weight: weight(css: .semibold))
     static let note = Font.system(size: 12)
+    /// One heading for every fast setup sheet: choose, log and steps.
+    static let sheetHeading = Font.system(size: 18, weight: .bold)
+    static let sheetHeadingTracking = tracking(css: -0.5)
 
     /// The weight to draw for a CSS weight. SF at Inter's 500 or 600 reads a
     /// step heavier than the mocks' picture, and the picture wins: semibold

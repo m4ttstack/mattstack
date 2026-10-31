@@ -189,7 +189,7 @@ private struct RunBarView: View {
             TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
                 let band: CGFloat = 90
                 let phase = Self.phase(context.date, period: Self.sheenPeriod)
-                LinearGradient(colors: [.clear, Color.white.opacity(0.28), .clear], startPoint: .leading, endPoint: .trailing)
+                LinearGradient(colors: [.clear, FastTheme.barSheen, .clear], startPoint: .leading, endPoint: .trailing)
                     .frame(width: band)
                     .offset(x: -band + (width + band) * phase)
             }
