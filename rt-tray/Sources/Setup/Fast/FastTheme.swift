@@ -35,8 +35,22 @@ enum FastTheme {
     static let heading = Font.system(size: 26, weight: .bold)
     static let headingTracking: CGFloat = -0.8
     static let sub = Font.system(size: 14)
-    static let cardTitle = Font.system(size: 12, weight: .semibold)
+    static let cardTitle = Font.system(size: 12, weight: weight(css: .semibold))
     static let note = Font.system(size: 12)
+
+    /// The weight to draw for a CSS weight. SF at Inter's 500 or 600 reads a
+    /// step heavier than the mocks' picture, and the picture wins: semibold
+    /// draws medium and medium draws regular. Use it for row labels, tile
+    /// titles, outline and secondary buttons, segment text and chips. Headings
+    /// and the white primary buttons keep the CSS weight, which already reads
+    /// like the mock.
+    static func weight(css: Font.Weight) -> Font.Weight {
+        switch css {
+        case .semibold: return .medium
+        case .medium: return .regular
+        default: return css
+        }
+    }
 
     // MARK: Metrics
 
@@ -156,7 +170,7 @@ struct FastOutlineButtonStyle: ButtonStyle {
             let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
             configuration.label
                 .labelStyle(FastIconLabelStyle(iconSize: 12, spacing: 6))
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12, weight: FastTheme.weight(css: .semibold)))
                 .foregroundColor(FastTheme.accent)
                 .lineLimit(1)
                 .padding(.vertical, 7).padding(.horizontal, 12)
@@ -190,7 +204,7 @@ struct FastSecondaryButtonStyle: ButtonStyle {
             let shape = RoundedRectangle(cornerRadius: metrics.radius, style: .continuous)
             configuration.label
                 .labelStyle(FastIconLabelStyle(iconSize: large ? 14 : 12, spacing: 6))
-                .font(.system(size: large ? 14 : 12, weight: .medium))
+                .font(.system(size: large ? 14 : 12, weight: FastTheme.weight(css: .medium)))
                 .foregroundColor(FastTheme.textPrimary)
                 .lineLimit(1)
                 .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
@@ -203,7 +217,8 @@ struct FastSecondaryButtonStyle: ButtonStyle {
 }
 
 /// P5's "Installing…": a spinner and grey text in a quiet outlined chip,
-/// where the row's button sits once the install is done.
+/// where the row's button sits once the install is done. Offered less width
+/// than the line needs, the text wraps inside the chip.
 struct FastBusyChip: View {
     let text: String
 
@@ -211,28 +226,38 @@ struct FastBusyChip: View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         HStack(spacing: 6) {
             FastSpinner()
-            Text(text).font(.system(size: 12, weight: .semibold)).foregroundColor(FastTheme.textSecondary).lineLimit(1)
+            Text(text).font(.system(size: 12, weight: FastTheme.weight(css: .semibold))).foregroundColor(FastTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 7).padding(.horizontal, 12)
         .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
-        .fixedSize()
     }
 }
 
-/// P5's Lucide loader: eight rays stepping round, in secondary grey. The
-/// system spinner draws its own faint grey and ignores the mock's colour.
+/// P5's Lucide loader: eight rays round a centre, their brightness stepping
+/// round each eighth of a second as macOS's own spinner does. The system
+/// spinner draws its own faint grey and ignores the mock's colour.
 struct FastSpinner: View {
     var size: CGFloat = 13
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.125)) { context in
-            let step = Int(context.date.timeIntervalSinceReferenceDate * 8) % 8
-            Image(systemName: "rays")
-                .font(.system(size: size, weight: .regular))
-                .foregroundColor(FastTheme.textSecondary)
-                .rotationEffect(.degrees(Double(step) * 45))
+            let head = Int(context.date.timeIntervalSinceReferenceDate * 8) % 8
+            ZStack {
+                ForEach(0..<8, id: \.self) { ray in
+                    let age = (head - ray + 8) % 8
+                    Capsule()
+                        .fill(FastTheme.textSecondary)
+                        .frame(width: size * 0.14, height: size * 0.3)
+                        .padding(.top, size * 0.03)
+                        .frame(width: size, height: size, alignment: .top)
+                        .rotationEffect(.degrees(Double(ray) * 45))
+                        .opacity(1 - Double(age) * 0.09)
+                }
+            }
         }
         .frame(width: size, height: size)
+        .accessibilityElement()
         .accessibilityLabel("In progress")
     }
 }
@@ -304,8 +329,8 @@ struct FastField: View {
                 Text(placeholder).font(.system(size: size.points)).foregroundColor(FastTheme.textTertiary)
                     .lineLimit(1).allowsHitTesting(false)
             }
-            input.font(font).foregroundColor(FastTheme.textPrimary).textFieldStyle(.plain).focused($focused)
-                .opacity(masked ? 0 : 1)
+            // The real field stays opaque, hit-testable and in the AX tree; at rest only its echo goes clear under the dots.
+            input.font(font).foregroundColor(masked ? .clear : FastTheme.textPrimary).textFieldStyle(.plain).focused($focused)
             if masked { bullets }
         }
         .frame(minHeight: monospaced && !text.isEmpty ? size.monoLine : nil)
@@ -314,7 +339,7 @@ struct FastField: View {
         .overlay(shape.strokeBorder(focused || highlighted ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
     }
 
-    /// AppKit's secure echo is a large black circle; at rest the field shows the mock's small text bullets instead.
+    /// AppKit's secure echo is a large circle; at rest the field shows the mock's small dots instead.
     private var masked: Bool { secure && !focused && !text.isEmpty }
 
     /// P5's small dots, one per character at the mono advance.
@@ -400,7 +425,7 @@ struct FastSegmented<ID: Hashable>: View {
                 let selected = option.id == selection
                 Button { selection = option.id } label: {
                     Text(option.label)
-                        .font(.system(size: small ? 11 : 12, weight: selected ? .semibold : .medium))
+                        .font(.system(size: small ? 11 : 12, weight: FastTheme.weight(css: selected ? .semibold : .medium)))
                         .foregroundColor(selected ? FastTheme.textPrimary : FastTheme.textSecondary)
                         .lineLimit(1)
                         .padding(.vertical, small ? 4 : 5).padding(.horizontal, small ? 10 : 12)
@@ -422,23 +447,28 @@ struct FastSegmented<ID: Hashable>: View {
 
 /// A quiet note: info icon and tertiary text (P5's "So mattstack can read and write Linear tickets").
 /// `symbol` and `tint` make it a refusal line (warning) or another glyph.
+/// `textWidth` caps the words alone, as P5b's CSS gives its note text 440.
 struct FastHint: View {
     let text: String
     var size: CGFloat = 11
     var symbol = "info.circle"
     var tint = FastTheme.textTertiary
+    var textWidth: CGFloat? = nil
 
-    init(_ text: String, size: CGFloat = 11, symbol: String = "info.circle", tint: Color = FastTheme.textTertiary) {
+    init(_ text: String, size: CGFloat = 11, symbol: String = "info.circle", tint: Color = FastTheme.textTertiary,
+         textWidth: CGFloat? = nil) {
         self.text = text
         self.size = size
         self.symbol = symbol
         self.tint = tint
+        self.textWidth = textWidth
     }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: symbol).font(.system(size: size + 1, weight: .light))
             Text(text).font(.system(size: size)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: textWidth, alignment: .leading)
         }
         .foregroundColor(tint)
     }
@@ -452,13 +482,16 @@ struct FastDoneLine: View {
     var weight: Font.Weight = .regular
     var spacing: CGFloat = 6
     var iconSize: CGFloat? = nil
+    var textWidth: CGFloat? = nil
 
-    init(_ text: String, size: CGFloat = 11, weight: Font.Weight = .regular, spacing: CGFloat = 6, iconSize: CGFloat? = nil) {
+    init(_ text: String, size: CGFloat = 11, weight: Font.Weight = .regular, spacing: CGFloat = 6, iconSize: CGFloat? = nil,
+         textWidth: CGFloat? = nil) {
         self.text = text
         self.size = size
         self.weight = weight
         self.spacing = spacing
         self.iconSize = iconSize
+        self.textWidth = textWidth
     }
 
     var body: some View {
@@ -466,6 +499,7 @@ struct FastDoneLine: View {
             // Lucide's check fills about 80% of its box: the 13-point box of P5 draws as an 11-point glyph.
             Image(systemName: "checkmark").font(.system(size: iconSize ?? size, weight: .regular))
             Text(text).font(.system(size: size, weight: weight)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: textWidth, alignment: .leading)
         }
         .foregroundColor(FastTheme.success)
     }
@@ -484,7 +518,7 @@ struct FastIconTile: View {
     var body: some View {
         Image(systemName: symbol)
             // The CSS's 18 is Lucide's icon box; an SF glyph fills more of its box, so 16 matches the drawn size.
-            .font(.system(size: 16, weight: .light))
+            .font(.system(size: 16, weight: symbol == "globe" ? .ultraLight : .light))
             .foregroundColor(done ? FastTheme.success : FastTheme.accent)
             .frame(width: 36, height: 36)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(done ? FastTheme.successTile : FastTheme.accentTile))

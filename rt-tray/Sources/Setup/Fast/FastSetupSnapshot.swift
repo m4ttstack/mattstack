@@ -123,6 +123,8 @@ enum FastSetupSnapshot {
             ("rows-repo-problem", card([ThisMacRows.widgetsMoved, ThisMacRows.boardFound], title: "Your repos",
                                        errors: [ThisMacRows.boardFound.id: "That folder is not a git checkout of acme-api"])),
             ("rows-off", card([Rows.notificationsOff, Rows.fdaGranted])),
+            ("rows-busy-long", card([MockRows.busyLong, MockRows.waitingLong],
+                                    waiting: [MockRows.waitingLong.id: MockRows.waitingLong.detail])),
             ("rows-todo", card([Rows.notifications, Rows.slack])),
             ("rows-busy", card([Rows.claudeInstalling])),
             ("rows-waiting", card([Rows.doppler, Rows.claudeCode])),
@@ -552,6 +554,8 @@ enum FastSetupSnapshot {
 
     /// What `thisMacRows` in lib/setup/form.ts emits, its repo rows from `repos.place` in lib/setup/validators/repos.ts.
     enum ThisMacRows {
+        /// rt sends absolute paths and the screen shortens them under HOME, so the render reads `~/code/acme-api` like the mock.
+        static let home = NSHomeDirectory()
         private static let settingsSubtext = "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later"
         private static func backupAction(_ selected: String) -> RowAction {
             RowAction(type: .choose, label: "Change", verb: ["setup", "home-backup"], options: [
@@ -564,41 +568,41 @@ enum FastSetupSnapshot {
         static let boardFound = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here",
                                         state: .done, detail: "Found your acme-api checkout",
                                         action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/acme-api", repo: "acme-api",
-                                                          mode: "checkout", checkoutPath: "/Users/janedoe/code/acme-api",
-                                                          clonePath: "/Users/janedoe/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
+                                                          mode: "checkout", checkoutPath: "\(home)/code/acme-api",
+                                                          clonePath: "\(home)/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
                                                           segmentRecords: true, board: "The board starts here", awaitsRun: false, labels: labels))
         static let widgetsClone = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
                                           state: .done, detail: "rt clones it here when setup runs",
                                           action: RowAction(type: .placeRepo, label: "Choose…", identity: "github.com/acme/widgets", repo: "widgets",
-                                                            mode: "clone", clonePath: "/Users/janedoe/Documents/GitHub/widgets",
+                                                            mode: "clone", clonePath: "\(home)/Documents/GitHub/widgets",
                                                             note: "rt clones it here when setup runs", segmentRecords: true, awaitsRun: false, labels: labels))
         static let boardFoundAfterRun = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here",
                                                 state: .done, detail: "Found your acme-api checkout",
                                                 action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/acme-api", repo: "acme-api",
-                                                                  mode: "checkout", checkoutPath: "/Users/janedoe/code/acme-api",
-                                                                  clonePath: "/Users/janedoe/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
+                                                                  mode: "checkout", checkoutPath: "\(home)/code/acme-api",
+                                                                  clonePath: "\(home)/Documents/GitHub/acme-api", note: "Found your acme-api checkout",
                                                                   then: ["setup", "apply", "--only", "board.restart"], segmentRecords: false,
                                                                   board: "The board starts here", awaitsRun: false, labels: labels))
         static let widgetsFoundAfterRun = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
                                                   state: .done, detail: "Found your widgets checkout",
                                                   action: RowAction(type: .placeRepo, label: "Locate…", identity: "github.com/acme/widgets", repo: "widgets",
-                                                                    mode: "checkout", checkoutPath: "/Users/janedoe/Documents/GitHub/widgets",
-                                                                    clonePath: "/Users/janedoe/Documents/GitHub/widgets-2", note: "Found your widgets checkout",
+                                                                    mode: "checkout", checkoutPath: "\(home)/Documents/GitHub/widgets",
+                                                                    clonePath: "\(home)/Documents/GitHub/widgets-2", note: "Found your widgets checkout",
                                                                     then: ["setup", "apply", "--only", "repos.clone"], segmentRecords: false, awaitsRun: false, labels: labels))
         /// A recorded checkout that moved since: rt's problem is the row's detail and note.
         static let widgetsMoved = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
                                           state: .todo, detail: "~/old/widgets isn't a git checkout.",
                                           action: RowAction(type: .placeRepo, label: "Locate again…", identity: "github.com/acme/widgets", repo: "widgets",
-                                                            mode: "checkout", checkoutPath: "/Users/janedoe/old/widgets",
-                                                            clonePath: "/Users/janedoe/Documents/GitHub/widgets", note: "~/old/widgets isn't a git checkout.",
+                                                            mode: "checkout", checkoutPath: "\(home)/old/widgets",
+                                                            clonePath: "\(home)/Documents/GitHub/widgets", note: "~/old/widgets isn't a git checkout.",
                                                             problem: "~/old/widgets isn't a git checkout.", segmentRecords: true, awaitsRun: false,
                                                             labels: labels))
         static let repoRoot = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
-                                      detail: "/Users/janedoe/Documents/GitHub",
-                                      action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "/Users/janedoe/Documents/GitHub"))
+                                      detail: "\(home)/Documents/GitHub",
+                                      action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "\(home)/Documents/GitHub"))
         static let repoRootLongPath = FormRow(id: "repos.root", title: "Your repos", subtext: "Where new clones go", state: .done,
-                                              detail: "/Users/janedoe/Library/Mobile Documents/com~apple~CloudDocs/Projects/clients/acme/engineering/checkouts/team-widgets",
-                                              action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "/Users/janedoe/Documents/GitHub"))
+                                              detail: "\(home)/Library/Mobile Documents/com~apple~CloudDocs/Projects/clients/acme/engineering/checkouts/team-widgets",
+                                              action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "\(home)/Documents/GitHub"))
         static let backupLocal = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
                                          detail: "Keep on this Mac", action: backupAction("local"))
         static let backupRemote = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
@@ -699,6 +703,12 @@ enum FastSetupSnapshot {
 
     /// The rows the P5 and P5s mocks draw, with no reason lines, so a render lines up with its mock row by row.
     enum MockRows {
+        /// Lines wider than the control column: each wraps inside its chip and never leaves the card.
+        static let busyLong = FormRow(id: "tool.team.acme-cli", title: "acme-cli", subtext: "Runs acme's dev servers", state: .busy,
+                                      detail: "Installing acme-cli from the team's Homebrew tap, then linking it into your PATH so every shell finds it…")
+        static let waitingLong = FormRow(id: "signin.doppler", title: "Doppler", subtext: "For running your dev servers", state: .waiting,
+                                         detail: "Your code is WXYZ-1234. Confirm it in your browser, then come back here and this row turns green",
+                                         action: RowAction(type: .openURL, label: "Sign in", url: "https://example.com/login", again: "Open again"))
         static let gitlab = FormRow(id: "forge", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs", state: .done,
                                     detail: "Connected as janedoe from your invite")
         static let github = FormRow(id: "forge", title: "GitHub", subtext: "Optional. Lets mattstack open PRs and MRs", state: .done,

@@ -95,7 +95,7 @@ struct RepoPlacementRow: View {
     private var fastBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(action.repo ?? row.title).font(.system(size: 13, weight: .semibold)).foregroundColor(FastTheme.textPrimary)
+                Text(action.repo ?? row.title).font(.system(size: 13, weight: FastTheme.weight(css: .semibold))).foregroundColor(FastTheme.textPrimary)
                     .lineLimit(1).layoutPriority(1)
                 if !row.why.isEmpty {
                     Text(row.why).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).truncationMode(.middle)
@@ -150,17 +150,17 @@ struct RepoPlacementRow: View {
         if let note, !note.isEmpty {
             Group {
                 switch style {
-                case .ok: FastDoneLine(board.map { Self.joined(note, $0) } ?? note)
-                case .problem: FastHint(note, symbol: "exclamationmark.circle", tint: FastTheme.warning)
-                case .secondary: FastHint(note)
+                case .ok: FastDoneLine(board.map { Self.joined(note, $0) } ?? note, textWidth: FormRowStyle.hintWidth)
+                case .problem: FastHint(note, symbol: "exclamationmark.circle", tint: FastTheme.warning, textWidth: FormRowStyle.hintWidth)
+                case .secondary: FastHint(note, textWidth: FormRowStyle.hintWidth)
                 }
             }
-            .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
+            .hintSpill()
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier(noteID)
         }
         if let board, style != .ok || (note ?? "").isEmpty {
-            FastHint(board, symbol: "rectangle.3.group")
+            FastHint(board, textWidth: FormRowStyle.hintWidth).hintSpill()
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(ids.row(row.id) + ".board")
         }

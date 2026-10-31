@@ -35,8 +35,17 @@ enum FormRowStyle {
 
     static let labelWidth: CGFloat = 120
     static let labelGap: CGFloat = 16
-    /// P5b's wrapped settings note; hint lines wrap at the same width.
+    /// The words of P5b's wrapped settings note; every hint line's words wrap at the same width.
     static let hintWidth: CGFloat = 440
+    /// P5b's 440 note runs 7.5 past the control column into the row's trailing padding, so a labelled hint may too.
+    static let hintOverhang: CGFloat = 8
+}
+
+extension View {
+    /// Lets a labelled hint line take `FormRowStyle.hintOverhang` of the row's trailing padding.
+    func hintSpill(_ on: Bool = true) -> some View {
+        padding(.trailing, on ? -FormRowStyle.hintOverhang : 0)
+    }
 }
 
 /// P5's label column beside a column of controls, at the mock's row padding.
@@ -47,7 +56,7 @@ struct FastLabelledRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: FormRowStyle.labelGap) {
             Text(label ?? "")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 13, weight: FastTheme.weight(css: .semibold)))
                 .foregroundColor(FastTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: FormRowStyle.labelWidth, alignment: .leading)
@@ -111,7 +120,7 @@ struct FormRowView: View {
             FastIconTile(symbol: Self.tileSymbol(row.id), done: row.state == .done && row.tone != .off)
             VStack(alignment: .leading, spacing: 3) {
                 if showsTitle {
-                    Text(row.title).font(.system(size: 14, weight: .semibold)).foregroundColor(FastTheme.textPrimary)
+                    Text(row.title).font(.system(size: 14, weight: FastTheme.weight(css: .semibold))).foregroundColor(FastTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !row.subtext.isEmpty {
@@ -119,6 +128,8 @@ struct FormRowView: View {
                         .foregroundColor(showsTitle ? FastTheme.textSecondary : FastTheme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // Under the words, not trailing: a long wait line wraps here and leaves the subtext its one line.
+                tileProgress.padding(.top, 3)
                 notes.padding(.top, 3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -139,10 +150,7 @@ struct FormRowView: View {
 
     @ViewBuilder private var tileTrailing: some View {
         if let action = row.action, let options = FormRowChoice.segments(action) {
-            HStack(spacing: 10) {
-                tileProgress
-                choice(action, options)
-            }
+            choice(action, options)
         } else if let action = row.action, FormRowFields.collects(action) {
             VStack(alignment: .trailing, spacing: 6) {
                 tileStatus
@@ -157,10 +165,8 @@ struct FormRowView: View {
     }
 
     @ViewBuilder private var tileStatus: some View {
-        if progressLine != nil {
-            tileProgress
-        } else if row.state == .done {
-            doneMark(size: 13, iconSize: 13, weight: .semibold)
+        if progressLine == nil && row.state == .done {
+            doneMark(size: 13, iconSize: 13, weight: FastTheme.weight(css: .semibold))
                 .modifier(CappedWidth(max: 240))
         }
     }
@@ -172,7 +178,6 @@ struct FormRowView: View {
                 Text(line).font(.system(size: 12)).foregroundColor(FastTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .modifier(CappedWidth(max: 240))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
         }
@@ -228,7 +233,7 @@ struct FormRowView: View {
 
     @ViewBuilder private var subtextHint: some View {
         if !row.subtext.isEmpty {
-            FastHint(row.subtext).frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
+            FastHint(row.subtext, textWidth: FormRowStyle.hintWidth).hintSpill()
         }
     }
 
@@ -237,8 +242,8 @@ struct FormRowView: View {
             FastSpinner().alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             Text(line).font(.system(size: 11)).foregroundColor(FastTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
         }
-        .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(AXID.fastRowWaiting(row.id))
     }
@@ -253,14 +258,13 @@ struct FormRowView: View {
     /// rt's reason on a todo row, then the app's refusal, each a hint line under the control.
     @ViewBuilder private var notes: some View {
         if let reason {
-            FastHint(reason)
-                .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
+            FastHint(reason, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastRowReason(row.id))
         }
         if let error, !error.isEmpty {
-            FastHint(error, symbol: "exclamationmark.circle", tint: FastTheme.warning)
-                .frame(maxWidth: FormRowStyle.hintWidth, alignment: .leading)
+            FastHint(error, symbol: "exclamationmark.circle", tint: FastTheme.warning, textWidth: FormRowStyle.hintWidth)
+                .hintSpill(style == .labelled)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastRowError(row.id))
         }
@@ -401,6 +405,10 @@ struct FormRowFields: View {
                     input(field)
                     if index == fields.count - 1 { trailing }
                 }
+                // rt's own words on the field (a forge token's scopes, an example value).
+                if let hint = field.hint, !hint.isEmpty {
+                    FastHint(hint, textWidth: FormRowStyle.hintWidth).hintSpill()
+                }
             }
             if let alternatives = action.alternatives, !alternatives.isEmpty {
                 HStack(spacing: 8) {
@@ -440,7 +448,6 @@ struct FormRowFields: View {
         FastField(field.label, text: binding(field.name), monospaced: field.secret, secure: field.secret,
                   id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name))
             .onSubmit(submit)
-            .help(field.hint ?? "")
     }
 
     private func submit() {
@@ -510,9 +517,16 @@ struct BesideOrBelow: Layout {
         return controls + spacing + words <= (width ?? .infinity)
     }
 
+    /// The controls at their own width, or narrowed to the column, where a long busy line wraps inside its chip.
+    private func controlsProposal(_ width: CGFloat?, _ first: LayoutSubview) -> ProposedViewSize {
+        let ideal = first.sizeThatFits(.unspecified).width
+        guard let width, ideal > width else { return .unspecified }
+        return ProposedViewSize(width: width, height: nil)
+    }
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let first = subviews.first else { return .zero }
-        let controls = first.sizeThatFits(.unspecified)
+        let controls = first.sizeThatFits(controlsProposal(proposal.width, first))
         guard subviews.count == 2 else { return controls }
         if beside(proposal.width, subviews) {
             let words = subviews[1].sizeThatFits(.unspecified)
@@ -525,9 +539,10 @@ struct BesideOrBelow: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let first = subviews.first else { return }
-        let controls = first.sizeThatFits(.unspecified)
+        let fit = controlsProposal(bounds.width, first)
+        let controls = first.sizeThatFits(fit)
         guard subviews.count == 2 else {
-            first.place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+            first.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: fit)
             return
         }
         if beside(bounds.width, subviews) {
@@ -535,7 +550,7 @@ struct BesideOrBelow: Layout {
             subviews[1].place(at: CGPoint(x: bounds.minX + controls.width + spacing, y: bounds.midY), anchor: .leading,
                               proposal: .unspecified)
         } else {
-            first.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: .unspecified)
+            first.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: fit)
             subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + controls.height + lineSpacing), anchor: .topLeading,
                               proposal: ProposedViewSize(width: bounds.width, height: nil))
         }

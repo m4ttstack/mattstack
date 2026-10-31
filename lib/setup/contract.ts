@@ -37,7 +37,8 @@ export type Action =
   | { type: "link-bundled"; label: string; tool: string }
   | { type: "steps"; label: string; steps: string[] }
   // `waiting` is the line the app shows once the page is open, until the row reads ready; `again`
-  // labels the button that opens it again meanwhile. `primary` draws it as the row's prominent button.
+  // labels the button that opens it again meanwhile. `primary` draws it as the row's prominent button
+  // in the old checklist; the fast setup screens draw every action in their mocks' styles and ignore it.
   | { type: "open-url"; label: string; url: string; waiting?: string; again?: string; primary?: boolean }
   | { type: "run"; label: string; verb: string[] }
   // Collects `fields` in the app, then runs `verb --json` with the values as JSON on stdin; an
