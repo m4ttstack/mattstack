@@ -187,7 +187,7 @@ struct FormRowView: View {
 
     @ViewBuilder private var tileStatus: some View {
         if progressLine == nil && row.state == .done {
-            doneMark(size: 13, iconSize: 16, weight: FastTheme.weight(css: .semibold))
+            doneMark(size: 13, iconSize: 16)
                 .modifier(CappedWidth(max: 240))
         }
     }
@@ -330,22 +330,10 @@ struct FormRowView: View {
         .frame(minHeight: 28)
     }
 
-    /// Never beside a segment: the segment already reads as the answer. An answer of no (rt's `off` tone) draws a grey dash.
-    private func doneMark(size: CGFloat, iconSize: CGFloat, weight: Font.Weight = .regular, spacing: CGFloat = 6) -> some View {
-        Group {
-            if row.tone == .off {
-                HStack(alignment: .firstTextBaseline, spacing: spacing) {
-                    Image(systemName: "minus").font(.system(size: size, weight: .regular))
-                    if !row.detail.isEmpty {
-                        Text(row.detail).font(.system(size: size, weight: weight)).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .foregroundColor(FastTheme.textTertiary)
-            } else {
-                FastDoneLine(row.detail, size: size, weight: weight, spacing: spacing, iconSize: iconSize)
-            }
-        }
-        .accessibilityElement(children: .combine)
+    /// Never beside a segment: the segment already reads as the answer. An answer of no (rt's `off` tone) draws a grey disc and dash.
+    private func doneMark(size: CGFloat, iconSize: CGFloat, weight: Font.Weight = .regular, spacing: CGFloat = 8) -> some View {
+        FastDoneLine(row.detail, size: size, weight: weight, spacing: spacing, iconSize: iconSize, off: row.tone == .off)
+            .accessibilityElement(children: .combine)
         .accessibilityIdentifier(AXID.fastRowDone(row.id))
     }
 

@@ -70,7 +70,7 @@ struct InviteScreenBody: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastInviteFailure)
         } else if let inviteLine {
-            FastDoneLine(inviteLine, size: 12, iconSize: 13)
+            FastDoneLine(inviteLine, size: 12, iconSize: 15)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AXID.fastInviteLine)
         }

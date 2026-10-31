@@ -601,8 +601,7 @@ private struct FastWrapWidthLayout: Layout {
     }
 }
 
-/// A finished line: checkmark and text in the success green (P5's "Connected as janedoe").
-/// P5's done row spaces the two 10 apart; P5b's note and P1's "On" use 6.
+/// A finished line where nothing trails it: the done disc, then the words in grey.
 struct FastDoneLine: View {
     let text: String
     let size: CGFloat
@@ -610,47 +609,51 @@ struct FastDoneLine: View {
     let spacing: CGFloat
     let iconSize: CGFloat?
     let textWidth: CGFloat?
+    let off: Bool
 
-    /// How far the text's baseline sits below the tick's centre, as a share of the text size: half SF's cap height
-    /// (about 0.72), so the tick centres on the capitals as the mocks' flex centring does.
+    /// How far the text's baseline sits below the disc's centre, as a share of the text size: half SF's cap height
+    /// (about 0.72), so the disc centres on the capitals.
     private static let baselineBelowCentre: CGFloat = 0.36
 
-    init(_ text: String, size: CGFloat = 11, weight: Font.Weight = .regular, spacing: CGFloat = 6, iconSize: CGFloat? = nil,
-         textWidth: CGFloat? = nil) {
+    init(_ text: String, size: CGFloat = 12, weight: Font.Weight = .regular, spacing: CGFloat = 8, iconSize: CGFloat? = nil,
+         textWidth: CGFloat? = nil, off: Bool = false) {
         self.text = text
         self.size = size
         self.weight = weight
         self.spacing = spacing
         self.iconSize = iconSize
         self.textWidth = textWidth
+        self.off = off
     }
 
     var body: some View {
-        let box = iconSize ?? size + 2
         HStack(alignment: .firstTextBaseline, spacing: spacing) {
-            FastLucideGlyph(symbol: "checkmark", box: box)
+            FastDoneDisc(off: off, diameter: iconSize ?? size + 3)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + size * Self.baselineBelowCentre }
-            Text(text).font(.system(size: size, weight: weight)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: textWidth, alignment: .leading)
+            if !text.isEmpty {
+                Text(text).font(.system(size: size, weight: weight)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: textWidth, alignment: .leading)
+                    .foregroundColor(FastTheme.textSecondary)
+            }
         }
-        .foregroundColor(FastTheme.success)
     }
 }
 
-/// A finished row's trailing mark: a green disc holding a dark tick, or a grey disc and dash for an answer of no.
+/// A finished mark: a green disc holding a dark tick, or a grey disc and dash for an answer of no.
 struct FastDoneDisc: View {
     var off = false
+    var diameter: CGFloat = 16
 
     var body: some View {
         ZStack {
             Circle().fill(off ? FastTheme.outline : FastTheme.success)
             if off {
-                Capsule().fill(FastTheme.textSecondary).frame(width: 7, height: 1.5)
-            } else if let tick = FastLucideGlyph(symbol: "checkmark", box: 10, lineWidth: 1.8) {
+                Capsule().fill(FastTheme.textSecondary).frame(width: diameter * 0.44, height: 1.5)
+            } else if let tick = FastLucideGlyph(symbol: "checkmark", box: diameter * 0.625, lineWidth: diameter * 0.11) {
                 tick.foregroundColor(FastTheme.windowBackground)
             }
         }
-        .frame(width: 16, height: 16)
+        .frame(width: diameter, height: diameter)
     }
 }
 
