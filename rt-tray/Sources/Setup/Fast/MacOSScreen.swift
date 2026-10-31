@@ -9,14 +9,36 @@ struct MacOSScreenBody: View {
     let errors: [String: String]
     let onAction: FormRowPerform
 
+    /// rt sends neither line, so the screen carries P1's own copy.
+    static let subtitle = "mattstack can't do these itself. It notices the moment you do"
+    static let reopenNote = "mattstack reopens itself after Full Disk Access, then carries on"
+
+    /// The reopen promise only matters until Full Disk Access is on.
+    private var showsReopenNote: Bool {
+        rows.contains { $0.id == "perm.fda" && $0.state != .done }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            FastScreenHeader(label: nil, title: "Three things from macOS", subtitle: nil)
+        FastScreen {
+            FastTheme.heading("Three things from macOS").fixedSize(horizontal: false, vertical: true)
+            FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
             FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .tile, onAction: onAction)
+            if showsReopenNote { FastReopenNote(text: Self.reopenNote) }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.macos.rawValue))
+    }
+}
+
+/// P1's state line: an accent dot and a quiet sentence.
+private struct FastReopenNote: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(FastTheme.accent).frame(width: 7, height: 7).accessibilityHidden(true)
+            Text(text).font(FastTheme.note).foregroundColor(FastTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

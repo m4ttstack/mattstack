@@ -167,13 +167,14 @@ enum FastSetupSnapshot {
         }
         return [
             ("macos-fresh", page([Rows.fda, Rows.notificationsAsk, Rows.fancyUrls])),
+            ("macos-as-mock", page([Rows.fdaGranted, Rows.notificationsAsk, Rows.fancyUrls])),
             ("macos-waiting-admin", page([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrls],
                                          waiting: [Rows.fancyUrls.id: Rows.fancyUrls.waiting ?? ""])),
             ("macos-done", page([Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsAllowed])),
             ("macos-notifications-off", page([Rows.fdaGranted, Rows.notificationsOff, Rows.fancyUrls])),
             ("macos-fancy-urls-long-detail", window(VStack(spacing: 0) {
                 MacOSScreenBody(rows: [Rows.fdaGranted, Rows.notificationsAllowed, Rows.fancyUrlsNoInstaller], waiting: [:], errors: [:]) { _, _, _ in }
-                card([Rows.fancyUrlsBrewFailed]).padding(.horizontal, 4).padding(.top, -20)
+                card([Rows.fancyUrlsBrewFailed]).padding(.top, -32)
             }, .macos)),
         ]
     }
@@ -183,6 +184,8 @@ enum FastSetupSnapshot {
         [
             ("path", window(PathScreenBody(showsSolo: true) { _ in }, .path)),
             ("path-upgrade", window(PathScreenBody(showsSolo: false) { _ in }, .path)),
+            ("path-hover", window(PathScreenBody(showsSolo: true, hovered: .join) { _ in }, .path)),
+            ("path-failure", window(PathScreenBody(showsSolo: true, failure: "rt couldn't record the choice: the settings store is locked by another run") { _ in }, .path)),
         ]
     }
 

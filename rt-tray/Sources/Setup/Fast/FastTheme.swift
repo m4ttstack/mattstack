@@ -28,6 +28,8 @@ enum FastTheme {
 
     static let accentTile = Color(hex: 0xE64980, alpha: 0x24)
     static let successTile = Color(hex: 0x4ADE80, alpha: 0x1F)
+    /// P2's card under the pointer or keyboard focus.
+    static let accentWash = Color(hex: 0xE64980, alpha: 0x1A)
     static let primaryGlow = Color(hex: 0xE64980, alpha: 0x66)
 
     // MARK: Type
@@ -528,6 +530,8 @@ extension FastIconTile {
     @ViewBuilder fileprivate var glyph: some View {
         if symbol == "globe" {
             FastGlobeGlyph()
+        } else if let lucide = FastLucideGlyph(symbol: symbol) {
+            lucide
         } else {
             // The CSS's 18 is Lucide's icon box; an SF glyph fills more of its box, so 16 matches the drawn size.
             Image(systemName: symbol).font(.system(size: 16, weight: .light))
@@ -547,6 +551,71 @@ private struct FastGlobeGlyph: View {
             Rectangle().frame(width: ring - stroke, height: stroke)
         }
         .frame(width: 18, height: 18)
+    }
+}
+
+/// P2's Lucide icons, traced from their 24-unit paths into the 18-point box.
+/// SF's person.2 sets two equal heads side by side, its laptop fills the
+/// screen, its person closes the body and its plus is thinner, so none
+/// reads as the mock's icon.
+private struct FastLucideGlyph: View {
+    let path: Path
+
+    init?(symbol: String) {
+        switch symbol {
+        case "person.2": path = Self.users
+        case "laptopcomputer": path = Self.laptop
+        case "person": path = Self.user
+        case "plus": path = Self.plus
+        default: return nil
+        }
+    }
+
+    var body: some View {
+        let scale = CGAffineTransform(scaleX: 18.0 / 24, y: 18.0 / 24)
+        path.applying(scale)
+            .stroke(style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+            .frame(width: 18, height: 18)
+    }
+
+    private static let users = Path { p in
+        p.move(to: CGPoint(x: 16, y: 21))
+        p.addArc(tangent1End: CGPoint(x: 16, y: 15), tangent2End: CGPoint(x: 12, y: 15), radius: 4)
+        p.addArc(tangent1End: CGPoint(x: 2, y: 15), tangent2End: CGPoint(x: 2, y: 21), radius: 4)
+        p.addLine(to: CGPoint(x: 2, y: 21))
+        p.addEllipse(in: CGRect(x: 5, y: 3, width: 8, height: 8))
+        p.move(to: CGPoint(x: 22, y: 21))
+        p.addArc(center: CGPoint(x: 18, y: 19), radius: 4, startAngle: .degrees(0), endAngle: .degrees(-75.5), clockwise: true)
+        p.move(to: CGPoint(x: 16, y: 3.13))
+        p.addArc(center: CGPoint(x: 15, y: 7), radius: 4, startAngle: .degrees(-75.5), endAngle: .degrees(75.5), clockwise: false)
+    }
+
+    private static let user = Path { p in
+        p.addEllipse(in: CGRect(x: 8, y: 3, width: 8, height: 8))
+        p.move(to: CGPoint(x: 19, y: 21))
+        p.addArc(tangent1End: CGPoint(x: 19, y: 15), tangent2End: CGPoint(x: 15, y: 15), radius: 4)
+        p.addArc(tangent1End: CGPoint(x: 5, y: 15), tangent2End: CGPoint(x: 5, y: 21), radius: 4)
+        p.addLine(to: CGPoint(x: 5, y: 21))
+    }
+
+    private static let plus = Path { p in
+        p.move(to: CGPoint(x: 5, y: 12))
+        p.addLine(to: CGPoint(x: 19, y: 12))
+        p.move(to: CGPoint(x: 12, y: 5))
+        p.addLine(to: CGPoint(x: 12, y: 19))
+    }
+
+    private static let laptop = Path { p in
+        p.move(to: CGPoint(x: 4, y: 16))
+        p.addArc(tangent1End: CGPoint(x: 4, y: 5), tangent2End: CGPoint(x: 20, y: 5), radius: 2)
+        p.addArc(tangent1End: CGPoint(x: 20, y: 5), tangent2End: CGPoint(x: 20, y: 16), radius: 2)
+        p.addLine(to: CGPoint(x: 20, y: 16))
+        p.addLine(to: CGPoint(x: 21.3, y: 18.6))
+        p.addQuadCurve(to: CGPoint(x: 20.4, y: 20), control: CGPoint(x: 21.7, y: 20))
+        p.addLine(to: CGPoint(x: 3.6, y: 20))
+        p.addQuadCurve(to: CGPoint(x: 2.7, y: 18.6), control: CGPoint(x: 2.3, y: 20))
+        p.addLine(to: CGPoint(x: 4, y: 16))
+        p.addLine(to: CGPoint(x: 20, y: 16))
     }
 }
 

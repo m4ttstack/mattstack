@@ -66,10 +66,7 @@ struct FastSetupView: View {
         case .macos:
             MacOSScreenBody(rows: form.rows(for: "macos") ?? [], waiting: actions.waiting, errors: actions.errors, onAction: perform)
         case .path:
-            VStack(alignment: .leading, spacing: 0) {
-                PathScreenBody(showsSolo: flow.entry == .firstRun, onChoose: handlers.choose)
-                if let failure = status.failures[.path] { FastFailureLine(text: failure).padding(.horizontal, 24) }
-            }
+            PathScreenBody(showsSolo: flow.entry == .firstRun, failure: status.failures[.path], onChoose: handlers.choose)
         case .invite:
             invite
         case .createTeam:

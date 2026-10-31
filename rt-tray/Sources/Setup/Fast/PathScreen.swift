@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import MattstackCore
 
@@ -6,30 +5,38 @@ import MattstackCore
 struct PathScreenBody: View {
     /// Just me is a first-run choice only.
     let showsSolo: Bool
+    var failure: String? = nil
+    /// Snapshots only: draws a card as the pointer would, since an offscreen render has no pointer.
+    var hovered: TeamChoice? = nil
     let onChoose: (TeamChoice) -> Void
 
-    private var cards: [(TeamChoice, String, String)] {
-        [
-            (.join, "Join a team", "ticket"),
-            (.create, "Create a team", "person.2"),
-            (.solo, "Just me", "person"),
-            (.restore, "Move from another Mac", "laptopcomputer.and.arrow.down"),
-        ].filter { showsSolo || $0.0 != .solo }
+    struct Card {
+        let choice: TeamChoice
+        let title: String
+        let subtitle: String
+        let symbol: String
     }
 
+    /// The tray owns these cards, so their copy lives here rather than in rt's form.
+    static let allCards = [
+        Card(choice: .join, title: "Join a team", subtitle: "You have an invite from your team admin", symbol: "person.2"),
+        Card(choice: .create, title: "Create a team", subtitle: "Invite people once it's ready", symbol: "plus"),
+        Card(choice: .solo, title: "Just me", subtitle: "No team. Add one later in Settings", symbol: "person"),
+        Card(choice: .restore, title: "Move from another Mac", subtitle: "Bring your setup over from your backup", symbol: "laptopcomputer"),
+    ]
+
+    private var cards: [Card] { Self.allCards.filter { showsSolo || $0.choice != .solo } }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            FastScreenHeader(label: nil, title: "How are you setting up?", subtitle: nil)
-            VStack(spacing: 10) {
-                ForEach(cards, id: \.1) { choice, title, symbol in
-                    Button { onChoose(choice) } label: { PathCardLabel(title: title, symbol: symbol) }
-                        .buttonStyle(PathCardStyle())
-                        .accessibilityIdentifier(AXID.fastPathCard(Self.name(choice)))
-                }
+        FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 20) {
+            FastTheme.heading("How are you setting up?").fixedSize(horizontal: false, vertical: true)
+            ForEach(cards, id: \.title) { card in
+                Button { onChoose(card.choice) } label: { PathCardLabel(card: card) }
+                    .buttonStyle(PathCardStyle(forcedHover: hovered == card.choice))
+                    .accessibilityIdentifier(AXID.fastPathCard(Self.name(card.choice)))
             }
+            if let failure { FastFailureLine(text: failure) }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.path.rawValue))
     }
@@ -45,51 +52,66 @@ struct PathScreenBody: View {
 }
 
 private struct PathCardLabel: View {
-    let title: String
-    let symbol: String
-
-    /// The plain accent reads deep blue on a dark tile, so dark mode lifts it toward white.
-    private static let glyph = NSColor(name: nil) { appearance in
-        FastAppearance.isDark(appearance) ? NSColor.controlAccentColor.blended(withFraction: 0.35, of: .white) ?? .controlAccentColor : .controlAccentColor
-    }
-    private static let tile = NSColor(name: nil) { appearance in
-        NSColor.controlAccentColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.24 : 0.14)
-    }
+    let card: PathScreenBody.Card
+    @Environment(\.pathCardLit) private var lit
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17))
-                .foregroundStyle(Color(nsColor: Self.glyph))
-                .frame(width: 36, height: 36)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: Self.tile)))
-            Text(title).font(.body.weight(.medium))
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right").font(.callout.weight(.semibold)).foregroundStyle(.tertiary)
+        HStack(alignment: .center, spacing: 14) {
+            FastIconTile(symbol: card.symbol)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.title).font(.system(size: 14, weight: FastTheme.weight(css: .semibold)))
+                    .foregroundColor(FastTheme.textPrimary)
+                Text(card.subtitle).font(.system(size: 12)).foregroundColor(FastTheme.textSecondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
+                .foregroundColor(lit ? FastTheme.accent : FastTheme.textTertiary)
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .padding(FastTheme.rowInsets)
+        .contentShape(RoundedRectangle(cornerRadius: FastTheme.cardRadius, style: .continuous))
+    }
+}
+
+private struct PathCardLitKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// A path card under the pointer or holding keyboard focus draws in accent.
+    fileprivate var pathCardLit: Bool {
+        get { self[PathCardLitKey.self] }
+        set { self[PathCardLitKey.self] = newValue }
     }
 }
 
 private struct PathCardStyle: ButtonStyle {
+    var forcedHover = false
+
     func makeBody(configuration: Configuration) -> some View {
-        PathCard(label: configuration.label, pressed: configuration.isPressed)
+        PathCard(label: configuration.label, pressed: configuration.isPressed, forcedHover: forcedHover)
     }
 }
 
 private struct PathCard<Label: View>: View {
     let label: Label
     let pressed: Bool
+    let forcedHover: Bool
     @State private var hovering = false
+    @Environment(\.isFocused) private var focused
 
     var body: some View {
+        let lit = hovering || focused || forcedHover
+        let shape = RoundedRectangle(cornerRadius: FastTheme.cardRadius, style: .continuous)
         label
+            .environment(\.pathCardLit, lit)
             .background {
-                RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor))
-                RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(pressed ? 0.08 : hovering ? 0.04 : 0))
+                shape.fill(lit ? FastTheme.accentWash : FastTheme.card)
+                if pressed { shape.fill(FastTheme.accentWash) }
             }
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor)))
+            .overlay(shape.strokeBorder(lit ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
             .onHover { hovering = $0 }
     }
 }
