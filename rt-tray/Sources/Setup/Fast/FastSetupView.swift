@@ -176,7 +176,7 @@ struct FastLoadingBody: View {
                     .accessibilityIdentifier(AXID.fastPrimary(FastSetupScreen.loading.rawValue))
             } else {
                 ProgressView().controlSize(.regular)
-                Text("Checking where setup left off…").font(FastTheme.sub).foregroundColor(FastTheme.textSecondary)
+                FastTheme.sub("Checking where setup left off…")
             }
             Spacer(minLength: 0)
         }

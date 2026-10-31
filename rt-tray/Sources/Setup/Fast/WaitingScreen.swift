@@ -44,7 +44,7 @@ struct WaitingScreenBody: View {
 
     private func hint(_ symbol: String, _ text: String) -> some View {
         HStack(spacing: 6) {
-            FastLucideGlyph(symbol: symbol, box: 13, lineWidth: 13 / 12)?
+            FastLucideGlyph(symbol: symbol, box: 13)?
                 .foregroundColor(FastTheme.textTertiary)
             Text(text).font(.system(size: 12)).foregroundColor(FastTheme.textSecondary).lineLimit(1)
         }
@@ -55,7 +55,7 @@ struct WaitingScreenBody: View {
 private struct WaitingTile: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        FastLucideGlyph(symbol: "ticket", box: 26, lineWidth: 26 / 12)
+        FastLucideGlyph(symbol: "ticket", box: 26)
             .foregroundColor(FastTheme.accent)
             .frame(width: 56, height: 56)
             .background(shape.fill(FastTheme.card))

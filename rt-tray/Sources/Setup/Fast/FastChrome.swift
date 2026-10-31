@@ -96,6 +96,7 @@ struct FastScreen<Content: View, Footer: View>: View {
     var alignment: HorizontalAlignment = .leading
     @ViewBuilder let content: Content
     @ViewBuilder let footer: Footer
+    @Environment(\.fastHidesScrollers) private var hidesScrollers
 
     var body: some View {
         VStack(spacing: 0) {
@@ -105,6 +106,7 @@ struct FastScreen<Content: View, Footer: View>: View {
                     .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .top))
             }
             .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(hidesScrollers ? .never : .automatic)
             footer
         }
     }

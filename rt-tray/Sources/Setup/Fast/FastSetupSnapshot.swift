@@ -29,6 +29,7 @@ enum FastSetupSnapshot {
                         .background(FastTheme.windowBackground)
                         .environment(\.colorScheme, .dark)
                         .environment(\.fastFlipsShadows, true)
+                        .environment(\.fastHidesScrollers, true)
                         .controlSize(.large),
                     appearance: FastAppearance.window.name,
                     to: out.appendingPathComponent("\(name)-\(scheme).png"),
@@ -247,7 +248,7 @@ enum FastSetupSnapshot {
         }
         return [
             ("restore-empty", page(rows: [])),
-            ("restore-as-mock", page(repo: "gitlab.com/janedoe/mattstack-home", key: "placeholder-placeholder-1", rows: [])),
+            ("restore-as-mock", page(repo: "gitlab.com/janedoe/mattstack-home", key: "AGE-SECRET-KEY-1PLACEHOLDERVALUE", rows: [])),
             ("restore-clt-busy", page(repo: repo, key: key, rows: [Rows.cltInstalling])),
             ("restore-ready", page(repo: repo, key: key, rows: [])),
             ("restore-restoring", page(repo: repo, key: key, rows: [], restoring: true)),
@@ -725,7 +726,7 @@ enum FastSetupSnapshot {
         static let linear = FormRow(id: "linear", title: "Linear", subtext: "So mattstack can read and write Linear tickets", state: .todo,
                                     detail: "", action: RowAction(type: .connect, label: "Connect", integration: "linear", fields: [
                                         ActionField(name: "apiKey", label: "Linear API key", secret: true, hint: "lin_api_…",
-                                                    value: "placeholderkeyvalue"),
+                                                    value: "lin_api_placeholders"),
                                     ], create: ActionLink(label: "Create token", url: "https://example.com/settings/api")))
         static let fastBrowser = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
                                          detail: "", action: RowAction(type: .openURL, label: "Add to Chrome", url: "https://example.com/store"))

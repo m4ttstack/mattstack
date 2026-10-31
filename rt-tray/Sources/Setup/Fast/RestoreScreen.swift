@@ -21,6 +21,8 @@ struct RestoreScreenBody: View {
     /// rt sends none of these lines, so the screen carries P3r's own copy.
     static let subtitle = "Your settings, repos list and team come back from your backup"
     static let footerNote = "Then straight to the progress bar"
+    /// Every age key starts with this prefix, so the masked field may show it.
+    static let keyPlaceholder = "AGE-SECRET-KEY-1…"
 
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 36, leading: 48, bottom: 20, trailing: 48), spacing: 16) {
@@ -32,8 +34,8 @@ struct RestoreScreenBody: View {
             }
             FastStackedRow(label: "Recovery key") {
                 // The key is a secret: a secure field, so it is never drawn or read back.
-                FastField("AGE-SECRET-KEY-1…", text: key, size: .large, monospaced: true, secure: true, id: AXID.fastRestoreKey,
-                          label: "Recovery key")
+                FastField(Self.keyPlaceholder, text: key, size: .large, monospaced: true, secure: true,
+                          maskPrefix: FastField.prefix(fromHint: Self.keyPlaceholder), id: AXID.fastRestoreKey, label: "Recovery key")
             }
             keyHint
             ForEach(rows ?? [], id: \.id) { row in

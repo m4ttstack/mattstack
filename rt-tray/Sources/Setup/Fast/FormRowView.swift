@@ -49,7 +49,9 @@ extension View {
     }
 }
 
-/// P5's label column beside a column of controls, at the mock's row padding.
+/// P5's label column beside a column of controls. The mocks' CSS pads rows 14
+/// both ways, but their picture leaves 13 under a control (a button row is 56,
+/// not 57), so the bottom pads 13 and the label column keeps a done row at 48.
 struct FastLabelledRow<Control: View>: View {
     let label: String?
     @ViewBuilder let control: Control
@@ -61,11 +63,11 @@ struct FastLabelledRow<Control: View>: View {
                 .foregroundColor(FastTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: FormRowStyle.labelWidth, alignment: .leading)
-                .padding(.top, 6)
+                .padding(.top, 6).padding(.bottom, 1)
             VStack(alignment: .leading, spacing: 6) { control }
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 14).padding(.horizontal, 18)
+        .padding(.top, 14).padding(.bottom, 13).padding(.horizontal, 18)
     }
 }
 
@@ -467,6 +469,7 @@ struct FormRowFields: View {
 
     private func input(_ field: ActionField) -> some View {
         FastField(field.label, text: binding(field.name), size: large ? .large : .compact, monospaced: field.secret, secure: field.secret,
+                  maskPrefix: FastField.prefix(fromHint: field.hint),
                   id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name))
             .onSubmit(submit)
             // rt's hint is a format note (a forge token's scopes, a key's prefix), not screen copy: the mocks show none.

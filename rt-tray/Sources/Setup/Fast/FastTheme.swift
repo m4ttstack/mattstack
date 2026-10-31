@@ -62,6 +62,10 @@ enum FastTheme {
         css + 0.7
     }
 
+    /// The sub's tracking for its CSS 0: SF at 14 sets 2 to 3% narrower than
+    /// Inter, and the picture wins. Smaller text already lands within 1%.
+    static let subTracking: CGFloat = 0.2
+
     // MARK: Metrics
 
     static let windowWidth: CGFloat = 720
@@ -84,7 +88,7 @@ enum FastTheme {
 
     /// The one line under a heading.
     static func sub(_ text: String) -> Text {
-        Text(text).font(sub).foregroundColor(textSecondary)
+        Text(text).font(sub).tracking(subTracking).foregroundColor(textSecondary)
     }
 }
 
@@ -170,11 +174,22 @@ private struct FastFlipsShadowsKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct FastHidesScrollersKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     /// True only in snapshots: `cacheDisplay` renders a layer's shadow offset upside down, while a live window draws it as given.
     var fastFlipsShadows: Bool {
         get { self[FastFlipsShadowsKey.self] }
         set { self[FastFlipsShadowsKey.self] = newValue }
+    }
+
+    /// True only in snapshots: offscreen, AppKit draws the legacy scroller, which insets the body, while a
+    /// live window follows the Mac's "Show scroll bars" setting (overlay unless the person chose always).
+    var fastHidesScrollers: Bool {
+        get { self[FastHidesScrollersKey.self] }
+        set { self[FastHidesScrollersKey.self] = newValue }
     }
 }
 
@@ -352,6 +367,8 @@ struct FastField: View {
     var size: Size = .compact
     var monospaced = false
     var secure = false
+    /// A secret's known public prefix (`lin_api_`), drawn in place of its bullets while the value starts with it.
+    var maskPrefix: String? = nil
     /// The accent edge the mock gives a pasted value (P3's invite code).
     var highlighted = false
     /// The accessibility id, on the text field itself so scripts can type into it.
@@ -361,15 +378,32 @@ struct FastField: View {
     @FocusState private var focused: Bool
 
     init(_ placeholder: String, text: Binding<String>, size: Size = .compact, monospaced: Bool = false,
-         secure: Bool = false, highlighted: Bool = false, id: String? = nil, label: String? = nil) {
+         secure: Bool = false, maskPrefix: String? = nil, highlighted: Bool = false, id: String? = nil, label: String? = nil) {
         self.placeholder = placeholder
         self._text = text
         self.size = size
         self.monospaced = monospaced
         self.secure = secure
+        self.maskPrefix = maskPrefix
         self.highlighted = highlighted
         self.id = id
         self.label = label
+    }
+
+    /// A format hint that ends in an ellipsis (`lin_api_…`) names a prefix; any other hint (a token's scopes) names none.
+    static func prefix(fromHint hint: String?) -> String? {
+        guard let hint else { return nil }
+        for ellipsis in ["…", "..."] where hint.hasSuffix(ellipsis) {
+            let prefix = String(hint.dropLast(ellipsis.count))
+            return prefix.isEmpty ? nil : prefix
+        }
+        return nil
+    }
+
+    /// The value's leading characters, only as far as they equal `prefix`, so no more of a secret ever shows.
+    static func shownPrefix(of value: String, prefix: String?) -> String {
+        guard let prefix else { return "" }
+        return String(zip(value, prefix).prefix { $0.0 == $0.1 }.map(\.0))
     }
 
     var body: some View {
@@ -392,12 +426,17 @@ struct FastField: View {
     /// AppKit's secure echo is a large circle; at rest the field shows the mock's small dots instead.
     private var masked: Bool { secure && !focused && !text.isEmpty }
 
-    /// The mocks' small dots (2.5 at P5's 12, 3 at P3r's 13), one per character at the mono advance.
+    /// The known prefix in the value's own mono, then the mocks' dots, one per
+    /// remaining character at the mono advance.
     private var bullets: some View {
         let advance = size.points * 0.6
-        let dot = size.points * 0.22
+        let dot = size.points * 0.24
+        let shown = Self.shownPrefix(of: text, prefix: maskPrefix)
         return HStack(spacing: 0) {
-            ForEach(0..<min(text.count, 64), id: \.self) { _ in
+            if !shown.isEmpty {
+                Text(shown).font(font).foregroundColor(FastTheme.textPrimary).lineLimit(1).fixedSize()
+            }
+            ForEach(0..<min(text.count - shown.count, 64), id: \.self) { _ in
                 Circle().fill(FastTheme.textPrimary).frame(width: dot, height: dot).frame(width: advance)
             }
         }
@@ -548,7 +587,7 @@ struct FastDoneLine: View {
     var body: some View {
         let box = iconSize ?? size + 2
         HStack(alignment: .firstTextBaseline, spacing: spacing) {
-            FastLucideGlyph(symbol: "checkmark", box: box, lineWidth: box / 12)
+            FastLucideGlyph(symbol: "checkmark", box: box)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + size * 0.36 }
             Text(text).font(.system(size: size, weight: weight)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: textWidth, alignment: .leading)
@@ -805,7 +844,7 @@ struct FastTeamChip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            FastLucideGlyph(symbol: "person.2", box: 12, lineWidth: 1)
+            FastLucideGlyph(symbol: "person.2", box: 12)
             Text(name.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.2).lineLimit(1)
         }
         .foregroundColor(FastTheme.textSecondary)
