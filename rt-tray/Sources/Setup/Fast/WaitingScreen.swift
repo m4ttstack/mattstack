@@ -23,7 +23,7 @@ struct WaitingScreenBody: View {
             FastTeamChip(name: team)
             // P4's heading is the mock's one 24-point heading, on 30-point lines.
             Text(Self.title(admin: admin))
-                .font(.system(size: 24, weight: .bold)).tracking(-0.7).foregroundColor(FastTheme.textPrimary)
+                .font(.system(size: 24, weight: .bold)).tracking(FastTheme.tracking(css: -0.7)).foregroundColor(FastTheme.textPrimary)
                 .lineSpacing(1.5).frame(minHeight: 30)
                 .fixedSize(horizontal: false, vertical: true)
             FastTheme.sub(Self.subtitle)

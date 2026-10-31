@@ -147,18 +147,14 @@ enum FastSetupSnapshot {
         ]
     }
 
+    /// P5 with the mock's own rows, so the render lines up with P5-connect.png.
     @MainActor
     private static var connectScreen: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 18) {
-                FastScreenHeader(label: "widgets", title: "You're in. Connect your accounts",
-                                 subtitle: "One click each. Most open in your browser")
-                FormCard(title: nil, rows: [Rows.gitlab, Rows.slack, Rows.claudeInstalling, Rows.doppler, Rows.linear, Rows.fastBrowser]) { _, _, _ in }
-            }
-            .padding(24)
-            FastFooter(screen: "connect", note: "Continue unlocks once each one is connected",
-                       secondary: ("Back", {}), primary: ("Continue", false, {}))
-        }
+        window(ConnectScreenBody(teamFirst: true, rows: [MockRows.gitlab, MockRows.slack, MockRows.claude, MockRows.doppler,
+                                                         MockRows.linear, MockRows.fastBrowser],
+                                 waiting: [:], errors: [:], continueReady: true,
+                                 onAction: { _, _, _ in }, onBack: nil, onContinue: {}),
+               .connect, path: "join")
     }
 
     @MainActor
@@ -282,6 +278,7 @@ enum FastSetupSnapshot {
                                      waiting: [C.slack.id: C.slack.waiting ?? "", C.fastBrowser.id: C.fastBrowser.waiting ?? ""])),
             ("connect-done", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.fastBrowserDone], ready: true)),
             ("connect-solo", page(team: false, [C.soloForge, C.claudeSignIn, C.soloFastBrowser])),
+            ("connect-solo-mock", page(team: false, [MockRows.github, MockRows.claude, MockRows.fastBrowser])),
             ("connect-get-chrome", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.getChrome])),
             ("connect-steps", page([C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserSteps])),
             ("connect-newer-action-only", page([C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserDone])),

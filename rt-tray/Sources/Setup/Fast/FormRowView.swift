@@ -358,7 +358,11 @@ struct FormRowView: View {
                     Button(label) { onAction(row, nil, nil) }.buttonStyle(FastPrimaryButtonStyle(size: .small))
                 case (.labelled, false), (.stacked, false):
                     Button { onAction(row, nil, nil) } label: {
-                        if let symbol = Self.buttonSymbol(row.id) { Label(label, systemImage: symbol) } else { Text(label) }
+                        if let symbol = Self.buttonSymbol(row.id), let glyph = FastLucideGlyph(symbol: symbol, box: 13) {
+                            Label { Text(label) } icon: { glyph }
+                        } else {
+                            Text(label)
+                        }
                     }
                     .buttonStyle(FastOutlineButtonStyle())
                 case (_, true):

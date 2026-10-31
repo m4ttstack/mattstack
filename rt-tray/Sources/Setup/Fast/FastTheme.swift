@@ -35,7 +35,7 @@ enum FastTheme {
     // MARK: Type
 
     static let heading = Font.system(size: 26, weight: .bold)
-    static let headingTracking: CGFloat = -0.8
+    static let headingTracking = tracking(css: -0.8)
     static let sub = Font.system(size: 14)
     static let cardTitle = Font.system(size: 12, weight: weight(css: .semibold))
     static let note = Font.system(size: 12)
@@ -52,6 +52,14 @@ enum FastTheme {
         case .medium: return .regular
         default: return css
         }
+    }
+
+    /// The tracking to draw for a bold heading's CSS letter-spacing. SF Bold
+    /// at Inter's tracking sets about 6% narrower than the mocks' picture and
+    /// crowds its letters, and the picture wins: 0.7 looser lands each
+    /// heading within 1% of the mock's width (P1, P4, P5).
+    static func tracking(css: CGFloat) -> CGFloat {
+        css + 0.7
     }
 
     // MARK: Metrics
@@ -570,9 +578,7 @@ struct FastIconTile: View {
 
 extension FastIconTile {
     @ViewBuilder fileprivate var glyph: some View {
-        if symbol == "globe" {
-            FastGlobeGlyph()
-        } else if let lucide = FastLucideGlyph(symbol: symbol) {
+        if let lucide = FastLucideGlyph(symbol: symbol) {
             lucide
         } else {
             // The CSS's 18 is Lucide's icon box; an SF glyph fills more of its box, so 16 matches the drawn size.
@@ -581,34 +587,26 @@ extension FastIconTile {
     }
 }
 
-/// Lucide's globe in its 18-point box: a ring, the lens of one meridian and
-/// the equator. SF's globe draws three of each, a dense mesh at tile size.
-private struct FastGlobeGlyph: View {
-    var body: some View {
-        let ring: CGFloat = 15
-        let stroke: CGFloat = 1.2
-        ZStack {
-            Circle().strokeBorder(lineWidth: stroke).frame(width: ring, height: ring)
-            Ellipse().strokeBorder(lineWidth: stroke).frame(width: 6.5, height: ring)
-            Rectangle().frame(width: ring - stroke, height: stroke)
-        }
-        .frame(width: 18, height: 18)
-    }
-}
-
 /// Lucide shapes, traced from their 24-unit paths into the mock's icon box,
 /// for the symbols whose nearest SF glyph reads as a different icon: SF's
 /// person.2 sets two equal heads side by side, its laptop fills the screen,
 /// its person closes the body, its plus is thinner, its internaldrive draws
 /// a grille, its checkmark stands tall where Lucide's tick is shallow, its
-/// ticket tilts, its checklist boxes its ticks and its bell sits heavier.
+/// ticket tilts, its checklist boxes its ticks, its bell sits heavier, its
+/// message bubble is round, its arrow.right.to.line has no bracket, its
+/// puzzle piece stands square and its globe draws a dense mesh.
 struct FastLucideGlyph: View {
     let path: Path
-    var box: CGFloat = 18
-    var lineWidth: CGFloat = 1.3
+    let box: CGFloat
+    let lineWidth: CGFloat
 
-    init?(symbol: String, box: CGFloat = 18, lineWidth: CGFloat = 1.3) {
+    /// `lineWidth` defaults to Lucide's 2-unit stroke at `box`.
+    init?(symbol: String, box: CGFloat = 18, lineWidth: CGFloat? = nil) {
         switch symbol {
+        case "globe": path = Self.globe
+        case "message": path = Self.messageSquare
+        case "arrow.right.to.line": path = Self.logIn
+        case "puzzlepiece.extension": path = Self.puzzle
         case "person.2": path = Self.users
         case "laptopcomputer": path = Self.laptop
         case "person": path = Self.user
@@ -621,7 +619,7 @@ struct FastLucideGlyph: View {
         default: return nil
         }
         self.box = box
-        self.lineWidth = lineWidth
+        self.lineWidth = lineWidth ?? box / 12
     }
 
     var body: some View {
@@ -629,6 +627,71 @@ struct FastLucideGlyph: View {
         path.applying(scale)
             .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
             .frame(width: box, height: box)
+    }
+
+    private static let globe = Path { p in
+        p.addEllipse(in: CGRect(x: 2, y: 2, width: 20, height: 20))
+        p.move(to: CGPoint(x: 12, y: 2))
+        p.addArc(center: CGPoint(x: 22.5, y: 12), radius: 14.5, startAngle: .degrees(-136.397), endAngle: .degrees(136.397), clockwise: true)
+        p.addArc(center: CGPoint(x: 1.5, y: 12), radius: 14.5, startAngle: .degrees(43.603), endAngle: .degrees(-43.603), clockwise: true)
+        p.move(to: CGPoint(x: 2, y: 12))
+        p.addLine(to: CGPoint(x: 22, y: 12))
+    }
+
+    private static let messageSquare = Path { p in
+        p.move(to: CGPoint(x: 22, y: 17))
+        p.addArc(center: CGPoint(x: 20, y: 17), radius: 2, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        p.addLine(to: CGPoint(x: 6.828, y: 19))
+        p.addArc(center: CGPoint(x: 6.828, y: 21), radius: 2, startAngle: .degrees(-90), endAngle: .degrees(-135), clockwise: true)
+        p.addLine(to: CGPoint(x: 3.212, y: 21.788))
+        p.addArc(center: CGPoint(x: 2.71, y: 21.286), radius: 0.71, startAngle: .degrees(45), endAngle: .degrees(180), clockwise: false)
+        p.addLine(to: CGPoint(x: 2, y: 5))
+        p.addArc(center: CGPoint(x: 4, y: 5), radius: 2, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.addLine(to: CGPoint(x: 20, y: 3))
+        p.addArc(center: CGPoint(x: 20, y: 5), radius: 2, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        p.closeSubpath()
+    }
+
+    private static let logIn = Path { p in
+        p.move(to: CGPoint(x: 10, y: 17))
+        p.addLine(to: CGPoint(x: 15, y: 12))
+        p.addLine(to: CGPoint(x: 10, y: 7))
+        p.move(to: CGPoint(x: 15, y: 12))
+        p.addLine(to: CGPoint(x: 3, y: 12))
+        p.move(to: CGPoint(x: 15, y: 3))
+        p.addLine(to: CGPoint(x: 19, y: 3))
+        p.addArc(center: CGPoint(x: 19, y: 5), radius: 2, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        p.addLine(to: CGPoint(x: 21, y: 19))
+        p.addArc(center: CGPoint(x: 19, y: 19), radius: 2, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        p.addLine(to: CGPoint(x: 15, y: 21))
+    }
+
+    private static let puzzle = Path { p in
+        p.move(to: CGPoint(x: 15.39, y: 4.39))
+        p.addArc(center: CGPoint(x: 16.097, y: 3.683), radius: 1, startAngle: .degrees(135.029), endAngle: .degrees(13.459), clockwise: true)
+        p.addArc(center: CGPoint(x: 19.501, y: 4.5), radius: 2.5, startAngle: .degrees(-166.492), endAngle: .degrees(76.511), clockwise: false)
+        p.addArc(center: CGPoint(x: 20.317, y: 7.904), radius: 1, startAngle: .degrees(-103.459), endAngle: .degrees(134.971), clockwise: true)
+        p.addLine(to: CGPoint(x: 21.293, y: 10.293))
+        p.addArc(center: CGPoint(x: 19.586, y: 12), radius: 2.414, startAngle: .degrees(-45), endAngle: .degrees(45), clockwise: false)
+        p.addLine(to: CGPoint(x: 19.61, y: 15.39))
+        p.addArc(center: CGPoint(x: 18.903, y: 14.683), radius: 1, startAngle: .degrees(44.971), endAngle: .degrees(166.541), clockwise: false)
+        p.addArc(center: CGPoint(x: 15.499, y: 15.5), radius: 2.5, startAngle: .degrees(-13.508), endAngle: .degrees(103.489), clockwise: true)
+        p.addArc(center: CGPoint(x: 14.683, y: 18.904), radius: 1, startAngle: .degrees(-76.541), endAngle: .degrees(45.029), clockwise: false)
+        p.addLine(to: CGPoint(x: 13.707, y: 21.293))
+        p.addArc(center: CGPoint(x: 12, y: 19.586), radius: 2.414, startAngle: .degrees(45), endAngle: .degrees(135), clockwise: false)
+        p.addLine(to: CGPoint(x: 8.61, y: 19.61))
+        p.addArc(center: CGPoint(x: 7.903, y: 20.317), radius: 1, startAngle: .degrees(-44.971), endAngle: .degrees(-166.541), clockwise: true)
+        p.addArc(center: CGPoint(x: 4.499, y: 19.5), radius: 2.5, startAngle: .degrees(13.508), endAngle: .degrees(-103.489), clockwise: false)
+        p.addArc(center: CGPoint(x: 3.683, y: 16.096), radius: 1, startAngle: .degrees(76.541), endAngle: .degrees(-45.029), clockwise: true)
+        p.addLine(to: CGPoint(x: 2.707, y: 13.707))
+        p.addArc(center: CGPoint(x: 4.414, y: 12), radius: 2.414, startAngle: .degrees(135), endAngle: .degrees(-135), clockwise: false)
+        p.addLine(to: CGPoint(x: 4.39, y: 8.61))
+        p.addArc(center: CGPoint(x: 5.097, y: 9.317), radius: 1, startAngle: .degrees(-135.029), endAngle: .degrees(-13.459), clockwise: false)
+        p.addArc(center: CGPoint(x: 8.501, y: 8.5), radius: 2.5, startAngle: .degrees(166.492), endAngle: .degrees(-76.511), clockwise: true)
+        p.addArc(center: CGPoint(x: 9.317, y: 5.096), radius: 1, startAngle: .degrees(103.459), endAngle: .degrees(-134.971), clockwise: false)
+        p.addLine(to: CGPoint(x: 10.293, y: 2.707))
+        p.addArc(center: CGPoint(x: 12, y: 4.414), radius: 2.414, startAngle: .degrees(-135), endAngle: .degrees(-45), clockwise: false)
+        p.closeSubpath()
     }
 
     private static let check = Path { p in
