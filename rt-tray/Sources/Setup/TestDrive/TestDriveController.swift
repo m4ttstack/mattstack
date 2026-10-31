@@ -74,6 +74,9 @@ final class TestDriveController {
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable]
         window.title = "Test drive setup"
+        window.appearance = FastAppearance.window
+        window.backgroundColor = FastTheme.windowFill
+        window.colorSpace = .sRGB
         window.isReleasedWhenClosed = false
         picker = window
         return window
