@@ -32,13 +32,15 @@ struct RunScreen: View {
         .sheet(isPresented: $showLog) {
             if let paused {
                 LogSheet(title: paused.title, lines: Self.logLines(paused, appLines: model.logLines(for: paused.step)))
+                    .environment(\.fastSheet, true)
             }
         }
     }
 }
 
 /// P6 while `paused` is nil, P6b once rt names a failed step. No step list:
-/// one bar, rt's phase message under it, the percent and time left beside it.
+/// one bar under rt's phase message and the percent, the time left (or what
+/// failed) under the bar.
 struct RunScreenBody: View {
     /// Nil before the plan arrives, and after a relaunch that lands on P6b.
     let bar: RunBar?
@@ -48,110 +50,123 @@ struct RunScreenBody: View {
     let onRetry: () -> Void
     let onPausedAction: ((RowAction) -> Void)?
 
+    static let notifyLine = "You'll get a notification when it's done"
+
     private var screen: String { (paused == nil ? FastSetupScreen.running : FastSetupScreen.paused).rawValue }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 22) {
-                if let paused {
-                    // The subtitle slot is filled so the bar stays where P6 drew it when a live run pauses.
-                    FastScreenHeader(label: nil, title: "Setup paused", subtitle: "Everything before this step is done")
-                    pausedBody(paused)
-                } else {
-                    FastScreenHeader(label: nil, title: "Setting up this Mac", subtitle: "Nothing needs you. Close the window if you like")
-                    runningBody
+        FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 14) {
+            // The sub is filled on both screens so the bar stays where P6 drew it when a live run pauses.
+            FastTheme.heading(paused == nil ? "Setting up this Mac" : "Setup paused").fixedSize(horizontal: false, vertical: true)
+            FastTheme.sub(paused == nil ? "Nothing needs you. Close the window if you like" : "Everything before this step is done")
+                .fixedSize(horizontal: false, vertical: true)
+            if let paused {
+                progress(title: paused.title, stopped: true) {
+                    Text(paused.detail).font(.system(size: 12)).foregroundColor(FastTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                needsYou(paused)
+            } else {
+                progress(title: bar?.message ?? "Getting ready", stopped: false) {
+                    // Holds its line before rt can say how long is left, so nothing under the bar jumps.
+                    Text(bar.flatMap { RunProgress.timeLeftText($0.secondsLeft) } ?? " ")
+                        .font(.system(size: 12)).foregroundColor(FastTheme.textTertiary)
+                }
+                HStack(spacing: 8) {
+                    FastLucideGlyph(symbol: "bell", box: 13)
+                    Text(Self.notifyLine).font(.system(size: 12))
+                }
+                .foregroundColor(FastTheme.textTertiary)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            Spacer(minLength: 0)
+        } footer: {
             footer
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(screen))
     }
 
-    private var runningBody: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            RunBarView(fraction: bar?.fraction, stopped: false)
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(bar?.message ?? "Getting ready").font(.callout)
-                Spacer(minLength: 12)
+    /// P6's progress block: the message and percent, the bar, then the line under it.
+    private func progress(title: String, stopped: Bool, @ViewBuilder detail: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .lastTextBaseline, spacing: 12) {
+                Text(title).font(.system(size: 15, weight: FastTheme.weight(css: .semibold))).tracking(FastTheme.subTracking)
+                    .foregroundColor(FastTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
                 if let bar {
-                    Text(RunProgress.percentText(bar.fraction)).font(.callout.monospacedDigit())
-                    if let left = RunProgress.timeLeftText(bar.secondsLeft) {
-                        Text(left).font(.callout).foregroundStyle(.secondary)
-                    }
+                    Text(RunProgress.percentText(bar.fraction)).font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(FastTheme.textSecondary)
                 }
             }
+            // After a relaunch onto P6b the app has no fraction to hold, so it draws no bar rather than an empty one.
+            if bar != nil || !stopped { RunBarView(fraction: bar?.fraction, stopped: stopped) }
+            detail()
         }
+        .padding(.top, 28).padding(.bottom, 8)
     }
 
-    private func pausedBody(_ paused: FormPaused) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let bar { RunBarView(fraction: bar.fraction, stopped: true) }
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(paused.title).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 12)
-                if let bar {
-                    Text(RunProgress.percentText(bar.fraction)).font(.callout.monospacedDigit()).foregroundStyle(.tertiary)
+    /// What rt says the person can do about the pause: its remedy, and the
+    /// button it sends (Open Login Items…) in a labelled row's control style.
+    @ViewBuilder private func needsYou(_ paused: FormPaused) -> some View {
+        let remedy = paused.remedy.flatMap { $0.isEmpty ? nil : $0 }
+        if let action = paused.action, let perform = onPausedAction {
+            FastCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button(action.label) { perform(action) }
+                        .buttonStyle(FastOutlineButtonStyle())
+                        .fixedSize()
+                        .accessibilityIdentifier(AXID.fastExtra(screen))
+                    if let remedy { FastHint(remedy, size: 12) }
                 }
+                .padding(.top, 14).padding(.bottom, 13).padding(.horizontal, 18)
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(paused.detail)
-                if let remedy = paused.remedy, !remedy.isEmpty { Text(remedy) }
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+        } else if let remedy {
+            FastHint(remedy, size: 12)
         }
     }
 
     @ViewBuilder private var footer: some View {
-        if let paused {
-            let extra = paused.action.flatMap { action in onPausedAction.map { perform in (action.label, { perform(action) }) } }
-            FastFooter(screen: screen, note: nil, secondary: ("Show log", onShowLog), primary: ("Retry", true, onRetry), extra: extra)
+        if paused != nil {
+            FastFooter(screen: screen, note: nil, secondary: ("Show log", onShowLog), primary: ("Retry", true, onRetry),
+                       spacing: 10, secondaryShape: .log, primaryShape: .retry, primaryGlow: false)
         } else {
-            FastFooter(screen: screen, note: nil, secondary: nil, primary: ("Hide", true, onHide))
+            FastFooter(screen: screen, note: nil, secondary: nil, primary: ("Hide", true, onHide), quietPrimary: true)
         }
     }
 }
 
-/// The one bar. A sheen crosses the fill while it runs, so a long step that
-/// sends no progress still reads as working; stopped, it goes grey and still.
-/// With no fraction yet, a short segment sweeps the track instead. Motion
-/// rests while the window is hidden or fully covered, and under Reduce Motion.
+/// The one bar: a lilac-to-accent fill on the dark track. A sheen crosses the
+/// fill while it runs, so a long step that sends no progress still reads as
+/// working; stopped, it turns the warning colour and stands still. With no
+/// fraction yet, a short segment sweeps the track instead. Motion rests while
+/// the window is hidden or fully covered, and under Reduce Motion.
 private struct RunBarView: View {
     let fraction: Double?
     let stopped: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var windowVisible = false
 
-    private static let height: CGFloat = 8
+    private static let height: CGFloat = 10
     private static let sheenPeriod: TimeInterval = 2.4
     private static let sweepPeriod: TimeInterval = 1.6
-    private static let track = NSColor(name: nil) { appearance in
-        NSColor.labelColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.14 : 0.08)
-    }
-    private static let stoppedFill = NSColor(name: nil) { appearance in
-        NSColor.labelColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.28 : 0.3)
-    }
-    private static let sheen = NSColor(name: nil) { appearance in
-        NSColor.white.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.28 : 0.4)
-    }
 
     private var moving: Bool { !stopped && !reduceMotion && windowVisible }
+
+    private var fillStyle: AnyShapeStyle {
+        stopped ? AnyShapeStyle(FastTheme.warning)
+            : AnyShapeStyle(LinearGradient(colors: [FastTheme.barStart, FastTheme.accent], startPoint: .leading, endPoint: .trailing))
+    }
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color(nsColor: Self.track))
+                Capsule().fill(FastTheme.divider)
                 if let fraction {
                     fill(fraction, in: geo.size.width)
                 } else if moving {
                     sweep(in: geo.size.width)
                 } else {
-                    Capsule().fill(Color.accentColor).frame(width: Self.height)
+                    Capsule().fill(fillStyle).frame(width: Self.height)
                 }
             }
         }
@@ -167,14 +182,14 @@ private struct RunBarView: View {
         // A started bar always shows its rounded end, even at 0%.
         let width = max(trackWidth * clamped, Self.height)
         Capsule()
-            .fill(stopped ? Color(nsColor: Self.stoppedFill) : Color.accentColor)
+            .fill(fillStyle)
             .frame(width: width)
             .animation(.easeOut(duration: 0.6), value: clamped)
         if moving {
             TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
                 let band: CGFloat = 90
                 let phase = Self.phase(context.date, period: Self.sheenPeriod)
-                LinearGradient(colors: [.clear, Color(nsColor: Self.sheen), .clear], startPoint: .leading, endPoint: .trailing)
+                LinearGradient(colors: [.clear, Color.white.opacity(0.28), .clear], startPoint: .leading, endPoint: .trailing)
                     .frame(width: band)
                     .offset(x: -band + (width + band) * phase)
             }
@@ -189,7 +204,7 @@ private struct RunBarView: View {
             let band = trackWidth * 0.22
             let phase = Self.phase(context.date, period: Self.sweepPeriod)
             Capsule()
-                .fill(Color.accentColor.opacity(0.7))
+                .fill(fillStyle)
                 .frame(width: band)
                 .offset(x: -band + (trackWidth + band) * phase)
         }

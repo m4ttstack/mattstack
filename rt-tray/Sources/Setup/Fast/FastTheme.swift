@@ -26,6 +26,8 @@ enum FastTheme {
     static let accent = Color(hex: 0xE64980)
     static let success = Color(hex: 0x4ADE80)
     static let warning = Color(hex: 0xF5A524)
+    /// P6's bar fill runs from this lilac at its left end to the accent at its right.
+    static let barStart = Color(hex: 0xBE96F0)
 
     static let accentTile = Color(hex: 0xE64980, alpha: 0x24)
     static let successTile = Color(hex: 0x4ADE80, alpha: 0x1F)
@@ -179,6 +181,10 @@ private struct FastHidesScrollersKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct FastSheetKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     /// True only in snapshots: `cacheDisplay` renders a layer's shadow offset upside down, while a live window draws it as given.
     var fastFlipsShadows: Bool {
@@ -191,6 +197,13 @@ extension EnvironmentValues {
     var fastHidesScrollers: Bool {
         get { self[FastHidesScrollersKey.self] }
         set { self[FastHidesScrollersKey.self] = newValue }
+    }
+
+    /// True for a sheet fast setup opens: the shared steps, choose and log sheets draw the fast theme there and keep
+    /// the system look in Settings.
+    var fastSheet: Bool {
+        get { self[FastSheetKey.self] }
+        set { self[FastSheetKey.self] = newValue }
     }
 }
 
@@ -854,6 +867,22 @@ struct FastLucideGlyph: View {
         p.addQuadCurve(to: CGPoint(x: 2.7, y: 18.6), control: CGPoint(x: 2.3, y: 20))
         p.addLine(to: CGPoint(x: 4, y: 16))
         p.addLine(to: CGPoint(x: 20, y: 16))
+    }
+}
+
+/// P4 and P7's 56-point tile above a centred heading: a Lucide glyph on the card fill.
+struct FastHeroTile: View {
+    let symbol: String
+    let tint: Color
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        FastLucideGlyph(symbol: symbol, box: 26)
+            .foregroundColor(tint)
+            .frame(width: 56, height: 56)
+            .background(shape.fill(FastTheme.card))
+            .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
+            .accessibilityHidden(true)
     }
 }
 

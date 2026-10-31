@@ -17,6 +17,11 @@ struct FastFooter: View {
     var quietPrimary = false
     /// P3c and P3r's Back: borderless text before the primary, as their mocks draw no second button.
     var quietSecondary = false
+    /// A screen's own padding and corner for the secondary and primary (P6b's Show log and Retry).
+    var secondaryShape: FastButtonShape? = nil
+    var primaryShape: FastButtonShape? = nil
+    /// P6b's Retry draws without the primary's glow.
+    var primaryGlow = true
 
     var body: some View {
         HStack(spacing: spacing) {
@@ -51,15 +56,15 @@ struct FastFooter: View {
         if quietSecondary {
             Button(secondary.0, action: secondary.1).buttonStyle(FastQuietButtonStyle()).padding(.trailing, 8)
         } else {
-            Button(secondary.0, action: secondary.1).buttonStyle(FastSecondaryButtonStyle(size: .large))
+            Button(secondary.0, action: secondary.1).buttonStyle(FastSecondaryButtonStyle(size: .large, shape: secondaryShape))
         }
     }
 
     @ViewBuilder private func primaryButton(_ primary: (String, Bool, () -> Void)) -> some View {
         if quietPrimary {
-            Button(primary.0, action: primary.2).buttonStyle(FastSecondaryButtonStyle(size: .large))
+            Button(primary.0, action: primary.2).buttonStyle(FastSecondaryButtonStyle(size: .large, shape: primaryShape))
         } else {
-            Button(primary.0, action: primary.2).buttonStyle(FastPrimaryButtonStyle(size: .large))
+            Button(primary.0, action: primary.2).buttonStyle(FastPrimaryButtonStyle(size: .large, glow: primaryGlow, shape: primaryShape))
         }
     }
 }

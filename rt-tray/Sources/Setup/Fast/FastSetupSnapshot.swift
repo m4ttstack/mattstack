@@ -283,10 +283,20 @@ enum FastSetupSnapshot {
             ("connect-get-chrome", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.getChrome])),
             ("connect-steps", page([C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserSteps])),
             ("connect-newer-action-only", page([C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserDone])),
-            ("sheet-steps", AnyView(StepsSheet(title: C.fastBrowserSteps.title, steps: C.fastBrowserSteps.action?.steps ?? []))),
-            ("sheet-steps-terminal", AnyView(StepsSheet(title: Rows.gitlabTokenUnconfirmed.title, steps: Rows.gitlabTokenUnconfirmed.action?.steps ?? []))),
-            ("sheet-choose", AnyView(ChooseSheet(row: FormRowPlan.planRow(Self.wideChoice), submitLabel: "Choose") { _ in nil })),
+            ("sheet-steps", sheet(StepsSheet(title: C.fastBrowserSteps.title, steps: C.fastBrowserSteps.action?.steps ?? []))),
+            ("sheet-steps-terminal", sheet(StepsSheet(title: Rows.gitlabTokenUnconfirmed.title, steps: Rows.gitlabTokenUnconfirmed.action?.steps ?? []))),
+            ("sheet-choose", sheet(ChooseSheet(row: FormRowPlan.planRow(Self.wideChoice), submitLabel: "Choose") { _ in nil })),
+            ("sheet-log", sheet(LogSheet(title: RunPaused.clone.title, lines: RunPaused.clone.log))),
         ]
+    }
+
+    /// A sheet as fast setup opens it, in a sheet's rounded outline on the window fill.
+    static func sheet(_ view: some View) -> AnyView {
+        let shape = RoundedRectangle(cornerRadius: FastTheme.windowRadius, style: .continuous)
+        return AnyView(view.environment(\.fastSheet, true)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
+            .padding(.vertical, 24))
     }
 
     @MainActor
@@ -343,6 +353,10 @@ enum FastSetupSnapshot {
             ("paused-login-items", page(RunBar(fraction: 0.97, message: "Starting mattstack", secondsLeft: nil), paused: RunPaused.loginItems)),
             ("paused-after-relaunch", page(nil, paused: RunPaused.clone)),
             ("paused-after-progress", page(RunPaused.heldBar(), paused: RunPaused.clone)),
+            ("run-as-mock", page(RunBar(fraction: 0.58, message: "Cloning your repos", secondsLeft: 240))),
+            ("paused-as-mock", window(RunScreenBody(bar: RunBar(fraction: 0.64, message: "Cloning your repos", secondsLeft: nil),
+                                                    paused: RunPaused.mockClone, onHide: {}, onShowLog: {}, onRetry: {}, onPausedAction: { _ in }),
+                                      .paused, path: "create")),
         ]
     }
 
@@ -536,6 +550,9 @@ enum FastSetupSnapshot {
         static let clone = FormPaused(step: "repos.clone", title: "Couldn't clone your repos",
                                       detail: "GitLab says your token can't see acme/acme-api",
                                       log: ["cloning acme/widgets", "cloning acme/acme-api", "remote: The project you were looking for could not be found"])
+        /// P6b's own words, for the parity page.
+        static let mockClone = FormPaused(step: "repos.clone", title: "Couldn't clone acme-api",
+                                          detail: "GitLab says your token can't see acme/acme-api")
         static let loginItems = FormPaused(step: "services.start", title: "Couldn't start mattstack",
                                            detail: "The daemon is waiting for approval in Login Items",
                                            remedy: "Approve the background item in Login Items, then Retry",

@@ -154,9 +154,10 @@ struct FastSetupSheet: View {
     var body: some View {
         switch sheet {
         case .steps(let row, let steps):
-            StepsSheet(title: row.title, steps: steps)
+            StepsSheet(title: row.title, steps: steps).environment(\.fastSheet, true)
         case .choose(let row):
             ChooseSheet(row: FormRowPlan.planRow(row), submitLabel: "Choose") { id in await actions.choose(row, id: id) }
+                .environment(\.fastSheet, true)
         }
     }
 }
@@ -175,29 +176,24 @@ struct FastLoadingBody: View {
                     .buttonStyle(FastSecondaryButtonStyle(size: .large))
                     .accessibilityIdentifier(AXID.fastPrimary(FastSetupScreen.loading.rawValue))
             } else {
-                ProgressView().controlSize(.regular)
+                FastSpinner(size: 18)
                 FastTheme.sub("Checking where setup left off…")
             }
             Spacer(minLength: 0)
         }
-        .padding(24)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 48).padding(.vertical, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.loading.rawValue))
     }
 }
 
-/// A screen's own verb failed: rt's sentence, in the failure colour.
+/// A screen's own verb failed: rt's sentence in the warning colour, as P6b draws what failed.
 struct FastFailureLine: View {
     let text: String
 
     var body: some View {
-        Label {
-            Text(text).fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: "exclamationmark.circle.fill")
-        }
-        .font(.callout)
-        .foregroundStyle(.red)
+        FastHint(text, size: 13, symbol: "exclamationmark.circle", tint: FastTheme.warning)
     }
 }
