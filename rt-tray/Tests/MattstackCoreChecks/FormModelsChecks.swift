@@ -15,7 +15,7 @@ private let wholeFormJSON = #"""
    {"id":"perm.notifications","title":"Notifications","subtext":"Tells you when setup is done","state":"todo","detail":"Not asked yet","action":{"type":"request-permission","label":"Allow","which":"notifications"},"waiting":null,"watch":false,"optional":false},
    {"id":"mac.fancy-urls","title":"Fancy URLs","subtext":"Grant mattstack apps permission to use .mattstack","state":"done","detail":"Done","action":null,"waiting":"Waiting for your admin password in the macOS dialog…","watch":true,"optional":false}],
   "invite":[
-   {"id":"tool.clt","title":"Command Line Tools","subtext":"Gives setup git and Apple's build tools","state":"todo","detail":"Not installed yet","action":{"type":"install","label":"Install","tool":"apple-clt","via":"apple-clt"},"waiting":null,"watch":true,"optional":false},
+   {"id":"tool.clt","title":"Git tools","subtext":"Gives setup git and Apple's build tools","state":"todo","detail":"Not installed yet","action":{"type":"install","label":"Install","tool":"apple-clt","via":"apple-clt"},"waiting":null,"watch":true,"optional":false},
    {"id":"forge.token","title":"GitLab","subtext":"Lets mattstack reach the team's repo and open MRs","state":"todo","detail":"","action":{"type":"connect","label":"Connect","integration":"gitlab","fields":[{"name":"token","label":"Personal access token","secret":true,"hint":"scopes: api"}],"create":{"label":"Create token","url":"https://gitlab.example.com/-/user_settings/personal_access_tokens"}},"waiting":null,"watch":false,"optional":false}],
   "restore":[],
   "connect":[

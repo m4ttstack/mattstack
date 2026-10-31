@@ -112,7 +112,7 @@ export const FORM_COPY = {
     trayDown: "Not checked: mattstack.app is not running",
   },
   clt: {
-    title: "Command Line Tools",
+    title: "Git tools",
     subtext: "Gives setup git and Apple's build tools",
     installing: "Installing Command Line Tools…",
     install: "Install",

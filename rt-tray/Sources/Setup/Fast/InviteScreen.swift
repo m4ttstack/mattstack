@@ -2,7 +2,7 @@ import SwiftUI
 import MattstackCore
 
 /// P3: the invite code with Join beside it, the team it reads as, then rt's
-/// invite section (the forge token, Command Line Tools) in one card. Join
+/// invite section (the forge token, Git tools) in one card. Join
 /// waits on `FastSetupFlow.joinEnabled`.
 struct InviteScreenBody: View {
     let code: Binding<String>

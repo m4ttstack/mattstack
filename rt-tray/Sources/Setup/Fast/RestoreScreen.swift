@@ -2,7 +2,7 @@ import SwiftUI
 import MattstackCore
 
 /// P3r: the backup repo and its recovery key, then rt's restore section
-/// (Command Line Tools, which the clone needs) as more label-above fields.
+/// (Git tools, which the clone needs) as more label-above fields.
 /// Restore waits on `FastSetupFlow.restoreEnabled`.
 struct RestoreScreenBody: View {
     let repo: Binding<String>

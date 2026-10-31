@@ -805,10 +805,10 @@ enum FastSetupSnapshot {
     }
 
     enum Rows {
-        static let clt = FormRow(id: "tool.clt", title: "Command Line Tools", subtext: "Gives setup git and Apple's build tools",
+        static let clt = FormRow(id: "tool.clt", title: "Git tools", subtext: "Gives setup git and Apple's build tools",
                                  state: .todo, detail: "Not installed yet",
                                  action: RowAction(type: .install, label: "Install", tool: "apple-clt", via: "apple-clt"), watch: true)
-        static let cltInstalling = FormRow(id: "tool.clt", title: "Command Line Tools", subtext: "Gives setup git and Apple's build tools",
+        static let cltInstalling = FormRow(id: "tool.clt", title: "Git tools", subtext: "Gives setup git and Apple's build tools",
                                            state: .busy, detail: "Installing Command Line Tools…", watch: true)
         static let gitlabToken = FormRow(id: "forge.token", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                          state: .todo, detail: "No GitLab account connected yet",
