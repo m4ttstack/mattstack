@@ -497,9 +497,10 @@ struct FastDoneLine: View {
     }
 
     var body: some View {
+        let box = iconSize ?? size + 2
         HStack(alignment: .firstTextBaseline, spacing: spacing) {
-            // Lucide's check fills about 80% of its box: the 13-point box of P5 draws as an 11-point glyph.
-            Image(systemName: "checkmark").font(.system(size: iconSize ?? size, weight: .regular))
+            FastLucideGlyph(symbol: "checkmark", box: box, lineWidth: box / 12)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + size * 0.36 }
             Text(text).font(.system(size: size, weight: weight)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: textWidth, alignment: .leading)
         }
@@ -554,28 +555,57 @@ private struct FastGlobeGlyph: View {
     }
 }
 
-/// P2's Lucide icons, traced from their 24-unit paths into the 18-point box.
-/// SF's person.2 sets two equal heads side by side, its laptop fills the
-/// screen, its person closes the body and its plus is thinner, so none
-/// reads as the mock's icon.
+/// Lucide shapes, traced from their 24-unit paths into the mock's icon box,
+/// for the symbols whose nearest SF glyph reads as a different icon: SF's
+/// person.2 sets two equal heads side by side, its laptop fills the screen,
+/// its person closes the body, its plus is thinner, its internaldrive draws
+/// a grille, and its checkmark stands tall where Lucide's tick is shallow.
 private struct FastLucideGlyph: View {
     let path: Path
+    var box: CGFloat = 18
+    var lineWidth: CGFloat = 1.3
 
-    init?(symbol: String) {
+    init?(symbol: String, box: CGFloat = 18, lineWidth: CGFloat = 1.3) {
         switch symbol {
         case "person.2": path = Self.users
         case "laptopcomputer": path = Self.laptop
         case "person": path = Self.user
         case "plus": path = Self.plus
+        case "internaldrive": path = Self.hardDrive
+        case "checkmark": path = Self.check
         default: return nil
         }
+        self.box = box
+        self.lineWidth = lineWidth
     }
 
     var body: some View {
-        let scale = CGAffineTransform(scaleX: 18.0 / 24, y: 18.0 / 24)
+        let scale = CGAffineTransform(scaleX: box / 24, y: box / 24)
         path.applying(scale)
-            .stroke(style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
-            .frame(width: 18, height: 18)
+            .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+            .frame(width: box, height: box)
+    }
+
+    private static let check = Path { p in
+        p.move(to: CGPoint(x: 20, y: 6))
+        p.addLine(to: CGPoint(x: 9, y: 17))
+        p.addLine(to: CGPoint(x: 4, y: 12))
+    }
+
+    private static let hardDrive = Path { p in
+        p.move(to: CGPoint(x: 2, y: 12))
+        p.addArc(tangent1End: CGPoint(x: 6, y: 4), tangent2End: CGPoint(x: 18, y: 4), radius: 2)
+        p.addArc(tangent1End: CGPoint(x: 18, y: 4), tangent2End: CGPoint(x: 22, y: 12), radius: 2)
+        p.addLine(to: CGPoint(x: 22, y: 12))
+        p.addArc(tangent1End: CGPoint(x: 22, y: 20), tangent2End: CGPoint(x: 2, y: 20), radius: 2)
+        p.addArc(tangent1End: CGPoint(x: 2, y: 20), tangent2End: CGPoint(x: 2, y: 12), radius: 2)
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 2, y: 12))
+        p.addLine(to: CGPoint(x: 22, y: 12))
+        p.move(to: CGPoint(x: 6, y: 16))
+        p.addLine(to: CGPoint(x: 6.01, y: 16))
+        p.move(to: CGPoint(x: 10, y: 16))
+        p.addLine(to: CGPoint(x: 10.01, y: 16))
     }
 
     private static let users = Path { p in

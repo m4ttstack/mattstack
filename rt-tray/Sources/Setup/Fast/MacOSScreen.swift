@@ -13,17 +13,12 @@ struct MacOSScreenBody: View {
     static let subtitle = "mattstack can't do these itself. It notices the moment you do"
     static let reopenNote = "mattstack reopens itself after Full Disk Access, then carries on"
 
-    /// The reopen promise only matters until Full Disk Access is on.
-    private var showsReopenNote: Bool {
-        rows.contains { $0.id == "perm.fda" && $0.state != .done }
-    }
-
     var body: some View {
         FastScreen {
             FastTheme.heading("Three things from macOS").fixedSize(horizontal: false, vertical: true)
             FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
             FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .tile, onAction: onAction)
-            if showsReopenNote { FastReopenNote(text: Self.reopenNote) }
+            FastReopenNote(text: Self.reopenNote)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.macos.rawValue))

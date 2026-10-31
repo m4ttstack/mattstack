@@ -166,7 +166,7 @@ struct FormRowView: View {
 
     @ViewBuilder private var tileStatus: some View {
         if progressLine == nil && row.state == .done {
-            doneMark(size: 13, iconSize: 13, weight: FastTheme.weight(css: .semibold))
+            doneMark(size: 13, iconSize: 16, weight: FastTheme.weight(css: .semibold))
                 .modifier(CappedWidth(max: 240))
         }
     }
@@ -193,7 +193,7 @@ struct FormRowView: View {
             }
             subtextHint
         } else if let action = row.action, FormRowFields.collects(action) {
-            if row.state == .done && progressLine == nil { doneMark(size: 11, iconSize: 11, spacing: 10) }
+            if row.state == .done && progressLine == nil { doneMark(size: 11, iconSize: 13, spacing: 10) }
             FormRowFields(row: row, action: action, onAction: onAction)
             if let line = progressLine { inlineProgress(line) }
             subtextHint
@@ -210,7 +210,7 @@ struct FormRowView: View {
             subtextHint
         } else if row.state == .done && progressLine == nil {
             HStack(spacing: 10) {
-                doneMark(size: 11, iconSize: 11, spacing: 10)
+                doneMark(size: 11, iconSize: 13, spacing: 10)
                 if let action = row.action { button(action) }
             }
         } else {
@@ -288,7 +288,7 @@ struct FormRowView: View {
         Group {
             if row.tone == .off {
                 HStack(alignment: .firstTextBaseline, spacing: spacing) {
-                    Image(systemName: "minus").font(.system(size: iconSize, weight: .regular))
+                    Image(systemName: "minus").font(.system(size: size, weight: .regular))
                     if !row.detail.isEmpty {
                         Text(row.detail).font(.system(size: size, weight: weight)).fixedSize(horizontal: false, vertical: true)
                     }

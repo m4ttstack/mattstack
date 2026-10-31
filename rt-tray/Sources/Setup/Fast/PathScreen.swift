@@ -6,9 +6,10 @@ struct PathScreenBody: View {
     /// Just me is a first-run choice only.
     let showsSolo: Bool
     var failure: String? = nil
-    /// Snapshots only: draws a card as the pointer would, since an offscreen render has no pointer.
-    var hovered: TeamChoice? = nil
     let onChoose: (TeamChoice) -> Void
+
+    @State private var hovered: TeamChoice?
+    @FocusState private var focused: TeamChoice?
 
     struct Card {
         let choice: TeamChoice
@@ -27,12 +28,19 @@ struct PathScreenBody: View {
 
     private var cards: [Card] { Self.allCards.filter { showsSolo || $0.choice != .solo } }
 
+    /// Exactly one card is lit, as in the mock: the hovered one, else the focused one, else the first.
+    private var lit: TeamChoice? { hovered ?? focused ?? cards.first?.choice }
+
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 20) {
             FastTheme.heading("How are you setting up?").fixedSize(horizontal: false, vertical: true)
             ForEach(cards, id: \.title) { card in
                 Button { onChoose(card.choice) } label: { PathCardLabel(card: card) }
-                    .buttonStyle(PathCardStyle(forcedHover: hovered == card.choice))
+                    .buttonStyle(PathCardStyle(lit: lit == card.choice))
+                    .focused($focused, equals: card.choice)
+                    .onHover { inside in
+                        if inside { hovered = card.choice } else if hovered == card.choice { hovered = nil }
+                    }
                     .accessibilityIdentifier(AXID.fastPathCard(Self.name(card.choice)))
             }
             if let failure { FastFailureLine(text: failure) }
@@ -80,7 +88,7 @@ private struct PathCardLitKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// A path card under the pointer or holding keyboard focus draws in accent.
+    /// The lit path card draws its chevron in accent.
     fileprivate var pathCardLit: Bool {
         get { self[PathCardLitKey.self] }
         set { self[PathCardLitKey.self] = newValue }
@@ -88,22 +96,19 @@ extension EnvironmentValues {
 }
 
 private struct PathCardStyle: ButtonStyle {
-    var forcedHover = false
+    let lit: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        PathCard(label: configuration.label, pressed: configuration.isPressed, forcedHover: forcedHover)
+        PathCard(label: configuration.label, pressed: configuration.isPressed, lit: lit)
     }
 }
 
 private struct PathCard<Label: View>: View {
     let label: Label
     let pressed: Bool
-    let forcedHover: Bool
-    @State private var hovering = false
-    @Environment(\.isFocused) private var focused
+    let lit: Bool
 
     var body: some View {
-        let lit = hovering || focused || forcedHover
         let shape = RoundedRectangle(cornerRadius: FastTheme.cardRadius, style: .continuous)
         label
             .environment(\.pathCardLit, lit)
@@ -112,6 +117,5 @@ private struct PathCard<Label: View>: View {
                 if pressed { shape.fill(FastTheme.accentWash) }
             }
             .overlay(shape.strokeBorder(lit ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
-            .onHover { hovering = $0 }
     }
 }

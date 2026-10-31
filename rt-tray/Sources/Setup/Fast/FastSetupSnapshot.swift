@@ -99,7 +99,7 @@ enum FastSetupSnapshot {
                 VStack(alignment: .leading, spacing: 6) {
                     FastHint("So mattstack can read and write Linear tickets")
                     FastDoneLine("Connected as janedoe from your invite")
-                    FastDoneLine("On", size: 13, weight: .semibold)
+                    FastDoneLine("On", size: 13, weight: .semibold, iconSize: 16)
                 }
             }
             FormCard(title: "Your repos", rows: [Rows.gitlab, Rows.fastBrowserAdded]) { _, _, _ in }
@@ -184,7 +184,6 @@ enum FastSetupSnapshot {
         [
             ("path", window(PathScreenBody(showsSolo: true) { _ in }, .path)),
             ("path-upgrade", window(PathScreenBody(showsSolo: false) { _ in }, .path)),
-            ("path-hover", window(PathScreenBody(showsSolo: true, hovered: .join) { _ in }, .path)),
             ("path-failure", window(PathScreenBody(showsSolo: true, failure: "rt couldn't record the choice: the settings store is locked by another run") { _ in }, .path)),
         ]
     }
