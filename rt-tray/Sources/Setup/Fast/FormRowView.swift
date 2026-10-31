@@ -26,12 +26,13 @@ extension EnvironmentValues {
     }
 }
 
-/// The mocks' two row layouts. `tile` is P1's: an icon tile, title and
+/// The mocks' row layouts. `tile` is P1's: an icon tile, title and
 /// subtext, the control or status trailing. `labelled` is P3, P5, P5b and
 /// P5s: a 120-point label column, then the control with its words beside it
-/// or a hint line under it.
+/// or a hint line under it. `stacked` is P3c's form, outside any card: the
+/// label above the control, with the large field.
 enum FormRowStyle {
-    case tile, labelled
+    case tile, labelled, stacked
 
     static let labelWidth: CGFloat = 120
     static let labelGap: CGFloat = 16
@@ -68,6 +69,23 @@ struct FastLabelledRow<Control: View>: View {
     }
 }
 
+/// P3c's form field: a quiet label above its control.
+struct FastStackedRow<Control: View>: View {
+    let label: String
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 12, weight: FastTheme.weight(css: .semibold)))
+                .foregroundColor(FastTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            control
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// One fast-setup question: rt sends the row's state and action, and `waiting`
 /// and `error` are the app's own overlays from `FormActionRunner`. Neither
 /// overlay hides the control, so a wait that outlives rt's read can be retried;
@@ -93,6 +111,7 @@ struct FormRowView: View {
                 switch style {
                 case .tile: tile
                 case .labelled: FastLabelledRow(label: row.title) { labelledControl }
+                case .stacked: FastStackedRow(label: row.title) { VStack(alignment: .leading, spacing: 6) { labelledControl } }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -194,7 +213,7 @@ struct FormRowView: View {
             subtextHint
         } else if let action = row.action, FormRowFields.collects(action) {
             if row.state == .done && progressLine == nil { doneMark(size: 11, iconSize: 13, spacing: 10) }
-            FormRowFields(row: row, action: action, onAction: onAction)
+            FormRowFields(row: row, action: action, large: style == .stacked, onAction: onAction)
             if let line = progressLine { inlineProgress(line) }
             subtextHint
         } else if let action = row.action, action.type == .chooseFolder {
@@ -233,7 +252,7 @@ struct FormRowView: View {
 
     @ViewBuilder private var subtextHint: some View {
         if !row.subtext.isEmpty {
-            FastHint(row.subtext, textWidth: FormRowStyle.hintWidth).hintSpill()
+            FastHint(row.subtext, textWidth: FormRowStyle.hintWidth).hintSpill(style == .labelled)
         }
     }
 
@@ -337,7 +356,7 @@ struct FormRowView: View {
                 switch (style, quiet) {
                 case (.tile, false):
                     Button(label) { onAction(row, nil, nil) }.buttonStyle(FastPrimaryButtonStyle(size: .small))
-                case (.labelled, false):
+                case (.labelled, false), (.stacked, false):
                     Button { onAction(row, nil, nil) } label: {
                         if let symbol = Self.buttonSymbol(row.id) { Label(label, systemImage: symbol) } else { Text(label) }
                     }
@@ -372,6 +391,8 @@ struct FormRowView: View {
 struct FormRowFields: View {
     let row: FormRow
     let action: RowAction
+    /// P3c's large field, with its buttons at the field's height.
+    var large = false
     let onAction: FormRowPerform
     @State private var values: [String: String]
     @Environment(\.openSetupLink) private var openLink
@@ -382,8 +403,8 @@ struct FormRowFields: View {
         [.connect, .form, .ownerOnce].contains(action.type) && !(action.fields ?? []).isEmpty
     }
 
-    init(row: FormRow, action: RowAction, onAction: @escaping FormRowPerform) {
-        self.row = row; self.action = action; self.onAction = onAction
+    init(row: FormRow, action: RowAction, large: Bool = false, onAction: @escaping FormRowPerform) {
+        self.row = row; self.action = action; self.large = large; self.onAction = onAction
         var prefilled: [String: String] = [:]
         for f in action.fields ?? [] { if let v = f.value, !v.isEmpty { prefilled[f.name] = v } }
         _values = State(initialValue: prefilled)
@@ -423,7 +444,7 @@ struct FormRowFields: View {
         let link = create.flatMap { link in URL(string: link.url).map { (link.label, $0) } }
         if link == nil || complete {
             Button(action.label, action: submit)
-                .buttonStyle(FastPrimaryButtonStyle(size: .small))
+                .buttonStyle(FastPrimaryButtonStyle(size: .small, shape: large ? .besideLargeField : nil))
                 .disabled(!complete || runningRows.contains(row.id)).fixedSize()
                 .accessibilityIdentifier(AXID.fastRowAction(row.id))
         }
@@ -434,14 +455,14 @@ struct FormRowFields: View {
                     if linkIcon { Image(systemName: "arrow.up.right.square").font(.system(size: 12, weight: .regular)) }
                 }
             }
-            .buttonStyle(FastSecondaryButtonStyle())
+            .buttonStyle(FastSecondaryButtonStyle(shape: large ? .besideLargeField : nil))
             .fixedSize()
             .accessibilityIdentifier(AXID.fastRowAction(row.id, "link"))
         }
     }
 
     private func input(_ field: ActionField) -> some View {
-        FastField(field.label, text: binding(field.name), monospaced: field.secret, secure: field.secret,
+        FastField(field.label, text: binding(field.name), size: large ? .large : .compact, monospaced: field.secret, secure: field.secret,
                   id: fields.count == 1 ? AXID.fastRowField(row.id) : AXID.fastRowField(row.id, field.name))
             .onSubmit(submit)
             // rt's hint is a format note (a forge token's scopes, a key's prefix), not screen copy: the mocks show none.

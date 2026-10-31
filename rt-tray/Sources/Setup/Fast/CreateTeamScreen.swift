@@ -2,8 +2,8 @@ import SwiftUI
 import MattstackCore
 
 /// P3c: the team's name, where its settings live, the group its repo goes
-/// under, then rt's create section (Command Line Tools, the forge token) in
-/// one card. Create team waits on `FastSetupFlow.createEnabled`.
+/// under, then rt's create section (Command Line Tools, the forge token) as
+/// more label-above fields. Create team waits on `FastSetupFlow.createEnabled`.
 struct CreateTeamScreenBody: View {
     let name: Binding<String>
     /// "gitlab" or "github".
@@ -20,81 +20,60 @@ struct CreateTeamScreenBody: View {
     let onBack: (() -> Void)?
     let onCreate: () -> Void
 
+    /// rt sends none of these lines, so the screen carries P3c's own copy.
+    static let subtitle = "No waiting. You're its admin"
+    static let footerNote = "Next: the same short form"
+
     private var onGitHub: Bool { forge.wrappedValue == "github" }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 18) {
-                FastScreenHeader(label: nil, title: "Create a team", subtitle: nil)
-                VStack(alignment: .leading, spacing: 14) {
-                    labeled("Team name") {
-                        field("Team name", text: name, prompt: "Widgets", id: AXID.fastCreateName)
-                    }
-                    labeled("Where its settings live") {
-                        Picker("Where its settings live", selection: forge) {
-                            Text("GitLab").tag("gitlab")
-                            Text("GitHub").tag("github")
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .fixedSize()
-                        .accessibilityIdentifier(AXID.fastCreateForge)
-                    }
-                    labeled(onGitHub ? "Owner" : "Group",
-                            hint: onGitHub ? "An organization or your own account" : "The team's repo goes in this group") {
-                        field(onGitHub ? "Owner" : "Group", text: group, prompt: "acme", id: AXID.fastCreateGroup)
-                    }
-                }
-                if let rows, !rows.isEmpty {
-                    FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
-                }
-                outcome
+        FastScreen(insets: EdgeInsets(top: 36, leading: 48, bottom: 20, trailing: 48), spacing: 16) {
+            FastTheme.heading("Create your team").fixedSize(horizontal: false, vertical: true)
+            FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
+            FastStackedRow(label: "Team name") {
+                FastField("Widgets", text: name, size: .large, id: AXID.fastCreateName, label: "Team name")
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            Spacer(minLength: 0)
-            FastFooter(screen: FastSetupScreen.createTeam.rawValue, note: nil,
+            FastStackedRow(label: "Settings live on") { forgePicker }
+            FastStackedRow(label: onGitHub ? "Owner" : "Group") {
+                FastField("acme", text: group, size: .large, monospaced: true, id: AXID.fastCreateGroup,
+                          label: onGitHub ? "Owner" : "Group")
+                    .help(onGitHub ? "An organization or your own account" : "The team's repo goes in this group")
+            }
+            ForEach(rows ?? [], id: \.id) { row in
+                FormRowView(row: row, waiting: waiting[row.id], error: errors[row.id], style: .stacked, onAction: onAction)
+            }
+            outcome
+        } footer: {
+            FastFooter(screen: FastSetupScreen.createTeam.rawValue, note: Self.footerNote,
                        secondary: isCreating ? nil : onBack.map { ("Back", $0) }, primary: ("Create team", createEnabled && !isCreating, onCreate))
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.createTeam.rawValue))
     }
 
-    private func labeled<Content: View>(_ label: String, hint: String? = nil, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).font(.callout.weight(.medium))
-            content()
-            if let hint {
-                Text(hint).font(.caption).foregroundStyle(.secondary)
+    private var forgePicker: some View {
+        let options = [(id: "gitlab", label: "GitLab"), (id: "github", label: "GitHub")]
+        return FastSegmented(options: options, selection: forge)
+            // Scripts pick the forge by a radio group's role, which the drawn buttons do not have.
+            .accessibilityRepresentation {
+                Picker("Settings live on", selection: forge) {
+                    ForEach(options, id: \.id) { Text($0.label).tag($0.id) }
+                }
+                .pickerStyle(.segmented)
             }
-        }
-    }
-
-    private func field(_ label: String, text: Binding<String>, prompt: String, id: String) -> some View {
-        TextField(label, text: text, prompt: Text(prompt))
-            .labelsHidden()
-            .textFieldStyle(.plain)
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
-            .frame(maxWidth: 320, alignment: .leading)
-            .accessibilityIdentifier(id)
+            .accessibilityIdentifier(AXID.fastCreateForge)
     }
 
     @ViewBuilder private var outcome: some View {
         if isCreating {
             HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Creating your team…").font(.callout).foregroundStyle(.secondary)
+                FastSpinner()
+                Text("Creating your team…").font(.system(size: 12)).foregroundColor(FastTheme.textSecondary)
             }
         } else if let failure {
-            Label {
-                Text(failure).fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "exclamationmark.circle.fill")
-            }
-            .font(.callout).foregroundStyle(.red)
-            .accessibilityIdentifier(AXID.fastCreateFailure)
+            FastHint(failure, size: 12, symbol: "exclamationmark.circle", tint: FastTheme.warning)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(AXID.fastCreateFailure)
         }
     }
 }

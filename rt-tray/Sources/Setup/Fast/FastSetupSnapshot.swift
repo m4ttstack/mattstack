@@ -202,6 +202,7 @@ enum FastSetupSnapshot {
         }
         return [
             ("invite-empty", page("")),
+            ("invite-as-mock", page("ms-join-7KQ4-XW2P-9D", hasGoodVerdict: true, line: line, rows: [Rows.gitlabToken])),
             ("invite-checking", page(code, checking: true)),
             ("invite-failed", page(code, failure: "Invite not recognized or expired: ask Jane Doe for a new one.")),
             ("invite-read-no-section", page(code, hasGoodVerdict: true, line: line)),
@@ -226,6 +227,7 @@ enum FastSetupSnapshot {
         }
         return [
             ("create-empty", page(rows: [Rows.gitlabToken])),
+            ("create-as-mock", page(name: "Mithrandir", group: "acme", rows: [Rows.gitlabToken])),
             ("create-clt-busy", page(name: "Widgets", group: "acme", rows: [Rows.cltInstalling, Rows.gitlabToken])),
             ("create-github", page(name: "Widgets", forge: "github", group: "acme", rows: [Rows.githubToken])),
             ("create-filled", page(name: "Widgets", group: "acme", rows: [Rows.gitlabTokenCreated])),
@@ -248,6 +250,7 @@ enum FastSetupSnapshot {
         }
         return [
             ("restore-empty", page(rows: [])),
+            ("restore-as-mock", page(repo: "gitlab.com/janedoe/mattstack-home", key: "placeholder-placeholder-1", rows: [])),
             ("restore-clt-busy", page(repo: repo, key: key, rows: [Rows.cltInstalling])),
             ("restore-ready", page(repo: repo, key: key, rows: [])),
             ("restore-restoring", page(repo: repo, key: key, rows: [], restoring: true)),

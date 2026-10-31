@@ -311,10 +311,12 @@ struct FastField: View {
     var highlighted = false
     /// The accessibility id, on the text field itself so scripts can type into it.
     var id: String? = nil
+    /// What VoiceOver names the field, where the placeholder is an example value rather than its name.
+    var label: String? = nil
     @FocusState private var focused: Bool
 
     init(_ placeholder: String, text: Binding<String>, size: Size = .compact, monospaced: Bool = false,
-         secure: Bool = false, highlighted: Bool = false, id: String? = nil) {
+         secure: Bool = false, highlighted: Bool = false, id: String? = nil, label: String? = nil) {
         self.placeholder = placeholder
         self._text = text
         self.size = size
@@ -322,6 +324,7 @@ struct FastField: View {
         self.secure = secure
         self.highlighted = highlighted
         self.id = id
+        self.label = label
     }
 
     var body: some View {
@@ -344,12 +347,13 @@ struct FastField: View {
     /// AppKit's secure echo is a large circle; at rest the field shows the mock's small dots instead.
     private var masked: Bool { secure && !focused && !text.isEmpty }
 
-    /// P5's small dots, one per character at the mono advance.
+    /// The mocks' small dots (2.5 at P5's 12, 3 at P3r's 13), one per character at the mono advance.
     private var bullets: some View {
         let advance = size.points * 0.6
+        let dot = size.points * 0.22
         return HStack(spacing: 0) {
             ForEach(0..<min(text.count, 64), id: \.self) { _ in
-                Circle().fill(FastTheme.textPrimary).frame(width: 2.5, height: 2.5).frame(width: advance)
+                Circle().fill(FastTheme.textPrimary).frame(width: dot, height: dot).frame(width: advance)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -371,7 +375,7 @@ struct FastField: View {
                 TextField("", text: $text)
             }
         }
-        .accessibilityLabel(placeholder)
+        .accessibilityLabel(label ?? placeholder)
         .modifier(FastAXID(id: id))
     }
 }
