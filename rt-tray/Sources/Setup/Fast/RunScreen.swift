@@ -57,9 +57,9 @@ struct RunScreenBody: View {
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 14) {
             // The sub is filled on both screens so the bar stays where P6 drew it when a live run pauses.
-            FastTheme.heading(paused == nil ? "Setting up this Mac" : "Setup paused").fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub(paused == nil ? "Nothing needs you. Close the window if you like" : "Everything before this step is done")
-                .fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: paused == nil ? "Setting up this Mac" : "Setup paused",
+                             subtitle: paused == nil ? "Nothing needs you. Close the window if you like" : "Everything before this step is done",
+                             spacing: 14)
             if let paused {
                 progress(title: paused.title, stopped: true) {
                     Text(paused.detail).font(.system(size: 12)).foregroundColor(FastTheme.warning)

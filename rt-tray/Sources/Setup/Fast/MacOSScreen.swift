@@ -15,8 +15,7 @@ struct MacOSScreenBody: View {
 
     var body: some View {
         FastScreen {
-            FastTheme.heading("Three things from macOS").fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: "Three things from macOS", subtitle: Self.subtitle)
             FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .tile, onAction: onAction)
             FastReopenNote(text: Self.reopenNote)
         }

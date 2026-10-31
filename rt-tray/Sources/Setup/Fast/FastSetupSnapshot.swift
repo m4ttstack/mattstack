@@ -63,7 +63,7 @@ enum FastSetupSnapshot {
     @MainActor
     private static func themePages() -> [(String, AnyView)] {
         let kit = VStack(alignment: .leading, spacing: 18) {
-            FastScreenHeader(label: nil, title: "Three things from macOS", subtitle: "mattstack can't do these itself. It notices the moment you do")
+            FastScreenHeader(title: "Three things from macOS", subtitle: "mattstack can't do these itself. It notices the moment you do")
             HStack(spacing: 10) {
                 Button("Allow") {}.buttonStyle(FastPrimaryButtonStyle(size: .small))
                 Button("Continue") {}.buttonStyle(FastPrimaryButtonStyle())
@@ -87,7 +87,7 @@ enum FastSetupSnapshot {
                 FastField("Path", text: .constant("~/Documents/GitHub/widgets"), size: .slim, monospaced: true)
                 Button("Change") {}.buttonStyle(FastSecondaryButtonStyle(shape: .slim))
             }
-            FastField("Invite code", text: .constant("01234-56789-ABCDE"), size: .invite, monospaced: true, highlighted: true)
+            FastField("Invite code", text: .constant("01234-56789-ABCDE"), size: .invite, monospaced: true)
             HStack(spacing: 12) {
                 FastSegmented(options: [(id: "gitlab", label: "GitLab"), (id: "github", label: "GitHub")], selection: .constant("gitlab"))
                 FastSegmented(options: [(id: "current", label: "Current checkout"), (id: "new", label: "New checkout")],

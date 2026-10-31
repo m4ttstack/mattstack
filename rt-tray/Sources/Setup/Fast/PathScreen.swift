@@ -33,7 +33,7 @@ struct PathScreenBody: View {
 
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 20) {
-            FastTheme.heading("How are you setting up?").fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: "How are you setting up?")
             ForEach(cards, id: \.title) { card in
                 Button { onChoose(card.choice) } label: { PathCardLabel(card: card) }
                     .buttonStyle(PathCardStyle(lit: lit == card.choice))

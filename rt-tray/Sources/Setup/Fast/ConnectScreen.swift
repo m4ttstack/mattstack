@@ -25,8 +25,8 @@ struct ConnectScreenBody: View {
 
     var body: some View {
         FastScreen(insets: Self.insets, spacing: 18) {
-            FastTheme.heading(teamFirst ? Self.teamHeading : Self.soloHeading).fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub(teamFirst ? Self.teamSubtitle : Self.soloSubtitle).fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: teamFirst ? Self.teamHeading : Self.soloHeading,
+                             subtitle: teamFirst ? Self.teamSubtitle : Self.soloSubtitle, spacing: 18)
             FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
         } footer: {
             FastFooter(screen: FastSetupScreen.connect.rawValue, note: "Continue unlocks once each one is connected",

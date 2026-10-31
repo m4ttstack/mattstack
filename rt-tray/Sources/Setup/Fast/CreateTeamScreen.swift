@@ -28,8 +28,7 @@ struct CreateTeamScreenBody: View {
 
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 36, leading: 48, bottom: 20, trailing: 48), spacing: 16) {
-            FastTheme.heading("Create your team").fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: "Create your team", subtitle: Self.subtitle, spacing: 16)
             FastStackedRow(label: "Team name") {
                 FastField("Widgets", text: name, size: .large, id: AXID.fastCreateName, label: "Team name")
             }

@@ -26,8 +26,7 @@ struct RestoreScreenBody: View {
 
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 36, leading: 48, bottom: 20, trailing: 48), spacing: 16) {
-            FastTheme.heading("Move from another Mac").fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: "Move from another Mac", subtitle: Self.subtitle, spacing: 16)
             FastStackedRow(label: "Backup repo") {
                 FastField("janedoe/mattstack-home", text: repo, size: .large, monospaced: true, id: AXID.fastRestoreRepo,
                           label: "Backup repo")

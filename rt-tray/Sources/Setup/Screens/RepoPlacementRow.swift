@@ -58,7 +58,7 @@ struct RepoPlacementRow: View {
     /// The last pick rt refused (or any other failure of this row's verbs).
     let error: String?
     let ids: RowIDs
-    /// The fast screen takes rt's button label and sits the segment beside other full-size controls.
+    /// The fast screen draws P5b's repo block with rt's button label; the checklist keeps the system controls.
     let fast: Bool
     @Environment(\.repoPlacementAnswer) private var answer
     @Environment(\.colorScheme) private var scheme
@@ -189,7 +189,7 @@ struct RepoPlacementRow: View {
                     Text("New checkout").tag(RepoPlacementState.clone)
                 }
                 .pickerStyle(.segmented)
-                .modifier(SegmentSize(inherits: fast))
+                .controlSize(.small)
                 .labelsHidden()
                 .fixedSize()
                 .disabled(isChecking)
@@ -291,13 +291,5 @@ struct RepoPlacementRow: View {
         shown = mode
         answeredMode = mode
         answer?(row, mode, path)
-    }
-}
-
-/// The checklist's segment is small beside its regular buttons; the fast screen keeps the size around it.
-private struct SegmentSize: ViewModifier {
-    let inherits: Bool
-    func body(content: Content) -> some View {
-        if inherits { content } else { content.controlSize(.small) }
     }
 }

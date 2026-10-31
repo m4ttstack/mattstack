@@ -40,7 +40,7 @@ struct TestDrivePickerView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 16) {
-                FastScreenHeader(label: nil, title: "Test drive setup",
+                FastScreenHeader(title: "Test drive setup",
                                  subtitle: "The real setup window on a pretend rt. Nothing on this Mac changes", spacing: 10)
                 FastCard {
                     ForEach(Array(TestDriveScenario.allCases.enumerated()), id: \.element) { index, scenario in

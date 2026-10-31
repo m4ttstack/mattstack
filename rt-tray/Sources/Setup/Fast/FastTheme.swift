@@ -383,8 +383,6 @@ struct FastField: View {
     var secure = false
     /// A secret's known public prefix (`lin_api_`), drawn in place of its first dots per `SecretPrefix.shown`.
     var maskPrefix: String? = nil
-    /// The accent edge the mock gives a pasted value (P3's invite code).
-    var highlighted = false
     /// The accessibility id, on the text field itself so scripts can type into it.
     var id: String? = nil
     /// What VoiceOver names the field, where the placeholder is an example value rather than its name.
@@ -392,14 +390,13 @@ struct FastField: View {
     @FocusState private var focused: Bool
 
     init(_ placeholder: String, text: Binding<String>, size: Size = .compact, monospaced: Bool = false,
-         secure: Bool = false, maskPrefix: String? = nil, highlighted: Bool = false, id: String? = nil, label: String? = nil) {
+         secure: Bool = false, maskPrefix: String? = nil, id: String? = nil, label: String? = nil) {
         self.placeholder = placeholder
         self._text = text
         self.size = size
         self.monospaced = monospaced
         self.secure = secure
         self.maskPrefix = maskPrefix
-        self.highlighted = highlighted
         self.id = id
         self.label = label
     }
@@ -418,7 +415,7 @@ struct FastField: View {
         .frame(minHeight: monospaced && !text.isEmpty ? size.monoLine : nil)
         .padding(.vertical, size.vertical).padding(.horizontal, size.horizontal)
         .background(shape.fill(FastTheme.fieldFill))
-        .overlay(shape.strokeBorder(focused || highlighted ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
+        .overlay(shape.strokeBorder(focused ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
     }
 
     /// AppKit's secure echo is a large circle; at rest the field shows the mock's small dots instead.

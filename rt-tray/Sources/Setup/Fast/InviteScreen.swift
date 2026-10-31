@@ -25,8 +25,7 @@ struct InviteScreenBody: View {
 
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 16) {
-            FastTheme.heading("Paste your invite").fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: "Paste your invite", subtitle: Self.subtitle, spacing: 16)
             HStack(alignment: .top, spacing: 10) {
                 InviteCodeField(code: code, onPaste: onPaste)
                 Button("Join", action: onJoin)

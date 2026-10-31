@@ -33,8 +33,7 @@ struct ThisMacScreenBody: View {
     var body: some View {
         let cards = Self.cards(rows)
         FastScreen(insets: Self.insets, spacing: 18) {
-            FastTheme.heading("Last bit: this Mac").fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub(subtitle).fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: "Last bit: this Mac", subtitle: subtitle, spacing: 18)
             // Leftovers lead: they are why a finished run came back here, and they hold Set up this Mac.
             if !cards.leftover.isEmpty { card("Still to do", cards.leftover) }
             if !cards.repos.isEmpty || !cards.settings.isEmpty { mainCard(cards.repos + cards.settings) }

@@ -11,8 +11,7 @@ struct ReadyScreenBody: View {
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 56, leading: 48, bottom: 48, trailing: 48), spacing: 14, alignment: .center) {
             FastHeroTile(symbol: "checkmark", tint: FastTheme.success)
-            FastTheme.heading("This Mac is ready").fixedSize(horizontal: false, vertical: true)
-            FastTheme.sub("Go make something cool").fixedSize(horizontal: false, vertical: true)
+            FastScreenHeader(title: "This Mac is ready", subtitle: "Go make something cool", spacing: 14, alignment: .center)
             // P7's 6-point spacer, between two of the body's 14-point gaps.
             Color.clear.frame(width: 1, height: 6)
             Button(home.label, action: onOpen)
