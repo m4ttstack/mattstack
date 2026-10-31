@@ -2,7 +2,7 @@ import SwiftUI
 import MattstackCore
 
 /// P3c: the team's name, where its settings live, the group its repo goes
-/// under, then rt's create section (Command Line Tools, the forge token) as
+/// under, then rt's create section (Git tools, the forge token) as
 /// more label-above fields. Create team waits on `FastSetupFlow.createEnabled`.
 struct CreateTeamScreenBody: View {
     let name: Binding<String>
@@ -39,7 +39,7 @@ struct CreateTeamScreenBody: View {
                     .help(onGitHub ? "An organization or your own account" : "The team's repo goes in this group")
             }
             ForEach(rows ?? [], id: \.id) { row in
-                FormRowView(row: row, waiting: waiting[row.id], error: errors[row.id], style: .stacked, onAction: onAction)
+                FormRowView(row: labelled(row), waiting: waiting[row.id], error: errors[row.id], style: .stacked, onAction: onAction)
             }
             outcome
         } footer: {
@@ -49,6 +49,14 @@ struct CreateTeamScreenBody: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.createTeam.rawValue))
+    }
+
+    /// P3c names the token field; rt's row title is the bare forge name.
+    private func labelled(_ row: FormRow) -> FormRow {
+        guard row.id == "forge.token" else { return row }
+        var named = row
+        named.title = onGitHub ? "GitHub token" : "GitLab token"
+        return named
     }
 
     private var forgePicker: some View {
