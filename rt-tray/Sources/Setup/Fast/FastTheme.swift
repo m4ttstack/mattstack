@@ -140,6 +140,7 @@ struct FastPrimaryButtonStyle: ButtonStyle {
         let glow: Bool
         let metrics: FastButtonShape
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.fastFlipsShadows) private var flipsShadows
 
         var body: some View {
             let large = size == .large
@@ -150,9 +151,45 @@ struct FastPrimaryButtonStyle: ButtonStyle {
                 .lineLimit(1)
                 .padding(.vertical, metrics.vertical).padding(.horizontal, metrics.horizontal)
                 .background(shape.fill(FastTheme.accent).overlay(shape.fill(Color.black.opacity(configuration.isPressed ? 0.15 : 0))))
-                .shadow(color: large && glow && isEnabled ? FastTheme.primaryGlow : .clear, radius: 12, y: 8)
+                .shadow(color: large && glow && isEnabled ? FastTheme.primaryGlow : .clear, radius: 12, y: flipsShadows ? -8 : 8)
                 .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(shape)
+        }
+    }
+}
+
+private struct FastFlipsShadowsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True only in snapshots: `cacheDisplay` renders a layer's shadow offset upside down, while a live window draws it as given.
+    var fastFlipsShadows: Bool {
+        get { self[FastFlipsShadowsKey.self] }
+        set { self[FastFlipsShadowsKey.self] = newValue }
+    }
+}
+
+/// Borderless secondary text that brightens under the pointer: a way back
+/// the mocks don't draw, kept quiet beside the screen's real action.
+struct FastQuietButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Styled(configuration: configuration)
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovered = false
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 13))
+                .foregroundColor(hovered || configuration.isPressed ? FastTheme.textPrimary : FastTheme.textSecondary)
+                .lineLimit(1)
+                .contentShape(Rectangle())
+                .onHover { hovered = $0 }
+                .opacity(isEnabled ? 1 : 0.4)
         }
     }
 }
@@ -362,9 +399,9 @@ struct FastField: View {
         .accessibilityHidden(true)
     }
 
-    /// Light, because the mock's JetBrains Mono reads thinner than SF Mono at the same size.
+    /// Light, because AppKit draws a field's value a step heavier than SwiftUI text, and the mock's JetBrains Mono reads thinner still.
     private var font: Font {
-        monospaced ? .system(size: size.points, weight: .light, design: .monospaced) : .system(size: size.points)
+        .system(size: size.points, weight: .light, design: monospaced ? .monospaced : .default)
     }
 
     @ViewBuilder private var input: some View {

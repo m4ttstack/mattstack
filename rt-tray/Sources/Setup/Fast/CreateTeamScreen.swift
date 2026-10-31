@@ -45,7 +45,8 @@ struct CreateTeamScreenBody: View {
             outcome
         } footer: {
             FastFooter(screen: FastSetupScreen.createTeam.rawValue, note: Self.footerNote,
-                       secondary: isCreating ? nil : onBack.map { ("Back", $0) }, primary: ("Create team", createEnabled && !isCreating, onCreate))
+                       secondary: isCreating ? nil : onBack.map { ("Back", $0) }, primary: ("Create team", createEnabled && !isCreating, onCreate),
+                       quietSecondary: true)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.createTeam.rawValue))

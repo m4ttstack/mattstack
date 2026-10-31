@@ -15,6 +15,8 @@ struct FastFooter: View {
     var spacing: CGFloat = FastTheme.footerGap
     /// P4 and P6 draw their Hide outlined: still the primary's id and Return key, in the secondary style.
     var quietPrimary = false
+    /// P3c and P3r's Back: borderless text before the primary, as their mocks draw no second button.
+    var quietSecondary = false
 
     var body: some View {
         HStack(spacing: spacing) {
@@ -30,8 +32,7 @@ struct FastFooter: View {
                     .accessibilityIdentifier(AXID.fastExtra(screen))
             }
             if let secondary {
-                Button(secondary.0, action: secondary.1)
-                    .buttonStyle(FastSecondaryButtonStyle(size: .large))
+                secondaryButton(secondary)
                     .fixedSize()
                     .accessibilityIdentifier(AXID.fastSecondary(screen))
             }
@@ -44,6 +45,14 @@ struct FastFooter: View {
             }
         }
         .padding(insets)
+    }
+
+    @ViewBuilder private func secondaryButton(_ secondary: (String, () -> Void)) -> some View {
+        if quietSecondary {
+            Button(secondary.0, action: secondary.1).buttonStyle(FastQuietButtonStyle()).padding(.trailing, 8)
+        } else {
+            Button(secondary.0, action: secondary.1).buttonStyle(FastSecondaryButtonStyle(size: .large))
+        }
     }
 
     @ViewBuilder private func primaryButton(_ primary: (String, Bool, () -> Void)) -> some View {

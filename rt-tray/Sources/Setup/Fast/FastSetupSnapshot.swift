@@ -28,6 +28,7 @@ enum FastSetupSnapshot {
                     page.frame(width: SetupWindowController.width)
                         .background(FastTheme.windowBackground)
                         .environment(\.colorScheme, .dark)
+                        .environment(\.fastFlipsShadows, true)
                         .controlSize(.large),
                     appearance: FastAppearance.window.name,
                     to: out.appendingPathComponent("\(name)-\(scheme).png"),
@@ -78,7 +79,7 @@ enum FastSetupSnapshot {
             }
             HStack(spacing: 8) {
                 FastField("API key", text: .constant("lin_api_\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"), monospaced: true)
-                FastField("Team name", text: .constant(""), size: .large)
+                FastField("Team name", text: .constant("Widgets"), size: .large)
                 Button("Create token") {}.buttonStyle(FastSecondaryButtonStyle(shape: .besideLargeField))
             }
             HStack(spacing: 8) {

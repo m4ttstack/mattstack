@@ -42,7 +42,8 @@ struct RestoreScreenBody: View {
             outcome
         } footer: {
             FastFooter(screen: FastSetupScreen.restore.rawValue, note: Self.footerNote,
-                       secondary: isRestoring ? nil : onBack.map { ("Back", $0) }, primary: ("Restore", restoreEnabled && !isRestoring, onRestore))
+                       secondary: isRestoring ? nil : onBack.map { ("Back", $0) }, primary: ("Restore", restoreEnabled && !isRestoring, onRestore),
+                       quietSecondary: true)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.restore.rawValue))

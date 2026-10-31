@@ -24,7 +24,7 @@ struct InviteScreenBody: View {
     static let linkNote = "Opened mattstack from the invite link? It's already filled in"
 
     var body: some View {
-        FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: onBack == nil ? 40 : 20, trailing: 48), spacing: 16) {
+        FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 16) {
             FastTheme.heading("Paste your invite").fixedSize(horizontal: false, vertical: true)
             FastTheme.sub(Self.subtitle).fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 10) {
@@ -42,22 +42,19 @@ struct InviteScreenBody: View {
                 FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
                     .environment(\.fastLinkIcon, true)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: "link").font(.system(size: 12, weight: .light))
+            HStack(spacing: 6) {
+                // SF's link at 12 fills the CSS's 13 box as Lucide's does.
+                Image(systemName: "link").font(.system(size: 12, weight: .light)).frame(width: 13, height: 13)
                 Text(Self.linkNote).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundColor(FastTheme.textTertiary)
-        } footer: {
-            if let onBack {
-                HStack {
+                Spacer(minLength: 12)
+                if let onBack {
                     Button("Back", action: onBack)
-                        .buttonStyle(FastSecondaryButtonStyle(size: .large))
+                        .buttonStyle(FastQuietButtonStyle())
                         .fixedSize()
                         .accessibilityIdentifier(AXID.fastSecondary(FastSetupScreen.invite.rawValue))
-                    Spacer(minLength: 0)
                 }
-                .padding(FastTheme.footerInsets)
             }
+            .foregroundColor(FastTheme.textTertiary)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.invite.rawValue))
@@ -95,8 +92,27 @@ private struct InviteCodeField: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size.radius, style: .continuous)
         let empty = code.wrappedValue.isEmpty
-        ZStack(alignment: .topLeading) {
+        HStack(alignment: .top, spacing: 8) {
+            field
             if empty {
+                // Laid out at the text's line height, so the field keeps the mock's height while Paste draws its full size.
+                Button("Paste", action: onPaste)
+                    .buttonStyle(FastSecondaryButtonStyle(shape: FastButtonShape(vertical: 5, horizontal: 10, radius: 7)))
+                    .fixedSize()
+                    .frame(height: size.monoLine)
+                    .accessibilityIdentifier(AXID.fastInvitePaste)
+            }
+        }
+        .padding(.vertical, size.vertical).padding(.leading, size.horizontal)
+        .padding(.trailing, empty ? 8 : size.horizontal)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(shape.fill(FastTheme.fieldFill))
+        .overlay(shape.strokeBorder(focused || !empty ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
+    }
+
+    private var field: some View {
+        ZStack(alignment: .topLeading) {
+            if code.wrappedValue.isEmpty {
                 Text("Invite code or link").font(.system(size: size.points)).foregroundColor(FastTheme.textTertiary)
                     .lineLimit(1).allowsHitTesting(false)
             }
@@ -110,19 +126,6 @@ private struct InviteCodeField: View {
                 .accessibilityIdentifier(AXID.fastInviteCode)
         }
         .frame(minHeight: size.monoLine, alignment: .topLeading)
-        .padding(.vertical, size.vertical).padding(.leading, size.horizontal)
-        .padding(.trailing, empty ? 72 : size.horizontal)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(shape.fill(FastTheme.fieldFill))
-        .overlay(shape.strokeBorder(focused || !empty ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
-        .overlay(alignment: .trailing) {
-            if empty {
-                Button("Paste", action: onPaste)
-                    .buttonStyle(FastSecondaryButtonStyle(shape: FastButtonShape(vertical: 5, horizontal: 10, radius: 7)))
-                    .fixedSize()
-                    .padding(.trailing, 8)
-                    .accessibilityIdentifier(AXID.fastInvitePaste)
-            }
-        }
     }
 }
