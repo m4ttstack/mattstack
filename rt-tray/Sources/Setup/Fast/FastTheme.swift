@@ -600,8 +600,9 @@ private struct FastGlobeGlyph: View {
 /// for the symbols whose nearest SF glyph reads as a different icon: SF's
 /// person.2 sets two equal heads side by side, its laptop fills the screen,
 /// its person closes the body, its plus is thinner, its internaldrive draws
-/// a grille, and its checkmark stands tall where Lucide's tick is shallow.
-private struct FastLucideGlyph: View {
+/// a grille, its checkmark stands tall where Lucide's tick is shallow, its
+/// ticket tilts, its checklist boxes its ticks and its bell sits heavier.
+struct FastLucideGlyph: View {
     let path: Path
     var box: CGFloat = 18
     var lineWidth: CGFloat = 1.3
@@ -614,6 +615,9 @@ private struct FastLucideGlyph: View {
         case "plus": path = Self.plus
         case "internaldrive": path = Self.hardDrive
         case "checkmark": path = Self.check
+        case "ticket": path = Self.ticket
+        case "checklist": path = Self.listChecks
+        case "bell": path = Self.bell
         default: return nil
         }
         self.box = box
@@ -631,6 +635,48 @@ private struct FastLucideGlyph: View {
         p.move(to: CGPoint(x: 20, y: 6))
         p.addLine(to: CGPoint(x: 9, y: 17))
         p.addLine(to: CGPoint(x: 4, y: 12))
+    }
+
+    private static let ticket = Path { p in
+        p.move(to: CGPoint(x: 2, y: 9))
+        p.addArc(center: CGPoint(x: 2, y: 12), radius: 3, startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
+        p.addLine(to: CGPoint(x: 2, y: 17))
+        p.addArc(tangent1End: CGPoint(x: 2, y: 19), tangent2End: CGPoint(x: 4, y: 19), radius: 2)
+        p.addArc(tangent1End: CGPoint(x: 22, y: 19), tangent2End: CGPoint(x: 22, y: 17), radius: 2)
+        p.addLine(to: CGPoint(x: 22, y: 15))
+        p.addArc(center: CGPoint(x: 22, y: 12), radius: 3, startAngle: .degrees(90), endAngle: .degrees(270), clockwise: false)
+        p.addLine(to: CGPoint(x: 22, y: 7))
+        p.addArc(tangent1End: CGPoint(x: 22, y: 5), tangent2End: CGPoint(x: 20, y: 5), radius: 2)
+        p.addArc(tangent1End: CGPoint(x: 2, y: 5), tangent2End: CGPoint(x: 2, y: 7), radius: 2)
+        p.closeSubpath()
+        for y in [5, 11, 17] as [CGFloat] {
+            p.move(to: CGPoint(x: 13, y: y))
+            p.addLine(to: CGPoint(x: 13, y: y + 2))
+        }
+    }
+
+    private static let listChecks = Path { p in
+        for y in [7, 17] as [CGFloat] {
+            p.move(to: CGPoint(x: 3, y: y))
+            p.addLine(to: CGPoint(x: 5, y: y + 2))
+            p.addLine(to: CGPoint(x: 9, y: y - 2))
+        }
+        for y in [6, 12, 18] as [CGFloat] {
+            p.move(to: CGPoint(x: 13, y: y))
+            p.addLine(to: CGPoint(x: 21, y: y))
+        }
+    }
+
+    private static let bell = Path { p in
+        p.move(to: CGPoint(x: 10.268, y: 21))
+        p.addArc(center: CGPoint(x: 12, y: 20), radius: 2, startAngle: .degrees(150), endAngle: .degrees(30), clockwise: true)
+        p.move(to: CGPoint(x: 3.262, y: 15.326))
+        p.addQuadCurve(to: CGPoint(x: 4, y: 17), control: CGPoint(x: 2.6, y: 17))
+        p.addLine(to: CGPoint(x: 20, y: 17))
+        p.addQuadCurve(to: CGPoint(x: 20.74, y: 15.327), control: CGPoint(x: 21.4, y: 17))
+        p.addCurve(to: CGPoint(x: 18, y: 8), control1: CGPoint(x: 19.41, y: 13.956), control2: CGPoint(x: 18, y: 12.499))
+        p.addArc(center: CGPoint(x: 12, y: 8), radius: 6, startAngle: .degrees(0), endAngle: .degrees(180), clockwise: true)
+        p.addCurve(to: CGPoint(x: 3.262, y: 15.326), control1: CGPoint(x: 6, y: 12.499), control2: CGPoint(x: 4.589, y: 13.956))
     }
 
     private static let hardDrive = Path { p in
@@ -696,13 +742,13 @@ struct FastTeamChip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "person.2").font(.system(size: 11))
+            FastLucideGlyph(symbol: "person.2", box: 12, lineWidth: 1)
             Text(name.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.2).lineLimit(1)
         }
         .foregroundColor(FastTheme.textSecondary)
         .padding(.vertical, 5).padding(.horizontal, 12)
-        .background(Capsule().fill(FastTheme.card))
-        .overlay(Capsule().strokeBorder(FastTheme.outline, lineWidth: 1))
+        .background(Capsule(style: .circular).fill(FastTheme.card))
+        .overlay(Capsule(style: .circular).strokeBorder(FastTheme.outline, lineWidth: 1))
         .fixedSize()
     }
 }

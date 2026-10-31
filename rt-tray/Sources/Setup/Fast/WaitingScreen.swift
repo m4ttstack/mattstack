@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import MattstackCore
 
@@ -11,53 +10,56 @@ struct WaitingScreenBody: View {
     let admin: String?
     let onHide: () -> Void
 
+    static let subtitle = "Let them know you're waiting. Setup carries on the moment they approve"
+
     static func title(admin: String?) -> String {
         let who = admin.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? "your team admin"
         return "Waiting for \(who) to confirm your membership"
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 18) {
-                WaitingTile()
-                FastScreenHeader(label: team, title: Self.title(admin: admin),
-                                 subtitle: "Let them know you're waiting. Setup carries on the moment they approve")
-                VStack(alignment: .leading, spacing: 10) {
-                    line("arrow.right", "Next: a few questions, then it runs by itself")
-                    line("bell", "We'll let you know when you're in")
-                }
+        FastScreen(insets: EdgeInsets(top: 48, leading: 48, bottom: 32, trailing: 48), spacing: 18, alignment: .center) {
+            WaitingTile()
+            FastTeamChip(name: team)
+            // P4's heading is the mock's one 24-point heading, on 30-point lines.
+            Text(Self.title(admin: admin))
+                .font(.system(size: 24, weight: .bold)).tracking(-0.7).foregroundColor(FastTheme.textPrimary)
+                .lineSpacing(1.5).frame(minHeight: 30)
+                .fixedSize(horizontal: false, vertical: true)
+            FastTheme.sub(Self.subtitle)
+                .lineSpacing(3).frame(minHeight: 20)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 20) {
+                hint("checklist", "Next: a few questions, then it runs by itself")
+                hint("bell", "We'll let you know when you're in")
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            Spacer(minLength: 0)
-            FastFooter(screen: FastSetupScreen.waiting.rawValue, note: nil, secondary: nil, primary: ("Hide", true, onHide))
+        } footer: {
+            FastFooter(screen: FastSetupScreen.waiting.rawValue, note: nil, secondary: nil,
+                       primary: ("Hide", true, onHide), quietPrimary: true)
         }
+        .multilineTextAlignment(.center)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.waiting.rawValue))
     }
 
-    private func line(_ symbol: String, _ text: String) -> some View {
-        Label {
-            Text(text).fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: symbol).foregroundStyle(Color(nsColor: .tertiaryLabelColor)).frame(width: 18)
+    private func hint(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: 6) {
+            FastLucideGlyph(symbol: symbol, box: 13, lineWidth: 13 / 12)?
+                .foregroundColor(FastTheme.textTertiary)
+            Text(text).font(.system(size: 12)).foregroundColor(FastTheme.textSecondary).lineLimit(1)
         }
-        .font(.callout)
-        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        .fixedSize()
     }
 }
 
 private struct WaitingTile: View {
-    private static let tile = NSColor(name: nil) { appearance in
-        NSColor.labelColor.withAlphaComponent(FastAppearance.isDark(appearance) ? 0.12 : 0.06)
-    }
-
     var body: some View {
-        Image(systemName: "ticket")
-            .font(.system(size: 22))
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-            .frame(width: 44, height: 44)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: Self.tile)))
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        FastLucideGlyph(symbol: "ticket", box: 26, lineWidth: 26 / 12)
+            .foregroundColor(FastTheme.accent)
+            .frame(width: 56, height: 56)
+            .background(shape.fill(FastTheme.card))
+            .overlay(shape.strokeBorder(FastTheme.outline, lineWidth: 1))
             .accessibilityHidden(true)
     }
 }
