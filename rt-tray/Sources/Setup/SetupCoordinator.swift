@@ -58,8 +58,6 @@ final class SetupCoordinator {
     private var lastInviteCode = ""
     private var lastVerdict = false
     private var lastForge = ""
-    /// The forge whose create rows were read before P3c opened, so entering it keeps them rather than drawing it without them.
-    private var preloadedForge: String?
     private var activeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
 
@@ -194,6 +192,8 @@ final class SetupCoordinator {
     private func leave(_ screen: FastSetupScreen) {
         form.stopWatching()
         if screen == .macos { stopProbing() }
+        // Forgotten on the way out, so the next visit waits for a fresh read instead of opening on these rows.
+        if screen == .createTeam { form.forget(section: "create") }
     }
 
     private func enter(_ screen: FastSetupScreen) {
@@ -222,8 +222,6 @@ final class SetupCoordinator {
         case .createTeam:
             team.choice = .create
             lastForge = team.forge
-            if preloadedForge != team.forge { form.forget(section: "create") }
-            preloadedForge = nil
             Task { await refreshSection() }
         case .restore:
             team.choice = .restore
@@ -317,29 +315,13 @@ final class SetupCoordinator {
         guard status.busy == nil else { return }
         status.failures[.path] = nil
         team.choice = choice
-        if choice == .join { flow.choose(.join); return }
+        guard choice == .solo else { flow.choose(choice); return }
         Task {
             status.busy = .path
             defer { status.busy = nil }
-            switch choice {
-            case .solo:
-                if let failure = await team.validateAndPrepare() { status.failures[.path] = failure; return }
-            case .create:
-                await preloadCreateRows()
-            case .restore:
-                await form.load(section: "restore")
-            case .join:
-                break
-            }
-            flow.choose(choice)
+            if let failure = await team.validateAndPrepare() { status.failures[.path] = failure; return }
+            flow.choose(.solo)
         }
-    }
-
-    /// The next screen's rows land before it opens, so its fields and their notes draw with it.
-    private func preloadCreateRows() async {
-        let forge = team.forge
-        form.forget(section: "create")
-        if await form.load(section: "create", extra: ["--forge", forge]) != nil { preloadedForge = forge }
     }
 
     private func teamChanged() {
@@ -356,9 +338,9 @@ final class SetupCoordinator {
                 if lastVerdict { Task { await refreshSection() } }
             }
         }
+        // The old forge's row stays until the new read replaces it in place, so the field never drops out and back.
         if team.forge != lastForge, flow.screen == .createTeam {
             lastForge = team.forge
-            form.forget(section: "create")
             Task { await refreshSection() }
         }
     }

@@ -40,9 +40,19 @@ struct FastSetupView: View {
     @ObservedObject var team: TeamChoiceModel
     @ObservedObject var status: FastSetupStatus
     let handlers: FastSetupHandlers
+    @State private var shown: FastSetupScreen?
+
+    private var drawn: FastSetupScreen {
+        let next = flow.screen
+        return FastSetupScreen.drawn(next: next, shown: shown, rowsLanded: next.section.flatMap { form.rows(for: $0) } != nil,
+                                     readFailed: !form.isLoading && form.error != nil)
+    }
 
     var body: some View {
-        FastWindowChrome(step: FastStep.counter(for: flow.screen, path: stepPath)) { screen }
+        let drawn = drawn
+        FastWindowChrome(step: FastStep.counter(for: drawn, path: stepPath)) { screen(drawn) }
+            .onAppear { shown = drawn }
+            .onChange(of: drawn) { _, now in shown = now }
             .frame(width: SetupWindowController.width)
             .frame(minHeight: SetupWindowController.minHeight)
             .controlSize(.large)
@@ -59,8 +69,8 @@ struct FastSetupView: View {
         Task { await actions.perform(row, values: values, alternative: alternative) }
     }
 
-    @ViewBuilder private var screen: some View {
-        switch flow.screen {
+    @ViewBuilder private func screen(_ drawn: FastSetupScreen) -> some View {
+        switch drawn {
         case .loading:
             FastLoadingBody(error: form.isLoading ? nil : form.error, onRetry: handlers.readAgain)
         case .macos:

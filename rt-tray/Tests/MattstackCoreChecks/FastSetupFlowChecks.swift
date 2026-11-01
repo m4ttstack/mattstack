@@ -28,6 +28,21 @@ let fastSetupFlowChecks: [Check] = [
         c.expectEqual(FastSetupScreen.createTeam.rawValue, "create-team")
         c.expectEqual(FastSetupScreen.thisMac.rawValue, "this-mac")
     },
+    Check("FastSetupScreen.drawn: the window keeps the screen it shows until the next one's rows land") { c in
+        func drawn(_ next: FastSetupScreen, from shown: FastSetupScreen?, landed: Bool = false, failed: Bool = false) -> FastSetupScreen {
+            FastSetupScreen.drawn(next: next, shown: shown, rowsLanded: landed, readFailed: failed)
+        }
+        c.expectEqual(drawn(.createTeam, from: .path), .path, "the cards stay until the create rows land")
+        c.expectEqual(drawn(.createTeam, from: .path, landed: true), .createTeam)
+        c.expectEqual(drawn(.connect, from: .waiting), .waiting)
+        c.expectEqual(drawn(.thisMac, from: .connect), .connect)
+        c.expectEqual(drawn(.macos, from: .loading), .loading)
+        c.expectEqual(drawn(.createTeam, from: .path, failed: true), .createTeam, "a failed read opens the screen anyway")
+        c.expectEqual(drawn(.createTeam, from: .createTeam), .createTeam, "a screen on show keeps showing while its rows re-read")
+        c.expectEqual(drawn(.invite, from: .path), .invite, "invite reads its rows only after a code")
+        c.expectEqual(drawn(.path, from: .createTeam), .path, "a screen with no rows opens at once")
+        c.expectEqual(drawn(.connect, from: nil), .connect, "the first screen drawn has nothing to hold")
+    },
     Check("FastSetupFlow: macOS done moves on to the four cards") { c in
         await MainActor.run {
             let f = flow(on: .macos)

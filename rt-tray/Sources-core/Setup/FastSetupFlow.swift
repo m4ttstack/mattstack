@@ -25,6 +25,14 @@ public enum FastSetupScreen: String, CaseIterable, Sendable {
         case .loading, .path, .waiting, .running, .paused, .ready: return nil
         }
     }
+
+    /// The screen the window draws while the flow moves to `next`: the one already on screen until `next`'s rows
+    /// have landed, so a screen never opens without its fields and grows them a moment later. Invite reads its rows
+    /// only once a code checks out and says so itself; a read that failed opens the screen anyway.
+    public static func drawn(next: FastSetupScreen, shown: FastSetupScreen?, rowsLanded: Bool, readFailed: Bool) -> FastSetupScreen {
+        guard let shown, shown != next, next.section != nil, next != .invite, !rowsLanded, !readFailed else { return next }
+        return shown
+    }
 }
 
 /// Whether reaching P7 is a Finish this window owes: it showed setup unfinished, then ready.
