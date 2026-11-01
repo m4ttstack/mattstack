@@ -58,6 +58,8 @@ final class SetupCoordinator {
     private var lastInviteCode = ""
     private var lastVerdict = false
     private var lastForge = ""
+    /// The forge whose create rows were read before P3c opened, so entering it keeps them rather than drawing it without them.
+    private var preloadedForge: String?
     private var activeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
 
@@ -220,7 +222,8 @@ final class SetupCoordinator {
         case .createTeam:
             team.choice = .create
             lastForge = team.forge
-            form.forget(section: "create")
+            if preloadedForge != team.forge { form.forget(section: "create") }
+            preloadedForge = nil
             Task { await refreshSection() }
         case .restore:
             team.choice = .restore
@@ -314,13 +317,29 @@ final class SetupCoordinator {
         guard status.busy == nil else { return }
         status.failures[.path] = nil
         team.choice = choice
-        guard choice == .solo else { flow.choose(choice); return }
+        if choice == .join { flow.choose(.join); return }
         Task {
             status.busy = .path
             defer { status.busy = nil }
-            if let failure = await team.validateAndPrepare() { status.failures[.path] = failure; return }
-            flow.choose(.solo)
+            switch choice {
+            case .solo:
+                if let failure = await team.validateAndPrepare() { status.failures[.path] = failure; return }
+            case .create:
+                await preloadCreateRows()
+            case .restore:
+                await form.load(section: "restore")
+            case .join:
+                break
+            }
+            flow.choose(choice)
         }
+    }
+
+    /// The next screen's rows land before it opens, so its fields and their notes draw with it.
+    private func preloadCreateRows() async {
+        let forge = team.forge
+        form.forget(section: "create")
+        if await form.load(section: "create", extra: ["--forge", forge]) != nil { preloadedForge = forge }
     }
 
     private func teamChanged() {
