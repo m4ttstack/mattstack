@@ -1,9 +1,9 @@
 import SwiftUI
 import MattstackCore
 
-/// P3: the invite code with Join beside it, the team it reads as, then rt's
-/// invite section (the forge token, Git tools) in one card. Join
-/// waits on `FastSetupFlow.joinEnabled`.
+/// P3: the invite code, the team it reads as, then rt's invite section (the
+/// forge token, Git tools) in one card. Join sits in the footer, where every
+/// screen's next step is, and waits on `FastSetupFlow.joinEnabled`.
 struct InviteScreenBody: View {
     let code: Binding<String>
     let inviteLine: String?
@@ -26,16 +26,8 @@ struct InviteScreenBody: View {
     var body: some View {
         FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 16) {
             FastScreenHeader(title: "Paste your invite", subtitle: Self.subtitle, spacing: 16)
-            HStack(alignment: .top, spacing: 10) {
-                InviteCodeField(code: code, onPaste: onPaste)
-                Button("Join", action: onJoin)
-                    .buttonStyle(FastPrimaryButtonStyle(shape: FastButtonShape(vertical: 12, horizontal: 22, radius: 11)))
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!joinEnabled)
-                    .fixedSize()
-                    .accessibilityIdentifier(AXID.fastPrimary(FastSetupScreen.invite.rawValue))
-            }
-            .padding(.top, 8)
+            InviteCodeField(code: code, onPaste: onPaste)
+                .padding(.top, 8)
             verdict
             if let rows, !rows.isEmpty {
                 FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
@@ -45,15 +37,12 @@ struct InviteScreenBody: View {
                 // SF's link at 12 fills the CSS's 13 box as Lucide's does.
                 Image(systemName: "link").font(.system(size: 12, weight: .light)).frame(width: 13, height: 13)
                 Text(Self.linkNote).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 12)
-                if let onBack {
-                    Button("Back", action: onBack)
-                        .buttonStyle(FastQuietButtonStyle())
-                        .fixedSize()
-                        .accessibilityIdentifier(AXID.fastSecondary(FastSetupScreen.invite.rawValue))
-                }
             }
             .foregroundColor(FastTheme.textTertiary)
+        } footer: {
+            FastFooter(screen: FastSetupScreen.invite.rawValue, note: nil,
+                       secondary: onBack.map { ("Back", $0) }, primary: ("Join", joinEnabled, onJoin),
+                       insets: ConnectScreenBody.footerInsets, quietSecondary: true)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.invite.rawValue))
