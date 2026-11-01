@@ -17,6 +17,7 @@ enum FastTheme {
     static let divider = Color(hex: 0x26262F)
     /// Outlines on the window, cards, fields and quiet buttons; the selected segment; the title bar dots.
     static let outline = Color(hex: 0x383846)
+    static let outlineHover = Color(hex: 0x4A4A5A)
     static let card = Color(hex: 0x21212B)
     static let fieldFill = Color(hex: 0x14141B)
 

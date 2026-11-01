@@ -1,16 +1,22 @@
 import SwiftUI
 import MattstackCore
 
-/// P2: four cards, and choosing one moves on. No footer: the card is the answer.
+/// P2: four cards to pick from, then Continue moves on.
 struct PathScreenBody: View {
     /// Just me is a first-run choice only.
     let showsSolo: Bool
     var failure: String? = nil
     let onChoose: (TeamChoice) -> Void
 
-    /// Never cleared on exit: the gaps between cards would light the first card as the pointer crosses them.
-    @State private var pointed: TeamChoice?
+    @State private var selected: TeamChoice?
     @FocusState private var focused: TeamChoice?
+
+    init(showsSolo: Bool, failure: String? = nil, selected: TeamChoice? = nil, onChoose: @escaping (TeamChoice) -> Void) {
+        self.showsSolo = showsSolo
+        self.failure = failure
+        self.onChoose = onChoose
+        _selected = State(initialValue: selected)
+    }
 
     struct Card {
         let choice: TeamChoice
@@ -29,25 +35,24 @@ struct PathScreenBody: View {
 
     private var cards: [Card] { Self.allCards.filter { showsSolo || $0.choice != .solo } }
 
-    /// Exactly one card is lit, as in the mock: the last one hovered or focused, else the first.
-    private var lit: TeamChoice? { pointed ?? cards.first?.choice }
-
     var body: some View {
-        FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 40, trailing: 48), spacing: 20) {
+        FastScreen(insets: EdgeInsets(top: 40, leading: 48, bottom: 24, trailing: 48), spacing: 20) {
             FastScreenHeader(title: "How are you setting up?")
             ForEach(cards, id: \.title) { card in
-                Button { onChoose(card.choice) } label: { PathCardLabel(card: card) }
-                    .buttonStyle(PathCardStyle(lit: lit == card.choice))
+                Button { selected = card.choice } label: { PathCardLabel(card: card) }
+                    .buttonStyle(PathCardStyle(selected: selected == card.choice))
                     .focused($focused, equals: card.choice)
-                    .onHover { inside in
-                        if inside { pointed = card.choice }
-                    }
+                    .accessibilityAddTraits(selected == card.choice ? .isSelected : [])
                     .accessibilityIdentifier(AXID.fastPathCard(Self.name(card.choice)))
             }
             if let failure { FastFailureLine(text: failure) }
+        } footer: {
+            FastFooter(screen: FastSetupScreen.path.rawValue, note: nil, secondary: nil,
+                       primary: ("Continue", selected != nil, { if let selected { onChoose(selected) } }),
+                       insets: ConnectScreenBody.footerInsets)
         }
         .onChange(of: focused) { _, now in
-            if let now { pointed = now }
+            if let now { selected = now }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AXID.fastScreen(FastSetupScreen.path.rawValue))
@@ -65,7 +70,7 @@ struct PathScreenBody: View {
 
 private struct PathCardLabel: View {
     let card: PathScreenBody.Card
-    @Environment(\.pathCardLit) private var lit
+    @Environment(\.pathCardSelected) private var selected
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -77,49 +82,66 @@ private struct PathCardLabel: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
-                .foregroundColor(lit ? FastTheme.accent : FastTheme.textTertiary)
-                .frame(width: 16, height: 16)
-                .accessibilityHidden(true)
+            PathRadio(on: selected)
         }
         .padding(FastTheme.rowInsets)
         .contentShape(RoundedRectangle(cornerRadius: FastTheme.cardRadius, style: .continuous))
     }
 }
 
-private struct PathCardLitKey: EnvironmentKey {
+/// A pick-one mark: an empty ring, or an accent disc with a dot once chosen.
+private struct PathRadio: View {
+    let on: Bool
+
+    var body: some View {
+        ZStack {
+            if on {
+                Circle().fill(FastTheme.accent)
+                Circle().fill(FastTheme.textPrimary).frame(width: 6, height: 6)
+            } else {
+                Circle().strokeBorder(FastTheme.outline, lineWidth: 1.5)
+            }
+        }
+        .frame(width: 16, height: 16)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct PathCardSelectedKey: EnvironmentKey {
     static let defaultValue = false
 }
 
 extension EnvironmentValues {
-    /// The lit path card draws its chevron in accent.
-    fileprivate var pathCardLit: Bool {
-        get { self[PathCardLitKey.self] }
-        set { self[PathCardLitKey.self] = newValue }
+    fileprivate var pathCardSelected: Bool {
+        get { self[PathCardSelectedKey.self] }
+        set { self[PathCardSelectedKey.self] = newValue }
     }
 }
 
 private struct PathCardStyle: ButtonStyle {
-    let lit: Bool
+    let selected: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        PathCard(label: configuration.label, pressed: configuration.isPressed, lit: lit)
+        PathCard(label: configuration.label, pressed: configuration.isPressed, selected: selected)
     }
 }
 
 private struct PathCard<Label: View>: View {
     let label: Label
     let pressed: Bool
-    let lit: Bool
+    let selected: Bool
+    @State private var hovered = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: FastTheme.cardRadius, style: .continuous)
+        let lifted = hovered || pressed
         label
-            .environment(\.pathCardLit, lit)
+            .environment(\.pathCardSelected, selected)
             .background {
-                shape.fill(lit ? FastTheme.accentWash : FastTheme.card)
-                if pressed { shape.fill(FastTheme.accentWash) }
+                shape.fill(FastTheme.card)
+                if selected { shape.fill(FastTheme.accentWash) } else if lifted { shape.fill(Color.white.opacity(0.03)) }
             }
-            .overlay(shape.strokeBorder(lit ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
+            .overlay(shape.strokeBorder(selected ? FastTheme.accent : lifted ? FastTheme.outlineHover : FastTheme.outline, lineWidth: 1))
+            .onHover { hovered = $0 }
     }
 }

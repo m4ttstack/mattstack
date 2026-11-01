@@ -181,6 +181,7 @@ enum FastSetupSnapshot {
     private static func pathPages() -> [(String, AnyView)] {
         [
             ("path", window(PathScreenBody(showsSolo: true) { _ in }, .path)),
+            ("path-picked", window(PathScreenBody(showsSolo: true, selected: .create) { _ in }, .path)),
             ("path-upgrade", window(PathScreenBody(showsSolo: false) { _ in }, .path)),
             ("path-failure", window(PathScreenBody(showsSolo: true, failure: "rt couldn't record the choice: the settings store is locked by another run") { _ in }, .path)),
         ]
