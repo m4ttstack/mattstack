@@ -181,22 +181,26 @@ private struct RunBarView: View {
         let clamped = min(max(fraction, 0), 1)
         // A started bar always shows its rounded end, even at 0%.
         let width = max(trackWidth * clamped, Self.height)
+        // The sheen rides inside the fill's own frame, so it eases with the fill instead of jumping ahead of it.
         Capsule()
             .fill(fillStyle)
+            .overlay(alignment: .leading) { if moving { sheen } }
+            .clipShape(Capsule())
             .frame(width: width)
             .animation(.easeOut(duration: 0.6), value: clamped)
-        if moving {
+    }
+
+    private var sheen: some View {
+        GeometryReader { geo in
             TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
                 let band: CGFloat = 90
                 let phase = Self.phase(context.date, period: Self.sheenPeriod)
                 LinearGradient(colors: [.clear, FastTheme.barSheen, .clear], startPoint: .leading, endPoint: .trailing)
                     .frame(width: band)
-                    .offset(x: -band + (width + band) * phase)
+                    .offset(x: -band + (geo.size.width + band) * phase)
             }
-            .frame(width: width, alignment: .leading)
-            .clipShape(Capsule())
-            .allowsHitTesting(false)
         }
+        .allowsHitTesting(false)
     }
 
     private func sweep(in trackWidth: CGFloat) -> some View {

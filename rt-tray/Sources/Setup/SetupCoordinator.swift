@@ -320,8 +320,16 @@ final class SetupCoordinator {
             status.busy = .path
             defer { status.busy = nil }
             if let failure = await team.validateAndPrepare() { status.failures[.path] = failure; return }
+            pathChanged()
+            await form.load(section: "connect")
             flow.choose(.solo)
         }
+    }
+
+    /// rt's connect and this-mac rows follow the path, so the whole read taken before the choice no longer answers for them.
+    private func pathChanged() {
+        form.forget(section: "connect")
+        form.forget(section: "this-mac")
     }
 
     private func teamChanged() {
@@ -355,6 +363,7 @@ final class SetupCoordinator {
         defer { status.busy = nil }
         status.failures[.invite] = nil
         if let failure = await team.validateAndPrepare() { status.failures[.invite] = failure; return }
+        pathChanged()
         join.reset()
         await join.join()
         switch join.phase {
@@ -379,6 +388,8 @@ final class SetupCoordinator {
         status.failures[.createTeam] = nil
         await team.loadGitHubStatus()
         if let failure = await team.validateAndPrepare() { status.failures[.createTeam] = failure; return }
+        pathChanged()
+        await form.load(section: "connect")
         flow.created()
     }
 
@@ -388,6 +399,7 @@ final class SetupCoordinator {
         defer { status.busy = nil }
         status.failures[.restore] = nil
         if let failure = await team.validateAndPrepare() { status.failures[.restore] = failure; return }
+        pathChanged()
         beginRun()
         flow.restored()
     }
