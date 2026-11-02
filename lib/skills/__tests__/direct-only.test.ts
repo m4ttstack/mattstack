@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, statSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { directOnlyConfigDirs, reconcileDirectOnly } from "../direct-only.ts";
@@ -101,12 +101,6 @@ describe("reconcileDirectOnly", () => {
     expect(r.warnings).toHaveLength(1);
   });
 
-  test("a missing plugin folder does not throw", () => {
-    const config = join(tmp, "c");
-    mkdirSync(join(config, "plugins", "cache"), { recursive: true });
-    expect(() => reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } })).not.toThrow();
-  });
-
   test("two config dirs sharing one plugins folder are edited once", () => {
     const a = join(tmp, "a");
     const f = skill(versionDir(a), "skills/alpha", plain("alpha"));
@@ -114,8 +108,7 @@ describe("reconcileDirectOnly", () => {
     mkdirSync(b);
     symlinkSync(join(a, "plugins"), join(b, "plugins"));
     const r = reconcileDirectOnly({ configDirs: [a, b], choices: { [KEY]: ["alpha"] } });
-    expect(r.changed).toEqual([f]);
-    expect(directOnlyConfigDirs({ CLAUDE_CONFIG_DIR: a }, tmp)).toEqual([a]);
+    expect(r).toEqual({ changed: [f], warnings: [] });
   });
 
   test("no frontmatter warns and names the file", () => {
@@ -141,31 +134,124 @@ describe("reconcileDirectOnly", () => {
     expect(r).toEqual({ changed: [], warnings: [] });
   });
 
-  test("a read-only SKILL.md warns and the other skills still apply", () => {
+  test("a read-only SKILL.md warns, keeps its content and mode, and the other skills still apply", () => {
     const config = join(tmp, "c");
     const dir = versionDir(config);
     const locked = skill(dir, "skills/alpha", plain("alpha"));
     const other = skill(dir, "skills/beta", plain("beta"));
-    chmodSync(join(dir, "skills", "alpha"), 0o500);
+    chmodSync(locked, 0o444);
     try {
       const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha", "beta"] } });
+      expect(r.changed).toEqual([other]);
       expect(r.warnings.some((w) => w.includes(locked))).toBe(true);
-      expect(read(other)).toContain(DIRECT_ONLY_MARK);
+      expect(read(locked)).toBe(plain("alpha"));
+      expect(statSync(locked).mode & 0o777).toBe(0o444);
     } finally {
-      chmodSync(join(dir, "skills", "alpha"), 0o700);
+      chmodSync(locked, 0o644);
     }
+  });
+
+  test("a rewritten SKILL.md keeps its mode", () => {
+    const config = join(tmp, "c");
+    const f = skill(versionDir(config), "skills/alpha", plain("alpha"));
+    chmodSync(f, 0o640);
+    reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(f)).toContain(DIRECT_ONLY_MARK);
+    expect(statSync(f).mode & 0o777).toBe(0o640);
+  });
+
+  test("a version folder removed mid-run stops that plugin with no warning", () => {
+    const config = join(tmp, "c");
+    const dir = versionDir(config);
+    skill(dir, "skills/alpha", plain("alpha"));
+    skill(dir, "skills/beta", plain("beta"));
+    const r = reconcileDirectOnly({
+      configDirs: [config],
+      choices: { [KEY]: ["alpha", "beta"] },
+      beforeSkill: () => rmSync(dir, { recursive: true, force: true }),
+    });
+    expect(r).toEqual({ changed: [], warnings: [] });
+  });
+
+  test("an empty or multi-word disable-model-invocation value is left alone with a warning", () => {
+    for (const line of ["disable-model-invocation:", "disable-model-invocation: not yet"]) {
+      const config = join(tmp, `c${line.length}`);
+      const text = `---\nname: alpha\n${line}\n---\nb\n`;
+      const f = skill(versionDir(config), "skills/alpha", text);
+      const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(f)).toBe(text);
+      expect(r.changed).toEqual([]);
+      expect(r.warnings[0]).toContain(f);
+    }
+  });
+
+  test("the unusual-value warning is not fooled by the mark in body text", () => {
+    const config = join(tmp, "c");
+    const text = `---\nname: alpha\ndisable-model-invocation: "true"\n---\n${DIRECT_ONLY_MARK}\n`;
+    const f = skill(versionDir(config), "skills/alpha", text);
+    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(r.warnings[0]).toContain(f);
+  });
+
+  describe("installed_plugins.json", () => {
+    const registry = (config: string, text: string) => writeFileSync(join(config, "plugins", "installed_plugins.json"), text);
+    const at = (config: string, v: string) => join(config, "plugins", "cache", "market", "widgets", v);
+
+    test("installPath beats a higher semver folder", () => {
+      const config = join(tmp, "c");
+      const hashed = skill(versionDir(config, "abc123"), "skills/alpha", plain("alpha"));
+      const higher = skill(versionDir(config, "9.0.0"), "skills/alpha", plain("alpha"));
+      registry(config, JSON.stringify({ plugins: { [KEY]: [
+        { scope: "project", installPath: at(config, "9.0.0") },
+        { scope: "user", installPath: at(config, "abc123") },
+      ] } }));
+      reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(hashed)).toContain(DIRECT_ONLY_MARK);
+      expect(read(higher)).toBe(plain("alpha"));
+    });
+
+    test("an installPath outside the cache is ignored", () => {
+      const config = join(tmp, "c");
+      const cur = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
+      const elsewhere = skill(join(tmp, "elsewhere"), "skills/alpha", plain("alpha"));
+      registry(config, JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: join(tmp, "elsewhere") }] } }));
+      reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(cur)).toContain(DIRECT_ONLY_MARK);
+      expect(read(elsewhere)).toBe(plain("alpha"));
+    });
+
+    test("a missing or malformed file falls back to the newest folder with no warning", () => {
+      const config = join(tmp, "c");
+      const f = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
+      const missing = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(missing.warnings).toEqual([]);
+      expect(read(f)).toContain(DIRECT_ONLY_MARK);
+      reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: [] } });
+      registry(config, "{not json");
+      const bad = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(bad.warnings).toEqual([]);
+      expect(read(f)).toContain(DIRECT_ONLY_MARK);
+    });
   });
 });
 
 describe("directOnlyConfigDirs", () => {
-  test("includes swap sessions that have plugins, skips ones that do not", () => {
+  test("dedupes by the realpath of plugins and skips sessions without one", () => {
     const home = join(tmp, "home");
     mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
-    mkdirSync(join(home, ".claude-swap-backup", "sessions", "s1", "plugins"), { recursive: true });
-    mkdirSync(join(home, ".claude-swap-backup", "sessions", "s2"), { recursive: true });
-    expect(directOnlyConfigDirs({}, home)).toEqual([
-      join(home, ".claude"),
-      join(home, ".claude-swap-backup", "sessions", "s1"),
-    ]);
+    const sessions = join(home, ".claude-swap-backup", "sessions");
+    mkdirSync(join(sessions, "linked"), { recursive: true });
+    symlinkSync(join(home, ".claude", "plugins"), join(sessions, "linked", "plugins"));
+    mkdirSync(join(sessions, "own", "plugins"), { recursive: true });
+    mkdirSync(join(sessions, "bare"), { recursive: true });
+    expect(directOnlyConfigDirs({}, home)).toEqual([join(home, ".claude"), join(sessions, "own")]);
+  });
+
+  test("CLAUDE_CONFIG_DIR replaces ~/.claude", () => {
+    const home = join(tmp, "home");
+    const custom = join(tmp, "custom");
+    mkdirSync(join(custom, "plugins"), { recursive: true });
+    mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+    expect(directOnlyConfigDirs({ CLAUDE_CONFIG_DIR: custom }, home)).toEqual([custom]);
   });
 });

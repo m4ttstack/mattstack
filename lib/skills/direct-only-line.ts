@@ -1,7 +1,7 @@
 export const DIRECT_ONLY_MARK = "# rt: direct-only";
 export const DIRECT_ONLY_MARK_WAS_FALSE = "# rt: direct-only (was false)";
 
-const KEY_LINE = /^disable-model-invocation:[ \t]*(\S+)[ \t]*(#.*?)?[ \t]*$/;
+const KEY_LINE = /^disable-model-invocation:[ \t]*([^#\s](?:[^#]*[^#\s])?)?[ \t]*(#.*?)?[ \t]*$/;
 
 interface Frontmatter {
   lines: string[];
@@ -31,7 +31,7 @@ function keyIndex(fm: Frontmatter): number {
 function parts(line: string): { value: string; comment: string | undefined; eol: string } {
   const eol = /\r?\n$/.exec(line)?.[0] ?? "";
   const m = KEY_LINE.exec(line.slice(0, line.length - eol.length))!;
-  return { value: m[1]!, comment: m[2], eol };
+  return { value: m[1] ?? "", comment: m[2], eol };
 }
 
 export function addDirectOnly(md: string): string | null {
@@ -66,6 +66,16 @@ export function removeDirectOnly(md: string): string {
     return md;
   }
   return fm.lines.join("");
+}
+
+/** The key's value and comment as written, or null when the file has no such key. */
+export function directOnlyKey(md: string): { value: string; comment: string | undefined } | null {
+  const fm = parse(md);
+  if (!fm) return null;
+  const idx = keyIndex(fm);
+  if (idx < 0) return null;
+  const { value, comment } = parts(fm.lines[idx]!);
+  return { value, comment };
 }
 
 export function sourceSetsDirectOnly(md: string): boolean {

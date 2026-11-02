@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { basename, dirname, join, sep } from "path";
 import { compareVersions } from "./installed-plugins.ts";
-import { addDirectOnly, DIRECT_ONLY_MARK, removeDirectOnly, sourceSetsDirectOnly } from "./direct-only-line.ts";
+import { addDirectOnly, DIRECT_ONLY_MARK, directOnlyKey, removeDirectOnly } from "./direct-only-line.ts";
 import { registeredSkillRoots } from "./skill-roots.ts";
 
 export interface ReconcileResult {
@@ -75,10 +75,32 @@ function newestVersionDir(pluginDir: string): string | null {
   return best === null ? null : join(pluginDir, best);
 }
 
-function atomicWrite(file: string, text: string): void {
+// Claude Code names the folder it loads in installed_plugins.json; version folders can be hashes, so newest-by-number can be wrong.
+function installedPath(configDir: string, key: string, cacheReal: string): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(join(configDir, "plugins", "installed_plugins.json"), "utf8")) as {
+      plugins?: Record<string, unknown>;
+    };
+    const entries = parsed.plugins?.[key];
+    if (!Array.isArray(entries)) return null;
+    const ordered = [...entries.filter((e) => e?.scope === "user"), ...entries.filter((e) => e?.scope !== "user")];
+    for (const entry of ordered) {
+      const path = entry?.installPath;
+      if (typeof path !== "string") continue;
+      const resolved = real(path);
+      if (resolved !== null && resolved.startsWith(cacheReal + sep)) return resolved;
+    }
+  } catch {
+    // a missing or malformed registry means the newest folder is used
+  }
+  return null;
+}
+
+function atomicWrite(file: string, text: string, mode: number): void {
   const tmp = join(dirname(file), `.${basename(file)}.rt-tmp-${process.pid}`);
   try {
     writeFileSync(tmp, text);
+    chmodSync(tmp, mode);
     renameSync(tmp, file);
   } catch (err) {
     rmSync(tmp, { force: true });
@@ -89,7 +111,11 @@ function atomicWrite(file: string, text: string): void {
 function reconcileSkill(file: string, chosen: boolean, cacheReal: string, out: ReconcileResult): void {
   try {
     const resolved = real(file);
-    if (resolved === null || !resolved.startsWith(cacheReal + sep)) {
+    if (resolved === null) {
+      out.warnings.push(`${file}: cannot be resolved, left alone`);
+      return;
+    }
+    if (!resolved.startsWith(cacheReal + sep)) {
       out.warnings.push(`${file}: resolves outside plugins/cache, left alone`);
       return;
     }
@@ -101,7 +127,8 @@ function reconcileSkill(file: string, chosen: boolean, cacheReal: string, out: R
         out.warnings.push(`${file}: no frontmatter, direct-only not applied`);
         return;
       }
-      if (after === before && !before.includes(DIRECT_ONLY_MARK) && !sourceSetsDirectOnly(before)) {
+      const key = directOnlyKey(before);
+      if (after === before && key && key.value !== "true" && !key.comment?.startsWith(DIRECT_ONLY_MARK)) {
         out.warnings.push(`${file}: disable-model-invocation has an unusual value, direct-only not applied`);
         return;
       }
@@ -109,14 +136,23 @@ function reconcileSkill(file: string, chosen: boolean, cacheReal: string, out: R
       after = removeDirectOnly(before);
     }
     if (after === before) return;
-    atomicWrite(resolved, after);
+    const { mode } = statSync(resolved);
+    if ((mode & 0o200) === 0) {
+      out.warnings.push(`${file}: read-only, left alone`);
+      return;
+    }
+    atomicWrite(resolved, after, mode & 0o7777);
     out.changed.push(file);
   } catch (err) {
     out.warnings.push(`${file}: ${(err as Error).message}`);
   }
 }
 
-export function reconcileDirectOnly(opts: { configDirs: string[]; choices: Record<string, string[]> }): ReconcileResult {
+export function reconcileDirectOnly(opts: {
+  configDirs: string[];
+  choices: Record<string, string[]>;
+  beforeSkill?: (file: string) => void;
+}): ReconcileResult {
   const out: ReconcileResult = { changed: [], warnings: [] };
   const seenCaches = new Set<string>();
   for (const configDir of opts.configDirs) {
@@ -129,10 +165,14 @@ export function reconcileDirectOnly(opts: { configDirs: string[]; choices: Recor
       const plugin = key.slice(0, at);
       const marketplace = key.slice(at + 1);
       try {
-        const versionDir = newestVersionDir(join(cacheReal, marketplace, plugin));
+        const versionDir = installedPath(configDir, key, cacheReal) ?? newestVersionDir(join(cacheReal, marketplace, plugin));
         if (versionDir === null) continue;
         const chosen = new Set(names);
-        for (const [name, file] of skillFiles(versionDir)) reconcileSkill(file, chosen.has(name), cacheReal, out);
+        for (const [name, file] of skillFiles(versionDir)) {
+          opts.beforeSkill?.(file);
+          if (!existsSync(versionDir)) break;
+          reconcileSkill(file, chosen.has(name), cacheReal, out);
+        }
       } catch (err) {
         out.warnings.push(`${key}: ${(err as Error).message}`);
       }

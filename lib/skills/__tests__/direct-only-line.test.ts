@@ -64,3 +64,14 @@ describe("direct-only line", () => {
     expect(removeDirectOnly(marked)).toBe(marked);
   });
 });
+
+describe("unusual key values", () => {
+  for (const line of ["disable-model-invocation:", "disable-model-invocation: not yet"]) {
+    test(`"${line}" is recognised as the key and left unchanged`, () => {
+      const md = `---\nname: ping\n${line}\n---\nBody.\n`;
+      expect(addDirectOnly(md)).toBe(md);
+      expect(removeDirectOnly(md)).toBe(md);
+      expect(sourceSetsDirectOnly(md)).toBe(false);
+    });
+  }
+});
