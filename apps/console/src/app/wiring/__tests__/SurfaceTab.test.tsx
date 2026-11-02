@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const surfaceGet = vi.fn();
 const surfaceApplyPost = vi.fn();
 const compositionGet = vi.fn();
+const modelInvocationPost = vi.fn();
 
 vi.mock('../../api', () => ({
   client: {
@@ -28,6 +29,9 @@ vi.mock('../../api', () => ({
         composition: {
           $get: (...args: unknown[]) => compositionGet(...args),
         },
+        'disable-model-invocation': {
+          $post: (...args: unknown[]) => modelInvocationPost(...args),
+        },
       },
     },
   },
@@ -35,6 +39,7 @@ vi.mock('../../api', () => ({
 
 const { SurfaceTab } = await import('../SurfaceTab');
 const { holdWrite } = await import('./writeLock');
+const { skillsWriteKey } = await import('../useWiring');
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -689,5 +694,263 @@ describe('SurfaceTab: skills that need attention', () => {
     expect(
       screen.queryByTestId('surface-filter-needs attention')
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('SurfaceTab: disable model invocation', () => {
+  const INFO =
+    'Can only be invoked by typing the skill call directly. Agents will not auto-discover this skill, or be able to invoke it themselves.';
+  const LINE = 'Model invocation disabled';
+  const ITEM = 'Disable model invocation';
+  const DMI_ROWS = [
+    {
+      name: 'deploy',
+      kind: 'compiled',
+      status: 'public',
+      disableModelInvocation: 'off',
+    },
+    {
+      name: 'release',
+      kind: 'compiled',
+      status: 'public',
+      disableModelInvocation: 'on',
+    },
+    {
+      name: 'triage',
+      kind: 'compiled',
+      status: 'public',
+      disableModelInvocation: 'locked',
+    },
+    { name: 'gates', kind: 'compiled', status: 'internal' },
+    {
+      name: 'dev-servers',
+      kind: 'compiled',
+      status: 'internal',
+      base: 'acme-base',
+    },
+  ];
+  const applied = {
+    names: ['deploy'],
+    on: true,
+    applied: true,
+    warnings: [] as string[],
+  };
+
+  const row = (name: string) => screen.getByTestId(`surface-row-${name}`);
+  const gear = (name: string) =>
+    screen.queryByTestId(`surface-settings-${name}`);
+
+  async function renderRows(rows: unknown[] = DMI_ROWS) {
+    const view = renderSurfaceTab(rows);
+    await screen.findByTestId('surface-row-deploy');
+    return view;
+  }
+
+  async function openMenu(name: string) {
+    await userEvent.click(gear(name)!);
+    return screen.findByRole('menuitem', { name: ITEM });
+  }
+
+  function rereadWith(name: string, over: Record<string, unknown>) {
+    surfaceGet.mockResolvedValue(
+      ok({
+        pack: 'demo',
+        packDir: '/p',
+        rows: DMI_ROWS.map(r => (r.name === name ? { ...r, ...over } : r)),
+      })
+    );
+  }
+
+  it('an off row is one line with a gear', async () => {
+    await renderRows();
+    expect(row('deploy')).not.toHaveTextContent(LINE);
+    expect(gear('deploy')).toBeInTheDocument();
+  });
+
+  it('an on row names it on a second line', async () => {
+    await renderRows();
+    expect(row('release')).toHaveTextContent(LINE);
+    expect(row('release')).not.toHaveTextContent('Set by the pack');
+    expect(gear('release')).toBeInTheDocument();
+  });
+
+  it('a locked row names who set it', async () => {
+    await renderRows();
+    expect(row('triage')).toHaveTextContent(`${LINE}Set by the pack`);
+    expect(gear('triage')).toBeInTheDocument();
+  });
+
+  it('a row without the field has no gear and no second line', async () => {
+    await renderRows();
+    await openGroup('base');
+    for (const name of ['gates', 'dev-servers']) {
+      expect(gear(name)).not.toBeInTheDocument();
+      expect(row(name)).not.toHaveTextContent(LINE);
+    }
+  });
+
+  it('leaves the legend alone', async () => {
+    await renderRows();
+    expect(screen.getByTestId('surface-switch-key')).toHaveTextContent(
+      "OnIn agents' skill listOffReached only through another skill"
+    );
+  });
+
+  it('the info icon explains it, by pointer and by keyboard', async () => {
+    await renderRows();
+    const info = within(row('release')).getByRole('img', { name: INFO });
+
+    await hoverMeaning(info, INFO);
+
+    act(() => info.focus());
+    expect(info).toHaveFocus();
+    expect(await screen.findByText(INFO)).toBeInTheDocument();
+  });
+
+  it('turns it on from an off row, posting at once and closing the menu', async () => {
+    await renderRows();
+    modelInvocationPost.mockResolvedValue(ok(applied));
+
+    await userEvent.click(await openMenu('deploy'));
+
+    expect(modelInvocationPost).toHaveBeenCalledWith({
+      json: { pack: 'demo', name: 'deploy', on: true },
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole('menuitem', { name: ITEM })).toBeNull()
+    );
+    expect(screen.getByText('Nothing staged')).toBeInTheDocument();
+  });
+
+  it('turns it off from an on row, whose item carries the check', async () => {
+    await renderRows();
+    modelInvocationPost.mockResolvedValue(
+      ok({ ...applied, names: ['release'], on: false })
+    );
+
+    const item = await openMenu('release');
+    expect(within(item).getByTestId('dmi-check')).toBeInTheDocument();
+    await userEvent.click(item);
+
+    expect(modelInvocationPost).toHaveBeenCalledWith({
+      json: { pack: 'demo', name: 'release', on: false },
+    });
+  });
+
+  it('an off row keeps an empty check slot', async () => {
+    await renderRows();
+    const item = await openMenu('deploy');
+    expect(within(item).getByTestId('dmi-slot')).toBeInTheDocument();
+    expect(within(item).queryByTestId('dmi-check')).toBeNull();
+    expect(within(item).queryByTestId('dmi-lock')).toBeNull();
+  });
+
+  it('a locked row disables the item, with a lock in its slot', async () => {
+    await renderRows();
+    const item = await openMenu('triage');
+
+    expect(item).toBeDisabled();
+    expect(within(item).getByTestId('dmi-lock')).toBeInTheDocument();
+    await userEvent.click(item, { pointerEventsCheck: 0 });
+    expect(modelInvocationPost).not.toHaveBeenCalled();
+  });
+
+  it('re-reads the rows after a toggle, and the line follows', async () => {
+    await renderRows();
+    modelInvocationPost.mockResolvedValue(ok(applied));
+    rereadWith('deploy', { disableModelInvocation: 'on' });
+
+    await userEvent.click(await openMenu('deploy'));
+
+    await waitFor(() => expect(row('deploy')).toHaveTextContent(LINE));
+  });
+
+  it('a toggle keeps what is staged', async () => {
+    await renderRows();
+    await userEvent.click(screen.getByRole('switch', { name: /^triage$/ }));
+    modelInvocationPost.mockResolvedValue(ok(applied));
+    rereadWith('deploy', { disableModelInvocation: 'on' });
+
+    await userEvent.click(await openMenu('deploy'));
+
+    await waitFor(() => expect(row('deploy')).toHaveTextContent(LINE));
+    expect(screen.getByText('1 change staged')).toBeInTheDocument();
+  });
+
+  it('a row staged off still reads the on-disk field, until Apply lands', async () => {
+    await renderRows();
+    await userEvent.click(screen.getByRole('switch', { name: /^release$/ }));
+
+    expect(row('release')).toHaveTextContent(LINE);
+    expect(gear('release')).toBeInTheDocument();
+
+    surfaceApplyPost.mockResolvedValue(
+      ok({ pack: 'demo', steps: [], rows: [] })
+    );
+    rereadWith('release', {
+      status: 'internal',
+      disableModelInvocation: undefined,
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => expect(gear('release')).not.toBeInTheDocument());
+    expect(row('release')).not.toHaveTextContent(LINE);
+  });
+
+  it('applied: false says the choice did not land, naming the warning', async () => {
+    await renderRows();
+    modelInvocationPost.mockResolvedValue(
+      ok({
+        ...applied,
+        applied: false,
+        warnings: ['deploy: the installed copy is read-only'],
+      })
+    );
+
+    await userEvent.click(await openMenu('deploy'));
+
+    expect(
+      await screen.findByText(/the installed copy is read-only/)
+    ).toBeInTheDocument();
+  });
+
+  it('a refusal from rt shows its words', async () => {
+    await renderRows();
+    modelInvocationPost.mockResolvedValue(
+      ok({ ok: false, error: 'deploy is an internal skill' })
+    );
+    await userEvent.click(await openMenu('deploy'));
+    expect(
+      await screen.findByText('deploy is an internal skill')
+    ).toBeInTheDocument();
+  });
+
+  it('a failed post shows the server error', async () => {
+    await renderRows();
+    modelInvocationPost.mockResolvedValue(
+      err(502, 'the design fixture has no answer')
+    );
+    await userEvent.click(await openMenu('deploy'));
+    expect(
+      await screen.findByText('the design fixture has no answer')
+    ).toBeInTheDocument();
+  });
+
+  it('does not count as a write to the pack', async () => {
+    const { queryClient } = await renderRows();
+    let finish!: (value: unknown) => void;
+    modelInvocationPost.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+
+    await userEvent.click(await openMenu('deploy'));
+
+    await waitFor(() => expect(queryClient.isMutating()).toBe(1));
+    expect(
+      queryClient.isMutating({ mutationKey: skillsWriteKey('demo') })
+    ).toBe(0);
+    await act(async () => finish(ok(applied)));
   });
 });

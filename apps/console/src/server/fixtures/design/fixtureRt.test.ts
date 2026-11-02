@@ -498,7 +498,12 @@ describe('the org base scenarios', () => {
 
   it('the other scenarios keep refusing surface', async () => {
     for (const scenario of SCENARIOS) {
-      if (scenario === 'org-base' || scenario === 'org-base-drift') continue;
+      if (
+        scenario === 'org-base' ||
+        scenario === 'org-base-drift' ||
+        scenario === 'disable-model-invocation'
+      )
+        continue;
       const result = await fixtureRt(scenario).runRt([
         'skills',
         'surface',
@@ -1064,5 +1069,41 @@ describe('server wiring', () => {
     const res = await routes.request('/api/skills/composition?pack=acme');
     expect(await res.json()).toEqual(served);
     expect(live).not.toHaveBeenCalled();
+  });
+});
+
+describe('the disable-model-invocation scenario', () => {
+  const rt = () => fixtureRt('disable-model-invocation');
+
+  it('lists rows showing on, off, locked and the field absent', async () => {
+    const result = await rt().runRt([
+      'skills',
+      'surface',
+      'list',
+      '--pack',
+      'acme',
+      '--json',
+    ]);
+    const { rows } = JSON.parse(result.stdout) as {
+      rows: { disableModelInvocation?: string }[];
+    };
+    expect(new Set(rows.map(r => r.disableModelInvocation))).toEqual(
+      new Set(['on', 'off', 'locked', undefined])
+    );
+  });
+
+  it('refuses a toggle, as every fixture write', async () => {
+    const result = await rt().runRt([
+      'skills',
+      'disable-model-invocation',
+      'set',
+      'ship',
+      '--on',
+      '--pack',
+      'acme',
+      '--json',
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
   });
 });

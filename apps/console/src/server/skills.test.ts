@@ -1911,6 +1911,10 @@ describe('write routes', () => {
     ['/api/skills/sync', { pack: 'demo' }],
     ['/api/skills/discard', { pack: 'demo', expect: 'a'.repeat(64) }],
     ['/api/skills/compile', { pack: 'demo' }],
+    [
+      '/api/skills/disable-model-invocation',
+      { pack: 'demo', name: 'watch-ci', on: true },
+    ],
   ];
 
   it.each(writes)(
@@ -3446,5 +3450,142 @@ describe('skills diff route: the working tree', () => {
 
     expect(res.status).toBe(400);
     expect(git.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('skills disable-model-invocation route', () => {
+  const PATH = '/api/skills/disable-model-invocation';
+  const applied = { names: ['ship'], on: true, applied: true, warnings: [] };
+
+  it.each<[string, Record<string, unknown>]>([
+    ['a name shaped like a flag', { pack: 'demo', name: '--on', on: true }],
+    ['a name with a path in it', { pack: 'demo', name: '../ship', on: true }],
+    ['no name', { pack: 'demo', on: true }],
+    ['no pack', { name: 'ship', on: true }],
+    ['a pack shaped like a flag', { pack: '--json', name: 'ship', on: true }],
+    ['an on that is not a boolean', { pack: 'demo', name: 'ship', on: 'yes' }],
+    ['no on', { pack: 'demo', name: 'ship' }],
+  ])('%s gives 400 and spawns nothing', async (_, body) => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, PATH, body);
+
+    expect(res.status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [true, '--on'],
+    [false, '--off'],
+  ])('on: %s runs the verb with %s and returns its JSON', async (on, flag) => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify(applied),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, PATH, { pack: 'demo', name: 'ship', on });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual(applied);
+    expect(rt.calls).toEqual([
+      [
+        'skills',
+        'disable-model-invocation',
+        'set',
+        'ship',
+        flag,
+        '--pack',
+        'demo',
+        '--json',
+      ],
+    ]);
+  });
+
+  it('never answers a repeat from the read cache', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify(applied),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+    const body = { pack: 'demo', name: 'ship', on: true };
+
+    await postJson(app, PATH, body);
+    await postJson(app, PATH, body);
+
+    expect(rt.run).toHaveBeenCalledTimes(2);
+  });
+
+  it.each<[string, RtResult | Error, number]>([
+    ['an answer', { code: 0, stdout: '{}', stderr: '' }, 200],
+    ['a refusal', { code: 2, stdout: '{"ok":false}', stderr: '' }, 200],
+    ['no output', { code: 1, stdout: '', stderr: 'no such pack' }, 502],
+    ['a thrown spawn', new Error('killed'), 502],
+  ])('drops the cached reads after %s', async (_, outcome, status) => {
+    let lists = 0;
+    const run = vi.fn(async (argv: string[]) => {
+      if (isList(argv)) {
+        lists += 1;
+        return {
+          code: 0,
+          stdout: surfaceList([
+            { name: 'ship', kind: 'compiled', status: 'public' },
+          ]),
+          stderr: '',
+        };
+      }
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
+    });
+    const app = mountSkills(new Hono(), run);
+
+    await app.request('/api/skills/surface?pack=demo');
+    const res = await postJson(app, PATH, {
+      pack: 'demo',
+      name: 'ship',
+      on: true,
+    });
+    await app.request('/api/skills/surface?pack=demo');
+
+    expect(res.status).toBe(status);
+    expect(lists).toBe(2);
+  });
+
+  it('passes applied: false through with 200', async () => {
+    const report = {
+      names: ['ship'],
+      on: true,
+      applied: false,
+      warnings: ['acme: not installed'],
+    };
+    const rt = fakeRt({ code: 0, stdout: JSON.stringify(report), stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, PATH, {
+      pack: 'demo',
+      name: 'ship',
+      on: true,
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual(report);
+  });
+
+  it('a missing rt is 503', async () => {
+    const run = vi.fn(async () => {
+      throw new RtNotFoundError(['rt']);
+    });
+    const app = mountSkills(new Hono(), run);
+
+    const res = await postJson(app, PATH, {
+      pack: 'demo',
+      name: 'ship',
+      on: true,
+    });
+
+    expect(res.status).toBe(503);
   });
 });
