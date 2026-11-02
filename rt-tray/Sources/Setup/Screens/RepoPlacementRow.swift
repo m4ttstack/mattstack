@@ -125,17 +125,9 @@ struct RepoPlacementRow: View {
             Spacer(minLength: 8)
             if isChecking { FastSpinner() }
             if !asking {
-                Text(shown == RepoPlacementState.clone ? Self.cloneAnswer : Self.checkoutAnswer)
-                    .font(.system(size: 11, weight: FastTheme.weight(css: .medium))).foregroundColor(FastTheme.textSecondary)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(FastTheme.divider))
-                    .fixedSize()
-                Button("Change") { asking = true }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: FastTheme.weight(css: .medium))).foregroundColor(FastTheme.accent)
-                    .fixedSize()
+                FastAnswerChip(label: shown == RepoPlacementState.clone ? Self.cloneAnswer : Self.checkoutAnswer,
+                               changeID: ids.segment(row.id) + ".change") { asking = true }
                     .disabled(isChecking)
-                    .accessibilityIdentifier(ids.segment(row.id) + ".change")
             }
         }
     }
@@ -146,16 +138,16 @@ struct RepoPlacementRow: View {
     private var choiceTiles: some View {
         HStack(spacing: 8) {
             Button { chooseClone() } label: {
-                RepoChoiceTile(symbol: "arrow.down.circle", title: "Clone it fresh",
+                FastChoiceTile(symbol: "arrow.down.circle", title: "Clone it fresh",
                                detail: action.clonePath.map { "Into \(FormRowView.displayPath($0))" } ?? "Pick where it goes")
             }
             .accessibilityIdentifier(ids.segment(row.id) + ".clone")
             Button { chooseCheckout() } label: {
-                RepoChoiceTile(symbol: "folder", title: "Already on this Mac", detail: "Point to your checkout")
+                FastChoiceTile(symbol: "folder", title: "Already on this Mac", detail: "Point to your checkout")
             }
             .accessibilityIdentifier(ids.segment(row.id) + ".checkout")
         }
-        .buttonStyle(RepoChoiceTileStyle())
+        .buttonStyle(FastChoiceTileStyle())
         .disabled(isChecking)
     }
 
@@ -356,51 +348,3 @@ struct RepoPlacementRow: View {
     }
 }
 
-/// One answer to "where does this repo live": a symbol, the answer and a line on what it means.
-private struct RepoChoiceTile: View {
-    let symbol: String
-    let title: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 7) {
-                Image(systemName: symbol).font(.system(size: 12))
-                Text(title).font(.system(size: 12, weight: FastTheme.weight(css: .semibold)))
-            }
-            .foregroundColor(FastTheme.textPrimary)
-            Text(detail).font(.system(size: 11)).foregroundColor(FastTheme.textSecondary)
-                .lineLimit(1).truncationMode(.middle)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12).padding(.vertical, 11)
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-}
-
-/// The path cards' hover: the outline lifts and the fill brightens a touch; nothing reads as picked.
-private struct RepoChoiceTileStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        RepoChoiceTileFrame(label: configuration.label, pressed: configuration.isPressed)
-    }
-}
-
-private struct RepoChoiceTileFrame<Label: View>: View {
-    let label: Label
-    let pressed: Bool
-    @State private var hovered = false
-    @Environment(\.isEnabled) private var enabled
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        let lifted = enabled && (hovered || pressed)
-        label
-            .background {
-                shape.fill(FastTheme.fieldFill)
-                if lifted { shape.fill(Color.white.opacity(0.03)) }
-            }
-            .overlay(shape.strokeBorder(lifted ? FastTheme.outlineHover : FastTheme.outline, lineWidth: 1))
-            .opacity(enabled ? 1 : 0.5)
-            .onHover { hovered = $0 }
-    }
-}

@@ -68,8 +68,10 @@ public struct ChooseOption: Codable, Equatable, Sendable {
     public var label: String
     public var detail: String
     public var sample: String?
-    public init(id: String, label: String, detail: String, sample: String? = nil) {
-        self.id = id; self.label = label; self.detail = detail; self.sample = sample
+    /// The choice gives something up: its detail reads in the warning colour.
+    public var warn: Bool?
+    public init(id: String, label: String, detail: String, sample: String? = nil, warn: Bool? = nil) {
+        self.id = id; self.label = label; self.detail = detail; self.sample = sample; self.warn = warn
     }
 }
 

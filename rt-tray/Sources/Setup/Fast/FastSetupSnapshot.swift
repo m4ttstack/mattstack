@@ -315,7 +315,9 @@ enum FastSetupSnapshot {
         return [
             ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
             ("this-mac-as-mock", page([T.mockWidgetsFound, T.mockApiClone, T.backupLocal], ready: true)),
-            ("this-mac-unanswered", page([T.widgetsUnanswered, T.apiUnanswered, T.backupLocal], ready: false)),
+            ("this-mac-unanswered", page([T.widgetsUnanswered, T.apiUnanswered, T.backupUnanswered], ready: false)),
+            ("this-mac-backup-on-mac", page([T.boardFound, T.widgetsClone, T.backupOnMac], ready: true)),
+            ("this-mac-backup-github", page([T.boardFound, T.widgetsClone, T.backupGitHub, T.remoteCreates], ready: true)),
             ("this-mac-found-and-unanswered", page([T.boardFound, T.widgetsUnanswered, T.backupLocal], ready: false)),
             ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupSolo], ready: false)),
@@ -685,6 +687,20 @@ enum FastSetupSnapshot {
         static let repoRootLongPath = FormRow(id: "repos.root", title: "Repos go in", subtext: "Where new clones go", state: .done,
                                               detail: "\(home)/Library/Mobile Documents/com~apple~CloudDocs/Projects/clients/acme/engineering/checkouts/team-widgets",
                                               action: RowAction(type: .chooseFolder, label: "Choose…", startAt: "\(home)/Documents/GitHub"))
+        private static func backupTiles(_ selected: String?) -> RowAction {
+            RowAction(type: .choose, label: "Change", verb: ["setup", "home-backup"], options: [
+                ChooseOption(id: "remote", label: "Store in a GitHub repo", detail: "Private. A new Mac restores from it"),
+                ChooseOption(id: "local", label: "Store on your Mac", detail: "Your settings won't be backed up", warn: true),
+            ], selected: selected)
+        }
+        static let backupUnanswered = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .todo,
+                                              detail: "", action: backupTiles(nil))
+        static let backupOnMac = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
+                                         detail: "Store on your Mac", action: backupTiles("local"))
+        static let backupGitHub = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
+                                          detail: "Store in a GitHub repo", action: backupTiles("remote"))
+        static let remoteCreates = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .done,
+                                           detail: "rt creates a private GitHub repo when setup runs", action: nil)
         static let backupLocal = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
                                          detail: "Keep on this Mac", action: backupAction("local"))
         static let backupSolo = FormRow(id: "settings.backup", title: "Back up home", subtext: settingsSubtext, state: .done,

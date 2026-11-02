@@ -625,23 +625,25 @@ function repoRootRow(): FormRow {
 }
 
 type Backup = { mode: "local" } | { mode: "remote"; url?: string; create?: boolean };
-function backup(): Backup {
+function backup(): Backup | null {
   const raw = textGet("home-backup");
-  return raw ? (JSON.parse(raw) as Backup) : { mode: "local" };
+  return raw ? (JSON.parse(raw) as Backup) : null;
 }
 
 function backupRow(path: FormPath | null): FormRow {
   const c = FORM_COPY.thisMac.settings;
-  const selected = backup().mode;
-  return formRow({ id: "settings.backup", title: path === "solo" ? c.soloTitle : c.title, subtext: c.subtext, state: "done", detail: c[selected],
-                   action: { type: "choose", label: c.change, verb: ["setup", "home-backup"], selected,
-                             options: [{ id: "local", label: c.local, detail: "" }, { id: "remote", label: c.remote, detail: "" }] } });
+  const selected = backup()?.mode;
+  return formRow({ id: "settings.backup", title: path === "solo" ? c.soloTitle : c.title, subtext: c.subtext, state: selected ? "done" : "todo",
+                   detail: selected ? c[selected] : "",
+                   action: { type: "choose", label: c.change, verb: ["setup", "home-backup"], ...(selected ? { selected } : {}),
+                             options: [{ id: "remote", label: c.remote, detail: c.remoteDetail },
+                                       { id: "local", label: c.local, detail: c.localDetail, warn: true }] } });
 }
 
 /** Choosing remote stages nothing, so the row stays open until a url or a create is staged. */
 function remoteRow(): FormRow | null {
   const b = backup();
-  if (b.mode !== "remote") return null;
+  if (b?.mode !== "remote") return null;
   const c = FORM_COPY.thisMac.remote;
   const base = { id: "settings.remote", title: c.title, subtext: c.subtext };
   if (b.url) return formRow({ ...base, state: "done", detail: b.url, action: null });
@@ -756,7 +758,9 @@ else if (a0 === "setup" && a1 === "doppler" && a2 === "connect") {
 }
 else if (a0 === "setup" && a1 === "home-backup") {
   if (a2 !== "local" && a2 !== "remote") fail("usage", `${a2 ?? "Nothing"} is not a place for your settings. Use local or remote`);
-  const homeBackup: Backup = a2 === "local" ? { mode: "local" } : { ...backup(), mode: "remote" };
+  // The stub plays a Mac signed in to gh, so picking GitHub stages the create with nothing to fill in.
+  const prior = backup();
+  const homeBackup: Backup = a2 === "local" ? { mode: "local" } : prior?.mode === "remote" ? prior : { mode: "remote", create: true };
   textSet("home-backup", JSON.stringify(homeBackup));
   emit({ homeBackup });
 }

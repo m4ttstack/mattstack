@@ -1096,7 +1096,11 @@ export async function setupHomeBackup(args: string[], _ctx: CommandContext = {},
     const err = new UserActionableError("usage", `${choice ?? "Nothing"} is not a place for your settings. Use local or remote`);
     return exitWithUserError(err, json, sinkOf(deps), usageFailure("Keep your settings on this Mac or in a remote repo?", HOME_BACKUP_USAGE));
   }
-  const homeBackup = writeHomeBackup(deps.probes, choice);
+  let homeBackup = writeHomeBackup(deps.probes, choice);
+  // Signed in to gh, GitHub needs nothing more from the member: rt creates the private repo when setup runs.
+  if (homeBackup.mode === "remote" && homeBackup.url === undefined && !homeBackup.create && (await deps.probes.exec(["gh", "auth", "status"])).code === 0) {
+    homeBackup = stageHomeRemote(deps.probes, { create: true });
+  }
   if (json) deps.json(envelope({ homeBackup }, deps.probes.now()));
   else out.print(out.line("done", choice === "local" ? "Your settings stay on this Mac" : "Your settings go to a remote repo"));
 }

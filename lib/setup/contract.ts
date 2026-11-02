@@ -22,6 +22,8 @@ export interface ChooseOption {
   label: string;
   detail: string;
   sample?: string;
+  // The choice gives something up: the app draws its detail in the warning colour.
+  warn?: boolean;
 }
 
 export type Action =

@@ -212,7 +212,8 @@ struct FormRowView: View {
                 choice(action, options)
                 if let line = progressLine { inlineProgress(line) }
             }
-            subtextHint
+            // Tiles carry their own lines, so rt's longer subtext would only repeat them.
+            if !FormRowChoice.tiles(options) { subtextHint }
         } else if let action = row.action, FormRowFields.collects(action) {
             if row.state == .done && progressLine == nil { doneMark(size: 13, iconSize: 14, spacing: 8) }
             FormRowFields(row: row, action: action, large: style == .stacked, onAction: onAction)
@@ -509,6 +510,13 @@ struct FormRowChoice: View {
     let error: String?
     let onAction: FormRowPerform
     @State private var shown: String
+    /// Tiles ask until rt has an answer, and again after Change.
+    @State private var asking: Bool
+
+    /// Options that each say what they mean draw as tiles (setup.pen QB1); bare labels draw as a segment.
+    static func tiles(_ options: [ChooseOption]) -> Bool {
+        options.allSatisfy { !$0.detail.isEmpty }
+    }
 
     /// Only a plain pick of two fits a segment; anything wider keeps rt's own sheet.
     static func segments(_ action: RowAction) -> [ChooseOption]? {
@@ -520,14 +528,53 @@ struct FormRowChoice: View {
         self.row = row; self.action = action; self.options = options
         self.disabled = disabled; self.error = error; self.onAction = onAction
         _shown = State(initialValue: action.selected ?? "")
+        _asking = State(initialValue: action.selected == nil)
     }
 
     var body: some View {
+        if Self.tiles(options) { tileBody } else { segmentBody }
+    }
+
+    private func pick(_ id: String) {
+        shown = id
+        asking = false
+        if id != action.selected { onAction(row, ["id": id], nil) }
+    }
+
+    @ViewBuilder private var tileBody: some View {
+        let picked = options.first { $0.id == shown }
+        VStack(alignment: .leading, spacing: 6) {
+            if asking || picked == nil {
+                HStack(spacing: 8) {
+                    ForEach(options, id: \.id) { option in
+                        Button { pick(option.id) } label: {
+                            FastChoiceTile(symbol: nil, title: option.label, detail: option.detail, warn: option.warn == true)
+                        }
+                        .accessibilityIdentifier(AXID.fastRowAction(row.id) + "." + option.id)
+                    }
+                }
+                .buttonStyle(FastChoiceTileStyle())
+                .disabled(disabled)
+            } else if let picked {
+                FastAnswerChip(label: picked.label, changeID: AXID.fastRowAction(row.id) + ".change") { asking = true }
+                    .disabled(disabled)
+                if picked.warn == true {
+                    FastHint(picked.detail, symbol: "exclamationmark.triangle", tint: FastTheme.warning, textWidth: FormRowStyle.hintWidth)
+                }
+            }
+        }
+        .onChange(of: action.selected) { _, selected in
+            if let selected { shown = selected; asking = false }
+        }
+        .onChange(of: error) { _, error in if error != nil { shown = action.selected ?? ""; asking = action.selected == nil } }
+    }
+
+    private var segmentBody: some View {
         let selection = Binding(get: { shown }, set: { picked in
             shown = picked
             if picked != action.selected { onAction(row, ["id": picked], nil) }
         })
-        FastSegmented(options: options.map { (id: $0.id, label: $0.label) }, selection: selection)
+        return FastSegmented(options: options.map { (id: $0.id, label: $0.label) }, selection: selection)
             .disabled(disabled)
             // Scripts read the row by a radio group's role, which the drawn buttons do not have.
             .accessibilityRepresentation {

@@ -160,8 +160,10 @@ export const FORM_COPY = {
     settings: {
       title: "Your settings",
       soloTitle: "Back up home",
-      local: "Keep on this Mac",
-      remote: "Store in a remote repo",
+      local: "Store on your Mac",
+      remote: "Store in a GitHub repo",
+      localDetail: "Your settings won't be backed up",
+      remoteDetail: "Private. A new Mac restores from it",
       subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later",
       change: "Change",
     },
@@ -687,22 +689,23 @@ function repoRootRow(i: ThisMacInputs): FormRow {
 
 function backupRow(i: ThisMacInputs): FormRow {
   const c = FORM_COPY.thisMac.settings;
-  const selected = i.backup?.mode ?? "local";
+  // Unanswered until the member picks: a silent default of local is how every Mac so far skipped the backup.
+  const selected = i.backup?.mode;
   return {
     id: "settings.backup",
     title: i.path === "solo" ? c.soloTitle : c.title,
     subtext: c.subtext,
-    state: "done",
-    detail: c[selected],
+    state: selected ? "done" : "todo",
+    detail: selected ? c[selected] : "",
     action: {
       type: "choose",
       label: c.change,
       verb: ["setup", "home-backup"],
       options: [
-        { id: "local", label: c.local, detail: "" },
-        { id: "remote", label: c.remote, detail: "" },
+        { id: "remote", label: c.remote, detail: c.remoteDetail },
+        { id: "local", label: c.local, detail: c.localDetail, warn: true },
       ],
-      selected,
+      ...(selected ? { selected } : {}),
     },
     waiting: null,
     watch: false,
