@@ -34,7 +34,7 @@ START=$(date +%s)
 # first. An older rt falls through to the run listing, which is not JSON with
 # ok:true, so the candidates come from a directory scan instead: run dirs
 # written in the last 48 hours, since a snapshot costs a bun start-up each and
-# the budget below is three seconds in total.
+# the budget below is 25 seconds in total.
 CANDIDATES="$("$RT" runs find --session "$SESSION" --running 2>/dev/null | python3 -c '
 import json, sys
 try:
@@ -54,7 +54,7 @@ fi
 
 BEST=""
 for DB in $CANDIDATES; do
-  [ $(( $(date +%s) - START )) -lt 3 ] || break
+  [ $(( $(date +%s) - START )) -lt 25 ] || break
   [ -f "$DB" ] || continue
   SNAP="$(RT_RUN_DB="$DB" "$RT" runs snapshot 2>/dev/null)" || continue
   LINE="$(printf '%s' "$SNAP" | python3 -c '
@@ -109,9 +109,9 @@ import calendar, json, os, re, sys, time
 MAX_AGE_MIN = 120
 MAX_BYTES = int(os.environ.get("RT_STOP_HOOK_MAX_BYTES") or 64 * 1024 * 1024)
 SCAN_MS = int(os.environ.get("RT_STOP_HOOK_SCAN_MS") or 1500)
-# hooks.json kills the hook at 5 s and Claude Code then ignores it, so the
+# hooks.json kills the hook at 30 s and Claude Code then ignores it, so the
 # scan must finish with margin left for python to exit.
-HOOK_BUDGET_S = 4.3
+HOOK_BUDGET_S = 28
 path = sys.argv[1]
 remaining = HOOK_BUDGET_S - (time.time() - int(sys.argv[2]))
 budget = min(SCAN_MS / 1000.0, remaining)

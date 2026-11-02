@@ -13,6 +13,7 @@ mkdir -p "$SANDBOX/bin" "$SANDBOX/home" "$SANDBOX/runs"
 cat > "$SANDBOX/bin/rt" <<'STUB'
 #!/usr/bin/env bash
 [ -f "${RT_STUB_USAGE:-/nonexistent}" ] && { echo "usage: rt runs ..."; exit 2; }
+[ -n "${RT_STUB_SLEEP:-}" ] && sleep "$RT_STUB_SLEEP"
 if [ "$1" = "runs" ] && [ "$2" = "find" ]; then
   # With the find fixture present, behave like rt >= PR 175; without it,
   # behave like an older rt whose dispatcher falls through to the listing.
@@ -45,7 +46,7 @@ EOF
 
 run() { # stdin-json -> "exit=<code> err=<stderr first line> out=<stdout>"
   local out err code
-  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"} ${RT_STUB_FIND:+RT_STUB_FIND="$RT_STUB_FIND"} ${RT_STOP_HOOK_MAX_BYTES:+RT_STOP_HOOK_MAX_BYTES="$RT_STOP_HOOK_MAX_BYTES"} ${RT_STOP_HOOK_SCAN_MS:+RT_STOP_HOOK_SCAN_MS="$RT_STOP_HOOK_SCAN_MS"} sh "$HOOK" 2>"$SANDBOX/err")"
+  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_SLEEP:+RT_STUB_SLEEP="$RT_STUB_SLEEP"} ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"}${RT_STUB_FIND:+RT_STUB_FIND="$RT_STUB_FIND"} ${RT_STOP_HOOK_MAX_BYTES:+RT_STOP_HOOK_MAX_BYTES="$RT_STOP_HOOK_MAX_BYTES"} ${RT_STOP_HOOK_SCAN_MS:+RT_STOP_HOOK_SCAN_MS="$RT_STOP_HOOK_SCAN_MS"} sh "$HOOK" 2>"$SANDBOX/err")"
   code=$?
   err="$(head -1 "$SANDBOX/err" 2>/dev/null)"
   printf 'exit=%s err=%s out=%s' "$code" "$err" "$out"
@@ -90,6 +91,20 @@ case "$r" in *"Five exits"*) echo "ok   message lists the exits";; *) echo "FAIL
 case "$r" in *"gate_ask"*"run_hold"*"run_close"*) echo "ok   message names the gate and run tools";; *) echo "FAIL message names the gate and run tools"; fails=$((fails+1));; esac
 case "$r" in *"field set"*) echo "FAIL message never has the agent hand-write a run field"; fails=$((fails+1));; *) echo "ok   message never has the agent hand-write a run field";; esac
 case "$r" in *"out=") echo "ok   no stdout on block";; *) echo "FAIL no stdout on block"; fails=$((fails+1));; esac
+
+# A slow machine must not let a prose stop through: each rt call here takes 4 s.
+r="$(RT_STUB_SLEEP=4 run "$STOP")"
+case "$r" in exit=2*) echo "ok   slow rt still exits 2";; *) echo "FAIL slow rt still exits 2"; echo "       got : $r"; fails=$((fails+1));; esac
+
+# Claude Code ignores a hook it kills, so its limit must outlast the hook's budgets.
+limit="$(python3 -c 'import json, sys
+for group in json.load(open(sys.argv[1]))["hooks"]["Stop"]:
+    for h in group["hooks"]:
+        if "pipeline-gate-stop" in h["command"]:
+            print(h["timeout"])' "$DIR/../hooks.json")"
+scan_budget="$(sed -n 's/^HOOK_BUDGET_S = \([0-9]*\).*/\1/p' "$HOOK")"
+check "hooks.json limit outlasts the scan budget" "yes" "$([ "${limit:-0}" -gt "${scan_budget:-99}" ] && echo yes || echo no)"
+check "hook allows a slow stop at least 30 s" "yes" "$([ "${limit:-0}" -ge 30 ] && echo yes || echo no)"
 
 # stop_hook_active does not open a side door.
 r="$(run "$STOP_ACTIVE")"
