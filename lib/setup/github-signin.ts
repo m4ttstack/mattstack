@@ -9,7 +9,7 @@ import { forgeTokenLookupReal, tokenLookupRemoteForHost, tokenOrNull } from "../
 import type { Probes } from "./probes.ts";
 import { pidAlive } from "./update-lock.ts";
 
-export const GITHUB_OAUTH_CLIENT_ID: string = "";
+export const GITHUB_OAUTH_CLIENT_ID: string = "Ov23liUj7JCOtfF42rGD";
 
 const DEVICE_CODE_URL = "https://github.com/login/device/code";
 const TOKEN_URL = "https://github.com/login/oauth/access_token";

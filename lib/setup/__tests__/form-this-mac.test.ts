@@ -365,11 +365,11 @@ describe("the form reads the GitHub sign-in", () => {
     expect(pick(none.sections.thisMac ?? [], "settings.remote").action).toMatchObject({ type: "run", verb: ["setup", "github", "sign-in"] });
   });
 
-  test("a token without repo scope, or none, is not ready", async () => {
+  test("a token without repo scope gets the URL form, and no token gets the sign-in", async () => {
     const narrow = await remoteOf({ mode: "remote" }, scopes("read:org"), async () => "tok");
     expect(narrow?.action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
     const none = await remoteOf({ mode: "remote" }, scopes("repo"), async () => null);
-    expect(none?.action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
+    expect(none?.action).toMatchObject({ type: "run", verb: ["setup", "github", "sign-in"] });
   });
 
   test("a live sign-in or a gh sign-in skips the store and the network", async () => {
