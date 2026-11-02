@@ -2464,6 +2464,13 @@ body {
   color: var(--text-3);
   cursor: pointer;
 }
+.tui-respond-rereview-row:hover {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--fill-accent) 10%, var(--card));
+}
+.tui-respond-rereview-row:active {
+  background: color-mix(in srgb, var(--fill-accent) 13%, var(--card));
+}
 .tui-respond-rereview-row > svg {
   flex-shrink: 0;
 }
