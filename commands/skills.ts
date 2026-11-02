@@ -27,7 +27,7 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
-import { applyEdits, findNodeAtLocation, getNodeValue, modify, parse as parseJsonc, parseTree, type ParseError } from "jsonc-parser";
+import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { registeredSkillRoots } from "../lib/skills/skill-roots.ts";
@@ -71,8 +71,7 @@ import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../li
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
 import { DISABLE_MODEL_INVOCATION_SETTING, neverDisabled, disableModelInvocationConfigDirs, disableModelInvocationHome, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../lib/skills/disable-model-invocation.ts";
 import { sourceSetsDisableModelInvocation } from "../lib/skills/disable-model-invocation-line.ts";
-import { userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
-import { setSetting } from "../lib/settings/write.ts";
+import { setSetting, userStoreUnreadableFor } from "../lib/settings/write.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -3769,23 +3768,6 @@ function disableModelInvocationPlugin(packDir: string, flags: SurfaceFlags, disc
   return pack?.marketplace ? { key: `${pack.name}@${pack.marketplace}` } : null;
 }
 
-/** The settings layer reads a broken store as empty, so a write or a reconcile over it would drop every other choice. */
-function disableModelInvocationStoreUnreadable(): boolean {
-  let raw: string;
-  try {
-    raw = readFileSync(userSettingsPath(), "utf8");
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code !== "ENOENT";
-  }
-  if (raw.trim() === "") return false;
-  const errors: ParseError[] = [];
-  const root = parseJsonc(raw, errors, { allowTrailingComma: true }) as Record<string, unknown> | undefined;
-  if (errors.length > 0 || typeof root !== "object" || root === null || Array.isArray(root)) return true;
-  const stored = root[DISABLE_MODEL_INVOCATION_SETTING];
-  if (stored === undefined) return false;
-  return typeof stored !== "object" || stored === null || Array.isArray(stored) || Object.values(stored).some((v) => !Array.isArray(v) || v.some((n) => typeof n !== "string"));
-}
-
 function disableModelInvocationEligible(row: SurfaceRow): boolean {
   return row.status === "public" && row.base === undefined && row.path !== undefined;
 }
@@ -3943,7 +3925,7 @@ async function runDisableModelInvocationSet(args: string[]): Promise<void> {
       const refusal = refuseDisableModelInvocationName(name, rows.find((r) => r.name === name), key);
       if (refusal) throw refusal;
     }
-    if (disableModelInvocationStoreUnreadable()) {
+    if (userStoreUnreadableFor(DISABLE_MODEL_INVOCATION_SETTING)) {
       throw disableModelInvocationRefusal("Your settings file could not be read", "Nothing was changed, so your other choices are safe. Fix the file, then try again.");
     }
 
