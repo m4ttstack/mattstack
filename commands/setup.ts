@@ -66,9 +66,8 @@ import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../l
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { appsRestartOwed, appsRestartStep, oweAppsRestart, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
-import { forgeTokenLookupReal, tokenOrNull } from "../lib/team/forge-token.ts";
-import { githubLoginIfCanCreateRepos } from "../lib/setup/github-signin.ts";
-import { GITHUB_HOST_REMOTE, assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
+import { createCapableGitHubToken, readStoredGitHubToken } from "../lib/setup/github-signin.ts";
+import { assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
@@ -1087,13 +1086,12 @@ export interface HomeBackupDeps {
 
 function realHomeBackupDeps(): HomeBackupDeps {
   const probes = createRealProbes();
-  return { probes, json: (v) => out.json(v), exit: process.exit, githubToken: async () => tokenOrNull(await forgeTokenLookupReal(probes, GITHUB_HOST_REMOTE)) };
+  return { probes, json: (v) => out.json(v), exit: process.exit, githubToken: () => readStoredGitHubToken(probes) };
 }
 
 async function canCreateGitHubRepo(deps: HomeBackupDeps): Promise<boolean> {
   if ((await deps.probes.exec(["gh", "auth", "status"])).code === 0) return true;
-  const token = await deps.githubToken();
-  return token !== null && (await githubLoginIfCanCreateRepos(deps.probes, token)) !== null;
+  return (await createCapableGitHubToken(deps.probes, deps.githubToken)) !== null;
 }
 
 const HOME_BACKUP_USAGE = "rt setup home-backup local|remote";

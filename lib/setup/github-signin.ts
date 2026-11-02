@@ -5,6 +5,7 @@
 
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
+import { forgeTokenLookupReal, tokenOrNull } from "../team/forge-token.ts";
 import type { Probes } from "./probes.ts";
 import { pidAlive } from "./update-lock.ts";
 
@@ -87,6 +88,19 @@ export async function pollDeviceToken(p: Pick<Probes, "fetch">, deviceCode: stri
     default:
       return { kind: "pending" };
   }
+}
+
+const TOKEN_LOOKUP_REMOTE = "https://github.com/mattstack/identity";
+
+/** rt's own stored GitHub token: stored first, then staged. */
+export async function readStoredGitHubToken(p: Probes): Promise<string | null> {
+  return tokenOrNull(await forgeTokenLookupReal(p, TOKEN_LOOKUP_REMOTE));
+}
+
+/** The token `readToken` yields when GitHub says it can create repos; a team forge token without `repo` scope reads as null. */
+export async function createCapableGitHubToken(p: Pick<Probes, "fetch">, readToken: () => Promise<string | null>): Promise<string | null> {
+  const stored = await readToken();
+  return stored !== null && (await githubLoginIfCanCreateRepos(p, stored)) !== null ? stored : null;
 }
 
 export async function githubLoginIfCanCreateRepos(p: Pick<Probes, "fetch">, token: string): Promise<string | null> {

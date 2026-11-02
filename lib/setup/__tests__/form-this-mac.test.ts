@@ -187,10 +187,15 @@ describe("thisMacRows", () => {
     expect(thisMacRows(inputs({ backup: { mode: "local" }, homeRemote: url })).some((x) => x.id === "settings.remote")).toBe(false);
   });
 
-  test("Create a private GitHub repo shows only with a gh sign-in", () => {
+  test("Create a private GitHub repo is a one-press run with a gh sign-in, else the URL form", () => {
     const remoteAction = (ghSignedIn: boolean) => pick(thisMacRows(inputs({ backup: { mode: "remote" }, ghSignedIn })), "settings.remote").action;
-    expect(remoteAction(true)).toMatchObject({ alternatives: [{ id: "create", label: "Create a private GitHub repo" }] });
-    expect(remoteAction(false)).not.toHaveProperty("alternatives");
+    expect(remoteAction(true)).toEqual({ type: "run", label: "Create a private GitHub repo", verb: ["setup", "home-backup", "remote"] });
+    expect(remoteAction(false)).toEqual({
+      type: "form",
+      label: "Use this repo",
+      verb: ["home", "remote", "set"],
+      fields: [{ name: "url", label: "Repo URL", secret: false, hint: "git@github.com:janedoe/mattstack-home.git" }],
+    });
   });
 
   test("solo asks where new clones go, starting at the found folder", () => {
@@ -297,6 +302,10 @@ describe("the remote repo row signs in to GitHub", () => {
     expect(remote({ githubSignIn: { ...live, outcome: "declined" } })).toMatchObject({ state: "todo", detail: "GitHub sign-in was declined. Sign in again" });
   });
 
+  test("an outcome record without a client id leaves the URL form", () => {
+    expect(remote({ githubClientId: "", githubSignIn: { ...live, outcome: "expired" } })).toMatchObject({ detail: "", action: { type: "form", verb: ["home", "remote", "set"] } });
+  });
+
   test("with a client id and nothing else the row offers Sign in to GitHub", () => {
     expect(remote({})).toMatchObject({
       state: "todo",
@@ -344,9 +353,31 @@ describe("the form reads the GitHub sign-in", () => {
 
   test("a token without repo scope, or none, is not ready", async () => {
     const narrow = await remoteOf({ mode: "remote" }, scopes("read:org"), async () => "tok");
-    expect(narrow?.action).not.toMatchObject({ verb: ["setup", "home-backup", "remote"] });
+    expect(narrow?.action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
     const none = await remoteOf({ mode: "remote" }, scopes("repo"), async () => null);
-    expect(none?.action).not.toMatchObject({ verb: ["setup", "home-backup", "remote"] });
+    expect(none?.action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
+  });
+
+  test("a live sign-in or a gh sign-in skips the store and the network", async () => {
+    let reads = 0;
+    const token = async () => {
+      reads++;
+      return "tok";
+    };
+    const live = { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-10-30T10:10:00.000Z", pid: null };
+    const files = { ...stateFile({ mode: "remote" }), "/fake-home/.mattstack/rt/logins/github.json": JSON.stringify(live) };
+    const liveProbes = fakeProbes({ home: "/fake-home", now: NOW, files, exec, fetch: scopes("repo") });
+    const liveForm = await composeForm(liveProbes, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [], githubToken: token });
+    expect(pick(liveForm.sections.thisMac ?? [], "settings.remote").state).toBe("waiting");
+
+    const ghPlan = plan([r("account.github", "ready", "Signed in through the gh CLI as janedoe")]);
+    const ghProbes = fakeProbes({ home: "/fake-home", now: NOW, files: stateFile({ mode: "remote" }), exec, fetch: scopes("repo") });
+    const ghForm = await composeForm(ghProbes, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [], githubToken: token, plan: async () => ghPlan });
+    expect(pick(ghForm.sections.thisMac ?? [], "settings.remote").action).toMatchObject({ type: "run", verb: ["setup", "home-backup", "remote"] });
+
+    expect(reads).toBe(0);
+    expect(liveProbes.calls.fetch).toEqual([]);
+    expect(ghProbes.calls.fetch).toEqual([]);
   });
 
   test("the store is not read when a create or url is staged, or the backup is local", async () => {

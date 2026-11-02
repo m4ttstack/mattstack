@@ -7,11 +7,10 @@
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { linkPath } from "../deps/links.ts";
-import { forgeTokenLookupReal, tokenOrNull } from "../team/forge-token.ts";
 import { gitWithToken } from "../team/git-credential.ts";
 import { hasUrlCredentials, withoutUrls } from "../team/redact.ts";
 import { warn } from "../ui/warn.ts";
-import { createGitHubRepo, githubLoginIfCanCreateRepos } from "./github-signin.ts";
+import { createCapableGitHubToken, createGitHubRepo, readStoredGitHubToken } from "./github-signin.ts";
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState, type HomeBackupChoice } from "./state.ts";
 import { homeGitDir } from "./home-paths.ts";
@@ -37,7 +36,6 @@ const HOME_REMOTE_DEFAULT_NAME = "mattstack-home";
 const GIT_REMOTE_URL_PATTERN = /^(?:(?:https?|ssh|git):\/\/[^\s/]+\/\S+|(?:[\w.-]+@)?[\w.-]+:[^\s-]\S*)$/;
 /** git must fail rather than prompt: the app and the daemon have no terminal to answer on. */
 const NO_PROMPT_ENV = { GIT_TERMINAL_PROMPT: "0" };
-export const GITHUB_HOST_REMOTE = "https://github.com/mattstack/identity";
 
 export function assertRemoteUrl(url: string): void {
   if (hasUrlCredentials(url)) {
@@ -71,9 +69,7 @@ export async function setHomeRemote(
   let created = false;
   let pushToken: string | null = null;
   if (!url) {
-    const stored = await (hooks.githubToken ?? (async () => tokenOrNull(await forgeTokenLookupReal(p, GITHUB_HOST_REMOTE))))();
-    // A stored token may be a team forge token that cannot create repos.
-    const token = stored && (await githubLoginIfCanCreateRepos(p, stored)) !== null ? stored : null;
+    const token = await createCapableGitHubToken(p, hooks.githubToken ?? (() => readStoredGitHubToken(p)));
     if (token) {
       url = await createGitHubRepo(p, token, input.name);
       pushToken = token;
