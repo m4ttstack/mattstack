@@ -455,7 +455,7 @@ export function useDisableModelInvocation(pack: string) {
     mutationKey: ['skills', 'disable-model-invocation', pack],
     // rt reads, edits and writes back one settings key, so two toggles at
     // once would lose the first.
-    scope: { id: `disable-model-invocation:${pack}` },
+    scope: { id: 'disable-model-invocation' },
     mutationFn: async (choice: { name: string; on: boolean }) => {
       const res = await client.api.skills['disable-model-invocation'].$post({
         json: { pack, ...choice },
