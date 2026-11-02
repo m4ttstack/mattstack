@@ -2453,25 +2453,38 @@ body {
 }
 /* The re-review ask sits under the replies it follows, in the dock: what
    happens after posting, listed with what posts. */
-.tui-respond-rereview {
-  padding-top: 8px;
-  border-top: 1px solid var(--border-soft);
-}
 .tui-respond-rereview-row {
+  display: flex;
   align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text-3);
   cursor: pointer;
 }
-.tui-respond-rereview-row .tui-sheet-card-text {
-  flex: 1;
-}
-.tui-respond-rereview-lead {
-  display: inline-flex;
+.tui-respond-rereview-row > svg {
   flex-shrink: 0;
 }
-/* Spans the post chip, its gap and the resolve slot, so the ask's text
-   starts where the replies' paths do. */
-.tui-respond-rereview[data-resolve-slot] .tui-respond-rereview-lead {
-  width: 120px;
+.tui-respond-rereview-row[data-on] > svg {
+  color: var(--text-accent);
+}
+.tui-respond-rereview-copy {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+.tui-respond-rereview-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tui-respond-rereview-hint {
+  font-size: 12px;
+  color: var(--text-3);
 }
 .tui-post-tick .tui-gate-choice-input {
   width: 14px;
