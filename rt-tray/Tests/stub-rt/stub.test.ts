@@ -866,3 +866,22 @@ test("an instant run's bar tracks the clock, so the app's time-left estimate rea
   expect(timed.filter((t) => t.event.event === "progress").length).toBeGreaterThan(5);
   expect(worst).toBeLessThan(0.15);
 }, 20000);
+
+test("github sign-in: the remote row walks sign in, code, then a staged create", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  const remoteOf = async () => (await form(dir, "this-mac")).sections.thisMac!.find((r) => r.id === "settings.remote")!;
+  await run("join-happy", ["setup", "home-backup", "remote", "--json"], "", dir);
+  const todo = await remoteOf();
+  expect(todo).toMatchObject({ state: "todo", subtext: "Opens your browser once. rt then makes a private repo for you" });
+  expect(todo.action).toEqual({ type: "run", label: "Sign in to GitHub", verb: ["setup", "github", "sign-in"] });
+  const started = await run("join-happy", ["setup", "github", "sign-in", "--json"], "", dir);
+  expect(started.lines[0]).toMatchObject({ integration: "github", status: "needs-you", userCode: "WDGT-4271", url: "https://github.com/login/device" });
+  const waiting = await remoteOf();
+  expect(waiting).toMatchObject({ state: "waiting", detail: "Your code is WDGT-4271. Confirm it in your browser", watch: true });
+  expect(waiting.action).toEqual({ type: "open-url", label: "Open again", url: "https://github.com/login/device" });
+  await remoteOf();
+  const done = await remoteOf();
+  expect(done).toMatchObject({ state: "done", detail: "rt creates it as a private repo when setup runs", action: null });
+  const again = await run("join-happy", ["setup", "home-backup", "remote", "--json"], "", dir);
+  expect(again.lines[0].homeBackup).toEqual({ mode: "remote", create: true });
+});

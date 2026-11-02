@@ -640,6 +640,21 @@ function backupRow(path: FormPath | null): FormRow {
                                        { id: "local", label: c.local, detail: c.localDetail, warn: true }] } });
 }
 
+const GITHUB_CODE = "WDGT-4271";
+const GITHUB_DEVICE_URL = "https://github.com/login/device";
+
+/** The device-flow sign-in lands on its own after a while; landing it stores the token and stages the create. */
+function githubSignedIn(): boolean {
+  if (stateGet("github-token") > 0) return true;
+  if (!stateGet("github-signin-at")) return false;
+  const landed = landsAfter("github-reads", "github-signin-at", 2);
+  if (landed) {
+    stateSet("github-token", 1);
+    textSet("home-backup", JSON.stringify({ mode: "remote", create: true }));
+  }
+  return landed;
+}
+
 /** Choosing remote stages nothing, so the row stays open until a url or a create is staged. */
 function remoteRow(): FormRow | null {
   const b = backup();
@@ -648,9 +663,12 @@ function remoteRow(): FormRow | null {
   const base = { id: "settings.remote", title: c.title, subtext: c.subtext };
   if (b.url) return formRow({ ...base, state: "done", detail: b.url, action: null });
   if (b.create) return formRow({ ...base, state: "done", detail: c.creates, action: null });
-  // rt offers to create the repo only through a gh sign-in, which this stub's Mac never has (`setup github status`).
-  return formRow({ ...base, state: "todo", detail: "",
-                   action: { type: "form", label: c.use, verb: ["home", "remote", "set"], fields: [{ name: "url", label: c.field, secret: false, hint: c.hint }] } });
+  const t = FORM_COPY.connect.teamTool;
+  if (stateGet("github-signin-at")) {
+    if (githubSignedIn()) return formRow({ ...base, state: "done", detail: c.creates, action: null });
+    return formRow({ ...base, state: "waiting", detail: t.code(GITHUB_CODE), watch: true, action: { type: "open-url", label: t.openAgain, url: GITHUB_DEVICE_URL } });
+  }
+  return formRow({ ...base, subtext: c.signInSubtext, state: "todo", detail: "", action: { type: "run", label: c.signIn, verb: ["setup", "github", "sign-in"] } });
 }
 
 function thisMacSection(path: FormPath | null): FormRow[] {
@@ -748,6 +766,11 @@ else if (a0 === "setup" && a1 === "slack" && a2 === "create-app") {
   stateSet("slack-app-created", 1);
   emit({ integration: "slack", status: "ready", detail: "Slack app created", scopesSeen: [] });
 }
+else if (a0 === "setup" && a1 === "github" && a2 === "sign-in") {
+  await sleep(waitMs(1));
+  stampNow("github-signin-at");
+  emit({ integration: "github", status: "needs-you", userCode: GITHUB_CODE, url: GITHUB_DEVICE_URL });
+}
 else if (a0 === "setup" && a1 === "doppler" && a2 === "connect") {
   await sleep(waitMs(1));
   if (dopplerSignedIn()) emit({ integration: "doppler", status: "ready", detail: "Signed in to doppler", scopesSeen: [] });
@@ -758,9 +781,9 @@ else if (a0 === "setup" && a1 === "doppler" && a2 === "connect") {
 }
 else if (a0 === "setup" && a1 === "home-backup") {
   if (a2 !== "local" && a2 !== "remote") fail("usage", `${a2 ?? "Nothing"} is not a place for your settings. Use local or remote`);
-  // The stub plays a Mac signed in to gh, so picking GitHub stages the create with nothing to fill in.
   const prior = backup();
-  const homeBackup: Backup = a2 === "local" ? { mode: "local" } : prior?.mode === "remote" ? prior : { mode: "remote", create: true };
+  const remote: Backup = stateGet("github-token") > 0 ? { mode: "remote", create: true } : { mode: "remote" };
+  const homeBackup: Backup = a2 === "local" ? { mode: "local" } : prior?.mode === "remote" ? prior : remote;
   textSet("home-backup", JSON.stringify(homeBackup));
   emit({ homeBackup });
 }

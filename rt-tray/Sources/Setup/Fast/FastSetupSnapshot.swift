@@ -318,6 +318,8 @@ enum FastSetupSnapshot {
             ("this-mac-unanswered", page([T.widgetsUnanswered, T.apiUnanswered, T.backupUnanswered], ready: false)),
             ("this-mac-backup-on-mac", page([T.boardFound, T.widgetsClone, T.backupOnMac], ready: true)),
             ("this-mac-backup-github", page([T.boardFound, T.widgetsClone, T.backupGitHub, T.remoteCreates], ready: true)),
+            ("this-mac-github-signin", page([T.boardFound, T.widgetsClone, T.backupGitHub, T.remoteSignIn], ready: false)),
+            ("this-mac-github-waiting", page([T.boardFound, T.widgetsClone, T.backupGitHub, T.remoteWaiting], ready: false)),
             ("this-mac-found-and-unanswered", page([T.boardFound, T.widgetsUnanswered, T.backupLocal], ready: false)),
             ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupSolo], ready: false)),
@@ -701,6 +703,13 @@ enum FastSetupSnapshot {
                                           detail: "Store in a GitHub repo", action: backupTiles("remote"))
         static let remoteCreates = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .done,
                                            detail: "rt creates a private GitHub repo when setup runs", action: nil)
+        static let remoteSignIn = FormRow(id: "settings.remote", title: "Remote repo",
+                                          subtext: "Opens your browser once. rt then makes a private repo for you", state: .todo, detail: "",
+                                          action: RowAction(type: .run, label: "Sign in to GitHub", verb: ["setup", "github", "sign-in"]))
+        static let remoteWaiting = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .waiting,
+                                           detail: "Your code is WDGT-4271. Confirm it in your browser",
+                                           action: RowAction(type: .openURL, label: "Open again", url: "https://github.com/login/device"),
+                                           watch: true)
         static let backupLocal = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
                                          detail: "Keep on this Mac", action: backupAction("local"))
         static let backupSolo = FormRow(id: "settings.backup", title: "Back up home", subtext: settingsSubtext, state: .done,
