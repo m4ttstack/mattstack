@@ -5,7 +5,7 @@
  * the real machine.
  */
 
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
+import { accessSync, appendFileSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { wellKnownBinDirs } from "../bundled-tool.ts";
@@ -52,6 +52,8 @@ export interface Probes {
   readDir(path: string): string[];
   readlink(path: string): string | null;
   writeFile(path: string, content: string, mode?: number): void;
+  /** Adds `content` to the end of `path`, creating the file when it is missing. */
+  appendFile(path: string, content: string): void;
   /** Atomic replace. The only safe way to rewrite a live config file: a partial writeFile over it leaves the user with a truncated one. */
   rename(from: string, to: string): void;
   /** Best-effort, like removeFile: a missing path is not an error. `writeFile`'s mode only takes effect on a freshly-created inode, so a secrets-bearing file that already exists looser needs an explicit chmod to tighten. */
@@ -319,6 +321,10 @@ export function createRealProbes(): Probes {
 
     writeFile(path, content, mode) {
       writeFileSync(path, content, mode !== undefined ? { mode } : undefined);
+    },
+
+    appendFile(path, content) {
+      appendFileSync(path, content);
     },
 
     rename(from, to) {

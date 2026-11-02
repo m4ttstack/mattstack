@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { accountRows, type SecretPresence } from "../validators/accounts.ts";
+import { accountRows, teamDeclaresIntegration, type SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -462,6 +462,12 @@ describe("accountRows — account.linear declared / not declared", () => {
   test("not declared anywhere -> absent", async () => {
     const rows = await accountRows(fakeProbes(), baseTeam(), [], fakeSecrets(), null);
     expect(rows.some((r) => r.id === "account.linear")).toBe(false);
+  });
+
+  test("teamDeclaresIntegration agrees with the row: the team's config or a pack, else not", () => {
+    expect(teamDeclaresIntegration(baseTeam({ integrations: { linear: { teamKey: "RT" } } }), [], "linear")).toBe(true);
+    expect(teamDeclaresIntegration(baseTeam(), [{ pack: "widgets", tools: [], integrations: ["linear"] }], "linear")).toBe(true);
+    expect(teamDeclaresIntegration(baseTeam(), [], "linear")).toBe(false);
   });
 });
 

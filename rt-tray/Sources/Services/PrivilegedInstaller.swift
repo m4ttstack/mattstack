@@ -12,16 +12,21 @@ final class PrivilegedInstaller: PrivilegedInstalling, @unchecked Sendable {
         self.bundlePath = bundlePath; self.escalator = escalator; self.fileExists = fileExists
     }
 
-    func proxyInstall() async -> NeedResult { await run(op: "install", prompt: ProxyHelper.promptText) }
-    func proxyRemove() async -> NeedResult { await run(op: "remove", prompt: ProxyHelper.removePromptText) }
-    func proxyTrust() async -> NeedResult { await run(op: "trust", prompt: ProxyHelper.trustPromptText) }
+    func proxyInstall(homebrew: Bool) async -> NeedResult {
+        await run(args: ProxyHelper.arguments(verb: "install", homebrew: homebrew), prompt: ProxyHelper.promptText)
+    }
+    func proxyRemove() async -> NeedResult { await run(args: ["remove"], prompt: ProxyHelper.removePromptText) }
+    func proxyTrust(homebrew: Bool) async -> NeedResult {
+        await run(args: ProxyHelper.arguments(verb: "trust", homebrew: homebrew), prompt: ProxyHelper.trustPromptText)
+    }
+    func homebrew() async -> NeedResult { await run(args: ["homebrew"], prompt: ProxyHelper.homebrewPromptText) }
 
-    private func run(op: String, prompt: String) async -> NeedResult {
+    private func run(args: [String], prompt: String) async -> NeedResult {
         let helper = ProxyHelper.path(bundlePath: bundlePath)
         guard fileExists(helper) else {
             return NeedResult(ok: false, detail: "proxy-install helper is not bundled at \(ProxyHelper.relativePath)")
         }
-        let out = await escalator.runAsAdmin(executable: helper, args: [op], prompt: prompt)
+        let out = await escalator.runAsAdmin(executable: helper, args: args, prompt: prompt)
         if out.ok { TrayLog.info("proxy helper ran", ["stdout": String(out.stdout.suffix(500))]) }
         else { TrayLog.warn("proxy helper failed", ["exit": Int(out.exitCode), "stderr": String(out.stderr.suffix(1000))]) }
         return NeedResult(ok: out.ok, detail: out.ok ? out.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

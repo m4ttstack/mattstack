@@ -7,6 +7,7 @@ import { setKvValue } from "../../state/index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import type { OrgRef, Row } from "../contract.ts";
 import { markDeferred, recordCloneFailure, writePlacement } from "../repo-placement.ts";
+import { updateSetupState } from "../state.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import { repoPlacementRows } from "../validators/repos.ts";
 import { gitRepo, realFsProbes } from "./fakes.ts";
@@ -33,9 +34,15 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-/** After Install: the home repo exists, so an answer lands right away. */
-function installed(): void {
+/** The home repo the Join page creates before Install. */
+function homeRepo(): void {
   mkdirSync(join(home, ".mattstack", "user", ".git"), { recursive: true });
+}
+
+/** After Install: Install stamped its start, so an answer lands right away. */
+function installed(): void {
+  homeRepo();
+  updateSetupState(realFsProbes(home), (state) => ({ ...state, installRanAt: "2026-10-29T00:00:00.000Z" }));
 }
 
 describe("repoPlacementRows: one row per tracked repo", () => {
@@ -45,27 +52,39 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     const rows = await repoPlacementRows(realFsProbes(home), TEAM, snapshot([WIDGETS, ACME_API]));
 
     expect(rows.map((r) => r.id)).toEqual([`repos.place:${WIDGETS}`, `repos.place:${ACME_API}`]);
-    expect(byId(rows, WIDGETS)).toMatchObject({ kind: "tool", title: "widgets", why: "gitlab.com/acme", required: false, recheck: "on-activate", status: "ready", detail: "Found your widgets checkout" });
-    expect(action(byId(rows, WIDGETS))).toMatchObject({ type: "place-repo", label: "Locate…", identity: WIDGETS, repo: "widgets", mode: "checkout", checkoutPath: widgets, problem: null, then: null, oneClick: null, segmentRecords: true });
+    expect(byId(rows, WIDGETS)).toMatchObject({ kind: "tool", title: "widgets", why: "gitlab.com/acme", required: true, recheck: "on-activate", status: "ready", detail: "Found your widgets checkout" });
+    expect(action(byId(rows, WIDGETS))).toMatchObject({ type: "place-repo", label: "Locate…", identity: WIDGETS, repo: "widgets", mode: "checkout", checkoutPath: widgets, problem: null, then: null, oneClick: null, segmentRecords: true, awaitsRun: false });
     // The other segment never offers the checkout's own folder as a clone location.
     expect(action(byId(rows, WIDGETS)).clonePath).toBe(join(home, "Documents", "GitHub", "widgets"));
 
-    expect(byId(rows, ACME_API)).toMatchObject({ title: "acme-api", status: "ready", detail: "rt clones it here when you click Install" });
+    expect(byId(rows, ACME_API)).toMatchObject({ title: "acme-api", status: "ready", detail: "rt clones it here when setup runs" });
     expect(action(byId(rows, ACME_API))).toEqual({
       type: "place-repo",
-      label: "Choose location…",
+      label: "Choose…",
+      labels: { checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…" },
       identity: ACME_API,
       repo: "acme-api",
       mode: "clone",
       checkoutPath: null,
       clonePath: join(home, "code", "acme-api"),
-      note: "rt clones it here when you click Install",
+      note: "rt clones it here when setup runs",
       problem: null,
       then: null,
       oneClick: null,
       segmentRecords: true,
+      board: null,
+      awaitsRun: false,
+      answered: false,
     });
     expect(rows.every((r) => !r.finishGated)).toBe(true);
+  });
+
+  test("the board repo's row says the board's agents start there, and its then repoints the board", async () => {
+    installed();
+    const rows = await repoPlacementRows(realFsProbes(home), TEAM, { ...snapshot([WIDGETS, ACME_API]), boardRepo: ACME_API });
+
+    expect(action(byId(rows, ACME_API))).toMatchObject({ board: "The board starts here", then: ["setup", "apply", "--only", "board.restart"] });
+    expect(action(byId(rows, WIDGETS))).toMatchObject({ board: null, then: THEN });
   });
 
   test("a checkout in the only repo folder still gets a clone location of its own", async () => {
@@ -83,7 +102,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([WIDGETS])), WIDGETS);
 
     expect(r).toMatchObject({ status: "needs-you", detail: "~/old/widgets isn't a git checkout." });
-    expect(action(r)).toMatchObject({ label: "Locate again…", mode: "checkout", problem: "~/old/widgets isn't a git checkout." });
+    expect(action(r)).toMatchObject({ label: "Locate again…", labels: { checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…" }, mode: "checkout", problem: "~/old/widgets isn't a git checkout." });
   });
 
   test("two repos sharing a basename: the second row shows the clash", async () => {
@@ -112,9 +131,31 @@ describe("repoPlacementRows: one row per tracked repo", () => {
     installed();
     expect(action((await repoPlacementRows(p, TEAM, snapshot([ACME_API])))[0])).toMatchObject({ then: THEN, segmentRecords: false });
   });
+  test("a home repo the Join page created is not Install: no follow-up, the segment records, the board is not repointed", async () => {
+    homeRepo();
+    const rows = await repoPlacementRows(realFsProbes(home), TEAM, { ...snapshot([WIDGETS, ACME_API]), boardRepo: ACME_API });
+
+    expect(rows.map((r) => action(r))).toMatchObject([
+      { then: null, segmentRecords: true },
+      { then: null, segmentRecords: true },
+    ]);
+  });
 });
 
 describe("repoPlacementRows: a repo Install left for you", () => {
+  test("every repos.place row is required before Install", async () => {
+    installed();
+    mkdirSync(join(home, "code"), { recursive: true });
+    gitRepo(join(home, "code", "widgets"), { origin: "https://gitlab.com/acme/widgets.git" });
+    const p = realFsProbes(home);
+    markDeferred(p, ACME_API);
+    const rows = await repoPlacementRows(p, TEAM, snapshot([WIDGETS, ACME_API]));
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.required)).toBe(true);
+    expect(byId(rows, ACME_API)).toMatchObject({ required: true, finishGated: true });
+  });
+
   test("unanswered: finish-gated, not waivable, with Clone here at the shown location", async () => {
     installed();
     mkdirSync(join(home, "code"), { recursive: true });
@@ -123,7 +164,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([ACME_API])), ACME_API);
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, waivable: false, detail: "Choose where your repos go" });
-    expect(action(r)).toMatchObject({ then: THEN, note: "Choose where your repos go", oneClick: { label: "Clone here", mode: "clone", path: join(home, "code", "acme-api") } });
+    expect(action(r)).toMatchObject({ then: THEN, note: "Choose where your repos go", oneClick: { label: "Clone here", mode: "clone", path: join(home, "code", "acme-api") }, awaitsRun: false });
   });
 
   test("unanswered, but the shown location is another repo's: the problem, and no Clone here", async () => {
@@ -134,7 +175,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot(["gitlab.com/a/api", "github.com/b/api"])), "github.com/b/api");
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, detail: "~/code/api is where api goes. Choose another folder." });
-    expect(action(r)).toMatchObject({ note: "Choose where your repos go", problem: "~/code/api is where api goes. Choose another folder.", oneClick: null });
+    expect(action(r)).toMatchObject({ note: "Choose where your repos go", problem: "~/code/api is where api goes. Choose another folder.", oneClick: null, awaitsRun: false });
   });
 
   test("a recorded answer wins over the index, as it does for repos.clone", async () => {
@@ -145,7 +186,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     writePlacement(p, WIDGETS, { mode: "clone", path: join(home, "work", "widgets") });
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([WIDGETS])), WIDGETS);
 
-    expect(r).toMatchObject({ status: "ready", detail: "rt clones it here when you click Install" });
+    expect(r).toMatchObject({ status: "ready", detail: "rt clones it here when setup runs" });
     expect(action(r)).toMatchObject({ mode: "clone", clonePath: join(home, "work", "widgets"), checkoutPath: null });
   });
 
@@ -157,7 +198,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     const r = byId(await repoPlacementRows(p, TEAM, snapshot([ACME_API])), ACME_API);
 
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, waivable: false, detail: "rt clones it to ~/work/acme-api next" });
-    expect(action(r)).toMatchObject({ mode: "clone", clonePath: join(home, "work", "acme-api"), oneClick: null, then: THEN });
+    expect(action(r)).toMatchObject({ mode: "clone", clonePath: join(home, "work", "acme-api"), oneClick: null, then: THEN, awaitsRun: true });
   });
 
   test("after a failed clone: the reason, and Retry with the recorded answer", async () => {
@@ -171,6 +212,7 @@ describe("repoPlacementRows: a repo Install left for you", () => {
     expect(r).toMatchObject({ status: "needs-you", finishGated: true, detail: "The last clone failed: fatal: repository not found (git exited 128)" });
     expect(action(r).oneClick).toEqual({ label: "Retry", mode: "clone", path: join(home, "work", "acme-api") });
     expect(action(r).problem).toBe("The last clone failed: fatal: repository not found (git exited 128)");
+    expect(action(r).awaitsRun).toBe(false);
   });
 
   test("once the repo is in the index it reads ready", async () => {

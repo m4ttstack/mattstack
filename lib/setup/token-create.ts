@@ -43,7 +43,7 @@ const REASONS: Partial<Record<ForgeProvider, Record<ForgeRole, Record<string, st
   },
 };
 
-const TITLES: Record<ForgeProvider, string> = { github: "GitHub", gitlab: "GitLab" };
+export const TITLES: Record<ForgeProvider, string> = { github: "GitHub", gitlab: "GitLab" };
 const TOKEN_NAME = "mattstack";
 
 export function forgeRole(input: { intentMode: string | null; role: OrgRole["kind"] | null; hasTeam: boolean }): ForgeRole {

@@ -43,8 +43,11 @@ board's `.env` nor rt's `switchboardToken` holds a token (with the
 re-invite remedy, or, on any Mac holding the admin token, the
 `rt team peer` steps, which `verify`'s note names too), `error` with a re-check when
 `<url>/healthz` (no auth header; `/health` is not a route) does not answer
-200, `ready` otherwise. It is never required or finish-gated (only the org admin
-can fix it), but `verify` reports it, so `rt setup update` notifies. The
+200, `ready` otherwise. It blocks neither Install nor Finish, so it never
+shows in setup: no form section draws it and `extraRows` takes only blocking
+rows (`applyApprovalWait` leaves it ungated during a join's wait too). Only
+the org admin can fix it, so its steps name them. `rt setup status` and
+`verify` report it, so `rt setup update` notifies. The
 stored copies older rt wrote (`board.switchboardUrl`,
 `rt.integrations.switchboardUrl`, the board's `config.json` `switchboard.url`)
 are retired keys deleted by the `2026-10-02-retire-switchboard-url`
@@ -72,5 +75,4 @@ with both rules, so share the token only once every admin runs this rt.
 Change invite, join, peer and the row together or not
 at all; `lib/team/invite.ts`, `lib/team/join.ts`, `lib/team/peer.ts`,
 `lib/team/board-token.ts` and `lib/setup/validators/accounts.ts` are the
-seams, and RT-260 is the incident
-that made this a rule.
+seams.

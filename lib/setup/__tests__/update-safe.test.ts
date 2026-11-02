@@ -19,6 +19,7 @@ const UPDATE_SAFE: StepId[] = [
   "herdr.integration",
   "extension.install",
   "verify",
+  "apps.restart",
 ];
 
 describe("update-safe steps", () => {

@@ -7,7 +7,7 @@
  * implementation.
  */
 
-import { join } from "path";
+import { basename, join } from "path";
 import { RT_BUNDLE_PATH } from "../../bundle-layout.ts";
 import type { DaemonResponse } from "../../daemon-client.ts";
 import { activeLaunchdLabel, isDaemonInstalled } from "../../daemon-config.ts";
@@ -148,7 +148,7 @@ const HOME_BACKUP_ADD_REMOTE_ACTION: Action = {
   fields: [{ name: "url", label: "Remote URL", secret: false, hint: "An empty private repo you own, e.g. https://github.com/you/mattstack-home.git" }],
   alternatives: [{ id: "create", label: "Create a private repo for me" }],
 };
-const HOME_BACKUP_PUSH_ACTION: Action = { type: "steps", label: "Show steps…", steps: [HOME_BACKUP_PUSH_STEP] };
+export const HOME_BACKUP_PUSH_ACTION: Action = { type: "steps", label: "Show steps…", steps: [HOME_BACKUP_PUSH_STEP] };
 const MERGE_LEGACY_STATE_ACTION: Action = {
   type: "steps",
   label: "Merge legacy state",
@@ -345,7 +345,8 @@ function shellRow(p: Probes): Row {
     required: false,
     optionalNote: "Works without this; you can still run `rt cd` directly, just not the `rtcd` shell alias.",
   };
-  const shell = detectShellFrom(p.env.SHELL ?? "");
+  const shellEnv = p.env.SHELL ?? "";
+  const shell = detectShellFrom(shellEnv);
   const rc = shellRcPathFor(shell, p.home);
   if (rc) {
     const content = p.readFile(rc) ?? "";
@@ -360,7 +361,8 @@ function shellRow(p: Probes): Row {
     }
     return row({ ...base, status: "needs-you", detail: "Shell integration not added yet", action: ADD_TO_SHELL_ACTION });
   }
-  return row({ ...base, status: "needs-you", detail: "rt does not know this shell, so add the rtcd alias yourself" });
+  // rt has no integration to check for this shell, so nothing here can ever turn ready.
+  return row({ ...base, status: "skipped", detail: shellEnv ? `No shell integration for ${basename(shellEnv)}` : "No login shell set" });
 }
 
 async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
@@ -518,7 +520,7 @@ export async function homeBackupRow(
     id: "home.backup",
     kind: "tool" as const,
     title: "Home repo backup",
-    why: "Local-only is fully supported; this only confirms whether your settings are actually backed up anywhere, not just committed on this machine.",
+    why: "Shows whether your settings are backed up off this Mac. Keeping them local only is fine.",
     required: false,
     optionalNote: "Works without this; local-only just means this machine is the only copy of your settings.",
     recheck: "on-activate" as const,
@@ -535,7 +537,7 @@ export async function homeBackupRow(
   }
 
   if (!(await hasRemote(exec, repoDir))) {
-    return row({ ...base, status: "needs-you", detail: "Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create", action: HOME_BACKUP_ADD_REMOTE_ACTION });
+    return row({ ...base, status: "ready", detail: "Local only: this Mac holds the only copy of your settings", action: HOME_BACKUP_ADD_REMOTE_ACTION });
   }
 
   const state = await originPushState(exec, repoDir);

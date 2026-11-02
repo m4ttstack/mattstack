@@ -48,34 +48,10 @@ public enum SetupCompletion {
                    intentExists: fileExists(intentPath(home: home)))
     }
 
-    /// Where an unfinished setup reopens. A run that got through, with no
-    /// team choice pending, lands on Done so quitting there never costs a
-    /// re-Install; a failed one goes back to the checklist, where its broken
-    /// rows are, since Done's Finish could otherwise record over them.
-    public static func resumeStep(stateJSON: Data?, intentExists: Bool) -> SetupStep? {
-        if !intentExists, let stateJSON,
-           let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any],
-           let lastApplyAt = state["lastApplyAt"] as? String, !lastApplyAt.isEmpty,
-           state["lastApplyOk"] as? Bool == true {
-            return .done
-        }
-        return intentExists || stateJSON != nil ? .checklist : nil
-    }
-
-    public static func resumeStep(home: String, readFile: (String) -> Data?, fileExists: (String) -> Bool) -> SetupStep? {
-        resumeStep(stateJSON: readFile(statePath(home: home)), intentExists: fileExists(intentPath(home: home)))
-    }
-
-    public enum Launch: Equatable, Sendable {
-        case none
-        /// nil opens the wizard where it starts.
-        case show(SetupStep?)
-    }
-
-    public static func onLaunch(resumeFlag: SetupStep?, finished: Bool, resume: SetupStep?) -> Launch {
-        if let resumeFlag { return .show(resumeFlag) }
-        if finished { return .none }
-        return .show(resume)
+    /// Whether setup opens at launch. rt's whole read decides the screen, so a
+    /// relaunch from setup only says that setup was open.
+    public static func onLaunch(relaunched: Bool, finished: Bool) -> Bool {
+        relaunched || !finished
     }
 
     public enum MenuEntry: Equatable, Sendable { case resume, status }
@@ -83,12 +59,6 @@ public enum SetupCompletion {
     /// The tray menu's setup items, read fresh each time it opens.
     public static func menuEntries(finished: Bool) -> [MenuEntry] {
         finished ? [.status] : [.status, .resume]
-    }
-
-    /// Finish and the titlebar close at Done share one gate; the read-only
-    /// status window never finishes anything.
-    public static func closeRecordsFinish(step: SetupStep, finishEnabled: Bool, readOnly: Bool) -> Bool {
-        !readOnly && step == .done && finishEnabled
     }
 }
 

@@ -1,5 +1,7 @@
 #!/bin/bash
-# Drive the five setup screens of mattstack.app in the guest, as tester.
+# Drive mattstack.app's fast setup in the guest, as tester: the three macOS
+# rows, the path cards, the invite and the wait for approval (join) or Create
+# a team (create), Connect, this Mac, the running bar and This Mac is ready.
 # Usage: drive-setup.sh <create|join|restore|solo> [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT] [--invite-code-file <p>] [--team-remote <url>] [--forge github|gitlab]
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; source "$HERE/ax.sh"; source "$HERE/screens.sh"
@@ -19,5 +21,10 @@ PAT="${!PAT_ENV:-}"
 DRIVER_LAUNCH_ARGS="${DRIVER_LAUNCH_ARGS:-}"
 
 ax_log "scenario=$SCENARIO slug=$SLUG forge=$FORGE"
-screen_welcome; screen_team; screen_readiness; screen_install; screen_done
-ax_log "five screens complete"
+screen_macos; screen_path
+case "$SCENARIO" in
+  join) screen_invite; screen_waiting ;;
+  create) screen_create_team ;;
+esac
+screen_connect; screen_this_mac; screen_running; screen_ready
+ax_log "setup screens complete"

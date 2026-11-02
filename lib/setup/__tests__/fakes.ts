@@ -175,6 +175,10 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
       if (!parentList.includes(base)) parentList.push(base);
     },
 
+    appendFile(path, content) {
+      probes.writeFile(path, (files[path] ?? "") + content);
+    },
+
     rename(from, to) {
       calls.renames.push([from, to]);
       if (from in dirs) {

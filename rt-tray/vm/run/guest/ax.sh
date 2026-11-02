@@ -127,14 +127,28 @@ ax_wait_window() {  # <title-substring> <timeout-s>
   return 1
 }
 
-ax_wait_screen() {  # <welcome|team|checklist|install|done> <timeout-s> — waits for setup.<screen>.screen
+# Fast setup's screen names, as `setup.fast.<screen>` carries them.
+AX_FAST_SCREENS="loading macos path invite create-team restore waiting connect this-mac running paused ready"
+
+ax_wait_screen() {  # <fast setup screen> <timeout-s>: waits for setup.fast.<screen>
   local n="${2:-30}"
   while [ "$n" -gt 0 ]; do
-    ax_find "setup.$1.screen" >/dev/null 2>&1 && return 0
+    ax_find "setup.fast.$1" >/dev/null 2>&1 && return 0
     sleep 1; n=$((n-1))
   done
   return 1
 }
+
+# The fast setup screen in a dump, or nothing when no setup screen is up.
+ax_screen_in() {  # <ax_dump_ids output>
+  local s
+  for s in $AX_FAST_SCREENS; do
+    ax_ids_have "$1" "setup.fast.$s" && { printf '%s' "$s"; return 0; }
+  done
+  return 1
+}
+
+ax_screen_now() { ax_screen_in "$(ax_dump_ids || true)"; }
 
 # Find a UI element by AXIdentifier anywhere under window 1; prints its AX class. A UI element
 # reference cannot be coerced to text (-1700), so callers get existence + class, never a path.
@@ -148,8 +162,7 @@ ax_find_raw() {  # <axid>
     end tell" 2>/dev/null
 }
 
-# The click itself: nothing is revealed first, and a miss is the caller's to
-# report.
+# A miss is the caller's to report.
 ax_click_raw() {  # <axid>
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
@@ -167,122 +180,34 @@ ax_ids_have() {  # <ax_dump_ids output> <axid>
   return 1
 }
 
-# The group id of the wizard page in a dump; empty until a plan has landed.
-ax_page() {  # <ax_dump_ids output>
-  local rest
-  case "$1" in *setup.checklist.page.*) ;; *) return 1 ;; esac
-  rest="${1#*setup.checklist.page.}"
-  printf '%s' "${rest%%$'\n'*}"
-}
-
-# The wizard's place among its steps, as "N of M".
-ax_progress() {
-  ax_osa "$AX_WALK_AS
-    tell application \"System Events\" to tell process \"$AX_APP\"
-      set p to my walk(window 1, \"setup.window.progress\")
-      if p is missing value then error \"axid not found: setup.window.progress\"
-      return value of p as text
-    end tell" 2>/dev/null
-}
-
-# Moves the wizard one page, and only ever between pages. Continue is pressed
-# only while it reads "Continue": on the last page, and until a plan has
-# landed, the same button reads "Install". Back is never pressed on the first
-# page (step 3, after Welcome and Your team), where it leaves the checklist.
-# The check and the press are one ax-button.js run, so a plan that lands
-# between them cannot turn the press into Install.
-ax_page_step() {  # back|continue → exit 0 when the page changed
-  local before after n=5
-  case "$1" in back|continue) ;; *) return 1 ;; esac
-  before=$(ax_button step "$1" 2>/dev/null) || return 1
-  while [ "$n" -gt 0 ]; do
-    after=$(ax_progress || true)
-    case "$after" in
-      ""|"$before") ;;
-      *) ax_log "wizard page $before, then $after ($1)"; return 0 ;;
-    esac
-    sleep 1; n=$((n-1))
-  done
-  ax_log "wizard page still $before after $1"; return 1
-}
-
-ax_page_rewind() {  # → exit 0 when the wizard moved back at least one page
-  local n=12 moved=1
-  while [ "$n" -gt 0 ] && ax_page_step back; do moved=0; n=$((n-1)); done
-  return "$moved"
-}
-
-# Where a row is, by its status: that id is in the tree whenever the row's
-# page or pane is on screen, under a folded "No action needed" as well. Only a
-# row's button can be folded away, since a failed row opens the line and a
-# folded row is never the one waiting on a dialog. The line may be open
-# already, so the press is followed by a second look.
-ax_row_on_screen() {  # <axid> <row's status axid> → 0 in the tree, 1 row here without it, 2 row elsewhere
-  ax_find_raw "$1" >/dev/null 2>&1 && return 0
-  [ "$1" = "$2" ] && return 2
-  ax_find_raw "$2" >/dev/null 2>&1 || return 2
-  case "$1" in *.action) ;; *) return 1 ;; esac
-  ax_click_raw setup.checklist.noAction.toggle >/dev/null 2>&1 || return 1
-  ax_find_raw "$1" >/dev/null 2>&1
-}
-
-ax_pages_ahead() {  # <axid> <row's status axid> → as ax_row_on_screen, for the pages after this one
-  local n=12 rc
-  while [ "$n" -gt 0 ] && ax_page_step continue; do
-    rc=0; ax_row_on_screen "$1" "$2" || rc=$?
-    [ "$rc" -eq 2 ] || return "$rc"
-    n=$((n-1))
-  done
-  return 2
-}
-
-# The walkthrough works forward, so the pages ahead are tried before the ones
-# behind. Continue stops at a page that still holds a required row: a row past
-# it cannot be reached yet.
-ax_reveal_on_pages() {  # <axid> <row's status axid>
-  local rc=0
-  ax_pages_ahead "$1" "$2" || rc=$?
-  [ "$rc" -eq 2 ] || return "$rc"
-  ax_page_rewind || return 1
-  rc=0; ax_row_on_screen "$1" "$2" || rc=$?
-  [ "$rc" -eq 2 ] || return "$rc"
-  rc=0; ax_pages_ahead "$1" "$2" || rc=$?
-  [ "$rc" -eq 0 ]
-}
-
-# A row is in the tree only while its group is on screen: one page of the
-# wizard, or one sidebar pane on the summary and in Setup status. Before a
-# row's element is read or clicked, bring its group up.
-ax_reveal_row() {  # <axid>; a no-op for anything outside setup.checklist.row.
-  case "$1" in setup.checklist.row.*) ;; *) return 0 ;; esac
-  local row="${1%.action}" want="$1" ids g rc=0
-  row="${row%.status}"; row="${row%.error}"; row="${row%.waiting}"
-  # A row's own container id may never surface; its status always does.
-  [ "$want" = "$row" ] && want="$row.status"
-  ax_row_on_screen "$want" "$row.status" || rc=$?
-  [ "$rc" -eq 2 ] || return "$rc"
-  ids=$(ax_dump_ids || true)
-  if ax_ids_have "$ids" setup.checklist.continue; then
-    ax_reveal_on_pages "$want" "$row.status"
-    return
-  fi
-  for g in $(printf '%s\n' "$ids" | grep -o 'setup\.checklist\.group\.[A-Za-z0-9._-]*' | sort -u); do
-    [ "$g" = setup.checklist.group.overview ] && continue
-    ax_click_raw "$g" >/dev/null 2>&1 || continue
-    rc=0; ax_row_on_screen "$want" "$row.status" || rc=$?
-    [ "$rc" -eq 2 ] || return "$rc"
-  done
-  return 1
-}
-
 ax_find() {  # <axid>
-  ax_reveal_row "$1" || true
   ax_find_raw "$1"
 }
 
 ax_click() {  # <axid>
-  ax_reveal_row "$1" || true
   ax_click_raw "$1" || ax_fail "click $1"
+}
+
+# Picks one option of a segmented control by its wording: the control carries
+# the id, its options only their names.
+ax_pick_segment() {  # <axid> <option name>
+  local id nm; id=$(ax_esc "$1"); nm=$(ax_esc "$2")
+  ax_osa "$AX_WALK_AS
+    tell application \"System Events\" to tell process \"$AX_APP\"
+      set frontmost to true
+      set r to my walk(window 1, \"$id\")
+      if r is missing value then error \"axid not found: $id\"
+      repeat with c in UI elements of r
+        try
+          if (name of c as text) is \"$nm\" or (description of c as text) is \"$nm\" or (title of c as text) is \"$nm\" then
+            click c
+            return
+          end if
+        end try
+      end repeat
+      error \"no option $nm in $id\"
+    end tell" >/dev/null || return 1
+  ax_log "picked $2 in $1"
 }
 
 ax_title() {  # <axid> → the wording on a button; exit 1 when it does not read
@@ -290,8 +215,8 @@ ax_title() {  # <axid> → the wording on a button; exit 1 when it does not read
 }
 
 # Presses a button only while it reads the wording the caller acted on and is
-# enabled. The read and the press are one ax-button.js run: a plan that lands
-# after an earlier read can change which press this is.
+# enabled. The read and the press are one ax-button.js run: a read that lands
+# between two scripts can change which press this is.
 ax_click_reading() {  # <axid> <wording> -- returns 1 when nothing was pressed; callers decide
   ax_button press "$1" "$2" >/dev/null || return 1
   ax_log "clicked $1 ($2)"
@@ -378,78 +303,8 @@ ax_bare_rt_version() {  # stdin: rt --version output → X.Y.Z
   awk 'NR == 1 { print $NF }' | sed -E 's/^v//; s/-ci[0-9]+$//'
 }
 
-ax_status() {  # <rowId> → status string (the app exposes it as the row status element's value)
-  ax_reveal_row "setup.checklist.row.$1.status" || true
-  local id; id=$(ax_esc "$1")
-  ax_osa "$AX_WALK_AS$AX_STATUS_AS
-    tell application \"System Events\" to tell process \"$AX_APP\"
-      set r to my walk(window 1, \"setup.checklist.row.$id.status\")
-      if r is missing value then error \"axid not found: setup.checklist.row.$id.status\"
-      try
-        return value of r as text
-      on error
-        return my statusOf(description of r as text)
-      end try
-    end tell" 2>/dev/null
-}
-
-# "<rowId>=<status>" for every checklist row on screen, one per line, in one
-# walk of the window: ax_status costs a walk per row.
-ax_row_statuses() {
-  ax_osa "$AX_STATUS_AS
-using terms from application \"System Events\"
-  on walkStatuses(el, acc)
-    try
-      set i to (value of attribute \"AXIdentifier\" of el) as text
-      if i starts with \"setup.checklist.row.\" and i ends with \".status\" then
-        try
-          set v to value of el as text
-        on error
-          set v to my statusOf(description of el as text)
-        end try
-        set end of acc to ((text 21 thru -8 of i) & \"=\" & v)
-      end if
-    end try
-    try
-      repeat with c in UI elements of el
-        my walkStatuses(c, acc)
-      end repeat
-    end try
-  end walkStatuses
-end using terms from
-tell application \"System Events\" to tell process \"$AX_APP\"
-  set acc to {}
-  if exists window 1 then my walkStatuses(window 1, acc)
-  set AppleScript's text item delimiters to linefeed
-  return acc as text
-end tell" 2>/dev/null
-}
-
-# Each ax_status is an osascript round trip of a few seconds, so the bound
-# is wall-clock, not iterations.
-ax_wait_status() {  # <rowId> <status> <timeout-s>
-  local deadline=$((SECONDS + ${3:-60})) s
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    s=$(ax_status "$1" || true)
-    [ "$s" = "$2" ] && { ax_log "row $1 = $2"; return 0; }
-    sleep 1
-  done
-  ax_log "row $1 stuck at '${s:-?}' (wanted $2)"; return 1
-}
-
-ax_wait_status_not() {  # <rowId> <status-to-leave> <timeout-s>
-  local deadline=$((SECONDS + ${3:-60})) s
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    s=$(ax_status "$1" || true)
-    [ -n "$s" ] && [ "$s" != "$2" ] && { ax_log "row $1 = $s"; return 0; }
-    sleep 1
-  done
-  ax_log "row $1 still '${s:-?}'"; return 1
-}
-
 # The text an element shows: its value, else its name, else its description.
 ax_value() {  # <axid>
-  ax_reveal_row "$1" || true
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
     tell application \"System Events\" to tell process \"$AX_APP\"
@@ -469,24 +324,88 @@ ax_value() {  # <axid>
     end tell" 2>/dev/null
 }
 
-# The Join card checks a complete code as it lands and shows its verdict
-# there: a warning (setup.team.join.warning), or a green summary that carries
-# no identifier and is found by its "Joining " wording. A refused code
-# (setup.team.join.error) returns 2 at once.
-ax_wait_join_note() {  # <timeout-s>
-  local deadline=$((SECONDS + ${1:-60})) note
+# A fast setup row's own container id may never surface; its children do:
+# .action (and .action.<part>), .field (and .field.<name>), .done, .waiting,
+# .error, and .status and .segment on a repo placement row.
+ax_fast_row_ids() {  # <ax_dump_ids output> → each row id once, in screen order
+  printf '%s\n' "$1" \
+    | sed -nE 's/^setup\.fast\.row\.(.+)\.(action|field|done|waiting|error|status|segment)(\.[A-Za-z0-9_-]+)?$/\1/p' \
+    | awk '!seen[$0]++'
+}
+
+# A repo placement row draws no .done: its status element's value is the plan status.
+ax_fast_status() {  # <rowId> → ready, needs-you, checking...
+  local id; id=$(ax_esc "$1")
+  ax_osa "$AX_WALK_AS$AX_STATUS_AS
+    tell application \"System Events\" to tell process \"$AX_APP\"
+      set r to my walk(window 1, \"setup.fast.row.$id.status\")
+      if r is missing value then error \"axid not found: setup.fast.row.$id.status\"
+      try
+        return value of r as text
+      on error
+        return my statusOf(description of r as text)
+      end try
+    end tell" 2>/dev/null
+}
+
+# done, waiting, error or todo: a done row draws its check, a running one its
+# spinner, a refused one its error line. A spinner beside a field waits on the
+# member (a code to paste), so it reads todo. A settings choice (where your
+# settings live) draws its segment and never a check, and rt always sends it
+# with a selection, so it reads done. Any other segment reads by its own children.
+ax_fast_row_state() {  # <ax_dump_ids output> <rowId>
+  local p="setup.fast.row.$2" s
+  if ax_ids_have "$1" "$p.done"; then echo done
+  elif ax_ids_have "$1" "$p.status"; then
+    s=$(ax_fast_status "$2" || true)
+    case "$s" in ready) echo done ;; checking) echo waiting ;; *) echo todo ;; esac
+  elif ax_ids_have "$1" "$p.waiting" && ax_ids_have "$1" "$p.field"; then echo todo
+  elif ax_ids_have "$1" "$p.waiting"; then echo waiting
+  elif ax_ids_have "$1" "$p.error"; then echo error
+  elif case "$2" in settings.*) true ;; *) false ;; esac && ax_ids_have "$1" "$p.action" \
+      && [ "$(ax_find_raw "$p.action" 2>/dev/null || true)" = "radio group" ]; then echo done
+  else echo todo
+  fi
+}
+
+# "<rowId>=<state>" for every row on the screen, one per line.
+ax_fast_rows() {  # [<ax_dump_ids output>]
+  local ids id
+  if [ $# -gt 0 ]; then ids="$1"; else ids=$(ax_dump_ids || true); fi
+  for id in $(ax_fast_row_ids "$ids"); do
+    printf '%s=%s\n' "$id" "$(ax_fast_row_state "$ids" "$id")"
+  done
+}
+
+ax_row_done() {  # <rowId>
+  [ "$(ax_fast_row_state "$(ax_dump_ids || true)" "$1")" = done ]
+}
+
+# Each look is an osascript round trip of a few seconds, so the bound is wall-clock.
+ax_wait_row_done() {  # <rowId> <timeout-s>
+  local deadline=$((SECONDS + ${2:-60}))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if ax_find setup.team.join.error >/dev/null 2>&1; then
-      ax_log "join refused on the Join card: $(ax_value setup.team.join.error || true)"; return 2
+    ax_row_done "$1" && { ax_log "row $1 done"; return 0; }
+    sleep 1
+  done
+  ax_log "row $1 not done after ${2:-60}s"; return 1
+}
+
+# The invite screen reads a complete code as it lands: the team line
+# (setup.fast.invite.line) when it is good, a failure line
+# (setup.fast.invite.failure) when it is not, which returns 2 at once.
+ax_wait_invite_verdict() {  # <timeout-s>
+  local deadline=$((SECONDS + ${1:-60}))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ax_find setup.fast.invite.failure >/dev/null 2>&1; then
+      ax_log "invite refused: $(ax_value setup.fast.invite.failure || true)"; return 2
     fi
-    note=$(ax_texts | grep -m1 '^Joining ' || true)
-    if [ -n "$note" ]; then ax_log "join note: $note"; return 0; fi
-    if ax_find setup.team.join.warning >/dev/null 2>&1; then
-      ax_log "join note (warning): $(ax_value setup.team.join.warning || true)"; return 0
+    if ax_find setup.fast.invite.line >/dev/null 2>&1; then
+      ax_log "invite reads: $(ax_value setup.fast.invite.line || true)"; return 0
     fi
     sleep 1
   done
-  ax_log "no join note on the Join card within ${1:-60}s"; return 1
+  ax_log "no invite verdict within ${1:-60}s"; return 1
 }
 
 ax_enabled() {  # <axid> -> true|false
@@ -506,22 +425,6 @@ ax_enabled_or_fail() {  # <axid> -> true|false
   local s; s=$(ax_enabled "$1" || true)
   [ -n "$s" ] || ax_fail "$1 not found"
   printf '%s' "$s"
-}
-
-# The summary's gate settles only once its post-install re-check lands: until
-# then Finish is disabled and the Overview is the only pane, which is neither
-# of the two states a driver can act on. Waits for any of: the sidebar's Needs
-# you entry, either finish-gated row's own .action id, or Finish enabled.
-ax_wait_done_gate() {  # <timeout-s>
-  local deadline=$((SECONDS + ${1:-60}))
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    ax_find setup.checklist.group.needs-you >/dev/null 2>&1 && { ax_log "done gate: Needs you shown"; return 0; }
-    ax_find setup.done.beforeYouFinish.tool.fast-browser-extension.action >/dev/null 2>&1 && { ax_log "done gate: Fast Browser row present"; return 0; }
-    ax_find setup.done.beforeYouFinish.skills.writing-style.action >/dev/null 2>&1 && { ax_log "done gate: writing-style row present"; return 0; }
-    [ "$(ax_enabled setup.done.continue || true)" = true ] && { ax_log "done gate: Finish enabled"; return 0; }
-    sleep 1
-  done
-  ax_log "done gate did not settle within ${1:-60}s"; return 1
 }
 
 ax_wait_enabled() {  # <axid> <timeout-s>

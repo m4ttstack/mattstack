@@ -6,6 +6,8 @@
  *                                                     print, then run, the provisioning plan
  *   rt home key export                          print the age private key once, for a password manager
  *   rt home key import [--stdin] [--force]      bring an external age key into the keychain
+ *   rt home restore <repo> [--stdin] [--profile <name>] [--json]
+ *                                                     bring another Mac's settings over (lib/home/restore.ts)
  *   rt home snapshot [--status]                       run (or report on) the auto-commit daemon
  *   rt home claim <zone> [--owner] [--note] [--force]  tell the daemon to leave a path alone
  *   rt home release <zone>                             let the daemon resume auto-committing a path
@@ -46,7 +48,7 @@ import { shellQuote } from "../lib/herdr-launch.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { isSafeMachineKeySegment, machineKey, mattstackHome } from "../lib/rt-paths.ts";
-import { resolveInitialMachineKey } from "../lib/home/machine-id.ts";
+import { resolveInitialMachineKey, stableMachineId } from "../lib/home/machine-id.ts";
 import {
   buildInitPlan,
   chooseMachineProfile,
@@ -68,6 +70,7 @@ import {
   ensureAgeKey,
   importAgeKey,
   keyExport,
+  PRIVATE_KEY_PREFIX,
   renderSopsYaml,
   sopsYamlRecipient,
   type AgeKeySeam,
@@ -92,7 +95,11 @@ import { isDaemonInstalled } from "../lib/daemon-config.ts";
 import { unwritten } from "../lib/settings/presence.ts";
 import { readIntent as readIntentFromDisk, type SetupIntent } from "../lib/setup/intent.ts";
 import { deckHelperLabel } from "../lib/setup/need.ts";
-import { createRealProbes } from "../lib/setup/probes.ts";
+import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
+import { homeRepoCloneUrl, RESTORE_USAGE, runHomeRestore, type KeyOutcome } from "../lib/home/restore.ts";
+import { UserActionableError } from "../lib/errors.ts";
+import { envelope } from "../lib/setup/contract.ts";
+import { exitWithUserError } from "../lib/setup/user-failure.ts";
 import { processFlavor } from "../lib/flavor.ts";
 
 export interface HomeProbes {
@@ -323,8 +330,9 @@ export function resolveHomeUrl(
   const fromFlag = parseUrlArg(args);
   if (fromFlag !== null) return fromFlag;
   const intent = seams.readIntent();
-  const fromIntent = intent?.homeRepo ?? intent?.restore?.homeRepo;
-  if (fromIntent) return fromIntent;
+  const fromIntent = intent?.homeRepo ?? intent?.restore?.url ?? intent?.restore?.homeRepo;
+  // `git clone` reads `owner/repo` as a local path, so the shorthand becomes a clone URL here.
+  if (fromIntent) return homeRepoCloneUrl(fromIntent);
   // An exported-but-empty RT_HOME_URL is "unset", never a clone of "".
   return seams.env.RT_HOME_URL || null;
 }
@@ -953,8 +961,6 @@ function truncateKey(key: string): string {
  * pasted, not a guess — a wrong paste that happens to parse still gets
  * caught here before the operator believes their secrets are decryptable.
  */
-/** The unmistakable prefix of a pasted age private key — never a legitimate flag or value for anything else this command takes. */
-const AGE_PRIVATE_KEY_PREFIX = "AGE-SECRET-KEY-1";
 
 export async function homeKeyImport(
   args: string[],
@@ -963,16 +969,15 @@ export async function homeKeyImport(
   sopsYamlSeam: SopsYamlSeam = defaultSopsYamlSeam(),
   input: AgeKeyInputSeam = defaultAgeKeyInputSeam(),
 ): Promise<void> {
-  // The key must arrive via --stdin or the hidden interactive prompt — never
+  // The key must arrive via --stdin or the hidden interactive prompt, never
   // as a positional argument. By the time it shows up here as one, it has
-  // already landed in the operator's shell history and rt's own CLI log
-  // (dispatch() logs every command's args) — refuse outright rather than
-  // silently proceeding as if the leak never happened.
-  const pastedKeyArg = args.find((a) => a.startsWith(AGE_PRIVATE_KEY_PREFIX));
+  // already landed in the operator's shell history (rt's CLI log redacts it),
+  // so refuse outright rather than proceed as if the leak never happened.
+  const pastedKeyArg = args.find((a) => a.startsWith(PRIVATE_KEY_PREFIX));
   if (pastedKeyArg !== undefined) {
     refuse(
       "rt will not import a key passed as a positional argument",
-      out.callout("why", "It just landed in your shell history and in rt's own log, so treat it as leaked and rotate it before you use it for anything."),
+      out.callout("why", "It just landed in your shell history, so treat it as leaked and rotate it before you use it for anything."),
       out.callout("next", out.cmd("rt home key import --stdin")),
     );
   }
@@ -1018,6 +1023,76 @@ export async function homeKeyImport(
   }
 
   out.print(out.line("done", "Imported your secrets key", truncateKey(publicKey)), out.callout("note", "Secrets locked to this key can now be opened on this Mac"));
+}
+
+// ─── restore ────────────────────────────────────────────────────────────────
+
+export interface HomeRestoreDeps {
+  probes: Probes;
+  ageKeySeam: AgeKeySeam;
+  input: AgeKeyInputSeam;
+  /** The --json envelope line, and nothing else. */
+  json: (value: unknown) => void;
+  exit: (code: number) => never;
+  /** This Mac's hardware id; tests pass a fixed one so nothing reads the real ioreg. */
+  machineId: () => Promise<string | null>;
+}
+
+export function realHomeRestoreDeps(): HomeRestoreDeps {
+  const input: AgeKeyInputSeam = {
+    fromStdin: () => readStdinTrimmed(),
+    fromPrompt: () => promptSecret("Paste your recovery key").then((value) => value.trim()),
+  };
+  return { probes: createRealProbes(), ageKeySeam: createRealAgeKeySeam(), input, json: (v) => out.json(v), exit: process.exit, machineId: () => stableMachineId() };
+}
+
+const KEY_ENDING: Record<KeyOutcome, string> = {
+  imported: "Saved your recovery key to the keychain",
+  kept: "Your recovery key was already on this Mac",
+};
+
+async function readRecoveryKey(args: string[], input: AgeKeyInputSeam): Promise<string> {
+  try {
+    return args.includes("--stdin") ? await input.fromStdin() : await input.fromPrompt();
+  } catch {
+    // The reader's own message is never shown: it could quote what was pasted.
+    throw new UserActionableError("no-key", "rt could not read your recovery key", {}, { next: RESTORE_USAGE });
+  }
+}
+
+/** `rt home restore <repo> [--stdin] [--profile <name>] [--json]`: the recovery key arrives on stdin as plain text, or at a prompt. */
+export async function homeRestore(args: string[], _ctx: CommandContext = {}, deps: HomeRestoreDeps = realHomeRestoreDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  try {
+    if (args.some((a) => a.startsWith(PRIVATE_KEY_PREFIX))) {
+      throw new UserActionableError("key-on-argv", "rt will not take a recovery key on the command line", {}, {
+        why: "It is in your shell history now, so treat it as leaked.",
+        next: RESTORE_USAGE,
+      });
+    }
+    const profileAt = args.indexOf("--profile");
+    const profile = profileAt === -1 ? undefined : args[profileAt + 1];
+    if (profileAt !== -1 && (profile === undefined || profile.startsWith("--"))) {
+      throw new UserActionableError("usage", "Give this Mac's profile a name", {}, { next: `${RESTORE_USAGE} --profile <name>` });
+    }
+    const repo = args.find((a, i) => !a.startsWith("--") && (profileAt === -1 || i !== profileAt + 1));
+    if (repo === undefined) throw new UserActionableError("usage", "Which settings repo should rt restore?", {}, { next: RESTORE_USAGE });
+    const privateKey = await readRecoveryKey(args, deps.input);
+    const result = await runHomeRestore(deps.probes, deps.ageKeySeam, { repo, privateKey, ...(profile !== undefined ? { profile } : {}) }, { machineId: deps.machineId });
+    if (json) {
+      deps.json(envelope({ ok: true, repo: result.homeRepo, url: result.url, key: result.key }, deps.probes.now()));
+      return;
+    }
+    out.print(
+      out.line("done", KEY_ENDING[result.key]),
+      out.line("done", "Brought your settings over", result.homeRepo),
+      out.callout("next", "Open mattstack.app to finish setting up this Mac"),
+    );
+  } catch (err) {
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, { json: deps.json, exit: deps.exit, now: () => deps.probes.now() });
+    throw err;
+  }
 }
 
 // ─── snapshot / claim / release ─────────────────────────────────────────────

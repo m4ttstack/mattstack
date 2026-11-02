@@ -39,6 +39,9 @@ public final class InstallRunModel: ObservableObject {
     @Published public private(set) var steps: [InstallStep] = []
     @Published public private(set) var phase: Phase = .idle
     @Published public private(set) var logs: [String: [String]] = [:]
+    /// The bar's highest point this run. A step that ends or reports a new detail drops its own
+    /// percent, so the raw fraction dips; the drawn bar holds here. A retry keeps it.
+    @Published public private(set) var peakFraction: Double = 0
     /// Parse failures and contract events this build doesn't recognize —
     /// surfaced for diagnostics, never blocks the run.
     @Published public private(set) var streamNotes: [String] = []
@@ -53,7 +56,7 @@ public final class InstallRunModel: ObservableObject {
     /// needs.perform() resolves.
     private var generation = 0
     /// A `--from` run's plan still lists the steps before it, whose outcomes must survive.
-    private var resumed = false
+    private var resumedFrom: String?
     public static let logCapPerStep = 500
 
     public init(stream: @escaping ApplyStreamFactory, needs: NeedBroker) {
@@ -82,11 +85,12 @@ public final class InstallRunModel: ObservableObject {
         generation += 1
         let gen = generation
         phase = .running
-        resumed = from != nil
+        resumedFrom = from
         if from == nil {
             steps = []
             logs = [:]
             streamNotes = []
+            peakFraction = 0
         }
         // Captured up front, without touching self, so the needs-ledger
         // clear and stream creation never hold a strong self across their
@@ -128,6 +132,14 @@ public final class InstallRunModel: ObservableObject {
         }
     }
 
+    /// Stops following the run and ends its stream, which stops rt's process. The phase stays where it was,
+    /// so nothing treats this as the run ending.
+    public func cancel() {
+        task?.cancel()
+        task = nil
+        generation += 1
+    }
+
     public func retryFromFailure() {
         guard let id = resumableStepId else { return }
         start(from: id)
@@ -143,11 +155,21 @@ public final class InstallRunModel: ObservableObject {
 
     private func handle(_ event: ApplyEvent, gen: Int) async {
         guard generation == gen else { return }
-        if case .plan(let planned) = event, !resumed {
+        if case .plan(let planned) = event, resumedFrom == nil {
             await needs.forget(ids: planned.map(\.id))
             guard generation == gen else { return }
         }
+        let known = Set(steps.map(\.id))
         Self.apply(event, to: &steps)
+        // rt sends no step event for the steps before --from: they ran before the pause.
+        // Rows this model already holds keep their outcome; a relaunched app holds none.
+        if case .plan(let planned) = event, let from = resumedFrom, let cut = planned.firstIndex(where: { $0.id == from }) {
+            for info in planned[..<cut] where !known.contains(info.id) {
+                if let i = steps.firstIndex(where: { $0.id == info.id }) { steps[i].state = .done }
+            }
+        }
+        let peak = RunProgress.monotonic(previous: peakFraction, current: RunProgress.bar(steps: steps, elapsed: 0)).fraction
+        if peak != peakFraction { peakFraction = peak }
         switch event {
         case .log(let id, let line):
             appendLog(line, to: id)

@@ -6,6 +6,8 @@
  */
 
 import { dirname, join } from "path";
+import type { BoardCwds } from "./board-folder.ts";
+import type { StepId } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
 export interface SetupState {
@@ -30,9 +32,34 @@ export interface SetupState {
   lastApplyOk?: boolean;
   /** When setup finished on this Mac. mattstack.app reads this file directly (rt-tray's SetupCompletion). */
   finishedAt?: string;
+  /** When a full `rt setup apply` (no `--only`, not an update) last started: from then on no plan row waits for Install. */
+  installRanAt?: string;
   /** Marketplace re-points the org.folder step started: written before `claude plugin marketplace remove` (which uninstalls the marketplace's plugins) so a run halted before the re-add finishes at the next one. */
   orgMarketplaceMoves?: PendingMarketplaceMove[];
+  /** The `board.cwds` value rt wrote last: Install replaces that value, never one the member set by hand. */
+  boardCwdsWritten?: Partial<BoardCwds>;
+  /** `board.cwds` changed since the board last restarted, so `board.restart` has something to do. */
+  boardRestartPending?: boolean;
+  /** An `--only` run changed something since the served apps last restarted; `rt setup finish` restarts them only while this is set. */
+  appsRestartOwed?: true;
+  /** The last Homebrew install the privileged helper attempted. Any outcome counts as asked, so a failed attempt never raises the admin dialog again. */
+  homebrew?: { at: string; outcome: "ok" | "present" | "failed"; detail?: string };
+  /** Where the member chose to keep their settings. A remote with a url or create and no `appliedAt` is staged until a push lands. */
+  homeBackup?: HomeBackupChoice;
+  /** The last full, `--from` or resumed `rt setup apply`, step by step. With no `endedAt` it is still running or died partway. */
+  run?: SetupRun;
 }
+
+export interface SetupRun {
+  startedAt: string;
+  /** Steps that ended done, partial, skipped or needs-you, in the order they ran. */
+  done: StepId[];
+  endedAt?: string;
+  ok?: boolean;
+  failed?: { step: StepId; detail: string; remedy?: string };
+}
+
+export type HomeBackupChoice = { mode: "local" } | { mode: "remote"; url?: string; create?: boolean; name?: string; appliedAt?: string };
 
 export interface PendingMarketplaceMove {
   marketplace: string;
@@ -114,6 +141,11 @@ export function readSetupState(p: StateProbes): SetupState {
 
 export function isSetupFinished(state: SetupState): boolean {
   return typeof state.finishedAt === "string" && state.finishedAt !== "";
+}
+
+/** A Mac that finished setup before `installRanAt` existed has run Install too. */
+export function installHasRun(state: SetupState): boolean {
+  return state.installRanAt !== undefined || isSetupFinished(state);
 }
 
 export function markSetupFinished(p: StateWriteProbes): SetupState {

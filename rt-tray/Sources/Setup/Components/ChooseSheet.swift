@@ -10,6 +10,7 @@ struct ChooseSheet: View {
     let options: [ChooseOption]
     let other: ChooseOther?
     let footnote: String?
+    let submitLabel: String
     let onChoose: (String) async -> String?
 
     private enum Choice: Hashable { case option(String), own }
@@ -22,15 +23,21 @@ struct ChooseSheet: View {
     @State private var pickedSuggestion = false
     @FocusState private var ownFocused: Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.fastSheet) private var fast
+    @Environment(\.fastHidesScrollers) private var hidesScrollers
 
-    init(row: PlanRow, onChoose: @escaping (String) async -> String?) {
+    /// `suggestionsOpen` starts with the own card's dropdown showing, for a snapshot.
+    init(row: PlanRow, submitLabel: String = "Use this style", suggestionsOpen: Bool = false,
+         onChoose: @escaping (String) async -> String?) {
         let action = row.action
         self.title = row.title
         self.subtitle = action?.subtitle
         self.options = action?.options ?? []
         self.other = action?.other
         self.footnote = action?.footnote
+        self.submitLabel = submitLabel
         self.onChoose = onChoose
+        _suggestionsOpen = State(initialValue: suggestionsOpen)
         // A current value that is not a listed option (a skill picked by id) opens on the own-skill card.
         if let selected = action?.selected {
             if options.contains(where: { $0.id == selected }) {
@@ -55,7 +62,7 @@ struct ChooseSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header.padding(24)
-            Divider()
+            divider
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
@@ -72,20 +79,20 @@ struct ChooseSheet: View {
                     if new != nil, choice == .own { proxy.scrollTo(Choice.own, anchor: .bottom) }
                 }
             }
+            .scrollIndicators(fast && hidesScrollers ? .never : .automatic)
             .frame(maxHeight: 420)
             if let error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout).foregroundStyle(.red)
+                errorLine(error)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 24).padding(.bottom, 12)
                     .accessibilityIdentifier(AXID.chooseError)
             }
-            Divider()
+            divider
             footer.padding(.horizontal, 24).padding(.vertical, 16)
         }
         .frame(width: 560)
-        // The cards use the Team screen's control-background fill, which only reads against the window background.
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(sheetBackground)
+        .environment(\.colorScheme, fast ? .dark : colorScheme)
         // Hosted at the sheet's root so the dropdown floats over the scroll view's edge and the buttons
         // without taking layout space: nothing around the field moves when it opens or closes.
         .overlayPreferenceValue(OwnFieldBounds.self) { anchor in
@@ -114,7 +121,7 @@ struct ChooseSheet: View {
                                 .position(x: rect.midX, y: rect.midY)
                                 .onTapGesture { suggestionsOpen = false }
                         }
-                        SuggestionList(matches: ownMatches, height: height, pick: pickSuggestion)
+                        SuggestionList(matches: ownMatches, height: height, fast: fast, pick: pickSuggestion)
                             .frame(width: field.width)
                             .offset(x: dropdown.minX, y: dropdown.minY)
                     }
@@ -137,7 +144,45 @@ struct ChooseSheet: View {
         .accessibilityIdentifier(AXID.chooseSheet)
     }
 
-    private var header: some View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    @ViewBuilder private var divider: some View {
+        if fast { FastRowDivider() } else { Divider() }
+    }
+
+    // The system cards use the Team screen's control-background fill, which only reads against the window background.
+    @ViewBuilder private var sheetBackground: some View {
+        if fast { FastWindowBackground() } else { Color(nsColor: .windowBackgroundColor) }
+    }
+
+    @ViewBuilder private func errorLine(_ error: String) -> some View {
+        if fast {
+            FastFailureLine(text: error)
+        } else {
+            Label(error, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder private var header: some View {
+        if fast { fastHeader } else { systemHeader }
+    }
+
+    /// Fast setup's heading and sub beside P1's accent tile.
+    private var fastHeader: some View {
+        HStack(alignment: .top, spacing: 14) {
+            FastIconTile(symbol: "text.bubble")
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(FastTheme.sheetHeading).tracking(FastTheme.sheetHeadingTracking)
+                    .foregroundColor(FastTheme.textPrimary)
+                if let subtitle {
+                    FastTheme.sub(subtitle).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, subtitle == nil ? 6 : 0)
+        }
+    }
+
+    private var systemHeader: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "text.bubble")
                 .font(.system(size: 28))
@@ -155,19 +200,21 @@ struct ChooseSheet: View {
     private func optionCard(_ o: ChooseOption) -> some View {
         let selected = choice == .option(o.id)
         return card(selected: selected, id: AXID.chooseOption(o.id), select: { choice = .option(o.id) }) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(o.label).font(.headline)
-                Text(o.detail).font(.callout).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: fast ? 3 : 4) {
+                Text(o.label).font(fast ? .system(size: 14, weight: FastTheme.weight(css: .semibold)) : .headline)
+                    .foregroundColor(fast ? FastTheme.textPrimary : nil)
+                Text(o.detail).font(fast ? .system(size: 12) : .callout)
+                    .foregroundStyle(fast ? AnyShapeStyle(FastTheme.textSecondary) : AnyShapeStyle(.secondary))
                     .fixedSize(horizontal: false, vertical: true)
             }
         } content: {
             if let sample = o.sample {
                 Text(LocalizedStringKey(sample))
-                    .font(.callout)
+                    .modifier(ChooseSampleStyle(fast: fast))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15)))
+                    .background(RoundedRectangle(cornerRadius: fast ? 8 : 6).fill(fast ? FastTheme.fieldFill : Color.secondary.opacity(0.15)))
             }
         }
     }
@@ -175,27 +222,38 @@ struct ChooseSheet: View {
     private func ownCard(_ other: ChooseOther) -> some View {
         let selected = choice == .own
         return card(selected: selected, id: AXID.chooseOwn, select: { choice = .own }) {
-            Text(other.label).font(.headline)
+            Text(other.label).font(fast ? .system(size: 14, weight: FastTheme.weight(css: .semibold)) : .headline)
+                .foregroundColor(fast ? FastTheme.textPrimary : nil)
         } content: {
             if selected {
-                SetupField(label: "Skill id", note: other.hint) {
-                    TextField(other.label, text: $ownId, prompt: Text("plugin:skill-name"))
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-                        .focused($ownFocused)
-                        .onSubmit(submit)
-                        .onKeyPress(.escape) {
-                            guard suggestionsOpen else { return .ignored }
-                            suggestionsOpen = false
-                            return .handled
+                if fast {
+                    FastStackedRow(label: "Skill id") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ownField(other)
+                            FastHint(other.hint, size: 12)
                         }
-                        .anchorPreference(key: OwnFieldBounds.self, value: .bounds) { $0 }
-                        .accessibilityLabel(other.label)
-                        .accessibilityIdentifier(AXID.chooseOther)
+                    }
+                } else {
+                    SetupField(label: "Skill id", note: other.hint) { ownField(other) }
                 }
             }
         }
+    }
+
+    private func ownField(_ other: ChooseOther) -> some View {
+        TextField(other.label, text: $ownId, prompt: Text("plugin:skill-name"))
+            .labelsHidden()
+            .modifier(ChooseFieldStyle(fast: fast, focused: ownFocused))
+            .focused($ownFocused)
+            .onSubmit(submit)
+            .onKeyPress(.escape) {
+                guard suggestionsOpen else { return .ignored }
+                suggestionsOpen = false
+                return .handled
+            }
+            .anchorPreference(key: OwnFieldBounds.self, value: .bounds) { $0 }
+            .accessibilityLabel(other.label)
+            .accessibilityIdentifier(AXID.chooseOther)
     }
 
     private var ownMatches: [String] {
@@ -215,7 +273,7 @@ struct ChooseSheet: View {
             Button(action: select) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(radioTint(selected))
                         .padding(.top, 2)
                     title()
                     Spacer(minLength: 0)
@@ -228,25 +286,51 @@ struct ChooseSheet: View {
             content().padding(.leading, 24)
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Color.accentColor : Color.clear, lineWidth: 1))
-        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .background(cardFill(selected))
+        .overlay(cardEdge(selected))
+        .contentShape(RoundedRectangle(cornerRadius: fast ? FastTheme.cardRadius : 10))
         .onTapGesture { if !selected { select() } }
     }
 
+    private func radioTint(_ selected: Bool) -> AnyShapeStyle {
+        if fast { return AnyShapeStyle(selected ? FastTheme.accent : FastTheme.textTertiary) }
+        return AnyShapeStyle(selected ? Color.accentColor : Color.secondary)
+    }
+
+    /// Fast setup's card lights the picked option as P2 lights its card: an accent wash inside an accent edge.
+    @ViewBuilder private func cardFill(_ selected: Bool) -> some View {
+        if fast {
+            let shape = RoundedRectangle(cornerRadius: FastTheme.cardRadius, style: .continuous)
+            shape.fill(FastTheme.card).overlay(shape.fill(selected ? FastTheme.accentWash : .clear))
+        } else {
+            RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor))
+        }
+    }
+
+    @ViewBuilder private func cardEdge(_ selected: Bool) -> some View {
+        if fast {
+            RoundedRectangle(cornerRadius: FastTheme.cardRadius, style: .continuous)
+                .strokeBorder(selected ? FastTheme.accent : FastTheme.outline, lineWidth: 1)
+        } else {
+            RoundedRectangle(cornerRadius: 10).stroke(selected ? Color.accentColor : Color.clear, lineWidth: 1)
+        }
+    }
+
     private var footer: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: fast ? .center : .firstTextBaseline, spacing: fast ? 10 : 12) {
             if let footnote {
-                Text(footnote).font(.caption).foregroundStyle(.secondary)
+                Text(footnote).font(fast ? FastTheme.note : .caption)
+                    .foregroundStyle(fast ? AnyShapeStyle(FastTheme.textSecondary) : AnyShapeStyle(.secondary))
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
             Button("Cancel") { dismiss() }
+                .modifier(ChooseButtonStyle(fast: fast, primary: false))
                 .keyboardShortcut(.cancelAction)
                 .disabled(busy)
                 .accessibilityIdentifier(AXID.chooseCancel)
-            Button(busy ? "Saving…" : "Use this style") { submit() }
-                .buttonStyle(.borderedProminent)
+            Button(busy ? "Saving…" : submitLabel) { submit() }
+                .modifier(ChooseButtonStyle(fast: fast, primary: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(busy || chosenId == nil)
                 .accessibilityIdentifier(AXID.chooseSubmit)
@@ -266,6 +350,57 @@ struct ChooseSheet: View {
     }
 }
 
+/// Fast setup's quiet secondary and no-glow primary (P6b's Show log and Retry), else the system's buttons.
+private struct ChooseButtonStyle: ViewModifier {
+    let fast: Bool
+    let primary: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        switch (fast, primary) {
+        case (true, true): content.buttonStyle(FastPrimaryButtonStyle(glow: false, shape: .retry))
+        case (true, false): content.buttonStyle(FastSecondaryButtonStyle(size: .large, shape: .log))
+        case (false, true): content.buttonStyle(.borderedProminent)
+        case (false, false): content
+        }
+    }
+}
+
+/// Fast setup's field (field fill, outline turning accent on focus, light mono value), else the system's rounded field.
+private struct ChooseFieldStyle: ViewModifier {
+    let fast: Bool
+    let focused: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if fast {
+            let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+            content
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .light, design: .monospaced))
+                .foregroundColor(FastTheme.textPrimary)
+                .padding(.vertical, 8).padding(.horizontal, 10)
+                .background(shape.fill(FastTheme.fieldFill))
+                .overlay(shape.strokeBorder(focused ? FastTheme.accent : FastTheme.outline, lineWidth: 1))
+        } else {
+            content
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+        }
+    }
+}
+
+/// Fast setup's sample in the theme's note type and ink, its links in the accent; else the system's callout.
+private struct ChooseSampleStyle: ViewModifier {
+    let fast: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if fast {
+            content.font(FastTheme.note).foregroundColor(FastTheme.textPrimary).tint(FastTheme.accent)
+        } else {
+            content.font(.callout)
+        }
+    }
+}
+
 private struct OwnFieldBounds: PreferenceKey {
     static let defaultValue: Anchor<CGRect>? = nil
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
@@ -274,7 +409,10 @@ private struct OwnFieldBounds: PreferenceKey {
 private struct SuggestionList: View {
     let matches: [String]
     let height: CGFloat
+    /// Hangs from the sheet's root overlay, outside its colour scheme, so the fast look is drawn in explicit tokens.
+    let fast: Bool
     let pick: (String) -> Void
+    @Environment(\.fastFlipsShadows) private var flipsShadows
 
     /// Short lists size to fit; long ones scroll past about six rows so every match stays reachable.
     static func height(for count: Int) -> CGFloat {
@@ -284,29 +422,35 @@ private struct SuggestionList: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(matches, id: \.self) { s in SuggestionRow(id: s) { pick(s) } }
+                ForEach(matches, id: \.self) { s in SuggestionRow(id: s, fast: fast) { pick(s) } }
             }
             .padding(4)
         }
         .frame(height: height)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
-        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+        .background(RoundedRectangle(cornerRadius: fast ? 8 : 6, style: .continuous)
+            .fill(fast ? FastTheme.card : Color(nsColor: .controlBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: fast ? 8 : 6, style: .continuous)
+            .strokeBorder(fast ? FastTheme.outline : Color(nsColor: .separatorColor)))
+        .shadow(color: fast ? FastTheme.popoverShadow : .black.opacity(0.2), radius: 4, y: flipsShadows ? -2 : 2)
     }
 }
 
 private struct SuggestionRow: View {
     static let height: CGFloat = 24
     let id: String
+    let fast: Bool
     let pick: () -> Void
     @State private var hovering = false
 
+    private var hoverFill: Color { fast ? FastTheme.outline : Color.secondary.opacity(0.3) }
+
     var body: some View {
         Button(action: pick) {
-            Text(id).font(.system(.callout, design: .monospaced))
+            Text(id).font(fast ? .system(size: 12, weight: .light, design: .monospaced) : .system(.callout, design: .monospaced))
+                .foregroundColor(fast ? FastTheme.textPrimary : nil)
                 .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? Color.secondary.opacity(0.3) : Color.clear))
+                .background(RoundedRectangle(cornerRadius: 5).fill(hovering ? hoverFill : Color.clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

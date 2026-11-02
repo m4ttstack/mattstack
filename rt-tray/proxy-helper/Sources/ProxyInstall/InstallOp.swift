@@ -20,6 +20,10 @@ enum ProxyPaths {
     /// user cannot swap the bytes in between; a run that wrote to the
     /// keychain promotes it to `trustedCa`.
     static let trustedCaStage = root + "/.ca.pem.stage"
+    /// HomebrewStep's download directory. Inside the root-owned tree, never a
+    /// path the console user can write, one per run, and gone again before the
+    /// op ends.
+    static func homebrewStage(pid: Int32) -> String { root + "/.homebrew-stage-\(pid)" }
 }
 
 struct InstallOp {
@@ -29,11 +33,13 @@ struct InstallOp {
     let fs: FileOps
     let runner: CommandRunner
     var copyPayload: (URL, URL, FileOps, PinsValues) throws -> Void = CopyStep.run
+    /// Set when the request asked for Homebrew in the same prompt.
+    var homebrew: HomebrewStep?
     var emit: (String) -> Void = Report.step
     /// How long to give the freshly bootstrapped daemon to mint the CA.
     var caWait: TimeInterval = 20
 
-    static func run() -> Int32 {
+    static func run(homebrew: Bool) -> Int32 {
         // Everything below assumes root; refusing here keeps an unescalated run
         // from reporting a filesystem permission error as if it were a defect.
         guard geteuid() == 0 else {
@@ -49,12 +55,15 @@ struct InstallOp {
             Report.step("cannot resolve the helper's own path")
             return ExitCode.software
         }
+        let fs = RealFileOps()
+        let runner = RealCommandRunner()
         return InstallOp(
             bundleRoot: bundleRoot(forExecutable: executable),
             user: user,
             pins: Pins.current,
-            fs: RealFileOps(),
-            runner: RealCommandRunner()
+            fs: fs,
+            runner: runner,
+            homebrew: homebrew ? HomebrewStep(fs: fs, runner: runner, pins: Pins.current) : nil
         ).execute()
     }
 
@@ -72,7 +81,18 @@ struct InstallOp {
         return URL(fileURLWithPath: String(cString: real))
     }
 
+    /// Homebrew goes first, so no proxy failure can cost it, and it is never
+    /// fatal: whatever it did, the proxy install goes on.
     func execute() -> Int32 {
+        let brew = homebrew?.run()
+        let code = installProxy(reportingHomebrew: brew)
+        // A finished run reports Homebrew beside the trust line; every failure
+        // returns before that, and the reply still owes rt the outcome.
+        if code != ExitCode.ok, let brew { emit(Report.homebrewLine(brew)) }
+        return code
+    }
+
+    private func installProxy(reportingHomebrew brew: HomebrewOutcome?) -> Int32 {
         do {
             try copyPayload(bundleRoot, URL(fileURLWithPath: ProxyPaths.root), fs, pins)
         } catch {
@@ -150,6 +170,7 @@ struct InstallOp {
         // line of the report.
         if let problem = outcome.recordProblem { emit(problem) }
         emit(outcome.line)
+        if let brew { emit(Report.homebrewLine(brew)) }
         emit(Report.trustLine(outcome.state))
         return ExitCode.ok
     }

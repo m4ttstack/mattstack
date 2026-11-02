@@ -16,10 +16,12 @@ public struct ConnectResult: Codable, Equatable, Sendable {
     // rt setup github status only; absent (decodeIfPresent) for other integrations.
     public var handle: String?
     public var owners: [String]?
+    /// The page a needs-you sign-in waits on (rt setup github sign-in).
+    public var url: String?
     public init(integration: String, status: RowStatus, detail: String? = nil, scopesSeen: [String]? = nil,
-                handle: String? = nil, owners: [String]? = nil) {
+                handle: String? = nil, owners: [String]? = nil, url: String? = nil) {
         self.integration = integration; self.status = status; self.detail = detail; self.scopesSeen = scopesSeen
-        self.handle = handle; self.owners = owners
+        self.handle = handle; self.owners = owners; self.url = url
     }
 }
 

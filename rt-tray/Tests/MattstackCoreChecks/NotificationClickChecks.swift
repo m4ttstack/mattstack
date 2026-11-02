@@ -132,4 +132,10 @@ let notificationClickChecks: [Check] = [
         c.expectEqual(r, .showSetupStatus)
         c.expect(!r.suppressesActivationShow, "a window route may let activation show the shell")
     },
+    Check("NotificationClick: a setup_progress banner resumes setup") { c in
+        c.expectEqual(NotificationClick.setupProgressCategory, "setup_progress")
+        let r = NotificationClick.bannerRoute(category: NotificationClick.setupProgressCategory, url: "https://evil.example/", paneId: "pane-7")
+        c.expectEqual(r, .resumeSetup)
+        c.expect(!r.suppressesActivationShow, "resuming setup shows a window, so activation may show the shell")
+    },
 ]

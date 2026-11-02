@@ -192,6 +192,8 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  // The day picker marks today from the real clock, so the fixture's days only line up when the clock is NOW.
+  vi.useFakeTimers({ toFake: ['Date'], now: NOW });
   history.replaceState(null, '', '/?view=timeline');
   runsGet.mockResolvedValue(ok({ runs: RUNS, asOf: NOW }));
   gatesGet.mockResolvedValue(ok({ gates: GATES }));
@@ -211,7 +213,10 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.useRealTimers();
+});
 
 const rowIds = () =>
   screen

@@ -21,9 +21,10 @@ struct StubServicesProvider: ServicesProviding {
 }
 
 struct StubPrivilegedInstaller: PrivilegedInstalling {
-    func proxyInstall() async -> NeedResult { NeedResult(ok: true, detail: "stubbed") }
+    func proxyInstall(homebrew: Bool) async -> NeedResult { NeedResult(ok: true, detail: "stubbed") }
     func proxyRemove() async -> NeedResult { NeedResult(ok: true, detail: "stubbed") }
-    func proxyTrust() async -> NeedResult { NeedResult(ok: true, detail: "stubbed") }
+    func proxyTrust(homebrew: Bool) async -> NeedResult { NeedResult(ok: true, detail: "stubbed") }
+    func homebrew() async -> NeedResult { NeedResult(ok: true, detail: "stubbed") }
 }
 
 /// Replaces the real OS permission probe under stub mode: the real one reads

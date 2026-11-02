@@ -10,6 +10,8 @@ final class FakePasteboard: PasteboardReading, @unchecked Sendable {
 
 let completeInviteCode = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
 
+private let restoredReply = #"{"contract":1,"at":"2026-01-01T00:00:00.000Z","ok":true,"repo":"janedoe/mattstack-home","url":"https://github.com/janedoe/mattstack-home.git","key":"imported"}"#
+
 let teamChoiceChecks: [Check] = [
     Check("Paste invite fills the field from a copied deep link") { c in
         let pb = FakePasteboard("mattstack://join/01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC")
@@ -41,75 +43,42 @@ let teamChoiceChecks: [Check] = [
         c.expectEqual(Slug.make("  My  Team -- 2 "), "my-team-2")
         c.expectEqual(Slug.make(""), "")
     },
-    Check("create: slug preview, gh owner picker from github status, canContinue needs name + remote") { c in
+    Check("create: slug preview, and the gh handle from github status") { c in
         let rt = ScriptedRt()
-        rt.answers["setup github status"] = (0, #"{"contract":1,"status":"ready","handle":"m4ttheweric","owners":["m4ttheweric","acme"]}"#)
+        rt.answers["setup github status"] = (0, #"{"contract":1,"status":"ready","handle":"janedoe","owners":["janedoe","acme"]}"#)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
         await m.loadGitHubStatus()
         await MainActor.run {
-            c.expectEqual(m.ghHandle, "m4ttheweric")
-            c.expectEqual(m.ghOwners, ["m4ttheweric", "acme"])
-            c.expectEqual(m.useGhRepo, true)
-            c.expectEqual(m.ghOwner, "m4ttheweric")
-            c.expectEqual(m.canContinue, false)
+            c.expectEqual(m.ghHandle, "janedoe")
             m.teamName = "Acme Claims"
             c.expectEqual(m.slugPreview, "acme-claims")
-            c.expectEqual(m.ghRepoPreview, "m4ttheweric/mattstack-team-acme-claims")
-            c.expectEqual(m.canContinue, true)
-            m.useGhRepo = false
-            c.expectEqual(m.canContinue, false, "URL field now required")
-            m.remoteURL = "git@gitlab.example.com:tools/mattstack-team.git"
-            c.expectEqual(m.canContinue, true)
         }
     },
-    Check("create: a ready GitHub token with no gh session keeps the repository URL field") { c in
+    Check("create: a ready GitHub token with no gh session reads no handle") { c in
         let rt = ScriptedRt()
         rt.answers["setup github status"] = (0, #"{"contract":1,"integration":"github","status":"ready","detail":"GitHub token works","scopesSeen":["repo"]}"#)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
         await m.loadGitHubStatus()
-        await MainActor.run {
-            c.expectEqual(m.ghHandle, nil)
-            c.expectEqual(m.useGhRepo, false, "no handle means no GitHub repo toggle, so the URL field must stay")
-            m.teamName = "Acme Claims"
-            m.remoteURL = "https://example.com/t.git"
-            c.expectEqual(m.canContinue, true)
-        }
+        c.expectEqual(await MainActor.run { m.ghHandle }, nil)
     },
-    Check("create: validateAndPrepare calls home init --dry-run then team create, never with secrets on argv") { c in
+    Check("create: validateAndPrepare calls home init --dry-run then team create") { c in
         let rt = ScriptedRt()
         rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
         rt.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"acme-claims","name":"Acme Claims"},"remote":"ok"}"#)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
-        await MainActor.run { m.choice = .create; m.teamName = "Acme Claims"; m.useGhRepo = false; m.remoteURL = "https://example.com/t.git" }
+        await MainActor.run { m.choice = .create; m.teamName = "Acme Claims"; m.group = "acme"; m.othersWillJoin = false }
         let err = await m.validateAndPrepare()
         c.expect(err == nil, "got \(err ?? "")")
         try c.require(rt.calls.count >= 2, "expected home init --dry-run then team create, got \(rt.calls.map(\.args))")
         c.expectEqual(rt.calls[0].args.prefix(3), ["home", "init", "--dry-run"])
-        c.expectEqual(rt.calls[1].args, ["team", "create", "Acme Claims", "--remote", "https://example.com/t.git", "--others", "--json"])
-        let gh = ScriptedRt()
-        gh.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
-        gh.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"acme-claims","name":"Acme Claims"},"remote":"ok"}"#)
-        let m2 = await MainActor.run { TeamChoiceModel(rt: gh, pasteboard: FakePasteboard(nil)) }
-        await MainActor.run { m2.choice = .create; m2.teamName = "Acme Claims"; m2.useGhRepo = true; m2.ghOwner = "acme"; m2.othersWillJoin = false }
-        c.expect(await m2.validateAndPrepare() == nil)
-        try c.require(gh.calls.count >= 2, "expected home init --dry-run then team create, got \(gh.calls.map(\.args))")
-        c.expectEqual(gh.calls[1].args, ["team", "create", "Acme Claims", "--create-repo", "acme", "--json"])
+        c.expectEqual(rt.calls[1].args, ["team", "create", "Acme Claims", "--forge", "gitlab", "--group", "acme", "--json"])
     },
-    Check("create: loadGitHubStatus only queries rt once — a second call after Back doesn't clobber the user's edits") { c in
+    Check("create: loadGitHubStatus only queries rt once") { c in
         let rt = ScriptedRt()
-        rt.answers["setup github status"] = (0, #"{"contract":1,"status":"ready","handle":"m4ttheweric","owners":["m4ttheweric","acme"]}"#)
+        rt.answers["setup github status"] = (0, #"{"contract":1,"status":"ready","handle":"janedoe","owners":["janedoe","acme"]}"#)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
         await m.loadGitHubStatus()
-        await MainActor.run {
-            c.expectEqual(m.useGhRepo, true)
-            m.useGhRepo = false
-            m.remoteURL = "git@gitlab.example.com:tools/mattstack-team.git"
-        }
         await m.loadGitHubStatus()
-        await MainActor.run {
-            c.expectEqual(m.useGhRepo, false, "a second load must not re-overwrite the user's choice")
-            c.expectEqual(m.remoteURL, "git@gitlab.example.com:tools/mattstack-team.git")
-        }
         c.expectEqual(rt.calls.filter { $0.args.prefix(3) == ["setup", "github", "status"] }.count, 1)
     },
     Check("create: validateAndPrepare is idempotent for unchanged inputs; a changed field re-runs it") { c in
@@ -117,7 +86,7 @@ let teamChoiceChecks: [Check] = [
         rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
         rt.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"acme-claims","name":"Acme Claims"},"remote":"ok"}"#)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
-        await MainActor.run { m.choice = .create; m.teamName = "Acme Claims"; m.useGhRepo = false; m.remoteURL = "https://example.com/t.git" }
+        await MainActor.run { m.choice = .create; m.teamName = "Acme Claims"; m.group = "acme" }
         c.expect(await m.validateAndPrepare() == nil)
         c.expect(await m.validateAndPrepare() == nil, "repeat call with unchanged inputs must still report success")
         c.expectEqual(rt.calls.filter { $0.args.prefix(2) == ["team", "create"] }.count, 1, "unchanged inputs must not re-run team create")
@@ -160,45 +129,54 @@ let teamChoiceChecks: [Check] = [
             m.choice = .join
             m.inviteCode = " ABCD-EFGH-\nIJKL "
             c.expectEqual(m.normalizedInviteCode, "ABCD-EFGH-IJKL")
-            c.expectEqual(m.canContinue, true)
-            m.inviteCode = "   "
-            c.expectEqual(m.canContinue, false)
             c.expectEqual(TeamChoiceModel.inviteCodeLength, 77)
         }
     },
-    Check("restore: repo + key required; the real rt restore runs with the key on stdin, then setup intent restore") { c in
+    Check("restore: repo + key required; rt home restore runs once with the key as plain stdin and records the intent itself") { c in
         let rt = ScriptedRt()
-        rt.answers["restore"] = (0, #"{"contract":1,"ok":true,"repo":"m4ttheweric/mattstack-home"}"#)
-        rt.answers["setup intent restore"] = (0, #"{"contract":1,"ok":true,"intent":"restore","repo":"m4ttheweric/mattstack-home"}"#)
+        rt.answers["home restore"] = (0, restoredReply)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
-        await MainActor.run { m.choice = .restore; m.restoreRepo = "m4ttheweric/mattstack-home"; c.expectEqual(m.canContinue, false); m.restoreAgeKey = "AGE-SECRET-KEY-1XYZ"; c.expectEqual(m.canContinue, true) }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home"; m.restoreAgeKey = " AGE-SECRET-KEY-1PLACEHOLDER\n" }
         let err = await m.validateAndPrepare()
         c.expect(err == nil)
-        try c.require(rt.calls.count >= 2, "expected restore then setup intent restore, got \(rt.calls.map(\.args))")
-        c.expectEqual(rt.calls[0].args, ["restore", "m4ttheweric/mattstack-home", "--json"])
-        c.expectEqual(rt.calls[0].stdin, "{\"ageKey\":\"AGE-SECRET-KEY-1XYZ\"}")
-        c.expectEqual(rt.calls[1].args, ["setup", "intent", "restore", "m4ttheweric/mattstack-home", "--json"])
-        c.expect(rt.calls.allSatisfy { !$0.args.contains("AGE-SECRET-KEY-1XYZ") }, "key never on argv")
+        c.expectEqual(rt.calls.map(\.args), [["home", "restore", "janedoe/mattstack-home", "--stdin", "--json"]])
+        c.expectEqual(rt.calls.first?.stdin, "AGE-SECRET-KEY-1PLACEHOLDER")
+        c.expect(rt.calls.allSatisfy { !$0.args.joined().contains("AGE-SECRET-KEY") }, "key never on argv")
     },
-    Check("a finished restore survives Back→Continue: the wiped key doesn't disable Continue and doesn't re-run the real restore") { c in
+    Check("restore: rt's refusal shows its own words, and a failure with no envelope withholds stderr") { c in
+        let refused = ScriptedRt()
+        refused.answers["home restore"] = (2, #"{"contract":1,"error":{"code":"other-key","message":"This Mac already has a different recovery key"}}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: refused, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home"; m.restoreAgeKey = "AGE-SECRET-KEY-1PLACEHOLDER" }
+        c.expectEqual(await m.validateAndPrepare(), "This Mac already has a different recovery key")
+        await MainActor.run { c.expectEqual(m.restoreAgeKey, "AGE-SECRET-KEY-1PLACEHOLDER", "a failed restore keeps the key for Retry") }
+
+        let crashed = ScriptedRt()
+        crashed.answers["home restore"] = (1, "")
+        let n = await MainActor.run { TeamChoiceModel(rt: crashed, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { n.choice = .restore; n.restoreRepo = "janedoe/mattstack-home"; n.restoreAgeKey = "AGE-SECRET-KEY-1PLACEHOLDER" }
+        c.expectEqual(await n.validateAndPrepare(), "rt home restore failed (exit 1); details withheld because the command carried a secret.")
+    },
+    Check("TeamChoice: a restore repo pasted with a newline is trimmed the way Restore's button trims it") { c in
         let rt = ScriptedRt()
-        rt.answers["restore"] = (0, #"{"contract":1,"ok":true,"repo":"m4ttheweric/mattstack-home"}"#)
-        rt.answers["setup intent restore"] = (0, #"{"contract":1,"ok":true,"intent":"restore","repo":"m4ttheweric/mattstack-home"}"#)
+        rt.answers["home restore"] = (0, restoredReply)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
-        await MainActor.run { m.choice = .restore; m.restoreRepo = "m4ttheweric/mattstack-home"; m.restoreAgeKey = "AGE-SECRET-KEY-1XYZ" }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home\n"; m.restoreAgeKey = "placeholder" }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.first?.args, ["home", "restore", "janedoe/mattstack-home", "--stdin", "--json"])
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.count, 1, "the restored repo matches however it was pasted")
+    },
+    Check("a finished restore survives a second press: the wiped key doesn't re-run the real restore") { c in
+        let rt = ScriptedRt()
+        rt.answers["home restore"] = (0, restoredReply)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .restore; m.restoreRepo = "janedoe/mattstack-home"; m.restoreAgeKey = "AGE-SECRET-KEY-1PLACEHOLDER" }
         c.expect(await m.validateAndPrepare() == nil)
         let afterFirst = rt.calls.count
-        await MainActor.run {
-            c.expectEqual(m.restoreAgeKey, "", "the key is wiped once the restore lands")
-            c.expectEqual(m.canContinue, true, "Back→Continue must stay live for a repo already restored")
-        }
-        c.expect(await m.validateAndPrepare() == nil, "Continue again is a no-op, not a failure")
+        await MainActor.run { c.expectEqual(m.restoreAgeKey, "", "the key is wiped once the restore lands") }
+        c.expect(await m.validateAndPrepare() == nil, "a second press is a no-op, not a failure")
         c.expectEqual(rt.calls.count, afterFirst, "the real restore must not run a second time")
-        // A different repo is a different restore: it needs its own key again.
-        await MainActor.run {
-            m.restoreRepo = "m4ttheweric/other-home"
-            c.expectEqual(m.canContinue, false)
-        }
     },
     Check("normalizedInviteCode accepts bare codes, deep links, and URLs; leaves other inputs for the CLI") { c in
         let m = await MainActor.run { TeamChoiceModel(rt: ScriptedRt(), pasteboard: FakePasteboard(nil)) }
@@ -337,13 +315,12 @@ let teamChoiceChecks: [Check] = [
         await MainActor.run { m.choice = .join; m.inviteCode = "ABCD-EFGH" }
         c.expect(await m.validateAndPrepare() != nil)
     },
-    Check("solo: Continue needs no fields, prepare runs home init then setup intent solo, and latches") { c in
+    Check("solo: prepare runs home init then setup intent solo, and latches") { c in
         let rt = ScriptedRt()
         rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
         rt.answers["setup intent solo"] = (0, #"{"contract":1,"mode":"solo"}"#)
         let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
         await MainActor.run { m.choice = .solo }
-        c.expectEqual(await MainActor.run { m.canContinue }, true)
         let err = await m.validateAndPrepare()
         c.expect(err == nil, "got \(err ?? "")")
         try c.require(rt.calls.count == 2, "expected home init then setup intent solo, got \(rt.calls.map(\.args))")
@@ -379,16 +356,89 @@ let teamChoiceChecks: [Check] = [
             c.expectEqual(m.choice, .solo, "a first run keeps what the person picked")
         }
     },
-    Check("DoneRole reads the plan over the choice model, which a Full Disk Access relaunch resets to .create") { c in
-        let soloPlanTeam = TeamInfo(slug: "", name: nil, mode: .noTeam)
-        c.expectEqual(DoneRole.solo(planTeam: soloPlanTeam, choice: .create), true, "relaunch case: choice model reset to .create, plan still says solo")
-        c.expectEqual(DoneRole.owner(planTeam: soloPlanTeam, choice: .create), false)
-        let createdPlanTeam = TeamInfo(slug: "acme", name: "Acme", mode: .create)
-        c.expectEqual(DoneRole.owner(planTeam: createdPlanTeam, choice: .solo), true)
-        c.expectEqual(DoneRole.solo(planTeam: createdPlanTeam, choice: .solo), false)
-        c.expectEqual(DoneRole.solo(planTeam: nil, choice: .solo), true, "no plan team yet: fall back to the choice")
-        c.expectEqual(DoneRole.owner(planTeam: nil, choice: .create), true)
-        c.expectEqual(DoneRole.solo(planTeam: nil, choice: .create), false)
-        c.expectEqual(DoneRole.owner(planTeam: nil, choice: .join), false)
+    Check("TeamChoice: a good preview reads Mithrandir, invited by Jane Doe") { c in
+        let rt = ScriptedRt()
+        rt.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"mithrandir","name":"Mithrandir","owner":"Jane Doe"},"access":"no-account","intent":"written","message":"Joining Mithrandir (owner Jane Doe). Connect your GitLab account on the next screen."}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join }
+        c.expectEqual(await MainActor.run { m.inviteLine }, nil, "nothing read yet")
+        c.expect(await MainActor.run { !m.hasGoodVerdict })
+        await MainActor.run { m.inviteCode = completeInviteCode }
+        await m.previewInvite()
+        c.expectEqual(await MainActor.run { m.inviteLine }, "Mithrandir, invited by Jane Doe", "a token still to connect is a good read")
+        c.expect(await MainActor.run { m.hasGoodVerdict })
+        await MainActor.run { m.inviteCode = "ABCD" }
+        await m.previewInvite()
+        c.expectEqual(await MainActor.run { m.inviteLine }, nil, "an edited code drops the old team's line")
+        c.expect(await MainActor.run { !m.hasGoodVerdict }, "an edited code needs a new read")
+
+        let deferred = ScriptedRt()
+        deferred.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"mithrandir","name":"Mithrandir","owner":""},"access":"deferred","intent":"written","message":"rt could not confirm access yet."}"#)
+        let unnamed = await MainActor.run { TeamChoiceModel(rt: deferred, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { unnamed.choice = .join; unnamed.inviteCode = completeInviteCode }
+        await unnamed.previewInvite()
+        c.expectEqual(await MainActor.run { unnamed.inviteLine }, "Mithrandir", "a deferred read is good, and an empty owner leaves the team name alone")
+        c.expect(await MainActor.run { unnamed.hasGoodVerdict })
+
+        let bad = ScriptedRt(); bad.answers["team join --dry-run"] = (2, #"{"contract":1,"error":{"code":"invite-unknown","message":""}}"#)
+        let failed = await MainActor.run { TeamChoiceModel(rt: bad, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { failed.choice = .join; failed.inviteCode = completeInviteCode }
+        await failed.previewInvite()
+        c.expectEqual(await MainActor.run { failed.inviteLine }, nil, "a failed read names no team")
+        c.expect(await MainActor.run { !failed.hasGoodVerdict })
+    },
+    Check("TeamChoice: create on GitLab sends forge and group") { c in
+        let rt = ScriptedRt()
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        rt.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"widgets","name":"Widgets"},"remote":"ok"}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run {
+            c.expectEqual(m.forge, "gitlab", "GitLab is the default")
+            m.choice = .create; m.teamName = "Widgets"; m.group = " acme/platform "
+        }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.last?.args, ["team", "create", "Widgets", "--forge", "gitlab", "--group", "acme/platform", "--others", "--json"])
+        await MainActor.run { m.group = "acme" }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.filter { $0.args.prefix(2) == ["team", "create"] }.count, 2, "a changed group re-runs team create")
+
+        let noGh = ScriptedRt()
+        noGh.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        noGh.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"widgets","name":"Widgets"},"remote":"ok"}"#)
+        let token = await MainActor.run { TeamChoiceModel(rt: noGh, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { token.choice = .create; token.teamName = "Widgets"; token.forge = "github"; token.group = "acme" }
+        c.expect(await token.validateAndPrepare() == nil)
+        c.expectEqual(noGh.calls.last?.args, ["team", "create", "Widgets", "--forge", "github", "--group", "acme", "--others", "--json"],
+                      "GitHub without a gh sign-in creates the repo with the token")
+    },
+    Check("TeamChoice: create on GitHub with gh keeps create-repo") { c in
+        let rt = ScriptedRt()
+        rt.answers["setup github status"] = (0, #"{"contract":1,"status":"ready","handle":"janedoe","owners":["janedoe","acme"]}"#)
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        rt.answers["team create"] = (0, #"{"contract":1,"team":{"slug":"widgets","name":"Widgets"},"remote":"ok"}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await m.loadGitHubStatus()
+        await MainActor.run { m.choice = .create; m.teamName = "Widgets"; m.forge = "github"; m.group = "acme" }
+        c.expect(await m.validateAndPrepare() == nil)
+        c.expectEqual(rt.calls.last?.args, ["team", "create", "Widgets", "--create-repo", "acme", "--others", "--json"])
+    },
+    Check("TeamChoice: Create team needs a name and a group") { c in
+        let m = await MainActor.run { TeamChoiceModel(rt: ScriptedRt(), pasteboard: FakePasteboard(nil)) }
+        await MainActor.run {
+            c.expect(!m.canCreateTeam, "nothing typed")
+            m.teamName = "Widgets"
+            c.expect(!m.canCreateTeam, "no group")
+            m.group = "   "
+            c.expect(!m.canCreateTeam, "a blank group is no group")
+            m.group = "acme"
+            c.expect(m.canCreateTeam)
+            m.teamName = "!!"
+            c.expect(!m.canCreateTeam, "a name with no letters makes no slug")
+        }
+        let done = [FormRow(id: "forge.token", title: "GitLab", subtext: "", state: .done, detail: "Connected")]
+        c.expect(FastSetupFlow.createEnabled(nameAndGroup: true, rows: done))
+        c.expect(!FastSetupFlow.createEnabled(nameAndGroup: false, rows: done), "the name and group hold Create team")
+        c.expect(!FastSetupFlow.createEnabled(nameAndGroup: true, rows: nil), "an unread create section holds Create team")
+        c.expect(FastSetupFlow.createEnabled(nameAndGroup: true, rows: []), "gh signed in and git present: nothing to wait on")
     },
 ]

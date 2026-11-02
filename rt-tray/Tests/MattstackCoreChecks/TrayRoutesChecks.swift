@@ -32,9 +32,17 @@ final class FakePrivileged: PrivilegedInstalling, @unchecked Sendable {
     var calls = 0
     var removes = 0
     var trusts = 0
-    func proxyInstall() async -> NeedResult { calls += 1; return NeedResult(ok: true, detail: "proxy installed") }
+    var homebrews = 0
+    var installFlags: [Bool] = []
+    var trustFlags: [Bool] = []
+    func proxyInstall(homebrew: Bool) async -> NeedResult {
+        calls += 1; installFlags.append(homebrew); return NeedResult(ok: true, detail: "proxy installed")
+    }
     func proxyRemove() async -> NeedResult { removes += 1; return NeedResult(ok: true, detail: "proxy removed") }
-    func proxyTrust() async -> NeedResult { trusts += 1; return NeedResult(ok: true, detail: "MATTSTACK_TRUST=ok") }
+    func proxyTrust(homebrew: Bool) async -> NeedResult {
+        trusts += 1; trustFlags.append(homebrew); return NeedResult(ok: true, detail: "MATTSTACK_TRUST=ok")
+    }
+    func homebrew() async -> NeedResult { homebrews += 1; return NeedResult(ok: true, detail: "homebrew: ok\nMATTSTACK_HOMEBREW=ok") }
 }
 final class FakeUpdater: UpdateChecking, @unchecked Sendable { var checks = 0; func checkForUpdates() async -> Bool { checks += 1; return true } }
 struct FakeVersion: VersionProviding {
@@ -103,6 +111,28 @@ let trayRoutesChecks: [Check] = [
         let need = await broker.perform(id: "proxy.trust", request: NeedRequest(type: "app-privileged", plists: nil, op: "proxy-trust"))
         c.expectEqual(need.detail, "MATTSTACK_TRUST=ok")
         c.expectEqual(pr.trusts, 2)
+    },
+    // rt's need routing sends {homebrew: true} on the install and trust
+    // routes, and op homebrew to a route of its own, for a run the app did not
+    // spawn.
+    Check("TrayRoutes: POST /privileged/homebrew runs the homebrew verb, and the install and trust routes read the body's homebrew flag") { c in
+        let (r, _, _, pr, _, _, _) = makeRoutes()
+        let brew = try c.requireSome(await r.handle(method: "POST", path: "/privileged/homebrew", body: nil))
+        c.expectEqual(brew.status, 200)
+        c.expectEqual(json(brew.body)["detail"] as? String, "homebrew: ok\nMATTSTACK_HOMEBREW=ok")
+        c.expectEqual(pr.homebrews, 1)
+        c.expectEqual(pr.calls, 0)
+
+        let flagged = Data(#"{"homebrew":true}"#.utf8)
+        _ = await r.handle(method: "POST", path: "/privileged/proxy-install", body: flagged)
+        _ = await r.handle(method: "POST", path: "/privileged/proxy-install", body: nil)
+        _ = await r.handle(method: "POST", path: "/privileged/proxy-trust", body: flagged)
+        _ = await r.handle(method: "POST", path: "/privileged/proxy-trust", body: Data(#"{"homebrew":"yes"}"#.utf8))
+        c.expectEqual(pr.installFlags, [true, false])
+        c.expectEqual(pr.trustFlags, [true, false], "only a JSON true asks for Homebrew")
+
+        let get = await r.handle(method: "GET", path: "/privileged/homebrew", body: nil)
+        c.expectEqual(get?.status, 405)
     },
     // The install raises two dialogs (the escalation, then macOS's own
     // certificate-trust prompt, which no caller can pre-authorize), so the copy

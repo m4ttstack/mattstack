@@ -3,8 +3,12 @@ import Foundation
 public struct NeedRequest: Codable, Equatable, Sendable {
     public var type: String      // app-register-services | app-unregister-services | app-privileged
     public var plists: [String]?
-    public var op: String?       // proxy-install | proxy-remove
-    public init(type: String, plists: [String]?, op: String?) { self.type = type; self.plists = plists; self.op = op }
+    public var op: String?       // proxy-install | proxy-remove | proxy-trust | homebrew
+    /// Asks the helper to install Homebrew in the same admin prompt as `op`.
+    public var homebrew: Bool?
+    public init(type: String, plists: [String]?, op: String?, homebrew: Bool? = nil) {
+        self.type = type; self.plists = plists; self.op = op; self.homebrew = homebrew
+    }
 }
 
 /// Raw-value decoding is deliberately lenient: an unrecognized `kind`/`state`
@@ -29,7 +33,13 @@ public struct StepInfo: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String
     public var kind: StepKind
-    public init(id: String, title: String, kind: StepKind) { self.id = id; self.title = title; self.kind = kind }
+    /// The bar's phase words, its share of the run and the P6b line; an update run's plan leaves them out.
+    public var phase: String?
+    public var weight: Double?
+    public var paused: String?
+    public init(id: String, title: String, kind: StepKind, phase: String? = nil, weight: Double? = nil, paused: String? = nil) {
+        self.id = id; self.title = title; self.kind = kind; self.phase = phase; self.weight = weight; self.paused = paused
+    }
 }
 
 /// One line of `rt setup apply --json`. `decode` never throws on an event

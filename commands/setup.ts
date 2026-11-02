@@ -15,7 +15,6 @@
 
 import { randomBytes } from "crypto";
 import { join } from "path";
-import { hasUrlCredentials, withoutUrls } from "../lib/team/redact.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { promptSecret } from "../lib/prompt-secret.ts";
@@ -25,17 +24,19 @@ import { listOrgs } from "../lib/settings/stores.ts";
 import { getOrgSetting, getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
-import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
+import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type ApplyRunOptions, type CreateApplyContextDeps, type StepDef, type StepOutcome, type UpdateRunResult } from "../lib/setup/apply.ts";
+import { APPLY_RUN_LOCK_MAX_AGE_MS, applyRunLockPath, attachToRun, recordingEmit, resumePoint } from "../lib/setup/apply-run.ts";
+import { ignoreClosedPipes } from "../lib/setup/closed-pipes.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
 import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
-import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
+import { createUpdateLock, lockHeldByLiveRun, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
 import { HERDR_NOT_INSTALLED, startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type PlacementMode, type StepId } from "../lib/setup/contract.ts";
 import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
-import type { RenderStatus } from "../lib/ui/protocol.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { resolveTool } from "../lib/deps/resolve.ts";
 import { devAppNotice, type DevAppNotice } from "../lib/dev/notice.ts";
@@ -43,13 +44,16 @@ import { processFlavor } from "../lib/flavor.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname } from "../lib/setup/host-validate.ts";
+import { CONNECT_WAIT_MS, endLogin, FINISH_IN_BROWSER, readLogin, startLogin, waitForSignIn, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
-import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
+import { clearIntent, HOME_REPO_PATTERN, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
 import { cloneSlugs, forgeFromRemote, hostFromRemote, legacyDeclaredForge } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
+import { APPROVAL_WAIT_DETAIL, approvalState, type ApprovalState } from "../lib/team/approval.ts";
+import { pullOrgClone, type OrgPull } from "../lib/team/org-pull.ts";
 import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
@@ -60,7 +64,11 @@ import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
+import { appsRestartOwed, appsRestartStep, oweAppsRestart, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
+import { clearGitHubSignIn, createCapableGitHubToken, readStoredGitHubToken } from "../lib/setup/github-signin.ts";
+import { assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
 import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type TeamIntegrations, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
@@ -178,10 +186,17 @@ export interface ApplyDeps {
   devAppNotice?: () => Promise<DevAppNotice | null>;
   /** Single flight for `rt setup update`; absent means the run is not guarded. */
   updateLock?: UpdateLock;
+  /** Single flight for a full, `--from` or resumed `rt setup apply`; absent means the run is not guarded. */
+  runLock?: UpdateLock;
+  /** Whether a live run holds the run lock. Never throws. */
+  holderAlive?: () => boolean;
+  /** The wait between an attach's reads of the events file. */
+  attachSleep?: (ms: number) => Promise<void>;
 }
 
 export function realApplyDeps(): ApplyDeps {
   const probes = createRealProbes();
+  const runLockPath = applyRunLockPath(probes.home);
   return {
     probes,
     secrets: { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
@@ -196,12 +211,22 @@ export function realApplyDeps(): ApplyDeps {
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
     devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
     updateLock: createUpdateLock(updateLockPath(probes.home)),
+    runLock: createUpdateLock(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS }),
+    holderAlive: () => {
+      try {
+        return lockHeldByLiveRun(runLockPath, { maxAgeMs: APPLY_RUN_LOCK_MAX_AGE_MS });
+      } catch {
+        // A lock file that cannot be read proves no live run.
+        return false;
+      }
+    },
   };
 }
 
-function applyFlags(args: string[]): { nonInteractive: boolean; teamOfOne: boolean; ci: boolean } {
+function applyFlags(args: string[]): { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; unattended: boolean } {
   return {
     nonInteractive: args.includes("--non-interactive"),
+    unattended: args.includes("--unattended"),
     teamOfOne: args.includes("--team-of-one"),
     ci: args.includes("--ci") || process.env.CI === "true",
   };
@@ -238,6 +263,67 @@ function resolveStepSelection(args: string[]): { from?: StepId; only?: StepId } 
   return { ...(from !== undefined ? { from } : {}), ...(only !== undefined ? { only } : {}) };
 }
 
+interface ApplySelection {
+  from?: StepId;
+  only?: StepId;
+  resume: boolean;
+}
+
+function resolveApplySelection(args: string[]): ApplySelection {
+  const steps = resolveStepSelection(args);
+  const resume = args.includes("--resume");
+  if (resume && (steps.from !== undefined || steps.only !== undefined)) {
+    throw new UserActionableError("bad-args", "--resume cannot be combined with --from or --only: it picks up wherever the last run stopped");
+  }
+  return { ...steps, resume };
+}
+
+function runBusy(): UserActionableError {
+  return new UserActionableError("run-busy", "Setup is already running", {}, { next: "rt setup apply --resume" });
+}
+
+/**
+ * A full, `--from` or resumed run holds the run lock to its end, and a
+ * `--resume` that finds it held follows that run instead. An `--only` run
+ * (P1's Allow, a leftover row's own action) never takes the lock, so a lock a
+ * dead run left can never refuse it; it is refused only while a live run
+ * holds the lock, since the two would race on the same steps.
+ */
+function claimRun(selection: ApplySelection, deps: ApplyDeps): { attach: boolean; lock?: UpdateLock } {
+  if (selection.only !== undefined) {
+    if (deps.holderAlive?.()) throw runBusy();
+    return { attach: false };
+  }
+  const lock = deps.runLock;
+  if (!lock) return { attach: false };
+  let taken: boolean;
+  try {
+    taken = lock.acquire();
+  } catch (err) {
+    // A lock that cannot be taken must not stop a Mac from being set up.
+    logCliEvent("warn", "setup.apply", `run lock not taken, running unguarded: ${err instanceof Error ? err.message : String(err)}`);
+    return { attach: false };
+  }
+  if (taken) return { attach: false, lock };
+  if (selection.resume) return { attach: true };
+  throw runBusy();
+}
+
+/**
+ * A full run records afresh and a `--from` run (the app's Retry) continues the
+ * record. A `--resume` continues a run that died partway: what it finished
+ * streams as done and it starts at the first step it had not finished. A
+ * `--resume` with no unfinished run is a full run.
+ */
+function runOptions(selection: ApplySelection, steps: StepDef[], ctx: ApplyContext, probes: Probes): ApplyRunOptions {
+  if (selection.only !== undefined) return { only: selection.only };
+  if (selection.from !== undefined) return { from: selection.from, record: "continue" };
+  const run = selection.resume ? readSetupState(probes).run : undefined;
+  if (run === undefined || run.endedAt !== undefined) return { record: "fresh" };
+  const from = resumePoint(run, steps.filter((s) => s.applies(ctx)).map((s) => s.id));
+  return { ...(from !== undefined ? { from } : {}), replay: run.done, record: "continue" };
+}
+
 /**
  * Rows whose absence makes apply's own steps fail mid-plan (home.init shells
  * git on a Mac whose /usr/bin/git is only the CLT-install shim) rather than
@@ -248,6 +334,9 @@ function resolveStepSelection(args: string[]): { from?: StepId; only?: StepId } 
  * anything.
  */
 const HARD_PRECONDITION_IDS = new Set(["tool.macos", "tool.clt"]);
+
+/** A row's Allow runs these with `--only` and raises its dialog at once: no git, and no slow plan before it. */
+const HARD_PRECONDITION_FREE_STEPS: ReadonlySet<StepId> = new Set(["proxy.install"]);
 
 const NOT_READY_TITLE = "This Mac is not ready to install yet";
 
@@ -271,33 +360,52 @@ async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<v
 
 export async function setupApply(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
+  if (json) ignoreClosedPipes();
   const human = json ? null : createStepEmitter({ labels: APPLY_LABELS, log: stepLog("setup.apply") });
-  const emit: Emit = human ? human.emit : (ev) => deps.json(ev);
+  const forward: Emit = human ? human.emit : (ev) => deps.json(ev);
 
   let result: { ok: boolean; failedStep?: StepId };
-  let selection: { from?: StepId; only?: StepId } = {};
+  let selection: ApplySelection = { resume: false };
+  let claim: { attach: boolean; lock?: UpdateLock } = { attach: false };
+  // Printed after the summary: mid-run, a line would land inside the live step view.
+  const warnings: RunWarning[] = [];
   try {
-    await gateHardPreconditions(args, deps);
-    selection = resolveStepSelection(args);
-    const ctx: ApplyContext = await createApplyContext({
-      probes: deps.probes,
-      emit,
-      secrets: deps.secrets,
-      relay: deps.relay,
-      secretPresence: deps.secretPresence,
-      flags: { ...applyFlags(args), appDriven: json },
-      needOpts: deps.needOpts,
-      ...(human ? { tip: human.tip } : {}),
-    });
-    await human?.settle();
-    result = await runApplyWith(deps.steps ?? STEPS, ctx, selection);
+    selection = resolveApplySelection(args);
+    claim = claimRun(selection, deps);
+    if (claim.attach) {
+      result = await attachToRun(deps.probes, forward, { holderAlive: deps.holderAlive ?? (() => false), ...(deps.attachSleep ? { sleep: deps.attachSleep } : {}) });
+    } else {
+      // Emptied the moment the run is claimed: until then an attach would replay the last run.
+      const emit = selection.only === undefined ? recordingEmit(deps.probes, forward, { truncate: true }) : forward;
+      if (selection.only === undefined || !HARD_PRECONDITION_FREE_STEPS.has(selection.only)) await gateHardPreconditions(args, deps);
+      const ctx: ApplyContext = await createApplyContext({
+        probes: deps.probes,
+        emit,
+        secrets: deps.secrets,
+        relay: deps.relay,
+        secretPresence: deps.secretPresence,
+        flags: { ...applyFlags(args), appDriven: json },
+        needOpts: deps.needOpts,
+        ...(human ? { tip: human.tip } : {}),
+      });
+      await human?.settle();
+      const steps = deps.steps ?? STEPS;
+      const lock = claim.lock;
+      const whole = selection.only === undefined;
+      const afterRecord = async ({ ok }: { ok: boolean }): Promise<void> => {
+        if (ok && whole) await finishWholeRun(deps, warnings);
+        if (ok && !whole && selection.only !== appsRestartStep.id) oweRestart(deps, warnings);
+      };
+      const beforeDone = (): void => lock?.release();
+      result = await runApplyWith(steps, ctx, { ...runOptions(selection, steps, ctx, deps.probes), afterRecord, beforeDone });
+    }
   } catch (err) {
+    claim.lock?.release();
     await human?.flush();
     if (err instanceof UserActionableError) {
-      // Thrown before `plan` ever reaches the stream — a malformed/unknown
-      // --from or --only, or the two given together, so nothing else has
-      // gone out yet; print the same exit-2 envelope every other setup verb
-      // uses.
+      // Thrown before `plan` ever reaches the stream (a bad step flag, a run
+      // already going, a Mac not ready), so nothing else has gone out yet;
+      // print the same exit-2 envelope every other setup verb uses.
       return exitWithUserError(err, json, sinkOf(deps), err.code === "not-ready" ? { title: NOT_READY_TITLE } : undefined);
     }
     // A real bug — whether it happened building the context (nothing ever
@@ -309,40 +417,65 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   }
 
   await human?.flush();
+  for (const w of warnings) warnLine(json, w.title, w.detail);
   if (!result.ok) return deps.exit(2);
-  if (selection.from === undefined && selection.only === undefined) {
-    stampUpdateWhenNothingPends(deps, json);
-    await finishIfClear(deps, json);
+}
+
+interface RunWarning {
+  title: string;
+  detail: string;
+}
+
+function warningOf(title: string, err: unknown): RunWarning {
+  return { title, detail: err instanceof Error ? err.message : String(err) };
+}
+
+/** An `--only` run restarts no apps, so the next Finish owes them one. */
+function oweRestart(deps: ApplyDeps, warnings: RunWarning[]): void {
+  try {
+    oweAppsRestart(deps.probes);
+  } catch (err) {
+    warnings.push(warningOf("Your apps may keep running old code until the next restart", err));
   }
 }
 
+/** A full, `--from` or resumed run that ended ok has run every step that was left, so it stamps and finishes like a full one. */
+async function finishWholeRun(deps: ApplyDeps, warnings: RunWarning[]): Promise<void> {
+  const stamp = stampUpdateWhenNothingPends(deps);
+  if (stamp) warnings.push(stamp);
+  const finish = await finishIfClear(deps);
+  if (finish) warnings.push(finish);
+}
+
 /**
- * A full run just did everything an update run re-applies, so only a pending
+ * A whole run just did everything an update run re-applies, so only a pending
  * migration still needs one. Unstamped, the update run a fresh Mac's Finish
  * starts would redo the whole Install.
  */
-function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
+function stampUpdateWhenNothingPends(deps: ApplyDeps): RunWarning | null {
   try {
     const applied = readSetupState(deps.probes).migrations;
-    if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return;
+    if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return null;
     updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version: deps.version ?? rtVersion(), at: deps.probes.now().toISOString() } }));
+    return null;
   } catch (err) {
-    warnLine(json, "The update version was not saved", err instanceof Error ? err.message : String(err));
+    return warningOf("The update version was not saved", err);
   }
 }
 
 /**
- * The wizard's Finish waits on the plan's finish blockers; a full run that
+ * The wizard's Finish waits on the plan's finish blockers; a whole run that
  * leaves none has done everything Finish would, and a terminal or
  * `--post-install` setup has no wizard to press it in.
  */
-async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
+async function finishIfClear(deps: ApplyDeps): Promise<RunWarning | null> {
   try {
     const plan = await (deps.planForFinish?.() ??
       composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
+    return null;
   } catch (err) {
-    warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
+    return warningOf("Setup was left unfinished because the finish check failed", err);
   }
 }
 
@@ -530,11 +663,6 @@ export function realIntentDeps(): IntentDeps {
   return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit };
 }
 
-// Safe as a directory-name-free identifier and readable in a log line — not a
-// full org/repo syntax check, just enough to catch an empty or malformed arg
-// before it's persisted as this machine's restore target.
-const HOME_REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;
-
 function printIntentResult(deps: IntentDeps, json: boolean, body: Record<string, unknown>): void {
   if (json) {
     deps.json(envelope(body, deps.probes.now()));
@@ -545,8 +673,8 @@ function printIntentResult(deps: IntentDeps, json: boolean, body: Record<string,
 
 /**
  * `rt setup intent restore <org>/<repo>` / `rt setup intent clear` — hidden,
- * records intent only. The app runs the real restore; there is no `rt
- * restore` command.
+ * records intent only. `rt home restore` brings the repo and key over and
+ * records the restore intent itself.
  */
 export async function setupIntent(args: string[], _ctx: CommandContext = {}, deps: IntentDeps = realIntentDeps()): Promise<void> {
   const json = args.includes("--json");
@@ -592,6 +720,7 @@ export type FinishDeps = IntentDeps;
 
 export interface AfterFinish {
   update(opts: { json: boolean }): Promise<void>;
+  restartApps(p: Probes): Promise<StepOutcome>;
   startHerdr(): Promise<HerdrStartResult>;
   warn(json: boolean, title: string, detail: string): void;
   /** The setup window has closed by the time this runs, so a notification is the only place the app shows it. */
@@ -606,6 +735,7 @@ export async function updateAfterFinish(opts: { json: boolean }, deps: ApplyDeps
 
 export const REAL_AFTER_FINISH: AfterFinish = {
   update: (opts) => updateAfterFinish(opts),
+  restartApps: (p) => restartServedApps(p, (line) => logCliEvent("debug", "setup.finish", line)),
   startHerdr,
   warn: warnLine,
   notify: (title, message) => notifyEnabled(SETUP_UPDATE_CATEGORY, title, message, undefined, undefined, "setup-finish-herdr"),
@@ -650,7 +780,38 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
   } catch (err) {
     after.warn(json, "The update after Finish did not finish", err instanceof Error ? err.message : String(err));
   }
+  await restartAppsAfterFinish(json, deps.probes, after);
   await startHerdrAfterFinish(json, after);
+}
+
+/**
+ * Restarts only while an `--only` fix left a restart owed and the update run above did not settle it: a whole run
+ * already restarted the apps, and a second restart would catch P7's "Open the board" mid-load. A failed restart is a
+ * caveat on a Finish that already happened, never a failed exit.
+ */
+async function restartAppsAfterFinish(json: boolean, p: Probes, after: AfterFinish): Promise<void> {
+  try {
+    if (!appsRestartOwed(p)) return;
+  } catch (err) {
+    logCliEvent("warn", "setup.finish", `apps restart mark unreadable: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  let outcome: StepOutcome;
+  try {
+    outcome = await after.restartApps(p);
+  } catch (err) {
+    outcome = { state: "partial", detail: err instanceof Error ? err.message : String(err) };
+  }
+  if (outcome.state === "done") {
+    if (!json) out.print(out.line("done", outcome.detail ?? "Restarted your apps"));
+    return;
+  }
+  if (outcome.state === "skipped") {
+    logCliEvent("debug", "setup.finish", `apps not restarted: ${outcome.detail}`);
+    return;
+  }
+  const remedy = "remedy" in outcome && outcome.remedy ? `. ${outcome.remedy}` : "";
+  after.warn(json, "Some apps did not restart", `${outcome.detail}${remedy}`);
 }
 
 // ─── repo-root (`rt setup repo-root set`) ──────────────────────────────────
@@ -849,40 +1010,25 @@ export function realHomeRemoteDeps(): HomeRemoteDeps {
   };
 }
 
-const HOME_REMOTE_DEFAULT_NAME = "mattstack-home";
 const HOME_REMOTE_USAGE = "usage: rt home remote set <url> | --create [--name <repo>] [--json]";
 /** A gh repo name: what `gh repo create` accepts, and never something argv could read as a flag. */
 const REPO_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-/** URL remotes (https, ssh, git) and scp-style remotes (`[user@]host:path`, ssh-config aliases included). Local paths are not a backup, so they stay out. */
-const GIT_REMOTE_URL_PATTERN = /^(?:(?:https?|ssh|git):\/\/[^\s/]+\/\S+|(?:[\w.-]+@)?[\w.-]+:[^\s-]\S*)$/;
-/** git must fail rather than prompt: the app and the daemon have no terminal to answer on. */
-const NO_PROMPT_ENV = { GIT_TERMINAL_PROMPT: "0" };
 
-function extractHomeRemoteInput(input: unknown): { url?: string; create?: boolean; name?: string } {
+function extractHomeRemoteInput(input: unknown): HomeRemoteInput {
   if (typeof input === "string" && input.trim() !== "") return { url: input.trim() };
   if (!isPlainObject(input)) return {};
-  const out: { url?: string; create?: boolean; name?: string } = {};
+  const out: HomeRemoteInput = {};
   if (typeof input.url === "string" && input.url.trim() !== "") out.url = input.url.trim();
   if (input.alternative === "create" || input.create === true) out.create = true;
   if (typeof input.name === "string" && input.name.trim() !== "") out.name = input.name.trim();
   return out;
 }
 
-function assertRemoteUrl(url: string): void {
-  if (hasUrlCredentials(url)) {
-    throw new UserActionableError("bad-url", "The remote URL carries a password. Drop it and let a credential helper (gh auth setup-git) supply it");
-  }
-  if (!GIT_REMOTE_URL_PATTERN.test(url)) {
-    throw new UserActionableError("bad-url", `${withoutUrls(url)} is not a git remote (https://host/owner/repo.git, git@host:owner/repo.git or host:owner/repo.git)`);
-  }
-}
-
 /**
- * Points the home repo at a remote and pushes, or creates the remote first
- * with `gh repo create` (private). The row that offers this is optional, so a
- * refusal here never blocks Finish; every failure is an exit-2 envelope the
- * app renders on the row. Output and errors pass through `withoutUrls`: git
- * echoes the remote (credentials included) in its own messages.
+ * Points the home repo at a remote and pushes (`setHomeRemote`). Before the
+ * home repo exists the choice is staged in setup state instead, and home.init
+ * pushes to it. The row that offers this is optional, so a refusal here never
+ * blocks Finish; every failure is an exit-2 envelope the app renders on the row.
  */
 export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, deps: HomeRemoteDeps = realHomeRemoteDeps()): Promise<void> {
   const json = args.includes("--json");
@@ -906,58 +1052,67 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
       if (name !== undefined && !REPO_NAME_PATTERN.test(name)) throw new UserActionableError("bad-stdin", "The name must be a repo name (letters, digits, dots, dashes)");
     }
     if (url) assertRemoteUrl(url);
+    const input: HomeRemoteInput = url ? { url } : { create: true, ...(name !== undefined ? { name } : {}) };
 
-    const repoDir = join(deps.probes.home, ".mattstack", "user");
     if (!deps.probes.exists(homeGitDir(deps.probes.home))) {
-      throw new UserActionableError("no-home-repo", `No home repo at ${repoDir} yet. Install creates it, or run rt home init`);
+      stageHomeRemote(deps.probes, input);
+      if (json) deps.json(envelope({ staged: true, url: url ?? null, created: false, pushed: false }, deps.probes.now()));
+      else out.print(out.line("done", "Install pushes your settings there", url ?? "A new private repo"));
+      return;
     }
 
-    let created = false;
-    if (!url) {
-      const repoName = name ?? HOME_REMOTE_DEFAULT_NAME;
-      const gh = await deps.probes.exec(["gh", "repo", "create", repoName, "--private"], { timeoutMs: 60_000, env: NO_PROMPT_ENV });
-      if (gh.code !== 0) {
-        throw new UserActionableError("create-failed", `Could not create ${repoName} with gh: ${withoutUrls((gh.stderr || gh.stdout).trim()) || `exit ${gh.code}`}`);
-      }
-      const printed = gh.stdout.trim().split("\n").find((line) => /^https?:\/\//.test(line.trim()))?.trim();
-      if (!printed) throw new UserActionableError("create-failed", `gh created ${repoName} but printed no repository URL`);
-      url = printed.endsWith(".git") ? printed : `${printed}.git`;
-      assertRemoteUrl(url);
-      created = true;
-    }
-
-    const existing = await deps.probes.exec(["git", "-C", repoDir, "remote", "get-url", "origin"]);
-    const previous = existing.code === 0 ? existing.stdout.trim() : null;
-    const remote: "added" | "updated" = previous !== null ? "updated" : "added";
-    const set = await deps.probes.exec(
-      remote === "updated"
-        ? ["git", "-C", repoDir, "remote", "set-url", "origin", url]
-        : ["git", "-C", repoDir, "remote", "add", "origin", url],
-    );
-    if (set.code !== 0) throw new UserActionableError("remote-failed", `Could not set the remote: ${withoutUrls(set.stderr.trim()) || `exit ${set.code}`}`);
-
-    const push = await deps.probes.exec(["git", "-C", repoDir, "push", "-u", "origin", "HEAD"], { timeoutMs: 120_000, env: NO_PROMPT_ENV });
-    if (push.code !== 0) {
-      const reason = withoutUrls(push.stderr.trim()) || `exit ${push.code}`;
-      if (previous !== null) {
-        // The old origin was working; a URL that cannot take a push must not replace it.
-        const restore = await deps.probes.exec(["git", "-C", repoDir, "remote", "set-url", "origin", previous]);
-        if (restore.code !== 0) {
-          throw new UserActionableError("push-failed", `The push to the new URL failed, and the previous origin could not be restored (${withoutUrls(restore.stderr.trim()) || `exit ${restore.code}`}). Check git remote -v in ${repoDir}: ${reason}`);
-        }
-        throw new UserActionableError("push-failed", `The push to the new URL failed, so origin is back on the previous remote: ${reason}`);
-      }
-      throw new UserActionableError("push-failed", `Origin is set, but the push failed: ${reason}`);
-    }
-
-    if (json) deps.json(envelope({ url, remote, pushed: true, created }, deps.probes.now()));
-    else out.print(out.line("done", created ? "Created a private repo and pushed your home repo to it" : "Pushed your home repo", url));
+    const result = await setHomeRemote(deps.probes, input);
+    markHomeRemoteApplied(deps.probes, result);
+    if (json) deps.json(envelope({ url: result.url, remote: result.remote, pushed: result.pushed, created: result.created }, deps.probes.now()));
+    else out.print(out.line("done", result.created ? "Created a private repo and pushed your home repo to it" : "Pushed your home repo", result.url));
   } catch (err) {
     if (err instanceof UserActionableError) {
       return exitWithUserError(err, json, sinkOf(deps), err.code === "usage" ? { title: "Which remote?", next: out.cmd("rt home remote set <url>") } : undefined);
     }
     throw err;
   }
+}
+
+// ─── home backup (`rt setup home-backup`) ──────────────────────────────────
+
+export interface HomeBackupDeps {
+  probes: Probes;
+  /** One machine line on stdout: a --json envelope. Never human text. */
+  json: (value: unknown) => void;
+  exit: (code: number) => never;
+  /** rt's stored GitHub token, or null. */
+  githubToken: () => Promise<string | null>;
+}
+
+function realHomeBackupDeps(): HomeBackupDeps {
+  const probes = createRealProbes();
+  return { probes, json: (v) => out.json(v), exit: process.exit, githubToken: () => readStoredGitHubToken(probes) };
+}
+
+async function canCreateGitHubRepo(deps: HomeBackupDeps): Promise<boolean> {
+  if ((await deps.probes.exec(["gh", "auth", "status"])).code === 0) return true;
+  return (await createCapableGitHubToken(deps.probes, deps.githubToken)) !== null;
+}
+
+const HOME_BACKUP_USAGE = "rt setup home-backup local|remote";
+
+/** P5b's "Your settings" choice. `remote` keeps a url or create that `rt home remote set` already staged. */
+export async function setupHomeBackup(args: string[], _ctx: CommandContext = {}, deps: HomeBackupDeps = realHomeBackupDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const choice = args.find((a) => !a.startsWith("--"));
+  if (choice !== "local" && choice !== "remote") {
+    const err = new UserActionableError("usage", `${choice ?? "Nothing"} is not a place for your settings. Use local or remote`);
+    return exitWithUserError(err, json, sinkOf(deps), usageFailure("Keep your settings on this Mac or in a remote repo?", HOME_BACKUP_USAGE));
+  }
+  let homeBackup = writeHomeBackup(deps.probes, choice);
+  if (homeBackup.mode === "local") clearGitHubSignIn(deps.probes);
+  // With gh signed in or a token that can create repos, GitHub needs nothing more from the member: rt creates the private repo when setup runs.
+  if (homeBackup.mode === "remote" && homeBackup.url === undefined && !homeBackup.create && (await canCreateGitHubRepo(deps))) {
+    homeBackup = stageHomeRemote(deps.probes, { create: true });
+  }
+  if (json) deps.json(envelope({ homeBackup }, deps.probes.now()));
+  else out.print(out.line("done", choice === "local" ? "Your settings stay on this Mac" : "Your settings go to a remote repo"));
 }
 
 // ─── Per-integration verbs ─────────────────────────────────────────────────
@@ -1061,6 +1216,8 @@ export interface ConnectDeps extends SetupDeps {
   listen: (port: number, expectedState: string) => Promise<string>;
   /** Unguessable per-request token (CSRF-style) — never `Math.random`; the OAuth `state` param is the one consumer today. */
   randomState: () => string;
+  loginSeams?: LoginSeams;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 async function readSmartStdin(): Promise<unknown> {
@@ -1189,7 +1346,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-type IntegrationRowStatus = "ready" | "missing" | "invalid";
+type IntegrationRowStatus = "ready" | "missing" | "invalid" | "needs-you";
 
 interface IntegrationResult {
   integration: Integration;
@@ -1200,7 +1357,7 @@ interface IntegrationResult {
   owners?: string[];
 }
 
-const INTEGRATION_STATUS: Record<IntegrationRowStatus, RenderStatus> = { ready: "done", missing: "needs-you", invalid: "failed" };
+const INTEGRATION_STATUS: Record<IntegrationRowStatus, RenderStatus> = { ready: "done", missing: "needs-you", invalid: "failed", "needs-you": "needs-you" };
 
 function printIntegrationResult(deps: SetupDeps, json: boolean, body: IntegrationResult): void {
   if (json) {
@@ -1385,6 +1542,82 @@ export async function setupUnwaive(args: string[], _ctx: CommandContext = {}, de
   await runWaiver(args, deps, "unwaive");
 }
 
+// ─── join-status (`rt setup join-status`) ──────────────────────────────────
+
+export interface JoinStatus {
+  team: { slug: string; name: string };
+  invitedBy: string | null;
+  state: ApprovalState["kind"];
+  since: string | null;
+  uses: { repos: number; accounts: number; packs: number };
+  pull: OrgPull;
+}
+
+export interface JoinStatusDeps {
+  probes: Probes;
+  json: (value: unknown) => void;
+  exit: (code: number) => never;
+  pull: typeof pullOrgClone;
+  /** The joined team's shared settings; tests inject one so they never reach the real resolver. */
+  teamSnapshot?: (p: Probes, slug: string) => TeamSnapshot;
+}
+
+export function realJoinStatusDeps(): JoinStatusDeps {
+  return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit, pull: pullOrgClone };
+}
+
+function joinStatusLine(slug: string, state: ApprovalState, pull: OrgPull): Block {
+  const pullHint = pull.outcome === "failed" || pull.outcome === "held" ? pull.detail : undefined;
+  switch (state.kind) {
+    case "approved":
+      return out.line("done", `You're in the ${slug} team`);
+    case "waiting":
+      return out.line("pending", APPROVAL_WAIT_DETAIL, pullHint);
+    case "unreadable":
+      return out.line("warn", `${state.path} ${state.reason}`, pullHint);
+    case "not-joined":
+      return out.line("skipped", `This Mac has no key the ${slug} team can approve yet`, pullHint);
+  }
+}
+
+export async function setupJoinStatus(args: string[], _ctx: CommandContext = {}, deps: JoinStatusDeps = realJoinStatusDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const p = deps.probes;
+  // A successful join deletes the invite, so one still on disk is a join the Join page has to run (again).
+  if (readIntent(p)?.mode === "join") {
+    return exitWithUserError(new UserActionableError("join-unredeemed", "This Mac has an invite it has not joined with yet"), json, sinkOf(deps), {
+      next: out.cmd("rt setup apply --only team.join"),
+    });
+  }
+  const slug = cloneSlugs(p).find((s) => readTeamLocal(p, s).joinedByRt);
+  if (!slug) {
+    return exitWithUserError(new UserActionableError("no-join", "This Mac has not joined a team"), json, sinkOf(deps), { next: out.cmd("rt team join") });
+  }
+
+  const pull = await deps.pull(p, slug);
+  const state = approvalState(p, slug);
+  const snapshot = deps.teamSnapshot ? deps.teamSnapshot(p, slug) : readTeamSnapshot(p, slug);
+  const record = readTeamLocal(p, slug);
+  const body: JoinStatus = {
+    team: { slug, name: record.teamName ?? slug },
+    invitedBy: record.invitedBy ?? null,
+    state: state.kind,
+    since: state.kind === "waiting" ? state.since : null,
+    uses: {
+      repos: snapshot.trackingIdentities.length,
+      accounts: Object.keys(snapshot.integrations).filter((k) => k !== "forge").length,
+      packs: snapshot.plugins.length,
+    },
+    pull,
+  };
+  if (json) {
+    deps.json(envelope(body, p.now()));
+    return;
+  }
+  out.print(joinStatusLine(slug, state, pull));
+}
+
 // ─── connect ────────────────────────────────────────────────────────────
 
 async function ghAuthToken(p: Probes): Promise<string> {
@@ -1521,16 +1754,36 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
 }
 
 async function connectCliSession(id: "doppler" | "ldcli", args: string[], deps: ConnectDeps): Promise<void> {
-  await deps.probes.exec(id === "doppler" ? ["doppler", "login"] : ["ldcli", "login"], { inherit: true });
+  const json = args.includes("--json");
   const def = integrationDef(id);
   const ctx = ctxFor(id, snapshotFor(deps), overridesFor(deps));
-  const result = await def.validate(deps.probes, "", ctx);
-  if (result.status === "invalid") {
-    printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: result.detail, scopesSeen: result.scopesSeen });
-    return;
+  const validate = () => def.validate(deps.probes, "", ctx);
+  const print = (status: IntegrationRowStatus, detail: string, scopesSeen: string[] = []) => printIntegrationResult(deps, json, { integration: id, status, detail, scopesSeen });
+
+  if (deps.isTTY()) {
+    await deps.probes.exec(id === "doppler" ? ["doppler", "login"] : ["ldcli", "login"], { inherit: true });
+    const result = await validate();
+    if (result.status === "error") throw new UserActionableError("unreachable", result.detail);
+    return print(result.status, result.detail, result.scopesSeen);
   }
-  if (result.status === "error") throw new UserActionableError("unreachable", result.detail);
-  printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail: result.detail, scopesSeen: result.scopesSeen });
+
+  // Validated before any spawn: a signed-in doppler login opens a menu with no URL or code to show.
+  const first = await validate();
+  if (first.status === "error") throw new UserActionableError("unreachable", first.detail);
+  if (first.status === "ready") return print("ready", first.detail, first.scopesSeen);
+
+  if ((await startLogin(deps.probes, id, { seams: deps.loginSeams })) === null) return print("invalid", first.detail, first.scopesSeen);
+
+  const signedIn = await waitForSignIn(async () => {
+    const result = await validate();
+    return result.status === "ready" ? result : null;
+  }, CONNECT_WAIT_MS, deps.sleep);
+  if (signedIn !== null) {
+    endLogin(deps.probes, id, deps.loginSeams);
+    return print("ready", signedIn.detail, signedIn.scopesSeen);
+  }
+  const code = readLogin(deps.probes, id, deps.loginSeams)?.code;
+  print("needs-you", code ? `Your code is ${code}. Confirm it in your browser` : FINISH_IN_BROWSER);
 }
 
 const SLACK_WAIT_CODE: Record<SlackSecretWait["kind"], string> = {

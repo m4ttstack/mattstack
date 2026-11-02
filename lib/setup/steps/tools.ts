@@ -12,12 +12,13 @@ import { resolveTool } from "../../deps/resolve.ts";
 import type { SnapshotResult } from "../../daemon/home-snapshot.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
-import { fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
+import { claudeMarketplaces, fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { hasRemote } from "../home-git.ts";
 import { fetchPermissions } from "../permissions.ts";
+import { waitWhilePreparing } from "../prepare-record.ts";
 import type { Probes } from "../probes.ts";
-import { readSetupState } from "../state.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 import { claudeConfigDirs, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -34,12 +35,24 @@ function realSleep(ms: number): Promise<void> {
  */
 const NO_HOST_STDERR = /Detected hosts: none|Requested \S+ host was not detected/i;
 
-async function fastbrowserSetupRun(ctx: ApplyContext): Promise<StepOutcome> {
-  const resolved = resolveTool(ctx.p, "fast-browser");
+async function fastbrowserSetupRun(p: Probes, nonInteractive: boolean): Promise<StepOutcome> {
+  const resolved = resolveTool(p, "fast-browser");
   if (!resolved.exec) return { state: "skipped", detail: "Fast Browser is not in this build" };
 
-  const result = await setupTool(ctx.p, "fast-browser", { configDirs: [], marketplaceSource: fastBrowserMarketplaceSource(ctx.p.env, await registeredMattstackMarketplace(ctx.p)) });
-  if (result.ok) return { state: "done", detail: result.detail };
+  const before = await claudeMarketplaces(p);
+  const registered = before?.find((m) => m.name === "mattstack") ?? null;
+  const source = fastBrowserMarketplaceSource(p.env, registered);
+  const result = await setupTool(p, "fast-browser", { configDirs: [], marketplaceSource: source });
+  if (result.ok) {
+    // fast-browser setup adds the mattstack marketplace when it is missing,
+    // as it is when prepare runs this before plugins.install. setup-state is
+    // the uninstall record of what rt added, so only a listing that read
+    // before setup and lacked it proves this run added it.
+    if (before !== null && registered === null && (await registeredMattstackMarketplace(p)) !== null) {
+      updateSetupState(p, (s) => ({ ...s, marketplaces: [...s.marketplaces, source] }));
+    }
+    return { state: "done", detail: result.detail };
+  }
 
   // fast-browser integrates INTO a host (Claude Code / Codex) and refuses to
   // guess when none is present, which is correct of it. But a clean Mac with
@@ -47,15 +60,16 @@ async function fastbrowserSetupRun(ctx: ApplyContext): Promise<StepOutcome> {
   // dead-ends the whole run, so services.start, snapshot.push and verify never
   // execute. Same shape and same reasoning as plugins.install's claude branch:
   // skip where nobody can act on a Retry, stay loud where a human is watching.
-  if (NO_HOST_STDERR.test(result.detail) && ctx.nonInteractive) {
+  if (NO_HOST_STDERR.test(result.detail) && nonInteractive) {
     return { state: "skipped", detail: "No Claude Code or Codex found, so there is nothing to integrate with" };
   }
   return { state: "failed", detail: result.detail, remedy: "Run fast-browser setup in a terminal for details" };
 }
 
-async function fastbrowserSetupRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
+/** Shared with `rt setup prepare accounts`, which has nobody watching and so passes nonInteractive. */
+export async function setUpFastBrowser(p: Probes, opts: { nonInteractive: boolean }): Promise<StepOutcome> {
   try {
-    return await fastbrowserSetupRun(ctx);
+    return await fastbrowserSetupRun(p, opts.nonInteractive);
   } catch (err) {
     return toFailedOutcome(err);
   }
@@ -67,7 +81,10 @@ export const fastbrowserSetupStep: StepDef = {
   kind: "rt",
   updateSafe: true,
   applies: () => true,
-  run: fastbrowserSetupRunSafe,
+  run: async (ctx) => {
+    await waitWhilePreparing(ctx.p, "accounts", { onWait: (line) => ctx.log("fastbrowser.setup", line) });
+    return setUpFastBrowser(ctx.p, { nonInteractive: ctx.nonInteractive });
+  },
 };
 
 // ─── herdr.integration ───────────────────────────────────────────────────────

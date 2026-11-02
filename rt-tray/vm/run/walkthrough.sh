@@ -1,5 +1,5 @@
 #!/bin/bash
-# Clean-room walkthrough: clone golden → install DMG → five screens → assert → Sparkle update → teardown.
+# Clean-room walkthrough: clone golden → install DMG → setup screens → assert → Sparkle update → teardown.
 set -uo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/lib/common.sh"
 
@@ -9,21 +9,24 @@ usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
          [--invite-code-file <p>] [--team-remote <url> (solo scenario: runs the team-upgrade phase)] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
          [--fresh-team-repo] [--mint-rt <rt>] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
          [--golden <name>]
---fresh-team-repo mints an empty team repo; with --scenario join the host also
-scaffolds the team there and mints the invite (under a throwaway HOME, with the
-bundle's rt or --mint-rt), so no --invite-code-file is needed.
+--fresh-team-repo (join) mints an empty team repo; the host also scaffolds the
+team there and mints the invite (under a throwaway HOME, with the bundle's rt
+or --mint-rt), so no --invite-code-file is needed. A run that creates a team
+(create, and solo's team-upgrade) takes a slug of its own, vmtest-<run id>,
+and teardown deletes the repo Create team made for it.
 EOF
 exit 2; }
 
-VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; PAT_ENV=MATTSTACK_VMTEST_PAT; CODE_FILE=""; FORGE=""
-# The create card's pasted-URL path (a fresh guest has no gh identity yet): the throwaway
-# org's team repo, same naming as run/team-setup.sh.
+VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; SLUG_SET=0; TEAM_REMOTE_SET=0; PAT_ENV=MATTSTACK_VMTEST_PAT; CODE_FILE=""; FORGE=""
+# The throwaway org's team repo, same naming as run/team-setup.sh. A run that
+# creates a team replaces it with the repo Create team will make (preflight).
+[ -n "${TEAM_REMOTE:-}" ] && TEAM_REMOTE_SET=1
 TEAM_REMOTE="${TEAM_REMOTE:-https://github.com/${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}/${MATTSTACK_VMTEST_TEAM_REPO:-mattstack-vmtest-team}.git}"
 UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""; MINT_RT=""
 while [ $# -gt 0 ]; do case "$1" in
   --ver) VER="$2"; shift 2;; --dmg) DMG="$2"; shift 2;; --app) APP="$2"; shift 2;;
-  --scenario) SCENARIO="$2"; shift 2;; --team-slug) SLUG="$2"; shift 2;; --pat-env) PAT_ENV="$2"; shift 2;;
-  --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; shift 2;; --forge) FORGE="$2"; shift 2;;
+  --scenario) SCENARIO="$2"; shift 2;; --team-slug) SLUG="$2"; SLUG_SET=1; shift 2;; --pat-env) PAT_ENV="$2"; shift 2;;
+  --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; TEAM_REMOTE_SET=1; shift 2;; --forge) FORGE="$2"; shift 2;;
   --update-dir) UPD="$2"; shift 2;; --update-version) UPDV="$2"; shift 2;;
   --golden) GOLDEN_OVERRIDE="$2"; shift 2;;
   --fresh-team-repo) FRESH_REPO=1; shift;; --mint-rt) MINT_RT="$2"; shift 2;;
@@ -33,10 +36,15 @@ while [ $# -gt 0 ]; do case "$1" in
 [ -n "$VER" ] || usage
 [ -n "$DMG" ] || [ -n "$APP" ] || usage
 # `rt team create` refuses a remote with commits, so a freshly minted repo is
-# consumed by exactly one creator: the guest (create) or the host's mint (join).
-case "$SCENARIO" in create|join) ;; *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };; esac
+# consumed by exactly one creator, the host's mint (join). Create team makes
+# its own repo, so a create run mints nothing.
+case "$SCENARIO" in
+  join) ;;
+  create) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo adds nothing to --scenario create: Create team makes its own repo, and teardown deletes it"; FRESH_REPO=0; } ;;
+  *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };;
+esac
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$CODE_FILE" ] && { vm_warn "--invite-code-file and --fresh-team-repo both name the invite; pass one"; usage; }
-# Declining is answered in the SecurityAgent dialog the wizard raises, and the
+# Declining is answered in the SecurityAgent dialog setup raises, and the
 # headless recipe drives no dialogs at all.
 [ "$DECLINE_TRUST" = 1 ] && [ "$SCENARIO" = headless ] && { vm_warn "--decline-trust needs a driven scenario, not headless"; usage; }
 
@@ -47,9 +55,12 @@ vm_log "golden: $GOLDEN"
 RUN_VM="mattstack-run-$VER-$(date +%H%M%S)-$$"
 GUEST_RUN="/Volumes/My Shared Files/run"
 GUEST_BIN="/Users/$VM_TESTER_USER/vmrun"
-TART_PID=""; SHOT_PID=""; CLONED=0; MINT_HOME=""
+TART_PID=""; SHOT_PID=""; APPROVE_PID=""; CLONED=0; MINT_HOME=""
 APP_VERSION=""
 FRESH_SLUG=""
+# The repo Create team makes for this run, <group>/mattstack-team-<slug>: the
+# one repo outside the minted vmtest names teardown may delete.
+CREATE_TARGET=""
 # The longest passing screens phase on record ran 3353s, 23 minutes of it a
 # CLT install, so screens gets the most room. Teardown's limit only bounds the
 # guest log collection; the guest and repo are removed after it regardless.
@@ -63,6 +74,7 @@ cleanup() {
   trap 'vm_warn "teardown in progress; signal ignored"' INT TERM HUP
   vm_say_or_log "  ── cleanup"
   [ -n "$SHOT_PID" ] && kill "$SHOT_PID" 2>/dev/null
+  stop_approve_watcher
   mint_detach; drop_mint_home
   vm_phase_abandon "walkthrough exited mid-phase"
   if [ "$DRY" = 0 ]; then teardown; fi
@@ -141,9 +153,36 @@ mint_detach() {
 
 # Deleting needs a token with delete rights, which the vmtest PAT may lack;
 # archiving needs only the repo scope, so a run never leaves a live repo.
+# exists, absent or error. Only the forge's own not-found reads absent: a
+# lookup that failed any other way says nothing about the repo.
+team_repo_state() {  # <owner/repo> <log>
+  local out token="${!PAT_ENV:-}"
+  if [ "$FORGE" = gitlab ]; then
+    out=$(GITLAB_TOKEN="$token" glab repo view "$1" 2>&1) && { echo exists; return 0; }
+    printf 'glab repo view %s: %s\n' "$1" "$out" >>"$2"
+    case "$out" in *404*"Not Found"*) echo absent ;; *) echo error ;; esac
+  else
+    out=$(GH_TOKEN="$token" gh repo view "$1" --json name 2>&1) && { echo exists; return 0; }
+    printf 'gh repo view %s: %s\n' "$1" "$out" >>"$2"
+    case "$out" in *"Could not resolve to a Repository"*) echo absent ;; *) echo error ;; esac
+  fi
+}
+
 retire_fresh_repo() {
   local log="$VM_RUN_DIR/logs/teardown.log" token="${!PAT_ENV:-}"
-  case "$FRESH_SLUG" in */mattstack-vmtest-team-*) ;; *) printf 'refused to delete %s: not a repo this run minted' "$FRESH_SLUG"; return 1 ;; esac
+  case "$FRESH_SLUG" in
+    */mattstack-vmtest-team-*) ;;
+    */mattstack-team-vmtest-*)
+      [ "$FRESH_SLUG" = "$CREATE_TARGET" ] || { printf 'refused to delete %s: not the repo this run created' "$FRESH_SLUG"; return 1; }
+      # Preflight saw no repo there, so one there now is Create team's; none
+      # means the run ended before Create team.
+      case "$(team_repo_state "$FRESH_SLUG" "$log")" in
+        exists) ;;
+        absent) printf '%s was never created' "$FRESH_SLUG"; return 0 ;;
+        *) printf 'could not look up %s, so it was left alone; check it by hand (logs/teardown.log)' "$FRESH_SLUG"; return 1 ;;
+      esac ;;
+    *) printf 'refused to delete %s: not a repo this run minted' "$FRESH_SLUG"; return 1 ;;
+  esac
   if [ "$FORGE" = gitlab ]; then
     GITLAB_TOKEN="$token" glab repo delete "$FRESH_SLUG" --yes >>"$log" 2>&1 && { printf 'deleted %s' "$FRESH_SLUG"; return 0; }
     GITLAB_TOKEN="$token" glab api -X POST "projects/$(printf '%s' "$FRESH_SLUG" | sed 's|/|%2F|g')/archive" >>"$log" 2>&1 \
@@ -183,6 +222,49 @@ shot_watcher() {  # host loop: in/shot-<name>.req → screenshots/<name>.png
   done
 }
 
+# Host loop for the join scenario: the guest's screen_waiting writes
+# in/join-waiting.req once the waiting screen shows, and approve-join.sh
+# answers it as the team owner, under the mint's HOME. The outcome goes back as
+# in/join-approve.done or in/join-approve.failed, or in/join-approve.manual
+# when there is no mint HOME and the team's owner approves by hand.
+approve_watcher() {
+  local key
+  until [ -e "$VM_RUN_DIR/in/join-waiting.req" ]; do sleep 1; done
+  rm -f "$VM_RUN_DIR/in/join-waiting.req"
+  if [ -z "$MINT_HOME" ] || [ -z "$RT_FOR_MINT" ]; then
+    echo "no mint HOME (not a --fresh-team-repo join): the team's owner must approve it by hand on their Mac: rt team members sync, then rt team publish" >> "$VM_RUN_DIR/logs/approve.log"
+    : > "$VM_RUN_DIR/in/join-approve.manual"; return
+  fi
+  key=$(vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "/Applications/mattstack.app/Contents/Helpers/jq -r '.agePublicKey // empty' \$HOME/.mattstack/rt/teams/$SLUG.json" 2>>"$VM_RUN_DIR/logs/approve.log")
+  if VM_MINT_TOKEN="${!PAT_ENV:-}" bash "$VM_ROOT/run/host/approve-join.sh" --rt "$RT_FOR_MINT" --home "$MINT_HOME" --slug "$SLUG" \
+      ${FORGE:+--forge "$FORGE"} ${key:+--key "$key"} >>"$VM_RUN_DIR/logs/approve.log" 2>&1; then
+    : > "$VM_RUN_DIR/in/join-approve.done"
+  else
+    : > "$VM_RUN_DIR/in/join-approve.failed"
+  fi
+}
+
+# The watcher and any approve-join.sh it started share one process group;
+# both are gone before the mint HOME they use is deleted. A stopped group
+# never acts on SIGTERM, and a process may ignore it, so after 10s the group
+# is woken and killed: the wait below must never block for good.
+stop_approve_watcher() {
+  [ -n "$APPROVE_PID" ] || return 0
+  local n=0
+  kill -TERM -- -"$APPROVE_PID" 2>/dev/null || kill -TERM "$APPROVE_PID" 2>/dev/null
+  kill -CONT -- -"$APPROVE_PID" 2>/dev/null || true
+  while [ "$n" -lt 10 ] && kill -0 "$APPROVE_PID" 2>/dev/null \
+      && [ "$(ps -o stat= -p "$APPROVE_PID" 2>/dev/null | cut -c1)" != Z ]; do sleep 1; n=$((n+1)); done
+  kill -KILL -- -"$APPROVE_PID" 2>/dev/null || kill -KILL "$APPROVE_PID" 2>/dev/null
+  wait "$APPROVE_PID" 2>/dev/null
+  APPROVE_PID=""
+}
+
+# The Fast Browser extension's id, from the Chrome Web Store link rt names.
+fb_extension_id() {
+  sed -n 's|.*FAST_BROWSER_WEB_STORE_URL = "https://chromewebstore.google.com/detail/\([a-p]\{32\}\)".*|\1|p' "$VM_ROOT/../../lib/setup/validators/tools.ts" | head -1
+}
+
 skip_if_dry() { [ "$DRY" = 1 ] && { vm_phase_end "$1" skip "dry-run"; return 0; }; return 1; }
 
 # ── preflight ────────────────────────────────────────────────────────────────
@@ -210,6 +292,70 @@ if [ -n "$UPD" ]; then
   fi
 fi
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 0 ] && [ ! -f "${CODE_FILE:-/nonexistent}" ] && { vm_phase_end preflight fail "join needs --invite-code-file or --fresh-team-repo"; exit 1; }
+FB_EXTENSION_ID=$(fb_extension_id)
+[ -n "$FB_EXTENSION_ID" ] || { vm_phase_end preflight fail "could not read the Fast Browser extension id from lib/setup/validators/tools.ts"; exit 1; }
+# rt names the extension only by its store link; this is the Chrome Web
+# Store's own update URL, which ExtensionInstallForcelist needs beside the id.
+CHROME_STORE_UPDATE_URL="https://clients2.google.com/service/update2/crx"
+# The repo the minted team tracks, on the run's own forge so the joiner's
+# token can clone it: MATTSTACK_VMTEST_TRACK_REPO, else the team-minimal
+# fixture's when it lives there.
+TRACK_REPO=""
+if [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ]; then
+  TRACK_HOST=github.com; [ "$FORGE" = gitlab ] && TRACK_HOST=gitlab.com
+  TRACK_REPO="${MATTSTACK_VMTEST_TRACK_REPO:-$(jq -r '."mattstack.tracking".repos | keys[0] // empty' "$VM_ROOT/fixtures/team-minimal/settings.team.json" 2>/dev/null)}"
+  case "$TRACK_REPO" in
+    "$TRACK_HOST"/*) ;;
+    *) vm_phase_end preflight fail "the minted team needs a repo on $TRACK_HOST to track (the joiner's token clones it); the fixture's is ${TRACK_REPO:-missing}: set MATTSTACK_VMTEST_TRACK_REPO=$TRACK_HOST/<owner>/<repo>"; exit 1;;
+  esac
+fi
+# Create team makes <group>/mattstack-team-<slug> itself, so a run that
+# creates a team takes a slug of its own (a fixed one collides with the last
+# run's repo) and teardown deletes that repo.
+if [ "$SCENARIO" = create ] || [ "$SCENARIO" = solo ]; then
+  [ "$SLUG_SET" = 1 ] || SLUG="vmtest-${VM_RUN_ID%%-walk-*}"
+  if [ "$TEAM_REMOTE_SET" = 1 ]; then
+    # The guest's own reading of a remote (screen_remote_group): https or scp-style ssh.
+    CREATE_GROUP="${TEAM_REMOTE%.git}"
+    case "$CREATE_GROUP" in
+      *://*) CREATE_GROUP="${CREATE_GROUP#*://}"; CREATE_GROUP="${CREATE_GROUP#*/}" ;;
+      *:*) CREATE_GROUP="${CREATE_GROUP#*:}" ;;
+    esac
+    case "$CREATE_GROUP" in */*) CREATE_GROUP="${CREATE_GROUP%/*}" ;; *) vm_phase_end preflight fail "no owner or group in --team-remote $TEAM_REMOTE"; exit 1 ;; esac
+  elif [ "$FORGE" = gitlab ]; then
+    CREATE_GROUP="${MATTSTACK_VMTEST_GITLAB_GROUP:-}"
+    [ -n "$CREATE_GROUP" ] || [ "$DRY" = 1 ] || { vm_phase_end preflight fail "a gitlab create needs MATTSTACK_VMTEST_GITLAB_GROUP (where Create team makes the repo)"; exit 1; }
+  else
+    CREATE_GROUP="${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}"
+  fi
+  # Teardown deletes a repo under this group, so the group is visibly a
+  # vmtest one, or one the operator confirmed by name, wherever it came from.
+  case "$CREATE_GROUP" in
+    ""|*vmtest*) ;;
+    *) [ "${MATTSTACK_VMTEST_ORG_CONFIRM:-}" = "$CREATE_GROUP" ] || { vm_phase_end preflight fail "$CREATE_GROUP lacks 'vmtest'; set MATTSTACK_VMTEST_ORG_CONFIRM=$CREATE_GROUP to confirm"; exit 1; };;
+  esac
+  CREATE_HOST=github.com; [ "$FORGE" = gitlab ] && CREATE_HOST=gitlab.com
+  CREATE_TARGET="$CREATE_GROUP/mattstack-team-$SLUG"
+  [ "$TEAM_REMOTE_SET" = 1 ] || TEAM_REMOTE="https://$CREATE_HOST/$CREATE_TARGET.git"
+  echo "$TEAM_REMOTE" > "$VM_RUN_DIR/in/team-repo.txt"
+  if [ "$DRY" = 0 ]; then
+    case "$CREATE_TARGET" in
+      */mattstack-team-vmtest-*) ;;
+      *) vm_phase_end preflight fail "--team-slug $SLUG makes $CREATE_TARGET, which teardown would not delete; use a slug starting vmtest-"; exit 1 ;;
+    esac
+    if [ "$FORGE" = gitlab ]; then vm_require_cmd glab "brew install glab"; else vm_require_cmd gh "brew install gh"; fi
+    # Teardown deletes the target, so it is armed only for a repo that is not
+    # there yet: one that already exists was never this run's to delete.
+    case "$(team_repo_state "$CREATE_TARGET" "$VM_RUN_DIR/logs/preflight.log")" in
+      absent) ;;
+      exists) vm_phase_end preflight fail "$CREATE_TARGET already exists, so Create team would refuse it and teardown must not delete it; pass a --team-slug no repo uses"; exit 1 ;;
+      *) vm_phase_end preflight fail "could not look up $CREATE_TARGET (logs/preflight.log)"; exit 1 ;;
+    esac
+    # Set before the screens: a signal during Create team must still delete the repo.
+    FRESH_SLUG="$CREATE_TARGET"
+  fi
+  vm_log "team slug $SLUG; Create team makes $CREATE_TARGET, which teardown deletes"
+fi
 if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
   [ -n "${!PAT_ENV:-}" ] || { vm_phase_end preflight fail "--fresh-team-repo needs \$$PAT_ENV set — an empty token can fall back to the operator's own stored forge credentials"; exit 1; }
   FRESH_NAME="mattstack-vmtest-team-$(date +%Y%m%d-%H%M%S)-$$"
@@ -265,16 +411,17 @@ if [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ]; then
       vm_phase_end invite fail "$MINT_REFUSAL"; exit 1
     fi
     VM_MINT_TOKEN="${!PAT_ENV:-}" vm_guest_cmd bash "$VM_ROOT/run/host/mint-invite.sh" --rt "$RT_FOR_MINT" --home "$MINT_HOME" \
-      --remote "$TEAM_REMOTE" --out "$CODE_FILE" --slug "$SLUG" ${FORGE:+--forge "$FORGE"} >>"$VM_RUN_DIR/logs/mint.log" 2>&1
+      --remote "$TEAM_REMOTE" --out "$CODE_FILE" --slug "$SLUG" ${FORGE:+--forge "$FORGE"} ${TRACK_REPO:+--track "$TRACK_REPO"} >>"$VM_RUN_DIR/logs/mint.log" 2>&1
     rc=$?
-    mint_detach; drop_mint_home
+    # approve-join.sh reuses the mint's HOME and rt in the screens phase.
+    [ "$rc" -eq 0 ] || { mint_detach; drop_mint_home; }
     if [ "$rc" -eq 0 ] && [ -s "$CODE_FILE" ]; then vm_phase_end invite pass "team $SLUG scaffolded on $TEAM_REMOTE; invite minted on the host"
     else vm_phase_end invite fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/mint.log" "host mint failed: $(tail -1 "$VM_RUN_DIR/logs/mint.log" 2>/dev/null || echo 'see logs/mint.log')")"; exit 1; fi
   fi
 fi
 if [ "$DRY" = 1 ]; then
-  vm_log "[dry-run] would: tart clone $GOLDEN $RUN_VM; tart run $RUN_VM --dir=run:$VM_RUN_DIR $([ $GRAPHICS = 0 ] && echo --no-graphics); wait ssh; stage; install; $([ $SCENARIO = headless ] && echo e2e-cleanroom || echo 'five screens'); assert; $([ -n "$UPD" ] && echo update || echo 'update(skip)'); teardown"
-  for p in clone boot stage install launch screens assert update teardown; do vm_phase_begin $p; skip_if_dry $p; done
+  vm_log "[dry-run] would: tart clone $GOLDEN $RUN_VM; tart run $RUN_VM --dir=run:$VM_RUN_DIR $([ $GRAPHICS = 0 ] && echo --no-graphics); wait ssh; stage; install; chrome; $([ $SCENARIO = headless ] && echo e2e-cleanroom || echo 'setup screens'); assert; $([ -n "$UPD" ] && echo update || echo 'update(skip)'); teardown"
+  for p in clone boot stage install chrome launch screens assert update teardown; do vm_phase_begin $p; skip_if_dry $p; done
   exit 0
 fi
 
@@ -316,6 +463,21 @@ vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash '$GUEST_RUN/i
 rc=$?
 if [ "$rc" -eq 0 ]; then vm_phase_end install pass
 else vm_phase_end install fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/install.log" "copy failed (logs/install.log)")"; exit 1; fi
+
+# ── chrome: Google Chrome and the Fast Browser extension, as a member has them ─
+vm_phase_begin chrome
+if [ "$SCENARIO" = headless ]; then
+  vm_phase_end chrome skip "headless drives no setup window, so no Chrome"
+else
+  vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash '$GUEST_RUN/in/guest/install-chrome.sh' install '$FB_EXTENSION_ID' '$CHROME_STORE_UPDATE_URL'" >>"$VM_RUN_DIR/logs/chrome.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/install-chrome.sh open '$FB_EXTENSION_ID'" >>"$VM_RUN_DIR/logs/chrome.log" 2>&1
+    rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then vm_phase_end chrome pass "Chrome installed; the Fast Browser extension is force-installed by policy"
+  else vm_phase_end chrome fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/chrome.log" "Chrome or its extension did not install (logs/chrome.log)")"; exit 1; fi
+fi
 
 vm_phase_begin launch
 # Prod builds honour MATTSTACK_APPCAST_URL only with --allow-appcast-override; the same env/arg is
@@ -360,8 +522,13 @@ if [ "$SCENARIO" = headless ]; then
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "open -a /Applications/mattstack.app; sleep 8" >>"$VM_RUN_DIR/logs/screens.log" 2>&1 || true
 else
   CODE_ARG=""; [ -n "$CODE_FILE" ] && { cp "$CODE_FILE" "$VM_RUN_DIR/in/invite-code.txt"; CODE_ARG="--invite-code-file '$GUEST_RUN/in/invite-code.txt'"; }
-  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  # Job control hands a background job the walkthrough's stdin, a terminal
+  # on an attended run; a read from it would stop the watcher's group.
+  if [ "$SCENARIO" = join ]; then set -m; approve_watcher </dev/null & APPROVE_PID=$!; set +m; fi
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' JOIN_HAND_WAIT_S='${JOIN_HAND_WAIT_S:-1800}' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' CONNECT_WAIT_S='${CONNECT_WAIT_S:-900}' RUN_WAIT_S='${RUN_WAIT_S:-1800}' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   rc=$?
+  stop_approve_watcher
+  mint_detach; drop_mint_home
   if [ "$rc" -eq 0 ]; then
     vm_phase_end screens pass "" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
   else
@@ -380,6 +547,7 @@ EXPECT_ARG=""; [ -n "$APP_VERSION" ] && EXPECT_ARG="--expect-version '$APP_VERSI
 UNTRUSTED_ARG=""; [ "$DECLINE_TRUST" = 1 ] && UNTRUSTED_ARG=--expect-untrusted
 MODE_ARG=""; [ "$SCENARIO" = solo ] && MODE_ARG="--solo"
 [ "$SCENARIO" = join ] && MODE_ARG="--join '$SLUG'"
+[ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$TRACK_REPO" ] && MODE_ARG="$MODE_ARG --board-repo '$TRACK_REPO'"
 vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $MODE_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
 rc=$?
 if [ "$rc" -eq 0 ]; then
@@ -398,7 +566,7 @@ if [ "$SCENARIO" != solo ]; then
 elif [ -z "$TEAM_REMOTE" ]; then
   vm_phase_end team-upgrade skip "no --team-remote given"
 else
-  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" upgrade "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" upgrade "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' CONNECT_WAIT_S='${CONNECT_WAIT_S:-900}' RUN_WAIT_S='${RUN_WAIT_S:-1800}' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then
     vm_phase_end team-upgrade pass

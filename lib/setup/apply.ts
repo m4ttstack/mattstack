@@ -21,7 +21,8 @@ import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, SHARED_STORE_MIGRATIONS, SHARED_STORE_REFUSAL, type MigrationDef } from "./migrations/index.ts";
-import { readSetupState, setupStatePath, storedVersion, updateSetupState } from "./state.ts";
+import { STEP_PHASES } from "./run-phases.ts";
+import { readSetupState, setupStatePath, storedVersion, updateSetupState, type SetupRun } from "./state.ts";
 import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
@@ -63,6 +64,10 @@ export interface ApplyContext {
   appDriven?: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
   update?: true;
+  /** The step an `--only` run names; `runApplyWith` sets it. */
+  only?: StepId;
+  /** This run ends with `apps.restart`, which restarts the board with every other app; `runApplyWith` sets it. */
+  restartsAppsAtEnd?: true;
   teamOfOne: boolean;
   appPath: string | null;
   ci: boolean;
@@ -96,6 +101,8 @@ export interface ApplyContext {
    * secret is not caught.
    */
   redact(value: string): void;
+  /** `text` with every value registered through `redact` masked: for copy kept somewhere `emit` never sees, like the run record. */
+  redacted?(text: string): string;
   /**
    * "no-app" is an rt-side judgment (not the app's), made when a quick
    * pre-check finds no live tray.sock on a run the app did not spawn (a
@@ -104,12 +111,14 @@ export interface ApplyContext {
    * `EventId` (not `StepId`) so `rt uninstall`'s action ids — which share
    * this same need protocol and this same context type — typecheck too.
    */
-  need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal">;
+  need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal" | "unattended">;
 }
 
 export interface StepDef {
   id: StepId;
   title: string;
+  /** A title that names what this run acts on; the plan and a failed step's detail use it over `title`. */
+  titleFor?(ctx: ApplyContext): string;
   kind: StepKind;
   applies(ctx: ApplyContext): boolean;
   run(ctx: ApplyContext): Promise<StepOutcome>;
@@ -126,6 +135,23 @@ export interface StepDef {
 }
 
 const INTERCEPTS_STEP: StepId = "intercepts.install";
+
+/** Runs at the end of every whole run and update run, after a failed step too, and its outcome never changes the run's. */
+const RUN_END_STEP: StepId = "apps.restart";
+
+/** Streams the end step like any other; a throw or a `failed` outcome reads as `partial`, since this step must never fail a run. */
+async function runEndStep(step: StepDef, ctx: ApplyContext): Promise<StepOutcome> {
+  ctx.emit({ event: "step", id: step.id, state: "running" });
+  let outcome: StepOutcome;
+  try {
+    outcome = await step.run(ctx);
+  } catch (err) {
+    outcome = { state: "partial", detail: err instanceof Error ? err.message : String(err) };
+  }
+  if (outcome.state === "failed") outcome = { ...outcome, state: "partial" };
+  ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
+  return outcome;
+}
 
 // Re-exported for backward compatibility (and so callers that already import
 // it from here, like apply.test.ts, keep working) — the implementation lives
@@ -210,6 +236,46 @@ function enqueueInOrder(queue: StepDef[], next: number, step: StepDef, applicabl
   else queue.splice(later, 0, step);
 }
 
+export interface ApplyRunOptions {
+  from?: StepId;
+  only?: StepId;
+  /** `fresh` starts a new run record and `continue` keeps the steps it already lists. An `--only` run never records. */
+  record?: "fresh" | "continue";
+  /** Steps a resumed run already finished: each applicable one streams `done` right after `plan`, and none runs again. */
+  replay?: StepId[];
+  /** Runs, and is awaited, once the record's end is written and before the end step restarts the apps: the run's own bookkeeping (stamp, Finish). */
+  afterRecord?: (result: { ok: boolean }) => void | Promise<void>;
+  /** Runs, and is awaited, after the end step and before `done` goes out, so whatever starts on `done` (the app's Retry, a form read) finds its work finished and the run lock free. */
+  beforeDone?: (result: { ok: boolean }) => void | Promise<void>;
+}
+
+type RunFailure = NonNullable<SetupRun["failed"]>;
+
+/** The message when the write failed, so the caller can say so under the step it was recording. */
+function writeRun(ctx: ApplyContext, patch: (run: SetupRun | undefined) => SetupRun): string | null {
+  try {
+    updateSetupState(ctx.p, (s) => ({ ...s, run: patch(s.run) }));
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+function startRun(ctx: ApplyContext, mode: "fresh" | "continue"): void {
+  const startedAt = ctx.p.now().toISOString();
+  // persistTerminalState writes the record's end and reports a failed write there.
+  writeRun(ctx, (run) => (mode === "continue" && run ? { startedAt: run.startedAt, done: run.done } : { startedAt, done: [] }));
+}
+
+function withDone(run: SetupRun | undefined, at: string, id: StepId): SetupRun {
+  const base = run ?? { startedAt: at, done: [] };
+  return base.done.includes(id) ? base : { ...base, done: [...base.done, id] };
+}
+
+function endRun(run: SetupRun | undefined, at: string, ok: boolean, failure: RunFailure | undefined): SetupRun {
+  return { startedAt: run?.startedAt ?? at, done: run?.done ?? [], endedAt: at, ok, ...(failure ? { failed: failure } : {}) };
+}
+
 /**
  * Best-effort bookkeeping after the run: never allowed to suppress the terminal `done` event a throw would otherwise swallow. A failure here becomes a `log` warning (tagged with the last step that actually ran) instead of an exception.
  *
@@ -219,11 +285,17 @@ function enqueueInOrder(queue: StepDef[], next: number, step: StepDef, applicabl
  * (and what it needs) and leaves the rest untouched, so it never does; `--from`
  * resumes and then runs everything left, so it does.
  * `lastApplyOk` follows the same line: only a run that could have
- * finished the install sets it.
+ * finished the install sets it. A recorded run's end rides the same write.
  */
-function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId | undefined, oneStepOnly: boolean): void {
+function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId | undefined, oneStepOnly: boolean, recorded?: { failure: RunFailure | undefined }): void {
   try {
-    updateSetupState(ctx.p, (s) => ({ ...s, lastApplyAt: ctx.p.now().toISOString(), ...(oneStepOnly ? {} : { lastApplyOk: ok }) }));
+    const at = ctx.p.now().toISOString();
+    updateSetupState(ctx.p, (s) => ({
+      ...s,
+      lastApplyAt: at,
+      ...(oneStepOnly ? {} : { lastApplyOk: ok }),
+      ...(recorded ? { run: endRun(s.run, at, ok, recorded.failure) } : {}),
+    }));
     if (ok && !oneStepOnly) clearIntent(ctx.p);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -247,6 +319,15 @@ function settleLegacyFinish(ctx: ApplyContext): void {
   }
 }
 
+/** Written at the start, so a row Install failed to finish asks for it again even when the run dies partway. */
+function stampInstallRan(ctx: ApplyContext): void {
+  try {
+    updateSetupState(ctx.p, (s) => ({ ...s, installRanAt: ctx.p.now().toISOString() }));
+  } catch {
+    // persistTerminalState makes a state write at the end and reports a failure there.
+  }
+}
+
 /**
  * Runs an explicit step list against a context — the seam `runApply` closes
  * over `STEPS` for. `plan` lists every applicable step for this run, even
@@ -254,25 +335,45 @@ function settleLegacyFinish(ctx: ApplyContext): void {
  * for ids it never saw listed, so a full plan is the only safe choice. Steps
  * before `--from` get NO `step` event at all — the shipped app deliberately
  * preserves a retried run's earlier `done` rows, and a `skipped` event here
- * would overwrite them. `--only` runs the named step behind its unsatisfied
- * `prerequisites` (plus `intercepts.install` after a `feedsIntercepts` step)
- * and is silent about every other id for the same reason.
+ * would overwrite them. A resumed run's `replay` steps are the exception: the
+ * relaunched app has no rows yet, so each streams `done`. `--only` runs the
+ * named step behind its unsatisfied `prerequisites` (plus `intercepts.install`
+ * after a `feedsIntercepts` step) and is silent about every other id for the
+ * same reason.
  */
-export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
+export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: ApplyRunOptions = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
   const applicable = steps.filter((s) => s.applies(ctx));
   let queue: StepDef[];
+  let replayed: StepDef[] = [];
   if (opts.only !== undefined) {
+    ctx.only = opts.only;
     const target = applicable[onlyIndex(applicable, opts.only)];
     queue = target ? await onlyQueue(applicable, target, ctx) : [];
   } else {
-    queue = applicable.slice(resumeStart(applicable, opts.from));
+    replayed = applicable.filter((s) => opts.replay?.includes(s.id));
+    queue = applicable.slice(resumeStart(applicable, opts.from)).filter((s) => !replayed.includes(s));
   }
+  const endStep = opts.only === undefined ? queue.find((s) => s.id === RUN_END_STEP) : undefined;
+  if (endStep) {
+    queue = queue.filter((s) => s !== endStep);
+    ctx.restartsAppsAtEnd = true;
+  } else {
+    delete ctx.restartsAppsAtEnd;
+  }
+  const record = opts.only === undefined ? opts.record : undefined;
+  const scrub = (text: string): string => ctx.redacted?.(text) ?? text;
 
-  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.title, kind: s.kind })) });
+  // Before `plan`: an attach that has seen this run's plan trusts the record to be this run's.
+  if (record) startRun(ctx, record);
+  const titleOf = (s: StepDef) => s.titleFor?.(ctx) ?? s.title;
+  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: titleOf(s), kind: s.kind, ...STEP_PHASES[s.id] })) });
+  for (const s of replayed) ctx.emit({ event: "step", id: s.id, state: "done" });
   settleLegacyFinish(ctx);
+  if (opts.only === undefined && !ctx.update) stampInstallRan(ctx);
 
   let lastRanId: StepId | undefined;
   let result: { ok: boolean; failedStep?: StepId } = { ok: true };
+  let failure: RunFailure | undefined;
   let hasBug = false;
   let bug: unknown;
 
@@ -299,6 +400,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
           const message = err instanceof Error ? err.message : String(err);
           ctx.emit({ event: "step", id: step.id, state: "failed", detail: `bug: ${message}` });
           result = { ok: false, failedStep: step.id };
+          failure = { step: step.id, detail: scrub(`bug: ${message}`) };
           hasBug = true;
           bug = err;
           break;
@@ -308,12 +410,18 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       }
 
       if (outcome.state === "failed" && opts.only !== undefined && step.id !== opts.only && step.id !== INTERCEPTS_STEP) {
-        outcome = { ...outcome, detail: `${step.title}: ${outcome.detail}` };
+        outcome = { ...outcome, detail: `${titleOf(step)}: ${outcome.detail}` };
+      }
+      if (record && outcome.state !== "failed") {
+        const id = step.id;
+        const unsaved = writeRun(ctx, (run) => withDone(run, ctx.p.now().toISOString(), id));
+        if (unsaved !== null) ctx.log(id, `warn: setup state not persisted: ${unsaved}`);
       }
       ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
 
       if (outcome.state === "failed") {
         result = { ok: false, failedStep: step.id };
+        failure = { step: step.id, detail: scrub(outcome.detail), ...(outcome.remedy !== undefined ? { remedy: scrub(outcome.remedy) } : {}) };
         break;
       }
       if (step.reloadsTeam && (outcome.state === "done" || outcome.state === "partial")) ctx.reloadTeam?.();
@@ -329,7 +437,15 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
     // last run". `done` is emitted here, in a `finally`, so no exit path
     // (early return, a rethrown bug) can leave the stream without its one
     // required terminal event.
-    persistTerminalState(ctx, result.ok, lastRanId, opts.only !== undefined);
+    persistTerminalState(ctx, result.ok, lastRanId, opts.only !== undefined, record ? { failure } : undefined);
+    // Nothing before `done` may cost the stream its terminal event.
+    try {
+      await opts.afterRecord?.({ ok: result.ok });
+    } catch {}
+    if (endStep) await runEndStep(endStep, ctx);
+    try {
+      await opts.beforeDone?.({ ok: result.ok });
+    } catch {}
     ctx.emit({ event: "done", ok: result.ok, ...(result.failedStep !== undefined ? { failedStep: result.failedStep } : {}) });
   }
 
@@ -337,7 +453,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   return result;
 }
 
-export async function runApply(ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
+export async function runApply(ctx: ApplyContext, opts: ApplyRunOptions = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
   return runApplyWith(STEPS, ctx, opts);
 }
 
@@ -379,7 +495,7 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
     },
     migrationId: m.id,
   }));
-  const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id)).map(item);
+  const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id) && s.id !== RUN_END_STEP).map(item);
   const verify = steps.find((s) => s.id === "verify" && s.updateSafe);
   return [...leads, ...pending, ...rest, ...(verify ? [item(verify)] : [])];
 }
@@ -398,7 +514,9 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
 export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext): Promise<UpdateRunResult> {
   settleLegacyFinish(ctx);
   const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations);
-  ctx.emit({ event: "plan", steps: items.map((i) => ({ id: i.id, title: i.title, kind: "rt" as const })) });
+  const endStep = steps.find((s) => s.id === RUN_END_STEP && s.updateSafe);
+  const planned = [...items, ...(endStep ? [endStep] : [])];
+  ctx.emit({ event: "plan", steps: planned.map((i) => ({ id: i.id, title: i.title, kind: "rt" as const })) });
 
   const outcomes: UpdateOutcome[] = [];
   const failedSteps: EventId[] = [];
@@ -442,6 +560,10 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
       }
     }
   } finally {
+    if (endStep) {
+      const outcome = await runEndStep(endStep, ctx);
+      outcomes.push({ id: endStep.id, state: outcome.state, ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}) });
+    }
     const ok = failedSteps.length === 0;
     persistTerminalState(ctx, ok, lastRanId, true);
     ctx.emit({
@@ -471,7 +593,7 @@ export interface CreateApplyContextDeps {
   /** Defaults to `realSecretPresence()` — override for a fully-faked run/test so `verify` (and anything else reading `ctx.secretPresence`) can never reach the real keychain/sops. */
   secretPresence?: SecretPresence;
   /** `tty` defaults to whether stdin is a terminal: an admin prompt is only raised for a person at one. */
-  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true; appDriven?: boolean };
+  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true; appDriven?: boolean; unattended?: boolean };
   /** Threaded straight into `awaitNeed`'s poll loop for the reachable/interactive branch of `need()` — real timers and `Date.now` by default. Tests inject a fake clock/sleep so that branch is driven deterministically instead of pinned to a real 10-minute deadline and 1 s polls. */
   needOpts?: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number };
 }
@@ -482,7 +604,7 @@ async function trayReachable(p: Probes): Promise<boolean> {
   return res.status !== 0;
 }
 
-function createRedactor(): { redact(value: string): void; wrap(emit: Emit): Emit } {
+function createRedactor(): { redact(value: string): void; apply(text: string): string; wrap(emit: Emit): Emit } {
   const secrets = new Set<string>();
 
   function apply(text: string): string {
@@ -497,6 +619,7 @@ function createRedactor(): { redact(value: string): void; wrap(emit: Emit): Emit
     redact(value) {
       if (value) secrets.add(value);
     },
+    apply,
     wrap(emit) {
       return (ev) => {
         if (ev.event === "log") {
@@ -561,7 +684,10 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     relay,
     secretPresence: deps.secretPresence ?? realSecretPresence(),
     redact: redactor.redact,
-    async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal"> {
+    redacted: redactor.apply,
+    async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal" | "unattended"> {
+      // The progress bar must never raise a dialog, by either route below.
+      if (flags.unattended && request.type === "app-privileged") return "unattended";
       // The app pumps needs only for the rt it spawned, which it marks with
       // RT_APP_SOCKET. Any other run asks the app's plain route for the same
       // work, failing fast when no app is there to take it. An admin prompt

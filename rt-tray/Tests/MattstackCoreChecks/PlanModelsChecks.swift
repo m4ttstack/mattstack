@@ -27,7 +27,7 @@ let samplePlanJSON = """
 """
 
 let planModelsChecks: [Check] = [
-    Check("the org rows decode, and only team.none carries an action DoneActions routes") { c in
+    Check("the org rows decode with their actions") { c in
         let json = Data(#"""
         { "contract": 1, "at": "2026-10-01T00:00:00Z", "team": { "slug": "acme", "name": "Acme", "mode": "none" },
           "groups": [ { "id": "accounts", "title": "Accounts", "rows": [
@@ -43,9 +43,10 @@ let planModelsChecks: [Check] = [
         let plan = try JSONDecoder().decode(Plan.self, from: json)
         let rows = plan.groups[0].rows
         try c.requireEqual(rows.map(\.id), ["team.none", "team.identity", "team.push-access"])
-        c.expectEqual(rows[0].action.flatMap(DoneActions.route), .steps(["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"]))
-        c.expectEqual(rows[1].action.flatMap(DoneActions.route), nil)
-        c.expectEqual(rows[2].action.flatMap(DoneActions.route), nil)
+        c.expectEqual(rows[0].action?.type, .steps)
+        c.expectEqual(rows[0].action?.steps, ["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"])
+        c.expectEqual(rows[1].action?.type, .connect)
+        c.expectEqual(rows[2].action?.type, .connect)
         c.expectEqual(rows[2].action?.create?.url, "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg")
     },
     Check("Plan decodes the contract sample") { c in
@@ -155,17 +156,6 @@ let planModelsChecks: [Check] = [
         let again = try JSONDecoder().decode(RowAction.self, from: JSONEncoder().encode(a))
         c.expectEqual(again, a)
     },
-    Check("badge: an unskippable finish gate reads required; a skippable one reads optional only once skipped; otherwise optional or nil by `required`") { c in
-        func row(finishGated: Bool, waivable: Bool, waived: Bool = false, required: Bool) -> PlanRow {
-            PlanRow(id: "r", kind: .tool, title: "t", why: "w", required: required, status: .needsYou,
-                    recheck: .onChange, finishGated: finishGated, waived: waived, waivable: waivable)
-        }
-        c.expectEqual(row(finishGated: true, waivable: false, required: false).badge, .required)
-        c.expectEqual(row(finishGated: true, waivable: true, required: false).badge, nil)
-        c.expectEqual(row(finishGated: true, waivable: true, waived: true, required: false).badge, .optional)
-        c.expectEqual(row(finishGated: false, waivable: false, required: false).badge, .optional)
-        c.expectEqual(row(finishGated: false, waivable: false, required: true).badge, nil)
-    },
     Check("waivable: absent on a finish-gated row reads true; present is honored") { c in
         func row(_ extra: String) -> String {
             #"{"id":"r","kind":"tool","title":"t","why":"w","required":false,"status":"needs-you","recheck":"on-change""# + extra + "}"
@@ -173,6 +163,20 @@ let planModelsChecks: [Check] = [
         c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row(#","finishGated":true"#).utf8)).waivable, true)
         c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row(#","finishGated":true,"waivable":false"#).utf8)).waivable, false)
         c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row("").utf8)).waivable, false)
+    },
+    Check("PlanModels: information decodes, and absent reads false") { c in
+        func row(_ extra: String) -> String {
+            #"{"id":"team.push-access","kind":"access","title":"t","why":"w","required":false,"status":"needs-you","recheck":"on-change""# + extra + "}"
+        }
+        c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row(#","information":true"#).utf8)).information, true)
+        c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row("").utf8)).information, false)
+    },
+    Check("PlanModels: waitsForInstall decodes, and absent reads false") { c in
+        func row(_ extra: String) -> String {
+            #"{"id":"tool.daemon","kind":"tool","title":"t","why":"w","required":false,"status":"missing","recheck":"on-change""# + extra + "}"
+        }
+        c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row(#","waitsForInstall":true"#).utf8)).waitsForInstall, true)
+        c.expectEqual(try JSONDecoder().decode(PlanRow.self, from: Data(row("").utf8)).waitsForInstall, false)
     },
     Check("a place-repo row decodes with every field the Your repos row reads") { c in
         let json = Data(#"""
@@ -199,6 +203,44 @@ let planModelsChecks: [Check] = [
         c.expectEqual(a.then, ["setup", "apply", "--only", "repos.clone"])
         c.expectEqual(a.oneClick, PlaceRepoOneClick(label: "Clone here", mode: "clone", path: "/Users/dev1/code/widgets"))
         c.expectEqual(a.segmentRecords, false)
-        c.expectEqual(row.action.flatMap(DoneActions.route), nil)
+    },
+    Check("PlanModels: a place-repo action's board line decodes, and absent reads nil") { c in
+        func action(_ extra: String) -> String {
+            #"{"type":"place-repo","label":"Locate…","identity":"gitlab.com/acme/widgets","repo":"widgets""# + extra + "}"
+        }
+        let line = "The board's review, respond and doctor agents start here"
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","board":"\#(line)""#).utf8)).board, line)
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","board":null"#).utf8)).board, nil)
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action("").utf8)).board, nil)
+    },
+    Check("PlanModels: a place-repo action's awaitsRun decodes, and absent reads nil") { c in
+        func action(_ extra: String) -> String {
+            #"{"type":"place-repo","label":"Choose…","identity":"gitlab.com/acme/widgets","repo":"widgets""# + extra + "}"
+        }
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","awaitsRun":true"#).utf8)).awaitsRun, true)
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(#","awaitsRun":false"#).utf8)).awaitsRun, false)
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action("").utf8)).awaitsRun, nil)
+    },
+    Check("PlanModels: a place-repo action's labels decode, and an older rt without them reads nil") { c in
+        func action(_ extra: String) -> String {
+            #"{"type":"place-repo","label":"Choose…","identity":"gitlab.com/acme/widgets","repo":"widgets""# + extra + "}"
+        }
+        let labels = #","labels":{"checkout":"Locate…","checkoutAgain":"Locate again…","clone":"Choose…"}"#
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action(labels).utf8)).labels,
+                      PlaceRepoLabels(checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…"))
+        c.expectEqual(try JSONDecoder().decode(RowAction.self, from: Data(action("").utf8)).labels, nil)
+    },
+    Check("PlanModels: an open-url action's waiting, again and primary decode") { c in
+        let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
+        let json = #"{"type":"open-url","label":"Add to Chrome","url":"\#(url)","primary":true,"waiting":"Waiting for Chrome","again":"Open again"}"#
+        let a = try JSONDecoder().decode(RowAction.self, from: Data(json.utf8))
+        c.expectEqual(a.type, .openURL)
+        c.expectEqual(a.primary, true)
+        c.expectEqual(a.waiting, "Waiting for Chrome")
+        c.expectEqual(a.again, "Open again")
+        let plain = try JSONDecoder().decode(RowAction.self, from: Data(#"{"type":"open-url","label":"Download","url":"https://claude.ai/download"}"#.utf8))
+        c.expectEqual(plain.primary, nil)
+        c.expectEqual(plain.waiting, nil)
+        c.expectEqual(plain.again, nil)
     },
 ]

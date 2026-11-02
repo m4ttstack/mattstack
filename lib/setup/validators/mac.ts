@@ -37,7 +37,7 @@ async function macosVersionRow(p: Probes): Promise<Row> {
 }
 
 async function cltRow(p: Probes): Promise<Row> {
-  const base = { id: "tool.clt", kind: "tool" as const, title: "Command Line Tools", why: "Provides git and the other command-line build tools rt depends on.", required: true };
+  const base = { id: "tool.clt", kind: "tool" as const, title: "Git tools", why: "Provides git and the other command-line build tools rt depends on.", required: true };
   // xcode-select gates the git probe: on a CLT-less Mac, /usr/bin/git is
   // Apple's stub, and invoking it from a GUI process (the app runs this
   // validator at first launch) pops the system "install the developer

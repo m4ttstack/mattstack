@@ -1,6 +1,5 @@
 import { describe, test, expect } from "bun:test";
 import {
-  DONE_ACTION_TYPES,
   STEP_IDS,
   envelope,
   finalizePlan,
@@ -83,7 +82,7 @@ describe("row", () => {
 });
 
 describe("STEP_IDS", () => {
-  test("matches the contract's 29 ids in order", () => {
+  test("matches the contract's 33 ids in order", () => {
     expect(STEP_IDS).toEqual([
       "home.init",
       "home.restore",
@@ -104,6 +103,7 @@ describe("STEP_IDS", () => {
       "skills.materialize",
       "skills.link",
       "board.keys",
+      "board.cwds",
       "cron.triage",
       "intercepts.install",
       "plugins.install",
@@ -113,8 +113,10 @@ describe("STEP_IDS", () => {
       "herdr.integration",
       "extension.install",
       "services.start",
+      "board.restart",
       "snapshot.push",
       "verify",
+      "apps.restart",
     ]);
   });
 
@@ -127,12 +129,6 @@ describe("STEP_IDS", () => {
     // or the cache it just wrote reads back as stale.
     expect(STEP_IDS.indexOf("intercepts.install")).toBeGreaterThan(STEP_IDS.indexOf("repos.clone"));
     expect(STEP_IDS.indexOf("intercepts.install")).toBeGreaterThan(STEP_IDS.indexOf("cron.triage"));
-  });
-});
-
-describe("DONE_ACTION_TYPES", () => {
-  test("matches the app's DoneActions.handled", () => {
-    expect([...DONE_ACTION_TYPES]).toEqual(["open-url", "steps", "run", "choose"]);
   });
 });
 

@@ -22,19 +22,26 @@ export interface ChooseOption {
   label: string;
   detail: string;
   sample?: string;
+  // The choice gives something up: the app draws its detail in the warning colour.
+  warn?: boolean;
 }
 
 export type Action =
   | { type: "open-settings"; label: string; target: "fda" | "login-items" | "notifications" | "keyboard" }
   | { type: "request-permission"; label: string; which: "notifications" }
   // `create` is the service's own new-credential page with rt's needs prefilled; the app opens it in the browser and keeps the sheet up for the paste.
-  | { type: "connect"; label: string; integration: Integration; fields: ConnectField[]; alternatives?: { id: string; label: string }[]; create?: { label: string; url: string } }
+  // `verb`, when set, is what the app runs in place of `setup <integration> connect`: a create's own `--host`, never a team's declared one.
+  // The app takes it only when it starts with `setup <integration> connect`.
+  | { type: "connect"; label: string; integration: Integration; fields: ConnectField[]; alternatives?: { id: string; label: string }[]; create?: { label: string; url: string }; verb?: string[] }
   | { type: "oauth"; label: string; integration: Integration; verb: string[] }
   | { type: "owner-once"; label: string; integration: Integration; fields: ConnectField[] }
   | { type: "install"; label: string; tool: string; via: "brew" | "vendor" | "apple-clt" | "bundled-link" }
   | { type: "link-bundled"; label: string; tool: string }
   | { type: "steps"; label: string; steps: string[] }
-  | { type: "open-url"; label: string; url: string }
+  // `waiting` is the line the app shows once the page is open, until the row reads ready; `again`
+  // labels the button that opens it again meanwhile. `primary` draws it as the row's prominent button
+  // in the old checklist; the fast setup screens draw every action in their mocks' styles and ignore it.
+  | { type: "open-url"; label: string; url: string; waiting?: string; again?: string; primary?: boolean }
   | { type: "run"; label: string; verb: string[] }
   // Collects `fields` in the app, then runs `verb --json` with the values as JSON on stdin; an
   // alternative runs the same verb with {"alternative": "<id>"} instead. `connect` without an integration.
@@ -43,10 +50,12 @@ export type Action =
   | { type: "choose-folder"; label: string; startAt: string | null }
   // The app answers through `rt setup repo place`, then runs `then` when set, the way it runs a `run`
   // action's verb (appending --json). `segmentRecords`: whether switching the segment alone records the
-  // shown path; `oneClick` records `path` under `mode` in one press.
+  // shown path; `oneClick` records `path` under `mode` in one press. `label` is the recorded segment's
+  // button; `labels` names every segment's, so an app showing the other segment never words one itself.
   | {
       type: "place-repo";
       label: string;
+      labels: PlaceRepoLabels;
       identity: string;
       repo: string;
       mode: PlacementMode;
@@ -57,6 +66,12 @@ export type Action =
       then: string[] | null;
       oneClick: { label: string; mode: PlacementMode; path: string } | null;
       segmentRecords: boolean;
+      // The board's repo only: the line saying the board's agents start there.
+      board: string | null;
+      // The member's answer is recorded and only a run is left to land it.
+      awaitsRun: boolean;
+      // False while the clone path is only rt's default: nobody picked it and no checkout was found.
+      answered: boolean;
     }
   // The app appends the picked id and --json to verb; "other" collects a free-text id for the same verb.
   // other.suggestions is the app's only source of completions for a typed id; it never scans the filesystem.
@@ -70,6 +85,13 @@ export type Action =
       selected?: string;
       other?: { label: string; hint: string; suggestions?: string[] };
     };
+
+export interface PlaceRepoLabels {
+  checkout: string;
+  /** The checkout button once rt or the app has refused that checkout. */
+  checkoutAgain: string;
+  clone: string;
+}
 
 export interface Row {
   id: string;
@@ -88,6 +110,10 @@ export interface Row {
   waived?: boolean;
   /** Emitted on every finish-gated row: whether Skip for now is offered. An app reading a row without it treats a finish-gated row as waivable. */
   waivable?: boolean;
+  /** Shown under "No action needed" whatever its state: never required and never finish-gated. */
+  information?: true;
+  /** Plan mode only: nothing on this row is the member's to do until Install has run. Never emitted by `setup status`. */
+  waitsForInstall?: true;
 }
 
 export interface Group {
@@ -131,8 +157,11 @@ export const GROUP_TITLES: Record<GroupId, string> = {
   team: "Team and backup",
 };
 
-/** The rows that gate Finish. Enumerated here so `rt setup waive` can refuse anything else and offer a picker over the set. */
-export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension", "skills.writing-style"];
+/** The rows `rt setup waive` may skip; a stored waiver is honored only for these. */
+export const WAIVABLE_ROW_IDS: readonly string[] = ["skills.overrides", "tool.chrome-signin", "tool.mission-control"];
+
+/** The rows that gate Finish by id rather than by their `ROW_TARGETS` entry. `rt setup unwaive` refuses an id outside these, the account ids, the repos.place rows and the waivable ids. */
+export const FINISH_GATED_ROW_IDS: readonly string[] = ["tool.fast-browser-extension"];
 
 /** One `repos.place:<identity>` row per tracked repo, so those ids cannot be enumerated above. */
 export const REPO_PLACE_ROW_PREFIX = "repos.place:";
@@ -143,16 +172,6 @@ export const FINISH_GATED_ACCOUNT_IDS: readonly string[] = ["account.slack", "ac
 export function isFinishGatedRowId(id: string): boolean {
   return FINISH_GATED_ROW_IDS.includes(id) || FINISH_GATED_ACCOUNT_IDS.includes(id) || id.startsWith(REPO_PLACE_ROW_PREFIX);
 }
-
-/** The finish-gated rows `rt setup waive` may skip; the gate honors a stored waiver only for these. */
-export const WAIVABLE_ROW_IDS: readonly string[] = ["tool.fast-browser-extension"];
-
-/**
- * Action types the app's Done screen can act on; a finish-gated row must only carry these (parity with DoneActions in rt-tray).
- * A deferred `repos.place:*` row is finish-gated and carries `place-repo`, and a gated account row carries its connect or oauth action;
- * the summary runs both through the checklist dispatcher, not `DoneActions`.
- */
-export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose"] as const;
 
 export type StepKind = "rt" | "app" | "privileged";
 /**
@@ -181,6 +200,7 @@ export const STEP_IDS = [
   "skills.materialize",
   "skills.link",
   "board.keys",
+  "board.cwds",
   "cron.triage",
   "intercepts.install",
   "plugins.install",
@@ -190,15 +210,17 @@ export const STEP_IDS = [
   "herdr.integration",
   "extension.install",
   "services.start",
+  "board.restart",
   "snapshot.push",
   "verify",
+  "apps.restart",
 ] as const;
 export type StepId = (typeof STEP_IDS)[number];
 
 export type NeedRequest =
   | { type: "app-register-services"; plists: string[] }
   | { type: "app-unregister-services"; plists: string[] }
-  | { type: "app-privileged"; op: "proxy-install" | "proxy-remove" | "proxy-trust" };
+  | { type: "app-privileged"; op: "proxy-install" | "proxy-remove" | "proxy-trust" | "homebrew"; homebrew?: true };
 
 /** Uninstall streams the same event shapes with these ids (contract §uninstall: "NDJSON like apply"). */
 export type UninstallActionId = "services.unregister" | "deck.managed-remove" | "proxy.remove" | "path.unlink" | "shell.remove" | "extension.uninstall" | "plugins.uninstall" | "cron.uninstall" | "data" | "app.trash";
@@ -209,7 +231,7 @@ export type MigrationEventId = `migration.${string}`;
 export type EventId = StepId | UninstallActionId | MigrationEventId;
 
 export type ApplyEvent =
-  | { event: "plan"; steps: { id: EventId; title: string; kind: StepKind }[] }
+  | { event: "plan"; steps: { id: EventId; title: string; kind: StepKind; phase?: string; weight?: number; paused?: string }[] }
   | { event: "step"; id: EventId; state: StepState; detail?: string; remedy?: string }
   | { event: "log"; id: EventId; line: string }
   | { event: "progress"; id: EventId; label: string; percent: number; note?: string }

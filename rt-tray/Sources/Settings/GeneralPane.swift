@@ -7,6 +7,7 @@ struct GeneralPane: View {
     let env: SettingsEnvironment
     @ObservedObject private var readiness: ReadinessModel
     @State private var chooseRow: PlanRow?
+    @State private var steps: (title: String, steps: [String])?
     @State private var startAtLogin = SMAppService.mainApp.status == .enabled
     @State private var autoUpdates = false
     @State private var switchError: String?
@@ -35,6 +36,12 @@ struct GeneralPane: View {
                 } else {
                     Text(readiness.isLoading ? "Checking…" : "No writing-style row in this checklist.").foregroundStyle(.secondary)
                 }
+            }
+            if let row = readiness.row(SettingsExtras.missionControl), SettingsExtras.shows(row) {
+                SettingsExtraSection(title: "Keyboard", row: row, isChecking: readiness.checkingRowIds.contains(row.id)) { perform(row) }
+            }
+            if let row = readiness.row(SettingsExtras.skillOverrides), SettingsExtras.shows(row) {
+                SettingsExtraSection(title: "Skill overrides", row: row, isChecking: readiness.checkingRowIds.contains(row.id)) { perform(row) }
             }
             Section("Startup") {
                 Toggle("Start mattstack at login", isOn: $startAtLogin).toggleStyle(.switch).controlSize(.mini)
@@ -90,6 +97,17 @@ struct GeneralPane: View {
                 return failure
             }
         }
+        .sheet(isPresented: Binding(get: { steps != nil }, set: { presented in
+            guard !presented else { return }
+            steps = nil
+            Task { await readiness.recheckAll() }
+        })) {
+            if let steps { StepsSheet(title: steps.title, steps: steps.steps) }
+        }
+        // Mission Control is fixed in System Settings; coming back is when it may have changed.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await readiness.refreshUnlessLoading() }
+        }
         .onAppear {
             autoUpdates = env.updater.automaticallyChecks
             startAtLogin = SMAppService.mainApp.status == .enabled
@@ -99,6 +117,16 @@ struct GeneralPane: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(FlavorSwitchCopy.confirmBody(isDevBuild: env.isDevBuild))
+        }
+    }
+
+    private func perform(_ row: PlanRow) {
+        guard let action = row.action else { return }
+        switch RowActionDispatcher.dispatch(action, fieldValues: nil, alternative: nil) {
+        case .openSettings(let target): env.permissions.openSettings(target)
+        case .openURL(let url): NSWorkspace.shared.open(url)
+        case .showSteps(let list): steps = (title: row.title, steps: list)
+        default: break
         }
     }
 
@@ -125,5 +153,17 @@ struct GeneralPane: View {
             else { try SMAppService.mainApp.unregister(); LoginItemPreference.isOptedOut = true }
         } catch { TrayLog.error("login item toggle failed", ["err": String(describing: error)]) }
         startAtLogin = SMAppService.mainApp.status == .enabled
+    }
+}
+
+/// One setup row that rt sends to Settings, drawn the way the checklist draws it.
+struct SettingsExtraSection: View {
+    let title: String
+    let row: PlanRow
+    let isChecking: Bool
+    let onAction: () -> Void
+
+    var body: some View {
+        Section(title) { RowView(row: row, isChecking: isChecking, onAction: onAction) }
     }
 }

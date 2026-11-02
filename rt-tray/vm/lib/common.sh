@@ -300,6 +300,27 @@ vm_guest_run() {  # <user> <vm> <name> <guest command> → the guest command's e
   return "$rc"
 }
 
+# rt as the throwaway team owner, for mint-invite.sh and approve-join.sh. Reads
+# MINT_HOME (a vm-mint.* HOME holding mint-invite.sh's security shim), RT_BIN,
+# TOKEN and GIT_USER from the caller.
+# env -i: nothing of the operator's environment reaches rt, git or gh. The
+# credential helper reads the token from the environment, so it is never
+# written into a git config file or an argv. The empty helper first clears
+# every helper configured before it (an osxkeychain helper from an Xcode or
+# system config would otherwise answer with the operator's own login).
+vm_mint_rt() {
+  ( cd "$MINT_HOME" && env -i HOME="$MINT_HOME" USER="${USER:-vmtest}" LOGNAME="${USER:-vmtest}" TMPDIR="${TMPDIR:-/tmp}" \
+      PATH="$MINT_HOME/bin:/usr/bin:/bin:/usr/sbin:/sbin" RT_BATCH=1 \
+      GH_TOKEN="$TOKEN" GITLAB_TOKEN="$TOKEN" VM_MINT_TOKEN="$TOKEN" VM_MINT_GIT_USER="$GIT_USER" \
+      GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=4 \
+      GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+      GIT_CONFIG_KEY_1=credential.helper \
+      GIT_CONFIG_VALUE_1='!f() { echo "username=$VM_MINT_GIT_USER"; echo "password=$VM_MINT_TOKEN"; }; f' \
+      GIT_CONFIG_KEY_2=user.name GIT_CONFIG_VALUE_2="mattstack vmtest owner" \
+      GIT_CONFIG_KEY_3=user.email GIT_CONFIG_VALUE_3="vmtest-owner@mattstack.invalid" \
+      "$RT_BIN" "$@" )
+}
+
 # The rt inside a release zip, extracted where nothing else attaches it.
 vm_rt_from_zip() {  # <zip> <dest dir> → prints the rt path
   local zip="$1" dest="$2"

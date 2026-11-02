@@ -68,8 +68,10 @@ public struct ChooseOption: Codable, Equatable, Sendable {
     public var label: String
     public var detail: String
     public var sample: String?
-    public init(id: String, label: String, detail: String, sample: String? = nil) {
-        self.id = id; self.label = label; self.detail = detail; self.sample = sample
+    /// The choice gives something up: its detail reads in the warning colour.
+    public var warn: Bool?
+    public init(id: String, label: String, detail: String, sample: String? = nil, warn: Bool? = nil) {
+        self.id = id; self.label = label; self.detail = detail; self.sample = sample; self.warn = warn
     }
 }
 
@@ -131,6 +133,17 @@ public struct PlaceRepoOneClick: Codable, Equatable, Sendable {
     public init(label: String, mode: String, path: String) { self.label = label; self.mode = mode; self.path = path }
 }
 
+/// Every segment's button on a `place-repo` row; `label` names only the recorded one's.
+public struct PlaceRepoLabels: Codable, Equatable, Sendable {
+    public var checkout: String
+    /// The checkout button once rt or the app has refused that checkout.
+    public var checkoutAgain: String
+    public var clone: String
+    public init(checkout: String, checkoutAgain: String, clone: String) {
+        self.checkout = checkout; self.checkoutAgain = checkoutAgain; self.clone = clone
+    }
+}
+
 /// One shape for every contract action; which optionals are present is
 /// discriminated by `type`. Kept flat so rt can add a field without a
 /// decoder change here.
@@ -171,6 +184,20 @@ public struct RowAction: Codable, Equatable, Sendable {
     public var oneClick: PlaceRepoOneClick?
     /// Whether switching the segment alone records the shown path.
     public var segmentRecords: Bool?
+    /// On the board's repo only: the line saying the board's agents start there.
+    public var board: String?
+    /// The member's answer is recorded and only a run is left to land it.
+    public var awaitsRun: Bool?
+    /// False while the clone path is only rt's default; nil from an rt older than the field, which reads as answered.
+    public var answered: Bool?
+    /// Nil from an rt older than the field.
+    public var labels: PlaceRepoLabels?
+    /// `open-url` only, from here down: the line the row shows once the page is open, until the row reads ready.
+    public var waiting: String?
+    /// The button label while waiting; it opens the page again.
+    public var again: String?
+    /// Drawn as the row's one prominent button.
+    public var primary: Bool?
     public init(type: ActionType, label: String, target: String? = nil, which: String? = nil,
                 integration: String? = nil, fields: [ActionField]? = nil,
                 alternatives: [ActionAlternative]? = nil, verb: [String]? = nil, tool: String? = nil,
@@ -179,7 +206,9 @@ public struct RowAction: Codable, Equatable, Sendable {
                 subtitle: String? = nil, footnote: String? = nil, create: ActionLink? = nil,
                 identity: String? = nil, repo: String? = nil, mode: String? = nil, checkoutPath: String? = nil,
                 clonePath: String? = nil, note: String? = nil, problem: String? = nil, then: [String]? = nil,
-                oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil) {
+                oneClick: PlaceRepoOneClick? = nil, segmentRecords: Bool? = nil, board: String? = nil,
+                awaitsRun: Bool? = nil, answered: Bool? = nil, labels: PlaceRepoLabels? = nil, waiting: String? = nil, again: String? = nil,
+                primary: Bool? = nil) {
         self.type = type; self.label = label; self.target = target; self.which = which
         self.integration = integration; self.fields = fields; self.alternatives = alternatives
         self.verb = verb; self.tool = tool; self.via = via; self.steps = steps; self.url = url
@@ -187,7 +216,9 @@ public struct RowAction: Codable, Equatable, Sendable {
         self.subtitle = subtitle; self.footnote = footnote; self.create = create
         self.identity = identity; self.repo = repo; self.mode = mode; self.checkoutPath = checkoutPath
         self.clonePath = clonePath; self.note = note; self.problem = problem; self.then = then
-        self.oneClick = oneClick; self.segmentRecords = segmentRecords
+        self.oneClick = oneClick; self.segmentRecords = segmentRecords; self.board = board
+        self.awaitsRun = awaitsRun; self.answered = answered; self.labels = labels
+        self.waiting = waiting; self.again = again; self.primary = primary
     }
 }
 
@@ -211,14 +242,20 @@ public struct PlanRow: Codable, Equatable, Identifiable, Sendable {
     /// Whether this row offers Skip at all; an rt that predates this field
     /// keeps Fast Browser's Skip by decoding as `finishGated`.
     public var waivable: Bool
+    /// Shown under "No action needed" whatever its state; never a task.
+    public var information: Bool
+    /// Before Install only: nothing on this row is the member's to do until Install has run.
+    public var waitsForInstall: Bool
     public init(id: String, kind: RowKind, title: String, why: String, required: Bool,
                 optionalNote: String? = nil, status: RowStatus, detail: String? = nil,
                 action: RowAction? = nil, recheck: RecheckPolicy, finishGated: Bool = false, waived: Bool = false,
-                waivable: Bool? = nil) {
+                waivable: Bool? = nil, information: Bool = false, waitsForInstall: Bool = false) {
         self.id = id; self.kind = kind; self.title = title; self.why = why; self.required = required
         self.optionalNote = optionalNote; self.status = status; self.detail = detail
         self.action = action; self.recheck = recheck; self.finishGated = finishGated; self.waived = waived
         self.waivable = waivable ?? finishGated
+        self.information = information
+        self.waitsForInstall = waitsForInstall
     }
     /// `finishGated` and `waived` are newer than the rest of the contract: an
     /// rt that predates them omits the keys, and that must read as "not
@@ -236,21 +273,11 @@ public struct PlanRow: Codable, Equatable, Identifiable, Sendable {
         action = try c.decodeIfPresent(RowAction.self, forKey: .action)
         recheck = try c.decode(RecheckPolicy.self, forKey: .recheck)
         finishGated = try c.decodeIfPresent(Bool.self, forKey: .finishGated) ?? false
+        information = try c.decodeIfPresent(Bool.self, forKey: .information) ?? false
+        waitsForInstall = try c.decodeIfPresent(Bool.self, forKey: .waitsForInstall) ?? false
         waived = try c.decodeIfPresent(Bool.self, forKey: .waived) ?? false
         // An rt that predates `waivable` offered Skip on every finish-gated row.
         waivable = try c.decodeIfPresent(Bool.self, forKey: .waivable) ?? finishGated
-    }
-}
-
-public enum RowBadge: String, Equatable, Sendable { case required, optional }
-
-public extension PlanRow {
-    /// Finish-gated rows that cannot be skipped are required even though Install does not wait on them;
-    /// a skippable finish gate reads required:false in plan mode yet still blocks Finish until skipped.
-    var badge: RowBadge? {
-        if finishGated && !waivable { return .required }
-        if required || (finishGated && !waived) { return nil }
-        return .optional
     }
 }
 

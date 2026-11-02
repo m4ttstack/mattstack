@@ -3,6 +3,8 @@ import { join } from "path";
 import { homeRemoteSet, type HomeRemoteDeps } from "../setup.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecResult, Probes } from "../../lib/setup/probes.ts";
+import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
+import { pendingHomeRemote } from "../../lib/setup/home-remote.ts";
 import { capturePlain } from "./helpers/json-line.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
@@ -194,14 +196,50 @@ describe("homeRemoteSet", () => {
     expect(execCalls(probes)).toContain(`git -C ${USER_REPO} remote add origin ${URL}`);
   });
 
-  test("no home repo yet is exit 2 no-home-repo", async () => {
+  test("no home repo yet stages the remote instead of refusing", async () => {
     const probes = fakeProbes({ home: HOME, exec: scripted() });
     const deps = baseDeps({ probes });
 
-    await expectExit(() => homeRemoteSet([URL, "--json"], {}, deps));
+    await homeRemoteSet([URL, "--json"], {}, deps);
 
-    expect(deps.exitCodes).toEqual([2]);
-    expect(payload(deps)).toMatchObject({ error: { code: "no-home-repo" } });
+    expect(deps.exitCodes).toEqual([]);
+    expect(execCalls(probes)).toEqual([]);
+    expect(payload(deps)).toMatchObject({ staged: true, url: URL, created: false, pushed: false });
+    expect(readSetupState(probes).homeBackup).toEqual({ mode: "remote", url: URL });
+
+    const createDeps = baseDeps({ probes: fakeProbes({ home: HOME, exec: scripted() }) });
+    await homeRemoteSet(["--create", "--name", "dotmattstack", "--json"], {}, createDeps);
+    expect(payload(createDeps)).toMatchObject({ staged: true, url: null, created: false, pushed: false });
+    expect(readSetupState(createDeps.probes).homeBackup).toEqual({ mode: "remote", create: true, name: "dotmattstack" });
+  });
+
+  test("a direct set records the pushed url as applied, so an older staged url is not pushed again", async () => {
+    const probes = fakeProbes({ home: HOME, dirs: { [GIT_DIR]: [] }, exec: scripted() });
+    updateSetupState(probes, (s) => ({ ...s, homeBackup: { mode: "remote", url: "https://github.com/me/old-home.git" } }));
+    const deps = baseDeps({ probes });
+
+    await homeRemoteSet([URL, "--json"], {}, deps);
+
+    expect(readSetupState(probes).homeBackup).toEqual({ mode: "remote", url: URL, appliedAt: probes.now().toISOString() });
+    expect(pendingHomeRemote(probes)).toBeNull();
+  });
+
+  test("staging again clears an earlier applied marker", async () => {
+    const probes = fakeProbes({ home: HOME, exec: scripted() });
+    updateSetupState(probes, (s) => ({ ...s, homeBackup: { mode: "remote", url: "https://github.com/me/old-home.git", appliedAt: "2026-01-01T00:00:00.000Z" } }));
+
+    await homeRemoteSet([URL, "--json"], {}, baseDeps({ probes }));
+
+    expect(readSetupState(probes).homeBackup).toEqual({ mode: "remote", url: URL });
+  });
+
+  test("no home repo yet still refuses a URL that is not a git remote", async () => {
+    const deps = baseDeps({ probes: fakeProbes({ home: HOME, exec: scripted() }) });
+
+    await expectExit(() => homeRemoteSet(["not a url", "--json"], {}, deps));
+
+    expect(payload(deps)).toMatchObject({ error: { code: "bad-url" } });
+    expect(readSetupState(deps.probes).homeBackup).toBeUndefined();
   });
 
   test("no argument on a TTY is a usage error, and stdin is never read", async () => {

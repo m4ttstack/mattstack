@@ -11,90 +11,168 @@ rt ships inside **mattstack.app**, the mattstack menu bar app. Installing the ap
 
 - An Apple silicon Mac. rt ships an arm64 build only.
 - macOS 14 or newer.
-- Xcode Command Line Tools. The setup checklist offers to install them.
+- Xcode Command Line Tools. Setup starts installing them on its first screen.
 
 ## Install the app
 
 1. Download the `.dmg` from the [latest release](https://github.com/m4ttstack/mattstack/releases/latest).
 2. Drag **mattstack.app** to `/Applications` and open it.
-3. The setup window opens and walks you through setup, one step at a time.
+3. The setup window opens.
 
-### Welcome
+Nothing asks you for anything before the setup window: no notification prompt and no login item. You answer every question first, wait once if your team admin has to approve you, and then one progress bar sets up the Mac while you do something else.
 
-A summary of what setup does. Everything it installs is reversible from Settings → Uninstall.
+## Three things from macOS
 
-### Your team
+The first screen is **Three things from macOS**. It moves on by itself once all three are done.
 
-Pick one:
+| Row | What it lets mattstack do | What you do |
+|---|---|---|
+| **Full Disk Access** | Reads your repos and Chrome's profile | Click **Open settings** and turn on mattstack. mattstack reopens itself once it's on. |
+| **Notifications** | Tells you when setup is done | Click **Allow**. |
+| **Fancy URLs** | Grant mattstack apps permission to use .mattstack | Click **Allow** and enter your password in the macOS dialog. |
 
-- **Create a team**: name it, then paste the URL of an empty repo for it, or let mattstack create a private GitHub repo when the `gh` CLI is signed in.
-- **Join a team**: paste the invite code a teammate sent you.
-- **Just me**: no team repo, no forge account. See [Just me](/start/setup).
-- **Restore**: bring back your own setup on a new Mac from your home repo and its age key.
+**Allow** on **Fancy URLs** installs the local proxy behind addresses like `board.mattstack`. The macOS admin dialog installs it, and when Homebrew is missing, the same dialog installs Homebrew too. macOS then asks once more, in its own Certificate Trust Settings dialog, to trust the proxy's certificate. Both happen here, so the run never stops for a password. mattstack never stores the password. See [The local proxy](/rt/guides/proxy).
 
-See [Teams and invites](/start/teams) for how teams, invites, and team packs work.
+While you're on this screen, the Command Line Tools start downloading in the background. A later screen shows a **Command Line Tools** row while they install.
 
-### The checklist
+## How are you setting up?
 
-The checklist of everything setup needs, one page for each group: Your Mac, Accounts, Access, Agents and editors, Browser, Your repos, rt on this Mac, and Team and backup. A group with no rows has no page.
+Pick one card:
 
-Each page sorts its rows into up to three sections:
+- **Join a team**: a teammate sent you an invite. See [Paste your invite](#paste-your-invite).
+- **Create a team**: start a team that others join later. See [Create a team](#create-a-team).
+- **Just me**: one person on one Mac, no team repo. See [Just me](/start/setup#just-me).
+- **Move from another Mac**: bring your own settings over. See [Move from another Mac](#move-from-another-mac).
 
-- **Needs you**: the rows that hold up Install or Finish. Each has a **Required** or **Before you finish** badge and its own button. The button grants a permission, chooses a folder, connects an account, or shows the steps to take.
-- **Optional**: rows you can act on now or leave for later.
-- **No action needed**: the rows that are ready, and the ones Install sets up. It folds to one line that names them. Click the line to open it.
+## Paste your invite
 
-**Continue** unlocks once no row on the page holds up Install. A row that only holds up Finish does not hold Continue. The last page's button is **Install**. Click **Re-check** to refresh every row.
+1. Paste the invite code. When you opened mattstack from the invite link, the code is already there. Once mattstack reads it, the screen names the team and who invited you, for example **Mithrandir, invited by Jane Doe**.
+2. When your team's forge needs a token, paste one into the token row. Its subtext says what it's for: "Lets mattstack reach the team's repo and open MRs" (PRs on a GitHub team). GitLab always needs a token. GitHub needs one only when the `gh` CLI isn't signed in.
+3. Click **Join**. mattstack sends your request and moves to the wait.
 
-**Your Mac** covers macOS, the Command Line Tools, PATH precedence, and three permissions: Full Disk Access, Login Items, and Notifications. Each permission row asks for it or opens the matching pane in System Settings.
-
-**Accounts** has one row for each integration your team or its packs use. That covers the team's GitHub or GitLab, plus Linear, Slack, StrongDM, and others when the team declares them. **Connect** opens a sheet with a **Create a token on GitLab…** (or GitHub) link to the forge's new-token page. The page opens with the scopes rt requires already checked and the token named `mattstack`:
+**Create token** opens the forge's new-token page with the scopes rt needs already checked:
 
 | Forge | Joining a team | Owning a team |
 |---|---|---|
 | GitLab | `api` | `api` |
 | GitHub (classic token) | `repo`, `read:org` | `repo`, `read:org` |
 
-On GitLab, rt requires only `api`. The link also pre-checks `read_api`, `read_user`, `read_repository`, `write_repository`, and `ai_features`.
+On GitLab, rt requires only `api`. The link also checks `read_api`, `read_user`, `read_repository`, `write_repository`, and `ai_features`. rt refuses a token that lacks a scope, and names the scope. A GitLab member needs `api` because the board posts review comments and replies on MRs as you. The GitLab link targets GitLab 16 or newer.
 
-Paste the token and Connect. A pasted token missing a scope is refused, naming the scope it lacks; a token already stored that falls short shows as needing you, with the same Connect sheet. A GitLab member needs `api` because the board posts review comments and replies on merge requests as you. The GitHub row is ready without a token when the `gh` CLI is already signed in. The GitLab link targets GitLab 16 or newer.
+### A self-hosted GitLab
 
-**Your repos** has one row for each repo your team tracks. Each row is either **Current checkout** (a copy you already have on this Mac; **Locate…** points at it) or **New checkout** (rt clones the repo where you choose; **Choose location…** picks where). A repo rt finds on this Mac starts on Current checkout. A git worktree never counts as a checkout: **Locate…** refuses one and names the main checkout to pick instead. A repo rt can't place shows what to fix on its row. If you join a team, you choose where your repos go after Install (each offers **Clone here**), and those rows must be answered before Finish, not Install.
+mattstack shows the GitLab host your team declares, but never sends a token to it until you confirm it. The token row then reads **Connect gitlab.example.com from the terminal first**. Confirm the host once from a terminal, then come back to the window:
 
-A joiner's checklist cannot list the team's own accounts yet, because Install is what joins the team. The Accounts page says so in a line: **Your team's accounts and repos**. After Install, the team's Slack and Linear rows join **Needs you** and hold **Finish** until you connect them.
+```bash
+rt setup gitlab connect --host gitlab.example.com
+```
 
-### Installing
+## Waiting for your team admin
 
-Install runs each step and streams its progress:
+After **Join**, the screen shows your team's name and reads **Waiting for Jane Doe to confirm your membership**. Let them know you're waiting. Your admin approves from the notification mattstack shows them.
+
+The wait has no progress bar, because nothing installs for the team until your admin approves you. Click **Hide** to close the window; mattstack keeps checking in the background. When your admin approves, a **You're in** notification brings you back. Once they approve, mattstack starts installing what the next screen's sign-ins need, such as Claude Code and any team tool with a sign-in.
+
+A request nobody has approved yet keeps waiting.
+
+## Connect your accounts
+
+**You're in. Connect your accounts** lists what your team uses, one row each. Most rows open your browser. **Continue** unlocks once each one is connected.
+
+| Row | What it lets mattstack do |
+|---|---|
+| Your forge (GitLab or GitHub) | Already done: **Connected as janedoe from your invite** |
+| **Slack** | Lets mattstack track and post MRs in Slack (PRs on a GitHub team) |
+| **Claude** | Runs your agents. "You know, to do agentic stuff." |
+| A team tool with a sign-in, such as Doppler | For running your dev servers |
+| **Linear**, when your team uses it | So mattstack can read and write Linear tickets |
+| **Fast Browser** | Lets agents drive your real Chrome |
+
+- **Connect Slack** opens Slack's Allow page in your own browser, where you're already signed in. The row ticks itself off when Slack hands back.
+- **Sign in to Claude** reads **Installing…** until Claude Code is on the Mac, then opens Claude's sign-in in your browser. When the browser shows a code, paste it into the row.
+- A team tool's **Sign in** also waits for its install. When the tool shows a code, the row reads **Your code is ...** so you can confirm it in your browser.
+- **Linear** takes a token. **Create token** opens Linear's page for one.
+- **Add to Chrome** opens the Fast Browser extension's Chrome Web Store page. The row reads **Waiting for Chrome…** and turns to **Added** by itself. Without Chrome, the button reads **Get Chrome** first.
+
+When your team declares another account that setup needs and the run can't set up for you, it gets a row on this screen too.
+
+## Last bit: this Mac
+
+**Where Mithrandir's repos and your settings live** has two parts.
+
+**Your repos** has one row for each repo your team tracks, and each asks one question first: **Clone it fresh** or **Already on this Mac**. rt looks for an existing checkout in the usual places, up to two folders deep. `~/Developer`, `~/Projects` and `~/repos` are among them. When it finds one, **Already on this Mac** is picked for you and the row shows what rt found. Otherwise nothing is picked until you choose. **Choose its folder…** appears only when you say the repo is already on this Mac and rt didn't find it. A git worktree never counts as a checkout: rt refuses one and names the main checkout to pick instead. The board's repo says **The board starts here**: the board's agents start in that checkout.
+
+**Your settings**: mattstack keeps your settings in one folder, your home repo at `~/.mattstack/user`. Two tiles pick where it lives, and neither is picked until you choose:
+
+- **Store in a GitHub repo**: "Private. A new Mac restores from it."
+- **Store on your Mac**: "Your settings won't be backed up."
+
+After **Store in a GitHub repo**, a **Remote repo** row appears:
+
+- When `gh` or rt's own GitHub sign-in can already create repos, the row offers **Create a private GitHub repo** right away.
+- On a Mac with no GitHub token, such as a Just me Mac or a GitLab team's, the row offers **Sign in to GitHub** ("Opens your browser once. rt then makes a private repo for you"). Your browser opens `github.com/login/device`, and the row reads "Your code is XXXX-XXXX. Confirm it in your browser" with **Open again**. Once you confirm, it reads "rt creates it as a private repo when setup runs".
+- A stored GitHub token that can't create repos still gets a field for the repo's URL.
+
+rt names the new repo `mattstack-home`, or `mattstack-home-2` to `-5` when that name is taken. It's private, and the `gh` CLI isn't needed.
+
+You can set a different or non-GitHub repo later with `rt home remote set <url>`.
+
+Click **Set up this Mac**. The footer says it takes about 10 minutes.
+
+## Setting up this Mac
+
+One progress bar runs the rest: a short message such as **Cloning your repos**, a percent, and the time left. Nothing needs you, so close the window if you like, or click **Hide**. A notification says when the Mac is ready.
+
+The run:
 
 - links `rt`, `fast-browser`, `gitq`, and `deck` into `~/.local/bin`, puts that folder first on your PATH, and adds the `rtcd` alias to your shell
 - registers the rt daemon and deck (which serves the bundled apps) as background services and starts them
-- clones the repos set to **New checkout**, with git's clone progress under the running step
+- clones the repos set to **New checkout**
+- points the board at its repo, so the board's agents start in that checkout. The board's repo is the first repo in the team's board projects, else the first repo the team tracks
 - installs the mattstack Claude Code plugins, turns on your team's pack, and seeds Claude Code's permissions (see [Claude Code setup](#claude-code-setup))
+- writes the **sparse** writing style on a new Mac where nothing chose one
 - installs the `rt-context` and `skill-blocks` editor extensions into every VS Code-family editor it finds
+- restarts the apps deck manages, so none keeps running code from before the run
 
-### Summary
+The bar never opens a browser or raises a dialog. When a step would need you, the bar stops instead.
 
-The last screen checks the checklist again and shows it with a sidebar: **Overview**, then one entry for each group. A **Needs you** entry comes first when a row still needs you.
+### Setup paused
 
-**Overview** says whether anything is left and shows where things live: the **m** icon in the menu bar, `rt` in a new terminal window, and the board at `board.mattstack`. A step that needs another try is listed there with **Retry from here**. Owners also get **Invite teammates…**.
+When a step fails, the screen reads **Setup paused**. It says what failed and why, for example "Couldn't clone your repos" and "GitLab says your token can't see acme/acme-api". Everything before that step is done. Fix the cause, then click **Retry**. **Show log** shows what the step printed. When macOS holds mattstack's background item, the paused screen offers the button that approves it in Login Items.
 
-**Needs you** holds any required row that is still not ready, a joiner's repo and team account rows, and the two rows that gate **Finish** on every Mac:
+### When the app quits or relaunches
 
-- **Writing style**: the voice agents use for the reviews, replies, and PR descriptions they post under your name. **Choose style…** offers the mattstack presets or any skill of your own.
-- **Fast Browser extension**: Fast Browser drives your real Chrome session through a Chrome extension. **Show steps…** walks through it. Install Fast Browser from the Chrome Web Store. Install already ran Fast Browser's setup, so there is nothing to configure. Only a Mac set to auto connection also pairs. Its row then reads **Loaded in Chrome but not paired yet**, and **Show steps…** walks through the pairing. **Skip for now** skips it on this Mac; Settings → Fast Browser shows **Un-skip** to bring it back. Without Chrome installed, this row is skipped.
+Setup picks up by itself. mattstack saves each answer as you give it, so a relaunch mid-form loses nothing, and a run that was going resumes on its own. App updates wait while setup runs, with the window open or not.
 
-Optional rows left open sit under **Optional** in their group.
+## This Mac is ready
 
-**Finish** closes the window and starts herdr, the terminal server your agents run in. If herdr cannot start, a notification says why and how to try again.
+The last screen reads **This Mac is ready** and **Go make something cool**. **Open the board** finishes setup and opens the board (**Open the console** on a Just me Mac). Closing the window here finishes setup too.
+
+Finishing starts herdr, the terminal server your agents run in, and adds mattstack to your login items. If herdr cannot start, a notification says why and how to try again.
+
+## Create a team
+
+**Create a team** asks for the team's name, where its settings live (GitLab or GitHub), and the group (on GitHub, the owner) its repo goes in. mattstack creates the team's repo there with your token. On GitHub with the `gh` CLI signed in, no token is needed. Click **Create team**. No wait follows: you go straight to the account and this-Mac screens, plus a **Slack app** row, which one owner makes once so the team can connect Slack. See [Teams and invites](/start/teams#creating-an-org).
+
+## Move from another Mac
+
+1. Type your backup repo, for example `janedoe/mattstack-home`.
+2. Paste your recovery key. On your old Mac, `rt home key export` prints it.
+3. Click **Restore**.
+
+Restore puts the recovery key in your keychain, clones your settings, and starts the progress bar. rt refuses a key that can't open the backup, and leaves your keychain as it was. When this Mac already holds a different recovery key, rt never replaces it on its own: run `rt home key import --force` with the key from your old Mac, then click **Restore** again.
 
 ## After setup
 
-**Setup status…**, just under **Settings…** in the menu bar menu, reopens the checklist at any time, with the same sidebar and no Overview. It opens on **Needs you** when a row needs you, else on **All**, which lists every group. Click a group to see only its rows; click it again, or **All**, to go back. Click a count above the sidebar, such as **2 optional**, to list those rows from every group. Until setup is finished, **Resume setup…** right below it reopens the wizard at the step you left. On the checklist, it opens the first page that still has a required row, or the last page when none does. Use it to connect an account, rotate a token, or fix a row that slipped. It also warns when a token is close to expiring.
+**Setup status…**, just under **Settings…** in the menu bar menu, reopens the setup window on whatever screen needs you, such as **Connect your accounts** when a token expired. With nothing to do, it shows **This Mac is ready**. Until setup is finished, the same spot reads **Resume setup…** and reopens the window where you left off.
 
-**Settings…** covers the rest: your writing style, startup and updates, team invites, permissions, Fast Browser, and Uninstall. See [The menu bar app](/start/menu-bar-app).
+**Settings…** holds the rest. See [The menu bar app](/start/menu-bar-app). Three things live only there, and none of them holds up setup:
 
-**Home repo backup**: your home repo (`~/.mattstack/user`) keeps your settings versioned on this Mac. Its checklist row offers **Add remote…**: paste the URL of an empty private repo you own, or pick **Create a private repo for me**.
+- **Mission Control shortcut**: Settings → General → Keyboard.
+- **Skill overrides**: Settings → General, only when a hand-edited overrides file still uses old key names.
+- **Chrome sign-in**: Settings → Fast Browser, only when a team pack needs Chrome signed in to a site.
+
+Your **writing style**, the voice agents use for what they post under your name, is in Settings → General. A new Mac starts on sparse.
 
 ## From a terminal
 
@@ -103,33 +181,34 @@ To set up without the setup window (a VM, CI, or a scripted install), run the sa
 ```bash
 # run from /Applications, not the DMG
 /Applications/mattstack.app/Contents/MacOS/rt --post-install
-rt setup status    # the checklist, as text
+rt setup status    # every setup row, as text
 rt verify          # read-only health report
 ```
 
-Each checklist button has a CLI equivalent:
+Each answer in the window has a CLI form:
 
 ```bash
 rt setup gitlab connect            # or github, linear, slack, sdm
+rt setup gitlab connect --host gitlab.example.com   # confirm a self-hosted GitLab
 rt setup repo place github.com/acme/widgets --checkout ~/code/widgets   # or --clone-to <folder>
-rt setup repo-root set ~/code      # the folder new clones go in
+rt setup repo-root set ~/code      # Just me: the folder new clones go in
 rt home remote set <url>           # or --create
+rt home restore janedoe/mattstack-home --stdin   # move from another Mac; the recovery key on stdin
 rt skills writing-style use <id>   # omit the id to pick
-rt setup waive tool.fast-browser-extension
 ```
 
 Until setup has run, other `rt` commands print a one-line hint pointing at mattstack.app or `rt setup install`.
 
 ## Claude Code setup
 
-Install seeds a baseline `permissions.allow` list into every Claude Code config dir. Agents then don't stall on per-tool prompts for calls rt already trusts:
+Setup seeds a baseline `permissions.allow` list into every Claude Code config dir. Agents then don't stall on per-tool prompts for calls rt already trusts:
 
 - The mattstack MCP server and the Fast Browser plugin.
 - `EnterWorktree`.
 - `claude plugin update`.
 - The few rt commands skills still run in a shell (`rt gate` and `rt events wait`).
 
-Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp). Existing entries stay; only missing ones are added. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays. A config dir with no `tui` setting gets `"tui": "fullscreen"`, the Claude Code layout rt's pane tools expect. To change it back, remove the `tui` line from that dir's `settings.json`; an update does not put it back.
+Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp). Existing entries stay; rt adds only missing ones. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays. A config dir with no `tui` setting gets `"tui": "fullscreen"`, the Claude Code layout rt's pane tools expect. To change it back, remove the `tui` line from that dir's `settings.json`; an update does not put it back.
 
 It installs the `mattstack`, `fast-browser`, and `chat` plugins from the mattstack marketplace, and `superpowers` from `claude-plugins-official`, which the mattstack skills and every team pack call. An existing `superpowers-marketplace` install counts.
 
@@ -148,7 +227,7 @@ It installs the `mattstack`, `fast-browser`, and `chat` plugins from the mattsta
 
 Helpers resolve by absolute path inside the app bundle. The ones meant to be typed (`rt`, `fast-browser`, `gitq`, `deck`) are linked into `~/.local/bin`.
 
-The checklist's **PATH precedence** row confirms `~/.local/bin` comes first on your PATH through rt's own line in `~/.zshenv`, so your shell finds rt's shims and team intercepts before any conflicting binary. It reads PATH the way a new terminal tab sees it, from a fresh login shell, not from the app. When `~/.local/bin` is missing or not first, the row says so, and offers to add rt's line when that line is not there yet. When the shell does not answer, the row shows an error with **Re-check**.
+`rt setup status` reports **PATH precedence**: whether `~/.local/bin` comes first on your PATH through rt's own line in `~/.zshenv`, so your shell finds rt's shims and team intercepts before any conflicting binary. It reads PATH the way a new terminal tab sees it, from a fresh login shell, not from the app.
 
 ## Updates
 

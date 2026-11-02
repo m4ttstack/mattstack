@@ -1,5 +1,6 @@
 import { afterEach, afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { MARKER } from "../../shell-integration.ts";
+import { applyExpectations } from "../expectations.ts";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -394,21 +395,21 @@ describe("rtHealthRows — tool.intercepts", () => {
 });
 
 describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
-  test("no SHELL set -> needs-you, honest 'can't write automatically' detail (finding #11)", async () => {
+  test("no SHELL set -> skipped, since there is no login shell to integrate with", async () => {
     const p = fakeProbes({ home: "/fake-home" });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
-    expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("rt does not know this shell");
-    expect(r.detail).not.toBe("shell integration not added yet");
+    expect(r.status).toBe("skipped");
+    expect(r.detail).toBe("No login shell set");
     expect(r.action).toBeNull();
-    expect(r.optionalNote).not.toBeNull();
   });
 
-  test("an unrecognized shell (e.g. tcsh) -> the same honest 'can't write automatically' detail", async () => {
+  test("an unrecognized shell is skipped, never a Finish gate", async () => {
     const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/tcsh" } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
-    expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("rt does not know this shell");
+    expect(r.status).toBe("skipped");
+    expect(r.detail).toBe("No shell integration for tcsh");
+    const gated = applyExpectations([{ id: "rt", title: "rt", rows: [r] }])[0]!.rows[0]!;
+    expect(gated.finishGated).not.toBe(true);
   });
 
   test("zsh rc file contains rtcd -> ready", async () => {
@@ -755,11 +756,11 @@ describe("rtHealthRows — home.backup (real git)", () => {
     return repoDir;
   }
 
-  test("no remote: needs-you, not skipped — skipped renders as info and shows no warning", async () => {
+  test("no remote: local only is a choice, so it reads ready and keeps a way to add a remote", async () => {
     const row = await homeBackupRow(await localOnlyRepo());
-    expect(row.status).toBe("needs-you");
+    expect(row.status).toBe("ready");
     expect(row.required).toBe(false);
-    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
+    expect(row.detail).toBe("Local only: this Mac holds the only copy of your settings");
     expect(row.action).not.toBeNull();
   });
 
@@ -889,7 +890,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     const row = await homeBackupRow(await localOnlyRepo(), REAL_EXEC, () => {
       throw new Error("readLastPush must not be reached on the local-only path");
     });
-    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
+    expect(row.detail).toBe("Local only: this Mac holds the only copy of your settings");
   });
 
   test("unborn branch (remote attached before any commit ever landed): needs-you, never crashes on a missing ref", async () => {
@@ -915,7 +916,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     execFileSync("git", ["remote", "add", "upstream", otherDir], { cwd: repoDir });
 
     const row = await homeBackupRow(repoDir);
-    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
+    expect(row.detail).toBe("Local only: this Mac holds the only copy of your settings");
   });
 
   test("remote configured, nothing pushed: the remedy names the push, not just the remote add", async () => {

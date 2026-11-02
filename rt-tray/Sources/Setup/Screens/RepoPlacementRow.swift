@@ -58,19 +58,25 @@ struct RepoPlacementRow: View {
     /// The last pick rt refused (or any other failure of this row's verbs).
     let error: String?
     let ids: RowIDs
+    /// The fast screen draws P5b's repo block with rt's button label; the checklist keeps the system controls.
+    let fast: Bool
     @Environment(\.repoPlacementAnswer) private var answer
+    @Environment(\.colorScheme) private var scheme
     /// The segment on screen. A refused pick keeps it where the member put it, away from rt's `mode`.
     @State private var shown: String
     /// The segment the last answer was given on: its failure belongs to that segment alone.
     @State private var answeredMode: String?
+    /// The fast block asks clone-or-checkout until rt says the row is answered, and again after Change.
+    @State private var asking: Bool
 
     init(row: PlanRow, action: RowAction, badge: NeedBadge? = nil, context: String? = nil, isChecking: Bool, error: String?,
-         ids: RowIDs, shown: String? = nil) {
+         ids: RowIDs, shown: String? = nil, fast: Bool = false) {
         self.row = row; self.action = action; self.badge = badge; self.context = context
-        self.isChecking = isChecking; self.error = error; self.ids = ids
+        self.isChecking = isChecking; self.error = error; self.ids = ids; self.fast = fast
         let start = shown ?? action.mode ?? RepoPlacementState.clone
         _shown = State(initialValue: start)
         _answeredMode = State(initialValue: shown)
+        _asking = State(initialValue: shown == nil && action.answered == false)
     }
 
     private var onRecordedMode: Bool { shown == action.mode }
@@ -78,9 +84,148 @@ struct RepoPlacementRow: View {
     /// rt's `problem` describes the recorded mode only; on the other segment it is not this path's problem.
     private var lastError: String? { shownError ?? (onRecordedMode ? action.problem : nil) }
     private var note: String? { shownError ?? (onRecordedMode ? (action.problem ?? action.note) : nil) }
+    private var buttonLabel: String {
+        fast ? RepoPlacementState.fastButtonLabel(mode: shown, lastError: lastError, action: action)
+            : RepoPlacementState.buttonLabel(mode: shown, lastError: lastError)
+    }
     private var style: RepoPlacementState.NoteStyle { RepoPlacementState.noteStyle(action: action, shown: shown, lastError: shownError) }
 
     var body: some View {
+        if fast { fastBody } else { checklistBody }
+    }
+
+    /// P5b's repo block (setup.pen QA1, QA2): the clone-or-checkout question alone until it has an answer, then only
+    /// what that answer needs. Finder opens only from its own button, never from picking an answer.
+    private var fastBody: some View {
+        VStack(alignment: .leading, spacing: asking ? 8 : 6) {
+            fastHead
+            if asking {
+                choiceTiles
+                if lastError != nil { fastNote }
+            } else {
+                answerControls
+                fastNote
+            }
+        }
+        // Behind the block, so the 1-point probe adds no stack gap under the note.
+        .background(alignment: .topLeading) { RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id)) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(ids.row(row.id))
+        .onChange(of: action.mode) { _, mode in if let mode { shown = mode } }
+        .onChange(of: action.answered) { _, answered in if answered == true { asking = false } }
+    }
+
+    private var fastHead: some View {
+        HStack(spacing: 8) {
+            Text(action.repo ?? row.title).font(.system(size: 13, weight: FastTheme.weight(css: .semibold))).foregroundColor(FastTheme.textPrimary)
+                .lineLimit(1).layoutPriority(1)
+            if !row.why.isEmpty {
+                Text(row.why).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            if isChecking { FastSpinner() }
+            if !asking {
+                FastAnswerChip(label: shown == RepoPlacementState.clone ? Self.cloneAnswer : Self.checkoutAnswer,
+                               changeID: ids.segment(row.id) + ".change") { asking = true }
+                    .disabled(isChecking)
+            }
+        }
+    }
+
+    static let cloneAnswer = "Clone fresh"
+    static let checkoutAnswer = "Already on this Mac"
+
+    private var choiceTiles: some View {
+        HStack(spacing: 8) {
+            Button { chooseClone() } label: {
+                FastChoiceTile(symbol: "arrow.down.circle", title: "Clone it fresh",
+                               detail: action.clonePath.map { "Into \(FormRowView.displayPath($0))" } ?? "Pick where it goes")
+            }
+            .accessibilityIdentifier(ids.segment(row.id) + ".clone")
+            Button { chooseCheckout() } label: {
+                FastChoiceTile(symbol: "folder", title: "Already on this Mac", detail: "Point to your checkout")
+            }
+            .accessibilityIdentifier(ids.segment(row.id) + ".checkout")
+        }
+        .buttonStyle(FastChoiceTileStyle())
+        .disabled(isChecking)
+    }
+
+    @ViewBuilder private var answerControls: some View {
+        let path = RepoPlacementState.path(mode: shown, action: action)
+        if shown == RepoPlacementState.checkout, path == nil {
+            Button { pick(RepoPlacementState.checkout) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder").font(.system(size: 11))
+                    Text("Choose its folder…")
+                }
+            }
+            .buttonStyle(FastSecondaryButtonStyle(shape: .slim))
+            .fixedSize()
+            .disabled(isChecking)
+            .accessibilityIdentifier(ids.action(row.id))
+        } else {
+            HStack(spacing: 8) {
+                FastValueField(value: path.map(FormRowView.displayPath), placeholder: "No checkout chosen yet", size: .slim)
+                Button(buttonLabel) { pick(shown) }
+                    .buttonStyle(FastSecondaryButtonStyle(shape: .slim))
+                    .fixedSize()
+                    .disabled(isChecking)
+                    .accessibilityIdentifier(ids.action(row.id))
+                // Before an answer rt's one click is "Clone it fresh"; after one it is a Retry.
+                if action.answered != false, let oneClick = action.oneClick {
+                    Button(oneClick.label) { record(oneClick.mode, oneClick.path) }
+                        .buttonStyle(FastPrimaryButtonStyle(size: .small, shape: .slim))
+                        .fixedSize()
+                        .disabled(isChecking)
+                        .accessibilityIdentifier(ids.oneClick(row.id))
+                }
+            }
+        }
+    }
+
+    private func chooseClone() {
+        asking = false
+        if let path = action.clonePath { record(RepoPlacementState.clone, path) } else { pick(RepoPlacementState.clone) }
+    }
+
+    /// A checkout rt already found is the answer; otherwise the folder button waits for the member's click.
+    private func chooseCheckout() {
+        asking = false
+        shown = RepoPlacementState.checkout
+        if let path = action.checkoutPath { record(RepoPlacementState.checkout, path) }
+    }
+
+    /// rt's note in its style, with the board line joined on when the checkout is found (P5b's
+    /// "Found your checkout. The board starts here"); on any other note the board line stands alone.
+    @ViewBuilder private var fastNote: some View {
+        let noteID = shownError != nil ? ids.error(row.id) : ids.row(row.id) + ".note"
+        let board = action.board.flatMap { $0.isEmpty ? nil : $0 }
+        if let note, !note.isEmpty {
+            Group {
+                switch style {
+                case .ok: FastDoneLine(board.map { Self.joined(note, $0) } ?? note, textWidth: FormRowStyle.hintWidth)
+                case .problem: FastHint(note, symbol: "exclamationmark.circle", tint: FastTheme.warning, textWidth: FormRowStyle.hintWidth)
+                case .secondary: FastHint(note, textWidth: FormRowStyle.hintWidth)
+                }
+            }
+            .hintSpill()
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(noteID)
+        }
+        if let board, style != .ok || (note ?? "").isEmpty {
+            FastHint(board, textWidth: FormRowStyle.hintWidth).hintSpill()
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(ids.row(row.id) + ".board")
+        }
+    }
+
+    static func joined(_ note: String, _ board: String) -> String {
+        let stop = note.last.map { ".!?".contains($0) } ?? true
+        return stop ? "\(note) \(board)" : "\(note). \(board)"
+    }
+
+    private var checklistBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 stateIcon.frame(width: 16)
@@ -106,7 +251,7 @@ struct RepoPlacementRow: View {
             }
             HStack(spacing: 8) {
                 pathField
-                Button(RepoPlacementState.buttonLabel(mode: shown, lastError: lastError)) { pick(shown) }
+                Button(buttonLabel) { pick(shown) }
                     .disabled(isChecking)
                     .accessibilityIdentifier(ids.action(row.id))
                 if let oneClick = action.oneClick {
@@ -118,14 +263,27 @@ struct RepoPlacementRow: View {
             }
             if let note, !note.isEmpty {
                 Text(note).font(.caption).foregroundStyle(noteColor).fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier(shownError != nil ? AXID.checklistRowError(row.id) : ids.row(row.id) + ".note")
+                    .accessibilityIdentifier(shownError != nil ? ids.error(row.id) : ids.row(row.id) + ".note")
             }
+            if let board = action.board { boardLine(board) }
             RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id))
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(ids.row(row.id))
         .onChange(of: action.mode) { _, mode in if let mode { shown = mode } }
+    }
+
+    private func boardLine(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "rectangle.3.group").foregroundStyle(Color.accentColor)
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(scheme == .dark ? 0.18 : 0.08)))
+        .accessibilityIdentifier(ids.row(row.id) + ".board")
     }
 
     @ViewBuilder private var stateIcon: some View {
@@ -189,3 +347,4 @@ struct RepoPlacementRow: View {
         answer?(row, mode, path)
     }
 }
+

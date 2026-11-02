@@ -30,6 +30,8 @@ function world(opts: {
   slowCreate?: boolean;
   scenario?: "create" | "join";
   mint?: "ok" | "fails";
+  /** created: absent at preflight, there by teardown. */
+  view?: "created" | "exists" | "missing" | "error" | "teardownError";
   env?: Record<string, string>;
 }): World {
   const root = mkdtempSync(join(tmpdir(), "walkthrough-"));
@@ -45,6 +47,7 @@ function world(opts: {
   writeFileSync(join(root, "gh-delete"), opts.ghDelete ?? "ok");
   if (opts.cloneFails) writeFileSync(join(root, "clone-fails"), "");
   if (opts.slowCreate) writeFileSync(join(root, "slow-create"), "");
+  writeFileSync(join(root, "view"), opts.view ?? "created");
   const stub = (name: string, body: string) => {
     writeFileSync(join(bin, name), `#!/bin/bash\nROOT="${root}"\n${body}`);
     chmodSync(join(bin, name), 0o755);
@@ -66,7 +69,7 @@ esac
 for a; do last="$a"; done
 case "$last" in
   *drive-setup.sh*)
-    printf '%s\\n' "19:36:56 clicked setup.checklist.row.account.github.action" "19:37:13 filled setup.checklist.connect.field.token" >> "$VM_RUN_DIR/logs/drive.log"
+    printf '%s\\n' "19:36:56 clicked setup.fast.path.card.join" "19:37:13 filled setup.fast.row.forge.token.field" >> "$VM_RUN_DIR/logs/drive.log"
     case "$(cat "$ROOT/screens")" in
       hang) sleep ${marker} & echo $! > "$ROOT/driver.pid"; wait;;
       drop) echo "Timeout, server 127.0.0.1 not responding." >&2; exit 255;;
@@ -80,16 +83,39 @@ exit 0
   stub("gh", `echo "gh $*" >> "$ROOT/calls"
 case "$1 $2" in
   "repo create") : > "$ROOT/creating"; [ -e "$ROOT/slow-create" ] && sleep 1.5;;
+  "repo view")
+    n=$(cat "$ROOT/views" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$ROOT/views"
+    missing() { echo "GraphQL: Could not resolve to a Repository with the name '$3'. (repository)" >&2; exit 1; }
+    case "$(cat "$ROOT/view")" in
+      exists) ;;
+      missing) missing "$@" ;;
+      error) echo "HTTP 401: Bad credentials (https://api.github.com/graphql)" >&2; exit 1 ;;
+      teardownError) [ "$n" -eq 1 ] && missing "$@"; echo "error connecting to api.github.com" >&2; exit 1 ;;
+      *) [ "$n" -eq 1 ] && missing "$@" ;;
+    esac;;
   "repo delete") [ "$(cat "$ROOT/gh-delete")" = ok ] || { echo "HTTP 403: Must have admin rights to Repository." >&2; exit 1; };;
   "api user") echo vmtest-joiner;;
 esac
 exit 0
 `);
-  stub("glab", `echo "glab $*" >> "$ROOT/calls"\nexit 0\n`);
+  stub("glab", `echo "glab $*" >> "$ROOT/calls"
+[ "$1 $2" = "api user" ] && echo '{"username":"vmtest-joiner"}'
+if [ "$1 $2" = "repo view" ]; then
+  n=$(cat "$ROOT/glab-views" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$ROOT/glab-views"
+  [ "$n" -eq 1 ] && { echo "ERROR: 404 Not Found" >&2; exit 1; }
+fi
+exit 0
+`);
   // The host mint's rt runs under env -i, so it finds ROOT only through the
   // path baked into it here.
   stub("rt-mint", `echo "rt-mint $* HOME=$HOME" >> "$ROOT/calls"
 case "$1 $2" in
+  "team create")
+    mkdir -p "$HOME/.mattstack/orgs/vmtest" && /usr/bin/git -C "$HOME/.mattstack/orgs/vmtest" init -q
+    echo '{"contract":1}';;
+  "settings set")
+    printf '%s\\n' "$4" > "$HOME/.mattstack/orgs/vmtest/tracking.json"
+    echo '{"contract":1}';;
   "team invite")
     [ "${opts.mint ?? "ok"}" = fails ] && { echo '{"error":{"code":"relay-down","message":"the invite relay answered 503"}}'; exit 2; }
     echo '{"contract":1,"code":"VMTEST-CODE","forgeAccess":"skipped"}';;
@@ -100,8 +126,8 @@ esac
   const scenario = opts.scenario ?? "create";
   return {
     root, art, calls, marker,
-    args: ["--ver", "26", "--dmg", join(root, "x.dmg"), "--scenario", scenario, "--fresh-team-repo", "--no-graphics", "--forge", forge,
-      ...(scenario === "join" ? ["--mint-rt", join(bin, "rt-mint")] : [])],
+    args: ["--ver", "26", "--dmg", join(root, "x.dmg"), "--scenario", scenario, "--no-graphics", "--forge", forge,
+      ...(scenario === "join" ? ["--fresh-team-repo", "--mint-rt", join(bin, "rt-mint")] : [])],
     env: {
       HOME: join(root, "home"),
       TMPDIR: join(root, "tmp"),
@@ -110,6 +136,7 @@ esac
       VM_SSH_KEY: join(root, "key"),
       MATTSTACK_VMTEST_PAT: "test-token",
       MATTSTACK_VMTEST_GITLAB_GROUP: "vmtest-group",
+      ...(scenario === "join" && forge === "github" ? { MATTSTACK_VMTEST_TRACK_REPO: "github.com/acme/widgets" } : {}),
       // A dropped screens ssh waits for the guest's own exit code until the
       // phase deadline; the stub guest never reports one.
       VM_PHASE_LIMIT_SCREENS: "3",
@@ -194,10 +221,10 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
     expect(ms).toBeLessThan(60_000);
     const screens = phase(w, "screens");
     expect(screens?.status).toBe("fail");
-    expect(screens?.reason).toMatch(/^screens timed out after \d+s \(limit 2s\); last lines of logs\/drive\.log: .*filled setup\.checklist\.connect\.field\.token$/);
+    expect(screens?.reason).toMatch(/^screens timed out after \d+s \(limit 2s\); last lines of logs\/drive\.log: .*filled setup\.fast\.row\.forge\.token\.field$/);
     expect(readFileSync(join(runDir(w), "report.md"), "utf8")).toContain("screens timed out after");
     expectTornDown(w);
-    expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-vmtest-team-\d{8}-\d{6}-\d+ --yes/);
+    expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-team-vmtest-\d{8}-\d{6} --yes/);
     expect(out).toContain("1 failed");
   }, RUN_MS);
 
@@ -209,7 +236,7 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
     expect(screens?.status).toBe("fail");
     expect(screens?.reason).toMatch(/^ssh to the guest failed or dropped after \d+s in screens \(exit 255\); last lines of logs\/drive\.log: /);
     expectTornDown(w);
-    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
+    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-team-vmtest-");
   }, RUN_MS);
 
   test("a dropped ssh whose guest script still finishes passes the phase", async () => {
@@ -243,7 +270,7 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
       expect(phase(w, "screens")?.reason).toMatch(new RegExp(`^interrupted by ${signal} after \\d+s$`));
       expect(phase(w, "assert")).toBeUndefined();
       expectTornDown(w);
-      expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
+      expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-team-vmtest-");
     }, RUN_MS);
   }
 
@@ -254,12 +281,12 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
     expect(ms).toBeLessThan(60_000);
     expect(phase(w, "screens")?.reason).toMatch(/^interrupted by SIGTERM after \d+s$/);
     expectTornDown(w);
-    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
+    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-team-vmtest-");
     expect(readFileSync(join(runDir(w), "logs", "teardown.log"), "utf8")).toContain("caught SIGTERM; tearing down");
   }, RUN_MS);
 
   test("a signal while the fresh repo is being created still deletes it", async () => {
-    const w = world({ screens: "drop", slowCreate: true });
+    const w = world({ screens: "drop", scenario: "join", slowCreate: true });
     const { code } = await walk(w, { signal: "SIGTERM", when: "creating" });
     expect(code).toBe(1);
     expect(phase(w, "preflight")?.reason).toMatch(/^interrupted by SIGTERM after \d+s$/);
@@ -273,23 +300,93 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
     expect(code).toBe(1);
     expect(phase(w, "clone")?.status).toBe("fail");
     expect(calls(w)).not.toMatch(/tart (ip|stop|delete) /);
-    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
+    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-team-vmtest-");
     expect(phase(w, "teardown")?.status).toBe("pass");
+  }, RUN_MS);
+
+  test("a create run mints no repo, and the guest gets a slug of its own and the repo Create team makes", async () => {
+    const w = world({ screens: "drop" });
+    await walk(w);
+    expect(calls(w)).not.toContain("gh repo create");
+    const screensCall = calls(w).split("\n").find((l) => l.includes("drive-setup.sh")) ?? "";
+    expect(screensCall).toMatch(/TEAM_REMOTE='https:\/\/github\.com\/mattstack-vmtest\/mattstack-team-vmtest-\d{8}-\d{6}\.git'/);
+    expect(screensCall).toMatch(/--team-slug vmtest-\d{8}-\d{6} /);
+    expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-team-vmtest-\d{8}-\d{6} --yes/);
+  }, RUN_MS);
+
+  test("a create run cut before Create team ran notes the repo was never made, and passes teardown", async () => {
+    const w = world({ screens: "drop", view: "missing" });
+    await walk(w);
+    expect(calls(w)).not.toContain("gh repo delete");
+    const teardown = phase(w, "teardown");
+    expect(teardown?.status).toBe("pass");
+    expect(teardown?.reason).toMatch(/mattstack-vmtest\/mattstack-team-vmtest-\S+ was never created/);
+  }, RUN_MS);
+
+  test("a create target that already exists fails preflight, and nothing is deleted", async () => {
+    const w = world({ screens: "drop", view: "exists" });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.reason).toMatch(/^mattstack-vmtest\/mattstack-team-vmtest-\S+ already exists, so Create team would refuse it and teardown must not delete it/);
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+    expect(calls(w)).not.toMatch(/^tart clone/m);
+  }, RUN_MS);
+
+  test("a create target --team-slug points at an existing repo is never deleted", async () => {
+    const w = world({ screens: "drop", view: "exists" });
+    w.args.push("--team-slug", "vmtest-taken");
+    await walk(w);
+    expect(phase(w, "preflight")?.status).toBe("fail");
+    expect(calls(w)).toContain("gh repo view mattstack-vmtest/mattstack-team-vmtest-taken");
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+  }, RUN_MS);
+
+  test("a lookup that fails at preflight fails it, arming nothing", async () => {
+    const w = world({ screens: "drop", view: "error" });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.reason).toMatch(/^could not look up mattstack-vmtest\/mattstack-team-vmtest-\S+ \(logs\/preflight\.log\)$/);
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+  }, RUN_MS);
+
+  test("a lookup that fails at teardown leaves the repo and fails the teardown row", async () => {
+    const w = world({ screens: "drop", view: "teardownError" });
+    await walk(w);
+    expect(calls(w)).not.toMatch(/repo (delete|archive)/);
+    const teardown = phase(w, "teardown");
+    expect(teardown?.status).toBe("fail");
+    expect(teardown?.reason).toMatch(/could not look up mattstack-vmtest\/mattstack-team-vmtest-\S+, so it was left alone/);
+  }, RUN_MS);
+
+  test("an ssh --team-remote names the group the same way the guest reads it", async () => {
+    const w = world({ screens: "drop" });
+    w.args.push("--team-remote", "git@github.com:acme-vmtest/widgets.git");
+    await walk(w);
+    expect(calls(w)).toMatch(/gh repo delete acme-vmtest\/mattstack-team-vmtest-\d{8}-\d{6} --yes/);
+  }, RUN_MS);
+
+  test("a --team-remote under an org that is not visibly vmtest fails preflight before any lookup", async () => {
+    const w = world({ screens: "drop" });
+    w.args.push("--team-remote", "git@github.com:acme/widgets.git");
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.reason).toMatch(/^acme lacks 'vmtest'; set MATTSTACK_VMTEST_ORG_CONFIRM=acme to confirm$/);
+    expect(calls(w)).not.toMatch(/^gh repo/m);
   }, RUN_MS);
 
   test("a token that cannot delete the fresh repo archives it and says so", async () => {
     const w = world({ screens: "drop", ghDelete: "refuse" });
     await walk(w);
-    expect(calls(w)).toMatch(/gh repo archive mattstack-vmtest\/mattstack-vmtest-team-\S+ --yes/);
+    expect(calls(w)).toMatch(/gh repo archive mattstack-vmtest\/mattstack-team-vmtest-\S+ --yes/);
     const teardown = phase(w, "teardown");
     expect(teardown?.status).toBe("pass");
     expect(teardown?.reason).toMatch(/archived, not deleted/);
   }, RUN_MS);
 
-  test("a gitlab fresh repo is deleted through glab", async () => {
+  test("a gitlab create's repo is deleted through glab", async () => {
     const w = world({ screens: "drop", forge: "gitlab" });
     await walk(w);
-    expect(calls(w)).toMatch(/glab repo delete vmtest-group\/mattstack-vmtest-team-\S+ --yes/);
+    expect(calls(w)).toMatch(/glab repo delete vmtest-group\/mattstack-team-vmtest-\S+ --yes/);
     expectTornDown(w);
   }, RUN_MS);
 
@@ -316,6 +413,7 @@ describe("walkthrough.sh --scenario join --fresh-team-repo mints the invite on t
     const mintCalls = calls(w).split("\n").filter((l) => l.startsWith("rt-mint "));
     expect(mintCalls.map((l) => l.replace(/ HOME=.*$/, ""))).toEqual([
       expect.stringMatching(/^rt-mint team create vmtest --remote https:\/\/github\.com\/mattstack-vmtest\/mattstack-vmtest-team-\S+\.git --others --json$/),
+      expect.stringMatching(/^rt-mint settings set mattstack\.tracking \{"repos":\{"[^"]+":\{"caches":\["branches"\]\}\}\} --scope team --team vmtest$/),
       "rt-mint team publish --team vmtest --json",
       "rt-mint team invite --handle vmtest-joiner --team vmtest --json",
     ]);
@@ -324,9 +422,35 @@ describe("walkthrough.sh --scenario join --fresh-team-repo mints the invite on t
     expect(readFileSync(join(runDir(w), "in", "invite-code.txt"), "utf8").trim()).toBe("VMTEST-CODE");
     const driver = calls(w).split("\n").find((l) => l.includes("drive-setup.sh join"));
     expect(driver).toContain("--invite-code-file");
+    expect(driver).toContain("JOIN_HAND_WAIT_S='1800'");
+    expect(driver).toContain("FB_EXTENSION_WAIT_S='300'");
     expect(phase(w, "screens")?.status).toBe("fail");
     expectTornDown(w);
     expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-vmtest-team-\S+ --yes/);
+  }, RUN_MS);
+
+  test("the guest's waits come from the host's environment", async () => {
+    const w = world({ screens: "drop", scenario: "join", env: { JOIN_HAND_WAIT_S: "42", FB_EXTENSION_WAIT_S: "7" } });
+    await walk(w);
+    const driver = calls(w).split("\n").find((l) => l.includes("drive-setup.sh join"));
+    expect(driver).toContain("JOIN_HAND_WAIT_S='42'");
+    expect(driver).toContain("FB_EXTENSION_WAIT_S='7'");
+  }, RUN_MS);
+
+  test("a github join refuses a tracked repo on another forge before minting anything", async () => {
+    const w = world({ screens: "drop", scenario: "join", env: { MATTSTACK_VMTEST_TRACK_REPO: "gitlab.com/acme/widgets" } });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.status).toBe("fail");
+    expect(phase(w, "preflight")?.reason).toContain("needs a repo on github.com");
+    expect(calls(w)).not.toContain("rt-mint ");
+  }, RUN_MS);
+
+  test("a gitlab join tracks the fixture's repo with no override", async () => {
+    const w = world({ screens: "drop", scenario: "join", forge: "gitlab" });
+    await walk(w);
+    expect(phase(w, "invite")?.status).toBe("pass");
+    expect(calls(w)).toMatch(/rt-mint settings set mattstack\.tracking \{"repos":\{"gitlab\.com\/[^"]+"/);
   }, RUN_MS);
 
   test("a failed mint fails the invite phase before any guest is cloned, and still deletes the repo", async () => {

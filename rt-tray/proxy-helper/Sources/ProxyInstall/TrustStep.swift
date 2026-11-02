@@ -169,9 +169,11 @@ struct TrustOp {
     let caPath: String
     let fs: FileOps
     let runner: CommandRunner
+    /// Set when the request asked for Homebrew in the same prompt.
+    var homebrew: HomebrewStep?
     var emit: (String) -> Void = Report.step
 
-    static func run() -> Int32 {
+    static func run(homebrew: Bool) -> Int32 {
         guard geteuid() == 0 else {
             Report.step("mattstack-proxy-install trust must run as root")
             return ExitCode.noPerm
@@ -181,13 +183,20 @@ struct TrustOp {
             Report.step("\(error)")
             return ExitCode.config
         }
-        return TrustOp(caPath: user.caPath, fs: RealFileOps(), runner: RealCommandRunner()).execute()
+        let fs = RealFileOps()
+        let runner = RealCommandRunner()
+        return TrustOp(
+            caPath: user.caPath, fs: fs, runner: runner,
+            homebrew: homebrew ? HomebrewStep(fs: fs, runner: runner, pins: Pins.current) : nil
+        ).execute()
     }
 
     func execute() -> Int32 {
+        let brew = homebrew?.run()
         let outcome = TrustStep(caPath: caPath, fs: fs, runner: runner).run()
         if let problem = outcome.recordProblem { emit(problem) }
         emit(outcome.line)
+        if let brew { emit(Report.homebrewLine(brew)) }
         emit(Report.trustLine(outcome.state))
         // Declining is an answer, not a fault: the row keeps the remedy and the
         // proxy keeps serving, so only a CA we could not find or a call that

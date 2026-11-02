@@ -647,4 +647,32 @@ let settingsChecks: [Check] = [
         await refresher.setupWindowClosed(entry: .upgrade, applied: true)
         c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["apps", "list", "--json"]])
     },
+    Check("SettingsExtras: a row that is not there shows nothing") { c in
+        c.expect(!SettingsExtras.shows(nil))
+    },
+    Check("SettingsExtras: skill overrides with old keys show") { c in
+        let row = PlanRow(id: "skills.overrides", kind: .tool, title: "Skill overrides", why: "Old slot keys stop the skills from compiling.",
+                          required: false, status: .needsYou, detail: "Old slot keys: work rules becomes work/domain-rules rules.",
+                          action: RowAction(type: .steps, label: "Show steps…", steps: ["Run: rt skills materialize"]), recheck: .onChange)
+        c.expect(SettingsExtras.shows(row))
+        var clean = row
+        clean.status = .ready
+        c.expect(!SettingsExtras.shows(clean), "no old keys hides the section")
+        clean.status = .skipped
+        c.expect(!SettingsExtras.shows(clean), "no overrides file hides the section")
+    },
+    Check("SettingsExtras: a ready Chrome sign-in hides") { c in
+        var row = PlanRow(id: "tool.chrome-signin", kind: .tool, title: "Chrome sign-in", why: "widgets needs Chrome signed into acme.",
+                          required: false, status: .ready, recheck: .onActivate)
+        c.expect(!SettingsExtras.shows(row))
+        row.status = .needsYou
+        c.expect(SettingsExtras.shows(row))
+    },
+    Check("SettingsExtras: Mission Control shows whenever rt sends it") { c in
+        var row = PlanRow(id: "tool.mission-control", kind: .tool, title: "Mission Control shortcut", why: "rt's nav picker uses Control+Up.",
+                          required: false, status: .ready, recheck: .onActivate)
+        c.expect(SettingsExtras.shows(row))
+        row.status = .skipped
+        c.expect(SettingsExtras.shows(row))
+    },
 ]

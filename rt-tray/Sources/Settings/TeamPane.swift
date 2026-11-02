@@ -53,7 +53,7 @@ struct TeamPaneForm: View {
         Form {
             if info?.mode == "solo" {
                 Section("Team") {
-                    Text("You're set up as Just me: no team repo, no forge account.")
+                    Text("You're set up as Just me: no team repo.")
                     HStack {
                         Button("Create a team…", action: onCreateTeam).accessibilityIdentifier(AXID.settingsTeamCreate)
                         Button("Join a team…", action: onJoin).accessibilityIdentifier(AXID.settingsTeamJoinAnother)

@@ -157,6 +157,10 @@ function declaredIntegrations(team: TeamSnapshot, reqs: PackRequirements[]): Dec
   return [...entries.values()];
 }
 
+export function teamDeclaresIntegration(team: TeamSnapshot, reqs: PackRequirements[], id: Integration): boolean {
+  return declaredIntegrations(team, reqs).some((entry) => entry.id === id);
+}
+
 async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, forge: ForgeConnect): Promise<Row> {
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
@@ -238,10 +242,9 @@ const REINVITE_STEPS: Action = {
 };
 
 /**
- * Never required and never finish-gated: only the org admin can deliver
- * the token, so the member must still be able to Install and Finish. verify
- * reports its needs-you all the same. The note must not start "Works
- * without": the app's Done screen drops rows whose note does.
+ * It never blocks Install or Finish, since only the org admin can fix it, so
+ * its steps name them. The note must not start "Works without": the app's
+ * Done screen drops rows whose note does.
  */
 const BOARD_PEERING_BASE = {
   id: BOARD_PEERING_ROW_ID,
@@ -429,6 +432,14 @@ async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnap
 
 const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.";
 
+export const SLACK_APP_MISSING = "The team has no Slack app yet";
+export const SLACK_APP_ACTION: Action = {
+  type: "owner-once",
+  label: "Create the team's Slack app…",
+  integration: "slack",
+  fields: [{ name: "configToken", label: "App configuration token", secret: true }],
+};
+
 function slackAppRow(required: boolean): Row {
   return row({
     id: "account.slack-app",
@@ -438,13 +449,8 @@ function slackAppRow(required: boolean): Row {
     required,
     optionalNote: required ? null : "Works without this until the team's Slack app exists. Only the team's owner can create it; ask them, or re-check once it does.",
     status: "missing",
-    detail: "The team has no Slack app yet",
-    action: {
-      type: "owner-once",
-      label: "Create the team's Slack app…",
-      integration: "slack",
-      fields: [{ name: "configToken", label: "App configuration token", secret: true }],
-    },
+    detail: SLACK_APP_MISSING,
+    action: SLACK_APP_ACTION,
   });
 }
 

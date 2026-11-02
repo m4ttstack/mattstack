@@ -202,6 +202,11 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 actions: [addMember],
                 intentIdentifiers: []
             ),
+            UNNotificationCategory(
+                identifier: NotificationClick.setupProgressCategory,
+                actions: [],
+                intentIdentifiers: []
+            ),
         ]
 
         center.setNotificationCategories(Set(categories))
@@ -418,6 +423,29 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    // MARK: - Setup progress
+
+    /// A setup milestone the person may not be watching for ("You're in"),
+    /// composed by the tray rather than queued by the daemon. One identifier,
+    /// so a newer milestone replaces the last banner instead of stacking.
+    func fireSetupProgress(title: String, body: String) {
+        let category = NotificationClick.setupProgressCategory
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = nil
+        content.categoryIdentifier = category
+
+        Self.playSound(for: category)
+
+        let request = UNNotificationRequest(identifier: category, content: content, trigger: nil)
+        center.add(request) { error in
+            if let error = error {
+                TrayLog.error("setup progress notification error", ["err": String(describing: error)])
+            }
+        }
+    }
+
     /// Put the approve command on the pasteboard. Approving team-authored
     /// shell stays a deliberate act in a TTY, where the ladder is displayed.
     private static func copyApproveCommand(_ command: String) {
@@ -452,6 +480,8 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             NotificationCenter.default.post(name: .showWorktreePanel, object: nil)
         case .showSetupStatus:
             NotificationCenter.default.post(name: .rtShowSetupStatus, object: nil)
+        case .resumeSetup:
+            NotificationCenter.default.post(name: .rtResumeSetup, object: nil)
         case .openURL(let urlStr):
             if let urlObj = URL(string: urlStr) { openURL(urlObj) }
         case .focusPane(let paneId):

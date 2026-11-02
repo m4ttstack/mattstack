@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assert the installed state in the guest, through rt and tray.sock (never UI text).
-# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted] [--solo] [--join <team slug>]
+# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted] [--solo] [--join <team slug> [--board-repo <host/path>]]
 #
 # --expect-untrusted is the declined-certificate scenario: the install ran, the
 # user said no to macOS's trust prompt, and the claim under test is that the
@@ -13,11 +13,14 @@
 # --join is the invite scenario: the team named by the slug is cloned, and
 # the rows a join produces (team plugins, the team repo, the team
 # marketplace, every tracked repo) are ready or a clear partial.
+# All three board.cwds folders must be the placed checkout of the board's
+# repo (--board-repo names it; else the row carrying the board line), and a
+# team that tracks no repo fails rather than passing unchecked.
 set -uo pipefail
 GUEST_RUN="${GUEST_RUN:-/Volumes/My Shared Files/run}"; LOGS="$GUEST_RUN/logs"
 mkdir -p "$LOGS" || { echo "assert-installed.sh: cannot write $LOGS" >&2; exit 2; }
-EXPECT=""; HEADLESS=0; UNTRUSTED=0; SOLO=0; JOIN_SLUG=""
-while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; --solo) SOLO=1; shift;; --join) [ -n "${2:-}" ] || { echo "assert-installed.sh: --join needs a team slug" >&2; exit 2; }; JOIN_SLUG="$2"; shift 2;; *) shift;; esac; done
+EXPECT=""; HEADLESS=0; UNTRUSTED=0; SOLO=0; JOIN_SLUG=""; BOARD_REPO=""
+while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; --solo) SOLO=1; shift;; --join) [ -n "${2:-}" ] || { echo "assert-installed.sh: --join needs a team slug" >&2; exit 2; }; JOIN_SLUG="$2"; shift 2;; --board-repo) BOARD_REPO="${2:-}"; shift 2;; *) shift;; esac; done
 export PATH="$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 fails=0
 ok()   { echo "ASSERT ok   $1"; }
@@ -71,6 +74,15 @@ if [ -n "$JOIN_SLUG" ]; then
       *)   bad "join-rows.jq printed an unexpected line: $kind $msg";;
     esac
   done <<< "$JOIN_VERDICT"
+  # Install points all three of the board's folders at the placed checkout of the board's repo.
+  rt settings get board.cwds --json 2>/dev/null | tail -1 > "$LOGS/board-cwds.json"
+  CWDS_JSON=$(cat "$LOGS/board-cwds.json" 2>/dev/null); "$JQ" -e . >/dev/null 2>&1 <<< "$CWDS_JSON" || CWDS_JSON='{}'
+  BOARD_VERDICT=$("$JQ" -r --argjson cwds "$CWDS_JSON" --arg want "$BOARD_REPO" --arg home "$HOME" \
+      -f "$(cd "$(dirname "$0")" && pwd)/jq/board-cwds.jq" "$LOGS/setup-status-join.json" 2>&1) \
+    || BOARD_VERDICT="bad"$'\t'"board-cwds.jq failed: $(printf '%s' "$BOARD_VERDICT" | tr '\n' ' ' | head -c 200)"
+  while IFS=$'\t' read -r kind msg; do
+    case "$kind" in ok) ok "join: $msg";; *) bad "join: $msg (logs/board-cwds.json)";; esac
+  done <<< "$BOARD_VERDICT"
 fi
 
 # tray.sock /version
@@ -103,33 +115,29 @@ else
 fi
 
 # The finish gate: drive-setup.sh probes and drives each finish-gated Done
-# row on its own (Fast Browser, writing-style, either, or neither), writing
-# one line per row it resolved, or the single word "open" when it found none.
-# `rt settings get`/`rt skills writing-style show --json` are the one
-# undecorated reads of the store either row's own record lives in.
+# row on its own (writing-style, the steps you can skip, any mix, or none),
+# writing one line per row it resolved, or the single word "open" when it
+# found none. The Fast Browser extension can never be skipped, so
+# setup.waived must never hold it. `rt settings get`/`rt skills
+# writing-style show --json` are the one undecorated reads of the store
+# either row's own record lives in.
 GATE_FILE="$LOGS/finish-gate.txt"
 if [ ! -f "$GATE_FILE" ]; then
   if [ "$HEADLESS" = 1 ]; then ok "finish gate not driven (headless)"; else bad "no finish-gate.txt from drive-setup.sh"; fi
-elif [ "$(cat "$GATE_FILE")" = "open" ]; then
+else
   WAIVED=$(rt settings get setup.waived --json 2>/dev/null)
   case "$WAIVED" in
-    *tool.fast-browser-extension*) bad "nothing was skipped on the Done screen but setup.waived holds the id: $WAIVED";;
-    *) ok "setup.waived is empty (the gate never closed)";;
+    *tool.fast-browser-extension*) bad "setup.waived holds tool.fast-browser-extension, which cannot be skipped: $WAIVED";;
+    *) ok "setup.waived does not hold tool.fast-browser-extension";;
   esac
-else
-  if grep -qx 'fast-browser-extension=skipped' "$GATE_FILE"; then
-    WAIVED=$(rt settings get setup.waived --json 2>/dev/null)
-    case "$WAIVED" in
-      *tool.fast-browser-extension*) ok "setup.waived holds tool.fast-browser-extension after Skip for now";;
-      *) bad "Skip for now was confirmed but setup.waived does not hold the id: $WAIVED";;
-    esac
-  else
-    WAIVED=$(rt settings get setup.waived --json 2>/dev/null)
-    case "$WAIVED" in
-      *tool.fast-browser-extension*) bad "fast-browser-extension was not skipped on the Done screen but setup.waived holds the id: $WAIVED";;
-      *) ok "setup.waived does not hold tool.fast-browser-extension (it was not skipped)";;
-    esac
-  fi
+  SKIPPED=$(sed -n 's/^\(.*\)=skipped$/\1/p' "$GATE_FILE")
+  for id in skills.overrides tool.chrome-signin tool.mission-control; do
+    if printf '%s\n' "$SKIPPED" | grep -qx "$id"; then
+      case "$WAIVED" in *"\"$id\""*) ok "setup.waived holds $id after Skip";; *) bad "$id was skipped on the summary but setup.waived does not hold it: $WAIVED";; esac
+    else
+      case "$WAIVED" in *"\"$id\""*) bad "$id was not skipped on the summary but setup.waived holds it: $WAIVED";; *) ok "setup.waived does not hold $id (it was not skipped)";; esac
+    fi
+  done
   STYLE_LINE=$(grep '^writing-style=' "$GATE_FILE" || true)
   if [ -n "$STYLE_LINE" ]; then
     STYLE_ID="${STYLE_LINE#writing-style=}"
