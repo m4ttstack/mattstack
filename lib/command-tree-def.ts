@@ -2511,6 +2511,19 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      "direct-only": {
+        description: "Choose which pack skills Claude runs only when you type them",
+        module: "./commands/skills.ts",
+        fn: "skillsDirectOnly",
+        omitBehavior: { exempt: "the mode is one of three fixed words, and a missing one prints them" },
+        args: [
+          { name: "Mode", type: "text", placeholder: "list", hint: "list | set <name>... --on|--off | reapply" },
+          { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "list and set: the pack's name; omit to pick from the discovered packs" },
+          { name: "On", flag: "--on", type: "boolean", default: false, hint: "set only: run the named skills only when you type them" },
+          { name: "Off", flag: "--off", type: "boolean", default: false, hint: "set only: let Claude pick the named skills again" },
+          SETUP_JSON_ARG,
+        ],
+      },
       packs: {
         description: "List packs discovered from installed marketplace plugins that carry a surface.jsonc",
         module: "./commands/skills.ts",

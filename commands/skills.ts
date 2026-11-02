@@ -69,6 +69,10 @@ import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skil
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
+import { directOnlyConfigDirs, reconcileDirectOnly } from "../lib/skills/direct-only.ts";
+import { sourceSetsDirectOnly } from "../lib/skills/direct-only-line.ts";
+import { getSetting } from "../lib/settings/resolve.ts";
+import { setSetting } from "../lib/settings/write.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -3152,7 +3156,14 @@ type SurfaceFlags = {
   json: boolean;
 };
 
-export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal"; base?: string; path?: string };
+export type SurfaceRow = {
+  name: string;
+  kind: "compiled" | "hand-authored" | "missing";
+  status: "public" | "internal";
+  base?: string;
+  path?: string;
+  directOnly?: "on" | "off" | "locked";
+};
 
 /** A skill rt installs exactly as it sits in the pack reads as standard; --json keeps `hand-authored`. */
 function kindLabel(kind: SurfaceRow["kind"]): string {
@@ -3388,7 +3399,9 @@ async function runList(flags: SurfaceFlags): Promise<void> {
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const surface = readSurface(packDir);
   const stageNames = stageNamesFor(flags, packDir);
-  const { source, rows } = computeRows(packDir, verbNames, surface, stageNames);
+  const computed = computeRows(packDir, verbNames, surface, stageNames);
+  const { source } = computed;
+  const rows = withDirectOnly(computed.rows, directOnlyPlugin(packDir, flags.team)?.key ?? null);
 
   if (flags.json) {
     out.json({ pack: flags.team, packDir, rows });
@@ -3734,6 +3747,209 @@ export async function skillsSurface(args: string[]): Promise<void> {
       return;
     }
     await runPalette(flags);
+  });
+}
+
+// ─── rt skills direct-only -- a member's own "only when I type it" choices, kept in the user setting and applied to the installed copy ──
+
+const DIRECT_ONLY_SETTING = "rt.skills.directOnly";
+
+function readDirectOnlyChoices(): Record<string, string[]> {
+  const value = getSetting<unknown>(DIRECT_ONLY_SETTING).value;
+  const choices: Record<string, string[]> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return choices;
+  for (const [key, names] of Object.entries(value)) {
+    if (Array.isArray(names)) choices[key] = names.filter((n): n is string => typeof n === "string");
+  }
+  return choices;
+}
+
+/** The `<plugin>@<marketplace>` the pack installs as, or null for a pack Claude Code never installs. */
+function directOnlyPlugin(packDir: string, team: string | null): { key: string } | null {
+  const real = canonicalPath(packDir);
+  const packs = discoverPacks();
+  const pack = packs.find((p) => p.dir === real) ?? packs.find((p) => p.name === team);
+  return pack?.marketplace ? { key: `${pack.name}@${pack.marketplace}` } : null;
+}
+
+function directOnlyEligible(row: SurfaceRow): boolean {
+  return row.status === "public" && row.base === undefined && row.path !== undefined;
+}
+
+function withDirectOnly(rows: SurfaceRow[], key: string | null): SurfaceRow[] {
+  if (key === null) return rows;
+  let chosen: string[] = [];
+  try {
+    chosen = readDirectOnlyChoices()[key] ?? [];
+  } catch {
+    // an unreadable setting shows every skill as off
+  }
+  return rows.map((row) => {
+    if (!directOnlyEligible(row)) return row;
+    let locked = false;
+    try {
+      locked = sourceSetsDirectOnly(readFileSync(row.path!, "utf8"));
+    } catch {
+      // a source that cannot be read is not locked
+    }
+    return { ...row, directOnly: locked ? "locked" : chosen.includes(row.name) ? "on" : "off" };
+  });
+}
+
+function skillOfWarning(warning: string): string | null {
+  return /[\\/]([^\\/]+)[\\/]SKILL\.md: /.exec(warning)?.[1] ?? null;
+}
+
+function warningLines(warnings: string[]): Block[] {
+  const seen = new Set<string>();
+  const lines: Block[] = [];
+  for (const w of warnings) {
+    const name = skillOfWarning(w);
+    const text = name ? `The installed copy of ${name} could not be changed` : w;
+    if (seen.has(text)) continue;
+    seen.add(text);
+    lines.push(out.line("warn", text));
+  }
+  return lines;
+}
+
+function directOnlyRefusal(title: string, why?: string): SkillsRefusal {
+  return new SkillsRefusal(why ? `${title}. ${why}` : title, { title, ...(why ? { why } : {}) });
+}
+
+type DirectOnlyTarget = { key: string; rows: SurfaceRow[]; source: string };
+
+async function directOnlyTarget(flags: SurfaceFlags): Promise<DirectOnlyTarget> {
+  const { packDir } = await resolveSurfacePaths(flags);
+  const plugin = directOnlyPlugin(packDir, flags.team);
+  if (plugin === null) {
+    throw directOnlyRefusal("This pack is not installed from a marketplace", "Only an installed pack's skills can be set to run only when you type them.");
+  }
+  const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
+  const { source, rows } = computeRows(packDir, verbNames, readSurface(packDir), stageNamesFor(flags, packDir));
+  return { key: plugin.key, rows: withDirectOnly(rows, plugin.key), source };
+}
+
+function refuseDirectOnlyName(name: string, row: SurfaceRow | undefined): SkillsRefusal | null {
+  if (!row) return directOnlyRefusal(`${name} is not a skill in this pack`);
+  if (row.base !== undefined) return directOnlyRefusal(`${name} comes from ${row.base}`, "The org base pack decides how it runs.");
+  if (row.status !== "public") return directOnlyRefusal(`${name} is an internal skill`, "Only public skills can be set to run only when you type them.");
+  if (row.path === undefined) return directOnlyRefusal(`${name} has no files in this pack`);
+  if (row.directOnly === "locked") return directOnlyRefusal(`${name} already runs only when you type it`, "The pack sets that itself, so you cannot change it here.");
+  return null;
+}
+
+function directOnlyHome(): string {
+  return process.env.HOME ?? homedir();
+}
+
+async function runDirectOnlyList(args: string[]): Promise<void> {
+  const { flags, rest } = parseSurfaceFlags(args);
+  if (rest.length) throw new SkillsUsageError(`unrecognized argument "${rest[0]}"`);
+  const { rows, source } = await directOnlyTarget(flags);
+  const shown = rows.filter((r) => r.directOnly !== undefined).map((r) => ({ name: r.name, directOnly: r.directOnly! }));
+  if (flags.json) {
+    out.json({ pack: flags.team, rows: shown });
+    return;
+  }
+  if (shown.length === 0) {
+    out.print(out.line("pending", "This pack has no public skills to choose from"));
+    return;
+  }
+  const label = { on: "only when you type it", off: "Claude can pick it", locked: "set by the pack" } as const;
+  out.print(out.section(`Pack ${flags.team ?? ""}`.trim(), source, out.table(shown.map((r) => [out.strong(r.name), r.directOnly === "off" ? label.off : out.dim(label[r.directOnly])]), ["Skill", "Runs"])));
+}
+
+async function runDirectOnlySet(args: string[]): Promise<void> {
+  const { flags, rest } = parseSurfaceFlags(args);
+  const names: string[] = [];
+  let on = false;
+  let off = false;
+  for (const a of rest) {
+    if (a === "--on") on = true;
+    else if (a === "--off") off = true;
+    else if (a.startsWith("--")) throw new SkillsUsageError(`unrecognized argument "${a}"`);
+    else names.push(a);
+  }
+  if (names.length === 0) {
+    throw new SkillsUsageError("set requires a skill name", usageFailure("Which skill?", "rt skills direct-only set <name> --on --pack <pack>"));
+  }
+  if (on === off) {
+    throw new SkillsUsageError(
+      "set requires one of --on and --off",
+      usageFailure("Should it run only when you type it?", "rt skills direct-only set <name> --on --pack <pack>", "Say which with --on or --off."),
+    );
+  }
+  const duplicate = names.find((n, i) => names.indexOf(n) !== i);
+  if (duplicate) throw new SkillsUsageError(`"${duplicate}" named more than once`);
+
+  try {
+    const { key, rows } = await directOnlyTarget(flags);
+    for (const name of names) {
+      const refusal = refuseDirectOnlyName(name, rows.find((r) => r.name === name));
+      if (refusal) throw refusal;
+    }
+
+    const choices = readDirectOnlyChoices();
+    const before = choices[key] ?? [];
+    const after = on ? [...before, ...names.filter((n) => !before.includes(n))] : before.filter((n) => !names.includes(n));
+    const changedSetting = after.length !== before.length || after.some((n, i) => n !== before[i]);
+    if (changedSetting) setSetting(DIRECT_ONLY_SETTING, { ...choices, [key]: after }, "user");
+
+    const result = reconcileDirectOnly({ configDirs: directOnlyConfigDirs(process.env, directOnlyHome()), choices: { [key]: after } });
+    const applied = !result.warnings.some((w) => {
+      const skill = skillOfWarning(w);
+      return skill !== null && names.includes(skill);
+    });
+
+    if (flags.json) {
+      out.json({ names, on, applied, warnings: result.warnings });
+      return;
+    }
+    const subject = names.join(", ");
+    out.print(out.line("done", on ? `${subject} will run only when you type it` : `${subject} can run on its own again`));
+    if (!applied) {
+      out.print(...warningLines(result.warnings), out.callout("why", "Your choice is saved, but the installed copy was not changed."), out.callout("next", out.cmd("rt skills direct-only reapply")));
+    }
+  } catch (err) {
+    if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
+    out.json({ ok: false, error: skillsFailure(err).title });
+    process.exit(2);
+  }
+}
+
+function runDirectOnlyReapply(args: string[]): void {
+  let json = false;
+  for (const a of args) {
+    if (a === "--json") json = true;
+    else throw new SkillsUsageError(`unrecognized argument "${a}"`);
+  }
+  let choices: Record<string, string[]> = {};
+  try {
+    choices = readDirectOnlyChoices();
+  } catch {
+    // a session-start hook runs this: a broken settings store must not fail it
+  }
+  const result = Object.keys(choices).length === 0
+    ? { changed: [], warnings: [] }
+    : reconcileDirectOnly({ configDirs: directOnlyConfigDirs(process.env, directOnlyHome()), choices });
+  if (json) {
+    out.json({ changed: result.changed, warnings: result.warnings });
+    return;
+  }
+  if (result.warnings.length > 0) out.note(...warningLines(result.warnings));
+}
+
+export async function skillsDirectOnly(args: string[]): Promise<void> {
+  await withCleanErrors(args, async () => {
+    const mode = args[0];
+    if (mode === "list") return runDirectOnlyList(args.slice(1));
+    if (mode === "set") return runDirectOnlySet(args.slice(1));
+    if (mode === "reapply") return runDirectOnlyReapply(args.slice(1));
+    throw new SkillsUsageError(
+      mode ? `unrecognized subcommand "${mode}" (expected list, set, or reapply)` : "direct-only needs a mode: list, set, or reapply",
+      usageFailure("What should it do?", "rt skills direct-only list --pack <pack>", "Use list, set or reapply."),
+    );
   });
 }
 
