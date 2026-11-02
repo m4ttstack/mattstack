@@ -12,14 +12,14 @@ Make pack skills run only when you type them, or let Claude pick them again
 ## Usage
 
 ```bash
-rt skills direct-only set [<skills>] [flags]
+rt skills direct-only set <skills> [flags]
 ```
 
 ## Arguments & flags
 
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
-| `<skills>` | text |  | One or more skill names in the pack |
+| `<skills>` | text |  | One or more skill names in the pack; omit to pick |
 | `--pack` | text |  | Pack name; omit to pick from the discovered packs |
 | `--on` | boolean | `false` | Run the named skills only when you type them |
 | `--off` | boolean | `false` | Let Claude pick the named skills again |

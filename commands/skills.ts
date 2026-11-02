@@ -3889,9 +3889,37 @@ async function runDirectOnlyList(args: string[]): Promise<void> {
   out.print(out.section(`Pack ${flags.team ?? ""}`.trim(), source, out.table(shown.map((r) => [out.strong(r.name), r.directOnly === "off" ? label.off : out.dim(label[r.directOnly])]), ["Skill", "Runs"])));
 }
 
+/** The palette over the skills a member may change, with each one's current state; null when they cancel. */
+async function pickDirectOnlyNames(rows: SurfaceRow[], on: boolean): Promise<string[] | null> {
+  const choices = rows.filter((r) => r.directOnly === "on" || r.directOnly === "off");
+  if (choices.length === 0) {
+    out.print(out.line("pending", "This pack has no skills you can change"));
+    return null;
+  }
+  const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
+  return filterableMultiselect({
+    message: on ? "Run only when you type them" : "Let Claude pick them again",
+    breadcrumb: ["rt", "skills", "direct-only"],
+    options: choices.map((r) => ({ value: r.name, label: r.name, hint: r.directOnly === "on" ? "only when you type it" : "Claude can pick it" })),
+  });
+}
+
+/** Reapply only helps a file that was read-only; any other reason needs the file itself fixed. */
+function unappliedCallouts(warnings: string[], names: string[]): Block[] {
+  const blocking = warnings.filter((w) => {
+    const skill = skillOfWarning(w);
+    return skill !== null && names.includes(skill);
+  });
+  const readOnly = blocking.some((w) => /SKILL\.md: read-only/.test(w));
+  return [
+    out.callout("why", "Your choice is saved. Claude still sees the installed copy as it was."),
+    ...(readOnly ? [out.callout("next", ["After the file can be written, run ", out.cmd("rt skills direct-only reapply")])] : []),
+  ];
+}
+
 async function runDirectOnlySet(args: string[]): Promise<void> {
   const { flags, rest } = parseSurfaceFlags(args);
-  const names: string[] = [];
+  let names: string[] = [];
   let on = false;
   let off = false;
   for (const a of rest) {
@@ -3900,7 +3928,8 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
     else if (a.startsWith("--")) throw new SkillsUsageError(`unrecognized argument "${a}"`);
     else names.push(a);
   }
-  if (names.length === 0) {
+  const canPick = process.stdin.isTTY === true && !flags.json && !process.env.RT_BATCH;
+  if (names.length === 0 && !canPick) {
     throw new SkillsUsageError("set requires a skill name", usageFailure("Which skill?", "rt skills direct-only set <name> --on --pack <pack>"));
   }
   if (on === off) {
@@ -3915,6 +3944,15 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
 
   try {
     const { key, rows } = await directOnlyTarget(flags);
+    if (names.length === 0) {
+      const picked = await pickDirectOnlyNames(rows, on);
+      if (picked === null) return;
+      if (picked.length === 0) {
+        out.print(out.line("skipped", "No changes made"));
+        return;
+      }
+      names = picked;
+    }
     for (const name of names) {
       const refusal = refuseDirectOnlyName(name, rows.find((r) => r.name === name));
       if (refusal) throw refusal;
@@ -3943,7 +3981,7 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
     out.print(
       out.line("done", on ? `${subject} will run only when you type it` : `${subject} can run on its own again`),
       ...warningLines(result.warnings),
-      ...(applied ? [] : [out.callout("why", "Your choice is saved. Claude still sees the installed copy as it was."), out.callout("next", ["After the file can be written, run ", out.cmd("rt skills direct-only reapply")])]),
+      ...(applied ? [] : unappliedCallouts(result.warnings, names)),
     );
   } catch (err) {
     if (!(err instanceof SkillsRefusal) || !flags.json) throw err;

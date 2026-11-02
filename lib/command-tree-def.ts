@@ -2527,8 +2527,9 @@ export const TREE: Record<string, CommandNode> = {
             description: "Make pack skills run only when you type them, or let Claude pick them again",
             module: "./commands/skills.ts",
             fn: "skillsDirectOnlySet",
+            omitBehavior: "picker",
             args: [
-              { name: "Skills", type: "text", optional: true, placeholder: "alpha beta", hint: "One or more skill names in the pack" },
+              { name: "Skills", type: "text", placeholder: "alpha beta", hint: "One or more skill names in the pack; omit to pick" },
               { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit to pick from the discovered packs" },
               { name: "On", flag: "--on", type: "boolean", default: false, hint: "Run the named skills only when you type them" },
               { name: "Off", flag: "--off", type: "boolean", default: false, hint: "Let Claude pick the named skills again" },

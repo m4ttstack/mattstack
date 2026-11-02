@@ -15,6 +15,8 @@ import { DIRECT_ONLY_MARK } from "../direct-only-line.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 import { skillsDirectOnly, skillsSurface } from "../../../commands/skills.ts";
 import { TREE } from "../../command-tree-def.ts";
+import { Readable } from "node:stream";
+import { installFakePick, type PickFake } from "../../ui/pick-fake.ts";
 
 const KEY = "widgets@market";
 const plain = (name: string) => `---\nname: ${name}\ndescription: d\n---\nbody\n`;
@@ -297,6 +299,90 @@ describe("rt skills direct-only set", () => {
     expect(git("status", "--porcelain")).toBe("");
     await skillsDirectOnly(["set", "alpha", "--off", "--pack", "widgets", "--json"]);
     expect(git("status", "--porcelain")).toBe("");
+  });
+});
+
+function withTTY<T>(fn: () => Promise<T>): Promise<T> {
+  const previousStdin = process.stdin;
+  const fakeStdin = new Readable({ read() {} }) as unknown as NodeJS.ReadStream;
+  Object.defineProperty(fakeStdin, "isTTY", { value: true, configurable: true });
+  Object.defineProperty(process, "stdin", { value: fakeStdin, configurable: true });
+  return fn().finally(() => Object.defineProperty(process, "stdin", { value: previousStdin, configurable: true }));
+}
+
+describe("rt skills direct-only set with no names", () => {
+  let fake: PickFake;
+  afterEach(() => fake?.restore());
+
+  test("at a terminal it opens a picker over the eligible skills and applies the choice", async () => {
+    const fx = fixture();
+    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    fake = installFakePick([{ kind: "result", result: { action: "select", value: null, query: "", values: ["alpha"] } }]);
+    await withTTY(() => skillsDirectOnly(["set", "--on", "--pack", "widgets"]));
+    expect(fake.calls).toHaveLength(1);
+    const rows = fake.calls[0]!.request.rows;
+    expect(rows.map((r) => r.value)).toEqual(["alpha", "gamma"]);
+    expect(JSON.stringify(rows.find((r) => r.value === "gamma")!.left)).toContain("only when you type it");
+    expect(JSON.stringify(rows.find((r) => r.value === "alpha")!.left)).toContain("Claude can pick it");
+    expect(chosen()).toEqual({ [KEY]: ["gamma", "alpha"] });
+    expect(read(fx.installed("alpha"))).toContain(DIRECT_ONLY_MARK);
+  });
+
+  test("cancelling the picker changes nothing", async () => {
+    fixture();
+    fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
+    await withTTY(() => skillsDirectOnly(["set", "--on", "--pack", "widgets"]));
+    expect(chosen()).toEqual({});
+  });
+
+  test("at a terminal without --on or --off it asks which, with no picker", async () => {
+    fixture();
+    fake = installFakePick([]);
+    const result = await runExpectingCleanExit(() => withTTY(() => skillsDirectOnly(["set", "--pack", "widgets"])));
+    expect(result.exitCode).toBe(1);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("without a terminal it keeps the which-skill failure and opens no picker", async () => {
+    fixture();
+    fake = installFakePick([]);
+    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "--on", "--pack", "widgets"]));
+    expect(result.exitCode).toBe(1);
+    expect(io.stderr()).toStartWith("Which skill?");
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("under --json even at a terminal it keeps the which-skill failure", async () => {
+    fixture();
+    fake = installFakePick([]);
+    const result = await runExpectingCleanExit(() => withTTY(() => skillsDirectOnly(["set", "--on", "--pack", "widgets", "--json"])));
+    expect(result.exitCode).toBe(1);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("the tree declares a picker for the omitted skill names", () => {
+    const set = TREE.skills!.subcommands!["direct-only"]!.subcommands!.set!;
+    expect(set.omitBehavior).toBe("picker");
+    expect(set.args!.find((a) => a.name === "Skills")!.optional).toBeUndefined();
+  });
+});
+
+describe("the next step after an unapplied choice", () => {
+  test("a read-only copy points at reapply for after the file is writable", async () => {
+    const fx = fixture();
+    chmodSync(fx.installed("alpha"), 0o444);
+    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]);
+    expect(io.lines().concat(io.errLines()).join("\n")).toContain("After the file can be written, run rt skills direct-only reapply");
+  });
+
+  test("any other reason gets the why and no reapply step", async () => {
+    const fx = fixture();
+    writeFileSync(fx.installed("alpha"), "no frontmatter here\n");
+    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]);
+    const text = io.lines().concat(io.errLines()).join("\n");
+    expect(text).toContain("no frontmatter");
+    expect(text).toContain("Your choice is saved");
+    expect(text).not.toContain("direct-only reapply");
   });
 });
 
