@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { UserActionableError } from "../../errors.ts";
 import {
   clearGitHubSignIn,
+  createGitHubRepo,
   githubLoginIfCanCreateRepos,
   pollDeviceToken,
   readGitHubSignIn,
@@ -156,5 +157,58 @@ describe("sign-in record", () => {
     writeGitHubSignIn(p, { ...base, pid: 42 });
     clearGitHubSignIn(p);
     expect(readGitHubSignIn(p, () => true)).toBeNull();
+  });
+});
+
+describe("createGitHubRepo", () => {
+  const created = (name: string) => json(201, { clone_url: `https://github.com/janedoe/${name}.git` });
+  const taken = json(422, { message: "Repository creation failed.", errors: [{ resource: "Repository", code: "custom", field: "name", message: "name already exists on this account" }] });
+
+  test("posts a private repo and returns its clone url", async () => {
+    const p = fakeProbes({ fetch: async () => created("mattstack-home") });
+    expect(await createGitHubRepo(p, "tok")).toBe("https://github.com/janedoe/mattstack-home.git");
+    const call = p.calls.fetchInits[0]!;
+    expect(call.url).toBe("https://api.github.com/user/repos");
+    expect(call.init?.method).toBe("POST");
+    expect(call.init?.body).toBe('{"name":"mattstack-home","private":true}');
+    expect(call.init?.headers?.["Content-Type"]).toBe("application/json");
+    expect(call.init?.headers?.Authorization).toBe("Bearer tok");
+    expect(call.init?.timeoutMs).toBe(15000);
+  });
+
+  test("uses the given base name", async () => {
+    const p = fakeProbes({ fetch: async () => created("acme-home") });
+    await createGitHubRepo(p, "tok", "acme-home");
+    expect(p.calls.fetchInits[0]!.init?.body).toBe('{"name":"acme-home","private":true}');
+  });
+
+  test("moves to the next suffix when the name is taken", async () => {
+    const p = fakeProbes({ fetch: async (_url, init) => (String(init?.body).includes('"mattstack-home-2"') ? created("mattstack-home-2") : taken) });
+    expect(await createGitHubRepo(p, "tok")).toBe("https://github.com/janedoe/mattstack-home-2.git");
+    expect(p.calls.fetchInits).toHaveLength(2);
+  });
+
+  test("gives up after -5", async () => {
+    const p = fakeProbes({ fetch: async () => taken });
+    const err = await createGitHubRepo(p, "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect(err.message).toBe("Could not find a free name for your settings repo");
+    expect(p.calls.fetchInits).toHaveLength(5);
+  });
+
+  test("any other failure surfaces GitHub's message and stops", async () => {
+    const p = fakeProbes({ fetch: async () => json(403, { message: "Resource not accessible by personal access token" }) });
+    const err = await createGitHubRepo(p, "secret-tok").catch((e) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect(err.why).toContain("Resource not accessible");
+    expect(`${err.message} ${err.why}`).not.toContain("secret-tok");
+    expect(p.calls.fetchInits).toHaveLength(1);
+  });
+
+  test("a 422 that is not about the name stops too", async () => {
+    const p = fakeProbes({ fetch: async () => json(422, { message: "Repository creation failed.", errors: [{ message: "private repos need a plan" }] }) });
+    const err = await createGitHubRepo(p, "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect(p.calls.fetchInits).toHaveLength(1);
   });
 });

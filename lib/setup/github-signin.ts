@@ -101,6 +101,34 @@ export async function githubLoginIfCanCreateRepos(p: Pick<Probes, "fetch">, toke
   return typeof login === "string" && login ? login : null;
 }
 
+const CREATE_REPO_URL = "https://api.github.com/user/repos";
+const REPO_BASE_NAME = "mattstack-home";
+const LAST_REPO_SUFFIX = 5;
+
+function nameTaken(body: string): boolean {
+  const errors = parseJson(body).errors;
+  return Array.isArray(errors) && errors.some((e) => typeof e?.message === "string" && /name already exists/i.test(e.message));
+}
+
+/** The first free of `base`, `base-2` ... `base-5` as a private repo; the https clone url ends `.git`. */
+export async function createGitHubRepo(p: Pick<Probes, "fetch">, token: string, base: string = REPO_BASE_NAME): Promise<string> {
+  for (let n = 1; n <= LAST_REPO_SUFFIX; n++) {
+    const name = n === 1 ? base : `${base}-${n}`;
+    const res = await p.fetch(CREATE_REPO_URL, {
+      method: "POST",
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, private: true }),
+      timeoutMs: TIMEOUT_MS,
+    });
+    const j = parseJson(res.body);
+    if (res.status === 201 && typeof j.clone_url === "string") return j.clone_url;
+    if (res.status === 422 && nameTaken(res.body)) continue;
+    const cause = typeof j.message === "string" ? j.message : `HTTP ${res.status}`;
+    throw new UserActionableError("github-create-failed", "GitHub didn't create your settings repo", {}, { why: `GitHub answered: ${cause}` });
+  }
+  throw new UserActionableError("github-create-failed", "Could not find a free name for your settings repo");
+}
+
 export interface GitHubSignIn {
   userCode: string;
   url: string;

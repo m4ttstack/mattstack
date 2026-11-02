@@ -6,10 +6,15 @@
 
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
+import { linkPath } from "../deps/links.ts";
+import { forgeTokenLookupReal, tokenOrNull } from "../team/forge-token.ts";
+import { gitWithToken } from "../team/git-credential.ts";
 import { hasUrlCredentials, withoutUrls } from "../team/redact.ts";
+import { createGitHubRepo } from "./github-signin.ts";
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState, type HomeBackupChoice } from "./state.ts";
 import { homeGitDir } from "./home-paths.ts";
+import { rtCredentialHelper } from "./steps/repos.ts";
 
 export type { HomeBackupChoice } from "./state.ts";
 
@@ -31,6 +36,7 @@ const HOME_REMOTE_DEFAULT_NAME = "mattstack-home";
 const GIT_REMOTE_URL_PATTERN = /^(?:(?:https?|ssh|git):\/\/[^\s/]+\/\S+|(?:[\w.-]+@)?[\w.-]+:[^\s-]\S*)$/;
 /** git must fail rather than prompt: the app and the daemon have no terminal to answer on. */
 const NO_PROMPT_ENV = { GIT_TERMINAL_PROMPT: "0" };
+const GITHUB_HOST_REMOTE = "https://github.com/mattstack/identity";
 
 export function assertRemoteUrl(url: string): void {
   if (hasUrlCredentials(url)) {
@@ -47,7 +53,11 @@ export function assertRemoteUrl(url: string): void {
  * and its message passes through `withoutUrls`: git echoes the remote
  * (credentials included) in its own messages.
  */
-export async function setHomeRemote(p: Probes, input: HomeRemoteInput, hooks: { onCreated?: (url: string) => void } = {}): Promise<HomeRemoteResult> {
+export async function setHomeRemote(
+  p: Probes,
+  input: HomeRemoteInput,
+  hooks: { onCreated?: (url: string) => void; githubToken?: () => Promise<string | null> } = {},
+): Promise<HomeRemoteResult> {
   let url = input.url;
   if (url) assertRemoteUrl(url);
 
@@ -57,15 +67,22 @@ export async function setHomeRemote(p: Probes, input: HomeRemoteInput, hooks: { 
   }
 
   let created = false;
+  let pushToken: string | null = null;
   if (!url) {
-    const repoName = input.name ?? HOME_REMOTE_DEFAULT_NAME;
-    const gh = await p.exec(["gh", "repo", "create", repoName, "--private"], { timeoutMs: 60_000, env: NO_PROMPT_ENV });
-    if (gh.code !== 0) {
-      throw new UserActionableError("create-failed", `Could not create ${repoName} with gh: ${withoutUrls((gh.stderr || gh.stdout).trim()) || `exit ${gh.code}`}`);
+    const token = await (hooks.githubToken ?? (async () => tokenOrNull(await forgeTokenLookupReal(p, GITHUB_HOST_REMOTE))))();
+    if (token) {
+      url = await createGitHubRepo(p, token, input.name);
+      pushToken = token;
+    } else {
+      const repoName = input.name ?? HOME_REMOTE_DEFAULT_NAME;
+      const gh = await p.exec(["gh", "repo", "create", repoName, "--private"], { timeoutMs: 60_000, env: NO_PROMPT_ENV });
+      if (gh.code !== 0) {
+        throw new UserActionableError("create-failed", `Could not create ${repoName} with gh: ${withoutUrls((gh.stderr || gh.stdout).trim()) || `exit ${gh.code}`}`);
+      }
+      const printed = gh.stdout.trim().split("\n").find((line) => /^https?:\/\//.test(line.trim()))?.trim();
+      if (!printed) throw new UserActionableError("create-failed", `gh created ${repoName} but printed no repository URL`);
+      url = printed.endsWith(".git") ? printed : `${printed}.git`;
     }
-    const printed = gh.stdout.trim().split("\n").find((line) => /^https?:\/\//.test(line.trim()))?.trim();
-    if (!printed) throw new UserActionableError("create-failed", `gh created ${repoName} but printed no repository URL`);
-    url = printed.endsWith(".git") ? printed : `${printed}.git`;
     assertRemoteUrl(url);
     created = true;
     hooks.onCreated?.(url);
@@ -81,7 +98,16 @@ export async function setHomeRemote(p: Probes, input: HomeRemoteInput, hooks: { 
   );
   if (set.code !== 0) throw new UserActionableError("remote-failed", `Could not set the remote: ${withoutUrls(set.stderr.trim()) || `exit ${set.code}`}`);
 
-  const push = await p.exec(["git", "-C", repoDir, "push", "-u", "origin", "HEAD"], { timeoutMs: 120_000, env: NO_PROMPT_ENV });
+  const rt = linkPath(p.home, "rt");
+  if (pushToken && p.exists(rt)) {
+    // The empty entry clears every helper before it for this host, so git's `store` cannot hand rt's token to a keychain.
+    for (const value of ["", rtCredentialHelper(rt)]) {
+      const helper = await p.exec(["git", "-C", repoDir, "config", "--add", "credential.https://github.com.helper", value], { env: NO_PROMPT_ENV });
+      if (helper.code !== 0) throw new UserActionableError("remote-failed", `Could not make rt the credential helper for GitHub: ${withoutUrls(helper.stderr.trim()) || `exit ${helper.code}`}`);
+    }
+  }
+  const git = gitWithToken(["-C", repoDir, "push", "-u", "origin", "HEAD"], pushToken, NO_PROMPT_ENV, { remote: url });
+  const push = await p.exec(git.argv, { timeoutMs: 120_000, env: git.env });
   if (push.code !== 0) {
     const reason = withoutUrls(push.stderr.trim()) || `exit ${push.code}`;
     if (previous !== null) {
