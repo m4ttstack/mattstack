@@ -696,6 +696,10 @@ function integrationNode(id: string, title: string): CommandNode {
   return { description: `${title}: check or connect this account`, subcommands };
 }
 
+function withSubcommands(node: CommandNode, extra: Record<string, CommandNode>): CommandNode {
+  return { ...node, subcommands: { ...node.subcommands, ...extra } };
+}
+
 export const TREE: Record<string, CommandNode> = {
   git: {
     description: "Everyday git shortcuts",
@@ -2914,7 +2918,15 @@ export const TREE: Record<string, CommandNode> = {
           },
         },
       },
-      github: integrationNode("github", "GitHub"),
+      github: withSubcommands(integrationNode("github", "GitHub"), {
+        "sign-in": {
+          description: "Sign in to GitHub so rt can back up your settings",
+          module: "./commands/setup-github.ts",
+          fn: "setupGitHubSignIn",
+          hidden: true,
+          args: [SETUP_JSON_ARG, { name: "Wait", flag: "--wait", type: "boolean", default: false, hint: "Wait for the browser sign-in to finish (rt starts this itself)" }],
+        },
+      }),
       gitlab: integrationNode("gitlab", "GitLab"),
       linear: integrationNode("linear", "Linear"),
       slack: integrationNode("slack", "Slack"),
