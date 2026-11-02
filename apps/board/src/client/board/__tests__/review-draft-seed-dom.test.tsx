@@ -1,9 +1,9 @@
-/** DOM-level test for the review sheet keeping its ticks and edits across a
-    rebuilt gate: the first sheet saves through `/review/sheet-draft`, a
-    second gate for the same MR (same finding ids, a new gate id) restores
-    them, and only a revision the second gate itself carries takes the
-    agent's new comment instead of the saved edit. The server is an
-    in-memory stand-in for the route. */
+/** DOM-level test for a re-raised review gate starting from the reviewer's
+    draft: the queue modal (keyed by gate id, as Board mounts it) saves the
+    first gate's ticks and edits as gate-kit's per-gate draft, and a second
+    gate the MR's row names as its successor in the same run seeds from that
+    draft. Only a revision the second gate carries takes the agent's new
+    comment instead of the saved edit. */
 
 import React from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
@@ -18,10 +18,10 @@ import {
 import { MotionGlobalConfig } from 'motion/react';
 import { createRoot, type Root } from 'react-dom/client';
 
+import { gateDraftKey } from '@mattstack/gate-kit/react';
 import type { GateRow } from '../../../gates/store.ts';
 import type { BoardMRWithReview } from '../../types.ts';
-import { useGateForm } from '../GateForm.tsx';
-import { ReviewGateSheet } from '../ReviewGateSheet.tsx';
+import { DecisionQueueModal } from '../DecisionQueueModal.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 // happy-dom's Web Animations stub rejects a cancelled animation, which motion
@@ -59,7 +59,7 @@ function gateFor(gateId: string, drafts: Record<string, string>): GateRow {
   const findings = FINDINGS.filter(f => f.id in drafts);
   return {
     gateId,
-    subject: `mr:${MR_URL.replace('https://', '')}`,
+    subject: `mr:${MR_URL}`,
     kind: 'review-post',
     label: 'review',
     status: 'open',
@@ -101,12 +101,15 @@ function gateFor(gateId: string, drafts: Record<string, string>): GateRow {
   };
 }
 
-/** The MR row, with `revisedIds` as the findings the server reports `gateId`
-    revised from the gate it superseded. */
-const mrWith = (
-  gateId?: string,
-  revisedIds: string[] = []
-): BoardMRWithReview =>
+/** The MR row. `revision` is what the server reports for the open gate:
+    the gate it superseded in this run, that gate's findings, and the
+    findings it revised. */
+const mrWith = (revision?: {
+  gateId: string;
+  previousGateId: string;
+  previousFindingIds?: string[];
+  revisedIds?: string[];
+}): BoardMRWithReview =>
   ({
     iid: 31,
     title: 'a change',
@@ -116,12 +119,18 @@ const mrWith = (
     targetBranch: 'main',
     createdAt: '2026-09-17T00:00:00.000Z',
     diff: { additions: 4, deletions: 1, filesChanged: 1 },
-    ...(gateId
+    ...(revision
       ? {
           reviewRevision: {
-            gateId,
+            gateId: revision.gateId,
+            previousGateId: revision.previousGateId,
+            previousFindingIds: revision.previousFindingIds ?? [
+              'f1',
+              'f2',
+              'f3',
+            ],
             revised: Object.fromEntries(
-              revisedIds.map(id => [
+              (revision.revisedIds ?? []).map(id => [
                 id,
                 {
                   original: {
@@ -138,71 +147,15 @@ const mrWith = (
       : {}),
   }) as unknown as BoardMRWithReview;
 
-function Host({ gate, mr }: { gate: GateRow; mr: BoardMRWithReview }) {
-  const form = useGateForm(gate);
-  return (
-    <ReviewGateSheet
-      gate={gate}
-      mr={mr}
-      form={form}
-      queue={{
-        index: 0,
-        total: 1,
-        states: ['active'],
-        canNext: false,
-        canPrev: false,
-        onPrev: () => {},
-        onNext: () => {},
-      }}
-      onClose={() => {}}
-      onContinue={() => {}}
-      onFocusPane={() => {}}
-    />
-  );
-}
-
 let root: Root;
 let container: HTMLElement;
-/** The gate each test gate superseded, as the board's gate cache reports it
-    (`previousReviewGateId`). A gate missing here starts a different run. */
-const PREVIOUS: Record<string, string> = { 'g-b': 'g-a', 'g-c': 'g-b' };
-
-/** The route's stand-in: the saved draft and every request it saw. */
-let saved: unknown;
-let requests: Array<{ method: string; url: string }>;
-let readFails: boolean;
 
 beforeEach(() => {
   localStorage.clear();
-  saved = null;
-  requests = [];
-  readFails = false;
   (globalThis as { fetch: unknown }).fetch = async (
-    input: RequestInfo | URL,
-    init?: { method?: string; body?: string }
+    input: RequestInfo | URL
   ) => {
     const url = typeof input === 'string' ? input : input.toString();
-    const method = init?.method ?? 'GET';
-    if (url.startsWith('/review/sheet-draft')) {
-      requests.push({ method, url });
-      if (method === 'PUT') {
-        saved = (JSON.parse(init!.body!) as { draft: unknown }).draft;
-        return new Response('{"ok":true}');
-      }
-      if (readFails) return new Response('boom', { status: 500 });
-      const gate = new URL(url, 'http://localhost').searchParams.get('gate');
-      return new Response(
-        JSON.stringify({
-          draft: saved,
-          previousGateId: (gate && PREVIOUS[gate]) ?? null,
-        })
-      );
-    }
-    if (url === '/gate/answer') {
-      // A real answer takes a round trip, long enough for `busy` to render.
-      await new Promise(resolve => setTimeout(resolve, 30));
-      return new Response('{"ok":true}');
-    }
     if (url.startsWith('/review/report.json'))
       return new Response('none', { status: 404 });
     return new Response('{"ok":true}');
@@ -226,22 +179,32 @@ const settle = (ms = 0) =>
     mounts a fresh form. */
 async function show(gate: GateRow, mr: BoardMRWithReview) {
   await React.act(async () => {
-    root.render(<Host key={gate.gateId} gate={gate} mr={mr} />);
+    root.render(
+      <DecisionQueueModal
+        key={gate.gateId}
+        gate={gate}
+        mr={mr}
+        position={1}
+        states={['active']}
+        onClose={() => {}}
+        onNext={() => {}}
+        onBack={() => {}}
+        onFocusPane={() => {}}
+        onAnswered={() => {}}
+        onContinue={() => {}}
+      />
+    );
   });
   await settle();
 }
 
-const checkbox = (title: string) =>
-  [...container.querySelectorAll('.tui-review-finding-row')]
-    .find(
-      r => r.querySelector('.tui-review-finding-title')?.textContent === title
-    )!
-    .querySelector('input[type="checkbox"]') as HTMLInputElement;
-
 const card = (title: string) =>
-  [...container.querySelectorAll('.tui-review-finding')].find(
+  [...document.body.querySelectorAll('.tui-review-finding')].find(
     r => r.querySelector('.tui-review-finding-title')?.textContent === title
   )!;
+
+const checkbox = (title: string) =>
+  card(title).querySelector('input[type="checkbox"]') as HTMLInputElement;
 
 /** A finding's comment as the field shows it: the raw text while it is open,
     the rendered text at rest (the field is click-to-edit). */
@@ -272,23 +235,29 @@ async function edit(title: string, text: string) {
   });
 }
 
+const savedDraft = (gateId: string) => {
+  const raw = localStorage.getItem(gateDraftKey(gateId));
+  return raw === null ? null : (JSON.parse(raw) as Record<string, unknown>);
+};
+
 const DRAFTS_A = { f1: 'draft one', f2: 'draft two', f3: 'draft three' };
 const DRAFTS_B = { f1: 'draft one', f2: 'draft two', f3: 'REVISED three' };
 
-/** Sheet A: untick f2, edit f3's comment, and let the debounce save. */
+/** Sheet A: untick f2 and edit f3's comment. */
 async function userEditsGateA() {
   await show(gateFor('g-a', DRAFTS_A), mrWith());
   await React.act(async () => checkbox('Second finding').click());
   await edit('Third finding', 'my own wording');
-  await settle(700);
+  await settle();
 }
 
-describe('a rebuilt review gate', () => {
-  test('restores the unticked finding and the comment edit', async () => {
+describe('a re-raised review gate', () => {
+  test('starts from the unticked finding and the comment edit', async () => {
     await userEditsGateA();
-    expect(requests.filter(r => r.method === 'PUT').length).toBe(1);
-
-    await show(gateFor('g-b', DRAFTS_A), mrWith());
+    await show(
+      gateFor('g-b', DRAFTS_A),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a' })
+    );
     expect(checkbox('First finding').checked).toBe(true);
     expect(checkbox('Second finding').checked).toBe(false);
     expect(checkbox('Third finding').checked).toBe(true);
@@ -296,115 +265,112 @@ describe('a rebuilt review gate', () => {
     expect(comment('First finding')).toBe('draft one');
   });
 
+  test("saves its own draft and drops the superseded gate's", async () => {
+    await userEditsGateA();
+    expect(savedDraft('g-a')).not.toBeNull();
+    await show(
+      gateFor('g-b', DRAFTS_A),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a' })
+    );
+    expect(savedDraft('g-a')).toBeNull();
+    expect(
+      (savedDraft('g-b')!.texts as Record<string, string>)['comment:f3']
+    ).toBe('my own wording');
+  });
+
   test('a finding revised in this gate keeps its tick and takes the new draft', async () => {
     await userEditsGateA();
-    await show(gateFor('g-b', DRAFTS_B), mrWith('g-b', ['f3']));
+    await show(
+      gateFor('g-b', DRAFTS_B),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a', revisedIds: ['f3'] })
+    );
     expect(checkbox('Second finding').checked).toBe(false);
     expect(checkbox('Third finding').checked).toBe(true);
     expect(comment('Third finding')).toBe('REVISED three');
   });
 
-  test('a revision an earlier gate carried does not discard later edits', async () => {
+  test('a finding new to the re-raised gate keeps its default tick and draft', async () => {
     await userEditsGateA();
-    await show(gateFor('g-b', DRAFTS_B), mrWith('g-earlier', ['f3']));
-    expect(comment('Third finding')).toBe('my own wording');
-  });
-
-  test('a finding new to the rebuilt gate keeps its default tick and draft', async () => {
-    await userEditsGateA();
-    await show(gateFor('g-b', { ...DRAFTS_A, f4: 'draft four' }), mrWith());
+    await show(
+      gateFor('g-b', { ...DRAFTS_A, f4: 'draft four' }),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a' })
+    );
     expect(checkbox('Second finding').checked).toBe(false);
     expect(checkbox('Fourth finding').checked).toBe(true);
     expect(comment('Fourth finding')).toBe('draft four');
   });
 
-  test('a draft saved before known existed restores nothing', async () => {
-    saved = {
-      ticked: ['f1'],
-      texts: { 'comment:f3': 'old edit' },
-      notes: {},
-    };
-    await show(gateFor('g-b', DRAFTS_A), mrWith());
-    expect(checkbox('Second finding').checked).toBe(true);
-    expect(comment('Third finding')).toBe('draft three');
+  test('the verdict and its note carry over too', async () => {
+    localStorage.setItem(
+      gateDraftKey('g-a'),
+      JSON.stringify({
+        selections: { findings: ['f1', 'f3'], outcome: 'comment' },
+        notes: { outcome: 'one more pass' },
+        texts: {},
+        item: null,
+      })
+    );
+    await show(
+      gateFor('g-b', DRAFTS_A),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a' })
+    );
+    const draft = savedDraft('g-b')!;
+    expect((draft.selections as Record<string, unknown>).outcome).toBe(
+      'comment'
+    );
+    expect(draft.notes).toEqual({ outcome: 'one more pass' });
   });
 
-  test('a dropped revised comment is saved, so a later gate does not bring the old edit back', async () => {
+  test('a later re-raise keeps the revised draft, not the edit it replaced', async () => {
     await userEditsGateA();
-    // Gate B revises f3: the edit is dropped for the new draft.
-    await show(gateFor('g-b', DRAFTS_B), mrWith('g-b', ['f3']));
+    await show(
+      gateFor('g-b', DRAFTS_B),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a', revisedIds: ['f3'] })
+    );
     expect(comment('Third finding')).toBe('REVISED three');
-    await settle(700);
-    // Gate C revises f1; f3's revised text from B must stand, not A's edit.
     await show(
       gateFor('g-c', { ...DRAFTS_B, f1: 'REVISED one' }),
-      mrWith('g-c', ['f1'])
+      mrWith({ gateId: 'g-c', previousGateId: 'g-b', revisedIds: ['f1'] })
     );
     expect(comment('Third finding')).toBe('REVISED three');
     expect(comment('First finding')).toBe('REVISED one');
     expect(checkbox('Second finding').checked).toBe(false);
   });
 
-  test('opening a gate with nothing saved writes nothing', async () => {
-    await show(gateFor('g-a', DRAFTS_A), mrWith());
-    await settle(700);
-    expect(requests.map(r => r.method)).toEqual(['GET']);
-  });
-
-  test('the new gate does not overwrite the saved draft before restoring it', async () => {
+  test('a gate the row names no predecessor for starts fresh', async () => {
     await userEditsGateA();
-    const before = saved as { gateId?: string };
-    expect(before.gateId).toBe('g-a');
-    await show(gateFor('g-b', DRAFTS_A), mrWith());
-    await settle(700);
-    // The restored state equals the draft: only the gate it is filed under
-    // moves to the gate on screen, so the gate that supersedes this one
-    // still finds it.
-    expect(saved).toEqual({ ...before, gateId: 'g-b' });
-    expect(requests.filter(r => r.method === 'PUT').length).toBe(2);
-  });
-
-  test('a draft saved on another review run restores nothing and is left alone', async () => {
-    await userEditsGateA();
-    const before = JSON.stringify(saved);
     await show(gateFor('g-other-run', DRAFTS_A), mrWith());
     expect(checkbox('Second finding').checked).toBe(true);
     expect(comment('Third finding')).toBe('draft three');
-    await settle(700);
-    expect(JSON.stringify(saved)).toBe(before);
-    expect(requests.at(-1)?.url).toContain('gate=g-other-run');
+    expect(savedDraft('g-a')).not.toBeNull();
   });
 
-  test('a draft with no gate id restores nothing', async () => {
-    saved = {
-      ticked: ['f1'],
-      known: ['f1', 'f2', 'f3'],
-      texts: { 'comment:f3': 'old edit' },
-      notes: {},
-    };
-    await show(gateFor('g-b', DRAFTS_A), mrWith());
+  test('a revision of another gate seeds nothing', async () => {
+    await userEditsGateA();
+    await show(
+      gateFor('g-b', DRAFTS_A),
+      mrWith({ gateId: 'g-elsewhere', previousGateId: 'g-a' })
+    );
     expect(checkbox('Second finding').checked).toBe(true);
     expect(comment('Third finding')).toBe('draft three');
   });
 
-  test('submitting stops saving, so a late write cannot revive the deleted draft', async () => {
-    await show(gateFor('g-a', DRAFTS_A), mrWith());
-    await edit('Third finding', 'typed just before submit');
-    await React.act(async () => {
-      container.querySelector<HTMLButtonElement>('.tui-sheet-submit')!.click();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-    await settle(700);
-    expect(requests.filter(r => r.method === 'PUT').length).toBe(0);
-  });
-
-  test('a failed read leaves the saved draft alone', async () => {
+  test("a gate with a draft of its own keeps it over the predecessor's", async () => {
     await userEditsGateA();
-    const before = JSON.stringify(saved);
-    readFails = true;
-    await show(gateFor('g-b', DRAFTS_A), mrWith());
-    await React.act(async () => checkbox('First finding').click());
-    await settle(700);
-    expect(JSON.stringify(saved)).toBe(before);
+    localStorage.setItem(
+      gateDraftKey('g-b'),
+      JSON.stringify({
+        selections: { findings: ['f2'] },
+        notes: {},
+        texts: {},
+        item: null,
+      })
+    );
+    await show(
+      gateFor('g-b', DRAFTS_A),
+      mrWith({ gateId: 'g-b', previousGateId: 'g-a' })
+    );
+    expect(checkbox('First finding').checked).toBe(false);
+    expect(checkbox('Second finding').checked).toBe(true);
   });
 });

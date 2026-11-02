@@ -22,7 +22,6 @@ import {
   respondFilePath,
   writeRespondState,
 } from './respond-state.ts';
-import { deleteSheetDraft } from './review-sheet-draft.ts';
 import {
   readReviewStates,
   reviewFilePath,
@@ -112,8 +111,6 @@ export interface ReReviewIo {
   writeReviewState: typeof writeReviewState;
   readReviewStates: typeof readReviewStates;
   reviewFilePath: typeof reviewFilePath;
-  /** Drops the MR's saved review sheet draft (`deleteSheetDraft`). */
-  deleteSheetDraft(mrUrl: string): void;
 }
 
 export const defaultReReviewIo: ReReviewIo = {
@@ -123,7 +120,6 @@ export const defaultReReviewIo: ReReviewIo = {
   writeReviewState,
   readReviewStates,
   reviewFilePath,
-  deleteSheetDraft: mrUrl => deleteSheetDraft(mrUrl),
 };
 
 /** Start a re-review of an MR: resume the prior session if there is one, else
@@ -181,10 +177,6 @@ export async function launchReReview(
     });
     return { kind: 'error', message };
   }
-
-  // Every arm below starts a new review run, whose gate is not a re-raise of
-  // the last run's: its ticks and edits must not carry over.
-  io.deleteSheetDraft(mrUrl);
 
   if (existing?.agentId) {
     io.writeReviewState(statePath, {

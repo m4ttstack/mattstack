@@ -10,6 +10,8 @@ import { hasQuestionForm } from './question-form.ts';
 // of a review gate goes into the review agent's own pane as
 // `/board:review-finding-question <gate> <finding> "<question>"`, so the
 // session that wrote the finding answers it (skills-src/review-finding-question).
+// A parked gate's pane was closed on park, so its question resumes the
+// session with that line as the prompt instead.
 // server.ts is the shell; this module owns the checks and the delivery.
 
 export const FINDING_ID_RE = /^[A-Za-z0-9._:-]+$/;
@@ -18,6 +20,10 @@ export const MAX_QUESTION_CHARS = 2000;
 export const ESCAPE_SETTLE_MS = 600;
 export const NO_REVIEW_PANE =
   "the review pane isn't running; resume the review from its row first";
+/** A parked gate whose resume tab is already open: the pane is on its way
+    up, and a second resume would only focus it. */
+export const REVIEW_RESUMING =
+  'the review pane is already reopening; ask again once it is up';
 /** The pane is blocked on something other than Claude Code's question form
     (a permission prompt, a trust dialog): an Escape there would answer it. */
 export const PANE_AT_OTHER_PROMPT =
@@ -26,11 +32,22 @@ export const PANE_AT_OTHER_PROMPT =
 export interface FindingQuestionIo {
   /** The MR's review-post gate in the board's gate cache, any status. */
   reviewGate(mrUrl: string): FacilityGateRow | undefined;
-  /** The review lane's pane, herdr tab and Claude session on file
+  /** The review lane's herdr tab, Claude session and rt agent on file
       (`readReviewStates()`). */
   reviewPane(
     mrUrl: string
-  ): { paneId?: string; tabId?: string; sessionId?: string } | undefined;
+  ): { tabId?: string; sessionId?: string; agentId?: string } | undefined;
+  /** The pane running that Claude session, or null when none runs it
+      (rt-client `paneSelf` with no pane given, so a stale pane on file is
+      never the answer); throws when the daemon cannot say. */
+  sessionPane(sessionId: string): Promise<string | null>;
+  /** Resumes the review's agent with `prompt` as its first message, the way
+      a parked gate's answer resumes it (`resumeAgentPane` under the same
+      tab label, so a resume tab already open is only focused). */
+  resumeReview(
+    mrUrl: string,
+    prompt: string
+  ): Promise<{ focusedExisting: boolean; paneId: string; tabId: string }>;
   /** rt-client `paneSend`. `selfSession` has the daemon send to the pane
       running that Claude session, `paneId` being the fallback; the reply's
       `paneId` names the pane it went to. */
@@ -50,7 +67,7 @@ export interface FindingQuestionIo {
 
 export interface FindingQuestionResult {
   status: number;
-  body: string | { ok: true };
+  body: string | { ok: true; resumed?: true };
 }
 
 interface Body {
@@ -137,6 +154,22 @@ function failureReason(res: {
   return `the review pane didn't take the question: ${res.data?.delivered ?? 'no answer'}${res.data?.reason ? ` (${res.data.reason})` : ''}`;
 }
 
+const message = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
+
+/** Brings the pane forward. The question is in; a focus that fails must not
+    report it lost. */
+async function focusQuietly(
+  io: FindingQuestionIo,
+  state: { paneId: string; tabId?: string }
+): Promise<void> {
+  try {
+    await io.focusPane(state);
+  } catch (err) {
+    io.logError?.(`finding question focus failed: ${message(err)}`);
+  }
+}
+
 export async function handleFindingQuestion(
   raw: unknown,
   io: FindingQuestionIo
@@ -161,7 +194,11 @@ export async function handleFindingQuestion(
     };
 
   const gate = io.reviewGate(body.mrUrl);
-  if (!gate || gate.status !== 'open' || gate.id !== body.gateId)
+  if (
+    !gate ||
+    gate.id !== body.gateId ||
+    (gate.status !== 'open' && gate.status !== 'parked')
+  )
     return {
       status: 409,
       body: "that gate isn't this MR's open review gate any more",
@@ -169,18 +206,48 @@ export async function handleFindingQuestion(
   if (!gateFindingIds(gate).has(body.findingId))
     return { status: 409, body: "the review gate doesn't list that finding" };
   const lane = io.reviewPane(body.mrUrl);
-  const paneId = lane?.paneId;
-  if (!paneId) return { status: 409, body: NO_REVIEW_PANE };
-
   const text = findingQuestionText(body.gateId, body.findingId, question);
-  // The pane on file can be stale (herdr renumbers panes across restarts),
-  // so the send names the review's Claude session and the daemon resolves
-  // the pane running it. Every later step uses the pane the send went to.
+
+  // The pane on file can be stale (herdr renumbers panes across restarts)
+  // and can belong to another agent by now, so the session is resolved
+  // first and nothing is typed anywhere when no pane runs it.
+  let paneId: string | null = null;
+  if (lane?.sessionId) {
+    try {
+      paneId = await io.sessionPane(lane.sessionId);
+    } catch (err) {
+      return {
+        status: 409,
+        body: `couldn't find the review pane: ${message(err)}`,
+      };
+    }
+  }
+  if (!paneId) {
+    if (gate.status !== 'parked' || !lane?.agentId)
+      return { status: 409, body: NO_REVIEW_PANE };
+    let resumed;
+    try {
+      resumed = await io.resumeReview(body.mrUrl, text);
+    } catch (err) {
+      return {
+        status: 409,
+        body: `the review didn't resume: ${message(err)}`,
+      };
+    }
+    if (resumed.focusedExisting) return { status: 409, body: REVIEW_RESUMING };
+    await focusQuietly(io, {
+      paneId: resumed.paneId,
+      ...(resumed.tabId ? { tabId: resumed.tabId } : {}),
+    });
+    return { status: 200, body: { ok: true, resumed: true } };
+  }
+
+  // Every later step uses the pane the send went to.
   const send = (target: string) =>
     io.paneSend({
       paneId: target,
       text,
-      ...(lane.sessionId ? { selfSession: lane.sessionId } : {}),
+      ...(lane?.sessionId ? { selfSession: lane.sessionId } : {}),
     });
   let res = await send(paneId);
   let livePane = (res.ok && res.data?.paneId) || paneId;
@@ -193,13 +260,18 @@ export async function handleFindingQuestion(
     try {
       screen = await io.readScreen(livePane);
     } catch (err) {
-      io.logError?.(
-        `finding question screen read failed: ${err instanceof Error ? err.message : err}`
-      );
+      io.logError?.(`finding question screen read failed: ${message(err)}`);
     }
     if (screen === null || !hasQuestionForm(screen))
       return { status: 409, body: PANE_AT_OTHER_PROMPT };
-    await io.sendEscape(livePane);
+    try {
+      await io.sendEscape(livePane);
+    } catch (err) {
+      return {
+        status: 409,
+        body: `the review pane didn't take the question: ${message(err)}`,
+      };
+    }
     await io.sleep(ESCAPE_SETTLE_MS);
     res = await send(livePane);
     livePane = (res.ok && res.data?.paneId) || livePane;
@@ -208,14 +280,7 @@ export async function handleFindingQuestion(
   if (delivered(res) !== 'ok') return { status: 409, body: failureReason(res) };
 
   // Flock comes forward on the pane; the tab is herdr's fallback.
-  const tabId = body.tabId ?? lane.tabId;
-  // The question is in; a focus that fails must not report it lost.
-  try {
-    await io.focusPane({ paneId: livePane, ...(tabId ? { tabId } : {}) });
-  } catch (err) {
-    io.logError?.(
-      `finding question focus failed: ${err instanceof Error ? err.message : err}`
-    );
-  }
+  const tabId = body.tabId ?? lane?.tabId;
+  await focusQuietly(io, { paneId: livePane, ...(tabId ? { tabId } : {}) });
   return { status: 200, body: { ok: true } };
 }

@@ -5,6 +5,7 @@ import {
   domainForKind,
   type GateDomain,
 } from '@mattstack/gate-kit';
+import { clearGateDraft, readGateDraft } from '@mattstack/gate-kit/react';
 import { Button, CHECK_ICON, Chip, Icon } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { gateContext } from '../../gates/wait-meta.ts';
@@ -18,6 +19,11 @@ import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
 import { mrRef } from './MrLinks.tsx';
 import { postPicks } from './respond-post.ts';
 import { RespondSheetBody } from './RespondSheet.tsx';
+import {
+  reviewFindingIds,
+  reviewPredecessor,
+  seedReviewDraft,
+} from './review-draft-seed.ts';
 import { isReviewSheetGate, paneContext } from './review-gate.ts';
 import { ReviewGateSheet, type AskQuestion } from './ReviewGateSheet.tsx';
 import { paneReason, PaneSheetBody, StageSheetBody } from './StageSheet.tsx';
@@ -131,7 +137,30 @@ function DecisionQueueModal({
   const isReviewSheet = useMemo(() => isReviewSheetGate(gate), [gate]);
   const answered = gate.status === 'answered';
   const actionable = gate.status === 'open' || gate.status === 'parked';
-  const form = useGateForm(gate, onAnswered, { readOnly: Boolean(readOnly) });
+  // A review gate the agent re-raised after revising a finding starts from
+  // the draft the reviewer left on the gate it superseded.
+  const predecessor = isReviewSheet
+    ? reviewPredecessor(gate, mr?.reviewRevision)
+    : undefined;
+  const form = useGateForm(gate, onAnswered, {
+    readOnly: Boolean(readOnly),
+    ...(predecessor
+      ? {
+          seed: () =>
+            seedReviewDraft(readGateDraft(predecessor.previousGateId), {
+              findingIds: reviewFindingIds(gate),
+              previousFindingIds: predecessor.previousFindingIds,
+              revisedIds: Object.keys(predecessor.revised),
+            }),
+        }
+      : {}),
+  });
+  // The seed was read on the first render and this gate saves its own draft
+  // from then on, so the superseded gate's is done with.
+  const previousGateId = predecessor?.previousGateId;
+  useEffect(() => {
+    if (previousGateId) clearGateDraft(previousGateId);
+  }, [previousGateId]);
   const deliveryStuck = answered && gate.delivery?.outcome === 'stuck';
   const executionUnassigned = answered && gate.execution === 'unassigned';
   const reason = gate.kind === 'pane-attention' ? paneReason(gate) : undefined;

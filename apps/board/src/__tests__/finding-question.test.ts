@@ -13,6 +13,7 @@ import {
   NO_REVIEW_PANE,
   PANE_AT_OTHER_PROMPT,
   quoteQuestion,
+  REVIEW_RESUMING,
   type FindingQuestionIo,
 } from '../finding-question.ts';
 
@@ -107,9 +108,20 @@ function io(
   const texts: string[] = [];
   const sessions: Array<string | undefined> = [];
   const focused: Array<{ paneId: string; tabId?: string }> = [];
+  const resumed: Array<{ mrUrl: string; prompt: string }> = [];
   const value: FindingQuestionIo = {
     reviewGate: () => gateRow(),
-    reviewPane: () => ({ paneId: 'w1:p1', tabId: 'w1:t1' }),
+    reviewPane: () => ({
+      tabId: 'w1:t1',
+      sessionId: 'sess-1',
+      agentId: 'agent-1',
+    }),
+    sessionPane: async () => 'w1:p1',
+    resumeReview: async (mrUrl, prompt) => {
+      calls.push('resume');
+      resumed.push({ mrUrl, prompt });
+      return { focusedExisting: false, paneId: 'w5:p2', tabId: 'w5:t2' };
+    },
     paneSend: async ({ paneId, text, selfSession }) => {
       calls.push(`send:${paneId}`);
       texts.push(text);
@@ -132,7 +144,7 @@ function io(
     },
     ...over,
   };
-  return { io: value, calls, texts, sessions, focused };
+  return { io: value, calls, texts, sessions, focused, resumed };
 }
 
 const body = (over: Record<string, unknown> = {}) => ({
@@ -187,7 +199,8 @@ describe('handleFindingQuestion refusals', () => {
     for (const reviewGate of [
       () => undefined,
       () => gateRow({ id: 'g-other' }),
-      () => gateRow({ status: 'parked' }),
+      () => gateRow({ status: 'answered' }),
+      () => gateRow({ status: 'closed' }),
     ]) {
       const { io: deps, calls } = io({ reviewGate });
       const res = await handleFindingQuestion(body(), deps);
@@ -203,13 +216,32 @@ describe('handleFindingQuestion refusals', () => {
     expect(calls).toEqual([]);
   });
 
-  test('409 with the resume hint when the review has no pane on file', async () => {
+  test('409 with the resume hint when the review has no session on file', async () => {
     const { io: deps, calls } = io({ reviewPane: () => ({ tabId: 'w1:t1' }) });
     const res = await handleFindingQuestion(body(), deps);
     expect(res).toEqual({ status: 409, body: NO_REVIEW_PANE });
     expect(NO_REVIEW_PANE).toBe(
       "the review pane isn't running; resume the review from its row first"
     );
+    expect(calls).toEqual([]);
+  });
+
+  test('409 with the resume hint, typing nothing, when no pane runs the session', async () => {
+    const { io: deps, calls } = io({ sessionPane: async () => null });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res).toEqual({ status: 409, body: NO_REVIEW_PANE });
+    expect(calls).toEqual([]);
+  });
+
+  test('409, typing nothing, when rt cannot say where the session runs', async () => {
+    const { io: deps, calls } = io({
+      sessionPane: async () => {
+        throw new Error('daemon unreachable');
+      },
+    });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res.status).toBe(409);
+    expect(res.body).toContain('daemon unreachable');
     expect(calls).toEqual([]);
   });
 
@@ -323,19 +355,10 @@ describe('handleFindingQuestion delivery', () => {
       calls,
       sessions,
       focused,
-    } = io(
-      {
-        reviewPane: () => ({
-          paneId: 'w1:p1',
-          tabId: 'w1:t1',
-          sessionId: 'sess-1',
-        }),
-      },
-      [
-        sent('refused', 'at a prompt', 'w3:p7'),
-        sent('accepted', undefined, 'w3:p7'),
-      ]
-    );
+    } = io({}, [
+      sent('refused', 'at a prompt', 'w3:p7'),
+      sent('accepted', undefined, 'w3:p7'),
+    ]);
     const res = await handleFindingQuestion(body(), deps);
     expect(res.status).toBe(200);
     expect(sessions).toEqual(['sess-1', 'sess-1']);
@@ -350,10 +373,19 @@ describe('handleFindingQuestion delivery', () => {
     expect(focused).toEqual([{ paneId: 'w3:p7', tabId: 'w1:t1' }]);
   });
 
-  test('no session on file sends by pane id alone', async () => {
-    const { io: deps, sessions } = io();
-    await handleFindingQuestion(body(), deps);
-    expect(sessions).toEqual([undefined]);
+  test('an Escape herdr fails to send is a 409, and the line is not sent again', async () => {
+    const { io: deps, calls } = io(
+      {
+        sendEscape: async () => {
+          throw new Error('herdr down');
+        },
+      },
+      [sent('refused', 'at a prompt')]
+    );
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res.status).toBe(409);
+    expect(res.body).toContain('herdr down');
+    expect(calls).toEqual(['send:w1:p1', 'read:w1:p1']);
   });
 
   test('a pane that is gone is the resume hint', async () => {
@@ -373,5 +405,78 @@ describe('handleFindingQuestion delivery', () => {
       status: 200,
       body: { ok: true },
     });
+  });
+});
+
+describe('handleFindingQuestion on a parked gate', () => {
+  const parked = () => gateRow({ status: 'parked' });
+
+  test('resumes the session with the line as its prompt and focuses the new pane', async () => {
+    const {
+      io: deps,
+      calls,
+      resumed,
+      focused,
+    } = io({
+      reviewGate: parked,
+      sessionPane: async () => null,
+    });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res).toEqual({ status: 200, body: { ok: true, resumed: true } });
+    expect(resumed).toEqual([
+      {
+        mrUrl: MR,
+        prompt:
+          '/board:review-finding-question g-review f2 "Is this really Important?"',
+      },
+    ]);
+    expect(calls).toEqual(['resume', 'focus']);
+    expect(focused).toEqual([{ paneId: 'w5:p2', tabId: 'w5:t2' }]);
+  });
+
+  test('a resume tab already open is only focused, so the question is a 409', async () => {
+    const { io: deps, calls } = io({
+      reviewGate: parked,
+      sessionPane: async () => null,
+      resumeReview: async () => ({
+        focusedExisting: true,
+        paneId: '',
+        tabId: '',
+      }),
+    });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res).toEqual({ status: 409, body: REVIEW_RESUMING });
+    expect(calls).toEqual([]);
+  });
+
+  test('a resume that fails is a 409 carrying why', async () => {
+    const { io: deps } = io({
+      reviewGate: parked,
+      sessionPane: async () => null,
+      resumeReview: async () => {
+        throw new Error('agent not found');
+      },
+    });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res.status).toBe(409);
+    expect(res.body).toContain('agent not found');
+  });
+
+  test('no agent on file to resume is the resume hint', async () => {
+    const { io: deps, calls } = io({
+      reviewGate: parked,
+      reviewPane: () => ({ sessionId: 'sess-1' }),
+      sessionPane: async () => null,
+    });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res).toEqual({ status: 409, body: NO_REVIEW_PANE });
+    expect(calls).toEqual([]);
+  });
+
+  test('a session already running again takes the line in its pane', async () => {
+    const { io: deps, calls } = io({ reviewGate: parked });
+    const res = await handleFindingQuestion(body(), deps);
+    expect(res).toEqual({ status: 200, body: { ok: true } });
+    expect(calls).toEqual(['send:w1:p1', 'focus']);
   });
 });

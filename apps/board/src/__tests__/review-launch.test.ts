@@ -20,11 +20,6 @@ import {
   type RespondAskIo,
 } from '../review-launch.ts';
 import {
-  deleteSheetDraft,
-  readSheetDraft,
-  writeSheetDraft,
-} from '../review-sheet-draft.ts';
-import {
   readReviewStates,
   reviewFilePath,
   writeReviewState,
@@ -105,7 +100,6 @@ function makeIo(over: Partial<ReReviewIo> = {}): ReReviewIo {
     writeReviewState: (path, patch, now) =>
       writeReviewState(path, patch, now, db),
     readReviewStates: () => readReviewStates(db),
-    deleteSheetDraft: mrUrl => deleteSheetDraft(mrUrl, db),
     ...over,
   };
 }
@@ -1000,28 +994,4 @@ describe('launchReReview: a skill that does not resolve opens no pane', () => {
       });
     }
   );
-});
-
-describe('launchReReview: the review sheet draft', () => {
-  test.each([
-    ['agentId on file (resume)', { agentId: 'agent-old' }],
-    ['sessionId only (legacy resume)', { sessionId: 'sess-old' }],
-    ['nothing on file (fresh launch)', {}],
-  ])('a re-review launch drops the MR draft: %s', async (_name, prior) => {
-    writeReviewState(
-      reviewFilePath(URL_A),
-      { mrUrl: URL_A, iid: IID, status: 'done', ...prior },
-      Date.now(),
-      db
-    );
-    writeSheetDraft(
-      URL_A,
-      { ticked: ['f1'], known: ['f1'], texts: {}, notes: {} },
-      db
-    );
-
-    await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
-
-    expect(readSheetDraft(URL_A, db)).toBeUndefined();
-  });
 });

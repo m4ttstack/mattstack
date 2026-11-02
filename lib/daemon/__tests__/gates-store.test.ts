@@ -60,6 +60,29 @@ describe("gates store", () => {
     s.close_();
   });
 
+  test("open supersedes a parked gate of the same kind too", () => {
+    const s = createGatesStore({ dbPath: tmp("gates.db"), log });
+    const first = s.open({ subject: "mr:https://x/1", kind: "review-post", questions: qs() }).row;
+    expect(s.park(first.id).ok).toBe(true);
+    const { row: second, supersededId } = s.open({ subject: "mr:https://x/1", kind: "review-post", questions: qs() });
+    expect(supersededId).toBe(first.id);
+    expect(s.get(first.id)?.status).toBe("closed");
+    expect(s.get(first.id)?.closedReason).toBe("superseded");
+    expect(s.get(first.id)?.supersededBy).toBe(second.id);
+    expect(s.get(second.id)?.status).toBe("open");
+    s.close_();
+  });
+
+  test("open leaves an answered gate of the same kind alone", () => {
+    const s = createGatesStore({ dbPath: tmp("gates.db"), log });
+    const first = s.open({ subject: "mr:https://x/1", kind: "review-post", questions: qs() }).row;
+    expect(s.answer(first.id, { q: "a" }, "board").ok).toBe(true);
+    const { supersededId } = s.open({ subject: "mr:https://x/1", kind: "review-post", questions: qs() });
+    expect(supersededId).toBeNull();
+    expect(s.get(first.id)?.status).toBe("answered");
+    s.close_();
+  });
+
   test("open does NOT supersede a different kind on the same subject", () => {
     const s = createGatesStore({ dbPath: tmp("gates.db"), log });
     const a = s.open({ subject: "mr:https://x/1", kind: "review-post", questions: qs() }).row;

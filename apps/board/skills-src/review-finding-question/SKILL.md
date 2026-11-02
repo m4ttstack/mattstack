@@ -26,6 +26,11 @@ This skill runs only inside the board review session that wrote that
 report. If this session has no `/board:review` launch, or the finding id is
 not in the report json, say so in one line and stop.
 
+The line can also arrive as the first message of a resume: a gate the board
+parked after a long wait closed this pane, and a question about one of its
+findings resumes the session with it. The gate is then `parked`, not `open`,
+and no wait loop is running; everything below holds the same.
+
 ## The rule for the whole conversation
 
 Until the human says to revise, you change nothing: no edit to the report,
@@ -37,8 +42,9 @@ conversation. Posting and the verdict are the human's, on the board.
 ## 1. Restate, then explore through a helper
 
 Restate in two lines: the finding (tier, title, `file:line`) and the
-question. Then dispatch one read-only explorer with the Agent tool
-(`model: sonnet`, `effort: medium`) and wait for it. Its brief is:
+question. Then dispatch one explorer with the Agent tool
+(`subagent_type: Explore`, which has no Edit or Write, so read-only is
+enforced; `model: sonnet`, `effort: medium`) and wait for it. Its brief is:
 
 - the finding, verbatim from the report json, and the MR url;
 - the human's question, verbatim;
@@ -89,23 +95,32 @@ it, report again in the same shape, and ask again.
    "Cancel" goes to §4.
 2. Edit the finding in the report json and the report markdown, keeping
    them in step (tier counts and summary lines that name it included).
-3. If a background wait loop is running on this gate, stop it with
-   TaskStop (load it with ToolSearch when it is deferred) before anything
-   else touches the gate.
-4. Rebuild the gate's open file exactly as this session built the first
-   one (the same scripts, extras and arguments), then run the same
-   `open-gate.sh <status-bin> <state> review-post <open-file>`. The new gate
-   supersedes the old one.
-5. Start one background `<status-bin> gate wait <state> --max-ms 90000`
+3. Rebuild the gate's open file exactly as this session built the first
+   one (the same scripts, extras and arguments). The old gate and its wait
+   loop stay as they are until this succeeds: if it fails, say what
+   failed, restore nothing by hand, and keep holding at the old gate.
+4. Check the old gate is still waiting on the human:
+   `<status-bin> gate wait <state> --max-ms 1000`. Only `{"status":
+   "pending"}` goes on. An `answers` line means the human already decided
+   on the board: re-raise nothing, tell them the review was answered
+   before the revision landed and that it is in the report only, then
+   carry on with that answer as the wrapper's gate step does (a running
+   wait loop delivers the same answer: act on it once). A failure (the
+   gate closed) is the same: re-raise nothing and say so.
+5. If a background wait loop is running on this gate, stop it with
+   TaskStop (load it with ToolSearch when it is deferred).
+6. Run the same `open-gate.sh <status-bin> <state> review-post
+   <open-file>`. The new gate supersedes the old one, a parked one too.
+7. Start one background `<status-bin> gate wait <state> --max-ms 90000`
    loop on the new gate and end the turn holding at it. Do not show a pane
    form: the human finishes on the board.
-6. Tell the human: the finding is revised, the gate is re-raised, finish
+8. Tell the human: the finding is revised, the gate is re-raised, finish
    the review on the board.
 
 A `closed (superseded)` result for the old gate id later is your own
-rebuild: ignore it and keep holding at the new gate. If the rebuild or the
-open fails, say what failed, restore nothing by hand, and leave the old
-gate's state as the wrapper's gate step would.
+re-raise: ignore it and keep holding at the new gate. If the open fails,
+say what failed, restore nothing by hand, and leave the old gate's state as
+the wrapper's gate step would.
 
 ## 4. Leave it as is
 
@@ -120,5 +135,6 @@ the turn holding at the gate.
 | "I'll just grep and query myself" | Dispatch the explorer; your context holds the review. |
 | "Prod read-only would settle it" | Offer it; run it only when the human names prod. |
 | "They want it gone, I'll answer the gate as comment" | Revise, re-raise, send them to the board. |
-| "The old gate closed, the run is over" | That close is your rebuild. Hold at the new gate. |
+| "The old gate closed, the run is over" | That close is your re-raise. Hold at the new gate. |
+| "The revision is ready, re-raise it now" | Check the old gate is still pending first; a late re-raise reopens a posted review. |
 | "I'll list the options in text, it's quicker" | The outcome is a mattstack:wrap-up form; the pick is the record. |
