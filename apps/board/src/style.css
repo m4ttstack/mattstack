@@ -4907,6 +4907,9 @@ a.tui-id-card-ref:focus-visible {
   gap: 4px 12px;
 }
 .tui-review-revised-text {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
   overflow-wrap: anywhere;
 }
 .tui-review-revised-original {

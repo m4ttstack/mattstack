@@ -14,6 +14,7 @@ import {
   expect,
   test,
 } from 'bun:test';
+import { MotionGlobalConfig } from 'motion/react';
 import { createRoot, type Root } from 'react-dom/client';
 
 import type { GateQuestion, GateRow } from '../../../gates/store.ts';
@@ -25,6 +26,11 @@ import { ASK_PLACEHOLDER, revisionSummary } from '../ReviewDraftCard.tsx';
 import { ASK_PANE_GONE, ReviewGateSheet } from '../ReviewGateSheet.tsx';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
+// happy-dom's Web Animations stub rejects a cancelled animation, which motion
+// raises as an unhandled error; without `animate` motion uses its own frame
+// loop, and skipAnimations settles every card fold at once.
+delete (Element.prototype as { animate?: unknown }).animate;
+MotionGlobalConfig.skipAnimations = true;
 
 afterAll(async () => {
   await GlobalRegistrator.unregister();
@@ -196,7 +202,6 @@ beforeEach(() => {
     const url = typeof input === 'string' ? input : input.toString();
     if (url.startsWith('/review/report.json'))
       return new Response('none', { status: 404 });
-    if (url.startsWith('/review/sheet-draft')) return new Response('null');
     return new Response('{"ok":true}');
   };
   container = document.createElement('div');
@@ -293,6 +298,15 @@ describe('revisionSummary', () => {
     expect(revisionSummary(entry({}), entry({ title: 'Other' }))).toEqual([
       'finding reworded',
     ]);
+  });
+
+  test('names a changed fix and a rewritten comment last', () => {
+    expect(
+      revisionSummary(
+        entry({ fix: 'Old fix.', comment: 'Old comment.' }),
+        entry({ fix: 'New fix.', comment: 'New comment.' })
+      )
+    ).toEqual(['fix changed', 'comment rewritten']);
   });
 });
 
@@ -427,6 +441,57 @@ describe('asking a question from the review sheet', () => {
     expect(closes).toBe(0);
   });
 
+  test.each([
+    ['Cmd', { metaKey: true }],
+    ['Ctrl', { ctrlKey: true }],
+  ])(
+    '%s+Enter in the question sends it, and never posts the review',
+    async (_name, mod) => {
+      let submits = 0;
+      const onSheetKey = (e: KeyboardEvent) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submits++;
+      };
+      document.addEventListener('keydown', onSheetKey);
+      try {
+        await show(gate(), mrWith());
+        await openAndType('First finding', 'Is this real?');
+        const area = field('First finding')!;
+        area.focus();
+        await React.act(async () => {
+          area.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: 'Enter',
+              bubbles: true,
+              ...mod,
+            })
+          );
+        });
+        expect(asks.map(a => [a.findingId, a.question])).toEqual([
+          ['f1', 'Is this real?'],
+        ]);
+        expect(submits).toBe(0);
+      } finally {
+        document.removeEventListener('keydown', onSheetKey);
+      }
+    }
+  );
+
+  test('Cmd+Enter on an empty question sends nothing', async () => {
+    await show(gate(), mrWith());
+    await openAndType('First finding', '  ');
+    const area = field('First finding')!;
+    await React.act(async () => {
+      area.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          metaKey: true,
+          bubbles: true,
+        })
+      );
+    });
+    expect(asks).toEqual([]);
+  });
+
   test('a gone review pane disables the ask links and says why', async () => {
     await show(gate(), mrWith(), true);
     const link = askLink('First finding')!;
@@ -437,8 +502,19 @@ describe('asking a question from the review sheet', () => {
     );
   });
 
-  test('a parked gate offers no ask link: no pane holds at it', async () => {
-    await show(gate({ status: 'parked' }), mrWith());
+  test('a parked gate still asks: the question resumes its session', async () => {
+    await show(gate({ status: 'parked' }), mrWith(), true);
+    const link = askLink('First finding')!;
+    expect(link.disabled).toBe(false);
+    await openAndType('First finding', 'Still real?');
+    await React.act(async () =>
+      button('First finding', 'send to the review pane')!.click()
+    );
+    expect(asks.map(a => a.findingId)).toEqual(['f1']);
+  });
+
+  test('an answered gate offers no ask link: nothing waits on it', async () => {
+    await show(gate({ status: 'answered' }), mrWith());
     expect(container.textContent).not.toContain('ask a question');
   });
 });
@@ -446,6 +522,8 @@ describe('asking a question from the review sheet', () => {
 describe('the revised strip', () => {
   const revision = (gateId: string): ReviewRevision => ({
     gateId,
+    previousGateId: 'g-before',
+    previousFindingIds: ['f1', 'f2'],
     revised: {
       f2: {
         original: {
@@ -464,9 +542,17 @@ describe('the revised strip', () => {
     expect(revised.hasAttribute('data-revised')).toBe(true);
     expect(card('First finding').hasAttribute('data-revised')).toBe(false);
     const strip = revised.querySelector('.tui-review-revised')!;
-    expect(strip.querySelector('.tui-review-revised-text')!.textContent).toBe(
-      'Revised in the review pane · Critical → Important · lines 2 → 3 · finding reworded'
-    );
+    expect(
+      [...strip.querySelectorAll('.tui-review-revised-text > span')].map(
+        p => p.textContent
+      )
+    ).toEqual([
+      'Revised in the review pane',
+      'Critical → Important',
+      'lines 2 → 3',
+      'finding reworded',
+    ]);
+    expect(strip.textContent).not.toContain('·');
     expect(strip.textContent).not.toContain('The original wording.');
     const toggle = [...strip.querySelectorAll('button')].find(
       b => b.textContent === 'show original'

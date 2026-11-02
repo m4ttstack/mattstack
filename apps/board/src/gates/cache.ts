@@ -96,13 +96,19 @@ function sameRow(a: FacilityGateRow, b: FacilityGateRow): boolean {
  * `reconcileGatesOnBoot` in ingest.ts) and by individual `gate/**` bus frames
  * relayed through `ingestRelayFrame` (low-latency deltas).
  */
+/** How many replaced rows the cache keeps per subject+kind, newest first:
+    enough for a client that missed a few re-raises to follow the chain to
+    the live gate, without keeping every round forever. */
+export const REPLACED_KEPT = 5;
+
 export class GateCache {
   private readonly byKey = new Map<string, FacilityGateRow>();
-  /** Per subject+kind, the row the current one replaced, kept out of
-      `rows()` so nothing but `supersededBy` reads it. A review agent that
-      re-raises its gate supersedes the old one, and the sheet compares the
-      two gates' findings to mark what changed. */
-  private readonly replaced = new Map<string, FacilityGateRow>();
+  /** Per subject+kind, the rows the current one replaced, oldest first and
+      at most REPLACED_KEPT, kept out of `rows()` so only `supersededBy` and
+      `replacements` read them. A review agent that re-raises its gate
+      supersedes the old one, and the sheet compares the two gates' findings
+      to mark what changed. */
+  private readonly replaced = new Map<string, FacilityGateRow[]>();
 
   /** Increases on every write that changes a row, so a caller can tell a
       no-op resync from one that found something. */
@@ -120,9 +126,10 @@ export class GateCache {
       existing.id !== row.id &&
       existing.openedAt > row.openedAt
     ) {
-      // An older round: kept only when it names the current row as the
-      // gate that superseded it (a reconcile listing both).
-      if (row.supersededBy === existing.id) this.keepReplaced(key, row);
+      // An older round: kept only when a later gate superseded it (a
+      // reconcile listing the chain), so a client can still follow it.
+      if (row.status === 'closed' && row.supersededBy)
+        this.keepReplaced(key, row);
       return;
     }
     if (
@@ -132,41 +139,59 @@ export class GateCache {
     )
       return;
     if (existing && sameRow(existing, row)) return;
-    if (existing && existing.id !== row.id) this.replaced.set(key, existing);
+    if (existing && existing.id !== row.id) this.keepReplaced(key, existing);
     this.byKey.set(key, row);
     this.revision++;
   }
 
+  /** Adds a replaced row, or updates the kept one with its id (never
+      regressing status), keeping the newest REPLACED_KEPT by openedAt. */
   private keepReplaced(key: string, row: FacilityGateRow): void {
-    const prior = this.replaced.get(key);
+    const kept = this.replaced.get(key) ?? [];
+    const prior = kept.find(r => r.id === row.id);
     if (
       prior &&
-      prior.id === row.id &&
       (STATUS_RANK[prior.status] > STATUS_RANK[row.status] ||
         sameRow(prior, row))
     )
       return;
-    this.replaced.set(key, row);
+    const next = [...kept.filter(r => r.id !== row.id), row]
+      .sort((a, b) => a.openedAt - b.openedAt)
+      .slice(-REPLACED_KEPT);
+    this.replaced.set(key, next);
     this.revision++;
   }
 
+  private *replacedRows(): Iterable<FacilityGateRow> {
+    for (const kept of this.replaced.values()) yield* kept;
+  }
+
   /** The closed row that `gateId` superseded, while the cache still holds
-      it: only the latest replaced row per subject+kind is kept, and nothing
+      it: the last REPLACED_KEPT per subject+kind are kept, and nothing
       survives a board restart unless a reconcile lists it. */
   supersededBy(gateId: string): FacilityGateRow | undefined {
-    for (const row of this.replaced.values())
+    for (const row of this.replacedRows())
       if (row.status === 'closed' && row.supersededBy === gateId) return row;
     return undefined;
   }
 
-  /** Every superseded gate the cache still holds, old id to new id: what a
-      client with a gate open needs to follow a re-raised gate onto its
-      successor, since the old gate is closed and never answered. */
+  /** Every superseded gate the cache still holds, old id to the newest gate
+      in its chain: what a client with a gate open needs to follow a
+      re-raised gate onto its successor, since the old gate is closed and
+      never answered. A client that missed a re-raise in between still lands
+      on the live gate in one step. */
   replacements(): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const row of this.replaced.values())
+    const next = new Map<string, string>();
+    for (const row of this.replacedRows())
       if (row.status === 'closed' && row.supersededBy)
-        out[row.id] = row.supersededBy;
+        next.set(row.id, row.supersededBy);
+    const out: Record<string, string> = {};
+    for (const [from, to] of next) {
+      let last = to;
+      for (let hops = 0; next.has(last) && hops < next.size; hops++)
+        last = next.get(last)!;
+      out[from] = last;
+    }
     return out;
   }
 
@@ -266,7 +291,7 @@ export class GateCache {
     for (const row of this.byKey.values()) {
       if (row.id === id) return row;
     }
-    for (const row of this.replaced.values()) {
+    for (const row of this.replacedRows()) {
       if (row.id === id) return row;
     }
     return undefined;
@@ -281,7 +306,8 @@ export class GateCache {
       this.applyRow(row);
       return;
     }
-    if (this.replaced.get(key)?.id === row.id) this.keepReplaced(key, row);
+    if (this.replaced.get(key)?.some(r => r.id === row.id))
+      this.keepReplaced(key, row);
   }
 
   private patchExisting(

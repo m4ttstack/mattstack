@@ -675,7 +675,8 @@ function splitAnchor(file: string | undefined): {
 
 /** What a revision changed, in the strip's order: the severity, the anchor
     (`lines a → b` on the same file, the whole anchor when the file moved),
-    then whether the title or body was reworded. */
+    whether the title or body was reworded, then the fix and the drafted
+    comment. */
 export function revisionSummary(
   original: FindingEntry,
   revised: FindingEntry
@@ -696,6 +697,8 @@ export function revisionSummary(
   }
   if (original.title !== revised.title || original.body !== revised.body)
     parts.push('finding reworded');
+  if (original.fix !== revised.fix) parts.push('fix changed');
+  if (original.comment !== revised.comment) parts.push('comment rewritten');
   return parts;
 }
 
@@ -710,14 +713,18 @@ function RevisedStrip({
   revised: FindingEntry;
 }) {
   const [open, setOpen] = useState(false);
-  const text = [
+  const parts = [
     'Revised in the review pane',
     ...revisionSummary(original, revised),
-  ].join(' · ');
+  ];
   return (
     <div className="tui-review-revised">
       <div className="tui-review-revised-head">
-        <span className="tui-review-revised-text">{text}</span>
+        <span className="tui-review-revised-text">
+          {parts.map(part => (
+            <span key={part}>{part}</span>
+          ))}
+        </span>
         <button
           type="button"
           className="tui-review-section-link"
@@ -818,11 +825,19 @@ function AskArea({ title, ask }: { title: string; ask: FindingAsk }) {
           autoFocus
           onChange={e => setText(e.currentTarget.value)}
           onKeyDown={e => {
-            // Escape here is the question's, never the sheet's: it cancels
-            // the question and must not reach the sheet's Escape-to-close.
-            if (e.key !== 'Escape') return;
+            // Escape and Cmd/Ctrl+Enter here are the question's, never the
+            // sheet's: Escape cancels the question rather than closing the
+            // sheet, and Cmd/Ctrl+Enter sends it rather than posting the
+            // review (sheet-keys.ts submits from any field).
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              if (!sending) ask.onCancel();
+              return;
+            }
+            if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
             e.stopPropagation();
-            if (!sending) ask.onCancel();
+            e.preventDefault();
+            if (!sending && !empty) ask.onSend(text);
           }}
         />
       </div>

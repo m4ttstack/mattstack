@@ -58,7 +58,6 @@ import {
   FindingAnchor,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
-import { useSheetDraft } from './sheet-draft.ts';
 import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
@@ -526,23 +525,10 @@ function ReviewGateSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.gateId]);
 
-  // After the seed above, so the restore's unticks land on top of it. Only a
-  // revision this gate carries drops its comment edit: one an earlier gate
-  // carried must not keep discarding what the reviewer typed since.
+  // Only a revision this gate carries marks its findings revised; one an
+  // earlier gate carried is history.
   const revision =
     mr?.reviewRevision?.gateId === gate.gateId ? mr.reviewRevision : undefined;
-  const revisedIds = useMemo(
-    () => Object.keys(revision?.revised ?? {}),
-    [revision]
-  );
-  useSheetDraft(
-    mr?.webUrl ?? undefined,
-    form,
-    { findings: findingsName, outcome: outcomeName },
-    findings.map(f => f.id),
-    revisedIds,
-    gate.gateId
-  );
 
   const selectedFindings = useMemo(() => {
     const current = findingsName ? form.selections[findingsName] : undefined;
@@ -606,15 +592,18 @@ function ReviewGateSheet({
   const checks = useMemo(() => safeChecks(report), [report]);
   const notes = useMemo(() => safeNotes(report), [report]);
   const depth = safeDepth(report);
-  // Only an open gate has a review pane holding at it to ask.
+  // An open gate's question goes to the pane holding at it; a parked gate's
+  // pane was closed on park, so the question resumes the session instead,
+  // and a pane the reconciler reports gone does not stop that.
+  const askable = gate.status === 'open' || gate.status === 'parked';
   const askFor = useFindingAsks(
     gate.gateId,
-    mr && onAskQuestion && gate.status === 'open'
+    mr && onAskQuestion && askable
       ? (findingId, question) =>
           onAskQuestion(mr, gate.gateId, findingId, question)
       : null,
     mr ? () => onFocusPane(mr, 'review') : null,
-    paneGone ? ASK_PANE_GONE : undefined
+    paneGone && gate.status === 'open' ? ASK_PANE_GONE : undefined
   );
 
   /** A severity group's findings: drafted cards set in under the group's

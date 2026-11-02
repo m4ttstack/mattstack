@@ -118,12 +118,14 @@ describe('findingChanged', () => {
     ['anchor', { file: 'lib/retry.ts:14' }],
     ['title', { title: 'Retry loop spins' }],
     ['body', { body: 'Reworded.' }],
+    ['fix', { fix: 'Back off exponentially.' }],
+    ['comment', { comment: 'Other draft.' }],
   ])('a different %s is a revision', (_name, change) => {
     expect(findingChanged(F1, { ...F1, ...change })).toBe(true);
   });
 
-  test('a changed comment alone is not', () => {
-    expect(findingChanged(F1, { ...F1, comment: 'Other draft.' })).toBe(false);
+  test('the same finding is not', () => {
+    expect(findingChanged(F1, { ...F1 })).toBe(false);
   });
 });
 
@@ -136,6 +138,8 @@ describe('reviewRevisionFor', () => {
     );
     expect(reviewRevisionFor(cache, MR)).toEqual({
       gateId: 'g-new',
+      previousGateId: 'g-old',
+      previousFindingIds: ['f1', 'f2'],
       revised: { f1: { original: F1 } },
     });
   });
@@ -145,7 +149,16 @@ describe('reviewRevisionFor', () => {
       reviewRow('g-new', [F1]),
       superseded('g-old', [F1, F2], 'g-new')
     );
-    expect(reviewRevisionFor(cache, MR)).toBeUndefined();
+    expect(reviewRevisionFor(cache, MR)?.revised).toEqual({});
+  });
+
+  test("a predecessor older than the lane's run is another run's gate", () => {
+    const cache = cacheWith(
+      reviewRow('g-new', [{ ...F2, id: 'f1' }]),
+      superseded('g-old', [F1], 'g-new')
+    );
+    expect(reviewRevisionFor(cache, MR, 1500)).toBeUndefined();
+    expect(reviewRevisionFor(cache, MR, 1000)?.previousGateId).toBe('g-old');
   });
 
   test('no predecessor in the cache (a board restart) means no revision', () => {
@@ -161,11 +174,16 @@ describe('reviewRevisionFor', () => {
     expect(reviewRevisionFor(cache, MR)).toBeUndefined();
   });
 
-  test('a re-raise that changed nothing has no revision', () => {
+  test('a re-raise that changed nothing still names its predecessor', () => {
     const cache = cacheWith(
       reviewRow('g-new', [F1, F2]),
       superseded('g-old', [F1, F2], 'g-new')
     );
-    expect(reviewRevisionFor(cache, MR)).toBeUndefined();
+    expect(reviewRevisionFor(cache, MR)).toEqual({
+      gateId: 'g-new',
+      previousGateId: 'g-old',
+      previousFindingIds: ['f1', 'f2'],
+      revised: {},
+    });
   });
 });

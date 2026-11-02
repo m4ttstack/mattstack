@@ -9,11 +9,15 @@ import type { GateQuestion } from './gates/store.ts';
 
 const REVIEW_GATE_KIND = 'review-post';
 
-/** What the MR's open review gate changed from the gate it superseded: the
-    original of each finding whose severity, anchor, title or body differ.
-    A finding the new gate dropped has no card, so it is left out. */
+/** What the MR's open review gate changed from the gate it superseded in
+    the same run: the original of each finding whose severity, anchor,
+    title, body, fix or comment differ. A finding the new gate dropped has no
+    card, so it is left out. `previousGateId` and `previousFindingIds` let
+    the sheet carry the reviewer's draft over from that gate. */
 export interface ReviewRevision {
   gateId: string;
+  previousGateId: string;
+  previousFindingIds: string[];
   revised: Record<string, { original: FindingEntry }>;
 }
 
@@ -44,7 +48,9 @@ export function findingChanged(a: FindingEntry, b: FindingEntry): boolean {
     a.severity !== b.severity ||
     a.file !== b.file ||
     a.title !== b.title ||
-    a.body !== b.body
+    a.body !== b.body ||
+    a.fix !== b.fix ||
+    a.comment !== b.comment
   );
 }
 
@@ -63,37 +69,29 @@ export function revisedFindings(
 
 /** The MR's review revision: its open review-post gate against the closed
     one that gate superseded. Nothing when there is no open gate, no
-    predecessor in the cache (a board restart, say), either gate is not a
-    readable sheet, or no finding changed. */
+    predecessor in the cache (a board restart, say), the predecessor opened
+    before the lane's current run started (`runStartedAt`: a fresh run or a
+    re-review supersedes the last run's gate too, and finding ids are
+    positional, so its `f2` is not this run's), or either gate is not a
+    readable sheet. */
 export function reviewRevisionFor(
   cache: RevisionSource,
-  mrUrl: string
+  mrUrl: string,
+  runStartedAt?: number
 ): ReviewRevision | undefined {
   const open = cache.get(`mr:${mrUrl}`, REVIEW_GATE_KIND);
   if (!open || open.status !== 'open') return undefined;
   const previous = cache.supersededBy(open.id);
   if (!previous || previous.subject !== open.subject) return undefined;
+  if (runStartedAt !== undefined && previous.openedAt < runStartedAt)
+    return undefined;
   const before = gateFindings(previous);
   const now = gateFindings(open);
   if (!before || !now) return undefined;
-  const revised = revisedFindings(before, now);
-  return Object.keys(revised).length ? { gateId: open.id, revised } : undefined;
-}
-
-/** The id of the MR's review gate that `gateId` superseded, while the cache
-    still holds it, else null. The review sheet restores a draft saved on that
-    gate onto `gateId` (`draftRestorableOn` in sheet-draft-shape.ts). */
-export function previousReviewGateId(
-  cache: Pick<RevisionSource, 'supersededBy'>,
-  mrUrl: string,
-  gateId: string
-): string | null {
-  const previous = cache.supersededBy(gateId);
-  if (
-    !previous ||
-    previous.kind !== REVIEW_GATE_KIND ||
-    previous.subject !== `mr:${mrUrl}`
-  )
-    return null;
-  return previous.id;
+  return {
+    gateId: open.id,
+    previousGateId: previous.id,
+    previousFindingIds: [...before.keys()],
+    revised: revisedFindings(before, now),
+  };
 }
