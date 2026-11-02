@@ -27,7 +27,7 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
-import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
+import { applyEdits, findNodeAtLocation, getNodeValue, modify, parse as parseJsonc, parseTree, type ParseError } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { registeredSkillRoots } from "../lib/skills/skill-roots.ts";
@@ -72,6 +72,7 @@ import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeli
 import { directOnlyConfigDirs, reconcileDirectOnly } from "../lib/skills/direct-only.ts";
 import { sourceSetsDirectOnly } from "../lib/skills/direct-only-line.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
+import { userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
@@ -274,7 +275,8 @@ function packRootDir(mattstackRoot: string, team: string): string | null {
   return zone ? zonePackDir(zone) : null;
 }
 
-type PackTarget = { team: string; packDir: string };
+/** `pack` is set only when discovery chose it, so a caller can read its marketplace without discovering again. */
+type PackTarget = { team: string; packDir: string; pack?: PackInfo };
 
 /**
  * Which pack a command acts on, in resolution order: an explicit --pack-dir
@@ -337,7 +339,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   const packs = flags.mattstackDir ? [] : discoverPacks();
   if (flags.team) {
     const pack = packs.find((p) => p.name === flags.team);
-    if (pack) return { team: pack.name, packDir: pack.dir };
+    if (pack) return { team: pack.name, packDir: pack.dir, pack };
     const byFolder = packRootDir(mattstackRoot, flags.team);
     if (byFolder && existsSync(byFolder)) return { team: flags.team, packDir: byFolder };
     throw new SkillsUsageError(
@@ -347,7 +349,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   }
 
   const sole = solePack(packs);
-  if (sole) return { team: sole.name, packDir: sole.dir };
+  if (sole) return { team: sole.name, packDir: sole.dir, pack: sole };
   if (packs.length === 0) {
     throw new SkillsUsageError("no packs discovered (no directory marketplace plugin, team folder or org folder carries a surface.jsonc); pass --pack <name>", {
       title: "No packs found",
@@ -365,7 +367,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   }
   const picked = await pickPack(packs);
   if (!picked) process.exit(0);
-  return { team: picked.name, packDir: picked.dir };
+  return { team: picked.name, packDir: picked.dir, pack: picked };
 }
 
 async function pickPack(packs: PackInfo[]): Promise<PackInfo | null> {
@@ -3200,11 +3202,11 @@ function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[
 }
 
 /** Pins the pack on the flags so the compile delegation and the printed header name the same pack the user picked. */
-async function resolveSurfacePaths(flags: SurfaceFlags): Promise<{ packDir: string }> {
+async function resolveSurfacePaths(flags: SurfaceFlags): Promise<{ packDir: string; pack?: PackInfo }> {
   const target = await resolvePack(flags);
   flags.team = target.team;
   flags.packDir = target.packDir;
-  return { packDir: target.packDir };
+  return { packDir: target.packDir, pack: target.pack };
 }
 
 /** A block tree is engine source, never compile output, so it is never swept as a stale compiled dir. */
@@ -3395,13 +3397,18 @@ export function surfaceBlocks(team: string | null, source: string, rows: Surface
 }
 
 async function runList(flags: SurfaceFlags): Promise<void> {
-  const { packDir } = await resolveSurfacePaths(flags);
+  const { packDir, pack } = await resolveSurfacePaths(flags);
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const surface = readSurface(packDir);
   const stageNames = stageNamesFor(flags, packDir);
   const computed = computeRows(packDir, verbNames, surface, stageNames);
   const { source } = computed;
-  const rows = withDirectOnly(computed.rows, directOnlyPlugin(packDir, flags.team)?.key ?? null);
+  let rows = computed.rows;
+  try {
+    rows = withDirectOnly(rows, directOnlyPlugin(packDir, flags, pack)?.key ?? null);
+  } catch {
+    // the listing is the Console's whole view of the pack: a skill's choice is decoration and never fails it
+  }
 
   if (flags.json) {
     out.json({ pack: flags.team, packDir, rows });
@@ -3765,11 +3772,31 @@ function readDirectOnlyChoices(): Record<string, string[]> {
 }
 
 /** The `<plugin>@<marketplace>` the pack installs as, or null for a pack Claude Code never installs. */
-function directOnlyPlugin(packDir: string, team: string | null): { key: string } | null {
-  const real = canonicalPath(packDir);
-  const packs = discoverPacks();
-  const pack = packs.find((p) => p.dir === real) ?? packs.find((p) => p.name === team);
+function directOnlyPlugin(packDir: string, flags: SurfaceFlags, discovered?: PackInfo): { key: string } | null {
+  let pack = discovered;
+  if (!pack && !flags.mattstackDir) {
+    const real = canonicalPath(packDir);
+    const packs = discoverPacks();
+    pack = packs.find((p) => p.dir === real) ?? packs.find((p) => p.name === flags.team);
+  }
   return pack?.marketplace ? { key: `${pack.name}@${pack.marketplace}` } : null;
+}
+
+/** The settings layer reads a broken store as empty, so a write or a reconcile over it would drop every other choice. */
+function directOnlyStoreUnreadable(): boolean {
+  let raw: string;
+  try {
+    raw = readFileSync(userSettingsPath(), "utf8");
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== "ENOENT";
+  }
+  if (raw.trim() === "") return false;
+  const errors: ParseError[] = [];
+  const root = parseJsonc(raw, errors, { allowTrailingComma: true }) as Record<string, unknown> | undefined;
+  if (errors.length > 0 || typeof root !== "object" || root === null || Array.isArray(root)) return true;
+  const stored = root[DIRECT_ONLY_SETTING];
+  if (stored === undefined) return false;
+  return typeof stored !== "object" || stored === null || Array.isArray(stored) || Object.values(stored).some((v) => !Array.isArray(v) || v.some((n) => typeof n !== "string"));
 }
 
 function directOnlyEligible(row: SurfaceRow): boolean {
@@ -3806,9 +3833,11 @@ function warningLines(warnings: string[]): Block[] {
   for (const w of warnings) {
     const name = skillOfWarning(w);
     const text = name ? `The installed copy of ${name} could not be changed` : w;
-    if (seen.has(text)) continue;
-    seen.add(text);
-    lines.push(out.line("warn", text));
+    const reason = name ? w.slice(w.indexOf("SKILL.md: ") + "SKILL.md: ".length) : undefined;
+    const id = `${text}|${reason ?? ""}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    lines.push(out.line("warn", text, reason));
   }
   return lines;
 }
@@ -3820,8 +3849,8 @@ function directOnlyRefusal(title: string, why?: string): SkillsRefusal {
 type DirectOnlyTarget = { key: string; rows: SurfaceRow[]; source: string };
 
 async function directOnlyTarget(flags: SurfaceFlags): Promise<DirectOnlyTarget> {
-  const { packDir } = await resolveSurfacePaths(flags);
-  const plugin = directOnlyPlugin(packDir, flags.team);
+  const { packDir, pack } = await resolveSurfacePaths(flags);
+  const plugin = directOnlyPlugin(packDir, flags, pack);
   if (plugin === null) {
     throw directOnlyRefusal("This pack is not installed from a marketplace", "Only an installed pack's skills can be set to run only when you type them.");
   }
@@ -3882,12 +3911,16 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
   }
   const duplicate = names.find((n, i) => names.indexOf(n) !== i);
   if (duplicate) throw new SkillsUsageError(`"${duplicate}" named more than once`);
+  if (flags.dryRun) throw new SkillsUsageError("set does not take --dry-run", usageFailure("This does not have a dry run", "rt skills direct-only set <name> --on --pack <pack>", "Leave out --dry-run."));
 
   try {
     const { key, rows } = await directOnlyTarget(flags);
     for (const name of names) {
       const refusal = refuseDirectOnlyName(name, rows.find((r) => r.name === name));
       if (refusal) throw refusal;
+    }
+    if (directOnlyStoreUnreadable()) {
+      throw directOnlyRefusal("Your settings file could not be read", "Nothing was changed, so your other choices are safe. Fix the file, then try again.");
     }
 
     const choices = readDirectOnlyChoices();
@@ -3899,7 +3932,7 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
     const result = reconcileDirectOnly({ configDirs: directOnlyConfigDirs(process.env, directOnlyHome()), choices: { [key]: after } });
     const applied = !result.warnings.some((w) => {
       const skill = skillOfWarning(w);
-      return skill !== null && names.includes(skill);
+      return skill === null ? w.startsWith(`${key}: `) : names.includes(skill);
     });
 
     if (flags.json) {
@@ -3907,10 +3940,11 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
       return;
     }
     const subject = names.join(", ");
-    out.print(out.line("done", on ? `${subject} will run only when you type it` : `${subject} can run on its own again`));
-    if (!applied) {
-      out.print(...warningLines(result.warnings), out.callout("why", "Your choice is saved, but the installed copy was not changed."), out.callout("next", out.cmd("rt skills direct-only reapply")));
-    }
+    out.print(
+      out.line("done", on ? `${subject} will run only when you type it` : `${subject} can run on its own again`),
+      ...warningLines(result.warnings),
+      ...(applied ? [] : [out.callout("why", "Your choice is saved. Claude still sees the installed copy as it was."), out.callout("next", ["After the file can be written, run ", out.cmd("rt skills direct-only reapply")])]),
+    );
   } catch (err) {
     if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
     out.json({ ok: false, error: skillsFailure(err).title });
@@ -3939,6 +3973,10 @@ function runDirectOnlyReapply(args: string[]): void {
   }
   if (result.warnings.length > 0) out.note(...warningLines(result.warnings));
 }
+
+export const skillsDirectOnlyList = (args: string[]): Promise<void> => skillsDirectOnly(["list", ...args]);
+export const skillsDirectOnlySet = (args: string[]): Promise<void> => skillsDirectOnly(["set", ...args]);
+export const skillsDirectOnlyReapply = (args: string[]): Promise<void> => skillsDirectOnly(["reapply", ...args]);
 
 export async function skillsDirectOnly(args: string[]): Promise<void> {
   await withCleanErrors(args, async () => {

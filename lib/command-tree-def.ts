@@ -2513,16 +2513,35 @@ export const TREE: Record<string, CommandNode> = {
       },
       "direct-only": {
         description: "Choose which pack skills Claude runs only when you type them",
-        module: "./commands/skills.ts",
-        fn: "skillsDirectOnly",
-        omitBehavior: { exempt: "the mode is one of three fixed words, and a missing one prints them" },
-        args: [
-          { name: "Mode", type: "text", placeholder: "list", hint: "list | set <name>... --on|--off | reapply" },
-          { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "list and set: the pack's name; omit to pick from the discovered packs" },
-          { name: "On", flag: "--on", type: "boolean", default: false, hint: "set only: run the named skills only when you type them" },
-          { name: "Off", flag: "--off", type: "boolean", default: false, hint: "set only: let Claude pick the named skills again" },
-          SETUP_JSON_ARG,
-        ],
+        subcommands: {
+          list: {
+            description: "See which of a pack's skills run only when you type them",
+            module: "./commands/skills.ts",
+            fn: "skillsDirectOnlyList",
+            args: [
+              { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit to pick from the discovered packs" },
+              SETUP_JSON_ARG,
+            ],
+          },
+          set: {
+            description: "Make pack skills run only when you type them, or let Claude pick them again",
+            module: "./commands/skills.ts",
+            fn: "skillsDirectOnlySet",
+            args: [
+              { name: "Skills", type: "text", optional: true, placeholder: "alpha beta", hint: "One or more skill names in the pack" },
+              { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit to pick from the discovered packs" },
+              { name: "On", flag: "--on", type: "boolean", default: false, hint: "Run the named skills only when you type them" },
+              { name: "Off", flag: "--off", type: "boolean", default: false, hint: "Let Claude pick the named skills again" },
+              SETUP_JSON_ARG,
+            ],
+          },
+          reapply: {
+            description: "Put your choices back on the installed skills",
+            module: "./commands/skills.ts",
+            fn: "skillsDirectOnlyReapply",
+            args: [SETUP_JSON_ARG],
+          },
+        },
       },
       packs: {
         description: "List packs discovered from installed marketplace plugins that carry a surface.jsonc",

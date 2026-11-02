@@ -10,9 +10,11 @@ import { setSetting } from "../../settings/write.ts";
 import { childEnv } from "../../subprocess.ts";
 import type { CapturedOut } from "../../ui/__tests__/capture-out.ts";
 import * as packsModule from "../packs.ts";
+import * as reconcileModule from "../direct-only.ts";
 import { DIRECT_ONLY_MARK } from "../direct-only-line.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 import { skillsDirectOnly, skillsSurface } from "../../../commands/skills.ts";
+import { TREE } from "../../command-tree-def.ts";
 
 const KEY = "widgets@market";
 const plain = (name: string) => `---\nname: ${name}\ndescription: d\n---\nbody\n`;
@@ -159,7 +161,69 @@ describe("rt skills direct-only set", () => {
     const text = io.lines().concat(io.errLines()).join("\n");
     expect(text).toContain("alpha");
     expect(text).toContain("installed copy");
-    expect(text).toContain("rt skills direct-only reapply");
+    expect(text).toContain("read-only");
+    expect(text).toContain("After the file can be written, run rt skills direct-only reapply");
+    expect(text).not.toContain("Your choice is saved, but the installed copy was not changed");
+  });
+
+  test("a warning about another chosen skill is shown even though this call applied", async () => {
+    const fx = fixture();
+    chmodSync(fx.installed("gamma"), 0o444);
+    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    io.restore();
+    io = captureSkills();
+    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]);
+    const text = io.lines().concat(io.errLines()).join("\n");
+    expect(text).toContain("alpha will run only when you type it");
+    expect(text).toContain("gamma");
+    expect(text).not.toContain("After the file can be written");
+  });
+
+  test("a plugin-level warning makes applied false and is shown", async () => {
+    fixture();
+    const reconcile = spyOn(reconcileModule, "reconcileDirectOnly").mockReturnValue({ changed: [], warnings: [`${KEY}: boom`] });
+    try {
+      await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+      expect(lastJson()).toEqual({ names: ["alpha"], on: true, applied: false, warnings: [`${KEY}: boom`] });
+      io.restore();
+      io = captureSkills();
+      await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets"]);
+      expect(io.lines().concat(io.errLines()).join("\n")).toContain("boom");
+    } finally {
+      reconcile.mockRestore();
+    }
+  });
+
+  for (const flag of ["--on", "--off"]) {
+    test(`${flag} with an unreadable settings store is refused before anything is reconciled`, async () => {
+      const fx = fixture();
+      await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+      const marked = read(fx.installed("gamma"));
+      put(userSettingsPath(), "{ this is not json");
+      const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", flag, "--pack", "widgets"]));
+      expect(result.exitCode).toBe(2);
+      expect(read(userSettingsPath())).toBe("{ this is not json");
+      expect(read(fx.installed("gamma"))).toBe(marked);
+      expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
+    });
+  }
+
+  test("a stored value of the wrong shape is refused like an unreadable store", async () => {
+    const fx = fixture();
+    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    const marked = read(fx.installed("gamma"));
+    put(userSettingsPath(), '{ "rt.skills.directOnly": ["gamma"] }');
+    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", "--off", "--pack", "widgets"]));
+    expect(result.exitCode).toBe(2);
+    expect(read(fx.installed("gamma"))).toBe(marked);
+  });
+
+  test("set refuses --dry-run and writes nothing", async () => {
+    const fx = fixture();
+    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", "--on", "--dry-run", "--pack", "widgets"]));
+    expect(result.exitCode).toBe(1);
+    expect(chosen()).toEqual({});
+    expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
   });
 
   for (const [label, names, reason] of [
@@ -272,6 +336,24 @@ describe("rt skills surface list --json", () => {
     expect(state("base-unit")).not.toHaveProperty("directOnly");
   });
 
+  test("a discovery failure leaves the field off and never fails the list", async () => {
+    const fx = fixture();
+    discovery.mockImplementation(() => {
+      throw new Error("unconverted team pack");
+    });
+    await skillsSurface(["list", "--pack-dir", fx.packDir, "--json"]);
+    const rows = lastJson().rows as { name: string }[];
+    expect(rows.map((r) => r.name)).toContain("alpha");
+    for (const row of rows) expect(row).not.toHaveProperty("directOnly");
+  });
+
+  test("a pinned mattstack root skips discovery and carries no field", async () => {
+    const fx = fixture();
+    await skillsSurface(["list", "--pack-dir", fx.packDir, "--mattstack-dir", join(tmp, "root"), "--json"]);
+    expect(discovery).not.toHaveBeenCalled();
+    for (const row of lastJson().rows) expect(row).not.toHaveProperty("directOnly");
+  });
+
   test("a pack with no marketplace carries no field on any row", async () => {
     fixture({ marketplace: null });
     await skillsSurface(["list", "--pack", "widgets", "--json"]);
@@ -325,5 +407,16 @@ describe("rt skills direct-only reapply", () => {
     chmodSync(fx.installed("alpha"), 0o444);
     await skillsDirectOnly(["reapply"]);
     expect(io.lines().concat(io.errLines()).join("\n")).toContain("alpha");
+  });
+});
+
+describe("the command tree row", () => {
+  test("list, set and reapply are child nodes, none exempt from the picker rule or agent safe", () => {
+    const node = TREE.skills!.subcommands!["direct-only"]!;
+    expect(node.fn).toBeUndefined();
+    expect(Object.keys(node.subcommands ?? {}).sort()).toEqual(["list", "reapply", "set"]);
+    expect(JSON.stringify(node)).not.toContain("exempt");
+    expect(node.agentSafe).toBeUndefined();
+    for (const child of Object.values(node.subcommands!)) expect(child.agentSafe).toBeUndefined();
   });
 });
