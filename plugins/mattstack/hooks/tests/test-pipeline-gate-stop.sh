@@ -21,6 +21,7 @@ if [ "$1" = "runs" ] && [ "$2" = "find" ]; then
   echo "RUN            REPO   STATUS"; exit 0
 fi
 [ "$1" = "runs" ] && [ "$2" = "snapshot" ] || exit 2
+[ -f "$RT_RUN_DB.slow" ] && sleep 8
 cat "$RT_RUN_DB.snapshot.json"
 STUB
 chmod +x "$SANDBOX/bin/rt"
@@ -46,7 +47,7 @@ EOF
 
 run() { # stdin-json -> "exit=<code> err=<stderr first line> out=<stdout>"
   local out err code
-  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_SLEEP:+RT_STUB_SLEEP="$RT_STUB_SLEEP"} ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"}${RT_STUB_FIND:+RT_STUB_FIND="$RT_STUB_FIND"} ${RT_STOP_HOOK_MAX_BYTES:+RT_STOP_HOOK_MAX_BYTES="$RT_STOP_HOOK_MAX_BYTES"} ${RT_STOP_HOOK_SCAN_MS:+RT_STOP_HOOK_SCAN_MS="$RT_STOP_HOOK_SCAN_MS"} sh "$HOOK" 2>"$SANDBOX/err")"
+  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_SLEEP:+RT_STUB_SLEEP="$RT_STUB_SLEEP"} ${RT_STOP_HOOK_RT_BUDGET_S:+RT_STOP_HOOK_RT_BUDGET_S="$RT_STOP_HOOK_RT_BUDGET_S"} ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"} ${RT_STUB_FIND:+RT_STUB_FIND="$RT_STUB_FIND"} ${RT_STOP_HOOK_MAX_BYTES:+RT_STOP_HOOK_MAX_BYTES="$RT_STOP_HOOK_MAX_BYTES"} ${RT_STOP_HOOK_SCAN_MS:+RT_STOP_HOOK_SCAN_MS="$RT_STOP_HOOK_SCAN_MS"} sh "$HOOK" 2>"$SANDBOX/err")"
   code=$?
   err="$(head -1 "$SANDBOX/err" 2>/dev/null)"
   printf 'exit=%s err=%s out=%s' "$code" "$err" "$out"
@@ -157,6 +158,25 @@ mkrun repo-a 20260901-000012-llll-12 running "$SID"
 printf '{"ok":true,"runs":[]}' > "$SANDBOX/find-empty.json"
 check "empty find result exits 0 without scanning" "exit=0 err= out=" "$(RT_STUB_FIND="$SANDBOX/find-empty.json" run "$STOP")"
 rm -rf "$SANDBOX/runs/repo-a/20260901-000011-kkkk-11" "$SANDBOX/runs/repo-a/20260901-000012-llll-12" "$SANDBOX/find.json" "$SANDBOX/find-empty.json"
+
+# A snapshot still running at the budget's end must not cost the run already found.
+mkrun repo-a 20260901-000013-mmmm-13 running "$SID"
+mkrun repo-a 20260901-000014-nnnn-14 running "$SID"
+: > "$SANDBOX/runs/repo-a/20260901-000014-nnnn-14/state.db.slow"
+printf '{"ok":true,"runs":[{"runDb":"%s"},{"runDb":"%s"}]}' "$SANDBOX/runs/repo-a/20260901-000013-mmmm-13/state.db" "$SANDBOX/runs/repo-a/20260901-000014-nnnn-14/state.db" > "$SANDBOX/find-slow.json"
+began="$(date +%s)"
+r="$(RT_STOP_HOOK_RT_BUDGET_S=2 RT_STUB_FIND="$SANDBOX/find-slow.json" run "$STOP")"
+took=$(( $(date +%s) - began ))
+case "$r" in exit=2*20260901-000013-mmmm-13*) echo "ok   a hung snapshot keeps the run already found";; *) echo "FAIL a hung snapshot keeps the run already found"; echo "       got : $r"; fails=$((fails+1));; esac
+check "a hung snapshot is cut off at the budget" "yes" "$([ "$took" -lt 6 ] && echo yes || echo no)"
+
+# A hung rt ends at the budget, and with no run found the stop goes through.
+began="$(date +%s)"
+r="$(RT_STOP_HOOK_RT_BUDGET_S=1 RT_STUB_SLEEP=8 RT_STUB_FIND="$SANDBOX/find-slow.json" run "$STOP")"
+took=$(( $(date +%s) - began ))
+check "a hung rt exits 0" "exit=0 err= out=" "$r"
+check "a hung rt is cut off at the budget" "yes" "$([ "$took" -lt 6 ] && echo yes || echo no)"
+rm -rf "$SANDBOX/runs/repo-a/20260901-000013-mmmm-13" "$SANDBOX/runs/repo-a/20260901-000014-nnnn-14" "$SANDBOX/find-slow.json"
 
 # rt printing usage instead of JSON: silent.
 mkrun repo-a 20260901-000010-jjjj-10 running "$SID"

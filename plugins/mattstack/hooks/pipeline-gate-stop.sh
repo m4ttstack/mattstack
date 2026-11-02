@@ -29,13 +29,31 @@ except Exception:
 [ -n "$SESSION" ] || exit 0
 
 START=$(date +%s)
+DEADLINE=$(( START + ${RT_STOP_HOOK_RT_BUDGET_S:-25} ))
+
+# hooks.json kills the whole hook at 30 s and Claude Code then ignores it, so a
+# slow rt call is cut off here instead, keeping any run already found.
+bounded_rt() {
+  python3 -c '
+import subprocess, sys, time
+left = float(sys.argv[1]) - time.time()
+if left <= 0:
+    sys.exit(124)
+try:
+    done = subprocess.run(sys.argv[2:], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=left)
+except (subprocess.TimeoutExpired, OSError):
+    sys.exit(124)
+sys.stdout.buffer.write(done.stdout)
+sys.exit(done.returncode)
+' "$DEADLINE" "$RT" "$@"
+}
 
 # `rt runs find` (rt >= PR 175) answers the session question directly, newest
 # first. An older rt falls through to the run listing, which is not JSON with
 # ok:true, so the candidates come from a directory scan instead: run dirs
 # written in the last 48 hours, since a snapshot costs a bun start-up each and
 # the budget below is 25 seconds in total.
-CANDIDATES="$("$RT" runs find --session "$SESSION" --running 2>/dev/null | python3 -c '
+CANDIDATES="$(bounded_rt runs find --session "$SESSION" --running 2>/dev/null | python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -54,9 +72,9 @@ fi
 
 BEST=""
 for DB in $CANDIDATES; do
-  [ $(( $(date +%s) - START )) -lt 25 ] || break
+  [ "$(date +%s)" -lt "$DEADLINE" ] || break
   [ -f "$DB" ] || continue
-  SNAP="$(RT_RUN_DB="$DB" "$RT" runs snapshot 2>/dev/null)" || continue
+  SNAP="$(export RT_RUN_DB="$DB"; bounded_rt runs snapshot 2>/dev/null)" || continue
   LINE="$(printf '%s' "$SNAP" | python3 -c '
 import json, sys
 sid = sys.argv[1]
