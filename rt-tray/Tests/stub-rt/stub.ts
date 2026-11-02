@@ -3,7 +3,7 @@
 // State that must change between invocations (a permission granted, a step
 // retried) lives in RT_STUB_STATE_DIR so every call is a fresh process like
 // the real rt.
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveClaudeBin } from "../../../lib/claude-bin.ts";
 import { FALLBACK_WRITING_STYLE, isPresetId, isValidSkillId } from "../../../lib/skills/writing-style.ts";
@@ -784,6 +784,7 @@ else if (a0 === "setup" && a1 === "home-backup") {
   const prior = backup();
   const remote: Backup = stateGet("github-token") > 0 ? { mode: "remote", create: true } : { mode: "remote" };
   const homeBackup: Backup = a2 === "local" ? { mode: "local" } : prior?.mode === "remote" ? prior : remote;
+  if (a2 === "local") for (const key of ["github-signin-at", "github-reads"]) rmSync(join(stateDir, key), { force: true });
   textSet("home-backup", JSON.stringify(homeBackup));
   emit({ homeBackup });
 }

@@ -885,3 +885,14 @@ test("github sign-in: the remote row walks sign in, code, then a staged create",
   const again = await run("join-happy", ["setup", "home-backup", "remote", "--json"], "", dir);
   expect(again.lines[0].homeBackup).toEqual({ mode: "remote", create: true });
 });
+
+test("github sign-in: picking local clears the sign-in, so a later remote pick starts over", async () => {
+  const changed = mkdtempSync(join(tmpdir(), "stub-"));
+  const restartedRemote = async () => (await form(changed, "this-mac")).sections.thisMac!.find((r) => r.id === "settings.remote")!;
+  await run("join-happy", ["setup", "home-backup", "remote", "--json"], "", changed);
+  await run("join-happy", ["setup", "github", "sign-in", "--json"], "", changed);
+  expect(await restartedRemote()).toMatchObject({ state: "waiting" });
+  await run("join-happy", ["setup", "home-backup", "local", "--json"], "", changed);
+  await run("join-happy", ["setup", "home-backup", "remote", "--json"], "", changed);
+  expect(await restartedRemote()).toMatchObject({ state: "todo", action: { label: "Sign in to GitHub" } });
+});

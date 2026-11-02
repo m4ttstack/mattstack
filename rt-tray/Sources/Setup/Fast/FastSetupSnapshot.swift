@@ -702,7 +702,7 @@ enum FastSetupSnapshot {
         static let backupGitHub = FormRow(id: "settings.backup", title: "Your settings", subtext: settingsSubtext, state: .done,
                                           detail: "Store in a GitHub repo", action: backupTiles("remote"))
         static let remoteCreates = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .done,
-                                           detail: "rt creates a private GitHub repo when setup runs", action: nil)
+                                           detail: "rt creates it as a private repo when setup runs", action: nil)
         static let remoteSignIn = FormRow(id: "settings.remote", title: "Remote repo",
                                           subtext: "Opens your browser once. rt then makes a private repo for you", state: .todo, detail: "",
                                           action: RowAction(type: .run, label: "Sign in to GitHub", verb: ["setup", "github", "sign-in"]))
