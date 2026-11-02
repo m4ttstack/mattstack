@@ -123,9 +123,7 @@ export function writeGitHubSignIn(p: RecordProbes, record: GitHubSignIn): void {
   p.rename(tmp, path);
 }
 
-/** A null pid is a waiter still being started, so it counts as live until expiresAt. */
-export function readGitHubSignIn(p: RecordProbes, alive: (pid: number) => boolean = pidAlive): GitHubSignIn | null {
-  const raw = p.readFile(recordPath(p));
+function parseRecord(raw: string | null): GitHubSignIn | null {
   if (raw === null) return null;
   const j = parseJson(raw);
   if (typeof j.userCode !== "string" || typeof j.url !== "string" || typeof j.expiresAt !== "string") return null;
@@ -135,10 +133,20 @@ export function readGitHubSignIn(p: RecordProbes, alive: (pid: number) => boolea
     expiresAt: j.expiresAt,
     pid: typeof j.pid === "number" ? j.pid : null,
   };
-  if (j.outcome === "expired" || j.outcome === "declined") {
-    record.outcome = j.outcome;
-    return record;
-  }
+  if (j.outcome === "expired" || j.outcome === "declined") record.outcome = j.outcome;
+  return record;
+}
+
+/** The record as it sits on disk, with no expiry or pid check: a waiter uses it to see whether the record is still its own. */
+export function readGitHubSignInRaw(p: Pick<Probes, "home" | "readFile">): GitHubSignIn | null {
+  return parseRecord(p.readFile(recordPath(p)));
+}
+
+/** A null pid is a waiter still being started, so it counts as live until expiresAt. */
+export function readGitHubSignIn(p: RecordProbes, alive: (pid: number) => boolean = pidAlive): GitHubSignIn | null {
+  const record = parseRecord(p.readFile(recordPath(p)));
+  if (record === null) return null;
+  if (record.outcome !== undefined) return record;
   const expires = Date.parse(record.expiresAt);
   if (Number.isNaN(expires) || p.now().getTime() >= expires) return null;
   if (record.pid !== null && !alive(record.pid)) return null;

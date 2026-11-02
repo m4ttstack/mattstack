@@ -32,7 +32,7 @@ interface Rig {
   clock: { now: Date };
 }
 
-function rig(opts: { polls?: unknown[]; ready?: boolean; files?: Record<string, string>; clientId?: string } = {}): Rig {
+function rig(opts: { polls?: unknown[]; ready?: boolean; files?: Record<string, string>; clientId?: string; intervalSec?: number; writeFails?: boolean } = {}): Rig {
   const clock = { now: START };
   const polls = [...(opts.polls ?? [])];
   const probes = fakeProbes({
@@ -53,6 +53,7 @@ function rig(opts: { polls?: unknown[]; ready?: boolean; files?: Record<string, 
   const writer: SecretWriter = {
     storeReady: async () => opts.ready ?? true,
     write: async (domain, key, value) => {
+      if (opts.writeFails) throw new Error("sops failed");
       written.push([domain, key, value]);
     },
   };
@@ -66,7 +67,7 @@ function rig(opts: { polls?: unknown[]; ready?: boolean; files?: Record<string, 
       spawned.push({ argv, input });
       return 4242;
     },
-    readDeviceCode: async () => DEVICE_CODE,
+    readWaiterInput: async () => ({ deviceCode: DEVICE_CODE, intervalSec: opts.intervalSec ?? 5 }),
     writer,
     sleep: async (ms) => {
       slept.push(ms);
@@ -94,7 +95,7 @@ describe("sign-in start", () => {
     await setupGitHubSignIn(["--json"], {}, r.deps);
     expect(r.spawned).toHaveLength(1);
     expect(r.spawned[0]!.argv.slice(-4)).toEqual(["setup", "github", "sign-in", "--wait"]);
-    expect(r.spawned[0]!.input).toBe(DEVICE_CODE);
+    expect(JSON.parse(r.spawned[0]!.input)).toEqual({ deviceCode: DEVICE_CODE, intervalSec: 5 });
     expect(r.spawned[0]!.argv.join(" ")).not.toContain(DEVICE_CODE);
     const env = r.jsons[0] as Record<string, unknown>;
     expect(env.userCode).toBe("ABCD-1234");
@@ -114,14 +115,24 @@ describe("sign-in start", () => {
   });
 
   test("a leftover outcome record does not block a new sign-in", async () => {
-    const r = rig({ files: { [RECORD]: liveRecord({ outcome: "expired" }) } });
+    const r = rig({ files: { [RECORD]: liveRecord({ outcome: "expired", userCode: "OLD-0000" }) } });
     await setupGitHubSignIn(["--json"], {}, r.deps);
     expect(r.spawned).toHaveLength(1);
+    const record = readGitHubSignIn(r.probes, () => true);
+    expect(record?.userCode).toBe("ABCD-1234");
+    expect(record?.pid).toBe(4242);
+    expect(record?.outcome).toBeUndefined();
+  });
+
+  test("a human start prints the code and the url", async () => {
+    const r = rig();
+    await setupGitHubSignIn([], {}, r.deps);
+    expect(cap.stdout() + cap.stderr()).toContain("ABCD-1234");
+    expect(cap.stdout() + cap.stderr()).toContain("https://github.com/login/device");
   });
 
   test("an empty client id refuses", async () => {
     const r = rig({ clientId: "" });
-    r.deps.clientId = undefined;
     const err = await setupGitHubSignIn(["--json"], {}, r.deps).catch((e) => e);
     expect(err).toBeInstanceOf(ExitSentinel);
     expect((r.jsons[0] as { error: { message: string } }).error.message).toBe("GitHub sign-in isn't set up in this build");
@@ -193,6 +204,37 @@ describe("sign-in --wait", () => {
     await setupGitHubSignIn(["--wait"], {}, r.deps);
     expect(r.probes.calls.fetch).toEqual([]);
     expect(r.slept).toEqual([]);
+  });
+
+  test("polls at the interval GitHub gave", async () => {
+    const r = rig({ intervalSec: 7, polls: [{ error: "authorization_pending" }, { access_token: TOKEN }] });
+    seed(r);
+    await setupGitHubSignIn(["--wait"], {}, r.deps);
+    expect(r.slept).toEqual([7000, 7000]);
+  });
+
+  test("a failed store write stages the token and still finishes", async () => {
+    const r = rig({ writeFails: true, polls: [{ access_token: TOKEN }] });
+    seed(r);
+    await setupGitHubSignIn(["--wait"], {}, r.deps);
+    expect(readStagedSecret(r.probes, "rt", "githubToken")).toBe(TOKEN);
+    expect(readSetupState(r.probes).homeBackup).toEqual({ mode: "remote", create: true });
+    expect(r.probes.readFile(RECORD)).toBeNull();
+  });
+
+  test("a waiter whose record was replaced leaves the newer record alone", async () => {
+    for (const poll of [{ access_token: TOKEN }, { error: "expired_token" }, { error: "access_denied" }]) {
+      const r = rig({ polls: [poll] });
+      seed(r);
+      const newer = { userCode: "WXYZ-9876", url: "https://github.com/login/device", expiresAt: "2026-01-01T00:20:00.000Z", pid: 5151 };
+      const sleep = r.deps.sleep;
+      r.deps.sleep = async (ms) => {
+        await sleep(ms);
+        writeGitHubSignIn(r.probes, newer);
+      };
+      await setupGitHubSignIn(["--wait"], {}, r.deps);
+      expect(JSON.parse(r.probes.readFile(RECORD)!)).toEqual(newer);
+    }
   });
 
   test("neither the token nor the device code reaches output", async () => {
