@@ -10,9 +10,9 @@ const ALLOWED = [
   /^scripts\/lib\/docs-smoke\.ts$/,
   /^scripts\/__tests__\/docs-smoke\.test\.ts$/,
   /^lib\/__tests__\/no-rt-cool-links\.test\.ts$/,
-  // The drift test for the redirect only rt.cool project's _redirects file.
+  // The drift test for the redirect-only rt.cool project's _redirects file.
   /^scripts\/__tests__\/no-rt-cool-redirects-drift\.test\.ts$/,
-  // The release skill describes the redirect only rt-cool project and the smoke 301.
+  // The release skill describes the redirect-only rt-cool project and the smoke 301.
   /^skills\/rt-release\/publish-and-finish\.md$/,
   /^RELEASE_NOTES\.md$/,
   /^docs\/superpowers\//,
