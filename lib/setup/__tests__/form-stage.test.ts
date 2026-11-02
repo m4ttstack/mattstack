@@ -20,7 +20,7 @@ import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import type { ToolRequirement } from "../requirements.ts";
 import { CLI_SESSION_INTEGRATIONS } from "../sign-in-tools.ts";
 import type { SetupIntent } from "../intent.ts";
-import type { SetupRun } from "../state.ts";
+import type { HomeBackupChoice, SetupRun } from "../state.ts";
 import { HOME_BACKUP_PUSH_ACTION } from "../validators/rt-health.ts";
 
 const NOW = new Date("2026-10-30T10:00:00.000Z");
@@ -223,7 +223,7 @@ function drawn(o: Partial<Drawn> = {}): Drawn {
   return { path, forge: "forge" in o ? (o.forge ?? null) : path === "solo" ? null : GITLAB, signIn: o.signIn ?? [DOPPLER] };
 }
 
-function screens(p: Plan, o: { ranOk: boolean } & Partial<Drawn>): Record<Section, FormRow[]> {
+function screens(p: Plan, o: { ranOk: boolean; backup?: HomeBackupChoice } & Partial<Drawn>): Record<Section, FormRow[]> {
   const { path, forge, signIn } = drawn(o);
   const permissions = p.groups.flatMap((g) => g.rows).filter((x) => x.id.startsWith("perm."));
   const denied = permissions.find((x) => x.id === "perm.notifications")?.detail === "Denied";
@@ -238,7 +238,7 @@ function screens(p: Plan, o: { ranOk: boolean } & Partial<Drawn>): Record<Sectio
       ranOk: o.ranOk,
       cltInstalled: true,
       prepare: null,
-      backup: undefined,
+      backup: o.backup,
       homeRemote: null,
       ghSignedIn: false,
       githubSignIn: null,
@@ -354,7 +354,7 @@ describe("every row that blocks Install or Finish is on a screen", () => {
 
   test("a finished Mac with only optional connections left is ready", () => {
     const team = plan([...settledRows(), r("tool.team.acme-api", "ready", "acme-api 1.0.0")]);
-    const teamScreens = screens(team, { ranOk: true, signIn: [DOPPLER, ACME_LOGIN] });
+    const teamScreens = screens(team, { ranOk: true, signIn: [DOPPLER, ACME_LOGIN], backup: { mode: "local" } });
     expect(teamScreens.connect.find((x) => x.id === "signin.acme-api")).toMatchObject({ state: "todo", optional: true });
     expect(stageOf(teamScreens, team, { finished: true, run: ENDED_OK })).toBe("ready");
 
@@ -368,7 +368,7 @@ describe("every row that blocks Install or Finish is on a screen", () => {
       ],
       SOLO,
     );
-    const soloScreens = screens(solo, { path: "solo", ranOk: true, signIn: [] });
+    const soloScreens = screens(solo, { path: "solo", ranOk: true, signIn: [], backup: { mode: "local" } });
     expect(soloScreens.connect.find((x) => x.id === "forge")).toMatchObject({ state: "todo", optional: true });
     expect(stageOf(soloScreens, solo, { finished: true, run: ENDED_OK, path: "solo" })).toBe("ready");
   });

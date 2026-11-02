@@ -38,6 +38,7 @@ function placeAction(identity: string, board: string | null, over: Partial<Place
     segmentRecords: true,
     board,
     awaitsRun: false,
+    answered: true,
   };
   return { ...base, ...over };
 }
@@ -99,7 +100,7 @@ describe("thisMacRows", () => {
   });
 
   test("one row per tracked repo, the board's says the board starts here", () => {
-    const list = thisMacRows(inputs());
+    const list = thisMacRows(inputs({ backup: { mode: "local" } }));
     expect(list.map((x) => x.id)).toEqual([`repos.place:${WIDGETS}`, `repos.place:${ACME_API}`, "settings.backup"]);
     expect(pick(list, `repos.place:${WIDGETS}`)).toMatchObject({ title: "widgets", subtext: "The board starts here", state: "done", detail: "rt clones it here when setup runs", optional: false });
     expect(pick(list, `repos.place:${WIDGETS}`).action).toEqual(placeAction(WIDGETS, "The board starts here"));
@@ -114,9 +115,16 @@ describe("thisMacRows", () => {
     expect(startReady(list)).toBe(false);
   });
 
+  test("a ready repo still on rt's default clone path is unanswered and holds Set up this Mac", () => {
+    const defaulted = r(`repos.place:${ACME_API}`, "ready", "rt clones it here when setup runs", { title: "acme-api", why: "gitlab.com/acme", action: placeAction(ACME_API, null, { answered: false }) });
+    const list = thisMacRows(inputs({ backup: { mode: "local" }, plan: plan([placeRow(WIDGETS, "ready"), defaulted]) }));
+    expect(pick(list, `repos.place:${ACME_API}`)).toMatchObject({ state: "todo", action: defaulted.action });
+    expect(startReady(list)).toBe(false);
+  });
+
   test("an answered deferred repo is done and lets Set up this Mac start", () => {
     const answered = deferredRow(ACME_API, "rt clones it to ~/work/acme-api next", { clonePath: "/fake-home/work/acme-api", awaitsRun: true });
-    const list = thisMacRows(inputs({ plan: plan([placeRow(WIDGETS, "ready"), answered]) }));
+    const list = thisMacRows(inputs({ backup: { mode: "local" }, plan: plan([placeRow(WIDGETS, "ready"), answered]) }));
     expect(pick(list, `repos.place:${ACME_API}`)).toMatchObject({ state: "done", detail: "rt clones it to ~/work/acme-api next", action: answered.action });
     expect(startReady(list)).toBe(true);
   });
@@ -138,13 +146,13 @@ describe("thisMacRows", () => {
     expect(startReady(list)).toBe(false);
   });
 
-  test("settings default to this Mac and are done", () => {
+  test("settings are unanswered until the member picks, remote first", () => {
     const settings = pick(thisMacRows(inputs()), "settings.backup");
     expect(settings).toMatchObject({
       title: "Your settings",
       subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later",
-      state: "done",
-      detail: "Keep on this Mac",
+      state: "todo",
+      detail: "",
       optional: false,
     });
     expect(settings.action).toEqual({
@@ -152,11 +160,16 @@ describe("thisMacRows", () => {
       label: "Change",
       verb: ["setup", "home-backup"],
       options: [
-        { id: "local", label: "Keep on this Mac", detail: "" },
-        { id: "remote", label: "Store in a remote repo", detail: "" },
+        { id: "remote", label: "Store in a GitHub repo", detail: "Private. A new Mac restores from it" },
+        { id: "local", label: "Store on your Mac", detail: "Your settings won't be backed up", warn: true },
       ],
-      selected: "local",
     });
+  });
+
+  test("picking Store on your Mac answers the settings row", () => {
+    const settings = pick(thisMacRows(inputs({ backup: { mode: "local" } })), "settings.backup");
+    expect(settings).toMatchObject({ state: "done", detail: "Store on your Mac" });
+    expect(settings.action).toMatchObject({ selected: "local" });
   });
 
   test("choosing a remote adds the repo row until one is set or staged", () => {
@@ -255,7 +268,7 @@ describe("composeForm", () => {
     expect(list.map((x) => [x.id, x.state])).toEqual([
       ["tool.clt", "todo"],
       ["repos.root", "todo"],
-      ["settings.backup", "done"],
+      ["settings.backup", "todo"],
     ]);
     expect(pick(list, "repos.root").action).toEqual({ type: "choose-folder", label: "Choose…", startAt: "/fake-home/code" });
     expect(form.startReady).toBe(false);

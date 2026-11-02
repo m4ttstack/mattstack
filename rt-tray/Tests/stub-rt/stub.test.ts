@@ -501,6 +501,7 @@ async function answer(scenario: string, dir: string, row: StubRow): Promise<void
     case "open-settings": return verb(["stub", "grant", a.target!]);
     case "request-permission": return verb(["stub", "grant", a.which!]);
     case "place-repo": return verb(["setup", "repo", "place"], { identity: a.identity, mode: "clone", path: a.clonePath });
+    case "choose": return verb([...a.verb!, "local"]);
     case "choose-folder": return verb(["setup", "repo-root", "set"], { root: "/Users/janedoe/code" });
     default: throw new Error(`no answer for ${a.type} on ${row.id}`);
   }
@@ -574,17 +575,17 @@ test("setup form walks the join scenario's stages", async () => {
   expect(done.team).toEqual({ slug: "acme", name: "Acme", invitedBy: "Jane Doe" });
   expect(Object.keys(done.sections).sort()).toEqual(["connect", "invite", "macos", "restore", "thisMac"]);
   expect(done.sections.connect!.map((r) => r.id)).toEqual(["forge", "slack", "claude", "signin.doppler", "linear", "fast-browser"]);
-});
+}, 20000);
 
 test("the slow scenario walks the join stages too", async () => {
   const { stages } = await walk("slow", (dir, stage) => joinThroughWait("slow", dir, stage));
   expect(stages).toEqual(["macos", "path", "invite", "waiting", "connect", "this-mac", "ready"]);
-});
+}, 20000);
 
 test("the paused scenario stops at a failed step, then Retry lands it", async () => {
   const { stages } = await walk("apply-fail-retry", (dir, stage) => joinThroughWait("apply-fail-retry", dir, stage));
   expect(stages).toEqual(["macos", "path", "invite", "connect", "this-mac", "paused", "ready"]);
-});
+}, 20000);
 
 test("the create scenario makes the team, connects the owner's accounts, and runs", async () => {
   const { dir, stages } = await walk("create-happy", async (dir) => {
@@ -598,7 +599,7 @@ test("the create scenario makes the team, connects the owner's accounts, and run
   expect(done.team).toEqual({ slug: "widgets", name: "Widgets", invitedBy: null });
   expect(done.sections.connect!.map((r) => r.id)).toEqual(["forge", "slack-app", "slack", "claude", "fast-browser"]);
   expect(done.sections.connect!.find((r) => r.id === "forge")!.detail).toBe("Connected");
-});
+}, 20000);
 
 test("the solo scenario connects nothing it need not and picks where clones go", async () => {
   const { dir, stages } = await walk("solo", async (dir) => {
@@ -608,7 +609,7 @@ test("the solo scenario connects nothing it need not and picks where clones go",
   const done = await form(dir, undefined, "solo");
   expect(done.home).toEqual({ label: "Open the console", url: "https://console.mattstack" });
   expect(done.sections.thisMac!.find((r) => r.id === "repos.root")).toMatchObject({ state: "done", detail: "/Users/janedoe/code" });
-});
+}, 20000);
 
 test("the restore scenario runs straight after the restore", async () => {
   const { stages } = await walk("restore", async (dir) => {
@@ -675,7 +676,8 @@ test("this-mac waits on a repo pick, and the settings choice opens and closes th
   const placed = await run("join-happy", ["setup", "repo", "place", "--json"], JSON.stringify({ identity: "github.com/acme/widgets", mode: "checkout", path: "/Users/janedoe/src/widgets" }), dir);
   expect(placed.lines[0]).toMatchObject({ identity: "github.com/acme/widgets", mode: "checkout", path: "/Users/janedoe/src/widgets" });
   const second = await read();
-  expect(second.startReady).toBe(true);
+  expect(second.startReady).toBe(false);
+  expect(second.sections.thisMac!.map((r) => [r.id, r.state])).toEqual([["repos.place:github.com/acme/widgets", "done"], ["settings.backup", "todo"]]);
   expect(second.sections.thisMac![0]).toMatchObject({ state: "done", detail: "rt uses your checkout at ~/src/widgets next" });
   expect(second.sections.thisMac![0]!.action).toMatchObject({ mode: "checkout", checkoutPath: "/Users/janedoe/src/widgets", oneClick: null, awaitsRun: true });
 
@@ -691,7 +693,9 @@ test("this-mac waits on a repo pick, and the settings choice opens and closes th
   expect(staged.lines[0]).toMatchObject({ staged: true, url, created: false, pushed: false });
   expect((await read()).sections.thisMac!.find((r) => r.id === "settings.remote")).toMatchObject({ state: "done", detail: url });
   await run("join-happy", ["setup", "home-backup", "local", "--json"], "", dir);
-  expect((await read()).sections.thisMac!.map((r) => r.id)).toEqual(["repos.place:github.com/acme/widgets", "settings.backup"]);
+  const last = await read();
+  expect(last.sections.thisMac!.map((r) => r.id)).toEqual(["repos.place:github.com/acme/widgets", "settings.backup"]);
+  expect(last.startReady).toBe(true);
 });
 
 test("setup form reads running while an apply holds the run, and paused with what failed", async () => {

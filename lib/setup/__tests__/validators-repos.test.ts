@@ -74,6 +74,7 @@ describe("repoPlacementRows: one row per tracked repo", () => {
       segmentRecords: true,
       board: null,
       awaitsRun: false,
+      answered: false,
     });
     expect(rows.every((r) => !r.finishGated)).toBe(true);
   });
