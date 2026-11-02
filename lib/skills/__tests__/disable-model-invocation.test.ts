@@ -30,6 +30,18 @@ function skill(dir: string, rel: string, text: string): string {
 const read = (f: string) => readFileSync(f, "utf8");
 
 describe("reconcileDisableModelInvocation", () => {
+  test("a skill other plugins name is left alone even when the setting names it", () => {
+    const config = join(tmp, "c");
+    const dir = join(config, "plugins", "cache", "market", "mattstack", "1.0.0");
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    const tiering = skill(dir, "skills/model-tiering", plain("model-tiering"));
+    const alpha = skill(dir, "skills/alpha", plain("alpha"));
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { "mattstack@market": ["model-tiering", "alpha"] } });
+    expect(read(tiering)).toBe(plain("model-tiering"));
+    expect(read(alpha)).toContain(PERSONAL_MARK);
+    expect(r).toEqual({ changed: [alpha], warnings: [] });
+  });
+
   test("a chosen skill gains the line in the newest version only", () => {
     const config = join(tmp, "c");
     const old = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));

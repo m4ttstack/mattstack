@@ -133,3 +133,9 @@ running sessions on 2026-11-02:
 - How rt recognises the line it added.
 - The console server route, and its error handling when the installed copy is
   missing or unwritable.
+
+## Naming
+
+The feature is named by the frontmatter property it sets, `disable-model-invocation`. The verb is `rt skills disable-model-invocation list|set|reapply` and the setting is `rt.skills.disableModelInvocation`. The frontmatter marks are `# rt: personal` and `# rt: personal (was false)`. Where this spec says "direct-only", read "disable-model-invocation".
+
+A skill that other skills name across plugins must keep working, so `mattstack:model-tiering` cannot be disabled. Its surface row carries no field, `set` refuses it with a reason and writes nothing, and reconcile skips it even if the setting names it.

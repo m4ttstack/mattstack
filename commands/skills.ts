@@ -69,7 +69,7 @@ import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skil
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
-import { DISABLE_MODEL_INVOCATION_SETTING, disableModelInvocationConfigDirs, disableModelInvocationHome, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../lib/skills/disable-model-invocation.ts";
+import { DISABLE_MODEL_INVOCATION_SETTING, neverDisabled, disableModelInvocationConfigDirs, disableModelInvocationHome, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../lib/skills/disable-model-invocation.ts";
 import { sourceSetsDisableModelInvocation } from "../lib/skills/disable-model-invocation-line.ts";
 import { userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { setSetting } from "../lib/settings/write.ts";
@@ -3790,6 +3790,8 @@ function disableModelInvocationEligible(row: SurfaceRow): boolean {
   return row.status === "public" && row.base === undefined && row.path !== undefined;
 }
 
+const pluginOf = (key: string): string => key.slice(0, key.lastIndexOf("@"));
+
 function withDisableModelInvocation(rows: SurfaceRow[], key: string | null): SurfaceRow[] {
   if (key === null) return rows;
   let chosen: string[] = [];
@@ -3799,7 +3801,7 @@ function withDisableModelInvocation(rows: SurfaceRow[], key: string | null): Sur
     // an unreadable setting shows every skill as off
   }
   return rows.map((row) => {
-    if (!disableModelInvocationEligible(row)) return row;
+    if (!disableModelInvocationEligible(row) || neverDisabled(pluginOf(key), row.name)) return row;
     let locked = false;
     try {
       locked = sourceSetsDisableModelInvocation(readFileSync(row.path!, "utf8"));
@@ -3846,8 +3848,9 @@ async function disableModelInvocationTarget(flags: SurfaceFlags): Promise<Disabl
   return { key: plugin.key, rows: withDisableModelInvocation(rows, plugin.key), source };
 }
 
-function refuseDisableModelInvocationName(name: string, row: SurfaceRow | undefined): SkillsRefusal | null {
+function refuseDisableModelInvocationName(name: string, row: SurfaceRow | undefined, key: string): SkillsRefusal | null {
   if (!row) return disableModelInvocationRefusal(`${name} is not a skill in this pack`);
+  if (neverDisabled(pluginOf(key), name)) return disableModelInvocationRefusal(`${name} cannot have model invocation disabled`, "It stays invocable because other skills name it.");
   if (row.base !== undefined) return disableModelInvocationRefusal(`${name} comes from ${row.base}`, "The org base pack decides how it runs.");
   if (row.status !== "public") return disableModelInvocationRefusal(`${name} is an internal skill`, "Only public skills can have model invocation disabled.");
   if (row.path === undefined) return disableModelInvocationRefusal(`${name} has no files in this pack`);
@@ -3937,7 +3940,7 @@ async function runDisableModelInvocationSet(args: string[]): Promise<void> {
       names = picked;
     }
     for (const name of names) {
-      const refusal = refuseDisableModelInvocationName(name, rows.find((r) => r.name === name));
+      const refusal = refuseDisableModelInvocationName(name, rows.find((r) => r.name === name), key);
       if (refusal) throw refusal;
     }
     if (disableModelInvocationStoreUnreadable()) {

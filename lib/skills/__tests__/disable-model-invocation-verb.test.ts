@@ -41,21 +41,24 @@ interface Fixture {
 }
 
 /** A pack with public alpha, gamma and locked, an internal hidden, a public-listed base unit, and an installed copy of the same skills. */
-function fixture(opts: { packDir?: string; marketplace?: string | null } = {}): Fixture {
+function fixture(opts: { packDir?: string; marketplace?: string | null; plugin?: string; extra?: string[] } = {}): Fixture {
+  const plugin = opts.plugin ?? "widgets";
+  const extra = opts.extra ?? [];
   const packDir = opts.packDir ?? join(tmp, "pack");
-  put(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0" }));
-  put(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["alpha", "gamma", "locked", "base-unit"] }));
+  put(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: plugin, version: "1.0.0" }));
+  put(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["alpha", "gamma", "locked", "base-unit", ...extra] }));
+  for (const name of extra) put(join(packDir, "skills", name, "SKILL.md"), plain(name));
   for (const name of ["alpha", "gamma", "hidden"]) put(join(packDir, "skills", name, "SKILL.md"), plain(name));
   put(join(packDir, "skills", "locked", "SKILL.md"), lockedSource);
   put(join(packDir, "attachments", "base-unit", "SKILL.md"), plain("base-unit"));
   put(join(packDir, "attachments", "base-unit", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
 
-  const version = join(process.env.HOME!, ".claude", "plugins", "cache", "market", "widgets", "1.0.0");
-  put(join(version, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "1.0.0" }));
-  for (const name of ["alpha", "gamma", "hidden", "locked"]) put(join(version, "skills", name, "SKILL.md"), name === "locked" ? lockedSource : plain(name));
+  const version = join(process.env.HOME!, ".claude", "plugins", "cache", "market", plugin, "1.0.0");
+  put(join(version, ".claude-plugin", "plugin.json"), JSON.stringify({ name: plugin, version: "1.0.0" }));
+  for (const name of ["alpha", "gamma", "hidden", "locked", ...extra]) put(join(version, "skills", name, "SKILL.md"), name === "locked" ? lockedSource : plain(name));
 
   const marketplace = opts.marketplace === undefined ? "market" : opts.marketplace;
-  discovery.mockReturnValue([{ name: "widgets", dir: realpathSync(packDir), layout: "flat", surfacePath: join(packDir, "pack", "surface.jsonc"), marketplace }]);
+  discovery.mockReturnValue([{ name: plugin, dir: realpathSync(packDir), layout: "flat", surfacePath: join(packDir, "pack", "surface.jsonc"), marketplace }]);
   return { packDir, installed: (name) => join(version, "skills", name, "SKILL.md") };
 }
 
@@ -504,5 +507,34 @@ describe("the command tree row", () => {
     expect(JSON.stringify(node)).not.toContain("exempt");
     expect(node.agentSafe).toBeUndefined();
     for (const child of Object.values(node.subcommands!)) expect(child.agentSafe).toBeUndefined();
+  });
+});
+
+describe("a skill other plugins name cannot be disabled", () => {
+  const TIERING = "model-tiering";
+  const mattstack = () => fixture({ plugin: "mattstack", extra: [TIERING] });
+
+  test("set --on is refused with a reason and writes nothing", async () => {
+    const fx = mattstack();
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", TIERING, "--on", "--pack", "mattstack"]));
+    expect(result.exitCode).toBe(2);
+    expect(io.stderr()).toContain(TIERING);
+    expect(io.stderr()).toContain("other skills");
+    expect(chosen()).toEqual({});
+    expect(read(fx.installed(TIERING))).toBe(plain(TIERING));
+  });
+
+  test("the surface row carries no field, so the Console shows no control", async () => {
+    mattstack();
+    await skillsSurface(["list", "--pack", "mattstack", "--json"]);
+    const rows = lastJson().rows as { name: string; disableModelInvocation?: string }[];
+    expect(rows.find((r) => r.name === TIERING)).not.toHaveProperty("disableModelInvocation");
+    expect(rows.find((r) => r.name === "alpha")!.disableModelInvocation).toBe("off");
+  });
+
+  test("the same name in another plugin is still settable", async () => {
+    fixture({ extra: [TIERING] });
+    await skillsDisableModelInvocation(["set", TIERING, "--on", "--pack", "widgets", "--json"]);
+    expect(chosen()).toEqual({ [KEY]: [TIERING] });
   });
 });

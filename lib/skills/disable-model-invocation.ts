@@ -13,6 +13,13 @@ export function disableModelInvocationHome(): string {
 
 export const DISABLE_MODEL_INVOCATION_SETTING = "rt.skills.disableModelInvocation";
 
+// Skills that other skills name across plugins must stay invocable, or those references break.
+const NEVER_DISABLED = [{ plugin: "mattstack", name: "model-tiering" }];
+
+export function neverDisabled(plugin: string, name: string): boolean {
+  return NEVER_DISABLED.some((s) => s.plugin === plugin && s.name === name);
+}
+
 export function readDisableModelInvocationChoices(): Record<string, string[]> {
   const value = getSetting<unknown>(DISABLE_MODEL_INVOCATION_SETTING).value;
   const choices: Record<string, string[]> = {};
@@ -190,6 +197,7 @@ export function reconcileDisableModelInvocation(opts: {
         for (const [name, file] of skillFiles(versionDir)) {
           opts.beforeSkill?.(file);
           if (!existsSync(versionDir)) break;
+          if (neverDisabled(plugin, name)) continue;
           reconcileSkill(file, chosen.has(name), cacheReal, out);
         }
       } catch (err) {
