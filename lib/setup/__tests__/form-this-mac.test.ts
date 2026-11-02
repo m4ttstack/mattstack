@@ -74,6 +74,7 @@ function inputs(over: Partial<ThisMacInputs> = {}): ThisMacInputs {
     ghSignedIn: false,
     githubSignIn: null,
     githubReady: false,
+    githubStored: false,
     githubClientId: "",
     repoRoot: { configured: null, staged: null, candidate: "/fake-home/Documents/GitHub" },
     ...over,
@@ -329,6 +330,11 @@ describe("the remote repo row signs in to GitHub", () => {
     }
   });
 
+  test("a stored token that cannot create repos gets the URL form, never the sign-in", () => {
+    expect(remote({ githubStored: true })).toMatchObject({ state: "todo", detail: "", action: { type: "form", verb: ["home", "remote", "set"] } });
+    expect(remote({ githubStored: true, githubSignIn: { ...live, outcome: "expired" } })).toMatchObject({ action: { type: "form" } });
+  });
+
   test("a live sign-in outranks a ready token", () => {
     expect(remote({ githubSignIn: live, githubReady: true })).toMatchObject({ state: "waiting" });
   });
@@ -349,6 +355,14 @@ describe("the form reads the GitHub sign-in", () => {
   test("a stored token that can create repos makes the row offer the create", async () => {
     const row = await remoteOf({ mode: "remote" }, scopes("repo, read:org"), async () => "tok");
     expect(row?.action).toMatchObject({ type: "run", verb: ["setup", "home-backup", "remote"] });
+  });
+
+  test("with a client id, a stored narrow token gets the URL form and no stored token gets the sign-in", async () => {
+    const p = (fetch: Probes["fetch"]) => fakeProbes({ home: "/fake-home", now: NOW, files: stateFile({ mode: "remote" }), exec, fetch });
+    const narrow = await composeForm(p(scopes("read:org")), { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [], githubToken: async () => "tok", githubClientId: "acme-client" });
+    expect(pick(narrow.sections.thisMac ?? [], "settings.remote").action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
+    const none = await composeForm(p(scopes("repo")), { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [], githubToken: async () => null, githubClientId: "acme-client" });
+    expect(pick(none.sections.thisMac ?? [], "settings.remote").action).toMatchObject({ type: "run", verb: ["setup", "github", "sign-in"] });
   });
 
   test("a token without repo scope, or none, is not ready", async () => {

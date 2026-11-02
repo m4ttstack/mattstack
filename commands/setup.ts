@@ -66,7 +66,7 @@ import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../l
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { appsRestartOwed, appsRestartStep, oweAppsRestart, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
-import { createCapableGitHubToken, readStoredGitHubToken } from "../lib/setup/github-signin.ts";
+import { clearGitHubSignIn, createCapableGitHubToken, readStoredGitHubToken } from "../lib/setup/github-signin.ts";
 import { assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
@@ -1106,6 +1106,7 @@ export async function setupHomeBackup(args: string[], _ctx: CommandContext = {},
     return exitWithUserError(err, json, sinkOf(deps), usageFailure("Keep your settings on this Mac or in a remote repo?", HOME_BACKUP_USAGE));
   }
   let homeBackup = writeHomeBackup(deps.probes, choice);
+  if (homeBackup.mode === "local") clearGitHubSignIn(deps.probes);
   // With gh signed in or a token that can create repos, GitHub needs nothing more from the member: rt creates the private repo when setup runs.
   if (homeBackup.mode === "remote" && homeBackup.url === undefined && !homeBackup.create && (await canCreateGitHubRepo(deps))) {
     homeBackup = stageHomeRemote(deps.probes, { create: true });

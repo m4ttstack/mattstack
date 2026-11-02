@@ -669,6 +669,8 @@ export interface ThisMacInputs extends DrawnContext {
   githubSignIn: GitHubSignIn | null;
   /** rt's stored GitHub token can already create the repo. */
   githubReady: boolean;
+  /** rt holds a GitHub token, whatever it can do: a sign-in would overwrite it. */
+  githubStored: boolean;
   githubClientId: string;
   repoRoot: { configured: string | null; staged: string | null; candidate: string | null };
 }
@@ -740,7 +742,7 @@ function remoteRow(i: ThisMacInputs): FormRow | null {
   if (i.githubReady || i.ghSignedIn) {
     return { ...base, state: "todo", detail: "", action: { type: "run", label: c.create, verb: ["setup", "home-backup", "remote"] } };
   }
-  if (i.githubClientId) {
+  if (i.githubClientId && !i.githubStored) {
     const detail = sign ? (sign.outcome === "declined" ? c.declined : c.expired) : "";
     return { ...base, state: "todo", detail, ...(sign ? {} : { subtext: c.signInSubtext }), action: { type: "run", label: c.signIn, verb: signInVerb } };
   }
@@ -994,24 +996,34 @@ async function homeRemote(p: Probes, backup: HomeBackupChoice | undefined): Prom
 }
 
 /** Read only while the remote row is open: the store and the network are not touched on every form read. */
-async function githubReady(
+async function githubToken(
   p: Probes,
   backup: HomeBackupChoice | undefined,
   homeRemote: string | null,
   rowIgnoresIt: boolean,
   token: () => Promise<string | null>,
-): Promise<boolean> {
-  if (backup?.mode !== "remote" || backup.url !== undefined || backup.create || homeRemote !== null || rowIgnoresIt) return false;
-  return (await createCapableGitHubToken(p, token)) !== null;
+): Promise<{ stored: boolean; ready: boolean }> {
+  if (backup?.mode !== "remote" || backup.url !== undefined || backup.create || homeRemote !== null || rowIgnoresIt) return { stored: false, ready: false };
+  const stored = await token();
+  if (stored === null) return { stored: false, ready: false };
+  return { stored: true, ready: (await createCapableGitHubToken(p, async () => stored)) !== null };
 }
 
-async function thisMacSection(p: Probes, plan: Plan, path: FormPath, state: SetupState, token: () => Promise<string | null>): Promise<FormRow[]> {
+async function thisMacSection(
+  p: Probes,
+  plan: Plan,
+  path: FormPath,
+  state: SetupState,
+  token: () => Promise<string | null>,
+  clientId: string,
+): Promise<FormRow[]> {
   const rows = new Map(planRows(plan).map((r) => [r.id, r]));
   const backup = state.homeBackup;
   const remote = await homeRemote(p, backup);
   const githubSignIn = readGitHubSignIn(p);
   const signedInThroughGh = ghSignedIn(rows);
   const liveSignIn = githubSignIn !== null && githubSignIn.outcome === undefined;
+  const github = await githubToken(p, backup, remote, signedInThroughGh || liveSignIn, token);
   return thisMacRows({
     path,
     plan,
@@ -1024,8 +1036,9 @@ async function thisMacSection(p: Probes, plan: Plan, path: FormPath, state: Setu
     homeRemote: remote,
     ghSignedIn: signedInThroughGh,
     githubSignIn,
-    githubReady: await githubReady(p, backup, remote, signedInThroughGh || liveSignIn, token),
-    githubClientId: GITHUB_OAUTH_CLIENT_ID,
+    githubReady: github.ready,
+    githubStored: github.stored,
+    githubClientId: clientId,
     repoRoot: { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate: detectCandidate(p) },
   });
 }
@@ -1042,6 +1055,8 @@ export interface FormOptions {
   create?: CreateChoice;
   /** rt's stored GitHub token; the real store when omitted. */
   githubToken?: () => Promise<string | null>;
+  /** Overrides the build's OAuth client id. */
+  githubClientId?: string;
 }
 
 /**
@@ -1082,7 +1097,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   if (wanted.includes("invite")) sections.invite = await inviteSection(p, opts.secrets);
   if (wanted.includes("restore")) sections.restore = await restoreSection(p);
   if (wanted.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs, path ?? "solo");
-  if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state, opts.githubToken ?? (() => readStoredGitHubToken(p)));
+  if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state, opts.githubToken ?? (() => readStoredGitHubToken(p)), opts.githubClientId ?? GITHUB_OAUTH_CLIENT_ID);
   if (wanted.includes("create") && opts.create) sections.create = await createSection(p, opts.secrets, opts.create);
   const form: SetupForm = {
     path,

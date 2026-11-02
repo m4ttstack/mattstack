@@ -3,6 +3,7 @@ import { setupHomeBackup, type HomeBackupDeps } from "../setup.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
+import { readGitHubSignInRaw, writeGitHubSignIn } from "../../lib/setup/github-signin.ts";
 import { capturePlain } from "./helpers/json-line.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
@@ -44,6 +45,15 @@ describe("setupHomeBackup", () => {
 
     expect(readSetupState(d.probes).homeBackup).toEqual({ mode: "local" });
     expect(d.lines[0]).toMatchObject({ homeBackup: { mode: "local" } });
+  });
+
+  test("backup local clears a GitHub sign-in in progress", async () => {
+    const d = deps();
+    writeGitHubSignIn(d.probes, { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-01-01T00:15:00.000Z", pid: 4242 });
+
+    await setupHomeBackup(["local", "--json"], {}, d);
+
+    expect(readGitHubSignInRaw(d.probes)).toBeNull();
   });
 
   test("backup remote keeps a staged url", async () => {

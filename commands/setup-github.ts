@@ -23,6 +23,7 @@ import {
   type GitHubSignIn,
 } from "../lib/setup/github-signin.ts";
 import { stageHomeRemote } from "../lib/setup/home-remote.ts";
+import { readSetupState } from "../lib/setup/state.ts";
 import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
 import { stageSecret } from "../lib/setup/staging.ts";
 import { pidAlive } from "../lib/setup/update-lock.ts";
@@ -133,20 +134,23 @@ async function wait(deps: GitHubSignInDeps): Promise<void> {
   const clientId = deps.clientId ?? GITHUB_OAUTH_CLIENT_ID;
   let intervalSec = startInterval;
 
-  // A second sign-in started meanwhile owns the record; this waiter must not touch it.
+  // A second sign-in or a pick of "Store on your Mac" meanwhile took the record; this waiter must not touch it.
+  const ownsRecord = () => readGitHubSignInRaw(p)?.userCode === record.userCode;
   const finish = (outcome?: "expired" | "declined") => {
-    if (readGitHubSignInRaw(p)?.userCode !== record.userCode) return;
-    if (outcome === undefined) clearGitHubSignIn(p);
-    else writeGitHubSignIn(p, { ...record, outcome });
+    if (!ownsRecord()) return;
+    if (outcome === undefined) {
+      if (readSetupState(p).homeBackup?.mode === "remote") stageHomeRemote(p, { create: true });
+      clearGitHubSignIn(p);
+    } else writeGitHubSignIn(p, { ...record, outcome });
   };
 
   while (p.now().getTime() < expiresAt) {
     await deps.sleep(intervalSec * 1000);
+    if (!ownsRecord()) return;
     const result = await pollDeviceToken(p, deviceCode, clientId);
     switch (result.kind) {
       case "token":
         await storeToken(deps, result.token);
-        stageHomeRemote(p, { create: true });
         return finish();
       case "expired":
       case "declined":

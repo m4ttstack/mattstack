@@ -3,7 +3,8 @@ import { setupGitHubSignIn, type GitHubSignInDeps } from "../setup-github.ts";
 import type { SecretWriter } from "../setup.ts";
 import { readGitHubSignIn, writeGitHubSignIn } from "../../lib/setup/github-signin.ts";
 import { readStagedSecret } from "../../lib/setup/staging.ts";
-import { readSetupState } from "../../lib/setup/state.ts";
+import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
+import { setupHomeBackup } from "../setup.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import { capturePlain } from "./helpers/json-line.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -148,7 +149,10 @@ describe("sign-in start", () => {
 });
 
 describe("sign-in --wait", () => {
-  const seed = (r: Rig) => writeGitHubSignIn(r.probes, { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-01-01T00:15:00.000Z", pid: 4242 });
+  const seed = (r: Rig) => {
+    updateSetupState(r.probes, (s) => ({ ...s, homeBackup: { mode: "remote" } }));
+    writeGitHubSignIn(r.probes, { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-01-01T00:15:00.000Z", pid: 4242 });
+  };
 
   test("pending, pending, then a token stores it, stages the remote and clears the record", async () => {
     const r = rig({ polls: [{ error: "authorization_pending" }, { error: "authorization_pending" }, { access_token: TOKEN }] });
@@ -234,6 +238,49 @@ describe("sign-in --wait", () => {
       };
       await setupGitHubSignIn(["--wait"], {}, r.deps);
       expect(JSON.parse(r.probes.readFile(RECORD)!)).toEqual(newer);
+    }
+  });
+
+  test("a token landing after a local pick is stored and leaves the backup local", async () => {
+    const r = rig();
+    seed(r);
+    const fetch = r.probes.fetch;
+    r.probes.fetch = async (url, init) => {
+      await setupHomeBackup(["local", "--json"], {}, { probes: r.probes, json: () => {}, exit: r.deps.exit, githubToken: async () => null });
+      return url.endsWith("/login/oauth/access_token") ? reply({ access_token: TOKEN }) : fetch(url, init);
+    };
+    await setupGitHubSignIn(["--wait"], {}, r.deps);
+    expect(r.written).toEqual([["rt", "githubToken", TOKEN]]);
+    expect(readSetupState(r.probes).homeBackup).toEqual({ mode: "local" });
+    expect(r.probes.readFile(RECORD)).toBeNull();
+  });
+
+  test("a token landing for a replaced record is stored but stages no create", async () => {
+    const r = rig();
+    seed(r);
+    const newer = { userCode: "WXYZ-9876", url: "https://github.com/login/device", expiresAt: "2026-01-01T00:20:00.000Z", pid: 5151 };
+    r.probes.fetch = async () => {
+      writeGitHubSignIn(r.probes, newer);
+      return reply({ access_token: TOKEN });
+    };
+    await setupGitHubSignIn(["--wait"], {}, r.deps);
+    expect(r.written).toEqual([["rt", "githubToken", TOKEN]]);
+    expect(readSetupState(r.probes).homeBackup).toEqual({ mode: "remote" });
+  });
+
+  test("a waiter whose record was replaced or cleared stops polling", async () => {
+    for (const change of ["replace", "clear"] as const) {
+      const r = rig();
+      seed(r);
+      const sleep = r.deps.sleep;
+      r.deps.sleep = async (ms) => {
+        await sleep(ms);
+        if (change === "clear") r.probes.removeFile(RECORD);
+        else writeGitHubSignIn(r.probes, { userCode: "WXYZ-9876", url: "https://github.com/login/device", expiresAt: "2026-01-01T00:20:00.000Z", pid: 5151 });
+      };
+      await setupGitHubSignIn(["--wait"], {}, r.deps);
+      expect(r.probes.calls.fetch).toEqual([]);
+      expect(r.slept).toEqual([5000]);
     }
   });
 

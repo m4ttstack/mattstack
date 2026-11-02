@@ -241,6 +241,10 @@ function screens(p: Plan, o: { ranOk: boolean } & Partial<Drawn>): Record<Sectio
       backup: undefined,
       homeRemote: null,
       ghSignedIn: false,
+      githubSignIn: null,
+      githubReady: false,
+      githubStored: false,
+      githubClientId: "",
       repoRoot: { configured: "/fake-home/code", staged: null, candidate: null },
     }),
   };
