@@ -195,6 +195,20 @@ describe("bundled-tool resolution", () => {
       expect(resolveTool(both, "gh").userCopy).toBe("/opt/homebrew/bin/gh");
     });
 
+    test("a non-executable file is skipped and the scan moves on to the next copy", () => {
+      const p = bundleProbe({
+        env: { PATH: LAUNCHD_PATH },
+        files: { "/opt/homebrew/bin/claude": "notes", "/usr/local/bin/claude": "claude-binary" },
+        modes: { "/opt/homebrew/bin/claude": 0o644, "/usr/local/bin/claude": 0o755 },
+      });
+      expect(resolveTool(p, "claude").exec).toEqual(["/usr/local/bin/claude"]);
+    });
+
+    test("a non-executable file alone reads as not found", () => {
+      const p = bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { "/opt/homebrew/bin/claude": "notes" }, modes: { "/opt/homebrew/bin/claude": 0o644 } });
+      expect(resolveTool(p, "claude").exec).toBeNull();
+    });
+
     test("userCopyOnPath stays on PATH, so an app-run link is not refused by a namesake the shell's PATH may never reach", () => {
       const p = bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { "/opt/homebrew/bin/gh": "real-gh" } });
       expect(userCopyOnPath(p, "gh")).toBeNull();

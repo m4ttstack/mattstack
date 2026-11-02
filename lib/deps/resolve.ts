@@ -84,7 +84,7 @@ export function bundledToolExec(p: Pick<Probes, "exists" | "home">, tool: string
   }
 }
 
-type UserCopyProbes = Pick<Probes, "exists" | "readlink" | "readFile" | "fileSize" | "env" | "home">;
+type UserCopyProbes = Pick<Probes, "exists" | "readlink" | "readFile" | "fileSize" | "fileMode" | "env" | "home">;
 
 /**
  * First PATH entry holding a genuine, independent copy of `tool` — not our
@@ -129,6 +129,8 @@ function firstUserCopy(p: UserCopyProbes, tool: string, dirs: string[]): string 
     if (pointsIntoAnyBundle(candidate, roots)) continue; // the bundle's own copy, reached via a PATH entry the daemon itself prepended
     if (!p.exists(candidate)) continue;
     if (p.fileSize(candidate) === null) continue; // a directory (or something unreadable) is never an executable copy
+    const mode = p.fileMode(candidate);
+    if (mode !== null && (mode & 0o111) === 0) continue;
     const target = p.readlink(candidate);
     if (target !== null && pointsIntoAnyBundle(target, roots)) continue; // a stray symlink into the bundle from elsewhere on PATH
     return candidate;
