@@ -105,7 +105,7 @@ connect claude claude install
 connect fast-browser action done
 this-mac repos.root action todo
 this-mac repos.place:github.com/acme/widgets place todo
-this-mac settings.backup segment done
+this-mac settings.backup tiles todo
 ROWS
   SCENARIO="$1"
 }
@@ -115,7 +115,13 @@ screen_ids() {
   [ -n "$s" ] || return 0
   echo "setup.fast.$s"
   awk -v s="$s" '$1 == s { print $2, $3, $4 }' "$M/rows" | while read -r r kind st; do
-    # A two-option choice draws only its segment, done or not.
+    # A two-option choice with lines draws its tiles until picked, then its chip with Change.
+    if [ "$kind" = tiles ]; then
+      if [ "$st" = done ]; then echo "setup.fast.row.$r.action.change"
+      else echo "setup.fast.row.$r.action.remote"; echo "setup.fast.row.$r.action.local"; fi
+      continue
+    fi
+    # Bare labels draw only a segment, done or not.
     [ "$kind" = segment ] && { echo "setup.fast.row.$r.action"; continue; }
     if [ "$kind" = claude ]; then
       case "$st" in
@@ -127,12 +133,14 @@ screen_ids() {
       continue
     fi
     case "$st" in
-      done) [ "$kind" = place ] && echo "setup.fast.row.$r.status" || echo "setup.fast.row.$r.done" ;;
+      done) { [ "$kind" = place ] || [ "$kind" = found ]; } && echo "setup.fast.row.$r.status" || echo "setup.fast.row.$r.done" ;;
       waiting) echo "setup.fast.row.$r.waiting"; echo "setup.fast.row.$r.action" ;;
       error) echo "setup.fast.row.$r.error"; echo "setup.fast.row.$r.action" ;;
       *) case "$kind" in
            field) echo "setup.fast.row.$r.field"; echo "setup.fast.row.$r.action" ;;
-           place) echo "setup.fast.row.$r.status"; echo "setup.fast.row.$r.action.oneClick" ;;
+           # Unanswered: the question's two tiles and no path controls. A found checkout is pre-picked: one-click only.
+           place) echo "setup.fast.row.$r.status"; echo "setup.fast.row.$r.segment.clone"; echo "setup.fast.row.$r.segment.checkout" ;;
+           found) echo "setup.fast.row.$r.status"; echo "setup.fast.row.$r.action.oneClick" ;;
            *) echo "setup.fast.row.$r.action" ;;
          esac ;;
     esac
@@ -214,6 +222,8 @@ ax_click_raw() {
         if [ "$CLAUDE_LAG" = 1 ]; then mset claude-lag 0; else set_row claude installing; mset claude 0; fi
       fi ;;
     setup.fast.row.repos.root.action) set_row repos.root done ;;
+    setup.fast.row.*.segment.clone) r="${1#setup.fast.row.}"; set_row "${r%.segment.clone}" done ;;
+    setup.fast.row.settings.backup.action.local) set_row settings.backup done ;;
     setup.fast.row.*.action.oneClick) r="${1#setup.fast.row.}"; set_row "${r%.action.oneClick}" done ;;
     setup.fast.path.card.join) mset screen invite ;;
     setup.fast.path.card.create) mset screen create-team ;;
@@ -267,8 +277,10 @@ check "join: Full Disk Access takes a relaunch, and P1 moves on by itself" \
   'c=$(calls); case "$c" in *"click:setup.fast.row.perm.fda.action toggle"*"relaunch"*"shot:01c-fda-relaunched"*"shot:02-path"*) true ;; *) false ;; esac'
 check "join: Fancy URLs is cancelled once, then answered with credentials" \
   'c=$(calls); case "$c" in *"click:setup.fast.row.mac.fancy-urls.action"*cancel*"click:setup.fast.row.mac.fancy-urls.action"*auth*) true ;; *) false ;; esac'
-check "join: this Mac's folder and repo are answered before Set up this Mac" \
-  'c=$(calls); case "$c" in *"click:setup.fast.row.repos.root.action"*"click:setup.fast.row.repos.place:github.com/acme/widgets.action.oneClick"*"press:setup.fast.this-mac.primary"*) true ;; *) false ;; esac'
+check "join: this Mac's folder, the repo's clone tile and the local backup tile are answered before Set up this Mac" \
+  'c=$(calls); case "$c" in *"click:setup.fast.row.repos.root.action"*"click:setup.fast.row.repos.place:github.com/acme/widgets.segment.clone"*"click:setup.fast.row.settings.backup.action.local"*"press:setup.fast.this-mac.primary"*) true ;; *) false ;; esac'
+check "join: the repo question is answered by its tile, never its one-click button, and the remote tile is never pressed" \
+  '[ "$(count "action.oneClick")" -eq 0 ] && [ "$(count "segment.checkout")" -eq 0 ] && [ "$(count "settings.backup.action.remote")" -eq 0 ] && [ "$(count "^click:setup.fast.row.settings.backup.action.local$")" -eq 1 ]'
 check "join: the gate file reads open" '[ "$(cat "$GUEST_RUN/logs/finish-gate.txt")" = open ]'
 
 model create; drive whole_run
@@ -291,6 +303,16 @@ check "restore: stops at the cards with its own code, pressing none" '[ "$rc" -e
 
 check "a two-option choice reads answered, and is never logged as a row with no answer" \
   '! grep -q "no answer for row settings.backup" "$AX_LOG"'
+check "the settings backup tiles read todo until picked, and done once the chip's Change shows" \
+  '[ "$(ax_fast_row_state "$(printf "%s\n" setup.fast.row.settings.backup.action.remote setup.fast.row.settings.backup.action.local)" settings.backup)" = todo ] && [ "$(ax_fast_row_state "$(printf "%s\n" setup.fast.row.settings.backup.action.change)" settings.backup)" = done ]'
+check "the repo row asks with its two tiles, which name the row once" \
+  '[ "$(ax_fast_row_ids "$(printf "%s\n" "setup.fast.row.repos.place:github.com/acme/widgets.segment.clone" "setup.fast.row.repos.place:github.com/acme/widgets.segment.checkout" "setup.fast.row.repos.place:github.com/acme/widgets.status")" | tr "\n" " ")" = "repos.place:github.com/acme/widgets " ]'
+
+# A checkout rt found is pre-picked: the row draws no tiles, and keeps taking its one-click button.
+: > "$AX_LOG"
+model solo; sed -i.bak 's/^this-mac repos.place:github.com\/acme\/widgets place todo$/this-mac repos.place:github.com\/acme\/widgets found todo/' "$M/rows"; drive whole_run
+check "an answered repo row is placed through its one-click button, with no tile pressed" \
+  '[ "$rc" -eq 0 ] && [ "$(count "^click:setup.fast.row.repos.place:github.com/acme/widgets.action.oneClick$")" -eq 1 ] && [ "$(count "segment.clone")" -eq 0 ]'
 
 # Claude Code: Install, the spinner while it installs, then the sign-in.
 model solo; drive whole_run

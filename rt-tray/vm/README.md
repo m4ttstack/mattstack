@@ -109,10 +109,13 @@ Facts a join run depends on:
   to be the placed checkout of the board's repo (`--board-repo`, the tracked
   repo, on a `--fresh-team-repo` run), and fails a team that tracks no repo
   rather than passing it unchecked.
-- The this-Mac screen's repo rows hold Set up this Mac: `screen_this_mac`
-  takes the suggested folder for `repos.root` and each unplaced
-  `repos.place:*` row's one-click location, then presses Set up this Mac
-  only while it reads so.
+- The this-Mac screen's rows hold Set up this Mac: `screen_this_mac`
+  takes the suggested folder for `repos.root`, presses the "Clone it fresh"
+  tile of each unanswered `repos.place:*` row (an answered row, a found
+  checkout, takes its one-click location instead), and presses the `local`
+  tile of `settings.backup` (the harness has no GitHub browser sign-in to
+  confirm a remote, so `settings.remote` never shows), then presses Set up
+  this Mac only while it reads so.
 - The golden image has no Chrome, and Install needs it. The `chrome` phase,
   after the app is copied and before it launches, runs
   `run/guest/install-chrome.sh` as admin (the same sudo path the install
