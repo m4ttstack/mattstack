@@ -165,7 +165,7 @@ export const FORM_COPY = {
       remote: "Store in a GitHub repo",
       localDetail: "Your settings won't be backed up",
       remoteDetail: "Private. A new Mac restores from it",
-      subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later",
+      subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac",
       change: "Change",
     },
     remote: {

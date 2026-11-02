@@ -616,7 +616,7 @@ enum FastSetupSnapshot {
     enum ThisMacRows {
         /// rt sends absolute paths and the screen shortens them under HOME, so the render reads `~/code/acme-api` like the mock.
         static let home = NSHomeDirectory()
-        private static let settingsSubtext = "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later"
+        private static let settingsSubtext = "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac"
         private static func backupAction(_ selected: String) -> RowAction {
             RowAction(type: .choose, label: "Change", verb: ["setup", "home-backup"], options: [
                 ChooseOption(id: "local", label: "Keep on this Mac", detail: ""),
@@ -931,7 +931,7 @@ enum FastSetupSnapshot {
                                         ActionField(name: "apiKey", label: "API key", secret: true),
                                     ], create: ActionLink(label: "Create token", url: "https://example.com/settings/api")))
         static let backup = FormRow(id: "settings.backup", title: "Your settings",
-                                    subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later",
+                                    subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac",
                                     state: .done, detail: "Keep on this Mac",
                                     action: RowAction(type: .choose, label: "Change", verb: ["setup", "home-backup"], options: [
                                         ChooseOption(id: "local", label: "Keep on this Mac", detail: ""),

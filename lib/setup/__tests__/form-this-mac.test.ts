@@ -150,7 +150,7 @@ describe("thisMacRows", () => {
     const settings = pick(thisMacRows(inputs()), "settings.backup");
     expect(settings).toMatchObject({
       title: "Your settings",
-      subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac. You can turn this on later",
+      subtext: "mattstack keeps your settings in one folder. A private remote copy lets you restore them on a new Mac",
       state: "todo",
       detail: "",
       optional: false,
