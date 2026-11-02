@@ -187,8 +187,10 @@ function inferredRoots(): string[] {
   }
 }
 
-/** Searched for a checkout only; `detectCandidate` keeps the shorter list, so where new clones go does not move. */
-const SCAN_ROOT_NAMES = [...CANDIDATE_ROOT_NAMES, "Developer", "Projects", "repos"];
+/** Searched for a checkout only; `detectCandidate` keeps the shorter list, so where new clones go does not move. A function, not a constant: repo-root.ts sits in an import cycle with this file, so its list is not initialized while this module loads. */
+function scanRootNames(): string[] {
+  return [...CANDIDATE_ROOT_NAMES, "Developer", "Projects", "repos"];
+}
 
 /** A folder that is a repo of its own, hidden, or a dependency tree holds no checkout worth a second level. */
 function scansDeeper(p: Pick<Probes, "readDir">, name: string, path: string): boolean {
@@ -199,7 +201,7 @@ function scansDeeper(p: Pick<Probes, "readDir">, name: string, path: string): bo
 export async function findCheckout(p: Pick<Probes, "home" | "readFile" | "readDir">, identity: string, opts: { rootPaths: string[] }): Promise<string | null> {
   const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
   if (indexed && (await isReusableCloneOf(p, indexed, identity))) return indexed;
-  const roots = [...new Set([...opts.rootPaths, ...SCAN_ROOT_NAMES.map((rel) => join(p.home, rel)), ...inferredRoots()])];
+  const roots = [...new Set([...opts.rootPaths, ...scanRootNames().map((rel) => join(p.home, rel)), ...inferredRoots()])];
   const deeper: string[] = [];
   for (const root of roots) {
     for (const child of p.readDir(root)) {
