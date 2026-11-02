@@ -3,6 +3,7 @@ import { finalizePlan, row, type Action, type OrgRef, type Plan, type Row } from
 import { allAnswered, composeForm, thisMacRows, type FormRow, type ThisMacInputs } from "../form.ts";
 import type { PrepareRecord } from "../prepare.ts";
 import { HOME_BACKUP_PUSH_ACTION } from "../validators/rt-health.ts";
+import type { Probes } from "../probes.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const NOW = new Date("2026-10-30T10:00:00.000Z");
@@ -71,6 +72,9 @@ function inputs(over: Partial<ThisMacInputs> = {}): ThisMacInputs {
     backup: undefined,
     homeRemote: null,
     ghSignedIn: false,
+    githubSignIn: null,
+    githubReady: false,
+    githubClientId: "",
     repoRoot: { configured: null, staged: null, candidate: "/fake-home/Documents/GitHub" },
     ...over,
   };
@@ -262,5 +266,98 @@ describe("composeForm", () => {
     });
     const form = await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [] });
     expect(pick(form.sections.thisMac ?? [], "settings.remote")).toMatchObject({ state: "done", detail: url });
+  });
+});
+
+describe("the remote repo row signs in to GitHub", () => {
+  const remote = (over: Partial<ThisMacInputs>) => pick(thisMacRows(inputs({ backup: { mode: "remote" }, githubClientId: "acme-client", ...over })), "settings.remote");
+  const SIGN_IN = ["setup", "github", "sign-in"];
+  const live = { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-10-30T10:10:00.000Z", pid: 4242 };
+
+  test("a staged url or create is done and shows no action", () => {
+    expect(remote({ homeRemote: "git@github.com:janedoe/mattstack-home.git" })).toMatchObject({ state: "done", detail: "git@github.com:janedoe/mattstack-home.git", action: null });
+    expect(remote({ backup: { mode: "remote", create: true } })).toMatchObject({ state: "done", detail: "rt creates it as a private repo when setup runs", action: null });
+  });
+
+  test("a live sign-in waits with its code and an Open again button", () => {
+    expect(remote({ githubSignIn: live })).toMatchObject({
+      state: "waiting",
+      detail: "Your code is ABCD-1234. Confirm it in your browser",
+      action: { type: "open-url", label: "Open again", url: "https://github.com/login/device" },
+      watch: true,
+    });
+  });
+
+  test("an expired or declined record offers the sign-in again", () => {
+    expect(remote({ githubSignIn: { ...live, outcome: "expired" } })).toMatchObject({
+      state: "todo",
+      detail: "That code expired. Sign in again",
+      action: { type: "run", label: "Sign in to GitHub", verb: SIGN_IN },
+    });
+    expect(remote({ githubSignIn: { ...live, outcome: "declined" } })).toMatchObject({ state: "todo", detail: "GitHub sign-in was declined. Sign in again" });
+  });
+
+  test("with a client id and nothing else the row offers Sign in to GitHub", () => {
+    expect(remote({})).toMatchObject({
+      state: "todo",
+      detail: "",
+      subtext: "Opens your browser once. rt then makes a private repo for you",
+      action: { type: "run", label: "Sign in to GitHub", verb: SIGN_IN },
+    });
+  });
+
+  test("without a client id the URL form stays", () => {
+    expect(remote({ githubClientId: "" })).toMatchObject({ state: "todo", action: { type: "form", verb: ["home", "remote", "set"] } });
+  });
+
+  test("a token or gh that can already create the repo skips the sign-in", () => {
+    for (const over of [{ githubReady: true }, { ghSignedIn: true }]) {
+      expect(remote(over)).toMatchObject({
+        state: "todo",
+        detail: "",
+        action: { type: "run", label: "Create a private GitHub repo", verb: ["setup", "home-backup", "remote"] },
+      });
+    }
+  });
+
+  test("a live sign-in outranks a ready token", () => {
+    expect(remote({ githubSignIn: live, githubReady: true })).toMatchObject({ state: "waiting" });
+  });
+});
+
+describe("the form reads the GitHub sign-in", () => {
+  const NO_SECRETS = { has: async () => null, hasAdmin: async () => null, ownAgeKey: async () => null };
+  const MAC_ANSWERS: Record<string, string> = { sw_vers: "26.0", uname: "arm64", rt: "rt 2.30.0" };
+  const exec = (argv: string[]) => (MAC_ANSWERS[argv[0]!] ? { code: 0, stdout: MAC_ANSWERS[argv[0]!]!, stderr: "" } : { code: 127, stdout: "", stderr: "" });
+  const stateFile = (homeBackup: object) => ({ "/fake-home/.mattstack/rt/setup-state.json": JSON.stringify({ homeBackup }) });
+  const scopes = (granted: string): Probes["fetch"] => async () => ({ status: 200, body: '{"login":"janedoe"}', headers: { "x-oauth-scopes": granted } });
+  const remoteOf = async (homeBackup: object, fetch: Probes["fetch"], githubToken: () => Promise<string | null>) => {
+    const p = fakeProbes({ home: "/fake-home", now: NOW, files: stateFile(homeBackup), exec, fetch });
+    const form = await composeForm(p, { sections: ["this-mac"], secrets: NO_SECRETS, orgs: [], githubToken });
+    return (form.sections.thisMac ?? []).find((x) => x.id === "settings.remote");
+  };
+
+  test("a stored token that can create repos makes the row offer the create", async () => {
+    const row = await remoteOf({ mode: "remote" }, scopes("repo, read:org"), async () => "tok");
+    expect(row?.action).toMatchObject({ type: "run", verb: ["setup", "home-backup", "remote"] });
+  });
+
+  test("a token without repo scope, or none, is not ready", async () => {
+    const narrow = await remoteOf({ mode: "remote" }, scopes("read:org"), async () => "tok");
+    expect(narrow?.action).not.toMatchObject({ verb: ["setup", "home-backup", "remote"] });
+    const none = await remoteOf({ mode: "remote" }, scopes("repo"), async () => null);
+    expect(none?.action).not.toMatchObject({ verb: ["setup", "home-backup", "remote"] });
+  });
+
+  test("the store is not read when a create or url is staged, or the backup is local", async () => {
+    let reads = 0;
+    const token = async () => {
+      reads++;
+      return "tok";
+    };
+    await remoteOf({ mode: "remote", create: true }, scopes("repo"), token);
+    await remoteOf({ mode: "remote", url: "git@github.com:janedoe/mattstack-home.git" }, scopes("repo"), token);
+    await remoteOf({ mode: "local" }, scopes("repo"), token);
+    expect(reads).toBe(0);
   });
 });

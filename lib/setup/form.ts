@@ -8,15 +8,17 @@
  */
 import { join } from "path";
 import { approvalState, type ApprovalState } from "../team/approval.ts";
-import { mayOfferTokenToHost } from "../team/forge-token.ts";
+import { forgeTokenLookupReal, mayOfferTokenToHost, tokenOrNull } from "../team/forge-token.ts";
 import { readTeamLocal, type TeamLocalRecord } from "../team/team-local.ts";
 import { warn } from "../ui/warn.ts";
 import { applyEventsPath } from "./apply-run.ts";
 import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from "./cli-login.ts";
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
+import { GITHUB_OAUTH_CLIENT_ID, githubLoginIfCanCreateRepos, readGitHubSignIn, type GitHubSignIn } from "./github-signin.ts";
 import { homeGitDir } from "./home-paths.ts";
 import { isValidHostname } from "./host-validate.ts";
+import { GITHUB_HOST_REMOTE } from "./home-remote.ts";
 import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "./permissions.ts";
@@ -174,7 +176,11 @@ export const FORM_COPY = {
       field: "Repo URL",
       hint: "git@github.com:janedoe/mattstack-home.git",
       create: "Create a private GitHub repo",
-      creates: "rt creates a private GitHub repo when setup runs",
+      creates: "rt creates it as a private repo when setup runs",
+      signIn: "Sign in to GitHub",
+      signInSubtext: "Opens your browser once. rt then makes a private repo for you",
+      expired: "That code expired. Sign in again",
+      declined: "GitHub sign-in was declined. Sign in again",
     },
     footer: "About 10 minutes once you start",
     start: "Set up this Mac",
@@ -660,6 +666,11 @@ export interface ThisMacInputs extends DrawnContext {
   /** The home repo's origin, or the staged url before the repo exists. */
   homeRemote: string | null;
   ghSignedIn: boolean;
+  /** The device sign-in record: live, or ended with an outcome. */
+  githubSignIn: GitHubSignIn | null;
+  /** rt's stored GitHub token can already create the repo. */
+  githubReady: boolean;
+  githubClientId: string;
   repoRoot: { configured: string | null; staged: string | null; candidate: string | null };
 }
 
@@ -720,6 +731,22 @@ function remoteRow(i: ThisMacInputs): FormRow | null {
   const base = { id: "settings.remote", title: c.title, subtext: c.subtext, waiting: null, watch: false, optional: false };
   if (i.homeRemote !== null) return { ...base, state: "done", detail: i.homeRemote, action: null };
   if (i.backup.create) return { ...base, state: "done", detail: c.creates, action: null };
+  const signInVerb = ["setup", "github", "sign-in"];
+  const sign = i.githubSignIn;
+  if (sign && sign.outcome === undefined) {
+    const t = FORM_COPY.connect.teamTool;
+    return { ...base, state: "waiting", detail: t.code(sign.userCode), action: { type: "open-url", label: t.openAgain, url: sign.url }, watch: true };
+  }
+  // Running the backup verb again stages the create, so a token or gh that can create the repo needs no sign-in.
+  if (i.githubReady || i.ghSignedIn) {
+    return { ...base, state: "todo", detail: "", action: { type: "run", label: c.create, verb: ["setup", "home-backup", "remote"] } };
+  }
+  if (sign) {
+    return { ...base, state: "todo", detail: sign.outcome === "declined" ? c.declined : c.expired, action: { type: "run", label: c.signIn, verb: signInVerb } };
+  }
+  if (i.githubClientId) {
+    return { ...base, state: "todo", detail: "", subtext: c.signInSubtext, action: { type: "run", label: c.signIn, verb: signInVerb } };
+  }
   return {
     ...base,
     state: "todo",
@@ -970,9 +997,17 @@ async function homeRemote(p: Probes, backup: HomeBackupChoice | undefined): Prom
   return (origin.code === 0 && origin.stdout.trim()) || staged;
 }
 
-async function thisMacSection(p: Probes, plan: Plan, path: FormPath, state: SetupState): Promise<FormRow[]> {
+/** Read only while the remote row is open: the store and the network are not touched on every form read. */
+async function githubReady(p: Probes, backup: HomeBackupChoice | undefined, homeRemote: string | null, token: () => Promise<string | null>): Promise<boolean> {
+  if (backup?.mode !== "remote" || backup.url !== undefined || backup.create || homeRemote !== null) return false;
+  const stored = await token();
+  return stored !== null && (await githubLoginIfCanCreateRepos(p, stored)) !== null;
+}
+
+async function thisMacSection(p: Probes, plan: Plan, path: FormPath, state: SetupState, token: () => Promise<string | null>): Promise<FormRow[]> {
   const rows = new Map(planRows(plan).map((r) => [r.id, r]));
   const backup = state.homeBackup;
+  const remote = await homeRemote(p, backup);
   return thisMacRows({
     path,
     plan,
@@ -982,8 +1017,11 @@ async function thisMacSection(p: Probes, plan: Plan, path: FormPath, state: Setu
     cltInstalled: isReady(rows, "tool.clt"),
     prepare: macosPrepare(p),
     backup,
-    homeRemote: await homeRemote(p, backup),
+    homeRemote: remote,
     ghSignedIn: ghSignedIn(rows),
+    githubSignIn: readGitHubSignIn(p),
+    githubReady: await githubReady(p, backup, remote, token),
+    githubClientId: GITHUB_OAUTH_CLIENT_ID,
     repoRoot: { configured: configuredRepoRoots(p)[0] ?? null, staged: readStagedRepoRoot(p), candidate: detectCandidate(p) },
   });
 }
@@ -998,6 +1036,8 @@ export interface FormOptions {
   plan?: (mode: PlanMode) => Promise<Plan>;
   /** The forge the create section reads; that section is left out without it. */
   create?: CreateChoice;
+  /** rt's stored GitHub token; the real store when omitted. */
+  githubToken?: () => Promise<string | null>;
 }
 
 /**
@@ -1038,7 +1078,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
   if (wanted.includes("invite")) sections.invite = await inviteSection(p, opts.secrets);
   if (wanted.includes("restore")) sections.restore = await restoreSection(p);
   if (wanted.includes("connect")) sections.connect = await connectSection(p, await plan(), opts.orgs, path ?? "solo");
-  if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state);
+  if (wanted.includes("this-mac")) sections.thisMac = await thisMacSection(p, await plan(), path ?? "solo", state, opts.githubToken ?? (async () => tokenOrNull(await forgeTokenLookupReal(p, GITHUB_HOST_REMOTE))));
   if (wanted.includes("create") && opts.create) sections.create = await createSection(p, opts.secrets, opts.create);
   const form: SetupForm = {
     path,

@@ -37,7 +37,7 @@ const HOME_REMOTE_DEFAULT_NAME = "mattstack-home";
 const GIT_REMOTE_URL_PATTERN = /^(?:(?:https?|ssh|git):\/\/[^\s/]+\/\S+|(?:[\w.-]+@)?[\w.-]+:[^\s-]\S*)$/;
 /** git must fail rather than prompt: the app and the daemon have no terminal to answer on. */
 const NO_PROMPT_ENV = { GIT_TERMINAL_PROMPT: "0" };
-const GITHUB_HOST_REMOTE = "https://github.com/mattstack/identity";
+export const GITHUB_HOST_REMOTE = "https://github.com/mattstack/identity";
 
 export function assertRemoteUrl(url: string): void {
   if (hasUrlCredentials(url)) {

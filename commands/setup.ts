@@ -66,7 +66,9 @@ import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../l
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { appsRestartOwed, appsRestartStep, oweAppsRestart, restartServedApps } from "../lib/setup/steps/apps-restart.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
-import { assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
+import { forgeTokenLookupReal, tokenOrNull } from "../lib/team/forge-token.ts";
+import { githubLoginIfCanCreateRepos } from "../lib/setup/github-signin.ts";
+import { GITHUB_HOST_REMOTE, assertRemoteUrl, markHomeRemoteApplied, setHomeRemote, stageHomeRemote, writeHomeBackup, type HomeRemoteInput } from "../lib/setup/home-remote.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
@@ -1079,10 +1081,19 @@ export interface HomeBackupDeps {
   /** One machine line on stdout: a --json envelope. Never human text. */
   json: (value: unknown) => void;
   exit: (code: number) => never;
+  /** rt's stored GitHub token, or null. */
+  githubToken: () => Promise<string | null>;
 }
 
 function realHomeBackupDeps(): HomeBackupDeps {
-  return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit };
+  const probes = createRealProbes();
+  return { probes, json: (v) => out.json(v), exit: process.exit, githubToken: async () => tokenOrNull(await forgeTokenLookupReal(probes, GITHUB_HOST_REMOTE)) };
+}
+
+async function canCreateGitHubRepo(deps: HomeBackupDeps): Promise<boolean> {
+  if ((await deps.probes.exec(["gh", "auth", "status"])).code === 0) return true;
+  const token = await deps.githubToken();
+  return token !== null && (await githubLoginIfCanCreateRepos(deps.probes, token)) !== null;
 }
 
 const HOME_BACKUP_USAGE = "rt setup home-backup local|remote";
@@ -1097,8 +1108,8 @@ export async function setupHomeBackup(args: string[], _ctx: CommandContext = {},
     return exitWithUserError(err, json, sinkOf(deps), usageFailure("Keep your settings on this Mac or in a remote repo?", HOME_BACKUP_USAGE));
   }
   let homeBackup = writeHomeBackup(deps.probes, choice);
-  // Signed in to gh, GitHub needs nothing more from the member: rt creates the private repo when setup runs.
-  if (homeBackup.mode === "remote" && homeBackup.url === undefined && !homeBackup.create && (await deps.probes.exec(["gh", "auth", "status"])).code === 0) {
+  // With gh signed in or a token that can create repos, GitHub needs nothing more from the member: rt creates the private repo when setup runs.
+  if (homeBackup.mode === "remote" && homeBackup.url === undefined && !homeBackup.create && (await canCreateGitHubRepo(deps))) {
     homeBackup = stageHomeRemote(deps.probes, { create: true });
   }
   if (json) deps.json(envelope({ homeBackup }, deps.probes.now()));
