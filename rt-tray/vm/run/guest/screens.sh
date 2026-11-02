@@ -152,7 +152,7 @@ screen_row_fancy_urls() {
   ax_log "Fancy URLs done through the row's own button"
 }
 
-# P2: four cards, and the card is the answer.
+# P2: four cards to pick from, then Continue moves on.
 screen_path() {
   local card
   screen_wait path 60
@@ -163,6 +163,8 @@ screen_path() {
     *) ax_fail "no card for scenario $SCENARIO" ;;
   esac
   ax_click "setup.fast.path.card.$card"
+  ax_wait_enabled setup.fast.path.primary 10 || ax_fail "setup.fast.path.primary stayed off after picking $card"
+  ax_click setup.fast.path.primary
 }
 
 # The rows a screen draws are answered once each, the way a member would,

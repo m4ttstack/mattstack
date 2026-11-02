@@ -150,7 +150,7 @@ screen_ids() {
     paused) echo setup.fast.paused.secondary ;;
     path) printf 'setup.fast.path.card.%s\n' join create solo restore ;;
   esac
-  case "$s" in macos|path) ;; *) echo "setup.fast.$s.primary" ;; esac
+  case "$s" in macos) ;; *) echo "setup.fast.$s.primary" ;; esac
 }
 # The host answers the waiting request, and the bar moves, on every look.
 world_turn() {
@@ -194,6 +194,7 @@ ax_fast_status() { if [ "$(row_state "$1")" = done ]; then echo ready; else echo
 ax_enabled() {
   local s; s=$(mget screen)
   case "$1" in
+    setup.fast.path.primary) if [ -n "$(mget picked)" ]; then echo true; else echo false; fi ;;
     "setup.fast.$s.primary") if screen_done "$s"; then echo true; else echo false; fi ;;
     *) return 1 ;;
   esac
@@ -225,9 +226,9 @@ ax_click_raw() {
     setup.fast.row.*.segment.clone) r="${1#setup.fast.row.}"; set_row "${r%.segment.clone}" done ;;
     setup.fast.row.settings.backup.action.local) set_row settings.backup done ;;
     setup.fast.row.*.action.oneClick) r="${1#setup.fast.row.}"; set_row "${r%.action.oneClick}" done ;;
-    setup.fast.path.card.join) mset screen invite ;;
-    setup.fast.path.card.create) mset screen create-team ;;
-    setup.fast.path.card.solo) mset screen connect ;;
+    setup.fast.path.card.*) mset picked "${1#setup.fast.path.card.}" ;;
+    setup.fast.path.primary)
+      case "$(mget picked)" in join) mset screen invite ;; create) mset screen create-team ;; solo) mset screen connect ;; esac ;;
     setup.fast.invite.primary) if [ "$STRAIGHT_IN" = 1 ]; then mset screen connect; else mset screen waiting; fi ;;
     setup.fast.create-team.primary) mset screen connect ;;
     setup.fast.connect.primary) mset screen this-mac ;;
@@ -267,7 +268,7 @@ model join; drive whole_run
 check "join: every screen in drive order, one shot each" \
   '[ "$rc" -eq 0 ] && [ "$(screen_shots)" = "01-macos 02-path 03-invite 04-waiting 05-connect 06-this-mac 07-running 08-ready " ]'
 check "join: the card, Join, Continue, Set up this Mac and Open the board, and nothing else of the footers" \
-  '[ "$(presses)" = "path.card.join invite.primary connect.primary this-mac.primary ready.primary " ]'
+  '[ "$(presses)" = "path.card.join path.primary invite.primary connect.primary this-mac.primary ready.primary " ]'
 check "join: the waiting screen asks the host once, and Hide is never pressed" \
   '[ -e "$GUEST_RUN/in/join-approve.done" ] && [ "$(count "waiting.primary")" -eq 0 ]'
 check "join: git and the token are answered before Join" \
@@ -296,7 +297,7 @@ FORGE=github; TEAM_REMOTE=https://github.com/acme/widgets.git
 
 model solo; drive whole_run
 check "solo: straight from the card to Connect" \
-  '[ "$rc" -eq 0 ] && [ "$(screen_shots)" = "01-macos 02-path 05-connect 06-this-mac 07-running 08-ready " ] && [ "$(presses)" = "path.card.solo connect.primary this-mac.primary ready.primary " ]'
+  '[ "$rc" -eq 0 ] && [ "$(screen_shots)" = "01-macos 02-path 05-connect 06-this-mac 07-running 08-ready " ] && [ "$(presses)" = "path.card.solo path.primary connect.primary this-mac.primary ready.primary " ]'
 
 model restore; drive whole_run
 check "restore: stops at the cards with its own code, pressing none" '[ "$rc" -eq 3 ] && [ "$(count "^click:setup.fast.path")" -eq 0 ]'

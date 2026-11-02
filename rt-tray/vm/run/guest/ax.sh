@@ -83,12 +83,13 @@ ax_shot() {
   ax_log "shot $name: host did not respond within 20s"; return 0
 }
 ax_fail() {
-  ax_log "FAIL: $*"
   # Screenshots are host-side and can fail on their own; the identifiers on
   # screen are the evidence that survives that.
   ax_log "windows: $(ax_osa "tell application \"System Events\" to tell process \"$AX_APP\" to get name of every window" 2>/dev/null)"
   ax_log "axids on screen: $(ax_dump_ids | tr '\n' ' ')"
   ax_shot "fail-$(date +%s)"
+  # Last, because the screens phase ledgers the log's last line as its reason.
+  ax_log "FAIL: $*"
   exit 1
 }
 
