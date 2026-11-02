@@ -5288,7 +5288,6 @@ a.tui-id-card-ref:focus-visible {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-1);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 /* The frame's border carries focus, so the field draws no ring of its own. */

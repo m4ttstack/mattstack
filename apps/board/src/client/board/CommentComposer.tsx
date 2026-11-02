@@ -1,5 +1,6 @@
 import { flushSync } from 'react-dom';
 
+import { CommentMarkdown } from './CommentMarkdown.tsx';
 import { postedText } from './respond-post.ts';
 
 /** Runs a reset that also returns its field to Write, then focuses the
@@ -25,7 +26,7 @@ function commentState(
 }
 
 /** A reply that posts as it stands, in the composer's frame: read-only
-    text under the strip. `held` mutes it, for a reply direction or a reply
+    Markdown under the strip. `held` mutes it, for a reply direction or a reply
     that only carries intent. */
 function CommentFrame({
   kicker,
@@ -53,7 +54,9 @@ function CommentFrame({
         <span className="tui-composer-k">{kicker}</span>
         {meta && <span className="tui-composer-meta">{meta}</span>}
       </div>
-      <div className="tui-composer-text">{text}</div>
+      <div className="tui-composer-text">
+        <CommentMarkdown>{text}</CommentMarkdown>
+      </div>
     </div>
   );
 }
