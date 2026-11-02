@@ -1792,17 +1792,29 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const { ctx } = makeCtx(p);
       const outcome = await herdrIntegrationStep.run(ctx);
       expect(outcome).toEqual({ state: "done", detail: `${join(home, ".claude")}: ok` });
-      expect(p.calls.exec).toEqual([["herdr", "integration", "install", "claude"]]);
+      expect(p.calls.exec).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
+    });
+
+    test("skips rt's own wrapper in ~/.local/bin and runs the Homebrew copy the row resolved", async () => {
+      const wrapper = join(home, ".local", "bin", "herdr");
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/bin:/bin" },
+        files: { [wrapper]: "#!/bin/sh\n# mattstack-link: herdr\nexec x\n", "/opt/homebrew/bin/herdr": "bin" },
+        exec: async () => ok(""),
+      });
+      expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
+      expect(p.calls.exec).toEqual([["/opt/homebrew/bin/herdr", "integration", "install", "claude"]]);
     });
 
     test("idempotent re-run: two independent installs each make their own real call — nothing memoized between runs", async () => {
       const p = fakeProbes({ home, env: { PATH: "/usr/local/bin" }, files: { "/usr/local/bin/herdr": "bin" }, exec: async () => ok("") });
       expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
-      expect(p.calls.exec).toEqual([["herdr", "integration", "install", "claude"]]);
+      expect(p.calls.exec).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
       expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
       expect(p.calls.exec).toEqual([
-        ["herdr", "integration", "install", "claude"],
-        ["herdr", "integration", "install", "claude"],
+        ["/usr/local/bin/herdr", "integration", "install", "claude"],
+        ["/usr/local/bin/herdr", "integration", "install", "claude"],
       ]);
     });
 
