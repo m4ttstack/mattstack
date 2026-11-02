@@ -1,3 +1,4 @@
+import { resolveTool } from "../../deps/resolve.ts";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -129,6 +130,40 @@ describe("toolRows — tool.herdr", () => {
     const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("error");
     expect(r.detail).toContain("did not answer in time");
+  });
+
+  test("probes the copy the resolver chose, so the row and the integration step read the same herdr", async () => {
+    const brewed = "/opt/homebrew/bin/herdr";
+    const seen: string[][] = [];
+    const exec: ExecScript = (argv) => {
+      seen.push(argv);
+      if (argv[0] === brewed && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === brewed && argv[1] === "integration") return ok("claude: current (v7) (/x)\n");
+      return argv[0] === "herdr" ? ok("0.1.0\n") : ok();
+    };
+    const seams = { ...NOOP_SEAMS, resolveTool: (_p: unknown, tool: string) => ({ tool, bundled: null, exec: tool === "herdr" ? [brewed] : null, userCopy: tool === "herdr" ? brewed : null, linked: false, chosen: tool === "herdr" ? brewed : null }) };
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, seams), "tool.herdr");
+    expect(r.status).toBe("ready");
+    expect(seen).toContainEqual([brewed, "--version"]);
+    expect(seen).toContainEqual([brewed, "integration", "status"]);
+    expect(seen.some((argv) => argv[0] === "herdr")).toBe(false);
+  });
+
+  test("skips rt's own wrapper in ~/.local/bin end to end, with the real resolver", async () => {
+    const home = "/home/acme";
+    const brewed = "/opt/homebrew/bin/herdr";
+    const seen: string[][] = [];
+    const exec: ExecScript = (argv) => {
+      seen.push(argv);
+      if (argv[0] === brewed && argv[1] === "--version") return ok("0.9.0\n");
+      if (argv[0] === brewed && argv[1] === "integration") return ok("claude: current (v7) (/x)\n");
+      return ok();
+    };
+    const p = fakeProbes({ home, env: { PATH: "/usr/bin:/bin" }, exec, files: { [`${home}/.local/bin/herdr`]: "#!/bin/sh\n# mattstack-link: herdr\nexec x\n", [brewed]: "bin" } });
+    const seams = { ...NOOP_SEAMS, resolveTool };
+    expect((await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, seams), "tool.herdr")).status).toBe("ready");
+    expect(seen).toContainEqual([brewed, "--version"]);
+    expect(seen.some((argv) => argv[0] === "herdr")).toBe(false);
   });
 
   test("0.8.0 + the claude line reads 'current' -> ready", async () => {
