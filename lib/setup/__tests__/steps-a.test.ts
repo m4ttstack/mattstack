@@ -34,6 +34,8 @@ import { stageSecret, stagingDir } from "../staging.ts";
 import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
 import { markDeferred, markJoining, readPlacements, writePlacement } from "../repo-placement.ts";
 import { fakeProbes, gitRepo, realFsProbes } from "./fakes.ts";
+import { markSetupFinished, readSetupState, updateSetupState } from "../state.ts";
+import { resolveWritingStyle } from "../../skills/writing-style.ts";
 
 import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
@@ -218,6 +220,96 @@ describe("home.init", () => {
     expect(outcome).toEqual({ state: "done", detail: "This Mac is set up: /fake-home/.mattstack" });
   });
 
+  test("home.init pushes to a staged remote once the repo exists", async () => {
+    const url = "https://github.com/janedoe/mattstack-home.git";
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    const p: ReturnType<typeof fakeProbes> = fakeProbes({
+      home: "/fake-home",
+      runRt: async () => {
+        p.mkdirp(gitDir);
+        return ok("[ok] This Mac is set up  /fake-home/.mattstack");
+      },
+      exec: async (argv) => (argv.includes("get-url") ? { code: 2, stdout: "", stderr: "error: No such remote 'origin'" } : ok()),
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", url } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
+
+    const outcome = await homeInitStep.run(ctx);
+
+    expect(outcome).toEqual({ state: "done", detail: "This Mac is set up: /fake-home/.mattstack" });
+    const calls = p.calls.exec.map((a) => a.join(" "));
+    expect(calls).toContain(`git -C /fake-home/.mattstack/user remote add origin ${url}`);
+    expect(calls).toContain("git -C /fake-home/.mattstack/user push -u origin HEAD");
+    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", url, appliedAt: p.now().toISOString() });
+    expect(await homeInitStep.satisfied!(makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) }).ctx)).toBe(true);
+  });
+
+  test("a staged url whose push failed on a fresh origin is retried on the next run", async () => {
+    const url = "https://github.com/janedoe/mattstack-home.git";
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    let pushes = 0;
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { [gitDir]: [] },
+      files: { [`${gitDir}/config`]: `[remote "origin"]\n\turl = ${url}\n` },
+      exec: async (argv) => {
+        if (argv.includes("get-url")) return { code: 2, stdout: "", stderr: "error: No such remote 'origin'" };
+        if (argv.includes("push")) return ++pushes === 1 ? { code: 128, stdout: "", stderr: "remote: Permission denied" } : ok();
+        return ok();
+      },
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", url } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await homeInitStep.run(ctx)).toMatchObject({ state: "partial" });
+    expect(await homeInitStep.satisfied!(ctx)).toBe(false);
+    expect(await homeInitStep.run(ctx)).toEqual({ state: "done", detail: "Already set up" });
+    expect(pushes).toBe(2);
+  });
+
+  test("a created repo whose push failed is pushed to again on Retry, never created twice", async () => {
+    const created = "https://github.com/janedoe/mattstack-home";
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    let pushes = 0;
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { [gitDir]: [] },
+      exec: async (argv) => {
+        if (argv[0] === "gh") return ok(`${created}\n`);
+        if (argv.includes("get-url")) return { code: 2, stdout: "", stderr: "" };
+        if (argv.includes("push")) return ++pushes === 1 ? { code: 128, stdout: "", stderr: "remote: Permission denied" } : ok();
+        return ok();
+      },
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", create: true } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await homeInitStep.run(ctx)).toMatchObject({ state: "partial" });
+    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", url: `${created}.git` });
+    expect(await homeInitStep.run(ctx)).toMatchObject({ state: "done" });
+
+    expect(p.calls.exec.filter((a) => a[0] === "gh")).toHaveLength(1);
+    expect(readSetupState(p).homeBackup).toMatchObject({ mode: "remote", url: `${created}.git`, appliedAt: p.now().toISOString() });
+  });
+
+  test("a staged remote that fails leaves home.init partial and the choice in place", async () => {
+    const gitDir = "/fake-home/.mattstack/user/.git";
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { [gitDir]: [] },
+      exec: async (argv) => (argv[0] === "gh" ? { code: 4, stdout: "", stderr: "please run: gh auth login" } : ok()),
+    });
+    updateSetupState(p, (s) => ({ ...s, homeBackup: { mode: "remote", create: true } }));
+    const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await homeInitStep.satisfied!(ctx)).toBe(false);
+    const outcome = await homeInitStep.run(ctx);
+
+    expect(outcome).toMatchObject({ state: "partial" });
+    expect((outcome as { detail: string }).detail).toContain("Could not create mattstack-home with gh");
+    expect(readSetupState(p).homeBackup).toEqual({ mode: "remote", create: true });
+  });
+
   test("`rt home init` failure -> failed, remedy points at gh auth login", async () => {
     const p = fakeProbes({
       home: "/fake-home",
@@ -310,14 +402,14 @@ describe("home.restore", () => {
     expect(p.calls.exec).toEqual([]); // never shells out to `rt restore` itself
   });
 
-  test("no clone yet -> failed, remedy names the real `rt setup intent restore` + `rt home key import` verbs", async () => {
+  test("no clone yet -> failed, remedy names rt home restore for the intent's repo", async () => {
     const p = fakeProbes({ home: "/fake-home" });
     const { ctx } = makeCtx(p, { intent: restoreIntent, secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
     const outcome = await homeRestoreStep.run(ctx);
     expect(outcome.state).toBe("failed");
     expect((outcome as { remedy?: string }).remedy).toBe(
-      "Run rt setup intent restore <org>/<repo>, then rt home key import to paste your age key, then Retry",
+      "Bring your settings over with your recovery key, then Retry: rt home restore acme/mattstack-home",
     );
   });
 
@@ -326,6 +418,17 @@ describe("home.restore", () => {
       home: "/fake-home",
       dirs: { "/fake-home/.mattstack/user/.git": [] },
       files: { "/fake-home/.mattstack/user/.git": "gitdir", "/fake-home/.mattstack/user/.git/config": '[remote "origin"]\n\turl = https://github.com/someone-else/other.git\n' },
+    });
+    const { ctx } = makeCtx(p, { intent: restoreIntent, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect((await homeRestoreStep.run(ctx)).state).toBe("failed");
+  });
+
+  test("an origin that only contains the repo's name is a different repo", async () => {
+    const p = fakeProbes({
+      home: "/fake-home",
+      dirs: { "/fake-home/.mattstack/user/.git": [] },
+      files: { "/fake-home/.mattstack/user/.git": "gitdir", "/fake-home/.mattstack/user/.git/config": '[remote "origin"]\n\turl = https://github.com/acme/mattstack-home-old.git\n' },
     });
     const { ctx } = makeCtx(p, { intent: restoreIntent, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
 
@@ -641,6 +744,26 @@ describe("team.join", () => {
     expect((outcome as { detail?: string }).detail).toContain("Joined Acme");
     // The intent is gone after a join, so a resumed Install's repos.clone reads the join from here.
     expect(readPlacements(p).joining).toBe(true);
+  });
+
+  test.each([
+    ["an Install that joins inside its own run marks the join for repos.clone", {}, true],
+    ["the Join page's --only team.join leaves no mark, so Install clones the repos the checklist showed", { only: "team.join" as const }, undefined],
+  ] as const)("%s", async (_label, opts, joining) => {
+    const p = fakeProbes({
+      home: "/fake-home",
+      files: intentFile("/fake-home", joinIntent),
+      exec: async (argv) => {
+        if (argv[0] === "git" && argv[1] === "clone") return ok();
+        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
+        return layout3Main(argv);
+      },
+    });
+    const relay: RelayClient = { ...fakeRelay, redeem: async () => "redeemed", reply: async () => {} };
+    const { ctx } = makeCtx(p, { intent: joinIntent, relay, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
+
+    expect(await runApplyWith([teamJoinStep], ctx, opts)).toEqual({ ok: true });
+    expect(readPlacements(p).joining).toBe(joining);
   });
 
   test("idempotent re-run: already cloned + relay says 'already' resumes cleanly instead of throwing invite-unknown", async () => {
@@ -1051,6 +1174,10 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     }
   });
 
+  const SPARSE = "mattstack:writing-style-sparse";
+  /** These seed tests are about other keys, so the Mac has already chosen a style and the step writes none. */
+  const styleChosen = () => setSetting("skills.writingStyle", SPARSE, "user");
+
   test("settings.seed: writes mattstack.appPath from ctx.appPath, never touches rt.repoRoots", async () => {
     const p = fakeProbes({ home });
     const { ctx } = makeCtx(p, { appPath: appRoot });
@@ -1066,6 +1193,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     // so the first run's write is real, not a no-op from the fixture setup.
     const newAppPath = "/Applications/mattstack.app";
     const p = fakeProbes({ home });
+    styleChosen();
 
     const first = await settingsSeedStep.run(makeCtx(p, { appPath: newAppPath }).ctx);
     expect(first).toEqual({ state: "done", detail: "Wrote mattstack.appPath" });
@@ -1090,6 +1218,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
   test("settings.seed: a gitq.board still saved as repo names gets each folder once the repo is on this Mac", async () => {
     setSetting("gitq.board", { repos: ["widgets"], port: 11008 }, "machine");
+    styleChosen();
     const p = fakeProbes({ home });
 
     expect(await settingsSeedStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Nothing to write" });
@@ -1108,11 +1237,13 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
   test("settings.seed: a gitq.board that already names folders is left alone", async () => {
     const value = { repos: [{ path: "/work/widgets", name: "widgets" }], port: 11008 };
     setSetting("gitq.board", value, "machine");
+    styleChosen();
     expect(await settingsSeedStep.run(makeCtx(fakeProbes({ home })).ctx)).toEqual({ state: "done", detail: "Nothing to write" });
     expect(getSetting("gitq.board").value).toEqual(value);
   });
 
   test("settings.seed: no candidate directory and nothing to track -> nothing created, nothing written", async () => {
+    styleChosen();
     const p = fakeProbes({ home });
     const { ctx } = makeCtx(p, { appPath: null });
 
@@ -1159,6 +1290,33 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     await settingsSeedStep.run(ctx);
     expect(getSetting<string[]>("rt.repoRoots").value).toEqual([join(home, "fresh")]);
     expect(readStagedRepoRoot(p)).toBeNull();
+  });
+
+  test("a new Mac with no style gets sparse at Install", async () => {
+    const outcome = await settingsSeedStep.run(makeCtx(fakeProbes({ home })).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Wrote skills.writingStyle" });
+    expect(resolveWritingStyle()).toEqual({ skill: SPARSE, source: "user" });
+  });
+
+  test("an update run never writes a style", async () => {
+    const outcome = await settingsSeedStep.run(makeCtx(fakeProbes({ home }), { update: true }).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
+    expect(resolveWritingStyle().source).toBe("fallback");
+  });
+
+  test("a finished Mac keeps the style it had, even none", async () => {
+    const p = fakeProbes({ home });
+    markSetupFinished(p);
+    const outcome = await settingsSeedStep.run(makeCtx(p).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
+    expect(resolveWritingStyle().source).toBe("fallback");
+  });
+
+  test("a chosen style is never replaced", async () => {
+    setSetting("skills.writingStyle", "mattstack:writing-style-structured", "user");
+    const outcome = await settingsSeedStep.run(makeCtx(fakeProbes({ home })).ctx);
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
+    expect(resolveWritingStyle()).toEqual({ skill: "mattstack:writing-style-structured", source: "user" });
   });
 
   const SSH_REFUSED: ExecResult = { code: 128, stdout: "", stderr: "git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository." };

@@ -15,13 +15,7 @@ struct RowView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: symbol(for: row.kind)).frame(width: 22).foregroundStyle(.secondary).padding(.top, 2)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(row.title).fontWeight(.medium)
-                    if let badge = row.badge {
-                        Text(badge.rawValue).font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.secondary.opacity(0.15)))
-                    }
-                }
+                Text(row.title).fontWeight(.medium)
                 Text(row.why).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let d = row.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary) }
                 if let n = row.optionalNote { Text(n).font(.caption).foregroundStyle(.secondary) }

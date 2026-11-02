@@ -43,9 +43,9 @@ const PROBE_TIMEOUT_MS = 5000;
 const DOCTOR_TIMEOUT_MS = 45_000;
 const CHROME_PATHS = (home: string): string[] => ["/Applications/Google Chrome.app", `${home}/Applications/Google Chrome.app`];
 
-const CLAUDE_SIGNIN_STEPS: Action = { type: "steps", label: "Show steps…", steps: ["Open a terminal", "Run: claude", "Follow the sign-in prompt"] };
-/** Signing in is interactive and happens after Install; only the claude binary itself gates Install. */
-const SIGNIN_LATER = { required: false, optionalNote: "Sign in after Install: run claude once." };
+export const CLAUDE_SIGNIN_ACTION: Action = { type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] };
+/** Only the claude binary gates Install; the sign-in waits for Finish. */
+const SIGNIN_NOT_REQUIRED = { required: false, action: CLAUDE_SIGNIN_ACTION };
 const CHROME_DOWNLOAD_ACTION: Action = { type: "open-url", label: "Download", url: "https://www.google.com/chrome/" };
 const MISSION_CONTROL_SETTINGS_ACTION: Action = { type: "open-settings", label: "Open Keyboard Settings…", target: "keyboard" };
 
@@ -165,7 +165,7 @@ async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
   }
   if (authState && typeof authState.loggedIn === "boolean") {
     if (authState.loggedIn) return row({ ...base, status: "ready", detail: `${named("Claude Code", version)}, signed in` });
-    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run claude once and sign in", action: CLAUDE_SIGNIN_STEPS });
+    return row({ ...base, ...SIGNIN_NOT_REQUIRED, status: "needs-you", detail: "Not signed in yet" });
   }
 
   // An older `claude` with no `auth status` subcommand answers something
@@ -176,10 +176,10 @@ async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
   // explicit not-signed-in gives a real next step instead of a dead end.
   const sniff = `${authRes.stdout} ${authRes.stderr}`.toLowerCase();
   if (sniff.includes("unknown")) {
-    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: `${named("Claude Code", version)} is installed, but the sign-in could not be checked. Confirm you are signed in`, action: CLAUDE_SIGNIN_STEPS });
+    return row({ ...base, ...SIGNIN_NOT_REQUIRED, status: "needs-you", detail: `${named("Claude Code", version)} is installed, but the sign-in could not be checked. Confirm you are signed in` });
   }
 
-  if (authRes.code !== 0) return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run claude once and sign in", action: CLAUDE_SIGNIN_STEPS });
+  if (authRes.code !== 0) return row({ ...base, ...SIGNIN_NOT_REQUIRED, status: "needs-you", detail: "Not signed in yet" });
   return row({ ...base, status: "error", detail: "Claude Code's sign-in check gave an unexpected answer" });
 }
 
@@ -311,21 +311,20 @@ const PAIRING_STEPS = [
 ];
 /** The id fast-browser's runtime-lock.json pins; doctor passes a Web Store install as extension-installed. */
 const FAST_BROWSER_WEB_STORE_URL = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm";
-const FAST_BROWSER_LOAD_STEPS: Action = {
-  type: "steps",
-  label: "Show steps…",
-  // The app renders an inline [text](https://…) link in a step as linked text.
-  steps: [`Install Fast Browser from the [Chrome Web Store](${FAST_BROWSER_WEB_STORE_URL})`],
+export const FAST_BROWSER_ADD_ACTION: Action = {
+  type: "open-url",
+  label: "Add to Chrome",
+  url: FAST_BROWSER_WEB_STORE_URL,
+  primary: true,
+  waiting: "Waiting for Chrome…",
+  again: "Open again",
 };
 const FAST_BROWSER_PAIR_STEPS: Action = { type: "steps", label: "Show steps…", steps: PAIRING_STEPS };
 /** doctor warns extension-installed when macOS privacy keeps it out of Chrome's profile; its remedy names a terminal, so the app says it in its own words. */
 const FAST_BROWSER_PROFILE_ACCESS_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
-  steps: [
-    "Grant Full Disk Access to mattstack.app in System Settings > Privacy & Security, then Re-check",
-    "Or skip this row if Fast Browser already shows in chrome://extensions",
-  ],
+  steps: ["Turn on Full Disk Access for mattstack in System Settings, then Re-check"],
 };
 /** A doctor report this build cannot read blocks Finish like any other non-ready state, so the row carries its own way out rather than leaving Skip for now as the only affordance. */
 const FAST_BROWSER_RECHECK: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
@@ -341,14 +340,14 @@ const UNPACKED_LOAD_REMEDY = /Load unpacked/i;
 
 function doctorRemedy(check: FastBrowserCheck | undefined): Action {
   const remedy = doctorText(check?.remediation);
-  return remedy && !UNPACKED_LOAD_REMEDY.test(remedy) ? { type: "steps", label: "Show steps…", steps: [remedy] } : FAST_BROWSER_LOAD_STEPS;
+  return remedy && !UNPACKED_LOAD_REMEDY.test(remedy) ? { type: "steps", label: "Show steps…", steps: [remedy] } : FAST_BROWSER_ADD_ACTION;
 }
 
 /**
  * Never gates Install in any Chrome state: installing the extension is a
  * Chrome step rt cannot perform, and nothing on the checklist can create the
  * extension directory before Install does. It gates Finish instead
- * (`finishGated`), unless the user waives it on this Mac.
+ * (`finishGated`), and is never waivable.
  */
 function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe, solo: boolean): Row {
   const base = {
@@ -372,7 +371,7 @@ function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe, solo: boole
   // doctor tells a missing extension from a store copy on another version;
   // a store copy keeps doctor's own remedy, and a missing one gets the Web
   // Store install rather than an unpacked load that never auto-updates.
-  if (installed.status === "warn") return row({ ...base, status: "needs-you", detail: "mattstack cannot read Chrome's profile. Grant Full Disk Access to mattstack.app, or skip this if Fast Browser shows in chrome://extensions", action: FAST_BROWSER_PROFILE_ACCESS_STEPS });
+  if (installed.status === "warn") return row({ ...base, status: "needs-you", detail: "mattstack cannot read Chrome's profile. Turn on Full Disk Access for mattstack, then Re-check", action: FAST_BROWSER_PROFILE_ACCESS_STEPS });
   if (installed.status !== "pass") return row({ ...base, status: "needs-you", detail: doctorText(installed.message) ?? "Not installed in Chrome", action: doctorRemedy(installed) });
 
   const extension = checkState(probe.doctor, "extension-loaded");
@@ -495,13 +494,23 @@ function dedupeTeamTools(reqs: PackRequirements[]): ToolRequirement[] {
   return [...seen.values()];
 }
 
+function isHttpsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname !== "";
+  } catch {
+    return false;
+  }
+}
+
 function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Install" | "Upgrade"): Action {
   const brew = req.install?.brew;
   // Tap syntax (owner/tap/formula) or anything else outside a bare formula
   // name never becomes a one-click Install button — matches installTool's
   // own refusal, so the row and the action it offers agree.
   if (brew && hasBrew && isValidBrewFormula(brew)) return { type: "install", label: verb, tool: req.name, via: "brew" };
-  if (req.install?.url) return { type: "open-url", label: "Download", url: req.install.url };
+  // A pack is team-authored, so its link opens in the browser only over https.
+  if (req.install?.url && isHttpsUrl(req.install.url)) return { type: "open-url", label: "Download", url: req.install.url };
   if (brew && !isValidBrewFormula(brew)) {
     return { type: "steps", label: "Show steps…", steps: [`This pack's install.brew (${brew}) is not a plain formula name, so rt will not run it for you`, `brew install ${brew}`, "Then re-run rt setup status"] };
   }
@@ -728,7 +737,7 @@ const CONNECT_LINEAR_ACTION: Action = { type: "connect", label: "Connect Linear"
 const ADD_LINEAR_MCP_ACTION: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
 
 /** Wiring only: the credential itself is `account.linear`'s job, which validates this same secret against api.linear.app. Two probes of one key is one probe too many, and two rows that can disagree. */
-async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
+async function linearMcpRow(p: Probes, secrets: SecretPresence, usesLinear: boolean): Promise<Row> {
   const base = {
     id: "tool.linear-mcp",
     kind: "tool" as const,
@@ -744,6 +753,11 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
 
   const config = read.ok ? read.config : {};
   if (callableBySkills(config)) return row({ ...base, status: "ready", detail: "Linear is set up in Claude Code" });
+  if (!usesLinear) {
+    // Not the team's tool, so it never holds Finish; the action stays for a member who uses Linear on their own.
+    const hasKey = await secrets.has("rt", "linearApiKey").then((v) => v !== null, () => false);
+    return row({ ...base, status: "skipped", detail: "Your team doesn't use Linear", action: hasKey ? ADD_LINEAR_MCP_ACTION : CONNECT_LINEAR_ACTION });
+  }
   if (nameTaken(config)) return row({ ...base, status: "needs-you", detail: "Claude Code has a server named linear that is not Linear's" });
 
   // Every remaining state depends on the key, because Install skips without
@@ -778,7 +792,7 @@ export async function toolRows(
   // Optional, not required: the existing test call sites pass only
   // { hasBrew, secrets }, and tests are inside the root tsconfig, so a required
   // field turns `bunx tsc --noEmit` red while `bun test` stays green.
-  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null },
+  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null; usesLinear?: boolean },
   seams: ToolsSeams = REAL_SEAMS,
 ): Promise<Row[]> {
   const fastBrowser = await probeFastBrowser(p, seams);
@@ -827,7 +841,7 @@ export async function toolRows(
     rows.push(packRow(req, pluginList, byPack.get(name), engine));
   }
 
-  rows.push(await linearMcpRow(p, opts.secrets));
+  rows.push(await linearMcpRow(p, opts.secrets, opts.usesLinear ?? true));
 
   return rows;
 }

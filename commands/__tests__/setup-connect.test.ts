@@ -9,6 +9,7 @@ import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
 import { readTeamLocal, teamLocalPath } from "../../lib/team/team-local.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import type { LoginSeams } from "../../lib/setup/cli-login.ts";
 
 let cap: CapturedOut;
 beforeEach(() => {
@@ -683,26 +684,148 @@ describe("integrationStatus — github handle/owners", () => {
 });
 
 describe("integrationConnect — doppler/ldcli (CLI-session flow)", () => {
-  test("doppler: login runs with inherit:true; a successful re-validate reports ready", async () => {
+  const LOGINS = "/fake-home/.mattstack/rt/logins";
+
+  function fakeLoginSeams(opts: { spawnFails?: boolean } = {}): LoginSeams & { spawned: string[][]; killed: number[] } {
+    const spawned: string[][] = [];
+    const killed: number[] = [];
+    return {
+      spawned,
+      killed,
+      spawnDetached(argv) {
+        spawned.push(argv);
+        return opts.spawnFails ? null : 4242;
+      },
+      alive: () => true,
+      kill(pid) {
+        killed.push(pid);
+      },
+      mkfifo: () => true,
+      writeFifo: () => true,
+    };
+  }
+
+  /** The validate command fails until its `signedInAfter`-th call (never, when unset), then succeeds. */
+  function validateScript(validate: string, signedInAfter?: number): { exec: Probes["exec"]; calls: string[][] } {
+    const calls: string[][] = [];
+    let n = 0;
     const exec: Probes["exec"] = async (argv, opts) => {
-      if (argv.join(" ") === "doppler login") {
-        expect(opts?.inherit).toBe(true);
-        return ok();
+      calls.push(argv);
+      if (opts?.inherit) throw new Error(`a terminal login ran off a terminal: ${argv.join(" ")}`);
+      if (argv.join(" ") === validate) {
+        n++;
+        return signedInAfter !== undefined && n > signedInAfter ? ok() : { code: 1, stdout: "", stderr: "not logged in" };
       }
-      if (argv.join(" ") === "doppler me --json") return ok();
       return ok();
     };
-    const deps = baseDeps({ probes: fakeProbes({ exec }) });
+    return { exec, calls };
+  }
+
+  function sessionDeps(exec: Probes["exec"], seams: LoginSeams, files: Record<string, string> = {}) {
+    const sleeps: number[] = [];
+    const deps = baseDeps({
+      probes: fakeProbes({ exec, files }),
+      loginSeams: seams,
+      sleep: async (ms: number) => {
+        sleeps.push(ms);
+      },
+    });
+    return { deps, sleeps };
+  }
+
+  test("off a terminal doppler starts a session and names its code", async () => {
+    const seams = fakeLoginSeams();
+    const { exec } = validateScript("doppler me --json");
+    const { deps, sleeps } = sessionDeps(exec, seams, { [`${LOGINS}/doppler.log`]: "Your auth code is:\nABC-123\nhttps://dashboard.doppler.com/workplace/auth/cli\n" });
 
     await integrationConnect("doppler", ["--json"], deps);
 
     expect(deps.exitCodes).toEqual([]);
+    expect(seams.spawned).toHaveLength(1);
+    expect(seams.spawned[0]!.slice(5)).toEqual(["doppler", "login", "--yes"]);
+    expect(sleeps).toEqual([2000, 2000, 2000, 2000, 2000]);
+    const body = JSON.parse(deps.lines[0]!) as { status: string; integration: string; detail: string };
+    expect(body.integration).toBe("doppler");
+    expect(body.status).toBe("needs-you");
+    expect(body.detail).toBe("Your code is ABC-123. Confirm it in your browser");
+    expect(seams.killed).toEqual([]);
+  });
+
+  test("ldcli with no code in its log asks to finish in the browser", async () => {
+    const seams = fakeLoginSeams();
+    const { exec } = validateScript("ldcli config --list");
+    const { deps } = sessionDeps(exec, seams, { [`${LOGINS}/ldcli.log`]: "Opening https://app.launchdarkly.com/cli-auth\n" });
+
+    await integrationConnect("ldcli", ["--json"], deps);
+
+    expect(seams.spawned[0]!.slice(5)).toEqual(["ldcli", "login"]);
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("needs-you");
+    expect(body.detail).toBe("Finish signing in in your browser");
+  });
+
+  test("a session that signs in within the wait answers ready", async () => {
+    const seams = fakeLoginSeams();
+    const { exec } = validateScript("doppler me --json", 1);
+    const { deps, sleeps } = sessionDeps(exec, seams);
+
+    await integrationConnect("doppler", ["--json"], deps);
+
+    expect(sleeps).toEqual([2000]);
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("ready");
+    expect(body.detail).toBe("Signed in to doppler");
+    expect(seams.killed).toEqual([4242]);
+    expect(deps.probes.readFile(`${LOGINS}/doppler.json`)).toBeNull();
+  });
+
+  test("already signed in starts nothing", async () => {
+    const seams = fakeLoginSeams();
+    const { exec, calls } = validateScript("doppler me --json", 0);
+    const { deps, sleeps } = sessionDeps(exec, seams);
+
+    await integrationConnect("doppler", ["--json"], deps);
+
+    expect(seams.spawned).toEqual([]);
+    expect(sleeps).toEqual([]);
+    expect(calls).toEqual([["doppler", "me", "--json"]]);
+    const body = JSON.parse(deps.lines[0]!) as { status: string };
+    expect(body.status).toBe("ready");
+  });
+
+  test("a login that fails to start answers invalid, not needs-you", async () => {
+    const seams = fakeLoginSeams({ spawnFails: true });
+    const exec: Probes["exec"] = async (argv) => (argv[0] === "ldcli" ? { code: 127, stdout: "", stderr: "" } : ok());
+    const { deps, sleeps } = sessionDeps(exec, seams);
+
+    await integrationConnect("ldcli", ["--json"], deps);
+
+    expect(deps.exitCodes).toEqual([]);
+    expect(sleeps).toEqual([]);
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("invalid");
+    expect(body.detail).toBe("ldcli is not installed");
+  });
+
+  test("at a terminal the login still owns the terminal", async () => {
+    const seams = fakeLoginSeams();
+    const inherited: string[] = [];
+    const exec: Probes["exec"] = async (argv, opts) => {
+      if (opts?.inherit) inherited.push(argv.join(" "));
+      return ok();
+    };
+    const deps = baseDeps({ probes: fakeProbes({ exec }), isTTY: () => true, loginSeams: seams });
+
+    await integrationConnect("doppler", ["--json"], deps);
+
+    expect(inherited).toEqual(["doppler login"]);
+    expect(seams.spawned).toEqual([]);
     const body = JSON.parse(deps.lines[0]!) as { status: string; integration: string };
     expect(body.integration).toBe("doppler");
     expect(body.status).toBe("ready");
   });
 
-  test("ldcli: a failed re-validate maps to exit 0, {status:'invalid'} (not exit 2)", async () => {
+  test("ldcli at a terminal: a failed re-validate maps to exit 0, {status:'invalid'} (not exit 2)", async () => {
     const exec: Probes["exec"] = async (argv, opts) => {
       if (argv.join(" ") === "ldcli login") {
         expect(opts?.inherit).toBe(true);
@@ -711,7 +834,7 @@ describe("integrationConnect — doppler/ldcli (CLI-session flow)", () => {
       if (argv.join(" ") === "ldcli config --list") return { code: 1, stdout: "", stderr: "not logged in" };
       return ok();
     };
-    const deps = baseDeps({ probes: fakeProbes({ exec }) });
+    const deps = baseDeps({ probes: fakeProbes({ exec }), isTTY: () => true });
 
     await integrationConnect("ldcli", ["--json"], deps);
 

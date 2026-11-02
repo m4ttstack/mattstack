@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { BREW_FORMULAE, BUNDLED_VSIX_FILES, VENDOR_INSTALLERS, VSIX_NOT_FOUND_DETAIL, claudeConfigDirs, findBundledVsixes, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
+import { BREW_FORMULAE, BUNDLED_VSIX_FILES, VENDOR_INSTALLERS, VSIX_NOT_FOUND_DETAIL, claudeConfigDirs, findBundledVsixes, installRoute, installTool, parseCltLabel, setupTool, type ToolsInstallSeams } from "../tools-install.ts";
 import { detectEditors } from "../../editors.ts";
 import { processFlavor } from "../../flavor.ts";
 import { DEV_TRAY_APP_BUNDLE, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
@@ -648,5 +648,33 @@ describe("parseCltLabel — catalog order", () => {
   test("catalog order is not version order — the numerically newest label wins regardless", () => {
     const out = "* Label: Command Line Tools for Xcode 26.6-26.6\n* Label: Command Line Tools for Xcode 26.5-26.5\n";
     expect(parseCltLabel(out)).toBe("Command Line Tools for Xcode 26.6-26.6");
+  });
+});
+
+describe("installRoute", () => {
+  test("installRoute names brew for a plain formula with brew present", async () => {
+    const reqs: PackRequirements[] = [{ pack: "widgets", integrations: [], tools: [{ name: "jq", why: "json", install: { brew: "jq" } }] }];
+    const p = fakeProbes();
+    expect(await installRoute(p, "jq", reqs, true, NOOP_SEAMS)).toBe("brew");
+    expect(await installRoute(p, "jq", reqs, false, NOOP_SEAMS)).toBeNull();
+    expect(await installRoute(p, "claude", [], false, NOOP_SEAMS)).toBe("vendor");
+    expect(await installRoute(p, "gh", [], false, { ...NOOP_SEAMS, bundledToolExec: () => ["/bundle/Contents/Helpers/gh"] })).toBe("bundled");
+    expect(p.calls.exec).toEqual([]);
+  });
+
+  test("installRoute is null for a download-only tool", async () => {
+    const reqs: PackRequirements[] = [
+      {
+        pack: "widgets",
+        integrations: [],
+        tools: [
+          { name: "acme-api", why: "the api", install: { url: "https://acme.example/install" } },
+          { name: "tapped", why: "a tap", install: { brew: "acme/tap/tapped" } },
+          { name: "steps", why: "by hand" },
+        ],
+      },
+    ];
+    const p = fakeProbes();
+    for (const tool of ["acme-api", "tapped", "steps"]) expect(await installRoute(p, tool, reqs, true, NOOP_SEAMS)).toBeNull();
   });
 });

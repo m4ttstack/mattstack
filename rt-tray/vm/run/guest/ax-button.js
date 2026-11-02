@@ -6,11 +6,10 @@
 //
 //   osascript -l JavaScript ax-button.js <process> read <axid>
 //   osascript -l JavaScript ax-button.js <process> press <axid> <wording>
-//   osascript -l JavaScript ax-button.js <process> step back|continue
 //
 // Lookups run under the process's first window, as `window 1` does in ax.sh.
-// A read and the press it guards are one invocation: a plan that lands
-// between two scripts can turn a Continue press into Install.
+// A read and the press it guards are one invocation: a read that lands
+// between two scripts can change which press this is.
 
 // The role description is what System Events falls back to, and it is never
 // a button's wording.
@@ -27,17 +26,6 @@ function pressHeld(id, want, wording, enabled) {
   if (wording === "") return "press held: " + id + " has no readable wording, wanted " + want;
   if (wording !== want) return "press held: " + id + " reads " + wording + ", wanted " + want;
   if (!enabled) return "press held: " + id + " is disabled";
-  return "";
-}
-
-// The checklist is step 3, after Welcome and Your team: Back on it leaves the
-// checklist. On the last page, and until a plan has landed, the button that
-// reads Continue elsewhere reads Install.
-function stepHeld(dir, progress, wording, enabled) {
-  if (progress.indexOf(" of ") < 0) return "page step held: the wizard's progress reads " + progress;
-  if (dir === "back" && progress.indexOf("3 of ") === 0) return "page step held: no page before the first";
-  if (dir === "continue" && wording !== "Continue") return "page step held: the button reads " + (wording || "nothing readable");
-  if (!enabled) return "page step held: setup.checklist." + dir + " is disabled";
   return "";
 }
 
@@ -108,7 +96,7 @@ function run(argv) {
   var p = Application("System Events").processes.byName(proc);
   if (!p.exists()) throw new Error("process not running: " + proc);
   var pid = p.unixId();
-  var win, b, v;
+  var b, v;
   switch (mode) {
     case "read":
       b = find(firstWindow(proc, pid), argv[2]);
@@ -121,15 +109,6 @@ function run(argv) {
       refuse(pressHeld(argv[2], argv[3], wordingAt(b), enabledAt(b)));
       pressEl(b, argv[2]);
       return "";
-    case "step":
-      if (argv[2] !== "back" && argv[2] !== "continue") throw new Error("step takes back or continue");
-      p.frontmost = true;
-      win = firstWindow(proc, pid);
-      v = textAt(find(win, "setup.window.progress"), "AXValue");
-      b = find(win, "setup.checklist." + argv[2]);
-      refuse(stepHeld(argv[2], v, argv[2] === "continue" ? wordingAt(b) : "", enabledAt(b)));
-      pressEl(b, "setup.checklist." + argv[2]);
-      return v;
   }
-  throw new Error("usage: ax-button.js <process> read <axid> | press <axid> <wording> | step back|continue");
+  throw new Error("usage: ax-button.js <process> read <axid> | press <axid> <wording>");
 }

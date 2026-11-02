@@ -3,6 +3,8 @@ import { join } from "path";
 import { fakeProbes } from "./fakes.ts";
 import { slackSecretWait, slackWaitCliMessage, slackWaitRowDetail } from "../team-slack-secret.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
+import { renderSopsYamlRules } from "../../home/age-key.ts";
+import { TEAM_PATH_REGEX } from "../../secrets/team-store.ts";
 
 const HOME = "/fake-home";
 const SLUG = "acme";
@@ -11,6 +13,11 @@ const OLD = "age1old00000000000000000000000000000000000000000000000000000000";
 const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
 const BOARD = join(HOME, ".mattstack", "orgs", SLUG, "mattstack", "org", "secrets", "board.json");
 const PERSONAL_SOPS = join(HOME, ".mattstack", "user", ".sops.yaml");
+const TEAM_SOPS = join(HOME, ".mattstack", "orgs", SLUG, ".sops.yaml");
+
+function teamSops(members: string[]): string {
+  return renderSopsYamlRules([{ pathRegex: TEAM_PATH_REGEX, recipients: members }]);
+}
 
 function boardFile(recipients: string[], keys: string[] = ["slackClientSecret"]): string {
   const values = Object.fromEntries(keys.map((k) => [k, "ENC[AES256_GCM,data:x,type:str]"]));
@@ -66,12 +73,16 @@ describe("slackSecretWait", () => {
     expect(slackSecretWait(p, SLUG)).toBeNull();
   });
 
+  test("waiting on approval reads awaiting acceptance before the board file is looked at", () => {
+    expect(slackSecretWait(member({ [TEAM_SOPS]: teamSops([OWNER]) }), SLUG)).toEqual({ kind: "awaiting-acceptance" });
+  });
+
   test("a recipient whose clone has no board secrets file -> the owner has not shared the secret", () => {
-    expect(slackSecretWait(member({}), SLUG)).toEqual({ kind: "not-shared" });
+    expect(slackSecretWait(member({ [TEAM_SOPS]: teamSops([OWNER, MINE]) }), SLUG)).toEqual({ kind: "not-shared" });
   });
 
   test("a recipient whose file holds no Slack client secret -> the owner has not shared the secret", () => {
-    expect(slackSecretWait(member({ [BOARD]: boardFile([OWNER, MINE], ["slackSigningSecret"]) }), SLUG)).toEqual({ kind: "not-shared" });
+    expect(slackSecretWait(member({ [TEAM_SOPS]: teamSops([OWNER, MINE]), [BOARD]: boardFile([OWNER, MINE], ["slackSigningSecret"]) }), SLUG)).toEqual({ kind: "not-shared" });
   });
 
   test("joined, but no key is known on this machine -> cannot tell, so nothing stands in the way", () => {

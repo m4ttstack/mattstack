@@ -3,105 +3,119 @@ import SwiftUI
 import Combine
 import MattstackCore
 
-struct SetupEnvironment {
-    let rt: RtRunning
-    let needs: NeedBroker
-    let readiness: ReadinessModel
-    let install: InstallRunModel
-    let permissions: PermissionsService
-    let isDevBuild: Bool
-    let bundleId: String
-    let bundlePath: String
-    /// "Setup status…" — screen 3 as a health view, never a wizard step
-    /// (SetupFlowModel.readOnly carries the footer semantics).
-    var readOnly = false
-}
-
-/// One dedicated NSWindow hosting SwiftUI (AppKit lifecycle stays). Opens
-/// at `width` and resizes no smaller; close/minimize appear only once setup
-/// is done.
+/// One dedicated NSWindow hosting fast setup (AppKit lifecycle stays). Each
+/// screen opens at `width` and its own height, as the mocks do, between
+/// `minHeight` and the screen's visible height; a screen taller than that
+/// scrolls inside. `SetupWindowSizer` lets the person drag it taller, never
+/// wider or shorter than the screen; the screen stays top-aligned with its
+/// footer at the bottom. Dark whatever the system appearance. Always closable:
+/// closing never stops the join's approval check or a run, which the coordinator owns.
 final class SetupWindowController: NSWindowController, NSWindowDelegate {
-    static let width: CGFloat = 720
-    static let minHeight: CGFloat = 560
-    let flow: SetupFlowModel
-    let team: TeamChoiceModel
-    let done: DoneModel
-    /// Set by the caller (e.g. re-entering an already-complete setup, or the
-    /// read-only "Setup status…" view) to make the window closable even
-    /// though `flow` itself hasn't reached `.done` — a wizard step must never
-    /// double as a trap once there's nothing left to walk the user through.
-    var allowsCloseAlways = false
-    var onClose: (@MainActor (SetupEntry) -> Void)?
-    private let environment: SetupEnvironment
-    private var activeObserver: Any?
+    static let width: CGFloat = FastTheme.windowWidth
+    static let minHeight: CGFloat = 340
+    var onClose: (@MainActor () -> Void)?
+    private let flow: FastSetupFlow
+    /// A test drive's window is never setup in progress to the updater.
+    private let tracksSession: Bool
+    private let chromeHeight: CGFloat
     private var cancellables = Set<AnyCancellable>()
+    private var sizer: SetupWindowSizer!
 
-    init(environment: SetupEnvironment) {
-        self.environment = environment
-        self.flow = SetupFlowModel(readOnly: environment.readOnly)
-        self.team = TeamChoiceModel(rt: environment.rt, pasteboard: SystemPasteboard())
-        self.done = DoneModel(readiness: environment.readiness, waivers: WaiverClient(rt: environment.rt))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 620),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        window.contentMinSize = NSSize(width: Self.width, height: Self.minHeight)
-        window.title = "mattstack Setup"
+    /// `chromeHeight` is what the root draws above the screens (a test drive's banner).
+    /// Such a window keeps macOS's title bar over it, so the banner never sits under the traffic lights.
+    init<Root: View>(flow: FastSetupFlow, root: Root, title: String = "mattstack Setup", tracksSession: Bool = true, chromeHeight: CGFloat = 0) {
+        self.flow = flow
+        self.tracksSession = tracksSession
+        self.chromeHeight = chromeHeight
+        let height = 620 + chromeHeight
+        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+        if chromeHeight == 0 { style.insert(.fullSizeContentView) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: height),
+                              styleMask: style, backing: .buffered, defer: false)
+        window.title = title
+        window.appearance = FastAppearance.window
+        window.backgroundColor = FastTheme.windowFill
+        // The mocks blend their translucent tiles and glow in sRGB; a wide-gamut display's space blends them stronger.
+        window.colorSpace = .sRGB
+        if chromeHeight == 0 {
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+        }
         window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: Self.width, height: Self.minHeight + chromeHeight)
+        window.contentMaxSize = NSSize(width: Self.width, height: .greatestFiniteMagnitude)
         window.center()
         super.init(window: window)
         window.delegate = self
-        let root = SetupView(flow: flow, team: team, readiness: environment.readiness, install: environment.install, done: done,
-                             permissions: environment.permissions, env: environment,
-                             onFinish: { [weak self] in self?.window?.close() })
-        window.contentViewController = NSHostingController(rootView: root)
-        window.setContentSize(NSSize(width: Self.width, height: 620))
-        flow.objectWillChange.sink { [weak self] _ in DispatchQueue.main.async { self?.applyStyle() } }
+        sizer = SetupWindowSizer(window: window, floor: Self.minHeight + chromeHeight)
+        let hosting = FittingHostingController(rootView: AnyView(root.frame(width: Self.width).frame(maxHeight: .infinity, alignment: .top)))
+        hosting.sizingOptions = [.preferredContentSize]
+        hosting.safeAreaRegions = []
+        hosting.onPreferredSize = { [weak self] size in DispatchQueue.main.async { self?.fit(to: size) } }
+        window.contentViewController = hosting
+        window.setContentSize(NSSize(width: Self.width, height: height))
+        hosting.view.layoutSubtreeIfNeeded()
+        fit(to: hosting.preferredContentSize)
+        flow.$screen.sink { [weak self, weak hosting] screen in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.sizer.screenChanged(to: screen)
+                if let hosting {
+                    hosting.view.layoutSubtreeIfNeeded()
+                    self.fit(to: hosting.preferredContentSize)
+                }
+                self.applyStyle()
+            }
+        }
             .store(in: &cancellables)
     }
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    func show(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
-        flow.entry = entry
-        if let step { flow.jump(to: step, landing: step == .checklist && !flow.readOnly) }
-        team.enter(entry, choice: choice, joinCode: joinCode)
+    var isVisible: Bool { window?.isVisible == true }
+    /// A banner is for a person who is not looking at this window.
+    var isInFront: Bool { NSApp.isActive && window?.isKeyWindow == true }
+
+    func show() {
+        let wasVisible = isVisible
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        if !wasVisible { window?.center() }
         applyStyle()
-        window?.center()
         NSApp.activate(ignoringOtherApps: true)
-        // A second show() while already open (deep link, tray re-click) must
-        // not accumulate observers — each would fire didBecomeActive() again.
-        if let o = activeObserver { NotificationCenter.default.removeObserver(o) }
-        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.environment.readiness.didBecomeActive() }
-        }
     }
 
+    private func fit(to ideal: NSSize) {
+        sizer.fit(ideal: ideal.height, on: flow.screen)
+    }
+
+    /// Ground truth, not "we just showed it": a late screen change after the
+    /// window has closed must not re-arm the updater's idle gate.
     private func applyStyle() {
-        guard let window else { return }
-        var mask: NSWindow.StyleMask = [.titled, .resizable]
-        if flow.windowMayClose || allowsCloseAlways { mask.insert([.closable, .miniaturizable]) }
-        window.styleMask = mask
-        // Ground truth, not "we just showed it": a late write to flow after
-        // the window has actually closed must not re-arm the updater's idle
-        // gate forever. A window that's only closable because the caller
-        // forced it (already-complete setup, the status view) isn't an
-        // active onboarding run either, so it contributes `false` — keyed by
-        // this controller's own identity so one window's restyle can never
-        // clobber another window's still-genuine "running" state.
-        let running = window.isVisible && !flow.windowMayClose && !allowsCloseAlways
+        guard tracksSession else { return }
+        let running = isVisible && flow.screen != .ready
         SetupSession.setRunning(running, for: ObjectIdentifier(self))
     }
 
+    func windowDidEndLiveResize(_ notification: Notification) {
+        sizer.personResized(on: flow.screen)
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        sizer.personResized(on: flow.screen)
+        return true
+    }
+
     func windowWillClose(_ notification: Notification) {
-        SetupSession.setRunning(false, for: ObjectIdentifier(self))
-        // Only balances an outstanding becameVisible() (see
-        // SetupFlowModel.readinessIsVisible) — closing on a step that
-        // already left .checklist must not send a second, unmatched hide.
-        if flow.readinessIsVisible {
-            flow.readinessIsVisible = false
-            environment.readiness.becameHidden()
-        }
-        if let o = activeObserver { NotificationCenter.default.removeObserver(o) }
-        onClose?(flow.entry)
+        if tracksSession { SetupSession.setRunning(false, for: ObjectIdentifier(self)) }
+        onClose?()
+    }
+}
+
+/// Reports each new ideal size of the SwiftUI content, which the window fits itself to.
+private final class FittingHostingController: NSHostingController<AnyView> {
+    var onPreferredSize: ((NSSize) -> Void)?
+
+    override var preferredContentSize: NSSize {
+        didSet { if preferredContentSize != oldValue { onPreferredSize?(preferredContentSize) } }
     }
 }

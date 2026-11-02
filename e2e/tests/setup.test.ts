@@ -11,7 +11,9 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { createTestHome, rt } from "../harness.ts";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { createTestHome, rt, RT_BINARY, rtEnv } from "../harness.ts";
 
 describe("rt setup verbs (e2e, no live app/daemon)", () => {
   let home: string;
@@ -58,7 +60,7 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
     expect(fda.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   }, 30_000);
 
-  test("setup apply --from verify streams plan, only the verify step, then done", async () => {
+  test("setup apply --from verify streams plan, only the verify step and the run-end apps restart, then done", async () => {
     const res = await run(["setup", "apply", "--json", "--non-interactive", "--team-of-one", "--from", "verify"]);
 
     const events = res.stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
@@ -68,13 +70,11 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
     expect(Array.isArray(events[0].steps)).toBe(true);
     expect(events[0].steps.some((s: any) => s.id === "verify")).toBe(true);
 
-    // `--from verify` resumes at the LAST contract step, so no other step
-    // gets a `step` event on this run — only ones before `--from` are
-    // skipped-without-an-event; a `step` event for anything else here would
-    // mean resumeStart resumed at the wrong index.
-    const stepEvents = events.filter((e) => e.event === "step");
-    expect(stepEvents.length).toBeGreaterThan(0);
-    expect(stepEvents.every((e) => e.id === "verify")).toBe(true);
+    // `--from verify` resumes at the last contract step before
+    // apps.restart, which ends every whole run; a `step` event for anything
+    // else would mean resumeStart resumed at the wrong index.
+    const stepIds = [...new Set(events.filter((e) => e.event === "step").map((e) => e.id))];
+    expect(stepIds).toEqual(["verify", "apps.restart"]);
 
     expect(events[events.length - 1]!.event).toBe("done");
   }, 45_000);
@@ -121,4 +121,33 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
     expect(out.error.code).toBe("unexpected-args");
     expect(out.error.args).toEqual(["gitq"]);
   }, 15_000);
+});
+
+// The app pipes both stdout and stderr, and quitting closes both. Every write
+// after that fails with an async EPIPE, which ends a Bun process nobody
+// listens for. The reader here exits before rt starts, so rt's first write
+// already meets a closed pipe.
+describe("rt setup apply --json outlives the app that spawned it", () => {
+  test("with both pipes closed before its first write, the run still ends and records its done", async () => {
+    const { path: home, cleanup } = createTestHome();
+    try {
+      const script = '{ sleep 0.5; exec "$RT_E2E_BINARY" setup apply --json --non-interactive --team-of-one --from verify; } 2>&1 | true; exit "${PIPESTATUS[0]}"';
+      const proc = Bun.spawn(["/bin/bash", "-c", script], {
+        env: rtEnv(home, { RT_APP_SOCKET: "/nonexistent.sock", RT_E2E_BINARY: RT_BINARY }),
+        cwd: home,
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      const exitCode = await proc.exited;
+
+      const lines = readFileSync(join(home, ".mattstack", "rt", "setup-run.ndjson"), "utf8").trim().split("\n");
+      const done = JSON.parse(lines.at(-1)!);
+      expect(done.event).toBe("done");
+      expect(exitCode).toBe(done.ok ? 0 : 2);
+      const state = JSON.parse(readFileSync(join(home, ".mattstack", "rt", "setup-state.json"), "utf8"));
+      expect(state.run.endedAt).toBeString();
+    } finally {
+      cleanup();
+    }
+  }, 45_000);
 });

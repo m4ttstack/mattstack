@@ -20,6 +20,17 @@ let installRunChecks: [Check] = [
         try c.requireEqual(steps.count, 3)
         c.expectEqual(steps[1].kind, .app)
     },
+    Check("InstallRun: a plan step's phase, weight and paused decode, and absent reads nil") { c in
+        let line = #"{"event":"plan","steps":[{"id":"repos.clone","title":"Clone your repos","kind":"rt","phase":"Cloning your repos","weight":10,"paused":"Couldn't clone your repos"},{"id":"path.link","title":"Link rt","kind":"rt"}]}"#
+        guard case .plan(let steps) = try ApplyEvent.decode(line) else { c.fail("plan"); return }
+        try c.requireEqual(steps.count, 2)
+        c.expectEqual(steps[0].phase, "Cloning your repos")
+        c.expectEqual(steps[0].weight, 10)
+        c.expectEqual(steps[0].paused, "Couldn't clone your repos")
+        c.expectEqual(steps[1].phase, nil)
+        c.expectEqual(steps[1].weight, nil)
+        c.expectEqual(steps[1].paused, nil)
+    },
     Check("ApplyEvent decodes git's clone progress, with and without a note") { c in
         c.expectEqual(try ApplyEvent.decode(#"{"event":"progress","id":"repos.clone","label":"Receiving objects","percent":42,"note":"1 GiB"}"#),
                       .progress(id: "repos.clone", label: "Receiving objects", percent: 42, note: "1 GiB"))
@@ -85,6 +96,22 @@ let installRunChecks: [Check] = [
         }
         c.expectEqual(services.registered, [["com.mattstack.daemon.plist"]])
     },
+    Check("InstallRun: cancel stops following the run, so a line after it changes nothing and the phase stays") { c in
+        let (feed, cont) = AsyncThrowingStream<String, Error>.makeStream()
+        let m = await MainActor.run { InstallRunModel(stream: { _ in feed }, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged())) }
+        await MainActor.run { m.start() }
+        cont.yield(planLine)
+        cont.yield(#"{"event":"step","id":"home.init","state":"running"}"#)
+        c.expect(await waitUntil { m.steps.first?.state == .running }, "the run never started")
+        await MainActor.run { m.cancel() }
+        cont.yield(#"{"event":"step","id":"home.init","state":"done"}"#)
+        cont.yield(#"{"event":"done","ok":true,"failedStep":null}"#)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        await MainActor.run {
+            c.expectEqual(m.steps.first?.state, .running)
+            c.expectEqual(m.phase, .running, "cancel is not the run ending")
+        }
+    },
     Check("a fresh Install forgets only its plan's step ids, so a need another run is answering survives") { c in
         let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
         _ = await broker.perform(id: "services.unregister", request: NeedRequest(type: "app-unregister-services", plists: [], op: nil))
@@ -125,6 +152,47 @@ let installRunChecks: [Check] = [
             c.expectEqual(m.steps[2].state, .done)
         }
         c.expectEqual(count.froms, [nil, "plugins.install"])
+    },
+    // rt sends no step event for the steps before --from, and a relaunched app holds no rows for them.
+    Check("InstallRun: a retry after a relaunch counts the steps before it as done") { c in
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        let stream: ApplyStreamFactory = { _ in lines([planLine, #"{"event":"step","id":"services.register","state":"running"}"#]) }
+        let m = await MainActor.run { InstallRunModel(stream: stream, needs: broker) }
+        await MainActor.run { m.start(from: "services.register") }
+        for _ in 0..<50 { if await MainActor.run(body: { m.steps.count == 3 && m.steps[1].state == .running }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.steps.map(\.state), [.done, .running, .pending], "home.init ran before the pause")
+            c.expectEqual(m.peakFraction, 1.0 / 3)
+        }
+    },
+    Check("InstallRun: the peak survives a step's progress clearing on failure; a retry keeps it, a fresh start resets it") { c in
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        let stream: ApplyStreamFactory = { from in
+            if from == nil {
+                return lines([planLine,
+                              #"{"event":"step","id":"home.init","state":"done"}"#,
+                              #"{"event":"step","id":"services.register","state":"running"}"#,
+                              #"{"event":"progress","id":"services.register","label":"Registering","percent":50}"#,
+                              #"{"event":"step","id":"services.register","state":"failed","detail":"exit 1"}"#,
+                              #"{"event":"done","ok":false,"failedStep":"services.register"}"#])
+            }
+            return lines([#"{"event":"step","id":"services.register","state":"running"}"#])
+        }
+        let m = await MainActor.run { InstallRunModel(stream: stream, needs: broker) }
+        await MainActor.run { m.start() }
+        for _ in 0..<50 { if await MainActor.run(body: { m.failedStepId != nil }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(RunProgress.bar(steps: m.steps, elapsed: 0).fraction, 1.0 / 3, "the failed step's percent is gone from the raw fraction")
+            c.expectEqual(m.peakFraction, 0.5)
+            m.retryFromFailure()
+            c.expectEqual(m.peakFraction, 0.5, "a retry carries the peak over")
+        }
+        for _ in 0..<50 { if await MainActor.run(body: { m.steps.first { $0.id == "services.register" }?.state == .running }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.peakFraction, 0.5, "the re-running step starts below the peak")
+            m.start()
+            c.expectEqual(m.peakFraction, 0)
+        }
     },
     Check("a partial step keeps the run going to succeeded; retry(from:) re-streams from that step") { c in
         final class Count: @unchecked Sendable { var froms: [String?] = [] }

@@ -25,14 +25,16 @@ public enum RowVerbRun {
 
     /// nil when the run succeeded, otherwise the copy to show under the row.
     /// `waiting` receives a need's `waitingCopy` while it is outstanding and
-    /// nil once rt reports progress again. Runs one at a time: two rows'
+    /// nil once rt reports progress again. `log` receives each step's log
+    /// lines. Runs one at a time: two rows'
     /// steps can touch the same files (path.link from PATH and shell rows).
     public static func apply(_ args: [String], rt: RtRunning, needs: NeedBroker,
-                             waiting: @escaping @Sendable (String?) async -> Void) async -> String? {
+                             waiting: @escaping @Sendable (String?) async -> Void,
+                             log: (@Sendable (String) async -> Void)? = nil) async -> String? {
         if await queue.isBusy { await waiting(queuedCopy) }
         return await queue.run {
             await waiting(nil)
-            return await applyNow(args, rt: rt, needs: needs, waiting: waiting)
+            return await applyNow(args, rt: rt, needs: needs, waiting: waiting, log: log)
         }
     }
 
@@ -44,7 +46,8 @@ public enum RowVerbRun {
     }
 
     private static func applyNow(_ args: [String], rt: RtRunning, needs: NeedBroker,
-                                 waiting: @escaping @Sendable (String?) async -> Void) async -> String? {
+                                 waiting: @escaping @Sendable (String?) async -> Void,
+                                 log: (@Sendable (String) async -> Void)?) async -> String? {
         let only = onlyStep(args)
         var onlyEnded: (state: StepState, detail: String?)?
         var stepFailure: String?
@@ -67,6 +70,8 @@ public enum RowVerbRun {
                         stepFailure = [detail, remedy].compactMap { $0 }.filter { !$0.isEmpty }
                             .map { $0.hasSuffix(".") ? String($0.dropLast()) : $0 }.joined(separator: ". ")
                     }
+                case .log(_, let line):
+                    await log?(line)
                 case .done(let ok, _):
                     succeeded = ok
                 default:

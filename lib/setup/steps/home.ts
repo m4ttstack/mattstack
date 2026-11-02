@@ -1,24 +1,26 @@
 /**
  * `home.init` / `home.restore` — the two steps that get the home repo
  * (~/.mattstack/user, A1: user/ IS the repo) and its age key onto this
- * machine. `home.restore` never runs the real restore itself: the app
- * already ran `rt home init`'s materialize phase (settings lane) before this
- * step gets a turn, so this only confirms the clone and the key landed.
+ * machine. `home.restore` never runs the real restore itself: `rt home
+ * restore` cloned the repo and imported the key before it recorded the
+ * restore intent, so this only confirms the clone and the key landed.
  */
 
 import { join } from "path";
 import { readAgeKey } from "../../home/age-key.ts";
+import { originNames } from "../../home/home-repo.ts";
 import { INIT_OUTPUT_CAPTION, INIT_STEP_FAILED } from "../../home/init-exec.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { ApplyContext } from "../apply.ts";
+import { homeGitDir } from "../home-paths.ts";
+import { markHomeRemoteApplied, pendingHomeRemote, setHomeRemote, stageHomeRemote } from "../home-remote.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 /** `rt home init` itself, self-invoked as a subprocess, does a lot (clone, then its own materialize phase) — generous but bounded so a stalled clone/network call surfaces as a real failure instead of hanging the whole Install button. */
 const HOME_INIT_TIMEOUT_MS = 180_000;
 
-export function homeGitDir(home: string): string {
-  return join(home, ".mattstack", "user", ".git");
-}
+export { homeGitDir };
 
 type KeyStatus = { status: "present" } | { status: "absent" } | { status: "unreachable"; message: string };
 
@@ -97,6 +99,27 @@ export function homeInitDoneDetail(stdout: string): string {
 }
 
 async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
+  const created = await createHomeRepo(ctx);
+  if (created.state !== "done") return created;
+  return pushToStagedRemote(ctx, created);
+}
+
+/** The staged choice stays on a failure, so the next run tries the push again. */
+async function pushToStagedRemote(ctx: ApplyContext, created: StepOutcome & { state: "done" }): Promise<StepOutcome> {
+  const staged = pendingHomeRemote(ctx.p);
+  if (staged === null) return created;
+  try {
+    // A created repo is restaged by its url first, so a Retry after a failed push never creates a second one.
+    const result = await setHomeRemote(ctx.p, staged, { onCreated: (url) => stageHomeRemote(ctx.p, { url }) });
+    markHomeRemoteApplied(ctx.p, result);
+    return created;
+  } catch (err) {
+    if (!(err instanceof UserActionableError)) throw err;
+    return { state: "partial", detail: err.message, remedy: "Check the remote, then Retry" };
+  }
+}
+
+async function createHomeRepo(ctx: ApplyContext): Promise<StepOutcome> {
   const { p } = ctx;
   const alreadyCloned = p.exists(homeGitDir(p.home));
   const keyStatus = await checkLocalKey(ctx);
@@ -146,6 +169,8 @@ function missingToolRemedy(stderr: string): string | null {
 const REMOTE_AUTH_STDERR = /authenticat|could not read username|access denied|repository not found|403 forbidden|invalid username or (?:password|token)|gh auth login|permission denied \(publickey/i;
 /** ssh writes "Permission denied (publickey)", but so does a plain local `fatal: cannot mkdir user: Permission denied` — on its own this says nothing about a remote. */
 const AMBIGUOUS_PERMISSION_STDERR = /permission denied/i;
+/** homeInitRemedy's fallback, for a failure whose cause is the detail shown above it. */
+export const CHECK_ABOVE_REMEDY = "Check the error above, then Retry";
 /** `rt home init` leads a failed clone with this title; only the clone step ever contacts a host. */
 const CLONE_FAILED_TITLE = INIT_STEP_FAILED.cloneUserRepo;
 
@@ -166,7 +191,7 @@ export function homeInitRemedy(stderr: string): string {
   const remoteShaped =
     REMOTE_AUTH_STDERR.test(stderr) ||
     (AMBIGUOUS_PERMISSION_STDERR.test(stderr) && stderr.split("\n").some((l) => untagged(l.trim()) === CLONE_FAILED_TITLE));
-  return remoteShaped ? "Run gh auth login, then Retry" : "Check the error above, then Retry";
+  return remoteShaped ? "Run gh auth login, then Retry" : CHECK_ABOVE_REMEDY;
 }
 
 async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -174,7 +199,7 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
   const homeRepo = ctx.intent?.restore?.homeRepo;
   const cloned = p.exists(homeGitDir(p.home));
   const gitConfig = cloned ? p.readFile(join(homeGitDir(p.home), "config")) : null;
-  const originMatches = homeRepo !== undefined && gitConfig !== null && gitConfig.includes(homeRepo);
+  const originMatches = homeRepo !== undefined && originNames(gitConfig, homeRepo);
   const keyStatus = await checkLocalKey(ctx);
 
   if (cloned && originMatches && keyStatus.status === "present") {
@@ -183,8 +208,8 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   if (keyStatus.status === "unreachable") {
     // The clone/origin may be perfectly fine here — an unlock, not a fresh
-    // restore, is the actual fix, and pointing at `rt restore` would be
-    // actively wrong (it would ask for the age key again, when the real
+    // restore, is the actual fix, and pointing at `rt home restore` would be
+    // actively wrong (it would ask for the recovery key again, when the real
     // problem is this machine can't read the one it already has).
     return {
       state: "failed",
@@ -196,13 +221,17 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
   return {
     state: "failed",
     detail: `Could not confirm the home repo or its age key at ${join(p.home, ".mattstack", "user")}`,
-    remedy: "Run rt setup intent restore <org>/<repo>, then rt home key import to paste your age key, then Retry",
+    remedy: `Bring your settings over with your recovery key, then Retry: rt home restore ${homeRepo ?? "<owner>/<repo>"}`,
   };
 }
 
 /** The same pair homeInitRun reports as already initialized. */
 async function homeRepoReady(ctx: ApplyContext): Promise<boolean> {
   return ctx.p.exists(homeGitDir(ctx.p.home)) && (await checkLocalKey(ctx)).status === "present";
+}
+
+async function homeInitSatisfied(ctx: ApplyContext): Promise<boolean> {
+  return (await homeRepoReady(ctx)) && pendingHomeRemote(ctx.p) === null;
 }
 
 async function homeInitRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
@@ -226,7 +255,7 @@ export const homeInitStep: StepDef = {
   title: "Create your settings home repo",
   kind: "rt",
   applies: (ctx) => ctx.intent?.mode !== "restore",
-  satisfied: homeRepoReady,
+  satisfied: homeInitSatisfied,
   run: homeInitRunSafe,
 };
 

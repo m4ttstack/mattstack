@@ -191,8 +191,7 @@ let readinessModelChecks: [Check] = [
         c.expectEqual(ticker.cancelled, 1, "depth clamps at 0 — an extra becameHidden() must not cancel again")
     },
     Check("two independent visibility owners each guard their own becameVisible/becameHidden pairing — one owner's repeated or unmatched hides never cancel the other's tick") { c in
-        // Mirrors how SetupFlowModel.readinessIsVisible / SettingsWindowController's
-        // readinessIsVisible guard their own becameVisible/becameHidden calls: an
+        // Mirrors how two windows' readinessIsVisible flags guard their own becameVisible/becameHidden calls: an
         // owner only ever sends becameHidden() to balance a becameVisible() it
         // actually sent.
         @MainActor final class Owner {

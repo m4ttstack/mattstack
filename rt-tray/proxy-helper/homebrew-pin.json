@@ -1,0 +1,8 @@
+{
+  "version": "7.0.11",
+  "url": "https://github.com/Homebrew/brew/releases/download/7.0.11/Homebrew.pkg",
+  "sha256": "c780771227420177a6b19bd778e351976c2b5064d114f499ca94c0f01e31e8e8",
+  "size": 151797234,
+  "minimumMacOS": "15.0",
+  "arch": "arm64"
+}

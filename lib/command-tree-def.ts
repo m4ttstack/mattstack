@@ -696,6 +696,10 @@ function integrationNode(id: string, title: string): CommandNode {
   return { description: `${title}: check or connect this account`, subcommands };
 }
 
+function withSubcommands(node: CommandNode, extra: Record<string, CommandNode>): CommandNode {
+  return { ...node, subcommands: { ...node.subcommands, ...extra } };
+}
+
 export const TREE: Record<string, CommandNode> = {
   git: {
     description: "Everyday git shortcuts",
@@ -2068,16 +2072,28 @@ export const TREE: Record<string, CommandNode> = {
           },
         },
       },
+      restore: {
+        description: "Bring your settings over from another Mac",
+        module: "./commands/home.ts",
+        fn: "homeRestore",
+        omitBehavior: { exempt: "a repo on another Mac's account that rt cannot list" },
+        args: [
+          { name: "Repo", type: "text", placeholder: "janedoe/mattstack-home", hint: "Your settings repo: owner/repo on GitHub, host/owner/repo, or its clone address" },
+          { name: "Stdin", flag: "--stdin", type: "boolean", default: false, hint: "Read the recovery key from stdin instead of a no-echo prompt" },
+          { name: "Profile", flag: "--profile", type: "text", hint: "A name for this Mac's new profile, when its default name is taken" },
+          SETUP_JSON_ARG,
+        ],
+      },
       remote: {
         description: "Where the home repo is backed up",
         subcommands: {
           set: {
-            description: "Point the home repo at a remote and push, or create a private repo for it with gh",
+            description: "Point the home repo at a remote and push, or create a private GitHub repo for it",
             module: "./commands/setup.ts",
             fn: "homeRemoteSet",
             args: [
               { name: "URL", type: "text", optional: true, placeholder: "https://github.com/you/mattstack-home.git", hint: "An empty repo you own; omit with --create, or pipe {\"url\"} on stdin" },
-              { name: "Create", flag: "--create", type: "boolean", default: false, hint: "Create a private repo with gh first, then use it as the remote" },
+              { name: "Create", flag: "--create", type: "boolean", default: false, hint: "Create a private GitHub repo first, with rt's GitHub sign-in, or gh without one, then use it as the remote" },
               { name: "Name", flag: "--name", type: "text", placeholder: "mattstack-home", hint: "Repo name for --create (default mattstack-home)" },
               SETUP_JSON_ARG,
             ],
@@ -2740,6 +2756,8 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "From", flag: "--from", type: "text", placeholder: "path.link", hint: "Resume from this step id" },
           { name: "Only", flag: "--only", type: "text", placeholder: "proxy.install", hint: "Run this step id, plus any earlier step it needs that has not landed (the checklist's row remedies use it)" },
+          { name: "Resume", flag: "--resume", type: "boolean", default: false, hint: "Follow the run already going, or pick up where the last one stopped" },
+          { name: "Unattended", flag: "--unattended", type: "boolean", default: false, hint: "Pause at an admin password prompt instead of raising it" },
           { name: "Non-interactive", flag: "--non-interactive", type: "boolean", default: false, hint: "Never prompt; skip steps that need a human" },
           { name: "Team of one", flag: "--team-of-one", type: "boolean", default: false, hint: "Solo install, no team" },
           { name: "CI", flag: "--ci", type: "boolean", default: false, hint: "Headless CI run" },
@@ -2785,13 +2803,46 @@ export const TREE: Record<string, CommandNode> = {
         hidden: true,
         args: [SETUP_JSON_ARG],
       },
+      "home-backup": {
+        description: "Choose where your settings are kept",
+        module: "./commands/setup.ts",
+        fn: "setupHomeBackup",
+        hidden: true,
+        args: [SETUP_JSON_ARG],
+      },
+      "join-status": {
+        description: "Check whether your team admin approved your request to join",
+        module: "./commands/setup.ts",
+        fn: "setupJoinStatus",
+        hidden: true,
+        args: [SETUP_JSON_ARG],
+      },
+      form: {
+        description: "Show the questions setup still needs answered",
+        module: "./commands/setup-form.ts",
+        fn: "setupForm",
+        hidden: true,
+        args: [
+          SETUP_JSON_ARG,
+          { name: "Section", flag: "--section", type: "text", placeholder: "macos", hint: "Only this part: macos, invite, restore, connect, this-mac or create" },
+          { name: "Forge", flag: "--forge", type: "text", placeholder: "gitlab", hint: "github or gitlab, for the create section" },
+          { name: "Host", flag: "--host", type: "text", placeholder: "gitlab.com", hint: "A self-hosted forge's host" },
+        ],
+      },
+      prepare: {
+        description: "Install what setup can while you answer its questions",
+        module: "./commands/setup-prepare.ts",
+        fn: "setupPrepare",
+        hidden: true,
+        args: [{ name: "Stage", type: "text", placeholder: "macos", hint: "macos or accounts" }, SETUP_JSON_ARG],
+      },
       waive: {
         description: "Skip a finish-gated checklist row on this Mac so setup can finish without it",
         module: "./commands/setup.ts",
         fn: "setupWaive",
         omitBehavior: "picker",
         args: [
-          { name: "Row", type: "text", placeholder: "tool.fast-browser-extension", hint: "Waivable row id (today only tool.fast-browser-extension)" },
+          { name: "Row", type: "text", placeholder: "tool.mission-control", hint: "Row id you can skip: skills.overrides, tool.chrome-signin or tool.mission-control" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2801,7 +2852,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "setupUnwaive",
         omitBehavior: "picker",
         args: [
-          { name: "Row", type: "text", placeholder: "tool.fast-browser-extension", hint: "Waivable row id (today only tool.fast-browser-extension)" },
+          { name: "Row", type: "text", placeholder: "tool.mission-control", hint: "Skipped row id to bring back" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2847,7 +2898,35 @@ export const TREE: Record<string, CommandNode> = {
           },
         },
       },
-      github: integrationNode("github", "GitHub"),
+      claude: {
+        description: "Sign in to Claude Code",
+        hidden: true,
+        subcommands: {
+          connect: {
+            description: "Sign in to Claude Code from setup",
+            module: "./commands/setup-claude.ts",
+            fn: "setupClaudeConnect",
+            hidden: true,
+            args: [SETUP_JSON_ARG],
+          },
+          code: {
+            description: "Send the code your browser shows to a Claude sign-in",
+            module: "./commands/setup-claude.ts",
+            fn: "setupClaudeCode",
+            hidden: true,
+            args: [SETUP_JSON_ARG],
+          },
+        },
+      },
+      github: withSubcommands(integrationNode("github", "GitHub"), {
+        "sign-in": {
+          description: "Sign in to GitHub so rt can back up your settings",
+          module: "./commands/setup-github.ts",
+          fn: "setupGitHubSignIn",
+          hidden: true,
+          args: [SETUP_JSON_ARG, { name: "Wait", flag: "--wait", type: "boolean", default: false, hint: "Wait for the browser sign-in to finish (rt starts this itself)" }],
+        },
+      }),
       gitlab: integrationNode("gitlab", "GitLab"),
       linear: integrationNode("linear", "Linear"),
       slack: integrationNode("slack", "Slack"),
@@ -3001,6 +3080,9 @@ export const TREE: Record<string, CommandNode> = {
           { name: "First team", flag: "--first-team", type: "text", placeholder: "widgets", hint: "The first team's name; the org's own name when left out" },
           { name: "Remote", flag: "--remote", type: "text", placeholder: "https://github.com/acme/mattstack-team-acme.git", hint: "An existing empty repo's URL" },
           { name: "Create repo", flag: "--create-repo", type: "text", placeholder: "acme", hint: "Owner (user or org) to create <owner>/mattstack-team-<slug> under via gh, instead of pasting --remote" },
+          { name: "Forge", flag: "--forge", type: "text", placeholder: "gitlab", hint: "github or gitlab: create the repo there with your stored token" },
+          { name: "Group", flag: "--group", type: "text", placeholder: "acme", hint: "The group, org or account to create <group>/mattstack-team-<slug> under" },
+          { name: "Host", flag: "--host", type: "text", placeholder: "gitlab.com", hint: "A self-hosted forge's host" },
           { name: "Others", flag: "--others", type: "boolean", default: false, hint: "Mark the team as having members beyond you" },
           SETUP_JSON_ARG,
         ],

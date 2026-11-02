@@ -12,6 +12,7 @@ import type { MigrationDef } from "../migrations/index.ts";
 import type { Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
+import { STEP_PHASES } from "../run-phases.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
@@ -19,6 +20,9 @@ import { fakeProbes, fakeTray } from "./fakes.ts";
 import { needOutcome } from "../steps/step-utils.ts";
 import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 import { logsDir } from "../../rt-paths.ts";
+
+/** A fake step's entry in an apply run's plan: its id doubles as its title. */
+const planStep = (id: StepId) => ({ id, title: id, kind: "rt" as const, ...STEP_PHASES[id] });
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -205,6 +209,224 @@ describe("runApplyWith: lastApplyOk records whether the last whole run got throu
   });
 });
 
+describe("runApplyWith: installRanAt marks that Install has run on this Mac", () => {
+  const installRanAt = (ctx: ApplyContext) => readSetupState(ctx.p as ReturnType<typeof fakeProbes>).installRanAt;
+
+  test("a full apply stamps installRanAt; an --only run and an update run do not", async () => {
+    const full = testCtx().ctx;
+    let seenAtStart: string | undefined;
+    await runApplyWith([fakeStep("path.link", async () => { seenAtStart = installRanAt(full); return { state: "failed", detail: "boom" }; })], full);
+    expect(seenAtStart).toBeString();
+    expect(installRanAt(full)).toBe(seenAtStart);
+
+    const resumed = testCtx().ctx;
+    await runApplyWith([fakeStep("home.init", { state: "done" }), fakeStep("path.link", { state: "done" })], resumed, { from: "path.link" });
+    expect(installRanAt(resumed)).toBeString();
+
+    const only = testCtx().ctx;
+    await runApplyWith([fakeStep("services.register", { state: "done" })], only, { only: "services.register" });
+    expect(installRanAt(only)).toBeUndefined();
+
+    const update = testCtx().ctx;
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], update);
+    expect(installRanAt(update)).toBeUndefined();
+  });
+});
+
+describe("runApplyWith: the run record", () => {
+  const runOf = (ctx: ApplyContext) => readSetupState(ctx.p as ReturnType<typeof fakeProbes>).run;
+  const NOW = "2026-01-01T00:00:00.000Z";
+
+  test("a fresh record lists each finished step and the outcome", async () => {
+    const { ctx } = testCtx();
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: { startedAt: "earlier", done: ["verify"], endedAt: "earlier", ok: false, failed: { step: "verify", detail: "old" } } }));
+    let atStart: unknown;
+    const steps: StepDef[] = [
+      fakeStep("home.init", async () => {
+        atStart = runOf(ctx);
+        return { state: "done" };
+      }),
+      fakeStep("path.link", { state: "skipped", detail: "already linked" }),
+      fakeStep("proxy.install", { state: "needs-you", detail: "approve it" }),
+      fakeStep("plugins.install", { state: "partial", detail: "one left" }),
+    ];
+
+    await runApplyWith(steps, ctx, { record: "fresh" });
+
+    expect(atStart).toEqual({ startedAt: NOW, done: [] });
+    expect(runOf(ctx)).toEqual({ startedAt: NOW, done: ["home.init", "path.link", "proxy.install", "plugins.install"], endedAt: NOW, ok: true });
+  });
+
+  test("a failed step is recorded with its detail and remedy", async () => {
+    const { ctx } = testCtx();
+    const steps: StepDef[] = [
+      fakeStep("home.init", { state: "done" }),
+      fakeStep("repos.clone", { state: "failed", detail: "Couldn't clone acme-api", remedy: "Check your token, then Retry" }),
+      fakeStep("verify", { state: "done" }),
+    ];
+
+    await runApplyWith(steps, ctx, { record: "fresh" });
+
+    expect(runOf(ctx)).toEqual({ startedAt: NOW, done: ["home.init"], endedAt: NOW, ok: false, failed: { step: "repos.clone", detail: "Couldn't clone acme-api", remedy: "Check your token, then Retry" } });
+  });
+
+  test("a step that throws a bug is recorded as the failure", async () => {
+    const { ctx } = testCtx();
+    await expect(runApplyWith([fakeStep("home.init", { state: "done" }), throwingStep("path.link", new Error("boom"))], ctx, { record: "fresh" })).rejects.toThrow("boom");
+    expect(runOf(ctx)).toEqual({ startedAt: NOW, done: ["home.init"], endedAt: NOW, ok: false, failed: { step: "path.link", detail: "bug: boom" } });
+  });
+
+  test("continue keeps what was done and clears the end", async () => {
+    const { ctx } = testCtx();
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: { startedAt: "earlier", done: ["home.init"], endedAt: "earlier", ok: false, failed: { step: "repos.clone", detail: "boom" } } }));
+    let midRun: unknown;
+    const steps: StepDef[] = [
+      fakeStep("home.init", { state: "done" }),
+      fakeStep("repos.clone", async () => {
+        midRun = runOf(ctx);
+        return { state: "done" };
+      }),
+      fakeStep("verify", { state: "done" }),
+    ];
+
+    await runApplyWith(steps, ctx, { from: "repos.clone", record: "continue" });
+
+    expect(midRun).toEqual({ startedAt: "earlier", done: ["home.init"] });
+    expect(runOf(ctx)).toEqual({ startedAt: "earlier", done: ["home.init", "repos.clone", "verify"], endedAt: NOW, ok: true });
+  });
+
+  test("--only never touches the record", async () => {
+    const { ctx } = testCtx();
+    const before = { startedAt: "earlier", done: ["home.init" as const], endedAt: "earlier", ok: false, failed: { step: "repos.clone" as const, detail: "boom" } };
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: before }));
+
+    await runApplyWith([fakeStep("home.init", { state: "done" }), fakeStep("repos.clone", { state: "done" })], ctx, { only: "repos.clone", record: "fresh" });
+
+    expect(runOf(ctx)).toEqual(before);
+  });
+
+  test("a run asked for no record leaves it alone", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("home.init", { state: "done" })], ctx);
+    expect(runOf(ctx)).toBeUndefined();
+  });
+
+  test("the record's end is written before beforeDone, and beforeDone before the done event", async () => {
+    const order: string[] = [];
+    const { ctx } = testCtx({
+      emit: (ev) => {
+        if (ev.event === "done") order.push(`done event, record ended: ${runOf(ctx)?.endedAt !== undefined}`);
+      },
+    });
+
+    await runApplyWith([fakeStep("home.init", { state: "done" })], ctx, {
+      record: "fresh",
+      beforeDone: () => {
+        order.push(`beforeDone, record ended: ${runOf(ctx)?.endedAt !== undefined}`);
+      },
+    });
+
+    expect(order).toEqual(["beforeDone, record ended: true", "done event, record ended: true"]);
+  });
+
+  test("an async beforeDone hears how the run ended and finishes before the done event", async () => {
+    for (const outcome of [{ state: "done" as const }, { state: "failed" as const, detail: "boom" }]) {
+      const order: string[] = [];
+      const { ctx } = testCtx({
+        emit: (ev) => {
+          if (ev.event === "done") order.push("done event");
+        },
+      });
+      await runApplyWith([fakeStep("home.init", outcome)], ctx, {
+        record: "fresh",
+        beforeDone: async ({ ok }) => {
+          await Promise.resolve();
+          order.push(`beforeDone ok: ${ok}`);
+        },
+      });
+      expect(order).toEqual([`beforeDone ok: ${outcome.state === "done"}`, "done event"]);
+    }
+  });
+
+  test("a beforeDone that throws still lets the done event out", async () => {
+    const { ctx, events } = testCtx();
+    await runApplyWith([fakeStep("home.init", { state: "done" })], ctx, {
+      beforeDone: () => {
+        throw new Error("lock gone");
+      },
+    });
+    expect(events.at(-1)).toEqual({ event: "done", ok: true });
+  });
+
+  test("a resumed run streams what it already finished as done, and runs only the rest", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [
+      { ...fakeStep("home.init", { state: "done" }), run: async () => { throw new Error("home.init must not run again"); } },
+      { ...fakeStep("path.link", { state: "done" }), run: async () => { throw new Error("path.link must not run again"); } },
+      fakeStep("verify", { state: "done" }),
+    ];
+
+    await runApplyWith(steps, ctx, { from: "verify", replay: ["home.init", "path.link"], record: "continue" });
+
+    expect(events.map((e) => (e.event === "step" ? `${e.id} ${e.state}` : e.event))).toEqual(["plan", "home.init done", "path.link done", "verify running", "verify done", "done"]);
+  });
+
+  test("a resumed run with every step already finished runs nothing and ends ok", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [{ ...fakeStep("home.init", { state: "done" }), run: async () => { throw new Error("must not run again"); } }];
+    updateSetupState(ctx.p as ReturnType<typeof fakeProbes>, (s) => ({ ...s, run: { startedAt: "earlier", done: ["home.init"] } }));
+
+    expect(await runApplyWith(steps, ctx, { replay: ["home.init"], record: "continue" })).toEqual({ ok: true });
+
+    expect(events.map((e) => (e.event === "step" ? `${e.id} ${e.state}` : e.event))).toEqual(["plan", "home.init done", "done"]);
+    expect(runOf(ctx)).toEqual({ startedAt: "earlier", done: ["home.init"], endedAt: NOW, ok: true });
+  });
+
+  test("a recorded failure keeps a registered secret out", async () => {
+    const p = fakeProbes();
+    const ctx = await createApplyContext({ probes: p, emit: () => {}, secrets: fakeSecrets, relay: fakeRelay, secretPresence: { has: async () => null }, flags: { nonInteractive: false, teamOfOne: false, ci: false } });
+    const secret = "glpat-sekrit-value";
+    ctx.redact(secret);
+
+    await runApplyWith([fakeStep("repos.clone", { state: "failed", detail: `clone with ${secret} failed`, remedy: `rotate ${secret}` })], ctx, { record: "fresh" });
+
+    expect(readSetupState(p).run?.failed).toEqual({ step: "repos.clone", detail: "clone with *** failed", remedy: "rotate ***" });
+  });
+});
+
+describe("the plan event's bar phases", () => {
+  test("the apply plan event carries each step's phase, weight and paused line", async () => {
+    const { ctx, events } = testCtx();
+    await runApplyWith([fakeStep("repos.clone", { state: "done" }), fakeStep("verify", { state: "done" })], ctx);
+    expect(events[0]).toEqual({
+      event: "plan",
+      steps: [
+        { id: "repos.clone", title: "repos.clone", kind: "rt", phase: "Cloning your repos", weight: 10, paused: "Couldn't clone your repos" },
+        { id: "verify", title: "verify", kind: "rt", phase: "Checking everything", weight: 2, paused: "Couldn't check everything" },
+      ],
+    });
+
+    const resumed = testCtx();
+    await runApplyWith([fakeStep("org.pull", { state: "done" }), fakeStep("verify", { state: "done" })], resumed.ctx, { replay: ["org.pull"] });
+    expect(resumed.events[0]).toEqual({
+      event: "plan",
+      steps: [
+        { id: "org.pull", title: "org.pull", kind: "rt", phase: "Getting your team's settings", weight: 1, paused: "Couldn't get your team's settings" },
+        { id: "verify", title: "verify", kind: "rt", phase: "Checking everything", weight: 2, paused: "Couldn't check everything" },
+      ],
+    });
+  });
+
+  test("the update plan event keeps its old shape", async () => {
+    const { ctx, events } = testCtx();
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
+    const plan = events.find((e) => e.event === "plan");
+    if (!plan || plan.event !== "plan") throw new Error("missing update plan");
+    expect(plan.steps.length).toBeGreaterThan(0);
+    for (const step of plan.steps) expect(Object.keys(step).sort()).toEqual(["id", "kind", "title"]);
+  });
+});
+
 describe("runApplyWith — happy path", () => {
   test("three done steps stream plan, running/done per step, then done ok:true", async () => {
     const { ctx, events } = testCtx();
@@ -221,9 +443,9 @@ describe("runApplyWith — happy path", () => {
       {
         event: "plan",
         steps: [
-          { id: "home.init", title: "home.init", kind: "rt" },
-          { id: "home.restore", title: "home.restore", kind: "rt" },
-          { id: "team.create", title: "team.create", kind: "rt" },
+          planStep("home.init"),
+          planStep("home.restore"),
+          planStep("team.create"),
         ],
       },
       { event: "step", id: "home.init", state: "running" },
@@ -488,9 +710,9 @@ describe("runApplyWith — --from resume", () => {
       {
         event: "plan",
         steps: [
-          { id: "home.init", title: "home.init", kind: "rt" },
-          { id: "home.restore", title: "home.restore", kind: "rt" },
-          { id: "team.create", title: "team.create", kind: "rt" },
+          planStep("home.init"),
+          planStep("home.restore"),
+          planStep("team.create"),
         ],
       },
       { event: "step", id: "home.restore", state: "running" },
@@ -514,8 +736,8 @@ describe("runApplyWith — --from resume", () => {
     expect(events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "home.init", title: "home.init", kind: "rt" },
-        { id: "home.restore", title: "home.restore", kind: "rt" },
+        planStep("home.init"),
+        planStep("home.restore"),
       ],
     });
   });
@@ -567,8 +789,8 @@ describe("runApplyWith — --from resume", () => {
     expect(events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "home.init", title: "home.init", kind: "rt" },
-        { id: "team.create", title: "team.create", kind: "rt" },
+        planStep("home.init"),
+        planStep("team.create"),
       ],
     });
   });
@@ -687,9 +909,9 @@ describe("runApplyWith: --only", () => {
     expect(events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "home.init", title: "home.init", kind: "rt" },
-        { id: "home.restore", title: "home.restore", kind: "rt" },
-        { id: "team.create", title: "team.create", kind: "rt" },
+        planStep("home.init"),
+        planStep("home.restore"),
+        planStep("team.create"),
       ],
     });
   });
@@ -875,6 +1097,21 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
 
     expect(await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" })).toEqual({ ok: false, failedStep: "team.join" });
     expect(order).toEqual(["team.join"]);
+  });
+
+  test("a step's titleFor names it in the plan and in a failed prerequisite's detail", async () => {
+    const { step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false, titleFor: () => "Join acme" }, { state: "failed", detail: "relay down" }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+    const { ctx, events } = testCtx();
+
+    await runApplyWith(steps, ctx, { only: "plugins.install" });
+
+    const plan = events.find((e) => e.event === "plan") as Extract<ApplyEvent, { event: "plan" }>;
+    expect(plan.steps.map((s) => s.title)).toEqual(["Join acme", "plugins.install"]);
+    expect(events).toContainEqual({ event: "step", id: "team.join", state: "failed", detail: "Join acme: relay down" });
   });
 
   test("a named step this run gates out runs none of its prerequisites either", async () => {
@@ -1344,6 +1581,15 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
     expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" })).toEqual({ ok: true, detail: "installed" });
   });
 
+  // Left to the need protocol, a terminal run would wait ten minutes for an
+  // answer no app ever sends.
+  test("Homebrew goes to its own route, and an app without it fails at once with no need", async () => {
+    const { ctx, events } = await terminalCtx(fakeTray({ ...reachable }));
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "homebrew" })).toMatchObject({ ok: false, unserved: true });
+    expect(events.some((e) => e.event === "need")).toBe(false);
+  });
+
   test("with no app running it answers no-app at once, which the step turns into open mattstack.app and retry", async () => {
     const noTray: ReturnType<typeof fakeTray> = async () => ({ status: 0, json: null });
     const { ctx, events } = await terminalCtx(noTray);
@@ -1430,6 +1676,63 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
     expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "pumped" });
     expect(direct).toBe(false);
     expect(events.some((e) => e.event === "need")).toBe(true);
+  });
+});
+
+// Nothing on the progress bar may raise a dialog, whichever way the request would reach the app.
+describe("createApplyContext: an unattended run pauses instead of prompting", () => {
+  const reachable = { "GET /version": () => ({ status: 200, json: { version: "1.0.0" } }) };
+  const APP_SOCKET = { RT_APP_SOCKET: "/fake-home/.mattstack/rt/tray.sock" };
+
+  async function unattendedCtx(tray: ReturnType<typeof fakeTray>, env: Record<string, string>) {
+    const events: ApplyEvent[] = [];
+    const ctx = await createApplyContext({
+      probes: fakeProbes({ tray, env }),
+      emit: (ev) => events.push(ev),
+      secrets: fakeSecrets,
+      relay: fakeRelay,
+      flags: { nonInteractive: false, teamOfOne: false, ci: false, tty: true, unattended: true },
+      needOpts: { timeoutMs: 0, sleep: async () => {} },
+    });
+    return { ctx, events };
+  }
+
+  test("an unattended run never emits an admin need", async () => {
+    const posts: string[] = [];
+    const routes = Object.fromEntries(
+      ["proxy-install", "proxy-trust", "homebrew"].map((op) => [
+        `POST /privileged/${op}`,
+        () => {
+          posts.push(op);
+          return { status: 200, json: { ok: true, detail: "done" } };
+        },
+      ]),
+    );
+    for (const env of [{}, APP_SOCKET]) {
+      const { ctx, events } = await unattendedCtx(fakeTray({ ...reachable, ...routes }), env);
+      for (const op of ["proxy-install", "proxy-trust", "homebrew"] as const) {
+        expect(await ctx.need("proxy.install", { type: "app-privileged", op, homebrew: true })).toBe("unattended");
+      }
+      expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-remove" })).toBe("unattended");
+      expect(events).toEqual([]);
+    }
+    expect(posts).toEqual([]);
+  });
+
+  test("services needs still go to the app when unattended", async () => {
+    const direct = fakeTray({
+      ...reachable,
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [{ plist: "d.plist", ok: true, status: "enabled" }] } }),
+    });
+    expect(await (await unattendedCtx(direct, {})).ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({
+      ok: true,
+      detail: "d.plist: enabled",
+    });
+
+    const pumped = fakeTray({ ...reachable, "GET /setup/need/services.register": () => ({ status: 200, json: { state: "done", detail: "pumped" } }) });
+    const { ctx, events } = await unattendedCtx(pumped, APP_SOCKET);
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "pumped" });
+    expect(events).toContainEqual({ event: "need", id: "services.register", request: { type: "app-register-services", plists: ["d.plist"] } });
   });
 });
 
@@ -1742,4 +2045,94 @@ test("a settings tip raised inside a step reaches ctx.tip, not the log event", a
   await runApplyWith([step], ctx, {});
   expect(tips).toEqual([["path.link", "Saved on this Mac only."]]);
   expect(events.some((e) => e.event === "log")).toBe(false);
+});
+
+describe("apps.restart at the end of a run", () => {
+  function restartStep(outcome: StepOutcome | (() => Promise<StepOutcome>) = { state: "done", detail: "Restarted board" }, order?: string[]): StepDef & { runs: number } {
+    const s = {
+      ...fakeStep("apps.restart", async () => {
+        s.runs++;
+        order?.push("restart");
+        return typeof outcome === "function" ? outcome() : outcome;
+      }),
+      updateSafe: true as const,
+      runs: 0,
+    };
+    return s;
+  }
+  const stepEvents = (events: ApplyEvent[]) => events.filter((e) => e.event === "step" || e.event === "done").map((e) => (e.event === "step" ? `${e.id}:${e.state}` : `done:${e.event === "done" && e.ok}`));
+
+  test("a run that ends ok restarts the apps once, last, after the record's bookkeeping and before the lock lets go", async () => {
+    const { ctx, events } = testCtx();
+    const order: string[] = [];
+    const restart = restartStep(undefined, order);
+    await runApplyWith([fakeStep("path.link", { state: "done" }), fakeStep("verify", { state: "done" }), restart], ctx, {
+      record: "fresh",
+      afterRecord: () => void order.push("afterRecord"),
+      beforeDone: () => void order.push("beforeDone"),
+    });
+    expect(restart.runs).toBe(1);
+    expect(order).toEqual(["afterRecord", "restart", "beforeDone"]);
+    expect(stepEvents(events)).toEqual(["path.link:running", "path.link:done", "verify:running", "verify:done", "apps.restart:running", "apps.restart:done", "done:true"]);
+    expect(events[0]).toEqual({ event: "plan", steps: [planStep("path.link"), planStep("verify"), planStep("apps.restart")] });
+    expect(readSetupState(ctx.p as ReturnType<typeof fakeProbes>).run?.done).toEqual(["path.link", "verify"]);
+  });
+
+  test("a run that stops at a failed step still restarts the apps, and stays failed at that step", async () => {
+    const { ctx, events } = testCtx();
+    const restart = restartStep();
+    const result = await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" }), fakeStep("verify", { state: "done" }), restart], ctx, { record: "fresh" });
+    expect(result).toEqual({ ok: false, failedStep: "path.link" });
+    expect(restart.runs).toBe(1);
+    expect(stepEvents(events)).toEqual(["path.link:running", "path.link:failed", "apps.restart:running", "apps.restart:done", "done:false"]);
+    expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "path.link" });
+  });
+
+  test("a restart that fails or throws is reported on its own step and never fails the run", async () => {
+    const outcomes = [
+      async (): Promise<StepOutcome> => ({ state: "failed", detail: "deck boom", remedy: "Run deck restart board" }),
+      async (): Promise<StepOutcome> => {
+        throw new Error("spawn boom");
+      },
+    ];
+    for (const outcome of outcomes) {
+      const { ctx, events } = testCtx();
+      const result = await runApplyWith([fakeStep("path.link", { state: "done" }), restartStep(outcome)], ctx);
+      expect(result).toEqual({ ok: true });
+      const end = events.filter((e) => e.event === "step" && e.id === "apps.restart").at(-1);
+      expect(end).toMatchObject({ state: "partial" });
+      expect(events.at(-1)).toEqual({ event: "done", ok: true });
+    }
+  });
+
+  test("a --from retry restarts at its end too", async () => {
+    const { ctx } = testCtx();
+    const restart = restartStep();
+    await runApplyWith([fakeStep("path.link", { state: "done" }), fakeStep("verify", { state: "done" }), restart], ctx, { from: "verify", record: "continue" });
+    expect(restart.runs).toBe(1);
+  });
+
+  test("an --only run fixes its one row and leaves the apps alone", async () => {
+    const { ctx, events } = testCtx();
+    const restart = restartStep();
+    await runApplyWith([fakeStep("path.link", { state: "done" }), restart], ctx, { only: "path.link" });
+    expect(restart.runs).toBe(0);
+    expect(events.some((e) => e.event === "step" && e.id === "apps.restart")).toBe(false);
+  });
+
+  test("an update run restarts the apps last, after verify, whatever its steps reported", async () => {
+    const { ctx, events } = testCtx();
+    const restart = restartStep();
+    const result = await runUpdateWith([updateStep("path.link", { state: "failed", detail: "boom" }), updateStep("verify", { state: "done" }), restart], [], ctx);
+    expect(restart.runs).toBe(1);
+    expect(stepEvents(events)).toEqual(["path.link:running", "path.link:failed", "verify:running", "verify:done", "apps.restart:running", "apps.restart:done", "done:false"]);
+    expect((events[0] as Extract<ApplyEvent, { event: "plan" }>).steps.map((s) => s.id)).toEqual(["path.link", "verify", "apps.restart"]);
+    expect(result.outcomes.at(-1)).toEqual({ id: "apps.restart", state: "done", detail: "Restarted board" });
+    expect(result.failedSteps).toEqual(["path.link"]);
+  });
+
+  test("the real registry ends with the restart, after verify", () => {
+    expect(STEPS.at(-1)?.id).toBe("apps.restart");
+    expect(STEPS.at(-2)?.id).toBe("verify");
+  });
 });

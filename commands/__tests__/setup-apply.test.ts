@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
-import { appendFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import * as background from "../../lib/ui/background.ts";
@@ -8,15 +8,20 @@ import { logsDir } from "../../lib/rt-paths.ts";
 import {
   realIntentDeps,
   setupApply,
+  setupFinish,
   setupInteractive,
   setupIntent,
+  type AfterFinish,
   type ApplyDeps,
   type IntentDeps,
 } from "../setup.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../../lib/setup/apply.ts";
 import type { ApplyEvent, StepId } from "../../lib/setup/contract.ts";
 import { intentPath, readIntent } from "../../lib/setup/intent.ts";
-import { isSetupFinished, readSetupState } from "../../lib/setup/state.ts";
+import { isSetupFinished, readSetupState, updateSetupState } from "../../lib/setup/state.ts";
+import { applyEventsPath } from "../../lib/setup/apply-run.ts";
+import { __test__ as closedPipes } from "../../lib/setup/closed-pipes.ts";
+import { createUpdateLock, lockHeldByLiveRun } from "../../lib/setup/update-lock.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
 import type { SecretsSeams } from "../../lib/secrets/store.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
@@ -351,6 +356,31 @@ describe("setupApply: flags reach the engine", () => {
   });
 });
 
+describe("setupApply: --unattended", () => {
+  test("--unattended reaches the context", async () => {
+    const replies: unknown[] = [];
+    const step = (args: string[]) =>
+      setupApply(args, {}, baseApplyDeps({
+        steps: [
+          {
+            id: "proxy.install",
+            title: "x",
+            kind: "privileged",
+            applies: () => true,
+            run: async (ctx) => {
+              replies.push(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" }));
+              return { state: "done" };
+            },
+          },
+        ],
+      }));
+
+    await step(["--json", "--unattended"]);
+
+    expect(replies).toEqual(["unattended"]);
+  });
+});
+
 describe("setupInteractive: TTY-vs-json branch", () => {
   const readyExec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.6") : ok());
 
@@ -602,20 +632,142 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     expect(finished(deps.probes)).toBe(false);
   });
 
-  test("--only and --from are partial runs and never finish setup", async () => {
-    for (const flag of ["--only", "--from"]) {
-      let asked = false;
-      const deps = baseApplyDeps({
-        steps: [fakeStep("path.link", { state: "done" })],
-        planForFinish: async () => {
-          asked = true;
-          return { finishBlockedBy: [] };
-        },
-      });
-      await setupApply([flag, "path.link", "--json"], {}, deps);
-      expect(finished(deps.probes)).toBe(false);
-      expect(asked).toBe(false);
+  test("an --only run fixes one row and never finishes setup", async () => {
+    let asked = false;
+    const deps = baseApplyDeps({
+      steps: [fakeStep("path.link", { state: "done" })],
+      planForFinish: async () => {
+        asked = true;
+        return { finishBlockedBy: [] };
+      },
+    });
+    await setupApply(["--only", "path.link", "--json"], {}, deps);
+    expect(finished(deps.probes)).toBe(false);
+    expect(asked).toBe(false);
+  });
+
+  test("a resumed run that ends ok finishes setup when nothing blocks it", async () => {
+    const probes = fakeProbes();
+    updateSetupState(probes, (s) => ({ ...s, run: { startedAt: "2025-12-31T23:00:00.000Z", done: ["home.init"] } }));
+    const deps = baseApplyDeps({ probes, steps: [neverRunsStep("home.init"), fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [] });
+
+    await setupApply(["--resume", "--json"], {}, deps);
+
+    expect(finished(probes)).toBe(true);
+    expect(readSetupState(probes).lastUpdate?.version).toBe("2.15.0");
+  });
+
+  test("a retry from a step finishes setup too", async () => {
+    const probes = fakeProbes();
+    updateSetupState(probes, (s) => ({ ...s, run: { startedAt: "x", done: ["home.init"], endedAt: "y", ok: false, failed: { step: "path.link", detail: "boom" } } }));
+    const deps = baseApplyDeps({ probes, steps: [neverRunsStep("home.init"), fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [] });
+
+    await setupApply(["--from", "path.link", "--json"], {}, deps);
+
+    expect(finished(probes)).toBe(true);
+    expect(readSetupState(probes).lastUpdate?.version).toBe("2.15.0");
+  });
+
+  test("a retry that fails again finishes nothing", async () => {
+    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" })] });
+    await runExpectingExit(() => setupApply(["--from", "path.link", "--json"], {}, deps));
+    expect(finished(deps.probes)).toBe(false);
+  });
+
+  // The app starts a Retry or reads the form the moment `done` arrives; neither may race these writes.
+  test("setup is finished before the app hears the run is done, and the lock is free by then", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-apply-finish-"));
+    try {
+      const lockPath = join(dir, "setup-apply.lock");
+      const seen: { finished: boolean; lockFree: boolean }[] = [];
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], runLock: createUpdateLock(lockPath, { pid: 222, alive: () => true }) });
+      const json = deps.json;
+      deps.json = (v) => {
+        json(v);
+        if ((v as ApplyEvent).event === "done") seen.push({ finished: finished(deps.probes), lockFree: !existsSync(lockPath) });
+      };
+
+      await setupApply(["--json"], {}, deps);
+
+      expect(seen).toEqual([{ finished: true, lockFree: true }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("the apps restart once, after Finish is on record and while the run still holds the lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-apply-restart-"));
+    try {
+      const lockPath = join(dir, "setup-apply.lock");
+      const seen: { finished: boolean; lockHeld: boolean }[] = [];
+      const deps = baseApplyDeps({ runLock: createUpdateLock(lockPath, { pid: 222, alive: () => true }) });
+      deps.steps = [
+        fakeStep("path.link", { state: "done" }),
+        fakeStep("apps.restart", async () => {
+          seen.push({ finished: finished(deps.probes), lockHeld: existsSync(lockPath) });
+          return { state: "done", detail: "Restarted board" };
+        }),
+      ];
+      await setupApply(["--json"], {}, deps);
+      expect(seen).toEqual([{ finished: true, lockHeld: true }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  describe("Finish restarts only when a restart is owed", () => {
+    function finishWith(): AfterFinish & { restarts: number } {
+      const after = {
+        restarts: 0,
+        update: async () => {},
+        restartApps: async () => {
+          after.restarts++;
+          return { state: "done" as const, detail: "Restarted board" };
+        },
+        startHerdr: async () => ({ state: "running" as const, bin: "/bin/herdr" }),
+        warn: () => {},
+        notify: () => {},
+      };
+      return after;
+    }
+    const finishDeps = (deps: ReturnType<typeof baseApplyDeps>) => ({ probes: deps.probes, json: () => {}, exit: deps.exit });
+    const restartStep = () => fakeStep("apps.restart", { state: "done", detail: "Restarted board" });
+
+    test("an ok whole run, then Finish: no second restart", async () => {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" }), restartStep()] });
+      await setupApply(["--json"], {}, deps);
+      const after = finishWith();
+      await setupFinish(["--json"], {}, finishDeps(deps), after);
+      expect(after.restarts).toBe(0);
+    });
+
+    test("an --only fix after an ok run, then Finish: one restart", async () => {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" }), restartStep()] });
+      await setupApply(["--json"], {}, deps);
+      await setupApply(["--only", "path.link", "--json"], {}, deps);
+      expect(readSetupState(deps.probes).appsRestartOwed).toBe(true);
+      const after = finishWith();
+      await setupFinish(["--json"], {}, finishDeps(deps), after);
+      expect(after.restarts).toBe(1);
+    });
+
+    test("an --only run that fails owes nothing", async () => {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" }), restartStep()] });
+      await runExpectingExit(() => setupApply(["--only", "path.link", "--json"], {}, deps));
+      expect(readSetupState(deps.probes).appsRestartOwed).toBeUndefined();
+    });
+  });
+
+  test("an app deck could not restart leaves the run ok, exit 0", async () => {
+    const deps = baseApplyDeps({
+      steps: [fakeStep("path.link", { state: "done" }), fakeStep("apps.restart", { state: "partial", detail: "Couldn't restart board", remedy: "Run deck restart board" })],
+    });
+    await setupApply(["--json"], {}, deps);
+    const evs = deps.lines.map((l) => JSON.parse(l) as ApplyEvent);
+    expect(evs.find((e) => e.event === "step" && e.id === "apps.restart" && e.state === "partial")).toMatchObject({ detail: "Couldn't restart board", remedy: "Run deck restart board" });
+    expect(evs.at(-1)).toEqual({ event: "done", ok: true });
+    expect(deps.exitCodes).toEqual([]);
+    expect(finished(deps.probes)).toBe(true);
   });
 
   test("a finish check that throws under --json reaches the log, never stdout", async () => {
@@ -642,6 +794,280 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     } finally {
       cap.restore();
     }
+  });
+});
+
+describe("setupApply: one run, recorded, resumed or attached", () => {
+  let dir: string;
+  let lockPath: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "rt-apply-run-"));
+    lockPath = join(dir, "setup-apply.lock");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const EVENTS = applyEventsPath("/fake-home");
+  const lock = (pid: number) => createUpdateLock(lockPath, { pid, alive: () => true });
+  const holderAlive = () => lockHeldByLiveRun(lockPath, { alive: () => true });
+  const events = (deps: { lines: string[] }) => deps.lines.map((l) => JSON.parse(l) as ApplyEvent);
+  const flow = (evs: ApplyEvent[]) => evs.map((e) => (e.event === "step" ? `${e.id} ${e.state}` : e.event));
+  const runOf = (probes: ReturnType<typeof fakeProbes>) => readSetupState(probes).run;
+
+  /** A step that waits for the test to let it finish, so a second run can start while the first is alive. */
+  function heldStep(id: StepId): { step: StepDef; started: Promise<void>; finish: () => void } {
+    let finish!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((r) => (markStarted = r));
+    const gate = new Promise<void>((r) => (finish = r));
+    return {
+      step: fakeStep(id, async () => {
+        markStarted();
+        await gate;
+        return { state: "done" };
+      }),
+      started,
+      finish,
+    };
+  }
+
+  test("--resume with no record runs everything", async () => {
+    const ran: string[] = [];
+    const step = (id: StepId) => fakeStep(id, async () => { ran.push(id); return { state: "done" }; });
+    const deps = baseApplyDeps({ steps: [step("home.init"), step("path.link")], runLock: lock(222), holderAlive });
+
+    await setupApply(["--resume", "--json"], {}, deps);
+
+    expect(ran).toEqual(["home.init", "path.link"]);
+    expect(runOf(deps.probes)).toMatchObject({ done: ["home.init", "path.link"], ok: true });
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("--resume after a run died runs only what was left, marking the rest done first", async () => {
+    const probes = fakeProbes();
+    updateSetupState(probes, (s) => ({ ...s, run: { startedAt: "2025-12-31T23:00:00.000Z", done: ["home.init", "path.link"] } }));
+    expect(lock(111).acquire()).toBe(true);
+    const deadIsGone = (pid: number) => pid !== 111;
+    let resumedRan = false;
+    const deps = baseApplyDeps({
+      probes,
+      steps: [neverRunsStep("home.init"), neverRunsStep("path.link"), fakeStep("verify", async () => { resumedRan = true; return { state: "done" }; })],
+      runLock: createUpdateLock(lockPath, { pid: 222, alive: deadIsGone }),
+      holderAlive: () => lockHeldByLiveRun(lockPath, { alive: deadIsGone }),
+    });
+
+    await setupApply(["--resume", "--json"], {}, deps);
+
+    expect(resumedRan).toBe(true);
+    expect(flow(events(deps))).toEqual(["plan", "home.init done", "path.link done", "verify running", "verify done", "done"]);
+    expect(events(deps)[1]).toEqual({ event: "step", id: "home.init", state: "done" });
+    expect(runOf(probes)).toEqual({ startedAt: "2025-12-31T23:00:00.000Z", done: ["home.init", "path.link", "verify"], endedAt: "2026-01-01T00:00:00.000Z", ok: true });
+    expect(deps.exitCodes).toEqual([]);
+  });
+
+  test("a --resume while the run's holder lives attaches and starts nothing", async () => {
+    expect(lock(111).acquire()).toBe(true);
+    const replay: ApplyEvent[] = [
+      { event: "plan", steps: [{ id: "home.init", title: "home.init", kind: "rt" }] },
+      { event: "step", id: "home.init", state: "running" },
+      { event: "step", id: "home.init", state: "done" },
+      { event: "done", ok: true },
+    ];
+    const probes = fakeProbes({ files: { [EVENTS]: replay.map((e) => `${JSON.stringify(e)}\n`).join("") } });
+    const deps = baseApplyDeps({ probes, steps: [neverRunsStep("home.init")], runLock: lock(222), holderAlive, planForGate: async () => { throw new Error("an attach composes no plan"); } });
+
+    await setupApply(["--resume", "--json"], {}, deps);
+
+    expect(events(deps)).toEqual(replay);
+    expect(deps.exitCodes).toEqual([]);
+    expect(readFileSync(lockPath, "utf8")).toBe("111");
+    expect(probes.readFile(EVENTS)).toBe(replay.map((e) => `${JSON.stringify(e)}\n`).join(""));
+  });
+
+  test("an attach whose run failed exits 2", async () => {
+    expect(lock(111).acquire()).toBe(true);
+    const replay: ApplyEvent[] = [{ event: "plan", steps: [] }, { event: "done", ok: false, failedStep: "home.init" }];
+    const probes = fakeProbes({ files: { [EVENTS]: replay.map((e) => `${JSON.stringify(e)}\n`).join("") } });
+    const deps = baseApplyDeps({ probes, steps: [neverRunsStep("home.init")], runLock: lock(222), holderAlive });
+
+    await runExpectingExit(() => setupApply(["--resume", "--json"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+    expect(events(deps)).toEqual(replay);
+  });
+
+  test("a second full run while one is alive is refused", async () => {
+    expect(lock(111).acquire()).toBe(true);
+    for (const args of [["--json"], ["--json", "--from", "home.init"]]) {
+      const deps = baseApplyDeps({ steps: [neverRunsStep("home.init")], runLock: lock(222), holderAlive });
+
+      await runExpectingExit(() => setupApply(args, {}, deps));
+
+      expect(deps.exitCodes).toEqual([2]);
+      expect(deps.lines).toHaveLength(1);
+      const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+      expect(payload.error).toEqual({ code: "run-busy", message: "Setup is already running" });
+      expect(readFileSync(lockPath, "utf8")).toBe("111");
+    }
+  });
+
+  test("a refused run tells a person how to follow the one already running", async () => {
+    expect(lock(111).acquire()).toBe(true);
+    const cap = capturePlain();
+    try {
+      const deps = baseApplyDeps({ steps: [neverRunsStep("home.init")], runLock: lock(222), holderAlive });
+      await runExpectingExit(() => setupApply([], {}, deps));
+      expect(cap.stderr()).toBe("Setup is already running\n  next: rt setup apply --resume\n");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("a run whose stdout closed keeps going and records every step", async () => {
+    const ran: string[] = [];
+    const step = (id: StepId) => fakeStep(id, async () => { ran.push(id); return { state: "done" }; });
+    let writes = 0;
+    const deps = baseApplyDeps({
+      steps: [step("home.init"), step("path.link"), step("verify")],
+      runLock: lock(222),
+      holderAlive,
+      json: () => {
+        if (++writes > 1) throw Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+      },
+    });
+
+    await setupApply(["--json"], {}, deps);
+
+    expect(ran).toEqual(["home.init", "path.link", "verify"]);
+    expect(runOf(deps.probes)).toMatchObject({ done: ["home.init", "path.link", "verify"], ok: true });
+    expect(flow(deps.probes.readFile(EVENTS)!.trim().split("\n").map((l) => JSON.parse(l) as ApplyEvent))).toEqual([
+      "plan",
+      "home.init running",
+      "home.init done",
+      "path.link running",
+      "path.link done",
+      "verify running",
+      "verify done",
+      "done",
+    ]);
+    expect(deps.exitCodes).toEqual([]);
+  });
+
+  test("a Retry records continue: it keeps what was done and an ok Retry clears the pause", async () => {
+    const probes = fakeProbes();
+    updateSetupState(probes, (s) => ({
+      ...s,
+      run: { startedAt: "2025-12-31T23:00:00.000Z", done: ["home.init"], endedAt: "2025-12-31T23:10:00.000Z", ok: false, failed: { step: "repos.clone", detail: "Couldn't clone acme-api" } },
+    }));
+    const deps = baseApplyDeps({ probes, steps: [neverRunsStep("home.init"), fakeStep("repos.clone", { state: "done" }), fakeStep("verify", { state: "done" })], runLock: lock(222), holderAlive });
+
+    await setupApply(["--json", "--from", "repos.clone"], {}, deps);
+
+    expect(runOf(probes)).toEqual({ startedAt: "2025-12-31T23:00:00.000Z", done: ["home.init", "repos.clone", "verify"], endedAt: "2026-01-01T00:00:00.000Z", ok: true });
+  });
+
+  test("a Retry started on the done event is never refused", async () => {
+    const retryTookLock: boolean[] = [];
+    const deps = baseApplyDeps({ steps: [fakeStep("repos.clone", { state: "failed", detail: "boom" })], runLock: lock(222), holderAlive });
+    const json = deps.json;
+    deps.json = (v) => {
+      json(v);
+      if ((v as ApplyEvent).event !== "done") return;
+      const retry = lock(333);
+      retryTookLock.push(retry.acquire());
+      retry.release();
+    };
+
+    await runExpectingExit(() => setupApply(["--json"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+    expect(retryTookLock).toEqual([true]);
+  });
+
+  test("a --resume while a Retry's holder lives attaches", async () => {
+    const probes = fakeProbes();
+    updateSetupState(probes, (s) => ({ ...s, run: { startedAt: "x", done: ["home.init"], endedAt: "y", ok: false, failed: { step: "repos.clone", detail: "boom" } } }));
+    const held = heldStep("repos.clone");
+    const retry = baseApplyDeps({ probes, steps: [neverRunsStep("home.init"), held.step], runLock: lock(222), holderAlive });
+    const retrying = setupApply(["--json", "--from", "repos.clone"], {}, retry);
+    await held.started;
+
+    const resume = baseApplyDeps({
+      probes,
+      steps: [neverRunsStep("home.init"), neverRunsStep("repos.clone")],
+      runLock: lock(333),
+      holderAlive,
+      attachSleep: async () => {
+        held.finish();
+        await retrying;
+      },
+    });
+    await setupApply(["--resume", "--json"], {}, resume);
+
+    expect(flow(events(resume))).toEqual(flow(events(retry)));
+    expect(flow(events(resume))).toEqual(["plan", "repos.clone running", "repos.clone done", "done"]);
+    expect(resume.exitCodes).toEqual([]);
+    expect(runOf(probes)).toMatchObject({ done: ["home.init", "repos.clone"], ok: true });
+  });
+
+  // P1's Allow runs `--only proxy.install`, and a leftover row runs its own
+  // step the same way: neither is the bar's run, so neither takes the lock.
+  test("an --only run is never refused by a lock whose holder is gone, and leaves the record and the events alone", async () => {
+    createUpdateLock(lockPath, { pid: 111, alive: () => true }).acquire();
+    const probes = fakeProbes({ files: { [EVENTS]: "the bar's last run\n" } });
+    const before = { startedAt: "x", done: ["home.init" as const], endedAt: "y", ok: false, failed: { step: "repos.clone" as const, detail: "boom" } };
+    updateSetupState(probes, (s) => ({ ...s, run: before }));
+    const deps = baseApplyDeps({ probes, steps: [fakeStep("proxy.install", { state: "done" })], runLock: lock(222), holderAlive: () => lockHeldByLiveRun(lockPath, { alive: () => false }) });
+
+    await setupApply(["--json", "--only", "proxy.install"], {}, deps);
+
+    expect(deps.exitCodes).toEqual([]);
+    expect(runOf(probes)).toEqual(before);
+    expect(probes.readFile(EVENTS)).toBe("the bar's last run\n");
+    expect(readFileSync(lockPath, "utf8")).toBe("111");
+  });
+
+  test("an --only run while the bar's run is alive is refused", async () => {
+    expect(lock(111).acquire()).toBe(true);
+    const deps = baseApplyDeps({ steps: [neverRunsStep("proxy.install")], runLock: lock(222), holderAlive });
+
+    await runExpectingExit(() => setupApply(["--json", "--only", "proxy.install"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+    expect((JSON.parse(deps.lines[0]!) as { error: { code: string } }).error.code).toBe("run-busy");
+  });
+
+  test("--resume with --from or --only is refused before anything runs", async () => {
+    for (const flag of ["--from", "--only"]) {
+      const deps = baseApplyDeps({ steps: [neverRunsStep("home.init")], runLock: lock(222), holderAlive });
+      await runExpectingExit(() => setupApply(["--json", "--resume", flag, "home.init"], {}, deps));
+      expect(deps.exitCodes).toEqual([2]);
+      expect((JSON.parse(deps.lines[0]!) as { error: { code: string } }).error.code).toBe("bad-args");
+      expect(existsSync(lockPath)).toBe(false);
+    }
+  });
+
+  test("a run the gate refuses lets go of the lock", async () => {
+    const deps = baseApplyDeps({ steps: [neverRunsStep("home.init")], runLock: lock(222), holderAlive, planForGate: async () => ({ requiredMissing: ["tool.clt"] }) });
+    await runExpectingExit(() => setupApply(["--json"], {}, deps));
+    expect(deps.exitCodes).toEqual([2]);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+// When the app quits, both of its child's pipes close and every later write
+// fails with an async error event; with no listener, Bun ends the run there.
+describe("setupApply --json outlives the app that spawned it", () => {
+  const errorListeners = () => [process.stdout.listenerCount("error"), process.stderr.listenerCount("error")];
+  beforeEach(() => closedPipes.reset());
+  afterEach(() => closedPipes.reset());
+
+  test("--json listens for errors on both pipes, once however many runs", async () => {
+    const before = errorListeners();
+
+    await setupApply(["--json"], {}, baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })] }));
+    await setupApply(["--json"], {}, baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })] }));
+
+    expect(errorListeners()).toEqual([before[0]! + 1, before[1]! + 1]);
   });
 });
 
@@ -692,6 +1118,27 @@ describe("setupApply: hard-precondition gate", () => {
 
     expect(deps.exitCodes).toEqual([]);
   });
+
+  test("--only proxy.install skips the hard-precondition gate", async () => {
+    const deps = baseApplyDeps({
+      steps: [fakeStep("proxy.install", { state: "done", detail: "ok" })],
+      planForGate: async () => {
+        throw new Error("planForGate must not run for --only proxy.install");
+      },
+    });
+
+    await setupApply(["--json", "--only", "proxy.install"], {}, deps);
+
+    expect(deps.exitCodes).toEqual([]);
+  });
+
+  test("a full run still refuses without Command Line Tools", async () => {
+    const deps = baseApplyDeps({ steps: [neverRunsStep("proxy.install")], planForGate: async () => ({ requiredMissing: ["tool.clt"] }) });
+
+    await runExpectingExit(() => setupApply(["--json"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+  });
 });
 
 describe("setup apply --json bytes", () => {
@@ -701,7 +1148,7 @@ describe("setup apply --json bytes", () => {
       const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done", detail: "ok" })], json: realJson });
       await setupApply(["--json"], {}, deps);
       expect(cap.stdout()).toBe(
-        '{"event":"plan","steps":[{"id":"path.link","title":"path.link","kind":"rt"}]}\n' +
+        '{"event":"plan","steps":[{"id":"path.link","title":"path.link","kind":"rt","phase":"Setting up rt","weight":1,"paused":"Couldn\'t set up rt"}]}\n' +
           '{"event":"step","id":"path.link","state":"running"}\n' +
           '{"event":"step","id":"path.link","state":"done","detail":"ok"}\n' +
           '{"event":"done","ok":true}\n',

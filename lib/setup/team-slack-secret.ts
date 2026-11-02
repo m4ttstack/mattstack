@@ -9,27 +9,13 @@
  */
 
 import { join } from "path";
-import { readTeamLocal } from "../team/team-local.ts";
+import { approvalState, ownRecipients } from "../team/approval.ts";
 import type { Probes } from "./probes.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 
 export type SlackSecretWait = { kind: "awaiting-acceptance" } | { kind: "not-shared" } | { kind: "unreadable"; path: string; reason: string };
 
 const SECRET_KEY = "slackClientSecret";
-const AGE_RECIPIENT = /^age1[0-9a-z]+$/;
-
-/**
- * The personal recipients file may name more than one key, and the key
- * recorded at join can differ from it after a key import, so any of them
- * being a team recipient counts.
- */
-function ownRecipients(p: Pick<Probes, "readFile" | "home">, slug: string): Set<string> {
-  const personal = p.readFile(join(p.home, ".mattstack", "user", ".sops.yaml")) ?? "";
-  const keys = new Set(personal.split(/[\s,]+/).filter((token) => AGE_RECIPIENT.test(token)));
-  const joined = readTeamLocal(p, slug).agePublicKey;
-  if (joined) keys.add(joined);
-  return keys;
-}
 
 function sopsRecipients(parsed: unknown): string[] | null {
   const age = (parsed as { sops?: { age?: unknown } } | null)?.sops?.age;
@@ -43,9 +29,10 @@ function sopsRecipients(parsed: unknown): string[] | null {
  * own read then decides.
  */
 export function slackSecretWait(p: Pick<Probes, "readFile" | "fileSize" | "home">, slug: string): SlackSecretWait | null {
-  if (!readTeamLocal(p, slug).joinedByRt) return null;
+  const approval = approvalState(p, slug);
+  if (approval.kind === "not-joined") return null;
+  if (approval.kind === "waiting") return { kind: "awaiting-acceptance" };
   const mine = ownRecipients(p, slug);
-  if (mine.size === 0) return null;
 
   const path = join(orgDirUnder(p.home, slug), "mattstack", "org", "secrets", "board.json");
   if (p.fileSize(path) === null) return { kind: "not-shared" };

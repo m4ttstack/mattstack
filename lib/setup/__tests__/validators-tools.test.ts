@@ -4,8 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { setSetting } from "../../settings/write.ts";
-import { DONE_ACTION_TYPES, FINISH_GATED_ROW_IDS, STEP_IDS } from "../contract.ts";
-import { toolRows, extractVersion } from "../validators/tools.ts";
+import { FINISH_GATED_ROW_IDS, STEP_IDS } from "../contract.ts";
+import { FAST_BROWSER_ADD_ACTION, toolRows, extractVersion } from "../validators/tools.ts";
 import type { ToolsSeams } from "../validators/tools.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
@@ -234,11 +234,37 @@ describe("toolRows — tool.claude", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("Not signed in yet. Run claude once and sign in");
-    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Open a terminal", "Run: claude", "Follow the sign-in prompt"] });
-    // Sign-in is an interactive step after Install; the binary gates Install, the sign-in never.
+    // The binary gates Install; the sign-in never does.
     expect(r.required).toBe(false);
-    expect(r.optionalNote).toContain("after Install");
+  });
+
+  test("not signed in offers Sign in to Claude, which runs rt setup claude connect", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("1.2.3\n");
+      if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: false }));
+      return ok();
+    };
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.detail).toBe("Not signed in yet");
+    expect(r.action).toEqual({ type: "run", label: "Sign in to Claude", verb: ["setup", "claude", "connect"] });
+    expect(r.optionalNote).toBeNull();
+  });
+
+  test("no row tells the member to open a terminal", async () => {
+    const answers: ExecResult[] = [ok(JSON.stringify({ loggedIn: false })), { code: 1, stdout: "", stderr: "unknown command \"auth\"" }, { code: 1, stdout: "", stderr: "not logged in" }];
+    for (const answer of answers) {
+      const exec: ExecScript = (argv) => {
+        if (argv[0] === "claude" && argv[1] === "--version") return ok("1.2.3\n");
+        if (argv[0] === "claude" && argv[1] === "auth") return answer;
+        return ok();
+      };
+      const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+      const steps = r.action?.type === "steps" ? r.action.steps : [];
+      for (const text of [r.detail, ...steps]) {
+        expect(text).not.toContain("terminal");
+        expect(text).not.toContain("Run: claude");
+      }
+    }
   });
 
   test("auth status unknown subcommand (stderr mentions unknown) -> needs-you, sign-in not checked — never a guessed ready (H-1)", async () => {
@@ -264,7 +290,7 @@ describe("toolRows — tool.claude", () => {
     expect(r.detail).toContain("sign-in could not be checked");
   });
 
-  test("auth status known non-zero exit, non-JSON -> needs-you, sign in steps", async () => {
+  test("auth status known non-zero exit, non-JSON -> needs-you, Sign in to Claude", async () => {
     const exec: ExecScript = (argv) => {
       if (argv[0] === "claude" && argv[1] === "--version") return ok("1.2.3\n");
       if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "not logged in" };
@@ -272,7 +298,7 @@ describe("toolRows — tool.claude", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("Not signed in yet. Run claude once and sign in");
+    expect(r.detail).toBe("Not signed in yet");
   });
 
   test("auth status times out -> error", async () => {
@@ -487,35 +513,37 @@ describe("toolRows - tool.fast-browser-extension", () => {
 
   // doctor warns when macOS privacy keeps it out of Chrome's profile; its
   // wording addresses a terminal, and here the reader is the app.
-  test("extension-installed warns (profile unreadable) -> mattstack's own detail, never doctor's terminal text", async () => {
+  // The row is no longer waivable, so its copy must never offer a skip.
+  test("a profile mattstack cannot read asks for Full Disk Access and never offers a skip", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-installed", "warn")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("mattstack cannot read Chrome's profile. Grant Full Disk Access to mattstack.app, or skip this if Fast Browser shows in chrome://extensions");
-    expect(r.action?.type).toBe("steps");
-    expect((r.action as { steps: string[] }).steps.join(" ")).not.toContain("terminal");
+    expect(r.detail).toBe("mattstack cannot read Chrome's profile. Turn on Full Disk Access for mattstack, then Re-check");
+    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Turn on Full Disk Access for mattstack in System Settings, then Re-check"] });
+    const steps = (r.action as { steps: string[] }).steps;
+    for (const text of [r.detail ?? "", ...steps]) expect(text.toLowerCase()).not.toContain("skip");
+    expect(steps.join(" ")).not.toContain("terminal");
   });
 
   // Install already runs Fast Browser's setup and the default connection is
   // manual, so pairing belongs only to the auto-mode "not paired yet" row.
-  test("extension-loaded check fails -> needs-you with only the Web Store install step", async () => {
+  test("not loaded offers the same button", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
-    expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: [`Install Fast Browser from the [Chrome Web Store](${WEB_STORE_URL})`] });
+    expect(r.detail).toBe("Not loaded in Chrome");
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
   });
 
   // The extension ships on the Chrome Web Store; doctor's remedy for a missing
   // one still walks a fresh user through Developer mode and Load unpacked.
-  test("not installed (real doctor report) -> Web Store install steps, never Developer mode or Load unpacked", async () => {
+  test("a missing extension offers Add to Chrome, opening the Web Store", async () => {
     const r = await pickRow(toolRows(withChrome(doctorExec(SETUP_INCOMPLETE_DOCTOR)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
-    const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toBe(`Install Fast Browser from the [Chrome Web Store](${WEB_STORE_URL})`);
-    expect(steps.join(" ")).not.toMatch(/Developer mode|Load unpacked/);
-    expect(steps.join(" ")).not.toMatch(/fast-browser configure|reconnect token/);
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
+    expect(FAST_BROWSER_ADD_ACTION).toEqual({ type: "open-url", label: "Add to Chrome", url: WEB_STORE_URL, primary: true, waiting: "Waiting for Chrome…", again: "Open again" });
   });
 
   // extension-loaded passes when no managed extension is loaded at all and
@@ -527,8 +555,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
-    const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toContain(WEB_STORE_URL);
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
   });
 
   // doctor distinguishes a missing extension from a store copy on another
@@ -549,7 +576,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(typeof r.detail).toBe("string");
-    expect((r.action as { steps: string[] }).steps[0]).toContain(WEB_STORE_URL);
+    expect(r.action).toEqual(FAST_BROWSER_ADD_ACTION);
   });
 
   // A stale unpacked load needs Chrome's reload arrow; loading unpacked again
@@ -574,7 +601,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
   // isn't auto (the documented default). Manual connection is the documented
   // default, so a manually connected machine is healthy. This row reports the
   // check's status rather than inventing an additional rule.
-  test("extension-loaded passes but pairing check fails -> needs-you with pairing-only steps", async () => {
+  test("loaded but unpaired keeps the pairing steps", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "pairing", "fail")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
@@ -628,7 +655,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(rows.filter((r) => r.finishGated).map((r) => r.id)).toEqual([...FINISH_GATED_ROW_IDS]);
   });
 
-  test("every action the extension row can carry, across its states, is one the Done screen handles", async () => {
+  test("every state the extension row can reach carries an action the app can run", async () => {
     const scenarios: ExecScript[] = [
       doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")),
       doctorExec(withCheckStatus(REAL_DOCTOR, "pairing", "fail")),
@@ -640,7 +667,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     for (const exec of scenarios) {
       const r = await pickRow(toolRows(withChrome(exec), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
       expect(r.action).not.toBeNull();
-      expect((DONE_ACTION_TYPES as readonly string[]).includes(r.action!.type)).toBe(true);
+      expect(["open-url", "steps", "run"]).toContain(r.action!.type);
     }
   });
 });
@@ -1062,6 +1089,15 @@ describe("toolRows — team-declared tool.team.<name>", () => {
     expect(r.action).toEqual({ type: "open-url", label: "Download", url: "https://x/sdm" });
   });
 
+  test("an install url that is not https never becomes a Download link, only the steps remedy", async () => {
+    for (const url of ["http://x/sdm", "file:///Applications/sdm", "javascript:alert(1)", "not a url", "https://"]) {
+      const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "sdm", why: "db tunnels", install: { url } }] }];
+      const exec: ExecScript = (argv) => (argv[0] === "sdm" && argv[1] === "--version" ? missing("sdm") : ok());
+      const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: false, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.sdm");
+      expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Install sdm", "Then re-run rt setup status"] });
+    }
+  });
+
   test("missing with neither brew nor url -> steps action", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things" }] }];
     const exec: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? missing("widget") : ok());
@@ -1264,13 +1300,13 @@ describe("Done-screen contract: optional rows with a manual action", () => {
    * mattstack.app's Done screen as a step the user still owes exactly when
    * it is optional, not ready, not skipped, its action is steps or
    * open-url, and its optionalNote does not start with "works without"
-   * (case-insensitively). These three ids are what this side guarantees
+   * (case-insensitively). These two ids are what this side guarantees
    * are genuine manual steps belonging on that list; every other optional
    * steps/open-url row this module can emit must keep the "works without"
    * wording, since a reworded note here changes what the Done screen shows
    * without failing a single test on either side of the language boundary.
    */
-  const DONE_SCREEN_MANUAL_STEP_IDS = new Set(["tool.claude", "tool.fast-browser-extension", "tool.chrome-signin"]);
+  const DONE_SCREEN_MANUAL_STEP_IDS = new Set(["tool.fast-browser-extension", "tool.chrome-signin"]);
 
   function assertOptionalManualActionRows(rows: Row[]) {
     for (const r of rows) {
@@ -1301,9 +1337,6 @@ describe("Done-screen contract: optional rows with a manual action", () => {
     // The scenario must actually reach the rows this test exists to guard;
     // otherwise a change that stops emitting one of them would pass here
     // without proving anything.
-    const claude = rows.find((r) => r.id === "tool.claude")!;
-    expect(claude.required).toBe(false);
-    expect(claude.action?.type).toBe("steps");
     const widget = rows.find((r) => r.id === "tool.team.widget")!;
     expect(widget.action?.type).toBe("steps");
     const sdm = rows.find((r) => r.id === "tool.team.sdm")!;
@@ -1320,7 +1353,7 @@ describe("Done-screen contract: optional rows with a manual action", () => {
     const rows = await toolRows(p, reqs, { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
 
     const extension = rows.find((r) => r.id === "tool.fast-browser-extension")!;
-    expect(extension.action?.type).toBe("steps");
+    expect(extension.action?.type).toBe("open-url");
     const signin = rows.find((r) => r.id === "tool.chrome-signin")!;
     expect(signin.action?.type).toBe("steps");
 
@@ -1398,6 +1431,27 @@ describe("toolRows: tool.linear-mcp", () => {
     const r = await rowFor(conf({}), HAS_KEY);
     expect([r.status, r.detail]).toEqual(["missing", "Linear is connected but not added to Claude Code yet"]);
     expect(r.action).toEqual(ADD_TO_CLAUDE);
+  });
+
+  describe("a team that doesn't use Linear", () => {
+    const rowOff = (files: Record<string, string>, secrets: SecretPresence) =>
+      pickRow(toolRows(fakeProbes({ home: HOME, env: {}, files }), [], { hasBrew: true, secrets, usesLinear: false }, NOOP_SEAMS), "tool.linear-mcp");
+
+    test("not connected: skipped, so it never holds Finish, and Connect stays offered", async () => {
+      const r = await rowOff(conf({}), NO_SECRETS);
+      expect([r.status, r.detail]).toEqual(["skipped", "Your team doesn't use Linear"]);
+      expect(r.action?.type).toBe("connect");
+    });
+
+    test("connected but not added: skipped, with Add to Claude", async () => {
+      const r = await rowOff(conf({}), HAS_KEY);
+      expect([r.status, r.detail]).toEqual(["skipped", "Your team doesn't use Linear"]);
+      expect(r.action).toEqual(ADD_TO_CLAUDE);
+    });
+
+    test("already set up: still ready", async () => {
+      expect((await rowOff(conf({ mcpServers: { linear: hosted } }), HAS_KEY)).status).toBe("ready");
+    });
   });
 
   test("an absent config file is not an error", async () => {

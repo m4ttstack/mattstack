@@ -26,7 +26,7 @@ export { unwritten } from "../../settings/presence.ts";
  * than re-deriving it — only the remedy/detail text is step-specific.
  */
 export function needOutcome(
-  reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal",
+  reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal" | "unattended",
   ctx: Pick<ApplyContext, "nonInteractive">,
   copy: { noAppDetail: string; noAppRemedy: string; timeoutRemedy: string },
 ): StepOutcome {
@@ -41,6 +41,9 @@ export function needOutcome(
   }
   if (reply === "needs-terminal" && base.state === "failed") {
     return { ...base, remedy: "Run rt setup apply from a terminal, or use the row's button in mattstack.app" };
+  }
+  if (reply === "unattended" && base.state === "failed") {
+    return { ...base, remedy: "Press Retry and answer the macOS prompt" };
   }
   if ((reply === "timeout" || reply === "app-gone") && base.state === "failed") {
     return { ...base, remedy: copy.timeoutRemedy };

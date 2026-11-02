@@ -23,8 +23,14 @@ case "$1 $2" in
     security find-generic-password -a mattstack -s github-token -w > /dev/null 2>&1; echo $? > "$HOME/rt-other-find"
     security add-generic-password -a mattstack -s github-token -w ghp_other > /dev/null 2>&1; echo $? > "$HOME/rt-other-add"
     printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill > "$HOME/rt-cred" 2>&1
+    mkdir -p "$HOME/.mattstack/orgs/vmtest" && git -C "$HOME/.mattstack/orgs/vmtest" init -q
     echo '{"contract":1,"slug":"vmtest","created":true}';;
-  "team publish") echo '{"contract":1,"pushed":true}';;
+  "settings set")
+    printf '%s\\n' "$4" > "$HOME/.mattstack/orgs/vmtest/tracking.json"
+    echo '{"contract":1,"key":"mattstack.tracking","scope":"team"}';;
+  "team publish")
+    git -C "$HOME/.mattstack/orgs/vmtest" log --format=%s -1 > "$HOME/rt-published-head" 2>/dev/null
+    echo '{"contract":1,"pushed":true}';;
   "team invite")
     [ -e "$HOME/../invite-fails" ] && { echo '{"error":{"code":"relay-down","message":"the invite relay answered 503"}}'; exit 2; }
     echo "reminder: share the code privately" >&2
@@ -34,7 +40,7 @@ esac
 
 interface Mint { root: string; home: string; out: string; runDir: string; code: number; stderr: string }
 
-function mint(opts: { args?: string[]; home?: string; invite?: "ok" | "fails"; token?: string; seedHome?: boolean } = {}): Mint {
+function mint(opts: { args?: string[]; extra?: string[]; home?: string; invite?: "ok" | "fails"; token?: string; seedHome?: boolean } = {}): Mint {
   const root = mkdtempSync(join(tmpdir(), "mint-invite-"));
   const home = opts.home ?? join(root, "vm-mint.abc123");
   mkdirSync(home, { recursive: true });
@@ -49,7 +55,7 @@ function mint(opts: { args?: string[]; home?: string; invite?: "ok" | "fails"; t
   chmodSync(join(bin, "gh"), 0o755);
   if (opts.invite === "fails") writeFileSync(join(home, "..", "invite-fails"), "");
   const out = join(runDir, "mint", "invite-code.txt");
-  const args = opts.args ?? ["--rt", join(bin, "rt"), "--home", home, "--remote", "https://github.com/mattstack-vmtest/mattstack-vmtest-team-1.git", "--out", out];
+  const args = opts.args ?? ["--rt", join(bin, "rt"), "--home", home, "--remote", "https://github.com/mattstack-vmtest/mattstack-vmtest-team-1.git", "--out", out, ...(opts.extra ?? [])];
   const r = Bun.spawnSync(["/bin/bash", MINT, ...args], {
     env: {
       PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
@@ -78,6 +84,25 @@ describe("mint-invite.sh", () => {
     expect(env).toContain("RT_BATCH=1\n");
     expect(env).not.toContain("OPERATOR_ONLY");
     expect(env).not.toContain("VM_RUN_DIR");
+  });
+
+  test("--track makes the team track that repo, committed before the publish", () => {
+    const m = mint({ extra: ["--track", "gitlab.com/acme/widgets"] });
+    expect(m.code).toBe(0);
+    const home = m.home;
+    expect(read(join(home, "rt-calls")).trim().split("\n")).toEqual([
+      "rt team create vmtest --remote https://github.com/mattstack-vmtest/mattstack-vmtest-team-1.git --others --json",
+      `rt settings set mattstack.tracking {"repos":{"gitlab.com/acme/widgets":{"caches":["branches"]}}} --scope team --team vmtest`,
+      "rt team publish --team vmtest --json",
+      "rt team invite --handle vmtest-joiner --team vmtest --json",
+    ]);
+    expect(read(join(home, "rt-published-head")).trim()).toBe("team: track gitlab.com/acme/widgets");
+  });
+
+  test("without --track the team tracks nothing and nothing is committed", () => {
+    const m = mint();
+    expect(read(join(m.home, "rt-calls"))).not.toContain("settings set");
+    expect(read(join(m.home, "rt-published-head")).trim()).toBe("");
   });
 
   test("the code lands in --out, 0600, and nowhere in the log", () => {

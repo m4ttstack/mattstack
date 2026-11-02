@@ -9,9 +9,10 @@ private final class WaitingLog: @unchecked Sendable {
 }
 
 private final class StuckPrivileged: PrivilegedInstalling, @unchecked Sendable {
-    func proxyInstall() async -> NeedResult { try? await Task.sleep(nanoseconds: 3_000_000_000); return NeedResult(ok: false, detail: "late") }
+    func proxyInstall(homebrew: Bool) async -> NeedResult { try? await Task.sleep(nanoseconds: 3_000_000_000); return NeedResult(ok: false, detail: "late") }
     func proxyRemove() async -> NeedResult { NeedResult(ok: true, detail: "") }
-    func proxyTrust() async -> NeedResult { NeedResult(ok: true, detail: "") }
+    func proxyTrust(homebrew: Bool) async -> NeedResult { NeedResult(ok: true, detail: "") }
+    func homebrew() async -> NeedResult { NeedResult(ok: true, detail: "") }
 }
 
 /// Behaves like rt: after emitting a need it polls the broker, and only reports the step once the app recorded an outcome.

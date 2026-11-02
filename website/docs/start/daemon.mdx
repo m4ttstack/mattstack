@@ -34,7 +34,7 @@ rt daemon stop            # stop the daemon
 rt daemon restart         # restart the daemon
 ```
 
-mattstack.app owns the daemon's launchd registration, so these commands ask the running app to do the work, and tell you to open it when it isn't running. Setup (the app's setup wizard, or `rt --post-install` from a terminal) registers the daemon for you, so you rarely need to run `rt daemon install` yourself. `rt verify` reports whether it's healthy.
+mattstack.app owns the daemon's launchd registration, so these commands ask the running app to do the work, and tell you to open it when it isn't running. Setup (the app's setup window, or `rt --post-install` from a terminal) registers the daemon for you, so you rarely need to run `rt daemon install` yourself. `rt verify` reports whether it's healthy.
 
 ## Checking health and logs
 

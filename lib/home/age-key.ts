@@ -166,7 +166,7 @@ export async function ensureAgeKey(seams: AgeKeySeam): Promise<{ publicKey: stri
   return { publicKey, minted: true };
 }
 
-const PRIVATE_KEY_PREFIX = "AGE-SECRET-KEY-1";
+export const PRIVATE_KEY_PREFIX = "AGE-SECRET-KEY-1";
 
 export type ImportAgeKeyResult =
   | { ok: true; publicKey: string }
@@ -245,6 +245,25 @@ export function renderSopsYaml(publicKey: string): string {
 /** The inverse of renderSopsYaml: the `age:` recipient from a rendered .sops.yaml, or null if the shape doesn't match (a hand-edited file with no recognizable recipient line). */
 export function sopsYamlRecipient(content: string): string | null {
   return content.match(/^\s*age:\s*(\S+)/m)?.[1] ?? null;
+}
+
+/** Every `age:` recipient across a `.sops.yaml`'s rules, comma lists split. */
+export function sopsYamlRecipients(content: string): string[] {
+  return [...content.matchAll(/^\s*age:\s*(\S+)/gm)].flatMap((m) => m[1]!.split(",")).map((r) => r.trim()).filter((r) => r !== "");
+}
+
+/**
+ * Deletes the keychain's key only when it is the one `publicKey` names, so a
+ * caller can take back a key it just imported and never one it did not.
+ * True when it deleted.
+ */
+export async function removeAgeKeyIf(seams: AgeKeySeam, publicKey: string): Promise<boolean> {
+  const existing = await readAgeKey(seams);
+  if (!("key" in existing)) return false;
+  const derived = await seams.run(["age-keygen", "-y"], { input: existing.key, sensitive: true });
+  if (derived.code !== 0 || derived.stdout.trim() !== publicKey) return false;
+  const removed = await seams.run(["security", "delete-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE]);
+  return removed.code === 0;
 }
 
 /** Thrown by keyExport when the keychain provably holds no key yet — minting is `rt home init`'s job, never export's. */
