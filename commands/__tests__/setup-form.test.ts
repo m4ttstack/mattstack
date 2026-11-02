@@ -15,7 +15,7 @@ class ExitSentinel extends Error {
 
 const STATE = "/fake-home/.mattstack/rt/setup-state.json";
 
-/** Every screen answered on a Just me Mac: the proxy, its certificate and Homebrew in place, and a folder for new clones chosen. */
+/** Every screen answered on a Just me Mac: the proxy, its certificate and Homebrew in place, a folder for new clones chosen, and (in setup state) settings kept on this Mac. */
 const ANSWERED_FILES = {
   [PORTLESS_LAUNCHD_PLIST]: "<plist/>",
   [PROXY_VERSION_PATH]: "0.9.0",
@@ -34,7 +34,8 @@ function grantedTray(notifications: "authorized" | "denied") {
  */
 function deps(o: { run?: SetupRun; stamped?: boolean; plan?: Plan; status?: Plan; answered?: boolean; notifications?: "authorized" | "denied" } = {}) {
   const lines: string[] = [];
-  const state = o.run ? { v: 2, run: o.run, ...(o.stamped === false ? {} : { installRanAt: o.run.startedAt }) } : null;
+  const run = o.run ? { run: o.run, ...(o.stamped === false ? {} : { installRanAt: o.run.startedAt }) } : null;
+  const state = run || o.answered ? { v: 2, ...run, ...(o.answered ? { homeBackup: { mode: "local" } } : {}) } : null;
   const files: Record<string, string> = {
     ...(state ? { [STATE]: JSON.stringify(state) } : {}),
     ...(o.answered ? ANSWERED_FILES : {}),
