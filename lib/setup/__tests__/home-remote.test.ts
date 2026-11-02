@@ -3,6 +3,7 @@ import { join } from "path";
 import { UserActionableError } from "../../errors.ts";
 import { setHomeRemote } from "../home-remote.ts";
 import type { ExecResult } from "../probes.ts";
+import { __test__, setWarningLog } from "../../ui/warn.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const HOME = "/fake-home";
@@ -57,16 +58,22 @@ describe("setHomeRemote", () => {
     const CLONE = "https://github.com/janedoe/mattstack-home.git";
     const created = { status: 201, body: JSON.stringify({ clone_url: CLONE }), headers: {} };
 
-    function setup(token: string | null) {
+    function setup(token: string | null, opts: { scopes?: string; rtLink?: boolean; helperFails?: boolean; createStatus?: number } = {}) {
       const envs: Array<Record<string, string> | undefined> = [];
       const probes = fakeProbes({
         home: HOME,
         dirs: { [GIT_DIR]: [] },
-        files: { [RT_LINK]: "" },
-        fetch: async () => created,
-        exec: async (argv, opts) => {
-          envs.push(opts?.env);
+        files: opts.rtLink === false ? {} : { [RT_LINK]: "" },
+        fetch: async (url) =>
+          url === "https://api.github.com/user"
+            ? { status: 200, body: JSON.stringify({ login: "janedoe" }), headers: { "x-oauth-scopes": opts.scopes ?? "repo" } }
+            : opts.createStatus === undefined
+              ? created
+              : { status: opts.createStatus, body: JSON.stringify({ message: "Bad credentials" }), headers: {} },
+        exec: async (argv, execOpts) => {
+          envs.push(execOpts?.env);
           if (argv.includes("get-url")) return fail(2);
+          if (opts.helperFails && argv.includes("config")) return fail(1, "could not lock config file");
           if (argv[0] === "gh") return ok("https://github.com/janedoe/mattstack-home\n");
           return ok();
         },
@@ -95,7 +102,50 @@ describe("setHomeRemote", () => {
     test("names the repo after input.name", async () => {
       const { probes, hooks } = setup("tok");
       await setHomeRemote(probes, { create: true, name: "acme-home" }, hooks);
-      expect(probes.calls.fetchInits[0]!.init?.body).toBe('{"name":"acme-home","private":true}');
+      const post = probes.calls.fetchInits.find((c) => c.url === "https://api.github.com/user/repos");
+      expect(post?.init?.body).toBe('{"name":"acme-home","private":true}');
+    });
+
+    test("a token that cannot create repos falls back to gh repo create", async () => {
+      const { probes, hooks } = setup("tok", { scopes: "read:org" });
+      const result = await setHomeRemote(probes, { create: true }, hooks);
+      expect(result.url).toBe(CLONE);
+      expect(probes.calls.exec.some((a) => a.slice(0, 3).join(" ") === "gh repo create")).toBe(true);
+      expect(probes.calls.fetchInits.some((c) => c.url === "https://api.github.com/user/repos")).toBe(false);
+      expect(probes.calls.exec.some((a) => a.includes("config"))).toBe(false);
+    });
+
+    test("with the rt link absent it sets no helper but the push still carries the token", async () => {
+      const { probes, envs, hooks } = setup("tok-123", { rtLink: false });
+      await setHomeRemote(probes, { create: true }, hooks);
+      expect(probes.calls.exec.some((a) => a.includes("config"))).toBe(false);
+      const push = probes.calls.exec.findIndex((a) => a.includes("push"));
+      expect(envs[push]?.RT_GIT_TOKEN).toBe("tok-123");
+    });
+
+    test("a helper write failure is logged and the push still runs", async () => {
+      const lines: string[] = [];
+      __test__.reset();
+      setWarningLog((_module, message) => lines.push(message), { quiet: true });
+      try {
+        const { probes, hooks } = setup("tok-123", { helperFails: true });
+        const result = await setHomeRemote(probes, { create: true }, hooks);
+        expect(result.pushed).toBe(true);
+        expect(probes.calls.exec.some((a) => a.includes("push"))).toBe(true);
+        expect(lines.join("\n")).toContain("could not lock config file");
+        expect(lines.join("\n")).not.toContain("tok-123");
+      } finally {
+        __test__.reset();
+      }
+    });
+
+    test("a failed creation adds no remote and fires no onCreated", async () => {
+      const { probes, hooks } = setup("tok", { createStatus: 401 });
+      const seen: string[] = [];
+      const err = await refusal(() => setHomeRemote(probes, { create: true }, { ...hooks, onCreated: (u) => seen.push(u) }));
+      expect(err.why).toContain("Bad credentials");
+      expect(seen).toEqual([]);
+      expect(probes.calls.exec.some((a) => a.includes("remote"))).toBe(false);
     });
 
     test("without a token it still runs gh repo create", async () => {

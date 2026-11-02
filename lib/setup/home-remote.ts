@@ -10,7 +10,8 @@ import { linkPath } from "../deps/links.ts";
 import { forgeTokenLookupReal, tokenOrNull } from "../team/forge-token.ts";
 import { gitWithToken } from "../team/git-credential.ts";
 import { hasUrlCredentials, withoutUrls } from "../team/redact.ts";
-import { createGitHubRepo } from "./github-signin.ts";
+import { warn } from "../ui/warn.ts";
+import { createGitHubRepo, githubLoginIfCanCreateRepos } from "./github-signin.ts";
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState, type HomeBackupChoice } from "./state.ts";
 import { homeGitDir } from "./home-paths.ts";
@@ -49,7 +50,8 @@ export function assertRemoteUrl(url: string): void {
 
 /**
  * Points the home repo at a remote and pushes, or creates the remote first
- * with `gh repo create` (private). Every refusal is a UserActionableError,
+ * (private): over GitHub's REST API with rt's own token when that token can
+ * create repos, else with `gh repo create`. Every refusal is a UserActionableError,
  * and its message passes through `withoutUrls`: git echoes the remote
  * (credentials included) in its own messages.
  */
@@ -69,7 +71,9 @@ export async function setHomeRemote(
   let created = false;
   let pushToken: string | null = null;
   if (!url) {
-    const token = await (hooks.githubToken ?? (async () => tokenOrNull(await forgeTokenLookupReal(p, GITHUB_HOST_REMOTE))))();
+    const stored = await (hooks.githubToken ?? (async () => tokenOrNull(await forgeTokenLookupReal(p, GITHUB_HOST_REMOTE))))();
+    // A stored token may be a team forge token that cannot create repos.
+    const token = stored && (await githubLoginIfCanCreateRepos(p, stored)) !== null ? stored : null;
     if (token) {
       url = await createGitHubRepo(p, token, input.name);
       pushToken = token;
@@ -103,7 +107,10 @@ export async function setHomeRemote(
     // The empty entry clears every helper before it for this host, so git's `store` cannot hand rt's token to a keychain.
     for (const value of ["", rtCredentialHelper(rt)]) {
       const helper = await p.exec(["git", "-C", repoDir, "config", "--add", "credential.https://github.com.helper", value], { env: NO_PROMPT_ENV });
-      if (helper.code !== 0) throw new UserActionableError("remote-failed", `Could not make rt the credential helper for GitHub: ${withoutUrls(helper.stderr.trim()) || `exit ${helper.code}`}`);
+      if (helper.code !== 0) {
+        warn("home-remote", `pushed with rt's token, but rt could not be set as the credential helper for GitHub: ${withoutUrls(helper.stderr.trim()) || `exit ${helper.code}`}`);
+        break;
+      }
     }
   }
   const git = gitWithToken(["-C", repoDir, "push", "-u", "origin", "HEAD"], pushToken, NO_PROMPT_ENV, { remote: url });
