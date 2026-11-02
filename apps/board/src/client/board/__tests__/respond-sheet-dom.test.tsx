@@ -1975,13 +1975,13 @@ const reReviewTicks = () => [
   ),
 ];
 
-test('a post sheet offers an unticked re-review ask for each unrequested latch', async () => {
+test('a post sheet offers a ticked re-review ask for each unrequested latch', async () => {
   await render(postGate(), named(withLatches([boLatch]), ['bo', 'Bo Tanaka']));
   const ticks = reReviewTicks();
   expect(ticks).toHaveLength(1);
-  expect(ticks[0]!.checked).toBe(false);
+  expect(ticks[0]!.checked).toBe(true);
   expect(ticks[0]!.closest('label')!.textContent).toBe(
-    're-reviewask Bo after posting'
+    'Ask Bo to re-reviewAfter the replies post'
   );
   expect(
     $('.tui-sheet-dock [data-section="re-review"]')!.getAttribute('aria-label')
@@ -1990,7 +1990,6 @@ test('a post sheet offers an unticked re-review ask for each unrequested latch',
 
 test('a ticked re-review ask rides the answer as the latch thread id', async () => {
   await render(postGate(), withLatches([boLatch]));
-  await click(reReviewTicks()[0]!);
   await pick('r1');
   await pick('leave-open');
   await clickSubmit();
@@ -2003,6 +2002,10 @@ test('a ticked re-review ask rides the answer as the latch thread id', async () 
 
 test('an unticked re-review ask sends no reReview key', async () => {
   await render(postGate(), withLatches([boLatch]));
+  await click(reReviewTicks()[0]!);
+  expect(reReviewTicks()[0]!.closest('label')!.textContent).toContain(
+    'won’t be asked'
+  );
   await pick('r1');
   await pick('leave-open');
   await clickSubmit();
@@ -2031,21 +2034,22 @@ test("a run answering one person offers only that person's latch", async () => {
     )
   );
   expect(reReviewTicks().map(t => t.closest('label')!.textContent)).toEqual([
-    're-reviewask Ana after posting',
+    'Ask Ana to re-reviewAfter the replies post',
   ]);
 });
 
-test('the dock reset clears the re-review ticks', async () => {
+test('the dock reset ticks the re-review asks again', async () => {
   await render(postGate(), withLatches([boLatch]));
   await click(reReviewTicks()[0]!);
-  expect(reReviewTicks()[0]!.checked).toBe(true);
-  await click($('.tui-sheet-reset')!);
   expect(reReviewTicks()[0]!.checked).toBe(false);
+  await click($('.tui-sheet-reset')!);
+  expect(reReviewTicks()[0]!.checked).toBe(true);
   await pick('r1');
   await pick('leave-open');
   await clickSubmit();
   expect(answer()).toEqual({
     gateId: 'g-post',
     answers: { replies: ['r1'], disposition: 'leave-open' },
+    reReview: ['d-bo'],
   });
 });
