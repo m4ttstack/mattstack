@@ -483,6 +483,16 @@ vm_phase_begin launch
 # Prod builds honour MATTSTACK_APPCAST_URL only with --allow-appcast-override; the same env/arg is
 # replayed by drive-setup.sh on any driver-initiated relaunch (DRIVER_LAUNCH_ARGS).
 LAUNCH_ARGS=""; [ -n "$UPD" ] && LAUNCH_ARGS="--env MATTSTACK_APPCAST_URL=http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml --arg --allow-appcast-override"
+# Sign in to Claude finishes in a browser no script can drive. With
+# VM_CLAUDE_STANDIN=1, claude reads a placeholder key as signed in, so an
+# unattended run can pass Connect; the sign-in itself is then not exercised,
+# and the screens and assert rows say so.
+CLAUDE_STANDIN_ENV=""; CLAUDE_STANDIN_NOTE=""
+if [ "${VM_CLAUDE_STANDIN:-0}" = 1 ]; then
+  CLAUDE_STANDIN_ENV="ANTHROPIC_API_KEY=vm-placeholder"
+  CLAUDE_STANDIN_NOTE="Claude sign-in NOT exercised (VM_CLAUDE_STANDIN placeholder key)"
+  LAUNCH_ARGS="$LAUNCH_ARGS --env $CLAUDE_STANDIN_ENV"
+fi
 vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/install-app.sh launch $LAUNCH_ARGS" >>"$VM_RUN_DIR/logs/install.log" 2>&1
 rc=$?
 SHOT00=""
@@ -530,7 +540,7 @@ else
   stop_approve_watcher
   mint_detach; drop_mint_home
   if [ "$rc" -eq 0 ]; then
-    vm_phase_end screens pass "" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
+    vm_phase_end screens pass "$CLAUDE_STANDIN_NOTE" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
   else
     # drive.log is written through the share, so it stays current after the
     # ssh channel that carries screens.log has gone quiet.
@@ -548,10 +558,10 @@ UNTRUSTED_ARG=""; [ "$DECLINE_TRUST" = 1 ] && UNTRUSTED_ARG=--expect-untrusted
 MODE_ARG=""; [ "$SCENARIO" = solo ] && MODE_ARG="--solo"
 [ "$SCENARIO" = join ] && MODE_ARG="--join '$SLUG'"
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$TRACK_REPO" ] && MODE_ARG="$MODE_ARG --board-repo '$TRACK_REPO'"
-vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $MODE_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
+vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' $CLAUDE_STANDIN_ENV bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $MODE_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
 rc=$?
 if [ "$rc" -eq 0 ]; then
-  vm_phase_end assert pass
+  vm_phase_end assert pass "$CLAUDE_STANDIN_NOTE"
 else
   n=$(grep -c 'ASSERT FAIL' "$VM_RUN_DIR/logs/assert.log")
   if [ "$n" -gt 0 ]; then reason="$n assertion(s) failed (logs/assert.log)"
