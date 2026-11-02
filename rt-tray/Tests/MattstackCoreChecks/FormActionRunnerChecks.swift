@@ -174,6 +174,26 @@ let formActionRunnerChecks: [Check] = [
         c.expectEqual(await MainActor.run { runner.errors["account.claude"] }, nil)
         c.expectEqual(log.all, ["reload"])
     },
+    Check("FormActionRunner: Sign in to GitHub opens the device page rt names, once") { c in
+        let rt = ScriptedRt()
+        rt.answers = ["setup github sign-in --json": (0, #"{"contract":1,"integration":"github","status":"needs-you","userCode":"ABCD-1234","url":"https://github.com/login/device"}"#)]
+        let log = EventLog()
+        let (runner, _) = await makeRunner(rt, log: log)
+        let row = FormRow(id: "settings.remote", title: "Remote repo", subtext: "s", state: .todo, detail: "",
+                          action: RowAction(type: .run, label: "Sign in to GitHub", verb: ["setup", "github", "sign-in"]))
+        await runner.perform(row)
+        c.expectEqual(log.all, ["open https://github.com/login/device", "reload"])
+        c.expectEqual(await MainActor.run { runner.errors["settings.remote"] }, nil)
+    },
+    Check("FormActionRunner: a GitHub sign-in rt never answers stops waiting after the sign-in timeout") { c in
+        let log = EventLog()
+        let (runner, _) = await makeRunner(SilentRt(), log: log, signInTimeout: 0.05)
+        let row = FormRow(id: "settings.remote", title: "Remote repo", subtext: "s", state: .todo, detail: "",
+                          action: RowAction(type: .run, label: "Sign in to GitHub", verb: ["setup", "github", "sign-in"]))
+        let started = Date()
+        await runner.perform(row)
+        c.expect(Date().timeIntervalSince(started) < 1, "the GitHub sign-in waited past its timeout")
+    },
     Check("FormActionRunner: a needs-you ConnectResult decodes") { c in
         let result = try JSONDecoder().decode(ConnectResult.self, from: Data(connectJSON("claude", "needs-you", "Finish signing in in your browser").utf8))
         c.expectEqual(result.status, .needsYou)

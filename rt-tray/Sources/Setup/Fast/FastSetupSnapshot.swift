@@ -719,8 +719,7 @@ enum FastSetupSnapshot {
         static let remoteTodo = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .todo, detail: "",
                                         action: RowAction(type: .form, label: "Use this repo", fields: [
                                             ActionField(name: "url", label: "Repo URL", secret: false, hint: "git@github.com:janedoe/mattstack-home.git"),
-                                        ], alternatives: [ActionAlternative(id: "create", label: "Create a private GitHub repo")],
-                                        verb: ["home", "remote", "set"]))
+                                        ], verb: ["home", "remote", "set"]))
         static let remoteDoneLongURL = FormRow(id: "settings.remote", title: "Remote repo", subtext: "Where the private copy lives", state: .done,
                                                detail: "https://gitlab.example.com/janedoe/personal/backups/machines/laptop/mattstack-home-settings-backup.git")
         /// A leftover keeps rt's own row copy and action: `extraRow` in lib/setup/form.ts.

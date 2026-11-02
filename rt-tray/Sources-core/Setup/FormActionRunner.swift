@@ -168,6 +168,7 @@ public final class FormActionRunner: ObservableObject {
                     return false
                 case .needsYou:
                     if let line = connect.detail ?? row.waiting { waiting[row.id] = line }
+                    if let page = connect.url.flatMap(URL.init(string:)) { effects.openURL(page) }
                     return true
                 default:
                     return true
@@ -208,7 +209,7 @@ public final class FormActionRunner: ObservableObject {
     }
 
     private nonisolated static func isSignIn(_ args: [String]) -> Bool {
-        args.count >= 3 && args[0] == "setup" && ["connect", "code", "create-app"].contains(args[2])
+        args.count >= 3 && args[0] == "setup" && ["connect", "code", "create-app", "sign-in"].contains(args[2])
     }
 
     private nonisolated static func verbName(_ args: [String]) -> String {
