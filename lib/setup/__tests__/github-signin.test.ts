@@ -40,6 +40,12 @@ describe("requestDeviceCode", () => {
     const p = fakeProbes({ fetch: async () => json(500, {}) });
     await expect(requestDeviceCode(p, "acme-client")).rejects.toBeInstanceOf(UserActionableError);
   });
+
+  test("keeps GitHub's error as the reason", async () => {
+    const p = fakeProbes({ fetch: async () => json(200, { error: "device_flow_disabled" }) });
+    const err = await requestDeviceCode(p, "acme-client").catch((e) => e);
+    expect(err.why).toContain("device_flow_disabled");
+  });
 });
 
 describe("pollDeviceToken", () => {
@@ -124,6 +130,25 @@ describe("sign-in record", () => {
     const p = probes();
     writeGitHubSignIn(p, { ...base, pid: 42, outcome: "declined" });
     expect(readGitHubSignIn(p, () => false)?.outcome).toBe("declined");
+  });
+
+  test("an outcome is returned past expiresAt", () => {
+    const p = fakeProbes({ home: "/home/janedoe", now: new Date("2026-01-01T00:16:00Z") });
+    writeGitHubSignIn(p, { ...base, pid: 42, outcome: "expired" });
+    expect(readGitHubSignIn(p, () => false)?.outcome).toBe("expired");
+  });
+
+  test("an unparseable expiresAt reads as expired", () => {
+    const p = probes();
+    writeGitHubSignIn(p, { ...base, expiresAt: "soon", pid: 42 });
+    expect(readGitHubSignIn(p, () => true)).toBeNull();
+  });
+
+  test("the logins dir is 0700 and no temp file is left", () => {
+    const p = probes();
+    writeGitHubSignIn(p, { ...base, pid: 42 });
+    expect(p.calls.modes["/home/janedoe/.mattstack/rt/logins"]).toBe(0o700);
+    expect(p.readFile(`${path}.tmp`)).toBeNull();
   });
 
   test("clear removes the record", () => {

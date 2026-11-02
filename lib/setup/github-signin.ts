@@ -8,7 +8,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "./probes.ts";
 import { pidAlive } from "./update-lock.ts";
 
-export const GITHUB_OAUTH_CLIENT_ID = "";
+export const GITHUB_OAUTH_CLIENT_ID: string = "";
 
 const DEVICE_CODE_URL = "https://github.com/login/device/code";
 const TOKEN_URL = "https://github.com/login/oauth/access_token";
@@ -55,7 +55,8 @@ export async function requestDeviceCode(p: Pick<Probes, "fetch" | "now">, client
   });
   const j = parseJson(res.body);
   if (res.status !== 200 || typeof j.device_code !== "string" || typeof j.user_code !== "string") {
-    throw new UserActionableError("github-signin-failed", "GitHub didn't start a sign-in");
+    const cause = typeof j.error === "string" ? j.error : `HTTP ${res.status}`;
+    throw new UserActionableError("github-signin-failed", "GitHub didn't start a sign-in", {}, { why: `GitHub answered: ${cause}` });
   }
   const expiresIn = typeof j.expires_in === "number" ? j.expires_in : 900;
   return {
@@ -108,7 +109,7 @@ export interface GitHubSignIn {
   outcome?: "expired" | "declined";
 }
 
-type RecordProbes = Pick<Probes, "home" | "readFile" | "writeFile" | "removeFile" | "mkdirp" | "now">;
+type RecordProbes = Pick<Probes, "home" | "readFile" | "writeFile" | "rename" | "removeFile" | "mkdirp" | "now">;
 
 function recordPath(p: Pick<Probes, "home">): string {
   return join(p.home, ".mattstack", "rt", "logins", "github.json");
@@ -117,7 +118,9 @@ function recordPath(p: Pick<Probes, "home">): string {
 export function writeGitHubSignIn(p: RecordProbes, record: GitHubSignIn): void {
   const path = recordPath(p);
   p.mkdirp(join(p.home, ".mattstack", "rt", "logins"), 0o700);
-  p.writeFile(path, JSON.stringify(record), 0o600);
+  const tmp = `${path}.tmp`;
+  p.writeFile(tmp, JSON.stringify(record), 0o600);
+  p.rename(tmp, path);
 }
 
 /** A null pid is a waiter still being started, so it counts as live until expiresAt. */
@@ -136,7 +139,8 @@ export function readGitHubSignIn(p: RecordProbes, alive: (pid: number) => boolea
     record.outcome = j.outcome;
     return record;
   }
-  if (p.now().getTime() >= Date.parse(record.expiresAt)) return null;
+  const expires = Date.parse(record.expiresAt);
+  if (Number.isNaN(expires) || p.now().getTime() >= expires) return null;
   if (record.pid !== null && !alive(record.pid)) return null;
   return record;
 }
