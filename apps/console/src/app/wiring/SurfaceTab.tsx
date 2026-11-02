@@ -270,6 +270,12 @@ interface SurfaceGridRowProps {
 const MODEL_INVOCATION_INFO =
   'Can only be invoked by typing the skill call directly. Agents will not auto-discover this skill, or be able to invoke it themselves.';
 
+/** Mantine's `Menu.Item` sets `role="menuitem"` after spreading its props, so
+    a `role` prop never lands; only the merged ref can reach the element. */
+const asMenuCheckbox = (item: HTMLElement | null) => {
+  item?.setAttribute('role', 'menuitemcheckbox');
+};
+
 /** The second line of a row with model invocation disabled. */
 function ModelInvocationNote({ locked }: { locked: boolean }) {
   return (
@@ -327,6 +333,8 @@ function ModelInvocationMenu({
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Item
+          ref={asMenuCheckbox}
+          aria-checked={state !== 'off'}
           disabled={state === 'locked'}
           leftSection={
             <span className={legendClasses.menuSlot} data-testid="dmi-slot">

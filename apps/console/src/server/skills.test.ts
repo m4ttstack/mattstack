@@ -3456,6 +3456,7 @@ describe('skills diff route: the working tree', () => {
 describe('skills disable-model-invocation route', () => {
   const PATH = '/api/skills/disable-model-invocation';
   const applied = { names: ['ship'], on: true, applied: true, warnings: [] };
+  const refusal = { ok: false, error: 'ship is an internal skill' };
 
   it.each<[string, Record<string, unknown>]>([
     ['a name shaped like a flag', { pack: 'demo', name: '--on', on: true }],
@@ -3521,7 +3522,11 @@ describe('skills disable-model-invocation route', () => {
 
   it.each<[string, RtResult | Error, number]>([
     ['an answer', { code: 0, stdout: '{}', stderr: '' }, 200],
-    ['a refusal', { code: 2, stdout: '{"ok":false}', stderr: '' }, 200],
+    [
+      'a refusal',
+      { code: 2, stdout: JSON.stringify(refusal), stderr: '' },
+      200,
+    ],
     ['no output', { code: 1, stdout: '', stderr: 'no such pack' }, 502],
     ['a thrown spawn', new Error('killed'), 502],
   ])('drops the cached reads after %s', async (_, outcome, status) => {
@@ -3554,12 +3559,26 @@ describe('skills disable-model-invocation route', () => {
     expect(lists).toBe(2);
   });
 
+  it('passes a refusal through with 200', async () => {
+    const rt = fakeRt({ code: 2, stdout: JSON.stringify(refusal), stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, PATH, {
+      pack: 'demo',
+      name: 'ship',
+      on: true,
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual(refusal);
+  });
+
   it('passes applied: false through with 200', async () => {
     const report = {
       names: ['ship'],
       on: true,
       applied: false,
-      warnings: ['acme: not installed'],
+      warnings: ['/cache/acme/skills/ship/SKILL.md: read-only, left alone'],
     };
     const rt = fakeRt({ code: 0, stdout: JSON.stringify(report), stderr: '' });
     const app = mountSkills(new Hono(), rt.run);

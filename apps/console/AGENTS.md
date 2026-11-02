@@ -118,10 +118,10 @@ reports when its content is ready through `contentReady.ts`, and the unsynced to
   Under it, the org base and pipeline cards (`health.tsx`'s helpers) and the skills list
   (`SurfaceTab.tsx`): the pack's skills in foldable groups (`model/surfaceGroups.ts`: commands,
   pipeline stages, fills, other standard skills, then the parent pack's, folded), each with its
-  public switch, its kind badge and a health note when it needs attention. A row rt offers it on
-  (`disableModelInvocation`) has a gear with one menu item that posts at once, outside the staged
-  changes and the pack's write lock, since it writes the person's settings and not the pack; on or
-  locked, the row says so on a second line.
+  public switch, its kind badge and a health note when it needs attention. A row with
+  `disableModelInvocation` has a gear with one menu item that posts at once, outside the staged
+  changes and the pack's write lock, since it writes the person's settings and installed copy, not
+  the pack; on or locked, the row says so on a second line.
 - **Changes** (`PackHistory.tsx`). The pack's commit log with the unsynced working tree as its
   first row; a row or a two-commit compare (From and To, Clear compare) shows its diff
   (`CommitDiff.tsx`, `DiffFileTree.tsx`, `PatchView.tsx`, the working range through the diff

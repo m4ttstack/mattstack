@@ -468,9 +468,12 @@ export function useDisableModelInvocation(pack: string) {
     onSuccess: report => {
       if ('error' in report) notifications.error(report.error);
       else if (!report.applied) {
-        notifications.warning(
-          `Saved, not applied yet: ${report.warnings.join(' ')}`
-        );
+        // Stays up: the row now reads as disabled while Claude still sees the
+        // old copy, so this is the only sign of that.
+        notifications.warning({
+          message: 'Saved, but the installed copy did not change',
+          autoClose: false,
+        });
       }
     },
     onError: error => notifications.error(error.message),

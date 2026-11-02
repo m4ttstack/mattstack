@@ -748,7 +748,7 @@ describe('SurfaceTab: disable model invocation', () => {
 
   async function openMenu(name: string) {
     await userEvent.click(gear(name)!);
-    return screen.findByRole('menuitem', { name: ITEM });
+    return screen.findByRole('menuitemcheckbox', { name: ITEM });
   }
 
   function rereadWith(name: string, over: Record<string, unknown>) {
@@ -817,7 +817,7 @@ describe('SurfaceTab: disable model invocation', () => {
       json: { pack: 'demo', name: 'deploy', on: true },
     });
     await waitFor(() =>
-      expect(screen.queryByRole('menuitem', { name: ITEM })).toBeNull()
+      expect(screen.queryByRole('menuitemcheckbox', { name: ITEM })).toBeNull()
     );
     expect(screen.getByText('Nothing staged')).toBeInTheDocument();
   });
@@ -897,21 +897,31 @@ describe('SurfaceTab: disable model invocation', () => {
     expect(row('release')).not.toHaveTextContent(LINE);
   });
 
-  it('applied: false says the choice did not land, naming the warning', async () => {
+  it('applied: false says plainly the installed copy did not change, and stays up', async () => {
+    const warning = vi.spyOn(notifications, 'warning');
+    const path =
+      '/Users/someone/.claude/plugins/cache/acme/skills/deploy/SKILL.md';
     await renderRows();
     modelInvocationPost.mockResolvedValue(
       ok({
         ...applied,
         applied: false,
-        warnings: ['deploy: the installed copy is read-only'],
+        warnings: [`${path}: read-only, left alone`],
       })
     );
 
     await userEvent.click(await openMenu('deploy'));
 
     expect(
-      await screen.findByText(/the installed copy is read-only/)
+      await screen.findByText('Saved, but the installed copy did not change')
     ).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(path))).toBeNull();
+    expect(screen.queryByText(/read-only/)).toBeNull();
+    expect(warning).toHaveBeenCalledWith({
+      message: 'Saved, but the installed copy did not change',
+      autoClose: false,
+    });
+    warning.mockRestore();
   });
 
   it('a refusal from rt shows its words', async () => {
@@ -934,6 +944,49 @@ describe('SurfaceTab: disable model invocation', () => {
     expect(
       await screen.findByText('the design fixture has no answer')
     ).toBeInTheDocument();
+  });
+
+  it.each([
+    ['deploy', 'false'],
+    ['release', 'true'],
+    ['triage', 'true'],
+  ])(
+    '%s: the item is a menu checkbox, aria-checked %s',
+    async (name, checked) => {
+      await renderRows();
+      const item = await openMenu(name);
+      expect(item).toHaveAttribute('aria-checked', checked);
+    }
+  );
+
+  it('a second quick toggle waits for the first', async () => {
+    await renderRows();
+    let finish!: (value: unknown) => void;
+    modelInvocationPost.mockReturnValueOnce(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    modelInvocationPost.mockResolvedValueOnce(ok(applied));
+
+    await userEvent.click(await openMenu('deploy'));
+    await waitFor(() => expect(modelInvocationPost).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.queryByRole('menuitemcheckbox', { name: ITEM })).toBeNull()
+    );
+
+    await userEvent.click(await openMenu('release'));
+    await waitFor(() =>
+      expect(screen.queryByRole('menuitemcheckbox', { name: ITEM })).toBeNull()
+    );
+    expect(modelInvocationPost).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish(ok(applied)));
+
+    await waitFor(() => expect(modelInvocationPost).toHaveBeenCalledTimes(2));
+    expect(modelInvocationPost).toHaveBeenLastCalledWith({
+      json: { pack: 'demo', name: 'release', on: false },
+    });
   });
 
   it('does not count as a write to the pack', async () => {
