@@ -148,6 +148,59 @@ describe("bundled-tool resolution", () => {
     expect(userCopyOnPath(p, "claude")).toBe(local);
   });
 
+  describe("resolveTool under launchd's minimal PATH", () => {
+    const LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+    test("finds a tool that only Homebrew has, and runs that copy", () => {
+      const brewed = "/opt/homebrew/bin/claude";
+      const p = bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { [brewed]: "claude-binary" } });
+      const resolution = resolveTool(p, "claude");
+      expect(resolution.userCopy).toBe(brewed);
+      expect(resolution.exec).toEqual([brewed]);
+      expect(resolution.chosen).toBe(brewed);
+    });
+
+    test("finds a tool in /usr/local/bin too", () => {
+      const p = bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { "/usr/local/bin/claude": "claude-binary" } });
+      expect(resolveTool(p, "claude").exec).toEqual(["/usr/local/bin/claude"]);
+    });
+
+    test("PATH beats the well-known dirs", () => {
+      const p = bundleProbe({ env: { PATH: `/custom/bin:${LAUNCHD_PATH}` }, files: { "/custom/bin/claude": "a", "/opt/homebrew/bin/claude": "b" } });
+      expect(resolveTool(p, "claude").exec).toEqual(["/custom/bin/claude"]);
+    });
+
+    test("prefers ~/.local/bin over Homebrew, the order a bare exec resolves in", () => {
+      const local = linkPath(home, "claude");
+      const p = bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { [local]: "#!/bin/sh\nreal-claude\n", "/opt/homebrew/bin/claude": "b" } });
+      expect(resolveTool(p, "claude").exec).toEqual([local]);
+    });
+
+    test("finds nothing when no well-known dir has it", () => {
+      const resolution = resolveTool(bundleProbe({ env: { PATH: LAUNCHD_PATH } }), "claude");
+      expect(resolution.exec).toBeNull();
+      expect(resolution.chosen).toBeNull();
+    });
+
+    test("a Homebrew symlink into the bundle is not a user copy", () => {
+      const p = bundleProbe({ env: { PATH: LAUNCHD_PATH }, links: { "/opt/homebrew/bin/gh": ghPath } });
+      expect(resolveTool(p, "gh").userCopy).toBeNull();
+    });
+
+    test("rt's own tagged wrapper is not a user copy, and the scan moves past it to Homebrew", () => {
+      const local = linkPath(home, "gh");
+      const wrapper = `#!/bin/sh\n${LINK_TAG} gh\nexec x\n`;
+      expect(resolveTool(bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { [local]: wrapper } }), "gh").userCopy).toBeNull();
+      const both = bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { [local]: wrapper, "/opt/homebrew/bin/gh": "real-gh" } });
+      expect(resolveTool(both, "gh").userCopy).toBe("/opt/homebrew/bin/gh");
+    });
+
+    test("userCopyOnPath stays on PATH, so an app-run link is not refused by a namesake the shell's PATH may never reach", () => {
+      const p = bundleProbe({ env: { PATH: LAUNCHD_PATH }, files: { "/opt/homebrew/bin/gh": "real-gh" } });
+      expect(userCopyOnPath(p, "gh")).toBeNull();
+    });
+  });
+
   test("userCopyOnPath still ignores rt's own tagged wrapper in ~/.local/bin", () => {
     const local = linkPath(home, "gh");
     const p = bundleProbe({ env: { PATH: "/usr/bin" }, files: { [local]: `#!/bin/sh\n${LINK_TAG} gh\nexec x\n` } });
