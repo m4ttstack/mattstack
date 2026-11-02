@@ -45,7 +45,7 @@ import { mattstackFloor } from "../mattstack-floor.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
-import { directOnlyConfigDirs, readDirectOnlyChoices, reconcileDirectOnly } from "../../skills/direct-only.ts";
+import { disableModelInvocationConfigDirs, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../../skills/disable-model-invocation.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
 
@@ -435,22 +435,22 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
-  const typedOnlyNote = reapplyDirectOnly(ctx) ? ". Some typed-only skills were left alone" : "";
+  const disabledNote = reapplyDisableModelInvocation(ctx) ? ". Some disabled skills were left alone" : "";
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
-  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${typedOnlyNote}${pendingNote}${heldNote}` };
+  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${disabledNote}${pendingNote}${heldNote}` };
 }
 
-/** A plugin update replaces the installed copy, so the member's typed-only choices go back on; a failure here only warns. True when something was left alone. */
-function reapplyDirectOnly(ctx: ApplyContext): boolean {
+/** A plugin update replaces the installed copy, so the member's disabled-model-invocation choices go back on; a failure here only warns. True when something was left alone. */
+function reapplyDisableModelInvocation(ctx: ApplyContext): boolean {
   try {
-    const choices = readDirectOnlyChoices();
+    const choices = readDisableModelInvocationChoices();
     if (Object.keys(choices).length === 0) return false;
-    const { warnings } = reconcileDirectOnly({ configDirs: directOnlyConfigDirs(ctx.p.env, ctx.p.home), choices });
-    for (const warning of warnings) ctx.log("plugins.install", `typed-only skills: ${warning}`);
+    const { warnings } = reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(ctx.p.env, ctx.p.home), choices });
+    for (const warning of warnings) ctx.log("plugins.install", `disabled skills: ${warning}`);
     return warnings.length > 0;
   } catch (err) {
-    ctx.log("plugins.install", `typed-only skills: ${err instanceof Error ? err.message : String(err)}`);
+    ctx.log("plugins.install", `disabled skills: ${err instanceof Error ? err.message : String(err)}`);
     return true;
   }
 }

@@ -10,10 +10,10 @@ import { setSetting } from "../../settings/write.ts";
 import { childEnv } from "../../subprocess.ts";
 import type { CapturedOut } from "../../ui/__tests__/capture-out.ts";
 import * as packsModule from "../packs.ts";
-import * as reconcileModule from "../direct-only.ts";
-import { DIRECT_ONLY_MARK } from "../direct-only-line.ts";
+import * as reconcileModule from "../disable-model-invocation.ts";
+import { PERSONAL_MARK } from "../disable-model-invocation-line.ts";
 import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
-import { skillsDirectOnly, skillsSurface } from "../../../commands/skills.ts";
+import { skillsDisableModelInvocation, skillsSurface } from "../../../commands/skills.ts";
 import { TREE } from "../../command-tree-def.ts";
 import { Readable } from "node:stream";
 import { installFakePick, type PickFake } from "../../ui/pick-fake.ts";
@@ -59,11 +59,11 @@ function fixture(opts: { packDir?: string; marketplace?: string | null } = {}): 
   return { packDir, installed: (name) => join(version, "skills", name, "SKILL.md") };
 }
 
-const chosen = () => getSetting<Record<string, string[]>>("rt.skills.directOnly").value;
+const chosen = () => getSetting<Record<string, string[]>>("rt.skills.disableModelInvocation").value;
 const lastJson = () => JSON.parse(io.lines().at(-1)!);
 
 beforeEach(() => {
-  tmp = realpathSync(mkdtempSync(join(tmpdir(), "direct-only-verb-")));
+  tmp = realpathSync(mkdtempSync(join(tmpdir(), "disable-model-invocation-verb-")));
   savedHome = process.env.HOME;
   savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   process.env.HOME = join(tmp, "home");
@@ -83,50 +83,50 @@ afterEach(() => {
   process.exitCode = 0;
 });
 
-describe("rt skills direct-only set", () => {
+describe("rt skills disable-model-invocation set", () => {
   test("--on writes the user setting and marks the installed copy", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     expect(lastJson()).toEqual({ names: ["alpha"], on: true, applied: true, warnings: [] });
     expect(chosen()).toEqual({ [KEY]: ["alpha"] });
-    expect(read(userSettingsPath())).toContain("rt.skills.directOnly");
-    expect(read(fx.installed("alpha"))).toContain(DIRECT_ONLY_MARK);
+    expect(read(userSettingsPath())).toContain("rt.skills.disableModelInvocation");
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
     expect(read(fx.installed("gamma"))).toBe(plain("gamma"));
   });
 
   test("--off removes the name, keeps the plugin key and restores the original bytes", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "alpha", "gamma", "--on", "--pack", "widgets", "--json"]);
-    await skillsDirectOnly(["set", "alpha", "--off", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "gamma", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--off", "--pack", "widgets", "--json"]);
     expect(lastJson()).toEqual({ names: ["alpha"], on: false, applied: true, warnings: [] });
     expect(chosen()).toEqual({ [KEY]: ["gamma"] });
     expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
-    expect(read(fx.installed("gamma"))).toContain(DIRECT_ONLY_MARK);
+    expect(read(fx.installed("gamma"))).toContain(PERSONAL_MARK);
 
-    await skillsDirectOnly(["set", "gamma", "--off", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "gamma", "--off", "--pack", "widgets", "--json"]);
     expect(chosen()).toEqual({ [KEY]: [] });
     expect(read(fx.installed("gamma"))).toBe(plain("gamma"));
   });
 
   test("--off on a name that was never chosen succeeds and changes nothing", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "alpha", "--off", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--off", "--pack", "widgets", "--json"]);
     expect(lastJson()).toEqual({ names: ["alpha"], on: false, applied: true, warnings: [] });
     expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
   });
 
   test("choices for other plugins survive a set", async () => {
     fixture();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
-    setSetting("rt.skills.directOnly", { ...chosen(), "other@elsewhere": ["x"] }, "user");
-    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    setSetting("rt.skills.disableModelInvocation", { ...chosen(), "other@elsewhere": ["x"] }, "user");
+    await skillsDisableModelInvocation(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
     expect(chosen()).toEqual({ [KEY]: ["alpha", "gamma"], "other@elsewhere": ["x"] });
   });
 
   test("an unwritable installed copy keeps the saved choice and reports applied false with a warning", async () => {
     const fx = fixture();
     chmodSync(fx.installed("alpha"), 0o444);
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     const result = lastJson();
     expect(result).toMatchObject({ names: ["alpha"], on: true, applied: false });
     expect(result.warnings).toHaveLength(1);
@@ -138,19 +138,19 @@ describe("rt skills direct-only set", () => {
   test("a warning about a skill outside this call does not make it unapplied", async () => {
     const fx = fixture();
     chmodSync(fx.installed("gamma"), 0o444);
-    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     const result = lastJson();
     expect(result.applied).toBe(true);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain(fx.installed("gamma"));
-    expect(read(fx.installed("alpha"))).toContain(DIRECT_ONLY_MARK);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
   });
 
   test("a plugin that is not installed stores the choice and counts as applied", async () => {
     const fx = fixture();
     rmSync(join(process.env.HOME!, ".claude", "plugins"), { recursive: true });
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     expect(lastJson()).toEqual({ names: ["alpha"], on: true, applied: true, warnings: [] });
     expect(chosen()).toEqual({ [KEY]: ["alpha"] });
     expect(existsSync(fx.installed("alpha"))).toBe(false);
@@ -159,37 +159,37 @@ describe("rt skills direct-only set", () => {
   test("the person is told when the installed copy was not reached", async () => {
     const fx = fixture();
     chmodSync(fx.installed("alpha"), 0o444);
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets"]);
     const text = io.lines().concat(io.errLines()).join("\n");
     expect(text).toContain("alpha");
     expect(text).toContain("installed copy");
     expect(text).toContain("read-only");
-    expect(text).toContain("After the file can be written, run rt skills direct-only reapply");
+    expect(text).toContain("After the file can be written, run rt skills disable-model-invocation reapply");
     expect(text).not.toContain("Your choice is saved, but the installed copy was not changed");
   });
 
   test("a warning about another chosen skill is shown even though this call applied", async () => {
     const fx = fixture();
     chmodSync(fx.installed("gamma"), 0o444);
-    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
     io.restore();
     io = captureSkills();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets"]);
     const text = io.lines().concat(io.errLines()).join("\n");
-    expect(text).toContain("alpha will run only when you type it");
+    expect(text).toContain("alpha has model invocation disabled");
     expect(text).toContain("gamma");
     expect(text).not.toContain("After the file can be written");
   });
 
   test("a plugin-level warning makes applied false and is shown", async () => {
     fixture();
-    const reconcile = spyOn(reconcileModule, "reconcileDirectOnly").mockReturnValue({ changed: [], warnings: [`${KEY}: boom`] });
+    const reconcile = spyOn(reconcileModule, "reconcileDisableModelInvocation").mockReturnValue({ changed: [], warnings: [`${KEY}: boom`] });
     try {
-      await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+      await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
       expect(lastJson()).toEqual({ names: ["alpha"], on: true, applied: false, warnings: [`${KEY}: boom`] });
       io.restore();
       io = captureSkills();
-      await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets"]);
+      await skillsDisableModelInvocation(["set", "gamma", "--on", "--pack", "widgets"]);
       expect(io.lines().concat(io.errLines()).join("\n")).toContain("boom");
     } finally {
       reconcile.mockRestore();
@@ -199,10 +199,10 @@ describe("rt skills direct-only set", () => {
   for (const flag of ["--on", "--off"]) {
     test(`${flag} with an unreadable settings store is refused before anything is reconciled`, async () => {
       const fx = fixture();
-      await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+      await skillsDisableModelInvocation(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
       const marked = read(fx.installed("gamma"));
       put(userSettingsPath(), "{ this is not json");
-      const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", flag, "--pack", "widgets"]));
+      const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "alpha", flag, "--pack", "widgets"]));
       expect(result.exitCode).toBe(2);
       expect(read(userSettingsPath())).toBe("{ this is not json");
       expect(read(fx.installed("gamma"))).toBe(marked);
@@ -212,17 +212,17 @@ describe("rt skills direct-only set", () => {
 
   test("a stored value of the wrong shape is refused like an unreadable store", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
     const marked = read(fx.installed("gamma"));
-    put(userSettingsPath(), '{ "rt.skills.directOnly": ["gamma"] }');
-    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", "--off", "--pack", "widgets"]));
+    put(userSettingsPath(), '{ "rt.skills.disableModelInvocation": ["gamma"] }');
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "alpha", "--off", "--pack", "widgets"]));
     expect(result.exitCode).toBe(2);
     expect(read(fx.installed("gamma"))).toBe(marked);
   });
 
   test("set refuses --dry-run and writes nothing", async () => {
     const fx = fixture();
-    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", "--on", "--dry-run", "--pack", "widgets"]));
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "alpha", "--on", "--dry-run", "--pack", "widgets"]));
     expect(result.exitCode).toBe(1);
     expect(chosen()).toEqual({});
     expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
@@ -236,7 +236,7 @@ describe("rt skills direct-only set", () => {
   ] as const) {
     test(`${label} is refused and nothing is written`, async () => {
       const fx = fixture();
-      const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", ...names, "--on", "--pack", "widgets"]));
+      const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", ...names, "--on", "--pack", "widgets"]));
       expect(result.exitCode).toBe(2);
       expect(io.stderr()).toContain(reason);
       expect(chosen()).toEqual({});
@@ -247,14 +247,14 @@ describe("rt skills direct-only set", () => {
 
   test("a refusal under --json is an error object and exit 2", async () => {
     fixture();
-    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "hidden", "--on", "--pack", "widgets", "--json"]));
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "hidden", "--on", "--pack", "widgets", "--json"]));
     expect(result.exitCode).toBe(2);
     expect(lastJson()).toMatchObject({ ok: false, error: expect.stringContaining("hidden") });
   });
 
   test("a row whose source already sets true is locked and refused with the reason", async () => {
     const fx = fixture();
-    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "locked", "--off", "--pack", "widgets"]));
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "locked", "--off", "--pack", "widgets"]));
     expect(result.exitCode).toBe(2);
     expect(io.stderr()).toContain("locked");
     expect(io.stderr()).toContain("pack");
@@ -264,15 +264,15 @@ describe("rt skills direct-only set", () => {
 
   test("a pack with no marketplace is refused", async () => {
     fixture({ marketplace: null });
-    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]));
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets"]));
     expect(result.exitCode).toBe(2);
     expect(chosen()).toEqual({});
   });
 
   test("set needs exactly one of --on and --off", async () => {
     fixture();
-    expect((await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", "--pack", "widgets"]))).exitCode).toBe(1);
-    expect((await runExpectingCleanExit(() => skillsDirectOnly(["set", "alpha", "--on", "--off", "--pack", "widgets"]))).exitCode).toBe(1);
+    expect((await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "alpha", "--pack", "widgets"]))).exitCode).toBe(1);
+    expect((await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "alpha", "--on", "--off", "--pack", "widgets"]))).exitCode).toBe(1);
     expect(chosen()).toEqual({});
   });
 
@@ -283,10 +283,10 @@ describe("rt skills direct-only set", () => {
     const refused = await runExpectingCleanExit(() => skillsSurface(["set", "alpha", "--internal", "--pack-dir", packDir]));
     expect(refused.exitCode).toBe(2);
 
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     expect(lastJson()).toMatchObject({ applied: true });
     expect(chosen()).toEqual({ [KEY]: ["alpha"] });
-    expect(read(fx.installed("alpha"))).toContain(DIRECT_ONLY_MARK);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
   });
 
   test("the pack's git status stays clean through on and off", async () => {
@@ -295,9 +295,9 @@ describe("rt skills direct-only set", () => {
     git("init", "-q");
     git("add", "-A");
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "pack");
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     expect(git("status", "--porcelain")).toBe("");
-    await skillsDirectOnly(["set", "alpha", "--off", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--off", "--pack", "widgets", "--json"]);
     expect(git("status", "--porcelain")).toBe("");
   });
 });
@@ -310,35 +310,35 @@ function withTTY<T>(fn: () => Promise<T>): Promise<T> {
   return fn().finally(() => Object.defineProperty(process, "stdin", { value: previousStdin, configurable: true }));
 }
 
-describe("rt skills direct-only set with no names", () => {
+describe("rt skills disable-model-invocation set with no names", () => {
   let fake: PickFake;
   afterEach(() => fake?.restore());
 
   test("at a terminal it opens a picker over the eligible skills and applies the choice", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "gamma", "--on", "--pack", "widgets", "--json"]);
     fake = installFakePick([{ kind: "result", result: { action: "select", value: null, query: "", values: ["alpha"] } }]);
-    await withTTY(() => skillsDirectOnly(["set", "--on", "--pack", "widgets"]));
+    await withTTY(() => skillsDisableModelInvocation(["set", "--on", "--pack", "widgets"]));
     expect(fake.calls).toHaveLength(1);
     const rows = fake.calls[0]!.request.rows;
     expect(rows.map((r) => r.value)).toEqual(["alpha", "gamma"]);
-    expect(JSON.stringify(rows.find((r) => r.value === "gamma")!.left)).toContain("only when you type it");
-    expect(JSON.stringify(rows.find((r) => r.value === "alpha")!.left)).toContain("Claude can pick it");
+    expect(JSON.stringify(rows.find((r) => r.value === "gamma")!.left)).toContain("model invocation disabled");
+    expect(JSON.stringify(rows.find((r) => r.value === "alpha")!.left)).toContain("Claude can invoke it");
     expect(chosen()).toEqual({ [KEY]: ["gamma", "alpha"] });
-    expect(read(fx.installed("alpha"))).toContain(DIRECT_ONLY_MARK);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
   });
 
   test("cancelling the picker changes nothing", async () => {
     fixture();
     fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
-    await withTTY(() => skillsDirectOnly(["set", "--on", "--pack", "widgets"]));
+    await withTTY(() => skillsDisableModelInvocation(["set", "--on", "--pack", "widgets"]));
     expect(chosen()).toEqual({});
   });
 
   test("at a terminal without --on or --off it asks which, with no picker", async () => {
     fixture();
     fake = installFakePick([]);
-    const result = await runExpectingCleanExit(() => withTTY(() => skillsDirectOnly(["set", "--pack", "widgets"])));
+    const result = await runExpectingCleanExit(() => withTTY(() => skillsDisableModelInvocation(["set", "--pack", "widgets"])));
     expect(result.exitCode).toBe(1);
     expect(fake.calls).toHaveLength(0);
   });
@@ -346,7 +346,7 @@ describe("rt skills direct-only set with no names", () => {
   test("without a terminal it keeps the which-skill failure and opens no picker", async () => {
     fixture();
     fake = installFakePick([]);
-    const result = await runExpectingCleanExit(() => skillsDirectOnly(["set", "--on", "--pack", "widgets"]));
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "--on", "--pack", "widgets"]));
     expect(result.exitCode).toBe(1);
     expect(io.stderr()).toStartWith("Which skill?");
     expect(fake.calls).toHaveLength(0);
@@ -355,13 +355,13 @@ describe("rt skills direct-only set with no names", () => {
   test("under --json even at a terminal it keeps the which-skill failure", async () => {
     fixture();
     fake = installFakePick([]);
-    const result = await runExpectingCleanExit(() => withTTY(() => skillsDirectOnly(["set", "--on", "--pack", "widgets", "--json"])));
+    const result = await runExpectingCleanExit(() => withTTY(() => skillsDisableModelInvocation(["set", "--on", "--pack", "widgets", "--json"])));
     expect(result.exitCode).toBe(1);
     expect(fake.calls).toHaveLength(0);
   });
 
   test("the tree declares a picker for the omitted skill names", () => {
-    const set = TREE.skills!.subcommands!["direct-only"]!.subcommands!.set!;
+    const set = TREE.skills!.subcommands!["disable-model-invocation"]!.subcommands!.set!;
     expect(set.omitBehavior).toBe("picker");
     expect(set.args!.find((a) => a.name === "Skills")!.optional).toBeUndefined();
   });
@@ -371,39 +371,39 @@ describe("the next step after an unapplied choice", () => {
   test("a read-only copy points at reapply for after the file is writable", async () => {
     const fx = fixture();
     chmodSync(fx.installed("alpha"), 0o444);
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]);
-    expect(io.lines().concat(io.errLines()).join("\n")).toContain("After the file can be written, run rt skills direct-only reapply");
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets"]);
+    expect(io.lines().concat(io.errLines()).join("\n")).toContain("After the file can be written, run rt skills disable-model-invocation reapply");
   });
 
   test("any other reason gets the why and no reapply step", async () => {
     const fx = fixture();
     writeFileSync(fx.installed("alpha"), "no frontmatter here\n");
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets"]);
     const text = io.lines().concat(io.errLines()).join("\n");
     expect(text).toContain("no frontmatter");
     expect(text).toContain("Your choice is saved");
-    expect(text).not.toContain("direct-only reapply");
+    expect(text).not.toContain("disable-model-invocation reapply");
   });
 });
 
-describe("rt skills direct-only list", () => {
+describe("rt skills disable-model-invocation list", () => {
   test("gives each public pack skill its state and leaves out internal and base rows", async () => {
     fixture();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
-    await skillsDirectOnly(["list", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["list", "--pack", "widgets", "--json"]);
     expect(lastJson()).toEqual({
       pack: "widgets",
       rows: [
-        { name: "alpha", directOnly: "on" },
-        { name: "gamma", directOnly: "off" },
-        { name: "locked", directOnly: "locked" },
+        { name: "alpha", disableModelInvocation: "on" },
+        { name: "gamma", disableModelInvocation: "off" },
+        { name: "locked", disableModelInvocation: "locked" },
       ],
     });
   });
 
   test("a pack with no marketplace is refused", async () => {
     fixture({ marketplace: null });
-    const result = await runExpectingCleanExit(() => skillsDirectOnly(["list", "--pack", "widgets"]));
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["list", "--pack", "widgets"]));
     expect(result.exitCode).toBe(2);
   });
 });
@@ -411,15 +411,15 @@ describe("rt skills direct-only list", () => {
 describe("rt skills surface list --json", () => {
   test("public rows carry on, off or locked and internal and base rows carry no field", async () => {
     fixture();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     await skillsSurface(["list", "--pack", "widgets", "--json"]);
-    const rows = lastJson().rows as { name: string; directOnly?: string }[];
+    const rows = lastJson().rows as { name: string; disableModelInvocation?: string }[];
     const state = (name: string) => rows.find((r) => r.name === name)!;
-    expect(state("alpha").directOnly).toBe("on");
-    expect(state("gamma").directOnly).toBe("off");
-    expect(state("locked").directOnly).toBe("locked");
-    expect(state("hidden")).not.toHaveProperty("directOnly");
-    expect(state("base-unit")).not.toHaveProperty("directOnly");
+    expect(state("alpha").disableModelInvocation).toBe("on");
+    expect(state("gamma").disableModelInvocation).toBe("off");
+    expect(state("locked").disableModelInvocation).toBe("locked");
+    expect(state("hidden")).not.toHaveProperty("disableModelInvocation");
+    expect(state("base-unit")).not.toHaveProperty("disableModelInvocation");
   });
 
   test("a discovery failure leaves the field off and never fails the list", async () => {
@@ -430,49 +430,49 @@ describe("rt skills surface list --json", () => {
     await skillsSurface(["list", "--pack-dir", fx.packDir, "--json"]);
     const rows = lastJson().rows as { name: string }[];
     expect(rows.map((r) => r.name)).toContain("alpha");
-    for (const row of rows) expect(row).not.toHaveProperty("directOnly");
+    for (const row of rows) expect(row).not.toHaveProperty("disableModelInvocation");
   });
 
   test("a pinned mattstack root skips discovery and carries no field", async () => {
     const fx = fixture();
     await skillsSurface(["list", "--pack-dir", fx.packDir, "--mattstack-dir", join(tmp, "root"), "--json"]);
     expect(discovery).not.toHaveBeenCalled();
-    for (const row of lastJson().rows) expect(row).not.toHaveProperty("directOnly");
+    for (const row of lastJson().rows) expect(row).not.toHaveProperty("disableModelInvocation");
   });
 
   test("a pack with no marketplace carries no field on any row", async () => {
     fixture({ marketplace: null });
     await skillsSurface(["list", "--pack", "widgets", "--json"]);
-    for (const row of lastJson().rows) expect(row).not.toHaveProperty("directOnly");
+    for (const row of lastJson().rows) expect(row).not.toHaveProperty("disableModelInvocation");
   });
 });
 
-describe("rt skills direct-only reapply", () => {
+describe("rt skills disable-model-invocation reapply", () => {
   test("restores a line removed by hand and prints nothing", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     writeFileSync(fx.installed("alpha"), plain("alpha"));
     io.restore();
     io = captureSkills();
 
-    await skillsDirectOnly(["reapply"]);
+    await skillsDisableModelInvocation(["reapply"]);
 
-    expect(read(fx.installed("alpha"))).toContain(DIRECT_ONLY_MARK);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
     expect(io.lines()).toEqual([]);
     expect(io.errLines()).toEqual([]);
   });
 
   test("--json lists what it changed", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     writeFileSync(fx.installed("alpha"), plain("alpha"));
-    await skillsDirectOnly(["reapply", "--json"]);
+    await skillsDisableModelInvocation(["reapply", "--json"]);
     expect(lastJson()).toEqual({ changed: [fx.installed("alpha")], warnings: [] });
   });
 
   test("an empty setting does nothing and prints nothing", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["reapply"]);
+    await skillsDisableModelInvocation(["reapply"]);
     expect(io.lines()).toEqual([]);
     expect(io.errLines()).toEqual([]);
     expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
@@ -481,24 +481,24 @@ describe("rt skills direct-only reapply", () => {
   test("an unreadable settings store does not fail and prints nothing", async () => {
     fixture();
     put(userSettingsPath(), "{ this is not json");
-    await skillsDirectOnly(["reapply"]);
+    await skillsDisableModelInvocation(["reapply"]);
     expect(io.lines()).toEqual([]);
     expect(process.exitCode ?? 0).toBe(0);
   });
 
   test("a read-only copy puts its warning on the screen", async () => {
     const fx = fixture();
-    await skillsDirectOnly(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
     writeFileSync(fx.installed("alpha"), plain("alpha"));
     chmodSync(fx.installed("alpha"), 0o444);
-    await skillsDirectOnly(["reapply"]);
+    await skillsDisableModelInvocation(["reapply"]);
     expect(io.lines().concat(io.errLines()).join("\n")).toContain("alpha");
   });
 });
 
 describe("the command tree row", () => {
   test("list, set and reapply are child nodes, none exempt from the picker rule or agent safe", () => {
-    const node = TREE.skills!.subcommands!["direct-only"]!;
+    const node = TREE.skills!.subcommands!["disable-model-invocation"]!;
     expect(node.fn).toBeUndefined();
     expect(Object.keys(node.subcommands ?? {}).sort()).toEqual(["list", "reapply", "set"]);
     expect(JSON.stringify(node)).not.toContain("exempt");

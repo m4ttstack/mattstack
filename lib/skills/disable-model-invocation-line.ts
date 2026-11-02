@@ -1,5 +1,5 @@
-export const DIRECT_ONLY_MARK = "# rt: direct-only";
-export const DIRECT_ONLY_MARK_WAS_FALSE = "# rt: direct-only (was false)";
+export const PERSONAL_MARK = "# rt: personal";
+export const PERSONAL_MARK_WAS_FALSE = "# rt: personal (was false)";
 
 const KEY_LINE = /^disable-model-invocation:[ \t]*([^#\s](?:[^#]*[^#\s])?)?[ \t]*(#.*?)?[ \t]*$/;
 
@@ -34,33 +34,33 @@ function parts(line: string): { value: string; comment: string | undefined; eol:
   return { value: m[1] ?? "", comment: m[2], eol };
 }
 
-export function addDirectOnly(md: string): string | null {
+export function addDisableModelInvocation(md: string): string | null {
   const fm = parse(md);
   if (!fm) return null;
   const idx = keyIndex(fm);
   if (idx >= 0) {
     const { value, comment, eol } = parts(fm.lines[idx]!);
-    if (comment?.startsWith(DIRECT_ONLY_MARK) || value === "true") return md;
+    if (comment?.startsWith(PERSONAL_MARK) || value === "true") return md;
     if (value !== "false") return md;
-    fm.lines[idx] = `disable-model-invocation: true ${DIRECT_ONLY_MARK_WAS_FALSE}${eol}`;
+    fm.lines[idx] = `disable-model-invocation: true ${PERSONAL_MARK_WAS_FALSE}${eol}`;
     return fm.lines.join("");
   }
   const prev = fm.lines[fm.close - 1]!;
   if (!/\n$/.test(prev)) fm.lines[fm.close - 1] = prev + fm.eol;
-  fm.lines.splice(fm.close, 0, `disable-model-invocation: true ${DIRECT_ONLY_MARK}${fm.eol}`);
+  fm.lines.splice(fm.close, 0, `disable-model-invocation: true ${PERSONAL_MARK}${fm.eol}`);
   return fm.lines.join("");
 }
 
-export function removeDirectOnly(md: string): string {
+export function removeDisableModelInvocation(md: string): string {
   const fm = parse(md);
   if (!fm) return md;
   const idx = keyIndex(fm);
   if (idx < 0) return md;
   const { value, comment, eol } = parts(fm.lines[idx]!);
   if (value !== "true" || !comment) return md;
-  if (comment === DIRECT_ONLY_MARK_WAS_FALSE) {
+  if (comment === PERSONAL_MARK_WAS_FALSE) {
     fm.lines[idx] = `disable-model-invocation: false${eol}`;
-  } else if (comment === DIRECT_ONLY_MARK) {
+  } else if (comment === PERSONAL_MARK) {
     fm.lines.splice(idx, 1);
   } else {
     return md;
@@ -69,7 +69,7 @@ export function removeDirectOnly(md: string): string {
 }
 
 /** The key's value and comment as written, or null when the file has no such key. */
-export function directOnlyKey(md: string): { value: string; comment: string | undefined } | null {
+export function disableModelInvocationKey(md: string): { value: string; comment: string | undefined } | null {
   const fm = parse(md);
   if (!fm) return null;
   const idx = keyIndex(fm);
@@ -78,11 +78,11 @@ export function directOnlyKey(md: string): { value: string; comment: string | un
   return { value, comment };
 }
 
-export function sourceSetsDirectOnly(md: string): boolean {
+export function sourceSetsDisableModelInvocation(md: string): boolean {
   const fm = parse(md);
   if (!fm) return false;
   const idx = keyIndex(fm);
   if (idx < 0) return false;
   const { value, comment } = parts(fm.lines[idx]!);
-  return value === "true" && !comment?.startsWith(DIRECT_ONLY_MARK);
+  return value === "true" && !comment?.startsWith(PERSONAL_MARK);
 }

@@ -1125,12 +1125,12 @@ const ROWS: readonly SettingDef[] = [
     description: "Skill id that sets the voice for prose posted under your name (reviews, replies, PR descriptions). A team value is the default a member's user value overrides.",
   },
   {
-    key: "rt.skills.directOnly",
+    key: "rt.skills.disableModelInvocation",
     type: "object",
     scopes: ["user"],
     default: {},
     merge: "replace",
-    description: "Pack skills you want to run only when you type them, by pack (plugin@marketplace) to skill names. Claude no longer picks these on its own.",
+    description: "Pack skills that have model invocation disabled, by pack (plugin@marketplace) to skill names.",
   },
 ];
 

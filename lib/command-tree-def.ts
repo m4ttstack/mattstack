@@ -2511,35 +2511,35 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
-      "direct-only": {
-        description: "Choose which pack skills Claude runs only when you type them",
+      "disable-model-invocation": {
+        description: "Choose which pack skills have disable-model-invocation set",
         subcommands: {
           list: {
-            description: "See which of a pack's skills run only when you type them",
+            description: "See which pack skills have model invocation disabled",
             module: "./commands/skills.ts",
-            fn: "skillsDirectOnlyList",
+            fn: "skillsDisableModelInvocationList",
             args: [
               { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit to pick from the discovered packs" },
               SETUP_JSON_ARG,
             ],
           },
           set: {
-            description: "Make pack skills run only when you type them, or let Claude pick them again",
+            description: "Disable model invocation on pack skills, or turn it back on",
             module: "./commands/skills.ts",
-            fn: "skillsDirectOnlySet",
+            fn: "skillsDisableModelInvocationSet",
             omitBehavior: "picker",
             args: [
               { name: "Skills", type: "text", placeholder: "alpha beta", hint: "One or more skill names in the pack; omit to pick" },
               { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit to pick from the discovered packs" },
-              { name: "On", flag: "--on", type: "boolean", default: false, hint: "Run the named skills only when you type them" },
-              { name: "Off", flag: "--off", type: "boolean", default: false, hint: "Let Claude pick the named skills again" },
+              { name: "On", flag: "--on", type: "boolean", default: false, hint: "Disable model invocation on the named skills" },
+              { name: "Off", flag: "--off", type: "boolean", default: false, hint: "Let Claude invoke the named skills again" },
               SETUP_JSON_ARG,
             ],
           },
           reapply: {
             description: "Put your choices back on the installed skills",
             module: "./commands/skills.ts",
-            fn: "skillsDirectOnlyReapply",
+            fn: "skillsDisableModelInvocationReapply",
             args: [SETUP_JSON_ARG],
           },
         },

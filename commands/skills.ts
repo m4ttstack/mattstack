@@ -69,8 +69,8 @@ import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skil
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
-import { DIRECT_ONLY_SETTING, directOnlyConfigDirs, directOnlyHome, readDirectOnlyChoices, reconcileDirectOnly } from "../lib/skills/direct-only.ts";
-import { sourceSetsDirectOnly } from "../lib/skills/direct-only-line.ts";
+import { DISABLE_MODEL_INVOCATION_SETTING, disableModelInvocationConfigDirs, disableModelInvocationHome, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../lib/skills/disable-model-invocation.ts";
+import { sourceSetsDisableModelInvocation } from "../lib/skills/disable-model-invocation-line.ts";
 import { userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
@@ -3163,7 +3163,7 @@ export type SurfaceRow = {
   status: "public" | "internal";
   base?: string;
   path?: string;
-  directOnly?: "on" | "off" | "locked";
+  disableModelInvocation?: "on" | "off" | "locked";
 };
 
 /** A skill rt installs exactly as it sits in the pack reads as standard; --json keeps `hand-authored`. */
@@ -3404,7 +3404,7 @@ async function runList(flags: SurfaceFlags): Promise<void> {
   const { source } = computed;
   let rows = computed.rows;
   try {
-    rows = withDirectOnly(rows, directOnlyPlugin(packDir, flags, pack)?.key ?? null);
+    rows = withDisableModelInvocation(rows, disableModelInvocationPlugin(packDir, flags, pack)?.key ?? null);
   } catch {
     // the listing is the Console's whole view of the pack: a skill's choice is decoration and never fails it
   }
@@ -3756,10 +3756,10 @@ export async function skillsSurface(args: string[]): Promise<void> {
   });
 }
 
-// ─── rt skills direct-only -- a member's own "only when I type it" choices, kept in the user setting and applied to the installed copy ──
+// ─── rt skills disable-model-invocation -- a member's own choices of skills to disable model invocation on, kept in the user setting and applied to the installed copy ──
 
 /** The `<plugin>@<marketplace>` the pack installs as, or null for a pack Claude Code never installs. */
-function directOnlyPlugin(packDir: string, flags: SurfaceFlags, discovered?: PackInfo): { key: string } | null {
+function disableModelInvocationPlugin(packDir: string, flags: SurfaceFlags, discovered?: PackInfo): { key: string } | null {
   let pack = discovered;
   if (!pack && !flags.mattstackDir) {
     const real = canonicalPath(packDir);
@@ -3770,7 +3770,7 @@ function directOnlyPlugin(packDir: string, flags: SurfaceFlags, discovered?: Pac
 }
 
 /** The settings layer reads a broken store as empty, so a write or a reconcile over it would drop every other choice. */
-function directOnlyStoreUnreadable(): boolean {
+function disableModelInvocationStoreUnreadable(): boolean {
   let raw: string;
   try {
     raw = readFileSync(userSettingsPath(), "utf8");
@@ -3781,32 +3781,32 @@ function directOnlyStoreUnreadable(): boolean {
   const errors: ParseError[] = [];
   const root = parseJsonc(raw, errors, { allowTrailingComma: true }) as Record<string, unknown> | undefined;
   if (errors.length > 0 || typeof root !== "object" || root === null || Array.isArray(root)) return true;
-  const stored = root[DIRECT_ONLY_SETTING];
+  const stored = root[DISABLE_MODEL_INVOCATION_SETTING];
   if (stored === undefined) return false;
   return typeof stored !== "object" || stored === null || Array.isArray(stored) || Object.values(stored).some((v) => !Array.isArray(v) || v.some((n) => typeof n !== "string"));
 }
 
-function directOnlyEligible(row: SurfaceRow): boolean {
+function disableModelInvocationEligible(row: SurfaceRow): boolean {
   return row.status === "public" && row.base === undefined && row.path !== undefined;
 }
 
-function withDirectOnly(rows: SurfaceRow[], key: string | null): SurfaceRow[] {
+function withDisableModelInvocation(rows: SurfaceRow[], key: string | null): SurfaceRow[] {
   if (key === null) return rows;
   let chosen: string[] = [];
   try {
-    chosen = readDirectOnlyChoices()[key] ?? [];
+    chosen = readDisableModelInvocationChoices()[key] ?? [];
   } catch {
     // an unreadable setting shows every skill as off
   }
   return rows.map((row) => {
-    if (!directOnlyEligible(row)) return row;
+    if (!disableModelInvocationEligible(row)) return row;
     let locked = false;
     try {
-      locked = sourceSetsDirectOnly(readFileSync(row.path!, "utf8"));
+      locked = sourceSetsDisableModelInvocation(readFileSync(row.path!, "utf8"));
     } catch {
       // a source that cannot be read is not locked
     }
-    return { ...row, directOnly: locked ? "locked" : chosen.includes(row.name) ? "on" : "off" };
+    return { ...row, disableModelInvocation: locked ? "locked" : chosen.includes(row.name) ? "on" : "off" };
   });
 }
 
@@ -3829,37 +3829,37 @@ function warningLines(warnings: string[]): Block[] {
   return lines;
 }
 
-function directOnlyRefusal(title: string, why?: string): SkillsRefusal {
+function disableModelInvocationRefusal(title: string, why?: string): SkillsRefusal {
   return new SkillsRefusal(why ? `${title}. ${why}` : title, { title, ...(why ? { why } : {}) });
 }
 
-type DirectOnlyTarget = { key: string; rows: SurfaceRow[]; source: string };
+type DisableModelInvocationTarget = { key: string; rows: SurfaceRow[]; source: string };
 
-async function directOnlyTarget(flags: SurfaceFlags): Promise<DirectOnlyTarget> {
+async function disableModelInvocationTarget(flags: SurfaceFlags): Promise<DisableModelInvocationTarget> {
   const { packDir, pack } = await resolveSurfacePaths(flags);
-  const plugin = directOnlyPlugin(packDir, flags, pack);
+  const plugin = disableModelInvocationPlugin(packDir, flags, pack);
   if (plugin === null) {
-    throw directOnlyRefusal("This pack is not installed from a marketplace", "Only an installed pack's skills can be set to run only when you type them.");
+    throw disableModelInvocationRefusal("This pack is not installed from a marketplace", "Only an installed pack's skills can have model invocation disabled.");
   }
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const { source, rows } = computeRows(packDir, verbNames, readSurface(packDir), stageNamesFor(flags, packDir));
-  return { key: plugin.key, rows: withDirectOnly(rows, plugin.key), source };
+  return { key: plugin.key, rows: withDisableModelInvocation(rows, plugin.key), source };
 }
 
-function refuseDirectOnlyName(name: string, row: SurfaceRow | undefined): SkillsRefusal | null {
-  if (!row) return directOnlyRefusal(`${name} is not a skill in this pack`);
-  if (row.base !== undefined) return directOnlyRefusal(`${name} comes from ${row.base}`, "The org base pack decides how it runs.");
-  if (row.status !== "public") return directOnlyRefusal(`${name} is an internal skill`, "Only public skills can be set to run only when you type them.");
-  if (row.path === undefined) return directOnlyRefusal(`${name} has no files in this pack`);
-  if (row.directOnly === "locked") return directOnlyRefusal(`${name} already runs only when you type it`, "The pack sets that itself, so you cannot change it here.");
+function refuseDisableModelInvocationName(name: string, row: SurfaceRow | undefined): SkillsRefusal | null {
+  if (!row) return disableModelInvocationRefusal(`${name} is not a skill in this pack`);
+  if (row.base !== undefined) return disableModelInvocationRefusal(`${name} comes from ${row.base}`, "The org base pack decides how it runs.");
+  if (row.status !== "public") return disableModelInvocationRefusal(`${name} is an internal skill`, "Only public skills can have model invocation disabled.");
+  if (row.path === undefined) return disableModelInvocationRefusal(`${name} has no files in this pack`);
+  if (row.disableModelInvocation === "locked") return disableModelInvocationRefusal(`${name} already has model invocation disabled`, "The pack sets that itself, so you cannot change it here.");
   return null;
 }
 
-async function runDirectOnlyList(args: string[]): Promise<void> {
+async function runDisableModelInvocationList(args: string[]): Promise<void> {
   const { flags, rest } = parseSurfaceFlags(args);
   if (rest.length) throw new SkillsUsageError(`unrecognized argument "${rest[0]}"`);
-  const { rows, source } = await directOnlyTarget(flags);
-  const shown = rows.filter((r) => r.directOnly !== undefined).map((r) => ({ name: r.name, directOnly: r.directOnly! }));
+  const { rows, source } = await disableModelInvocationTarget(flags);
+  const shown = rows.filter((r) => r.disableModelInvocation !== undefined).map((r) => ({ name: r.name, disableModelInvocation: r.disableModelInvocation! }));
   if (flags.json) {
     out.json({ pack: flags.team, rows: shown });
     return;
@@ -3868,22 +3868,22 @@ async function runDirectOnlyList(args: string[]): Promise<void> {
     out.print(out.line("pending", "This pack has no public skills to choose from"));
     return;
   }
-  const label = { on: "only when you type it", off: "Claude can pick it", locked: "set by the pack" } as const;
-  out.print(out.section(`Pack ${flags.team ?? ""}`.trim(), source, out.table(shown.map((r) => [out.strong(r.name), r.directOnly === "off" ? label.off : out.dim(label[r.directOnly])]), ["Skill", "Runs"])));
+  const label = { on: "model invocation disabled", off: "Claude can invoke it", locked: "set by the pack" } as const;
+  out.print(out.section(`Pack ${flags.team ?? ""}`.trim(), source, out.table(shown.map((r) => [out.strong(r.name), r.disableModelInvocation === "off" ? label.off : out.dim(label[r.disableModelInvocation])]), ["Skill", "Runs"])));
 }
 
 /** The palette over the skills a member may change, with each one's current state; null when they cancel. */
-async function pickDirectOnlyNames(rows: SurfaceRow[], on: boolean): Promise<string[] | null> {
-  const choices = rows.filter((r) => r.directOnly === "on" || r.directOnly === "off");
+async function pickDisableModelInvocationNames(rows: SurfaceRow[], on: boolean): Promise<string[] | null> {
+  const choices = rows.filter((r) => r.disableModelInvocation === "on" || r.disableModelInvocation === "off");
   if (choices.length === 0) {
     out.print(out.line("pending", "This pack has no skills you can change"));
     return null;
   }
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
   return filterableMultiselect({
-    message: on ? "Run only when you type them" : "Let Claude pick them again",
-    breadcrumb: ["rt", "skills", "direct-only"],
-    options: choices.map((r) => ({ value: r.name, label: r.name, hint: r.directOnly === "on" ? "only when you type it" : "Claude can pick it" })),
+    message: on ? "Disable model invocation" : "Let Claude invoke them again",
+    breadcrumb: ["rt", "skills", "disable-model-invocation"],
+    options: choices.map((r) => ({ value: r.name, label: r.name, hint: r.disableModelInvocation === "on" ? "model invocation disabled" : "Claude can invoke it" })),
   });
 }
 
@@ -3896,11 +3896,11 @@ function unappliedCallouts(warnings: string[], names: string[]): Block[] {
   const readOnly = blocking.some((w) => /SKILL\.md: read-only/.test(w));
   return [
     out.callout("why", "Your choice is saved. Claude still sees the installed copy as it was."),
-    ...(readOnly ? [out.callout("next", ["After the file can be written, run ", out.cmd("rt skills direct-only reapply")])] : []),
+    ...(readOnly ? [out.callout("next", ["After the file can be written, run ", out.cmd("rt skills disable-model-invocation reapply")])] : []),
   ];
 }
 
-async function runDirectOnlySet(args: string[]): Promise<void> {
+async function runDisableModelInvocationSet(args: string[]): Promise<void> {
   const { flags, rest } = parseSurfaceFlags(args);
   let names: string[] = [];
   let on = false;
@@ -3913,22 +3913,22 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
   }
   const canPick = process.stdin.isTTY === true && !flags.json && !process.env.RT_BATCH;
   if (names.length === 0 && !canPick) {
-    throw new SkillsUsageError("set requires a skill name", usageFailure("Which skill?", "rt skills direct-only set <name> --on --pack <pack>"));
+    throw new SkillsUsageError("set requires a skill name", usageFailure("Which skill?", "rt skills disable-model-invocation set <name> --on --pack <pack>"));
   }
   if (on === off) {
     throw new SkillsUsageError(
       "set requires one of --on and --off",
-      usageFailure("Should it run only when you type it?", "rt skills direct-only set <name> --on --pack <pack>", "Say which with --on or --off."),
+      usageFailure("Should model invocation be disabled?", "rt skills disable-model-invocation set <name> --on --pack <pack>", "Say which with --on or --off."),
     );
   }
   const duplicate = names.find((n, i) => names.indexOf(n) !== i);
   if (duplicate) throw new SkillsUsageError(`"${duplicate}" named more than once`);
-  if (flags.dryRun) throw new SkillsUsageError("set does not take --dry-run", usageFailure("This does not have a dry run", "rt skills direct-only set <name> --on --pack <pack>", "Leave out --dry-run."));
+  if (flags.dryRun) throw new SkillsUsageError("set does not take --dry-run", usageFailure("This does not have a dry run", "rt skills disable-model-invocation set <name> --on --pack <pack>", "Leave out --dry-run."));
 
   try {
-    const { key, rows } = await directOnlyTarget(flags);
+    const { key, rows } = await disableModelInvocationTarget(flags);
     if (names.length === 0) {
-      const picked = await pickDirectOnlyNames(rows, on);
+      const picked = await pickDisableModelInvocationNames(rows, on);
       if (picked === null) return;
       if (picked.length === 0) {
         out.print(out.line("skipped", "No changes made"));
@@ -3937,20 +3937,20 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
       names = picked;
     }
     for (const name of names) {
-      const refusal = refuseDirectOnlyName(name, rows.find((r) => r.name === name));
+      const refusal = refuseDisableModelInvocationName(name, rows.find((r) => r.name === name));
       if (refusal) throw refusal;
     }
-    if (directOnlyStoreUnreadable()) {
-      throw directOnlyRefusal("Your settings file could not be read", "Nothing was changed, so your other choices are safe. Fix the file, then try again.");
+    if (disableModelInvocationStoreUnreadable()) {
+      throw disableModelInvocationRefusal("Your settings file could not be read", "Nothing was changed, so your other choices are safe. Fix the file, then try again.");
     }
 
-    const choices = readDirectOnlyChoices();
+    const choices = readDisableModelInvocationChoices();
     const before = choices[key] ?? [];
     const after = on ? [...before, ...names.filter((n) => !before.includes(n))] : before.filter((n) => !names.includes(n));
     const changedSetting = after.length !== before.length || after.some((n, i) => n !== before[i]);
-    if (changedSetting) setSetting(DIRECT_ONLY_SETTING, { ...choices, [key]: after }, "user");
+    if (changedSetting) setSetting(DISABLE_MODEL_INVOCATION_SETTING, { ...choices, [key]: after }, "user");
 
-    const result = reconcileDirectOnly({ configDirs: directOnlyConfigDirs(process.env, directOnlyHome()), choices: { [key]: after } });
+    const result = reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(process.env, disableModelInvocationHome()), choices: { [key]: after } });
     const applied = !result.warnings.some((w) => {
       const skill = skillOfWarning(w);
       return skill === null ? w.startsWith(`${key}: `) : names.includes(skill);
@@ -3962,7 +3962,7 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
     }
     const subject = names.join(", ");
     out.print(
-      out.line("done", on ? `${subject} will run only when you type it` : `${subject} can run on its own again`),
+      out.line("done", on ? `${subject} has model invocation disabled` : `Claude can invoke ${subject} again`),
       ...warningLines(result.warnings),
       ...(applied ? [] : unappliedCallouts(result.warnings, names)),
     );
@@ -3973,7 +3973,7 @@ async function runDirectOnlySet(args: string[]): Promise<void> {
   }
 }
 
-function runDirectOnlyReapply(args: string[]): void {
+function runDisableModelInvocationReapply(args: string[]): void {
   let json = false;
   for (const a of args) {
     if (a === "--json") json = true;
@@ -3981,13 +3981,13 @@ function runDirectOnlyReapply(args: string[]): void {
   }
   let choices: Record<string, string[]> = {};
   try {
-    choices = readDirectOnlyChoices();
+    choices = readDisableModelInvocationChoices();
   } catch {
     // a session-start hook runs this: a broken settings store must not fail it
   }
   const result = Object.keys(choices).length === 0
     ? { changed: [], warnings: [] }
-    : reconcileDirectOnly({ configDirs: directOnlyConfigDirs(process.env, directOnlyHome()), choices });
+    : reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(process.env, disableModelInvocationHome()), choices });
   if (json) {
     out.json({ changed: result.changed, warnings: result.warnings });
     return;
@@ -3995,19 +3995,19 @@ function runDirectOnlyReapply(args: string[]): void {
   if (result.warnings.length > 0) out.note(...warningLines(result.warnings));
 }
 
-export const skillsDirectOnlyList = (args: string[]): Promise<void> => skillsDirectOnly(["list", ...args]);
-export const skillsDirectOnlySet = (args: string[]): Promise<void> => skillsDirectOnly(["set", ...args]);
-export const skillsDirectOnlyReapply = (args: string[]): Promise<void> => skillsDirectOnly(["reapply", ...args]);
+export const skillsDisableModelInvocationList = (args: string[]): Promise<void> => skillsDisableModelInvocation(["list", ...args]);
+export const skillsDisableModelInvocationSet = (args: string[]): Promise<void> => skillsDisableModelInvocation(["set", ...args]);
+export const skillsDisableModelInvocationReapply = (args: string[]): Promise<void> => skillsDisableModelInvocation(["reapply", ...args]);
 
-export async function skillsDirectOnly(args: string[]): Promise<void> {
+export async function skillsDisableModelInvocation(args: string[]): Promise<void> {
   await withCleanErrors(args, async () => {
     const mode = args[0];
-    if (mode === "list") return runDirectOnlyList(args.slice(1));
-    if (mode === "set") return runDirectOnlySet(args.slice(1));
-    if (mode === "reapply") return runDirectOnlyReapply(args.slice(1));
+    if (mode === "list") return runDisableModelInvocationList(args.slice(1));
+    if (mode === "set") return runDisableModelInvocationSet(args.slice(1));
+    if (mode === "reapply") return runDisableModelInvocationReapply(args.slice(1));
     throw new SkillsUsageError(
-      mode ? `unrecognized subcommand "${mode}" (expected list, set, or reapply)` : "direct-only needs a mode: list, set, or reapply",
-      usageFailure("What should it do?", "rt skills direct-only list --pack <pack>", "Use list, set or reapply."),
+      mode ? `unrecognized subcommand "${mode}" (expected list, set, or reapply)` : "disable-model-invocation needs a mode: list, set, or reapply",
+      usageFailure("What should it do?", "rt skills disable-model-invocation list --pack <pack>", "Use list, set or reapply."),
     );
   });
 }

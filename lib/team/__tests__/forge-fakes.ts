@@ -104,10 +104,10 @@ export function fakeGitHub(opts: FakeForgeOpts): FakeForge {
 
     if (method === "GET" && route === base) return okJson({ default_branch: opts.defaultBranch ?? "main", owner: { type: opts.cannotNameUsers ? "User" : "Organization" } });
     if (method === "GET" && route === `${base}/collaborators`) {
-      const directOnly = query.includes("affiliation=direct");
+      const directMembersOnly = query.includes("affiliation=direct");
       return page(
         [...members.values()]
-          .filter((m) => !m.pending && (!directOnly || !m.inherited))
+          .filter((m) => !m.pending && (!directMembersOnly || !m.inherited))
           .map((m) => (m.roleName ? { login: m.username, role_name: m.roleName, permissions: githubPermissions(m.level) } : { login: m.username, role_name: githubRoleName(m.level) })),
       );
     }

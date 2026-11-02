@@ -147,7 +147,7 @@ export const GROUPS: Group[] = [
       (/^(mattstack|setup|claude|skills|telemetry)\./.test(key) &&
         key !== 'mattstack.tracking') ||
       key === 'rt.integrations' ||
-      key === 'rt.skills.directOnly',
+      key === 'rt.skills.disableModelInvocation',
   },
 ];
 

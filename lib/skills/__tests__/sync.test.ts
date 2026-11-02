@@ -284,7 +284,7 @@ function stepNames(steps: { name: string }[]): string[] {
 }
 
 describe("syncPack", () => {
-  test("1: no-op ends the chain at check, then reapplies typed-only choices", async () => {
+  test("1: no-op ends the chain at check, then reapplies disable-model-invocation choices", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const calls: Call[] = [];
@@ -296,7 +296,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check", "direct-only"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check", "disable-model-invocation"]);
     expect(report.ok).toBe(true);
     expect(report.restartNeeded).toBe(false);
     expect(calls.some((c) => c.args.includes("update"))).toBe(false);
@@ -1773,7 +1773,7 @@ describe("commit-pending", () => {
 
     expect(report.ok).toBe(true);
     expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "skipped" });
-    expect(stepNames(report.steps).at(-1)).toBe("direct-only");
+    expect(stepNames(report.steps).at(-1)).toBe("disable-model-invocation");
     expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
   });
 
@@ -3227,7 +3227,7 @@ describe("hand-written skill failures", () => {
   });
 });
 
-describe("direct-only choices after a sync", () => {
+describe("disable-model-invocation choices after a sync", () => {
   const KEY = "widgets@market";
   const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
 
@@ -3264,13 +3264,13 @@ describe("direct-only choices after a sync", () => {
     const config = tmp("rt-sync-do-config-");
     mkdirSync(join(config, "plugins"), { recursive: true });
     const landed = updatingInto(world(pack, engine, "0.9.0"), config, pluginId(pack));
-    const deps = { ...landed.deps, directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+    const deps = { ...landed.deps, disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "direct-only")!.status).toBe("ran");
-    expect(readFileSync(landed.file, "utf8")).toContain("# rt: direct-only");
-    expect(stepNames(report.steps).indexOf("direct-only")).toBe(stepNames(report.steps).indexOf("verify-installed") + 1);
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.status).toBe("ran");
+    expect(readFileSync(landed.file, "utf8")).toContain("# rt: personal");
+    expect(stepNames(report.steps).indexOf("disable-model-invocation")).toBe(stepNames(report.steps).indexOf("verify-installed") + 1);
   });
 
   test("a read-only skill is reported as left alone, never as in place", async () => {
@@ -3278,11 +3278,11 @@ describe("direct-only choices after a sync", () => {
     const engine = fixturePack("beacon", "local", "2.0.0");
     const { config, file } = installedSkill();
     chmodSync(file, 0o444);
-    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
 
     const report = await syncPack(pack, engine, deps);
 
-    const detail = report.steps.find((s) => s.name === "direct-only")!.detail;
+    const detail = report.steps.find((s) => s.name === "disable-model-invocation")!.detail;
     expect(detail).toContain("left alone");
     expect(detail).not.toContain("in place");
   });
@@ -3291,44 +3291,44 @@ describe("direct-only choices after a sync", () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const { config } = installedSkill();
-    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [config], choices: () => ({ "gadgets@market": ["alpha"] }) } };
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ "gadgets@market": ["alpha"] }) } };
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "direct-only")!.detail).toBe("nothing needed changing");
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.detail).toBe("nothing needed changing");
   });
 
   test("no Claude config folders says nothing was changed", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
-    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [], choices: () => ({ [KEY]: ["alpha"] }) } };
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [], choices: () => ({ [KEY]: ["alpha"] }) } };
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "direct-only")!.detail).toBe("no Claude config folders found, nothing changed");
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.detail).toBe("no Claude config folders found, nothing changed");
   });
 
   test("an already-current pack still gets its choices reapplied", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const { config, file } = installedSkill();
-    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "direct-only")!.status).toBe("ran");
-    expect(readFileSync(file, "utf8")).toContain("# rt: direct-only");
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.status).toBe("ran");
+    expect(readFileSync(file, "utf8")).toContain("# rt: personal");
   });
 
   test("with no choices the step is skipped and nothing is touched", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const { config, file } = installedSkill();
-    const deps = { ...world(pack, engine, "0.9.0"), directOnly: { configDirs: () => [config], choices: () => ({}) } };
+    const deps = { ...world(pack, engine, "0.9.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({}) } };
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(report.steps.find((s) => s.name === "direct-only")!.status).toBe("skipped");
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")!.status).toBe("skipped");
     expect(readFileSync(file, "utf8")).toBe(plain);
   });
 
@@ -3337,7 +3337,7 @@ describe("direct-only choices after a sync", () => {
     const engine = fixturePack("beacon", "local", "2.0.0");
     const { config, file } = installedSkill();
     chmodSync(file, 0o444);
-    const deps = { ...world(pack, engine, "0.9.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+    const deps = { ...world(pack, engine, "0.9.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
 
     const report = await syncPack(pack, engine, deps);
 
@@ -3351,7 +3351,7 @@ describe("direct-only choices after a sync", () => {
     const engine = fixturePack("beacon", "local", "2.0.0");
     const deps = {
       ...world(pack, engine, "0.9.0"),
-      directOnly: {
+      disableModelInvocation: {
         configDirs: (): string[] => {
           throw new Error("boom");
         },

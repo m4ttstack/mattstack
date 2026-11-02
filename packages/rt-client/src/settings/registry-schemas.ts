@@ -347,9 +347,9 @@ export const SCHEMAS = {
     z.looseObject({ provider: z.enum(["gitlab", "github"]), baseUrl: z.string().optional(), tokenEnv: z.string().optional() }),
   ).meta({ labels: { key: "host", value: "forge" } }),
   "gitq.board": z.looseObject({ repos: z.array(gitqRepo), port: z.number().optional(), herdrWorkspace: z.string().optional() }),
-  "rt.skills.directOnly": z
+  "rt.skills.disableModelInvocation": z
     .record(z.string(), z.array(z.string()))
-    .meta({ title: "Direct-only skills", description: "Skills Claude runs only when you type them, by pack.", labels: { key: "pack", value: "skills" } }),
+    .meta({ title: "Model invocation disabled", description: "Skills with model invocation disabled, by pack.", labels: { key: "pack", value: "skills" } }),
 } satisfies Record<string, z.ZodType>;
 
 export type Value<K extends keyof typeof SCHEMAS> = z.infer<(typeof SCHEMAS)[K]>;

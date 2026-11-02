@@ -400,7 +400,7 @@ describe("settings/registry", () => {
         "ci.triage.baseRef",
         "ci.triage.skipBase",
         "skills.writingStyle",
-        "rt.skills.directOnly",
+        "rt.skills.disableModelInvocation",
         "herd.watchdog.enabled",
         "herd.watchdog.fastMins",
         "herd.watchdog.shepherdFastMins",

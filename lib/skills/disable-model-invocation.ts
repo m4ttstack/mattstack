@@ -2,19 +2,19 @@ import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, renameS
 import { homedir } from "os";
 import { basename, dirname, join, sep } from "path";
 import { compareVersions } from "./installed-plugins.ts";
-import { addDirectOnly, DIRECT_ONLY_MARK, directOnlyKey, removeDirectOnly } from "./direct-only-line.ts";
+import { addDisableModelInvocation, PERSONAL_MARK, disableModelInvocationKey, removeDisableModelInvocation } from "./disable-model-invocation-line.ts";
 import { registeredSkillRoots } from "./skill-roots.ts";
 import { getSetting } from "../settings/resolve.ts";
 
 /** HOME as the process sees it now: bun freezes os.homedir() at startup, so a changed HOME would otherwise be missed. */
-export function directOnlyHome(): string {
+export function disableModelInvocationHome(): string {
   return process.env.HOME ?? homedir();
 }
 
-export const DIRECT_ONLY_SETTING = "rt.skills.directOnly";
+export const DISABLE_MODEL_INVOCATION_SETTING = "rt.skills.disableModelInvocation";
 
-export function readDirectOnlyChoices(): Record<string, string[]> {
-  const value = getSetting<unknown>(DIRECT_ONLY_SETTING).value;
+export function readDisableModelInvocationChoices(): Record<string, string[]> {
+  const value = getSetting<unknown>(DISABLE_MODEL_INVOCATION_SETTING).value;
   const choices: Record<string, string[]> = {};
   if (typeof value !== "object" || value === null || Array.isArray(value)) return choices;
   for (const [key, names] of Object.entries(value)) {
@@ -36,7 +36,7 @@ function real(p: string): string | null {
   }
 }
 
-export function directOnlyConfigDirs(env: NodeJS.ProcessEnv, home: string): string[] {
+export function disableModelInvocationConfigDirs(env: NodeJS.ProcessEnv, home: string): string[] {
   const candidates = [env.CLAUDE_CONFIG_DIR || join(home, ".claude")];
   const sessions = join(home, ".claude-swap-backup", "sessions");
   try {
@@ -141,18 +141,18 @@ function reconcileSkill(file: string, chosen: boolean, cacheReal: string, out: R
     const before = readFileSync(file, "utf8");
     let after: string | null;
     if (chosen) {
-      after = addDirectOnly(before);
+      after = addDisableModelInvocation(before);
       if (after === null) {
-        out.warnings.push(`${file}: no frontmatter, direct-only not applied`);
+        out.warnings.push(`${file}: no frontmatter, disable-model-invocation not applied`);
         return;
       }
-      const key = directOnlyKey(before);
-      if (after === before && key && key.value !== "true" && !key.comment?.startsWith(DIRECT_ONLY_MARK)) {
-        out.warnings.push(`${file}: disable-model-invocation has an unusual value, direct-only not applied`);
+      const key = disableModelInvocationKey(before);
+      if (after === before && key && key.value !== "true" && !key.comment?.startsWith(PERSONAL_MARK)) {
+        out.warnings.push(`${file}: disable-model-invocation has an unusual value, disable-model-invocation not applied`);
         return;
       }
     } else {
-      after = removeDirectOnly(before);
+      after = removeDisableModelInvocation(before);
     }
     if (after === before) return;
     const { mode } = statSync(resolved);
@@ -167,7 +167,7 @@ function reconcileSkill(file: string, chosen: boolean, cacheReal: string, out: R
   }
 }
 
-export function reconcileDirectOnly(opts: {
+export function reconcileDisableModelInvocation(opts: {
   configDirs: string[];
   choices: Record<string, string[]>;
   beforeSkill?: (file: string) => void;

@@ -436,7 +436,7 @@ export const EXAMPLES: Record<string, Example> = {
     ],
     layer: [{ port: 11009 }],
   },
-  "rt.skills.directOnly": {
+  "rt.skills.disableModelInvocation": {
     good: [
       {},
       { "widgets@acme": ["work", "ship"] },

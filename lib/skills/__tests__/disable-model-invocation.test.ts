@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { directOnlyConfigDirs, reconcileDirectOnly } from "../direct-only.ts";
-import { DIRECT_ONLY_MARK } from "../direct-only-line.ts";
+import { disableModelInvocationConfigDirs, reconcileDisableModelInvocation } from "../disable-model-invocation.ts";
+import { PERSONAL_MARK } from "../disable-model-invocation-line.ts";
 
 let tmp: string;
 beforeEach(() => {
-  tmp = realpathSync(mkdtempSync(join(tmpdir(), "direct-only-")));
+  tmp = realpathSync(mkdtempSync(join(tmpdir(), "disable-model-invocation-")));
 });
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
@@ -29,13 +29,13 @@ function skill(dir: string, rel: string, text: string): string {
 }
 const read = (f: string) => readFileSync(f, "utf8");
 
-describe("reconcileDirectOnly", () => {
+describe("reconcileDisableModelInvocation", () => {
   test("a chosen skill gains the line in the newest version only", () => {
     const config = join(tmp, "c");
     const old = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
     const cur = skill(versionDir(config, "1.10.0"), "skills/alpha", plain("alpha"));
-    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-    expect(read(cur)).toContain(DIRECT_ONLY_MARK);
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(cur)).toContain(PERSONAL_MARK);
     expect(read(old)).toBe(plain("alpha"));
     expect(r).toEqual({ changed: [cur], warnings: [] });
   });
@@ -45,20 +45,20 @@ describe("reconcileDirectOnly", () => {
     const dir = versionDir(config);
     const a = skill(dir, "skills/alpha", plain("alpha"));
     const b = skill(dir, "skills/beta", plain("beta"));
-    reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha", "beta"] } });
-    reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-    expect(read(a)).toContain(DIRECT_ONLY_MARK);
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha", "beta"] } });
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(a)).toContain(PERSONAL_MARK);
     expect(read(b)).toBe(plain("beta"));
-    reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: [] } });
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: [] } });
     expect(read(a)).toBe(plain("alpha"));
   });
 
   test("a plugin absent from choices is not walked", () => {
     const config = join(tmp, "c");
     const a = skill(versionDir(config), "skills/alpha", plain("alpha"));
-    reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-    const r = reconcileDirectOnly({ configDirs: [config], choices: {} });
-    expect(read(a)).toContain(DIRECT_ONLY_MARK);
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: {} });
+    expect(read(a)).toContain(PERSONAL_MARK);
     expect(r.changed).toEqual([]);
   });
 
@@ -67,14 +67,14 @@ describe("reconcileDirectOnly", () => {
     const dir = versionDir(config);
     writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ skills: ["./plugin/skills"] }));
     const f = skill(dir, "plugin/skills/alpha", plain("alpha"));
-    reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-    expect(read(f)).toContain(DIRECT_ONLY_MARK);
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(f)).toContain(PERSONAL_MARK);
   });
 
   test("an unknown name and an uninstalled plugin are ignored with no warning", () => {
     const config = join(tmp, "c");
     const f = skill(versionDir(config), "skills/alpha", plain("alpha"));
-    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["ghost"], "nope@market": ["x"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["ghost"], "nope@market": ["x"] } });
     expect(r).toEqual({ changed: [], warnings: [] });
     expect(read(f)).toBe(plain("alpha"));
   });
@@ -82,9 +82,9 @@ describe("reconcileDirectOnly", () => {
   test("a second run reports nothing changed", () => {
     const config = join(tmp, "c");
     skill(versionDir(config), "skills/alpha", plain("alpha"));
-    const first = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const first = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(first.changed).toHaveLength(1);
-    const second = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const second = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(second).toEqual({ changed: [], warnings: [] });
   });
 
@@ -95,7 +95,7 @@ describe("reconcileDirectOnly", () => {
     writeFileSync(outside, plain("alpha"));
     mkdirSync(join(dir, "skills", "alpha"), { recursive: true });
     symlinkSync(outside, join(dir, "skills", "alpha", "SKILL.md"));
-    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(read(outside)).toBe(plain("alpha"));
     expect(r.changed).toEqual([]);
     expect(r.warnings).toHaveLength(1);
@@ -107,7 +107,7 @@ describe("reconcileDirectOnly", () => {
     const b = join(tmp, "b");
     mkdirSync(b);
     symlinkSync(join(a, "plugins"), join(b, "plugins"));
-    const r = reconcileDirectOnly({ configDirs: [a, b], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [a, b], choices: { [KEY]: ["alpha"] } });
     expect(r).toEqual({ changed: [f], warnings: [] });
   });
 
@@ -117,7 +117,7 @@ describe("reconcileDirectOnly", () => {
     const b = join(tmp, "b");
     mkdirSync(b);
     symlinkSync(join(a, "plugins"), join(b, "plugins"));
-    const r = reconcileDirectOnly({ configDirs: [a, b], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [a, b], choices: { [KEY]: ["alpha"] } });
     expect(r.warnings).toHaveLength(1);
     expect(r.warnings[0]).toContain(f);
   });
@@ -125,7 +125,7 @@ describe("reconcileDirectOnly", () => {
   test("no frontmatter warns and names the file", () => {
     const config = join(tmp, "c");
     const f = skill(versionDir(config), "skills/alpha", "just text\n");
-    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(r.changed).toEqual([]);
     expect(r.warnings[0]).toContain(f);
   });
@@ -133,7 +133,7 @@ describe("reconcileDirectOnly", () => {
   test("an unusual disable-model-invocation value warns and names the file", () => {
     const config = join(tmp, "c");
     const f = skill(versionDir(config), "skills/alpha", `---\nname: alpha\ndisable-model-invocation: "true"\n---\nb\n`);
-    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(r.changed).toEqual([]);
     expect(r.warnings[0]).toContain(f);
   });
@@ -141,7 +141,7 @@ describe("reconcileDirectOnly", () => {
   test("a source value of true is left alone without a warning", () => {
     const config = join(tmp, "c");
     skill(versionDir(config), "skills/alpha", `---\nname: alpha\ndisable-model-invocation: true\n---\nb\n`);
-    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(r).toEqual({ changed: [], warnings: [] });
   });
 
@@ -152,7 +152,7 @@ describe("reconcileDirectOnly", () => {
     const other = skill(dir, "skills/beta", plain("beta"));
     chmodSync(locked, 0o444);
     try {
-      const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha", "beta"] } });
+      const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha", "beta"] } });
       expect(r.changed).toEqual([other]);
       expect(r.warnings.some((w) => w.includes(locked))).toBe(true);
       expect(read(locked)).toBe(plain("alpha"));
@@ -166,8 +166,8 @@ describe("reconcileDirectOnly", () => {
     const config = join(tmp, "c");
     const f = skill(versionDir(config), "skills/alpha", plain("alpha"));
     chmodSync(f, 0o640);
-    reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-    expect(read(f)).toContain(DIRECT_ONLY_MARK);
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(f)).toContain(PERSONAL_MARK);
     expect(statSync(f).mode & 0o777).toBe(0o640);
   });
 
@@ -176,7 +176,7 @@ describe("reconcileDirectOnly", () => {
     const dir = versionDir(config);
     skill(dir, "skills/alpha", plain("alpha"));
     skill(dir, "skills/beta", plain("beta"));
-    const r = reconcileDirectOnly({
+    const r = reconcileDisableModelInvocation({
       configDirs: [config],
       choices: { [KEY]: ["alpha", "beta"] },
       beforeSkill: () => rmSync(dir, { recursive: true, force: true }),
@@ -189,7 +189,7 @@ describe("reconcileDirectOnly", () => {
       const config = join(tmp, `c${line.length}`);
       const text = `---\nname: alpha\n${line}\n---\nb\n`;
       const f = skill(versionDir(config), "skills/alpha", text);
-      const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
       expect(read(f)).toBe(text);
       expect(r.changed).toEqual([]);
       expect(r.warnings[0]).toContain(f);
@@ -198,9 +198,9 @@ describe("reconcileDirectOnly", () => {
 
   test("the unusual-value warning is not fooled by the mark in body text", () => {
     const config = join(tmp, "c");
-    const text = `---\nname: alpha\ndisable-model-invocation: "true"\n---\n${DIRECT_ONLY_MARK}\n`;
+    const text = `---\nname: alpha\ndisable-model-invocation: "true"\n---\n${PERSONAL_MARK}\n`;
     const f = skill(versionDir(config), "skills/alpha", text);
-    const r = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(r.warnings[0]).toContain(f);
   });
 
@@ -216,8 +216,8 @@ describe("reconcileDirectOnly", () => {
         { scope: "project", installPath: at(config, "9.0.0") },
         { scope: "user", installPath: at(config, "abc123") },
       ] } }));
-      reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-      expect(read(hashed)).toContain(DIRECT_ONLY_MARK);
+      reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(hashed)).toContain(PERSONAL_MARK);
       expect(read(higher)).toBe(plain("alpha"));
     });
 
@@ -226,27 +226,27 @@ describe("reconcileDirectOnly", () => {
       const cur = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
       const elsewhere = skill(join(tmp, "elsewhere"), "skills/alpha", plain("alpha"));
       registry(config, JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: join(tmp, "elsewhere") }] } }));
-      reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-      expect(read(cur)).toContain(DIRECT_ONLY_MARK);
+      reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(cur)).toContain(PERSONAL_MARK);
       expect(read(elsewhere)).toBe(plain("alpha"));
     });
 
     test("a missing or malformed file falls back to the newest folder with no warning", () => {
       const config = join(tmp, "c");
       const f = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
-      const missing = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      const missing = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
       expect(missing.warnings).toEqual([]);
-      expect(read(f)).toContain(DIRECT_ONLY_MARK);
-      reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: [] } });
+      expect(read(f)).toContain(PERSONAL_MARK);
+      reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: [] } });
       registry(config, "{not json");
-      const bad = reconcileDirectOnly({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      const bad = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
       expect(bad.warnings).toEqual([]);
-      expect(read(f)).toContain(DIRECT_ONLY_MARK);
+      expect(read(f)).toContain(PERSONAL_MARK);
     });
   });
 });
 
-describe("directOnlyConfigDirs", () => {
+describe("disableModelInvocationConfigDirs", () => {
   test("dedupes by the realpath of plugins and skips sessions without one", () => {
     const home = join(tmp, "home");
     mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
@@ -255,7 +255,7 @@ describe("directOnlyConfigDirs", () => {
     symlinkSync(join(home, ".claude", "plugins"), join(sessions, "linked", "plugins"));
     mkdirSync(join(sessions, "own", "plugins"), { recursive: true });
     mkdirSync(join(sessions, "bare"), { recursive: true });
-    expect(directOnlyConfigDirs({}, home)).toEqual([join(home, ".claude"), join(sessions, "own")]);
+    expect(disableModelInvocationConfigDirs({}, home)).toEqual([join(home, ".claude"), join(sessions, "own")]);
   });
 
   test("CLAUDE_CONFIG_DIR replaces ~/.claude", () => {
@@ -263,6 +263,6 @@ describe("directOnlyConfigDirs", () => {
     const custom = join(tmp, "custom");
     mkdirSync(join(custom, "plugins"), { recursive: true });
     mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
-    expect(directOnlyConfigDirs({ CLAUDE_CONFIG_DIR: custom }, home)).toEqual([custom]);
+    expect(disableModelInvocationConfigDirs({ CLAUDE_CONFIG_DIR: custom }, home)).toEqual([custom]);
   });
 });

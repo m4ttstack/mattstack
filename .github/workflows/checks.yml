@@ -308,7 +308,7 @@ jobs:
           sh tests/test-gate-stop-hook.sh
           bash hooks/tests/test-agent-effort-guard.sh
           bash hooks/tests/test-agent-effort-note.sh
-          bash hooks/tests/test-direct-only-reapply.sh
+          bash hooks/tests/test-disable-model-invocation-reapply.sh
           bash tests/test-mcp-tools-reference.sh
           sh tests/test-lsp-registration.sh
           bash tests/test-work-progress.sh

@@ -266,7 +266,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(detailOf(outcome)).not.toContain("gadgets@acme");
     });
 
-    describe("typed-only skills", () => {
+    describe("disabled skills", () => {
       const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
 
       /** The plugin is listed and installed; its update lands a new version folder with no line yet. */
@@ -292,33 +292,33 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const landedFile = () => join(home, ".claude", "plugins", "cache", "market", "widgets", "2.0.0", "skills", "alpha", "SKILL.md");
 
       test("the line is on the version the plugin update lands", async () => {
-        setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
         const { ctx } = makeCtx(updatingProbes(landedFile()));
 
         const outcome = await pluginsInstallStep.run(ctx);
 
         expect(outcome.state).toBe("done");
-        expect(readFileSync(landedFile(), "utf8")).toContain("# rt: direct-only");
+        expect(readFileSync(landedFile(), "utf8")).toContain("# rt: personal");
       });
 
       test("a reconcile warning is logged, shown in the detail, and the step still returns done", async () => {
-        setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
         const { ctx, logs } = makeCtx(updatingProbes(landedFile(), true));
 
         const outcome = await pluginsInstallStep.run(ctx);
 
         expect(outcome.state).toBe("done");
         expect(logs.some((l) => l.id === "plugins.install" && l.line.includes("read-only"))).toBe(true);
-        expect(detailOf(outcome)).toContain("Some typed-only skills were left alone");
+        expect(detailOf(outcome)).toContain("Some disabled skills were left alone");
       });
 
-      test("with no warning the detail says nothing about typed-only skills", async () => {
-        setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
+      test("with no warning the detail says nothing about disabled skills", async () => {
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
         const { ctx } = makeCtx(updatingProbes(landedFile()));
 
         const outcome = await pluginsInstallStep.run(ctx);
 
-        expect(detailOf(outcome)).not.toContain("typed-only");
+        expect(detailOf(outcome)).not.toContain("disabled");
       });
     });
 

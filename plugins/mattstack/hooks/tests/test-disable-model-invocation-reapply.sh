@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Offline tests for direct-only-reapply.sh.
+# Offline tests for disable-model-invocation-reapply.sh.
 #
 # `rt` is a stub that records its argv and cwd. HOME is sandboxed so the hook
 # never reaches the real rt or the real settings stores.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK="$DIR/../direct-only-reapply.sh"
+HOOK="$DIR/../disable-model-invocation-reapply.sh"
 
 SANDBOX="$(mktemp -d)"; trap 'rm -rf "$SANDBOX"' EXIT
 SANDBOX="$(cd "$SANDBOX" && pwd -P)"
@@ -41,7 +41,7 @@ check "rt exits 2: exits 0, prints nothing" "exit=0 out=" "$(run "$SANDBOX/bin:/
 rm -f "$CALLS"
 
 check "rt succeeds: prints nothing" "exit=0 out=" "$(run "$SANDBOX/bin:/usr/bin:/bin")"
-check "rt gets exactly skills direct-only reapply" "argv=skills direct-only reapply" "$(sed -n 1p "$CALLS")"
+check "rt gets exactly skills disable-model-invocation reapply" "argv=skills disable-model-invocation reapply" "$(sed -n 1p "$CALLS")"
 check "rt runs with cwd HOME" "cwd=$SANDBOX/home" "$(sed -n 2p "$CALLS")"
 check "rt is called once" "2" "$(wc -l < "$CALLS" | tr -d ' ')"
 rm -f "$CALLS"
@@ -49,7 +49,7 @@ rm -f "$CALLS"
 mkdir -p "$SANDBOX/home/.local/bin"
 cp "$SANDBOX/bin/rt" "$SANDBOX/home/.local/bin/rt"
 check "rt off PATH: falls back to ~/.local/bin/rt" "exit=0 out=" "$(run /usr/bin:/bin)"
-check "fallback rt got the verb" "argv=skills direct-only reapply" "$(sed -n 1p "$CALLS")"
+check "fallback rt got the verb" "argv=skills disable-model-invocation reapply" "$(sed -n 1p "$CALLS")"
 
-[ "$fails" -eq 0 ] && echo "all direct-only-reapply tests passed" || echo "$fails failure(s)"
+[ "$fails" -eq 0 ] && echo "all disable-model-invocation-reapply tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))
