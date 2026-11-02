@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { PackInfo } from "../packs.ts";
@@ -284,7 +284,7 @@ function stepNames(steps: { name: string }[]): string[] {
 }
 
 describe("syncPack", () => {
-  test("1: no-op ends the chain at check", async () => {
+  test("1: no-op ends the chain at check, then reapplies typed-only choices", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const calls: Call[] = [];
@@ -296,7 +296,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check", "direct-only"]);
     expect(report.ok).toBe(true);
     expect(report.restartNeeded).toBe(false);
     expect(calls.some((c) => c.args.includes("update"))).toBe(false);
@@ -1773,7 +1773,7 @@ describe("commit-pending", () => {
 
     expect(report.ok).toBe(true);
     expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "skipped" });
-    expect(stepNames(report.steps).at(-1)).toBe("check");
+    expect(stepNames(report.steps).at(-1)).toBe("direct-only");
     expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
   });
 
@@ -3224,5 +3224,94 @@ describe("hand-written skill failures", () => {
     expect(check.detail).toContain(BAD_YAML);
     expect(stepNames(report.steps)).not.toContain("bump");
     expect(readVersion(engine.dir)).toBe("1.2.3");
+  });
+});
+
+describe("direct-only choices after a sync", () => {
+  const KEY = "widgets@market";
+  const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
+
+  function installedSkill(): { config: string; file: string } {
+    const config = tmp("rt-sync-do-config-");
+    const dir = join(config, "plugins", "cache", "market", "widgets", "1.0.0");
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    mkdirSync(join(dir, "skills", "alpha"), { recursive: true });
+    const file = join(dir, "skills", "alpha", "SKILL.md");
+    writeFileSync(file, plain);
+    return { config, file };
+  }
+
+  function world(pack: PackInfo, engine: PackInfo, installedPack: string): SyncDeps {
+    return makeDeps(pack, engine, { calls: [], installed: { [pluginId(pack)]: installedPack, [pluginId(engine)]: "2.0.0" }, drift: [false] });
+  }
+
+  test("a sync that updates the pack puts the line on the new version and reports the step as ran", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    const deps = { ...world(pack, engine, "0.9.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "direct-only")!.status).toBe("ran");
+    expect(readFileSync(file, "utf8")).toContain("# rt: direct-only");
+    expect(stepNames(report.steps).indexOf("direct-only")).toBe(stepNames(report.steps).indexOf("verify-installed") + 1);
+  });
+
+  test("an already-current pack still gets its choices reapplied", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "direct-only")!.status).toBe("ran");
+    expect(readFileSync(file, "utf8")).toContain("# rt: direct-only");
+  });
+
+  test("with no choices the step is skipped and nothing is touched", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    const deps = { ...world(pack, engine, "0.9.0"), directOnly: { configDirs: () => [config], choices: () => ({}) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "direct-only")!.status).toBe("skipped");
+    expect(readFileSync(file, "utf8")).toBe(plain);
+  });
+
+  test("a reconcile warning lands in the report and the run still succeeds", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    chmodSync(file, 0o444);
+    const deps = { ...world(pack, engine, "0.9.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(report.warnings.some((w) => w.includes("read-only"))).toBe(true);
+    expect(stepNames(report.steps)).toContain("cswap-sweep");
+  });
+
+  test("a step that throws becomes a warning and never fails the run", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = {
+      ...world(pack, engine, "0.9.0"),
+      directOnly: {
+        configDirs: (): string[] => {
+          throw new Error("boom");
+        },
+        choices: () => ({ [KEY]: ["alpha"] }),
+      },
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(report.warnings.some((w) => w.includes("boom"))).toBe(true);
   });
 });

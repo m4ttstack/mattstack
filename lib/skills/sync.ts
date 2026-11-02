@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
@@ -11,6 +12,7 @@ import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
 import { mattstackFloor } from "../setup/mattstack-floor.ts";
 import { createRealProbes } from "../setup/probes.ts";
+import { directOnlyConfigDirs, readDirectOnlyChoices, reconcileDirectOnly } from "./direct-only.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -52,6 +54,8 @@ export type SyncDeps = {
   engineFloor?: () => Promise<Floor>;
   /** This Mac's forge username in an org, which the org's roster lists it by. */
   forgeUsername?: (org: string) => string | null;
+  /** Where the member's typed-only choices and the config folders they apply to come from. */
+  directOnly?: { configDirs: () => string[]; choices: () => Record<string, string[]> };
 };
 
 /**
@@ -518,6 +522,24 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     return res.code === 0 ? res.stdout.trim() : pack.dir;
   };
 
+  /** Reconcile failures warn; a plugin update replaces the installed copy, so the choices go back on after one. */
+  const reapplyDirectOnly = async (): Promise<void> => {
+    const outcome = await tryStep(async () => {
+      const choices = (deps.directOnly?.choices ?? readDirectOnlyChoices)();
+      if (Object.keys(choices).length === 0) return skipped("you have not chosen any skills to keep typed-only");
+      const configDirs = (deps.directOnly?.configDirs ?? (() => directOnlyConfigDirs(process.env, homedir())))();
+      const result = reconcileDirectOnly({ configDirs, choices });
+      warnings.push(...result.warnings);
+      return ran(result.changed.length === 0 ? "already in place" : `reapplied to ${result.changed.length} ${result.changed.length === 1 ? "skill" : "skills"}`);
+    });
+    if (outcome.status === "failed") {
+      warnings.push(`Could not reapply your typed-only skills: ${outcome.detail}`);
+      steps.push({ name: "direct-only", status: "skipped", detail: "could not run, see the warnings" });
+      return;
+    }
+    steps.push({ name: "direct-only", ...outcome });
+  };
+
   const finish = (): SyncReport => ({
     ok: !steps.some(stops),
     pack: pack.name,
@@ -826,7 +848,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   // installed cache is keyed by version, so it must still bump, push and update.
   const rebuild = drift || published;
   const noOp = !rebuild && installedPackBefore === packSourceVersion;
-  if (noOp) return finish();
+  if (noOp) {
+    await reapplyDirectOnly();
+    return finish();
+  }
   const mine = !rebuild || mayWritePack;
 
   const bump = await tryStep(async () => {
@@ -1111,6 +1136,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   });
   steps.push({ name: "verify-installed", ...verifyInstalled });
   if (stops(verifyInstalled)) return finish();
+
+  await reapplyDirectOnly();
 
   const cswapSweep = await tryStep(async () => {
     if (!existsSync(deps.cswapSessionsDir)) return skipped(`no cswap sessions folder at ${deps.cswapSessionsDir}`);

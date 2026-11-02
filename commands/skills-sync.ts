@@ -125,6 +125,7 @@ const STEP_TITLE: Record<string, string> = {
   "commit-push": "Commit and push",
   "update-pack": "Update the installed pack",
   "verify-installed": "Verify the installed copy",
+  "direct-only": "Keep your typed-only skills",
   "cswap-sweep": "Check each account's plugin link",
 };
 

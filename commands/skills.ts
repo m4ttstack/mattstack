@@ -69,9 +69,8 @@ import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skil
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
-import { directOnlyConfigDirs, reconcileDirectOnly } from "../lib/skills/direct-only.ts";
+import { DIRECT_ONLY_SETTING, directOnlyConfigDirs, readDirectOnlyChoices, reconcileDirectOnly } from "../lib/skills/direct-only.ts";
 import { sourceSetsDirectOnly } from "../lib/skills/direct-only-line.ts";
-import { getSetting } from "../lib/settings/resolve.ts";
 import { userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
@@ -3758,18 +3757,6 @@ export async function skillsSurface(args: string[]): Promise<void> {
 }
 
 // ─── rt skills direct-only -- a member's own "only when I type it" choices, kept in the user setting and applied to the installed copy ──
-
-const DIRECT_ONLY_SETTING = "rt.skills.directOnly";
-
-function readDirectOnlyChoices(): Record<string, string[]> {
-  const value = getSetting<unknown>(DIRECT_ONLY_SETTING).value;
-  const choices: Record<string, string[]> = {};
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return choices;
-  for (const [key, names] of Object.entries(value)) {
-    if (Array.isArray(names)) choices[key] = names.filter((n): n is string => typeof n === "string");
-  }
-  return choices;
-}
 
 /** The `<plugin>@<marketplace>` the pack installs as, or null for a pack Claude Code never installs. */
 function directOnlyPlugin(packDir: string, flags: SurfaceFlags, discovered?: PackInfo): { key: string } | null {

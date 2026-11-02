@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { basename, dirname, join } from "path";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { userSettingsPath } from "../../rt-paths.ts";
@@ -264,6 +264,51 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "enable"]);
       expect(detailOf(outcome)).not.toContain("awaiting your approval");
       expect(detailOf(outcome)).not.toContain("gadgets@acme");
+    });
+
+    describe("typed-only skills", () => {
+      const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
+
+      function installedSkill(): string {
+        const dir = join(home, ".claude", "plugins", "cache", "market", "widgets", "1.0.0");
+        mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+        mkdirSync(join(dir, "skills", "alpha"), { recursive: true });
+        const file = join(dir, "skills", "alpha", "SKILL.md");
+        writeFileSync(file, plain);
+        return file;
+      }
+
+      function claudeProbes() {
+        return fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin" },
+          exec: async (argv) => (argv[2] === "list" ? ok("[]") : ok("")),
+        });
+      }
+
+      test("the line is back on the installed skill after the plugin step", async () => {
+        const file = installedSkill();
+        setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
+        const { ctx } = makeCtx(claudeProbes());
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(readFileSync(file, "utf8")).toContain("# rt: direct-only");
+      });
+
+      test("a reconcile warning is logged and the step still returns done", async () => {
+        const file = installedSkill();
+        chmodSync(file, 0o444);
+        setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
+        const { ctx, logs } = makeCtx(claudeProbes());
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(logs.some((l) => l.id === "plugins.install" && l.line.includes("read-only"))).toBe(true);
+      });
     });
 
     describe("engine floor", () => {

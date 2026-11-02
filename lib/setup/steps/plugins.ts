@@ -45,6 +45,7 @@ import { mattstackFloor } from "../mattstack-floor.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
+import { directOnlyConfigDirs, readDirectOnlyChoices, reconcileDirectOnly } from "../../skills/direct-only.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
 
@@ -434,9 +435,22 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
+  reapplyDirectOnly(ctx);
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
   return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${pendingNote}${heldNote}` };
+}
+
+/** A plugin update replaces the installed copy, so the member's typed-only choices go back on; a failure here only warns. */
+function reapplyDirectOnly(ctx: ApplyContext): void {
+  try {
+    const choices = readDirectOnlyChoices();
+    if (Object.keys(choices).length === 0) return;
+    const { warnings } = reconcileDirectOnly({ configDirs: directOnlyConfigDirs(ctx.p.env, ctx.p.home), choices });
+    for (const warning of warnings) ctx.log("plugins.install", `typed-only skills: ${warning}`);
+  } catch (err) {
+    ctx.log("plugins.install", `typed-only skills: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /** The plugins.install step body — also `rt setup pack`'s first phase, so it lives under one name rather than two copies of the same try/catch. */

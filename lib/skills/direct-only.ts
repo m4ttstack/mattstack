@@ -3,6 +3,19 @@ import { basename, dirname, join, sep } from "path";
 import { compareVersions } from "./installed-plugins.ts";
 import { addDirectOnly, DIRECT_ONLY_MARK, directOnlyKey, removeDirectOnly } from "./direct-only-line.ts";
 import { registeredSkillRoots } from "./skill-roots.ts";
+import { getSetting } from "../settings/resolve.ts";
+
+export const DIRECT_ONLY_SETTING = "rt.skills.directOnly";
+
+export function readDirectOnlyChoices(): Record<string, string[]> {
+  const value = getSetting<unknown>(DIRECT_ONLY_SETTING).value;
+  const choices: Record<string, string[]> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return choices;
+  for (const [key, names] of Object.entries(value)) {
+    if (Array.isArray(names)) choices[key] = names.filter((n): n is string => typeof n === "string");
+  }
+  return choices;
+}
 
 export interface ReconcileResult {
   changed: string[];
