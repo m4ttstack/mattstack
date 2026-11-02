@@ -321,6 +321,17 @@ describe("withUserBinDirsOnPath", () => {
     expect(withUserBinDirsOnPath({ PATH: "/usr/bin:/home/x/.local/bin" }, "/home/x").PATH).toBe("/usr/bin:/home/x/.local/bin:/opt/homebrew/bin:/usr/local/bin");
   });
 
+  test("empty PATH entries, which mean the working directory, stay where they were", () => {
+    expect(withUserBinDirsOnPath({ PATH: ":/usr/bin" }, "/home/x").PATH).toBe("/home/x/.local/bin::/usr/bin:/opt/homebrew/bin:/usr/local/bin");
+    expect(withUserBinDirsOnPath({ PATH: "/usr/bin::/bin" }, "/home/x").PATH).toBe("/home/x/.local/bin:/usr/bin::/bin:/opt/homebrew/bin:/usr/local/bin");
+    expect(withUserBinDirsOnPath({ PATH: "/usr/bin:" }, "/home/x").PATH).toBe("/home/x/.local/bin:/usr/bin::/opt/homebrew/bin:/usr/local/bin");
+  });
+
+  test("an empty or unset PATH gains no working-directory entry", () => {
+    expect(withUserBinDirsOnPath({ PATH: "" }, "/home/x").PATH).toBe("/home/x/.local/bin:/opt/homebrew/bin:/usr/local/bin");
+    expect(withUserBinDirsOnPath({}, "/home/x").PATH).toBe("/home/x/.local/bin:/opt/homebrew/bin:/usr/local/bin");
+  });
+
   test("a real probe child sees ~/.local/bin first on its PATH", async () => {
     const res = await createRealProbes().exec(["/bin/sh", "-c", "printf %s \"$PATH\""]);
     expect(res.stdout.split(":")[0]).toBe(join(process.env.HOME ?? "", ".local", "bin"));

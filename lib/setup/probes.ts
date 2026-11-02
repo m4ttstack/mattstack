@@ -241,9 +241,10 @@ export function withWellKnownBinFallback(argv: string[], opts: { home: string; p
  */
 export function withUserBinDirsOnPath(env: Record<string, string>, home: string): Record<string, string> {
   const local = join(home, ".local", "bin");
-  const current = (env.PATH ?? "").split(":").filter((dir) => dir.length > 0);
+  // An empty entry means the working directory, so the caller's entries pass through untouched.
+  const current = env.PATH ? env.PATH.split(":") : [];
   const dirs = current.includes(local) ? current : [local, ...current];
-  return { ...env, PATH: [...new Set([...dirs, ...wellKnownBinDirs(home)])].join(":") };
+  return { ...env, PATH: [...dirs, ...wellKnownBinDirs(home).filter((dir) => !dirs.includes(dir))].join(":") };
 }
 
 function realExec(argv: string[], opts?: ExecOpts & { onStderr?: (chunk: string) => void }): Promise<ExecResult> {
