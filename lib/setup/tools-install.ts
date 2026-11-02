@@ -355,10 +355,12 @@ async function setupFastBrowser(p: Probes, seams: ToolsInstallSeams, marketplace
   return { ok: true, detail: "Fast Browser is set up" };
 }
 
-async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult> {
+async function setupHerdr(p: Probes, seams: ToolsInstallSeams, configDirs: string[]): Promise<SetupResult> {
+  // A bare name could land on the rt wrapper the resolver just skipped.
+  const herdr = seams.resolveTool(p, "herdr").exec ?? ["herdr"];
   const results: { dir: string; ok: boolean; detail: string }[] = [];
   for (const dir of configDirs) {
-    const res = await p.exec(["herdr", "integration", "install", "claude"], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: INSTALL_TIMEOUT_MS });
+    const res = await p.exec([...herdr, "integration", "install", "claude"], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: INSTALL_TIMEOUT_MS });
     if (res.code === 124) results.push({ dir, ok: false, detail: "timed out" });
     else if (res.code !== 0) results.push({ dir, ok: false, detail: `exit ${res.code}` });
     else results.push({ dir, ok: true, detail: "ok" });
@@ -408,7 +410,7 @@ async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: 
 
 export async function setupTool(p: Probes, tool: string, opts: { configDirs: string[]; marketplaceSource?: string; onlyEditors?: readonly string[] }, seams: ToolsInstallSeams = REAL_SEAMS): Promise<SetupResult> {
   if (tool === "fast-browser") return setupFastBrowser(p, seams, opts.marketplaceSource);
-  if (tool === "herdr") return setupHerdr(p, opts.configDirs);
+  if (tool === "herdr") return setupHerdr(p, seams, opts.configDirs);
   if (tool === "extension") return setupExtension(p, seams, opts.onlyEditors);
   throw new UserActionableError("unknown-tool-setup", `no setup routine for "${tool}"`);
 }

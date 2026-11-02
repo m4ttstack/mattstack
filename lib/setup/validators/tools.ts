@@ -110,10 +110,12 @@ function parseHerdrClaudeState(stdout: string): { known: boolean; installed: boo
   return { known: true, installed: state.toLowerCase().startsWith("current"), state };
 }
 
-async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
+async function herdrRow(p: Probes, opts: { hasBrew: boolean }, seams: ToolsSeams): Promise<Row> {
   const base = { id: "tool.herdr", kind: "tool" as const, title: "herdr", why: "Drives Herdr panes for remote-control and multi-agent workflows.", required: true };
 
-  const versionRes = await exec(p, ["herdr", "--version"]);
+  // The copy herdr.integration will run, so the row never reports on a different one.
+  const herdr = seams.resolveTool(p, "herdr").exec ?? ["herdr"];
+  const versionRes = await exec(p, [...herdr, "--version"]);
   if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr is not installed", action: provisionedInstallAction("herdr", opts.hasBrew) });
   if (versionRes.code === 124) return row({ ...base, status: "error", detail: "herdr did not answer in time" });
   if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})` });
@@ -123,7 +125,7 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
     return row({ ...base, status: "invalid", detail: /^[0-9]/.test(version) ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
   }
 
-  const integrationRes = await exec(p, ["herdr", "integration", "status"]);
+  const integrationRes = await exec(p, [...herdr, "integration", "status"]);
   if (integrationRes.code === 124) return row({ ...base, status: "error", detail: "herdr's integration check did not answer in time" });
   if (integrationRes.code !== 0) return row({ ...base, status: "error", detail: `Could not check herdr's Claude integration (exit ${integrationRes.code})` });
 
@@ -798,7 +800,7 @@ export async function toolRows(
   const fastBrowser = await probeFastBrowser(p, seams);
   const solo = opts.solo === true;
   const rows: Row[] = [
-    await herdrRow(p, opts),
+    await herdrRow(p, opts, seams),
     await claudeRow(p, opts),
     fastBrowserRow(fastBrowser, solo),
     fastBrowserExtensionRow(p, fastBrowser, solo),

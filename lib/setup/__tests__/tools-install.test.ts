@@ -424,6 +424,13 @@ describe("setupTool — herdr", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("runs the resolved copy, not a bare name", async () => {
+    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, resolveTool: (_p, tool) => ({ ...noopResolution(tool), exec: ["/opt/homebrew/bin/herdr"] }) };
+    const p = fakeProbes({ exec: () => ok() });
+    await setupTool(p, "herdr", { configDirs: ["/a/.claude"] }, seams);
+    expect(p.calls.exec).toEqual([["/opt/homebrew/bin/herdr", "integration", "install", "claude"]]);
+  });
+
   test("one dir fails -> ok:false, other dir's success still reported honestly", async () => {
     const exec: ExecScript = (argv, opts) => {
       if (opts?.env?.CLAUDE_CONFIG_DIR === "/b/.claude") return { code: 1, stdout: "", stderr: "boom" };
