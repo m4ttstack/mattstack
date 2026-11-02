@@ -73,6 +73,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/team-names.ts": { count: 1, reason: "checks named team folders exist before an org roster write" },
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },
     "lib/home/init-exec.ts": { count: 1, reason: "assertNotRealStoreInTest guard before home init seeds the user store" },
+    "lib/home/restore.ts": { count: 1, reason: "existence probe for this Mac's own hardware-id profile before restore retries init with it" },
     "lib/team/add.ts": { count: 1, reason: "bootstraps a new team store through Probes after admin authorization; existing org roles are written through setSetting" },
     "lib/team/create.ts": { count: 2, reason: "scaffolds the org and first team stores; creator edits and the isolation guard use orgStoreFile" },
     "lib/setup/team-settings.ts": { count: 3, reason: "discovers org clones, reads injected HOME user host confirmation for trusted forge tokens and creation links, and reads an unconverted clone's declared forge through Probes" },
