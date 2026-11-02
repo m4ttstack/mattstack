@@ -270,12 +270,6 @@ interface SurfaceGridRowProps {
 const MODEL_INVOCATION_INFO =
   'Can only be invoked by typing the skill call directly. Agents will not auto-discover this skill, or be able to invoke it themselves.';
 
-/** Mantine's `Menu.Item` sets `role="menuitem"` after spreading its props, so
-    a `role` prop never lands; only the merged ref can reach the element. */
-const asMenuCheckbox = (item: HTMLElement | null) => {
-  item?.setAttribute('role', 'menuitemcheckbox');
-};
-
 /** The second line of a row with model invocation disabled. */
 function ModelInvocationNote({ locked }: { locked: boolean }) {
   return (
@@ -332,28 +326,31 @@ function ModelInvocationMenu({
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu.Item
-          ref={asMenuCheckbox}
-          aria-checked={state !== 'off'}
+        <Menu.CheckboxItem
+          checked={state !== 'off'}
           disabled={state === 'locked'}
-          leftSection={
-            <span className={legendClasses.menuSlot} data-testid="dmi-slot">
-              {state === 'on' && (
-                <span data-testid="dmi-check">
-                  <Icon name="check" size={14} color="var(--tk-text-accent)" />
-                </span>
-              )}
-              {state === 'locked' && (
-                <span data-testid="dmi-lock">
-                  <Icon name="lock" size={14} />
-                </span>
-              )}
-            </span>
+          closeMenuOnClick
+          checkIcon={
+            state === 'locked' ? (
+              <Icon
+                name="lock"
+                size={12}
+                color="var(--tk-text-3)"
+                data-testid="dmi-lock"
+              />
+            ) : (
+              <Icon
+                name="check"
+                size={12}
+                color="var(--tk-text-accent)"
+                data-testid="dmi-check"
+              />
+            )
           }
-          onClick={() => onSet(name, state === 'off')}
+          onChange={on => onSet(name, on)}
         >
           Disable model invocation
-        </Menu.Item>
+        </Menu.CheckboxItem>
       </Menu.Dropdown>
     </Menu>
   );

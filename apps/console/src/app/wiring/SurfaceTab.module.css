@@ -135,13 +135,6 @@
   cursor: help;
 }
 
-.menuSlot {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  color: var(--tk-text-3);
-}
-
 .rowEdit {
   opacity: 0;
   transition: opacity 120ms ease;

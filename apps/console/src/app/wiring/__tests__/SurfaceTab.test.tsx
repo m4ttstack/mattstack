@@ -840,7 +840,9 @@ describe('SurfaceTab: disable model invocation', () => {
   it('an off row keeps an empty check slot', async () => {
     await renderRows();
     const item = await openMenu('deploy');
-    expect(within(item).getByTestId('dmi-slot')).toBeInTheDocument();
+    expect(
+      item.querySelector('.mantine-Menu-itemIndicator')
+    ).toBeEmptyDOMElement();
     expect(within(item).queryByTestId('dmi-check')).toBeNull();
     expect(within(item).queryByTestId('dmi-lock')).toBeNull();
   });
