@@ -192,22 +192,7 @@ ax_click() {  # <axid>
 # Picks one option of a segmented control by its wording: the control carries
 # the id, its options only their names.
 ax_pick_segment() {  # <axid> <option name>
-  local id nm; id=$(ax_esc "$1"); nm=$(ax_esc "$2")
-  ax_osa "$AX_WALK_AS
-    tell application \"System Events\" to tell process \"$AX_APP\"
-      set frontmost to true
-      set r to my walk(window 1, \"$id\")
-      if r is missing value then error \"axid not found: $id\"
-      repeat with c in UI elements of r
-        try
-          if (name of c as text) is \"$nm\" or (description of c as text) is \"$nm\" or (title of c as text) is \"$nm\" then
-            click c
-            return
-          end if
-        end try
-      end repeat
-      error \"no option $nm in $id\"
-    end tell" >/dev/null || return 1
+  ax_button pick "$1" "$2" >/dev/null || return 1
   ax_log "picked $2 in $1"
 }
 

@@ -23,8 +23,7 @@ S="$GUEST_RUN/scripts"; mkdir -p "$S"
 ax_osa() { printf '%s' "$1" > "$S/$OUT.applescript"; return 1; }
 OUT=click; ax_click_raw x || true
 OUT=status; ax_fast_status x || true
-OUT=segment; ax_pick_segment x GitHub || true
-for OUT in click status segment; do
+for OUT in click status; do
   check "$OUT AppleScript compiles" 'osacompile -o "$S/$OUT.scpt" "$S/$OUT.applescript" 2>/dev/null'
 done
 check "the click script brings the app to the front first" 'grep -q "set frontmost to true" "$S/click.applescript"'

@@ -491,7 +491,9 @@ CLAUDE_STANDIN_ENV=""; CLAUDE_STANDIN_NOTE=""
 if [ "${VM_CLAUDE_STANDIN:-0}" = 1 ]; then
   CLAUDE_STANDIN_ENV="ANTHROPIC_API_KEY=vm-placeholder"
   CLAUDE_STANDIN_NOTE="Claude sign-in NOT exercised (VM_CLAUDE_STANDIN placeholder key)"
-  LAUNCH_ARGS="$LAUNCH_ARGS --env $CLAUDE_STANDIN_ENV"
+  # The session's own environment, since open --env never reached the app, and every relaunch keeps it.
+  vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "u=\$(id -u '$VM_TESTER_USER'); sudo launchctl asuser \$u sudo -u '$VM_TESTER_USER' launchctl setenv ANTHROPIC_API_KEY vm-placeholder" >>"$VM_RUN_DIR/logs/install.log" 2>&1 \
+    || vm_warn "could not set the Claude stand-in in the guest session"
 fi
 vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/install-app.sh launch $LAUNCH_ARGS" >>"$VM_RUN_DIR/logs/install.log" 2>&1
 rc=$?
