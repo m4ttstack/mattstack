@@ -15,7 +15,7 @@ import { fakeProbes } from "./fakes.ts";
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) => ({ status, body: JSON.stringify(body), headers });
 
 describe("requestDeviceCode", () => {
-  test("posts the client id and repo scope and maps the reply", async () => {
+  test("posts the client id with the repo and read:org scopes and maps the reply", async () => {
     const p = fakeProbes({
       now: new Date("2026-01-01T00:00:00Z"),
       fetch: async () => json(200, { device_code: "dc", user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", interval: 5, expires_in: 900 }),
@@ -25,7 +25,7 @@ describe("requestDeviceCode", () => {
     const call = p.calls.fetchInits[0]!;
     expect(call.url).toBe("https://github.com/login/device/code");
     expect(call.init?.method).toBe("POST");
-    expect(call.init?.body).toBe("client_id=acme-client&scope=repo");
+    expect(call.init?.body).toBe("client_id=acme-client&scope=repo+read%3Aorg");
     expect(call.init?.headers?.Accept).toBe("application/json");
     expect(call.init?.timeoutMs).toBe(15000);
   });

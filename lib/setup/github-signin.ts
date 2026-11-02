@@ -61,7 +61,7 @@ export async function requestDeviceCode(p: Pick<Probes, "fetch" | "now">, client
   const res = await p.fetch(DEVICE_CODE_URL, {
     method: "POST",
     headers: FORM_HEADERS,
-    body: form({ client_id: clientId, scope: "repo" }),
+    body: form({ client_id: clientId, scope: "repo read:org" }),
     timeoutMs: TIMEOUT_MS,
   });
   const j = parseJson(res.body);
