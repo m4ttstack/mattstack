@@ -136,7 +136,10 @@ Facts a join run depends on:
   `CONNECT_WAIT_S` (default 900s) for the operator to sign in by hand in the
   guest window; a row it has no answer for (Slack, Linear, a team sign-in) is
   logged once and left. Continue still off at the bound fails, listing every
-  row and its state.
+  row and its state. `VM_CLAUDE_STANDIN=1` on the host sets a placeholder
+  `ANTHROPIC_API_KEY` in the guest's session, which `claude auth status` reads
+  as signed in, so an unattended run gets past Connect. The sign-in is then not
+  exercised, and the `screens` and `assert` rows say so.
 - The running bar (P6) runs by itself for up to `RUN_WAIT_S` (default
   1800s). An admin dialog there is logged as a FINDING and answered; a
   paused run (P6b) opens Show log for `07-paused-log` and fails. Fast setup
