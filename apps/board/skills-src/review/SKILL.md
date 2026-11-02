@@ -730,6 +730,11 @@ fallback's options, and the sha goes in the review-round line. It never
 presents posting gates or decides disposition; this wrapper opens the
 one event gate and later hands it the human's answer to post.
 
+The domain skill runs inside this session, so its hand-back is where you
+pick up, in the same turn: walk on from `Domain review result?`. Nothing
+else wakes this pane, and the turn ends only at `End the turn: holding at
+gate <gateId> (review)`.
+
 A failure it reports (a bad MR link, a mismatched MR and ticket, a fetch
 failure) is `error` with its message.
 
