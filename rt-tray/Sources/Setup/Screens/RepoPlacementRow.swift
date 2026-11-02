@@ -66,6 +66,8 @@ struct RepoPlacementRow: View {
     @State private var shown: String
     /// The segment the last answer was given on: its failure belongs to that segment alone.
     @State private var answeredMode: String?
+    /// The fast block asks clone-or-checkout until rt says the row is answered, and again after Change.
+    @State private var asking: Bool
 
     init(row: PlanRow, action: RowAction, badge: NeedBadge? = nil, context: String? = nil, isChecking: Bool, error: String?,
          ids: RowIDs, shown: String? = nil, fast: Bool = false) {
@@ -74,6 +76,7 @@ struct RepoPlacementRow: View {
         let start = shown ?? action.mode ?? RepoPlacementState.clone
         _shown = State(initialValue: start)
         _answeredMode = State(initialValue: shown)
+        _asking = State(initialValue: shown == nil && action.answered == false)
     }
 
     private var onRecordedMode: Bool { shown == action.mode }
@@ -91,41 +94,94 @@ struct RepoPlacementRow: View {
         if fast { fastBody } else { checklistBody }
     }
 
-    /// P5b's repo block: name and segment, the path field and its button, then the note.
+    /// P5b's repo block (setup.pen QA1, QA2): the clone-or-checkout question alone until it has an answer, then only
+    /// what that answer needs. Finder opens only from its own button, never from picking an answer.
     private var fastBody: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(action.repo ?? row.title).font(.system(size: 13, weight: FastTheme.weight(css: .semibold))).foregroundColor(FastTheme.textPrimary)
-                    .lineLimit(1).layoutPriority(1)
-                if !row.why.isEmpty {
-                    Text(row.why).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer(minLength: 8)
-                if isChecking { FastSpinner() }
-                FastSegmented(options: [(id: RepoPlacementState.checkout, label: "Current checkout"),
-                                        (id: RepoPlacementState.clone, label: "New checkout")],
-                              selection: segment, size: .small)
-                    .disabled(isChecking)
-                    // Scripts read the segment by a radio group's role, which the drawn buttons do not have.
-                    .accessibilityRepresentation {
-                        Picker("Where this repo lives", selection: segment) {
-                            Text("Current checkout").tag(RepoPlacementState.checkout)
-                            Text("New checkout").tag(RepoPlacementState.clone)
-                        }
-                        .pickerStyle(.segmented)
-                        .disabled(isChecking)
-                    }
-                    .accessibilityIdentifier(ids.segment(row.id))
+        VStack(alignment: .leading, spacing: asking ? 8 : 6) {
+            fastHead
+            if asking {
+                choiceTiles
+                if lastError != nil { fastNote }
+            } else {
+                answerControls
+                fastNote
             }
+        }
+        // Behind the block, so the 1-point probe adds no stack gap under the note.
+        .background(alignment: .topLeading) { RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id)) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(ids.row(row.id))
+        .onChange(of: action.mode) { _, mode in if let mode { shown = mode } }
+        .onChange(of: action.answered) { _, answered in if answered == true { asking = false } }
+    }
+
+    private var fastHead: some View {
+        HStack(spacing: 8) {
+            Text(action.repo ?? row.title).font(.system(size: 13, weight: FastTheme.weight(css: .semibold))).foregroundColor(FastTheme.textPrimary)
+                .lineLimit(1).layoutPriority(1)
+            if !row.why.isEmpty {
+                Text(row.why).font(.system(size: 11)).foregroundColor(FastTheme.textTertiary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            if isChecking { FastSpinner() }
+            if !asking {
+                Text(shown == RepoPlacementState.clone ? Self.cloneAnswer : Self.checkoutAnswer)
+                    .font(.system(size: 11, weight: FastTheme.weight(css: .medium))).foregroundColor(FastTheme.textSecondary)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(FastTheme.divider))
+                    .fixedSize()
+                Button("Change") { asking = true }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: FastTheme.weight(css: .medium))).foregroundColor(FastTheme.accent)
+                    .fixedSize()
+                    .disabled(isChecking)
+                    .accessibilityIdentifier(ids.segment(row.id) + ".change")
+            }
+        }
+    }
+
+    static let cloneAnswer = "Clone fresh"
+    static let checkoutAnswer = "Already on this Mac"
+
+    private var choiceTiles: some View {
+        HStack(spacing: 8) {
+            Button { chooseClone() } label: {
+                RepoChoiceTile(symbol: "arrow.down.circle", title: "Clone it fresh",
+                               detail: action.clonePath.map { "Into \(FormRowView.displayPath($0))" } ?? "Pick where it goes")
+            }
+            .accessibilityIdentifier(ids.segment(row.id) + ".clone")
+            Button { chooseCheckout() } label: {
+                RepoChoiceTile(symbol: "folder", title: "Already on this Mac", detail: "Point to your checkout")
+            }
+            .accessibilityIdentifier(ids.segment(row.id) + ".checkout")
+        }
+        .buttonStyle(RepoChoiceTileStyle())
+        .disabled(isChecking)
+    }
+
+    @ViewBuilder private var answerControls: some View {
+        let path = RepoPlacementState.path(mode: shown, action: action)
+        if shown == RepoPlacementState.checkout, path == nil {
+            Button { pick(RepoPlacementState.checkout) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder").font(.system(size: 11))
+                    Text("Choose its folder…")
+                }
+            }
+            .buttonStyle(FastSecondaryButtonStyle(shape: .slim))
+            .fixedSize()
+            .disabled(isChecking)
+            .accessibilityIdentifier(ids.action(row.id))
+        } else {
             HStack(spacing: 8) {
-                FastValueField(value: RepoPlacementState.path(mode: shown, action: action).map(FormRowView.displayPath),
-                               placeholder: "No checkout chosen yet", size: .slim)
+                FastValueField(value: path.map(FormRowView.displayPath), placeholder: "No checkout chosen yet", size: .slim)
                 Button(buttonLabel) { pick(shown) }
                     .buttonStyle(FastSecondaryButtonStyle(shape: .slim))
                     .fixedSize()
                     .disabled(isChecking)
                     .accessibilityIdentifier(ids.action(row.id))
-                if let oneClick = action.oneClick {
+                // Before an answer rt's one click is "Clone it fresh"; after one it is a Retry.
+                if action.answered != false, let oneClick = action.oneClick {
                     Button(oneClick.label) { record(oneClick.mode, oneClick.path) }
                         .buttonStyle(FastPrimaryButtonStyle(size: .small, shape: .slim))
                         .fixedSize()
@@ -133,13 +189,19 @@ struct RepoPlacementRow: View {
                         .accessibilityIdentifier(ids.oneClick(row.id))
                 }
             }
-            fastNote
         }
-        // Behind the block, so the 1-point probe adds no stack gap under the note.
-        .background(alignment: .topLeading) { RowStatusProbe(row: row, isChecking: isChecking, id: ids.status(row.id)) }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(ids.row(row.id))
-        .onChange(of: action.mode) { _, mode in if let mode { shown = mode } }
+    }
+
+    private func chooseClone() {
+        asking = false
+        if let path = action.clonePath { record(RepoPlacementState.clone, path) } else { pick(RepoPlacementState.clone) }
+    }
+
+    /// A checkout rt already found is the answer; otherwise the folder button waits for the member's click.
+    private func chooseCheckout() {
+        asking = false
+        shown = RepoPlacementState.checkout
+        if let path = action.checkoutPath { record(RepoPlacementState.checkout, path) }
     }
 
     /// rt's note in its style, with the board line joined on when the checkout is found (P5b's
@@ -291,5 +353,54 @@ struct RepoPlacementRow: View {
         shown = mode
         answeredMode = mode
         answer?(row, mode, path)
+    }
+}
+
+/// One answer to "where does this repo live": a symbol, the answer and a line on what it means.
+private struct RepoChoiceTile: View {
+    let symbol: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 7) {
+                Image(systemName: symbol).font(.system(size: 12))
+                Text(title).font(.system(size: 12, weight: FastTheme.weight(css: .semibold)))
+            }
+            .foregroundColor(FastTheme.textPrimary)
+            Text(detail).font(.system(size: 11)).foregroundColor(FastTheme.textSecondary)
+                .lineLimit(1).truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 11)
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// The path cards' hover: the outline lifts and the fill brightens a touch; nothing reads as picked.
+private struct RepoChoiceTileStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RepoChoiceTileFrame(label: configuration.label, pressed: configuration.isPressed)
+    }
+}
+
+private struct RepoChoiceTileFrame<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    @State private var hovered = false
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let lifted = enabled && (hovered || pressed)
+        label
+            .background {
+                shape.fill(FastTheme.fieldFill)
+                if lifted { shape.fill(Color.white.opacity(0.03)) }
+            }
+            .overlay(shape.strokeBorder(lifted ? FastTheme.outlineHover : FastTheme.outline, lineWidth: 1))
+            .opacity(enabled ? 1 : 0.5)
+            .onHover { hovered = $0 }
     }
 }

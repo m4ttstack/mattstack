@@ -315,6 +315,8 @@ enum FastSetupSnapshot {
         return [
             ("this-mac", page([T.boardFound, T.widgetsClone, T.backupLocal], ready: true)),
             ("this-mac-as-mock", page([T.mockWidgetsFound, T.mockApiClone, T.backupLocal], ready: true)),
+            ("this-mac-unanswered", page([T.widgetsUnanswered, T.apiUnanswered, T.backupLocal], ready: false)),
+            ("this-mac-found-and-unanswered", page([T.boardFound, T.widgetsUnanswered, T.backupLocal], ready: false)),
             ("this-mac-remote", page([T.boardFound, T.widgetsClone, T.backupRemote, T.remoteTodo], ready: false)),
             ("this-mac-solo", page(team: nil, [Rows.cltInstalling, T.repoRoot, T.backupSolo], ready: false)),
             ("this-mac-repo-problem", page([T.boardFound, T.widgetsMoved, T.backupLocal], ready: false)),
@@ -656,6 +658,19 @@ enum FastSetupSnapshot {
                                                             mode: "clone", clonePath: "\(home)/code/acme-api",
                                                             note: "Cloned here when you click Set up this Mac", segmentRecords: true, awaitsRun: false,
                                                             labels: labels))
+        /// A new Mac: rt's clone path is only its default, so the row asks clone-or-checkout first.
+        static let widgetsUnanswered = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
+                                               state: .todo, detail: "rt clones it here when setup runs",
+                                               action: RowAction(type: .placeRepo, label: "Choose…", identity: "github.com/acme/widgets", repo: "widgets",
+                                                                 mode: "clone", clonePath: "\(home)/Documents/GitHub/widgets",
+                                                                 note: "rt clones it here when setup runs", segmentRecords: true, awaitsRun: false,
+                                                                 answered: false, labels: labels))
+        static let apiUnanswered = FormRow(id: "repos.place:github.com/acme/acme-api", title: "acme-api", subtext: "The board starts here",
+                                           state: .todo, detail: "rt clones it here when setup runs",
+                                           action: RowAction(type: .placeRepo, label: "Choose…", identity: "github.com/acme/acme-api", repo: "acme-api",
+                                                             mode: "clone", clonePath: "\(home)/Documents/GitHub/acme-api",
+                                                             note: "rt clones it here when setup runs", segmentRecords: true,
+                                                             board: "The board starts here", awaitsRun: false, answered: false, labels: labels))
         /// A recorded checkout that moved since: rt's problem is the row's detail and note.
         static let widgetsMoved = FormRow(id: "repos.place:github.com/acme/widgets", title: "widgets", subtext: "github.com/acme",
                                           state: .todo, detail: "~/old/widgets isn't a git checkout.",

@@ -612,6 +612,7 @@ function repoRow(): FormRow {
     segmentRecords: true,
     board: c.board,
     awaitsRun: recorded !== null,
+    answered: recorded !== null,
   };
   return formRow({ id: `repos.place:${BOARD_REPO}`, title: "widgets", subtext: c.board, state: recorded ? "done" : "todo", detail: note, action });
 }

@@ -187,14 +187,30 @@ function inferredRoots(): string[] {
   }
 }
 
-/** The index row, then direct children of the configured roots, the usual repo folders under home, and the folders already-indexed repos sit in. */
+/** Searched for a checkout only; `detectCandidate` keeps the shorter list, so where new clones go does not move. */
+const SCAN_ROOT_NAMES = [...CANDIDATE_ROOT_NAMES, "Developer", "Projects", "repos"];
+
+/** A folder that is a repo of its own, hidden, or a dependency tree holds no checkout worth a second level. */
+function scansDeeper(p: Pick<Probes, "readDir">, name: string, path: string): boolean {
+  return !name.startsWith(".") && name !== "node_modules" && !p.readDir(path).includes(".git");
+}
+
+/** The index row, then the configured roots, the usual repo folders under home and the folders already-indexed repos sit in, two levels down (`~/Documents/GitHub/acme/widgets`). */
 export async function findCheckout(p: Pick<Probes, "home" | "readFile" | "readDir">, identity: string, opts: { rootPaths: string[] }): Promise<string | null> {
   const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
   if (indexed && (await isReusableCloneOf(p, indexed, identity))) return indexed;
-  const roots = [...new Set([...opts.rootPaths, ...CANDIDATE_ROOT_NAMES.map((rel) => join(p.home, rel)), ...inferredRoots()])];
+  const roots = [...new Set([...opts.rootPaths, ...SCAN_ROOT_NAMES.map((rel) => join(p.home, rel)), ...inferredRoots()])];
+  const deeper: string[] = [];
   for (const root of roots) {
     for (const child of p.readDir(root)) {
       const candidate = join(root, child);
+      if (await isReusableCloneOf(p, candidate, identity)) return candidate;
+      if (scansDeeper(p, child, candidate)) deeper.push(candidate);
+    }
+  }
+  for (const folder of deeper) {
+    for (const child of p.readDir(folder)) {
+      const candidate = join(folder, child);
       if (await isReusableCloneOf(p, candidate, identity)) return candidate;
     }
   }

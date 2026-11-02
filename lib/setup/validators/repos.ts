@@ -50,6 +50,7 @@ interface RowState {
   oneClick: PlaceRepo["oneClick"];
   gated: boolean;
   awaitsRun: boolean;
+  answered: boolean;
 }
 
 export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: TeamSnapshot): Promise<Row[]> {
@@ -87,12 +88,12 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
     const base = repoBasename(identity);
     const clonePath = placement.mode === "clone" ? placement.path : cloneAlternative(identity, placement.path);
     const checkoutPath = placement.mode === "checkout" ? placement.path : null;
-    const shape = { mode: placement.mode, checkoutPath, clonePath, problem: null, oneClick: null, gated: false, awaitsRun: false };
+    const shape = { mode: placement.mode, checkoutPath, clonePath, problem: null, oneClick: null, gated: false, awaitsRun: false, answered: placement.source !== "default" };
     const indexed = await indexedCheckout(p, identity);
     const found = `Found your ${base} checkout`;
 
     if (deferred.includes(identity) && !indexed) {
-      const gated = { ...shape, status: "needs-you" as const, gated: true };
+      const gated = { ...shape, status: "needs-you" as const, gated: true, answered: placements[identity] !== undefined };
       const recorded = placements[identity];
       if (!recorded) {
         const note = "Choose where your repos go";
@@ -107,7 +108,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
     }
 
     // A recorded answer comes before the index, the order `repos.clone` follows.
-    if (placement.source !== "recorded" && indexed) return { ...shape, status: "ready", mode: "checkout", checkoutPath: indexed, clonePath: cloneAlternative(identity, indexed), note: found };
+    if (placement.source !== "recorded" && indexed) return { ...shape, status: "ready", mode: "checkout", checkoutPath: indexed, clonePath: cloneAlternative(identity, indexed), note: found, answered: true };
     if (placement.mode === "checkout") {
       const check = await checkCheckout(p, identity, placement.path, { tracked });
       if (check.ok) return { ...shape, status: "ready", note: found };
@@ -140,6 +141,7 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         segmentRecords: !installed,
         board: identity === boardRepo ? BOARD_LINE : null,
         awaitsRun: s.awaitsRun,
+        answered: s.answered,
       };
       return row({
         id: `${REPO_PLACE_ROW_PREFIX}${identity}`,

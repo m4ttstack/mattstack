@@ -664,7 +664,8 @@ export interface ThisMacInputs extends DrawnContext {
 /** An answer only the run is left to land is done here: Set up this Mac starts that run. */
 function placeRow(r: Row): FormRow {
   const place = r.action?.type === "place-repo" ? r.action : null;
-  const done = r.status === "ready" || place?.awaitsRun === true;
+  // A default clone path nobody picked is a question still open, though `rt setup apply` would take the default.
+  const done = (r.status === "ready" && place?.answered !== false) || place?.awaitsRun === true;
   return { id: r.id, title: r.title, subtext: place?.board ?? r.why, state: done ? "done" : "todo", detail: r.detail, action: r.action, waiting: null, watch: false, optional: false };
 }
 
