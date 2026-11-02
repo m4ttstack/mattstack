@@ -1,6 +1,7 @@
 #!/bin/sh
 # SessionStart hook: restore the disable-model-invocation lines an outside plugin update
-# removed, through `rt skills disable-model-invocation reapply`. Every path exits 0 and
+# removed and remove those the setting no longer names, through
+# `rt skills disable-model-invocation reapply`. Every path exits 0 and
 # prints nothing, since hook stdout becomes session context; an rt too old for
 # the verb exits 2 and is swallowed the same way.
 set -u
