@@ -113,8 +113,15 @@ function pick(win, id, want) {
     if (w === want) {
       pressEl(all[i], id + " option " + want);
       delay(0.5);
-      if (textAt(all[i], "AXValue") !== "1") throw new Error("option " + want + " in " + id + " did not take the press");
-      return;
+      // The press redraws the screen, so the old element no longer reads.
+      var now = options(find(win, id), [], 0);
+      for (var j = 0; j < now.length; j++) {
+        if (wordingAt(now[j]) !== want) continue;
+        var value = textAt(now[j], "AXValue");
+        if (value !== "1") throw new Error("option " + want + " in " + id + " did not take the press (value '" + value + "')");
+        return;
+      }
+      throw new Error("option " + want + " in " + id + " is gone after the press");
     }
   }
   throw new Error("no option " + want + " in " + id + "; options read: [" + seen.join(", ") + "]");
