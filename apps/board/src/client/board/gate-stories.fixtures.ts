@@ -817,6 +817,9 @@ export const respondPost: StoryGate = {
     // A second response to Renee: her first review commented.
     respond: { status: 'drafting', responseRound: 2 },
     respondOutcomes: { renee: ['comment', 'comment'] },
+    reviewerLatches: [
+      { reviewer: 'renee', discussionId: 'story-latch', requested: false },
+    ],
     gates: [
       {
         ...respondPlan.gate,
