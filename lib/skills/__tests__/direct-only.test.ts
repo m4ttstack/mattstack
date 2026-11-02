@@ -111,6 +111,17 @@ describe("reconcileDirectOnly", () => {
     expect(r).toEqual({ changed: [f], warnings: [] });
   });
 
+  test("two config dirs sharing one plugins folder give one warning", () => {
+    const a = join(tmp, "a");
+    const f = skill(versionDir(a), "skills/alpha", "just text\n");
+    const b = join(tmp, "b");
+    mkdirSync(b);
+    symlinkSync(join(a, "plugins"), join(b, "plugins"));
+    const r = reconcileDirectOnly({ configDirs: [a, b], choices: { [KEY]: ["alpha"] } });
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain(f);
+  });
+
   test("no frontmatter warns and names the file", () => {
     const config = join(tmp, "c");
     const f = skill(versionDir(config), "skills/alpha", "just text\n");
