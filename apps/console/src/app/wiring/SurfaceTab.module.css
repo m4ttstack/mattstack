@@ -90,6 +90,13 @@
   padding: 10px 16px 12px;
 }
 
+/* The shell's `sm` breakpoint: a row's contents do not fit half a phone. */
+@media (max-width: 48em) {
+  .groupRows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* A row's edit link and its wash wait for the pointer or keyboard focus;
    the wash is the panel's near-white, so an off switch keeps its contrast. */
 .row {
@@ -143,6 +150,13 @@
 /* Its menu sits in a portal, so the pointer leaves the row to reach it. */
 .rowEdit[data-expanded] {
   opacity: 1;
+}
+
+/* Nothing can hover on a touch screen, so nothing would ever reveal them. */
+@media (hover: none) {
+  .rowEdit {
+    opacity: 1;
+  }
 }
 
 @media (hover: hover) {
