@@ -60,7 +60,7 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
     expect(fda.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   }, 30_000);
 
-  test("setup apply --from verify streams plan, only the verify step, then done", async () => {
+  test("setup apply --from verify streams plan, only the verify step and the run-end apps restart, then done", async () => {
     const res = await run(["setup", "apply", "--json", "--non-interactive", "--team-of-one", "--from", "verify"]);
 
     const events = res.stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
@@ -70,13 +70,11 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
     expect(Array.isArray(events[0].steps)).toBe(true);
     expect(events[0].steps.some((s: any) => s.id === "verify")).toBe(true);
 
-    // `--from verify` resumes at the LAST contract step, so no other step
-    // gets a `step` event on this run — only ones before `--from` are
-    // skipped-without-an-event; a `step` event for anything else here would
-    // mean resumeStart resumed at the wrong index.
-    const stepEvents = events.filter((e) => e.event === "step");
-    expect(stepEvents.length).toBeGreaterThan(0);
-    expect(stepEvents.every((e) => e.id === "verify")).toBe(true);
+    // `--from verify` resumes at the last contract step before
+    // apps.restart, which ends every whole run; a `step` event for anything
+    // else would mean resumeStart resumed at the wrong index.
+    const stepIds = [...new Set(events.filter((e) => e.event === "step").map((e) => e.id))];
+    expect(stepIds).toEqual(["verify", "apps.restart"]);
 
     expect(events[events.length - 1]!.event).toBe("done");
   }, 45_000);
