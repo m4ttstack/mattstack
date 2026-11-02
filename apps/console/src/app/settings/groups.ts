@@ -146,7 +146,8 @@ export const GROUPS: Group[] = [
     match: key =>
       (/^(mattstack|setup|claude|skills|telemetry)\./.test(key) &&
         key !== 'mattstack.tracking') ||
-      key === 'rt.integrations',
+      key === 'rt.integrations' ||
+      key === 'rt.skills.directOnly',
   },
 ];
 

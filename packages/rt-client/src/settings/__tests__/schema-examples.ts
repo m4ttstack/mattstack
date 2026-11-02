@@ -436,4 +436,13 @@ export const EXAMPLES: Record<string, Example> = {
     ],
     layer: [{ port: 11009 }],
   },
+  "rt.skills.directOnly": {
+    good: [
+      {},
+      { "widgets@acme": ["work", "ship"] },
+    ],
+    bad: [
+      { value: { "widgets@acme": "work" }, path: ["widgets@acme"] },
+    ],
+  },
 };

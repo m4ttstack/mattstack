@@ -1836,6 +1836,28 @@
       "additionalProperties": {}
     }
   },
+  "rt.skills.directOnly": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "title": "Direct-only skills",
+      "description": "Skills Claude runs only when you type them, by pack.",
+      "labels": {
+        "key": "pack",
+        "value": "skills"
+      }
+    }
+  },
   "rt.sync": {
     "storeVersion": 1,
     "schema": {

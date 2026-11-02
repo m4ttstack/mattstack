@@ -1124,6 +1124,14 @@ const ROWS: readonly SettingDef[] = [
     merge: "replace",
     description: "Skill id that sets the voice for prose posted under your name (reviews, replies, PR descriptions). A team value is the default a member's user value overrides.",
   },
+  {
+    key: "rt.skills.directOnly",
+    type: "object",
+    scopes: ["user"],
+    default: {},
+    merge: "replace",
+    description: "Pack skills you want to run only when you type them, by pack (plugin@marketplace) to skill names. Claude no longer picks these on its own.",
+  },
 ];
 
 /** `org` goes after `team` so a key's first scope, which the apps group their settings pages by, does not change. */
