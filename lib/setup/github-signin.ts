@@ -5,7 +5,7 @@
 
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
-import { forgeTokenLookupReal, tokenOrNull } from "../team/forge-token.ts";
+import { forgeTokenLookupReal, tokenLookupRemoteForHost, tokenOrNull } from "../team/forge-token.ts";
 import type { Probes } from "./probes.ts";
 import { pidAlive } from "./update-lock.ts";
 
@@ -46,6 +46,16 @@ function form(fields: Record<string, string>): string {
 
 const FORM_HEADERS = { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" };
 
+/** Probes.fetch answers status 0 when the request never reached GitHub. */
+function unreachable(status: number): boolean {
+  return status === 0 || status >= 500;
+}
+
+function githubAnswered(cause: string | undefined, status: number): string {
+  if (cause !== undefined) return `GitHub answered: ${cause}`;
+  return status === 0 ? "rt couldn't reach GitHub" : `GitHub answered: HTTP ${status}`;
+}
+
 export async function requestDeviceCode(p: Pick<Probes, "fetch" | "now">, clientId: string = GITHUB_OAUTH_CLIENT_ID): Promise<DeviceCode> {
   if (!clientId) throw new UserActionableError("github-signin-unavailable", "GitHub sign-in isn't set up in this build");
   const res = await p.fetch(DEVICE_CODE_URL, {
@@ -56,8 +66,8 @@ export async function requestDeviceCode(p: Pick<Probes, "fetch" | "now">, client
   });
   const j = parseJson(res.body);
   if (res.status !== 200 || typeof j.device_code !== "string" || typeof j.user_code !== "string") {
-    const cause = typeof j.error === "string" ? j.error : `HTTP ${res.status}`;
-    throw new UserActionableError("github-signin-failed", "GitHub didn't start a sign-in", {}, { why: `GitHub answered: ${cause}` });
+    const cause = typeof j.error === "string" ? j.error : undefined;
+    throw new UserActionableError("github-signin-failed", "GitHub didn't start a sign-in", {}, { why: githubAnswered(cause, res.status) });
   }
   const expiresIn = typeof j.expires_in === "number" ? j.expires_in : 900;
   return {
@@ -90,11 +100,9 @@ export async function pollDeviceToken(p: Pick<Probes, "fetch">, deviceCode: stri
   }
 }
 
-const TOKEN_LOOKUP_REMOTE = "https://github.com/mattstack/identity";
-
 /** rt's own stored GitHub token: stored first, then staged. */
 export async function readStoredGitHubToken(p: Probes): Promise<string | null> {
-  return tokenOrNull(await forgeTokenLookupReal(p, TOKEN_LOOKUP_REMOTE));
+  return tokenOrNull(await forgeTokenLookupReal(p, tokenLookupRemoteForHost("github.com")));
 }
 
 /** The token `readToken` yields when GitHub says it can create repos; a team forge token without `repo` scope reads as null. */
@@ -103,16 +111,24 @@ export async function createCapableGitHubToken(p: Pick<Probes, "fetch">, readTok
   return stored !== null && (await githubLoginIfCanCreateRepos(p, stored)) !== null ? stored : null;
 }
 
-export async function githubLoginIfCanCreateRepos(p: Pick<Probes, "fetch">, token: string): Promise<string | null> {
+export type GitHubCreateAccess = { kind: "can"; login: string } | { kind: "cannot" } | { kind: "unreachable" };
+
+export async function githubCreateAccess(p: Pick<Probes, "fetch">, token: string): Promise<GitHubCreateAccess> {
   const res = await p.fetch(USER_URL, {
     headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
     timeoutMs: TIMEOUT_MS,
   });
-  if (res.status !== 200) return null;
+  if (unreachable(res.status)) return { kind: "unreachable" };
+  if (res.status !== 200) return { kind: "cannot" };
   const scopes = (res.headers["x-oauth-scopes"] ?? "").split(",").map((s) => s.trim());
-  if (!scopes.includes("repo")) return null;
+  if (!scopes.includes("repo")) return { kind: "cannot" };
   const login = parseJson(res.body).login;
-  return typeof login === "string" && login ? login : null;
+  return typeof login === "string" && login ? { kind: "can", login } : { kind: "cannot" };
+}
+
+export async function githubLoginIfCanCreateRepos(p: Pick<Probes, "fetch">, token: string): Promise<string | null> {
+  const access = await githubCreateAccess(p, token);
+  return access.kind === "can" ? access.login : null;
 }
 
 const CREATE_REPO_URL = "https://api.github.com/user/repos";
@@ -137,8 +153,8 @@ export async function createGitHubRepo(p: Pick<Probes, "fetch">, token: string, 
     const j = parseJson(res.body);
     if (res.status === 201 && typeof j.clone_url === "string") return j.clone_url;
     if (res.status === 422 && nameTaken(res.body)) continue;
-    const cause = typeof j.message === "string" ? j.message : `HTTP ${res.status}`;
-    throw new UserActionableError("github-create-failed", "GitHub didn't create your settings repo", {}, { why: `GitHub answered: ${cause}` });
+    const cause = typeof j.message === "string" ? j.message : undefined;
+    throw new UserActionableError("github-create-failed", "GitHub didn't create your settings repo", {}, { why: githubAnswered(cause, res.status) });
   }
   throw new UserActionableError("github-create-failed", "Could not find a free name for your settings repo");
 }

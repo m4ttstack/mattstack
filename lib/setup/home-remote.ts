@@ -10,7 +10,7 @@ import { linkPath } from "../deps/links.ts";
 import { gitWithToken } from "../team/git-credential.ts";
 import { hasUrlCredentials, withoutUrls } from "../team/redact.ts";
 import { warn } from "../ui/warn.ts";
-import { createCapableGitHubToken, createGitHubRepo, readStoredGitHubToken } from "./github-signin.ts";
+import { createGitHubRepo, githubCreateAccess, readStoredGitHubToken } from "./github-signin.ts";
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState, type HomeBackupChoice } from "./state.ts";
 import { homeGitDir } from "./home-paths.ts";
@@ -69,7 +69,11 @@ export async function setHomeRemote(
   let created = false;
   let pushToken: string | null = null;
   if (!url) {
-    const token = await createCapableGitHubToken(p, hooks.githubToken ?? (() => readStoredGitHubToken(p)));
+    const stored = await (hooks.githubToken ?? (() => readStoredGitHubToken(p)))();
+    const access = stored === null ? null : await githubCreateAccess(p, stored);
+    // gh would hit the same outage, and a failed gh create reads as a gh problem.
+    if (access?.kind === "unreachable") throw new UserActionableError("github-unreachable", "rt couldn't reach GitHub. Try again");
+    const token = access?.kind === "can" ? stored : null;
     if (token) {
       url = await createGitHubRepo(p, token, input.name);
       pushToken = token;

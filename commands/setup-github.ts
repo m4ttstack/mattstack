@@ -53,6 +53,7 @@ export interface WaiterInput {
 
 const DEFAULT_INTERVAL_SEC = 5;
 
+/** The child gets its stdin only if `start` returns normally after this: a `process.exit` before the pipe drains would cut it off. */
 function realSpawnWaiter(argv: string[], input: string): number | null {
   try {
     const child = spawn(argv[0]!, argv.slice(1), { detached: true, stdio: ["pipe", "ignore", "ignore"], env: childEnv() });

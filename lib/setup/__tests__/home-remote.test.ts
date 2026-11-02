@@ -58,7 +58,7 @@ describe("setHomeRemote", () => {
     const CLONE = "https://github.com/janedoe/mattstack-home.git";
     const created = { status: 201, body: JSON.stringify({ clone_url: CLONE }), headers: {} };
 
-    function setup(token: string | null, opts: { scopes?: string; rtLink?: boolean; helperFails?: boolean; createStatus?: number } = {}) {
+    function setup(token: string | null, opts: { scopes?: string; rtLink?: boolean; helperFails?: boolean; createStatus?: number; userStatus?: number } = {}) {
       const envs: Array<Record<string, string> | undefined> = [];
       const probes = fakeProbes({
         home: HOME,
@@ -66,7 +66,7 @@ describe("setHomeRemote", () => {
         files: opts.rtLink === false ? {} : { [RT_LINK]: "" },
         fetch: async (url) =>
           url === "https://api.github.com/user"
-            ? { status: 200, body: JSON.stringify({ login: "janedoe" }), headers: { "x-oauth-scopes": opts.scopes ?? "repo" } }
+            ? { status: opts.userStatus ?? 200, body: JSON.stringify({ login: "janedoe" }), headers: { "x-oauth-scopes": opts.scopes ?? "repo" } }
             : opts.createStatus === undefined
               ? created
               : { status: opts.createStatus, body: JSON.stringify({ message: "Bad credentials" }), headers: {} },
@@ -113,6 +113,22 @@ describe("setHomeRemote", () => {
       expect(probes.calls.exec.some((a) => a.slice(0, 3).join(" ") === "gh repo create")).toBe(true);
       expect(probes.calls.fetchInits.some((c) => c.url === "https://api.github.com/user/repos")).toBe(false);
       expect(probes.calls.exec.some((a) => a.includes("config"))).toBe(false);
+    });
+
+    test("a token GitHub refuses falls back to gh repo create", async () => {
+      const { probes, hooks } = setup("tok", { userStatus: 401 });
+      await setHomeRemote(probes, { create: true }, hooks);
+      expect(probes.calls.exec.some((a) => a.slice(0, 3).join(" ") === "gh repo create")).toBe(true);
+    });
+
+    test("when GitHub can't be reached it refuses and never runs gh", async () => {
+      for (const userStatus of [0, 503]) {
+        const { probes, hooks } = setup("tok", { userStatus });
+        const err = await refusal(() => setHomeRemote(probes, { create: true }, hooks));
+        expect(err.message).toBe("rt couldn't reach GitHub. Try again");
+        expect(probes.calls.exec.some((a) => a[0] === "gh")).toBe(false);
+        expect(probes.calls.exec.some((a) => a.includes("push"))).toBe(false);
+      }
     });
 
     test("with the rt link absent it sets no helper but the push still carries the token", async () => {

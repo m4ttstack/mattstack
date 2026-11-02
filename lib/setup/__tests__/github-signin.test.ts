@@ -3,6 +3,7 @@ import { UserActionableError } from "../../errors.ts";
 import {
   clearGitHubSignIn,
   createGitHubRepo,
+  githubCreateAccess,
   githubLoginIfCanCreateRepos,
   pollDeviceToken,
   readGitHubSignIn,
@@ -40,6 +41,12 @@ describe("requestDeviceCode", () => {
   test("throws on a non-200", async () => {
     const p = fakeProbes({ fetch: async () => json(500, {}) });
     await expect(requestDeviceCode(p, "acme-client")).rejects.toBeInstanceOf(UserActionableError);
+  });
+
+  test("an unreachable GitHub says so instead of HTTP 0", async () => {
+    const p = fakeProbes({ fetch: async () => json(0, {}) });
+    const err = await requestDeviceCode(p, "acme-client").catch((e) => e);
+    expect(err.why).toBe("rt couldn't reach GitHub");
   });
 
   test("keeps GitHub's error as the reason", async () => {
@@ -160,6 +167,18 @@ describe("sign-in record", () => {
   });
 });
 
+describe("githubCreateAccess", () => {
+  const access = (status: number, scopes = "repo") => githubCreateAccess(fakeProbes({ fetch: async () => json(status, { login: "janedoe" }, { "x-oauth-scopes": scopes }) }), "tok");
+
+  test("tells GitHub's no from not reaching GitHub", async () => {
+    expect(await access(200)).toEqual({ kind: "can", login: "janedoe" });
+    expect(await access(200, "read:org")).toEqual({ kind: "cannot" });
+    expect(await access(401)).toEqual({ kind: "cannot" });
+    expect(await access(0)).toEqual({ kind: "unreachable" });
+    expect(await access(502)).toEqual({ kind: "unreachable" });
+  });
+});
+
 describe("createGitHubRepo", () => {
   const created = (name: string) => json(201, { clone_url: `https://github.com/janedoe/${name}.git` });
   const taken = json(422, { message: "Repository creation failed.", errors: [{ resource: "Repository", code: "custom", field: "name", message: "name already exists on this account" }] });
@@ -194,6 +213,12 @@ describe("createGitHubRepo", () => {
     expect(err).toBeInstanceOf(UserActionableError);
     expect(err.message).toBe("Could not find a free name for your settings repo");
     expect(p.calls.fetchInits).toHaveLength(5);
+  });
+
+  test("an unreachable GitHub says so instead of HTTP 0", async () => {
+    const p = fakeProbes({ fetch: async () => json(0, {}) });
+    const err = await createGitHubRepo(p, "tok").catch((e) => e);
+    expect(err.why).toBe("rt couldn't reach GitHub");
   });
 
   test("any other failure surfaces GitHub's message and stops", async () => {
