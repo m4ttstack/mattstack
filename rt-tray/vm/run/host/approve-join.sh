@@ -40,5 +40,11 @@ for k in $WANT; do
   grep -qF "$k" "$SOPS" || vm_die "the joiner's key $k is not a recipient in $SOPS after members sync"
 done
 
+# No daemon runs under this HOME to commit the sync's write, and publish pushes only commits.
+mint_git() { ( cd "$MINT_HOME/.mattstack/orgs/$SLUG" && env -i HOME="$MINT_HOME" PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 git -c user.name="mattstack vmtest owner" -c user.email=vmtest-owner@mattstack.invalid "$@" ); }
+mint_git add -A || vm_die "could not stage the members sync in the team clone"
+mint_git diff --cached --quiet || mint_git commit -q -m "team: approve the joiner" || vm_die "could not commit the members sync in the team clone"
+
 PUB=$(vm_mint_rt team publish --team "$SLUG" --json | tail -1) || vm_die "rt team publish failed: $PUB"
+[ "$(printf '%s' "$PUB" | jq -r '.pushed // false' 2>/dev/null)" = true ] || vm_die "rt team publish pushed nothing: $PUB"
 vm_log "join approved: the joiner's key is a recipient of $SLUG and published"
