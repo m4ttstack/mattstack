@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { createRealProbes, readStdinJson, withWellKnownBinFallback, withLocalBinOnPath } from "../probes.ts";
+import { createRealProbes, readStdinJson, withWellKnownBinFallback, withUserBinDirsOnPath } from "../probes.ts";
 import { UserActionableError } from "../../errors.ts";
 import { fakeProbes } from "./fakes.ts";
 
@@ -303,13 +303,22 @@ describe("withWellKnownBinFallback", () => {
 
 // Children rt spawns (fast-browser looking for claude, installers re-probing)
 // inherit the app's static PATH, which lacks ~/.local/bin until Install's own
-// path step — so every probe child gets that directory first on PATH.
-describe("withLocalBinOnPath", () => {
+// path step and never has Homebrew's bin, so every probe child gets both.
+describe("withUserBinDirsOnPath", () => {
   test("prepends ~/.local/bin when absent, keeps PATH as-is when present", () => {
-    expect(withLocalBinOnPath({ PATH: "/usr/bin:/bin" }, "/home/x")).toEqual({ PATH: "/home/x/.local/bin:/usr/bin:/bin" });
-    expect(withLocalBinOnPath({ PATH: "/usr/bin:/home/x/.local/bin" }, "/home/x")).toEqual({ PATH: "/usr/bin:/home/x/.local/bin" });
-    expect(withLocalBinOnPath({}, "/home/x")).toEqual({ PATH: "/home/x/.local/bin" });
-    expect(withLocalBinOnPath({ PATH: "/usr/bin", FOO: "1" }, "/home/x")).toEqual({ PATH: "/home/x/.local/bin:/usr/bin", FOO: "1" });
+    expect(withUserBinDirsOnPath({ PATH: "/usr/bin:/bin" }, "/home/x").PATH?.split(":").slice(0, 3)).toEqual(["/home/x/.local/bin", "/usr/bin", "/bin"]);
+    expect(withUserBinDirsOnPath({ PATH: "/usr/bin:/home/x/.local/bin" }, "/home/x").PATH?.split(":").slice(0, 2)).toEqual(["/usr/bin", "/home/x/.local/bin"]);
+    expect(withUserBinDirsOnPath({}, "/home/x").PATH?.split(":")[0]).toBe("/home/x/.local/bin");
+    expect(withUserBinDirsOnPath({ PATH: "/usr/bin", FOO: "1" }, "/home/x").FOO).toBe("1");
+  });
+
+  test("launchd's minimal PATH gains Homebrew's dirs after it, so a child can find a brewed claude", () => {
+    expect(withUserBinDirsOnPath({ PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }, "/home/x").PATH).toBe("/home/x/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin");
+  });
+
+  test("a user's own PATH order is never reordered, and no dir is listed twice", () => {
+    expect(withUserBinDirsOnPath({ PATH: "/usr/local/bin:/custom:/opt/homebrew/bin:/usr/bin" }, "/home/x").PATH).toBe("/home/x/.local/bin:/usr/local/bin:/custom:/opt/homebrew/bin:/usr/bin");
+    expect(withUserBinDirsOnPath({ PATH: "/usr/bin:/home/x/.local/bin" }, "/home/x").PATH).toBe("/usr/bin:/home/x/.local/bin:/opt/homebrew/bin:/usr/local/bin");
   });
 
   test("a real probe child sees ~/.local/bin first on its PATH", async () => {

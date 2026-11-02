@@ -226,25 +226,30 @@ export function withWellKnownBinFallback(argv: string[], opts: { home: string; p
   if (opts.pathDirs.some((dir) => dir.length > 0 && opts.exists(join(dir, cmd)))) return argv;
   const local = join(opts.home, ".local", "bin");
   // rt's own links in ~/.local/bin must beat a Homebrew copy, matching the
-  // child PATH withLocalBinOnPath builds.
+  // child PATH withUserBinDirsOnPath builds.
   const found = [local, ...wellKnownBinDirs(opts.home).filter((dir) => dir !== local)]
     .map((dir) => join(dir, cmd))
     .find((path) => opts.exists(path));
   return found ? [found, ...argv.slice(1)] : argv;
 }
 
-/** `env` with `~/.local/bin` first on PATH — the child's own lookups (fast-browser finding claude, an installer re-probing) see what rt links and vendor installs put there. */
-export function withLocalBinOnPath(env: Record<string, string>, home: string): Record<string, string> {
+/**
+ * `env` with `~/.local/bin` first on PATH unless PATH already names it, and the
+ * other `wellKnownBinDirs` last. A child's own lookups then see what a bare
+ * exec sees: `fast-browser setup` looks for claude itself and refuses before it
+ * installs anything when launchd's PATH hides Homebrew's copy.
+ */
+export function withUserBinDirsOnPath(env: Record<string, string>, home: string): Record<string, string> {
   const local = join(home, ".local", "bin");
-  const current = env.PATH ?? "";
-  if (current.split(":").includes(local)) return env;
-  return { ...env, PATH: current ? `${local}:${current}` : local };
+  const current = (env.PATH ?? "").split(":").filter((dir) => dir.length > 0);
+  const dirs = current.includes(local) ? current : [local, ...current];
+  return { ...env, PATH: [...new Set([...dirs, ...wellKnownBinDirs(home)])].join(":") };
 }
 
 function realExec(argv: string[], opts?: ExecOpts & { onStderr?: (chunk: string) => void }): Promise<ExecResult> {
   const home = process.env.HOME ?? homedir();
   const resolved = withWellKnownBinFallback(argv, { home, pathDirs: (process.env.PATH ?? "").split(":"), exists: existsSync });
-  const env = withLocalBinOnPath({ ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...opts?.env }, home);
+  const env = withUserBinDirsOnPath({ ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...opts?.env }, home);
   return execWithTimeout(resolved, { ...opts, env });
 }
 
