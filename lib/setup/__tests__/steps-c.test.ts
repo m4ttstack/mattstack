@@ -269,45 +269,56 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     describe("typed-only skills", () => {
       const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
 
-      function installedSkill(): string {
-        const dir = join(home, ".claude", "plugins", "cache", "market", "widgets", "1.0.0");
-        mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
-        mkdirSync(join(dir, "skills", "alpha"), { recursive: true });
-        const file = join(dir, "skills", "alpha", "SKILL.md");
-        writeFileSync(file, plain);
-        return file;
-      }
-
-      function claudeProbes() {
+      /** The plugin is listed and installed; its update lands a new version folder with no line yet. */
+      function updatingProbes(landed: string, readOnly = false) {
+        setSetting("claude.plugins", ["widgets@market"], "user");
+        mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
         return fakeProbes({
           home,
           env: { PATH: "/usr/local/bin" },
           files: { "/usr/local/bin/claude": "bin" },
-          exec: async (argv) => (argv[2] === "list" ? ok("[]") : ok("")),
+          exec: async (argv) => {
+            if (argv[2] === "list") return ok(JSON.stringify([{ id: "widgets@market", version: "1.0.0", enabled: true }]));
+            if (argv[2] === "update") {
+              mkdirSync(join(landed, ".."), { recursive: true });
+              writeFileSync(landed, plain);
+              if (readOnly) chmodSync(landed, 0o444);
+            }
+            return ok("");
+          },
         });
       }
 
-      test("the line is back on the installed skill after the plugin step", async () => {
-        const file = installedSkill();
+      const landedFile = () => join(home, ".claude", "plugins", "cache", "market", "widgets", "2.0.0", "skills", "alpha", "SKILL.md");
+
+      test("the line is on the version the plugin update lands", async () => {
         setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
-        const { ctx } = makeCtx(claudeProbes());
+        const { ctx } = makeCtx(updatingProbes(landedFile()));
 
         const outcome = await pluginsInstallStep.run(ctx);
 
         expect(outcome.state).toBe("done");
-        expect(readFileSync(file, "utf8")).toContain("# rt: direct-only");
+        expect(readFileSync(landedFile(), "utf8")).toContain("# rt: direct-only");
       });
 
-      test("a reconcile warning is logged and the step still returns done", async () => {
-        const file = installedSkill();
-        chmodSync(file, 0o444);
+      test("a reconcile warning is logged, shown in the detail, and the step still returns done", async () => {
         setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
-        const { ctx, logs } = makeCtx(claudeProbes());
+        const { ctx, logs } = makeCtx(updatingProbes(landedFile(), true));
 
         const outcome = await pluginsInstallStep.run(ctx);
 
         expect(outcome.state).toBe("done");
         expect(logs.some((l) => l.id === "plugins.install" && l.line.includes("read-only"))).toBe(true);
+        expect(detailOf(outcome)).toContain("Some typed-only skills were left alone");
+      });
+
+      test("with no warning the detail says nothing about typed-only skills", async () => {
+        setSetting("rt.skills.directOnly", { "widgets@market": ["alpha"] }, "user");
+        const { ctx } = makeCtx(updatingProbes(landedFile()));
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(detailOf(outcome)).not.toContain("typed-only");
       });
     });
 

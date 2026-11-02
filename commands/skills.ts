@@ -69,7 +69,7 @@ import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skil
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
-import { DIRECT_ONLY_SETTING, directOnlyConfigDirs, readDirectOnlyChoices, reconcileDirectOnly } from "../lib/skills/direct-only.ts";
+import { DIRECT_ONLY_SETTING, directOnlyConfigDirs, directOnlyHome, readDirectOnlyChoices, reconcileDirectOnly } from "../lib/skills/direct-only.ts";
 import { sourceSetsDirectOnly } from "../lib/skills/direct-only-line.ts";
 import { userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { setSetting } from "../lib/settings/write.ts";
@@ -3853,10 +3853,6 @@ function refuseDirectOnlyName(name: string, row: SurfaceRow | undefined): Skills
   if (row.path === undefined) return directOnlyRefusal(`${name} has no files in this pack`);
   if (row.directOnly === "locked") return directOnlyRefusal(`${name} already runs only when you type it`, "The pack sets that itself, so you cannot change it here.");
   return null;
-}
-
-function directOnlyHome(): string {
-  return process.env.HOME ?? homedir();
 }
 
 async function runDirectOnlyList(args: string[]): Promise<void> {

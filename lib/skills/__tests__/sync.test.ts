@@ -3245,17 +3245,67 @@ describe("direct-only choices after a sync", () => {
     return makeDeps(pack, engine, { calls: [], installed: { [pluginId(pack)]: installedPack, [pluginId(engine)]: "2.0.0" }, drift: [false] });
   }
 
-  test("a sync that updates the pack puts the line on the new version and reports the step as ran", async () => {
+  /** The real update lands a new version folder whose SKILL.md has no line yet. */
+  function updatingInto(deps: SyncDeps, config: string, packId: string): { deps: SyncDeps; file: string } {
+    const file = join(config, "plugins", "cache", "market", "widgets", "1.1.0", "skills", "alpha", "SKILL.md");
+    const run: SyncDeps["run"] = async (cmd, args, opts) => {
+      if (args[0] === "plugin" && args[1] === "update" && args[2] === packId) {
+        mkdirSync(join(file, ".."), { recursive: true });
+        writeFileSync(file, plain);
+      }
+      return deps.run(cmd, args, opts);
+    };
+    return { deps: { ...deps, run }, file };
+  }
+
+  test("a sync that updates the pack puts the line on the version the update lands and reports the step as ran", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
-    const { config, file } = installedSkill();
-    const deps = { ...world(pack, engine, "0.9.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+    const config = tmp("rt-sync-do-config-");
+    mkdirSync(join(config, "plugins"), { recursive: true });
+    const landed = updatingInto(world(pack, engine, "0.9.0"), config, pluginId(pack));
+    const deps = { ...landed.deps, directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
 
     const report = await syncPack(pack, engine, deps);
 
     expect(report.steps.find((s) => s.name === "direct-only")!.status).toBe("ran");
-    expect(readFileSync(file, "utf8")).toContain("# rt: direct-only");
+    expect(readFileSync(landed.file, "utf8")).toContain("# rt: direct-only");
     expect(stepNames(report.steps).indexOf("direct-only")).toBe(stepNames(report.steps).indexOf("verify-installed") + 1);
+  });
+
+  test("a read-only skill is reported as left alone, never as in place", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config, file } = installedSkill();
+    chmodSync(file, 0o444);
+    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const detail = report.steps.find((s) => s.name === "direct-only")!.detail;
+    expect(detail).toContain("left alone");
+    expect(detail).not.toContain("in place");
+  });
+
+  test("a chosen plugin that is not installed says nothing was changed", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [config], choices: () => ({ "gadgets@market": ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "direct-only")!.detail).toBe("nothing needed changing");
+  });
+
+  test("no Claude config folders says nothing was changed", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = { ...world(pack, engine, "1.0.0"), directOnly: { configDirs: () => [], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "direct-only")!.detail).toBe("no Claude config folders found, nothing changed");
   });
 
   test("an already-current pack still gets its choices reapplied", async () => {

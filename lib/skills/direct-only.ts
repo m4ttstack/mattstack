@@ -1,9 +1,15 @@
 import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { basename, dirname, join, sep } from "path";
 import { compareVersions } from "./installed-plugins.ts";
 import { addDirectOnly, DIRECT_ONLY_MARK, directOnlyKey, removeDirectOnly } from "./direct-only-line.ts";
 import { registeredSkillRoots } from "./skill-roots.ts";
 import { getSetting } from "../settings/resolve.ts";
+
+/** HOME as the process sees it now: bun freezes os.homedir() at startup, so a changed HOME would otherwise be missed. */
+export function directOnlyHome(): string {
+  return process.env.HOME ?? homedir();
+}
 
 export const DIRECT_ONLY_SETTING = "rt.skills.directOnly";
 

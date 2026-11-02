@@ -435,21 +435,23 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
-  reapplyDirectOnly(ctx);
+  const typedOnlyNote = reapplyDirectOnly(ctx) ? ". Some typed-only skills were left alone" : "";
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
-  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${pendingNote}${heldNote}` };
+  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${typedOnlyNote}${pendingNote}${heldNote}` };
 }
 
-/** A plugin update replaces the installed copy, so the member's typed-only choices go back on; a failure here only warns. */
-function reapplyDirectOnly(ctx: ApplyContext): void {
+/** A plugin update replaces the installed copy, so the member's typed-only choices go back on; a failure here only warns. True when something was left alone. */
+function reapplyDirectOnly(ctx: ApplyContext): boolean {
   try {
     const choices = readDirectOnlyChoices();
-    if (Object.keys(choices).length === 0) return;
+    if (Object.keys(choices).length === 0) return false;
     const { warnings } = reconcileDirectOnly({ configDirs: directOnlyConfigDirs(ctx.p.env, ctx.p.home), choices });
     for (const warning of warnings) ctx.log("plugins.install", `typed-only skills: ${warning}`);
+    return warnings.length > 0;
   } catch (err) {
     ctx.log("plugins.install", `typed-only skills: ${err instanceof Error ? err.message : String(err)}`);
+    return true;
   }
 }
 

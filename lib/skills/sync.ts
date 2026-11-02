@@ -1,5 +1,4 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
@@ -12,7 +11,7 @@ import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
 import { mattstackFloor } from "../setup/mattstack-floor.ts";
 import { createRealProbes } from "../setup/probes.ts";
-import { directOnlyConfigDirs, readDirectOnlyChoices, reconcileDirectOnly } from "./direct-only.ts";
+import { directOnlyConfigDirs, directOnlyHome, readDirectOnlyChoices, reconcileDirectOnly } from "./direct-only.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -527,10 +526,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const outcome = await tryStep(async () => {
       const choices = (deps.directOnly?.choices ?? readDirectOnlyChoices)();
       if (Object.keys(choices).length === 0) return skipped("you have not chosen any skills to keep typed-only");
-      const configDirs = (deps.directOnly?.configDirs ?? (() => directOnlyConfigDirs(process.env, homedir())))();
+      const configDirs = (deps.directOnly?.configDirs ?? (() => directOnlyConfigDirs(process.env, directOnlyHome())))();
+      if (configDirs.length === 0) return ran("no Claude config folders found, nothing changed");
       const result = reconcileDirectOnly({ configDirs, choices });
       warnings.push(...result.warnings);
-      return ran(result.changed.length === 0 ? "already in place" : `reapplied to ${result.changed.length} ${result.changed.length === 1 ? "skill" : "skills"}`);
+      const n = result.changed.length;
+      const applied = `reapplied to ${n} ${n === 1 ? "skill" : "skills"}`;
+      if (result.warnings.length > 0) return ran(n === 0 ? "some skills were left alone, see the warnings" : `${applied}, some left alone, see the warnings`);
+      return ran(n === 0 ? "nothing needed changing" : applied);
     });
     if (outcome.status === "failed") {
       warnings.push(`Could not reapply your typed-only skills: ${outcome.detail}`);
