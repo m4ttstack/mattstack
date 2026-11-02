@@ -6,7 +6,7 @@ import { dirname, join } from "path";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { userSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { setSetting } from "../../settings/write.ts";
+import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { childEnv } from "../../subprocess.ts";
 import type { CapturedOut } from "../../ui/__tests__/capture-out.ts";
 import * as packsModule from "../packs.ts";
@@ -338,6 +338,17 @@ describe("rt skills disable-model-invocation set with no names", () => {
     expect(chosen()).toEqual({});
   });
 
+  test("at a terminal with nothing to change it gives the which-skill failure, with no picker", async () => {
+    const fx = fixture();
+    put(join(fx.packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["locked"] }));
+    fake = installFakePick([]);
+    const result = await runExpectingCleanExit(() => withTTY(() => skillsDisableModelInvocation(["set", "--on", "--pack", "widgets"])));
+    expect(result.exitCode).toBe(1);
+    expect(io.stderr()).toStartWith("Which skill?");
+    expect(fake.calls).toHaveLength(0);
+    expect(chosen()).toEqual({});
+  });
+
   test("at a terminal without --on or --off it asks which, with no picker", async () => {
     fixture();
     fake = installFakePick([]);
@@ -489,6 +500,33 @@ describe("rt skills disable-model-invocation reapply", () => {
     expect(process.exitCode ?? 0).toBe(0);
   });
 
+  test("an unreadable settings store keeps the marks it can no longer vouch for", async () => {
+    const fx = fixture();
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    put(userSettingsPath(), "{ this is not json");
+    await skillsDisableModelInvocation(["reapply"]);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
+  });
+
+  test("a setting that was reset strips the marks it left", async () => {
+    const fx = fixture();
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
+    unsetSetting("rt.skills.disableModelInvocation", "user");
+    await skillsDisableModelInvocation(["reapply", "--json"]);
+    expect(read(fx.installed("alpha"))).toBe(plain("alpha"));
+    expect(lastJson()).toEqual({ changed: [fx.installed("alpha")], warnings: [] });
+  });
+
+  test("a plugin dropped from the setting by hand loses its marks while others keep theirs", async () => {
+    const fx = fixture();
+    const gadgets = put(join(process.env.HOME!, ".claude", "plugins", "cache", "market", "gadgets", "1.0.0", "skills", "beta", "SKILL.md"), `---\nname: beta\ndisable-model-invocation: true ${PERSONAL_MARK}\n---\nb\n`);
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    await skillsDisableModelInvocation(["reapply", "--json"]);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
+    expect(read(gadgets)).toBe(`---\nname: beta\n---\nb\n`);
+  });
+
   test("a read-only copy puts its warning on the screen", async () => {
     const fx = fixture();
     await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
@@ -532,9 +570,92 @@ describe("a skill other plugins name cannot be disabled", () => {
     expect(rows.find((r) => r.name === "alpha")!.disableModelInvocation).toBe("off");
   });
 
+  test("set --off is refused too, and writes nothing", async () => {
+    const fx = mattstack();
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", TIERING, "--off", "--pack", "mattstack"]));
+    expect(result.exitCode).toBe(2);
+    expect(io.stderr()).toContain(TIERING);
+    expect(chosen()).toEqual({});
+    expect(read(fx.installed(TIERING))).toBe(plain(TIERING));
+  });
+
+  test("the writing-style fallback is refused and its row carries no field", async () => {
+    const fx = fixture({ plugin: "mattstack", extra: ["writing-style-conversational"] });
+    await skillsSurface(["list", "--pack", "mattstack", "--json"]);
+    const rows = lastJson().rows as { name: string; disableModelInvocation?: string }[];
+    expect(rows.find((r) => r.name === "writing-style-conversational")).not.toHaveProperty("disableModelInvocation");
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", "writing-style-conversational", "--on", "--pack", "mattstack"]));
+    expect(result.exitCode).toBe(2);
+    expect(chosen()).toEqual({});
+    expect(read(fx.installed("writing-style-conversational"))).toBe(plain("writing-style-conversational"));
+  });
+
   test("the same name in another plugin is still settable", async () => {
     fixture({ extra: [TIERING] });
     await skillsDisableModelInvocation(["set", TIERING, "--on", "--pack", "widgets", "--json"]);
     expect(chosen()).toEqual({ [KEY]: [TIERING] });
+  });
+});
+
+describe("a skill that provides a contract cannot be disabled", () => {
+  const FILL = "shared-rules";
+  const provider = `---\nname: ${FILL}\ndescription: d\nmetadata:\n  provides: shared-rules@1\n---\nbody\n`;
+  function withProvider(): Fixture {
+    const fx = fixture({ extra: [FILL] });
+    put(join(fx.packDir, "skills", FILL, "SKILL.md"), provider);
+    put(fx.installed(FILL), provider);
+    return fx;
+  }
+
+  test("its surface row carries no field", async () => {
+    withProvider();
+    await skillsSurface(["list", "--pack", "widgets", "--json"]);
+    const rows = lastJson().rows as { name: string; disableModelInvocation?: string }[];
+    expect(rows.find((r) => r.name === FILL)).not.toHaveProperty("disableModelInvocation");
+    expect(rows.find((r) => r.name === "alpha")!.disableModelInvocation).toBe("off");
+  });
+
+  test("set is refused with a reason and writes nothing", async () => {
+    const fx = withProvider();
+    const result = await runExpectingCleanExit(() => skillsDisableModelInvocation(["set", FILL, "--on", "--pack", "widgets"]));
+    expect(result.exitCode).toBe(2);
+    expect(io.stderr()).toContain(FILL);
+    expect(io.stderr()).toContain("other skills");
+    expect(chosen()).toEqual({});
+    expect(read(fx.installed(FILL))).toBe(provider);
+  });
+
+  test("reapply ignores it even when the setting names it", async () => {
+    const fx = withProvider();
+    setSetting("rt.skills.disableModelInvocation", { [KEY]: [FILL, "alpha"] }, "user");
+    await skillsDisableModelInvocation(["reapply"]);
+    expect(read(fx.installed(FILL))).toBe(provider);
+    expect(read(fx.installed("alpha"))).toContain(PERSONAL_MARK);
+  });
+});
+
+describe("what set tells a person with a session already running", () => {
+  test("a change names /reload-plugins", async () => {
+    fixture();
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets"]);
+    expect(io.lines().join("\n")).toContain("Run /reload-plugins in any Claude session that is already running");
+  });
+
+  test("a set that changed no installed copy does not", async () => {
+    fixture();
+    await skillsDisableModelInvocation(["set", "alpha", "--off", "--pack", "widgets"]);
+    expect(io.lines().join("\n")).not.toContain("/reload-plugins");
+  });
+
+  test("a copy outside the plugin cache reports applied false with the reason", async () => {
+    fixture();
+    const elsewhere = join(tmp, "elsewhere");
+    put(join(elsewhere, "skills", "alpha", "SKILL.md"), plain("alpha"));
+    put(join(process.env.HOME!, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: elsewhere }] } }));
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    const report = lastJson();
+    expect(report.applied).toBe(false);
+    expect(report.warnings[0]).toContain("outside Claude's plugin cache");
+    expect(read(join(elsewhere, "skills", "alpha", "SKILL.md"))).toBe(plain("alpha"));
   });
 });

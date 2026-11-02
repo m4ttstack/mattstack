@@ -4,6 +4,7 @@ import { basename, dirname, join, sep } from "path";
 import { compareVersions } from "./installed-plugins.ts";
 import { addDisableModelInvocation, PERSONAL_MARK, disableModelInvocationKey, removeDisableModelInvocation } from "./disable-model-invocation-line.ts";
 import { registeredSkillRoots } from "./skill-roots.ts";
+import { stripFrontmatter } from "./sources.ts";
 import { getSetting } from "../settings/resolve.ts";
 
 /** HOME as the process sees it now: bun freezes os.homedir() at startup, so a changed HOME would otherwise be missed. */
@@ -13,11 +14,24 @@ export function disableModelInvocationHome(): string {
 
 export const DISABLE_MODEL_INVOCATION_SETTING = "rt.skills.disableModelInvocation";
 
-// Skills that other skills name across plugins must stay invocable, or those references break.
-const NEVER_DISABLED = [{ plugin: "mattstack", name: "model-tiering" }];
+// Skills other skills invoke by name stay invocable: Claude Code blocks the Skill tool on a disabled one, so those handoffs would fail.
+const NEVER_DISABLED = [
+  { plugin: "mattstack", name: "model-tiering" },
+  { plugin: "mattstack", name: "writing-style-conversational" },
+];
 
 export function neverDisabled(plugin: string, name: string): boolean {
   return NEVER_DISABLED.some((s) => s.plugin === plugin && s.name === name);
+}
+
+/** A fill a compiled verb invokes by name; frontmatter that does not parse provides nothing. */
+export function providesContract(skillMd: string): boolean {
+  try {
+    const metadata = stripFrontmatter(skillMd).frontmatter.metadata;
+    return typeof metadata === "object" && metadata !== null && Boolean((metadata as { provides?: unknown }).provides);
+  } catch {
+    return false;
+  }
 }
 
 export function readDisableModelInvocationChoices(): Record<string, string[]> {
@@ -101,25 +115,27 @@ function newestVersionDir(pluginDir: string): string | null {
   return best === null ? null : join(pluginDir, best);
 }
 
-// Claude Code names the folder it loads in installed_plugins.json; version folders can be hashes, so newest-by-number can be wrong.
-function installedPath(configDir: string, key: string, cacheReal: string): string | null {
+// Claude Code names the folders it loads in installed_plugins.json; version folders can be hashes, so newest-by-number can be wrong.
+function installedPaths(configDir: string, key: string, cacheReal: string): { inCache: string[]; outside: boolean } {
+  const inCache = new Set<string>();
+  let outside = false;
   try {
     const parsed = JSON.parse(readFileSync(join(configDir, "plugins", "installed_plugins.json"), "utf8")) as {
       plugins?: Record<string, unknown>;
     };
     const entries = parsed.plugins?.[key];
-    if (!Array.isArray(entries)) return null;
-    const ordered = [...entries.filter((e) => e?.scope === "user"), ...entries.filter((e) => e?.scope !== "user")];
-    for (const entry of ordered) {
+    for (const entry of Array.isArray(entries) ? entries : []) {
       const path = entry?.installPath;
       if (typeof path !== "string") continue;
       const resolved = real(path);
-      if (resolved !== null && resolved.startsWith(cacheReal + sep)) return resolved;
+      if (resolved === null) continue;
+      if (resolved.startsWith(cacheReal + sep)) inCache.add(resolved);
+      else outside = true;
     }
   } catch {
     // a missing or malformed registry means the newest folder is used
   }
-  return null;
+  return { inCache: [...inCache], outside };
 }
 
 function atomicWrite(file: string, text: string, mode: number): void {
@@ -146,6 +162,9 @@ function reconcileSkill(file: string, chosen: boolean, cacheReal: string, out: R
       return;
     }
     const before = readFileSync(file, "utf8");
+    // Every skill of every plugin is read on each session start, so a file with no mark must cost no YAML parse.
+    if (!chosen && !before.includes(PERSONAL_MARK)) return;
+    if (providesContract(before)) return;
     let after: string | null;
     if (chosen) {
       after = addDisableModelInvocation(before);
@@ -155,7 +174,7 @@ function reconcileSkill(file: string, chosen: boolean, cacheReal: string, out: R
       }
       const key = disableModelInvocationKey(before);
       if (after === before && key && key.value !== "true" && !key.comment?.startsWith(PERSONAL_MARK)) {
-        out.warnings.push(`${file}: disable-model-invocation has an unusual value, disable-model-invocation not applied`);
+        out.warnings.push(`${file}: disable-model-invocation has an unusual value, so it was left alone`);
         return;
       }
     } else {
@@ -191,14 +210,20 @@ export function reconcileDisableModelInvocation(opts: {
       const plugin = key.slice(0, at);
       const marketplace = key.slice(at + 1);
       try {
-        const versionDir = installedPath(configDir, key, cacheReal) ?? newestVersionDir(join(cacheReal, marketplace, plugin));
-        if (versionDir === null) continue;
+        const { inCache, outside } = installedPaths(configDir, key, cacheReal);
+        if (outside && names.length > 0) {
+          const warning = `${key}: this plugin loads from a folder outside Claude's plugin cache, so rt left it alone and Claude can still invoke its skills`;
+          if (!out.warnings.includes(warning)) out.warnings.push(warning);
+        }
+        const newest = inCache.length === 0 && !outside ? newestVersionDir(join(cacheReal, marketplace, plugin)) : null;
         const chosen = new Set(names);
-        for (const [name, file] of skillFiles(versionDir)) {
-          opts.beforeSkill?.(file);
-          if (!existsSync(versionDir)) break;
-          if (neverDisabled(plugin, name)) continue;
-          reconcileSkill(file, chosen.has(name), cacheReal, out);
+        for (const versionDir of newest === null ? inCache : [newest]) {
+          for (const [name, file] of skillFiles(versionDir)) {
+            opts.beforeSkill?.(file);
+            if (!existsSync(versionDir)) break;
+            if (neverDisabled(plugin, name)) continue;
+            reconcileSkill(file, chosen.has(name), cacheReal, out);
+          }
         }
       } catch (err) {
         out.warnings.push(`${key}: ${(err as Error).message}`);
@@ -206,4 +231,16 @@ export function reconcileDisableModelInvocation(opts: {
     }
   }
   return out;
+}
+
+/** `choices` plus every plugin in the config dirs' caches with no names, so a reconcile strips marks the setting no longer vouches for. */
+export function withInstalledPlugins(configDirs: string[], choices: Record<string, string[]>): Record<string, string[]> {
+  const installed: Record<string, string[]> = {};
+  for (const configDir of configDirs) {
+    const cache = join(configDir, "plugins", "cache");
+    for (const marketplace of subdirs(cache)) {
+      for (const plugin of subdirs(join(cache, marketplace))) installed[`${plugin}@${marketplace}`] = [];
+    }
+  }
+  return { ...installed, ...choices };
 }

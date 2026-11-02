@@ -309,7 +309,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
         expect(outcome.state).toBe("done");
         expect(logs.some((l) => l.id === "plugins.install" && l.line.includes("read-only"))).toBe(true);
-        expect(detailOf(outcome)).toContain("Some disabled skills were left alone");
+        expect(detailOf(outcome)).toContain("Some skills could not have model invocation disabled");
       });
 
       test("with no warning the detail says nothing about disabled skills", async () => {
@@ -318,7 +318,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
         const outcome = await pluginsInstallStep.run(ctx);
 
-        expect(detailOf(outcome)).not.toContain("disabled");
+        expect(detailOf(outcome)).not.toContain("model invocation");
       });
     });
 

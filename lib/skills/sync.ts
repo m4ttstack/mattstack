@@ -64,7 +64,10 @@ export type SyncDeps = {
  */
 export const LAYOUT_HOLD: unique symbol = Symbol("layoutHold");
 
-export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string; [LAYOUT_HOLD]?: true };
+/** A step changed installed skills with no plugin update; a symbol, so the frozen --json report never carries it. */
+export const RELOAD_NEEDED: unique symbol = Symbol("reloadNeeded");
+
+export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string; [LAYOUT_HOLD]?: true; [RELOAD_NEEDED]?: true };
 
 /** `expect` is the signature `rt skills changes` printed: the sync refuses when the pack's pending changes no longer match it. */
 export type SyncOptions = { commitPending?: boolean; expect?: string };
@@ -102,7 +105,7 @@ function originGit(deps: SyncDeps, args: string[], opts: { cwd: string; push?: b
   return deps.runOrigin ? deps.runOrigin(args, opts) : deps.run("git", args, { cwd: opts.cwd });
 }
 
-type Outcome = Pick<SyncStep, "status" | "detail" | typeof LAYOUT_HOLD>;
+type Outcome = Pick<SyncStep, "status" | "detail" | typeof LAYOUT_HOLD | typeof RELOAD_NEEDED>;
 
 function ran(detail: string): Outcome {
   return { status: "ran", detail };
@@ -532,8 +535,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       warnings.push(...result.warnings);
       const n = result.changed.length;
       const applied = `reapplied to ${n} ${n === 1 ? "skill" : "skills"}`;
-      if (result.warnings.length > 0) return ran(n === 0 ? "some skills were left alone, see the warnings" : `${applied}, some left alone, see the warnings`);
-      return ran(n === 0 ? "nothing needed changing" : applied);
+      const reload = n > 0 ? { [RELOAD_NEEDED]: true as const } : {};
+      if (result.warnings.length > 0) return { ...ran(n === 0 ? "some skills were left alone, see the warnings" : `${applied}, some left alone, see the warnings`), ...reload };
+      return { ...ran(n === 0 ? "nothing needed changing" : applied), ...reload };
     });
     if (outcome.status === "failed") {
       warnings.push(`Could not keep model invocation disabled: ${outcome.detail}`);

@@ -69,7 +69,7 @@ import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skil
 import { readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
-import { DISABLE_MODEL_INVOCATION_SETTING, neverDisabled, disableModelInvocationConfigDirs, disableModelInvocationHome, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../lib/skills/disable-model-invocation.ts";
+import { DISABLE_MODEL_INVOCATION_SETTING, neverDisabled, disableModelInvocationConfigDirs, disableModelInvocationHome, providesContract, readDisableModelInvocationChoices, reconcileDisableModelInvocation, withInstalledPlugins } from "../lib/skills/disable-model-invocation.ts";
 import { sourceSetsDisableModelInvocation } from "../lib/skills/disable-model-invocation-line.ts";
 import { setSetting, userStoreUnreadableFor } from "../lib/settings/write.ts";
 import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
@@ -3786,7 +3786,9 @@ function withDisableModelInvocation(rows: SurfaceRow[], key: string | null): Sur
     if (!disableModelInvocationEligible(row) || neverDisabled(pluginOf(key), row.name)) return row;
     let locked = false;
     try {
-      locked = sourceSetsDisableModelInvocation(readFileSync(row.path!, "utf8"));
+      const source = readFileSync(row.path!, "utf8");
+      if (providesContract(source)) return row;
+      locked = sourceSetsDisableModelInvocation(source);
     } catch {
       // a source that cannot be read is not locked
     }
@@ -3830,9 +3832,17 @@ async function disableModelInvocationTarget(flags: SurfaceFlags): Promise<Disabl
   return { key: plugin.key, rows: withDisableModelInvocation(rows, plugin.key), source };
 }
 
+function sourceProvidesContract(path: string): boolean {
+  try {
+    return providesContract(readFileSync(path, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
 function refuseDisableModelInvocationName(name: string, row: SurfaceRow | undefined, key: string): SkillsRefusal | null {
   if (!row) return disableModelInvocationRefusal(`${name} is not a skill in this pack`);
-  if (neverDisabled(pluginOf(key), name)) return disableModelInvocationRefusal(`${name} cannot have model invocation disabled`, "It stays invocable because other skills name it.");
+  if (neverDisabled(pluginOf(key), name) || (row.path !== undefined && sourceProvidesContract(row.path))) return disableModelInvocationRefusal(`${name} cannot have model invocation disabled`, "It stays invocable because other skills name it.");
   if (row.base !== undefined) return disableModelInvocationRefusal(`${name} comes from ${row.base}`, "The org base pack decides how it runs.");
   if (row.status !== "public") return disableModelInvocationRefusal(`${name} is an internal skill`, "Only public skills can have model invocation disabled.");
   if (row.path === undefined) return disableModelInvocationRefusal(`${name} has no files in this pack`);
@@ -3857,13 +3867,12 @@ async function runDisableModelInvocationList(args: string[]): Promise<void> {
   out.print(out.section(`Pack ${flags.team ?? ""}`.trim(), source, out.table(shown.map((r) => [out.strong(r.name), r.disableModelInvocation === "off" ? label.off : out.dim(label[r.disableModelInvocation])]), ["Skill", "Runs"])));
 }
 
+const setNeedsName = () => new SkillsUsageError("set requires a skill name", usageFailure("Which skill?", "rt skills disable-model-invocation set <name> --on --pack <pack>"));
+
 /** The palette over the skills a member may change, with each one's current state; null when they cancel. */
 async function pickDisableModelInvocationNames(rows: SurfaceRow[], on: boolean): Promise<string[] | null> {
   const choices = rows.filter((r) => r.disableModelInvocation === "on" || r.disableModelInvocation === "off");
-  if (choices.length === 0) {
-    out.print(out.line("pending", "This pack has no skills you can change"));
-    return null;
-  }
+  if (choices.length === 0) throw setNeedsName();
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
   return filterableMultiselect({
     message: on ? "Disable model invocation" : "Let Claude invoke them again",
@@ -3897,9 +3906,7 @@ async function runDisableModelInvocationSet(args: string[]): Promise<void> {
     else names.push(a);
   }
   const canPick = process.stdin.isTTY === true && !flags.json && !process.env.RT_BATCH;
-  if (names.length === 0 && !canPick) {
-    throw new SkillsUsageError("set requires a skill name", usageFailure("Which skill?", "rt skills disable-model-invocation set <name> --on --pack <pack>"));
-  }
+  if (names.length === 0 && !canPick) throw setNeedsName();
   if (on === off) {
     throw new SkillsUsageError(
       "set requires one of --on and --off",
@@ -3950,6 +3957,7 @@ async function runDisableModelInvocationSet(args: string[]): Promise<void> {
       out.line("done", on ? `${subject} has model invocation disabled` : `Claude can invoke ${subject} again`),
       ...warningLines(result.warnings),
       ...(applied ? [] : unappliedCallouts(result.warnings, names)),
+      ...(result.changed.length > 0 ? [reloadPluginsCallout()] : []),
     );
   } catch (err) {
     if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
@@ -3958,21 +3966,25 @@ async function runDisableModelInvocationSet(args: string[]): Promise<void> {
   }
 }
 
+export const reloadPluginsCallout = (): Block => out.callout("next", ["Run ", out.cmd("/reload-plugins"), " in any Claude session that is already running"]);
+
 function runDisableModelInvocationReapply(args: string[]): void {
   let json = false;
   for (const a of args) {
     if (a === "--json") json = true;
     else throw new SkillsUsageError(`unrecognized argument "${a}"`);
   }
-  let choices: Record<string, string[]> = {};
+  let choices: Record<string, string[]> | null = null;
   try {
-    choices = readDisableModelInvocationChoices();
+    // An unreadable store reads as empty, which must not strip marks a good store still chooses.
+    if (!userStoreUnreadableFor(DISABLE_MODEL_INVOCATION_SETTING)) choices = readDisableModelInvocationChoices();
   } catch {
     // a session-start hook runs this: a broken settings store must not fail it
   }
-  const result = Object.keys(choices).length === 0
+  const configDirs = disableModelInvocationConfigDirs(process.env, disableModelInvocationHome());
+  const result = choices === null
     ? { changed: [], warnings: [] }
-    : reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(process.env, disableModelInvocationHome()), choices });
+    : reconcileDisableModelInvocation({ configDirs, choices: withInstalledPlugins(configDirs, choices) });
   if (json) {
     out.json({ changed: result.changed, warnings: result.warnings });
     return;

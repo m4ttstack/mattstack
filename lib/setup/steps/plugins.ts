@@ -435,7 +435,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
-  const disabledNote = reapplyDisableModelInvocation(ctx) ? ". Some disabled skills were left alone" : "";
+  const disabledNote = reapplyDisableModelInvocation(ctx) ? ". Some skills could not have model invocation disabled" : "";
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
   return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${disabledNote}${pendingNote}${heldNote}` };

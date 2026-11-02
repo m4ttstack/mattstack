@@ -19,9 +19,9 @@ import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/or
 import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
-import { BLOCK_PACKS_FIRST_STEP, LAYOUT_HOLD, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { BLOCK_PACKS_FIRST_STEP, LAYOUT_HOLD, RELOAD_NEEDED, syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
-import { checkFailures, checkPack, compilePackAll, NO_PACKS_WHY, type CheckPayload } from "./skills.ts";
+import { checkFailures, checkPack, compilePackAll, NO_PACKS_WHY, reloadPluginsCallout, type CheckPayload } from "./skills.ts";
 import { formatDiagnostic } from "../lib/skills/blocks/diagnostics.ts";
 import { runSkillsOrigin, spawnCapture } from "../lib/skills/origin-git.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
@@ -148,8 +148,8 @@ export function syncBlocks(report: SyncReport): Block[] {
   if (pack.installedBefore !== pack.installedAfter) blocks.push(out.kv("Installed pack", `${pack.installedBefore ?? "unknown"} -> ${pack.installedAfter ?? "unknown"}`));
   for (const warning of report.warnings) blocks.push(out.line("warn", warning));
   if (stop !== -1) return blocks;
-  if (report.restartNeeded) blocks.push(out.summary("done", "Synced"), out.callout("next", ["Run ", out.cmd("/reload-plugins"), " in any Claude session that is already running"]));
-  else blocks.push(out.summary("done", "Already current"));
+  if (report.restartNeeded) blocks.push(out.summary("done", "Synced"), reloadPluginsCallout());
+  else blocks.push(out.summary("done", "Already current"), ...(report.steps.some((step) => step[RELOAD_NEEDED] === true) ? [reloadPluginsCallout()] : []));
   return blocks;
 }
 

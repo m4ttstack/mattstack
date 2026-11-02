@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { disableModelInvocationConfigDirs, reconcileDisableModelInvocation } from "../disable-model-invocation.ts";
+import { disableModelInvocationConfigDirs, reconcileDisableModelInvocation, withInstalledPlugins } from "../disable-model-invocation.ts";
 import { PERSONAL_MARK } from "../disable-model-invocation-line.ts";
 
 let tmp: string;
@@ -40,6 +40,35 @@ describe("reconcileDisableModelInvocation", () => {
     expect(read(tiering)).toBe(plain("model-tiering"));
     expect(read(alpha)).toContain(PERSONAL_MARK);
     expect(r).toEqual({ changed: [alpha], warnings: [] });
+  });
+
+  test("the writing-style fallback is left alone even when the setting names it", () => {
+    const config = join(tmp, "c");
+    const dir = join(config, "plugins", "cache", "market", "mattstack", "1.0.0");
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    const fallback = skill(dir, "skills/writing-style-conversational", plain("writing-style-conversational"));
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { "mattstack@market": ["writing-style-conversational"] } });
+    expect(read(fallback)).toBe(plain("writing-style-conversational"));
+    expect(r).toEqual({ changed: [], warnings: [] });
+  });
+
+  test("a skill that provides a contract is left alone even when the setting names it", () => {
+    const config = join(tmp, "c");
+    const text = `---\nname: alpha\ndescription: d\nmetadata:\n  provides: alpha-rules@1\n---\nbody\n`;
+    const f = skill(versionDir(config), "skills/alpha", text);
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(f)).toBe(text);
+    expect(r).toEqual({ changed: [], warnings: [] });
+  });
+
+  test("a source value of false is replaced while chosen and restored when not", () => {
+    const config = join(tmp, "c");
+    const text = `---\nname: alpha\ndisable-model-invocation: false\n---\nb\n`;
+    const f = skill(versionDir(config), "skills/alpha", text);
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(f)).toBe(`---\nname: alpha\ndisable-model-invocation: true # rt: personal (was false)\n---\nb\n`);
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: [] } });
+    expect(read(f)).toBe(text);
   });
 
   test("a chosen skill gains the line in the newest version only", () => {
@@ -147,7 +176,7 @@ describe("reconcileDisableModelInvocation", () => {
     const f = skill(versionDir(config), "skills/alpha", `---\nname: alpha\ndisable-model-invocation: "true"\n---\nb\n`);
     const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
     expect(r.changed).toEqual([]);
-    expect(r.warnings[0]).toContain(f);
+    expect(r.warnings).toEqual([`${f}: disable-model-invocation has an unusual value, so it was left alone`]);
   });
 
   test("a source value of true is left alone without a warning", () => {
@@ -220,27 +249,73 @@ describe("reconcileDisableModelInvocation", () => {
     const registry = (config: string, text: string) => writeFileSync(join(config, "plugins", "installed_plugins.json"), text);
     const at = (config: string, v: string) => join(config, "plugins", "cache", "market", "widgets", v);
 
-    test("installPath beats a higher semver folder", () => {
+    test("installPath beats a higher semver folder the registry does not name", () => {
       const config = join(tmp, "c");
       const hashed = skill(versionDir(config, "abc123"), "skills/alpha", plain("alpha"));
       const higher = skill(versionDir(config, "9.0.0"), "skills/alpha", plain("alpha"));
-      registry(config, JSON.stringify({ plugins: { [KEY]: [
-        { scope: "project", installPath: at(config, "9.0.0") },
-        { scope: "user", installPath: at(config, "abc123") },
-      ] } }));
+      registry(config, JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: at(config, "abc123") }] } }));
       reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
       expect(read(hashed)).toContain(PERSONAL_MARK);
       expect(read(higher)).toBe(plain("alpha"));
     });
 
-    test("an installPath outside the cache is ignored", () => {
+    test("every registry entry in the cache is marked, and two entries on one folder are edited once", () => {
+      const config = join(tmp, "c");
+      const hashed = skill(versionDir(config, "abc123"), "skills/alpha", plain("alpha"));
+      const project = skill(versionDir(config, "9.0.0"), "skills/alpha", plain("alpha"));
+      registry(config, JSON.stringify({ plugins: { [KEY]: [
+        { scope: "project", installPath: at(config, "9.0.0") },
+        { scope: "user", installPath: at(config, "abc123") },
+        { scope: "local", installPath: at(config, "abc123") },
+      ] } }));
+      const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(hashed)).toContain(PERSONAL_MARK);
+      expect(read(project)).toContain(PERSONAL_MARK);
+      expect(r.changed.sort()).toEqual([hashed, project].sort());
+      expect(r.warnings).toEqual([]);
+    });
+
+    test("an installPath outside the cache edits nothing and warns by plugin", () => {
       const config = join(tmp, "c");
       const cur = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
       const elsewhere = skill(join(tmp, "elsewhere"), "skills/alpha", plain("alpha"));
       registry(config, JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: join(tmp, "elsewhere") }] } }));
-      reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
-      expect(read(cur)).toContain(PERSONAL_MARK);
+      const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(cur)).toBe(plain("alpha"));
       expect(read(elsewhere)).toBe(plain("alpha"));
+      expect(r.changed).toEqual([]);
+      expect(r.warnings).toEqual([`${KEY}: this plugin loads from a folder outside Claude's plugin cache, so rt left it alone and Claude can still invoke its skills`]);
+    });
+
+    test("an entry in the cache is still marked when another is outside, and the warning stays", () => {
+      const config = join(tmp, "c");
+      const cur = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
+      skill(join(tmp, "elsewhere"), "skills/alpha", plain("alpha"));
+      registry(config, JSON.stringify({ plugins: { [KEY]: [
+        { scope: "project", installPath: join(tmp, "elsewhere") },
+        { scope: "user", installPath: at(config, "1.0.0") },
+      ] } }));
+      const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(cur)).toContain(PERSONAL_MARK);
+      expect(r.warnings).toHaveLength(1);
+      expect(r.warnings[0]).toStartWith(`${KEY}: `);
+    });
+
+    test("a plugin outside the cache with no chosen names has nothing to warn about", () => {
+      const config = join(tmp, "c");
+      versionDir(config, "1.0.0");
+      skill(join(tmp, "elsewhere"), "skills/alpha", plain("alpha"));
+      registry(config, JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: join(tmp, "elsewhere") }] } }));
+      expect(reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: [] } })).toEqual({ changed: [], warnings: [] });
+    });
+
+    test("an installPath that no longer exists falls back to the newest folder", () => {
+      const config = join(tmp, "c");
+      const cur = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));
+      registry(config, JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: join(tmp, "gone") }] } }));
+      const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+      expect(read(cur)).toContain(PERSONAL_MARK);
+      expect(r.warnings).toEqual([]);
     });
 
     test("a missing or malformed file falls back to the newest folder with no warning", () => {
@@ -255,6 +330,29 @@ describe("reconcileDisableModelInvocation", () => {
       expect(bad.warnings).toEqual([]);
       expect(read(f)).toContain(PERSONAL_MARK);
     });
+  });
+});
+
+describe("withInstalledPlugins", () => {
+  test("names every plugin in each config dir's cache, and stored choices win", () => {
+    const config = join(tmp, "c");
+    versionDir(config);
+    mkdirSync(join(config, "plugins", "cache", "other", "gadgets", "1.0.0"), { recursive: true });
+    expect(withInstalledPlugins([config], { [KEY]: ["alpha"] })).toEqual({ [KEY]: ["alpha"], "gadgets@other": [] });
+  });
+
+  test("reconciling the result strips marks from a plugin the setting no longer names", () => {
+    const config = join(tmp, "c");
+    const f = skill(versionDir(config), "skills/alpha", plain("alpha"));
+    reconcileDisableModelInvocation({ configDirs: [config], choices: { [KEY]: ["alpha"] } });
+    expect(read(f)).toContain(PERSONAL_MARK);
+    const r = reconcileDisableModelInvocation({ configDirs: [config], choices: withInstalledPlugins([config], {}) });
+    expect(read(f)).toBe(plain("alpha"));
+    expect(r).toEqual({ changed: [f], warnings: [] });
+  });
+
+  test("a config dir with no cache names nothing", () => {
+    expect(withInstalledPlugins([join(tmp, "absent")], {})).toEqual({});
   });
 });
 

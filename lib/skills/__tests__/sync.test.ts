@@ -7,7 +7,7 @@ import { heldCopy, refusalCopy } from "../../engine-floor.ts";
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
 import { childEnv, runCapture } from "../../subprocess.ts";
-import { bumpPatchVersion, LAYOUT_HOLD, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
+import { bumpPatchVersion, LAYOUT_HOLD, RELOAD_NEEDED, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
 import { skillsChanges } from "../../../commands/skills.ts";
 import { captureSkills } from "./helpers.ts";
 import { orgSettingsPath } from "../../../packages/rt-client/src/settings/paths.ts";
@@ -3285,6 +3285,31 @@ describe("disable-model-invocation choices after a sync", () => {
     const detail = report.steps.find((s) => s.name === "disable-model-invocation")!.detail;
     expect(detail).toContain("left alone");
     expect(detail).not.toContain("in place");
+  });
+
+  test("a no-op sync that put a skill back asks for a reload, in a way --json never carries", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ [KEY]: ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const step = report.steps.find((s) => s.name === "disable-model-invocation")!;
+    expect(step[RELOAD_NEEDED]).toBe(true);
+    expect(report.restartNeeded).toBe(false);
+    expect(JSON.parse(JSON.stringify(step))).toEqual({ name: "disable-model-invocation", status: "ran", detail: "reapplied to 1 skill" });
+  });
+
+  test("a sync with nothing to put back asks for no reload", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const { config } = installedSkill();
+    const deps = { ...world(pack, engine, "1.0.0"), disableModelInvocation: { configDirs: () => [config], choices: () => ({ "gadgets@market": ["alpha"] }) } };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "disable-model-invocation")![RELOAD_NEEDED]).toBeUndefined();
   });
 
   test("a chosen plugin that is not installed says nothing was changed", async () => {
