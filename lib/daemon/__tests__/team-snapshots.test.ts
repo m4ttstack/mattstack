@@ -1,12 +1,13 @@
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { createRealProbes } from "../../setup/probes.ts";
+import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { openStateDb } from "../../state/db.ts";
 import { childEnv } from "../../subprocess.ts";
 import { writeTeamLocal } from "../../team/team-local.ts";
@@ -371,7 +372,7 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/.mattstack/orgs/acme",
       log: fakeLog(),
-      converge: (async () => { order.push("converge"); return { held: [] }; }) as never,
+      converge: (async () => { order.push("converge"); return { held: [], updated: [], installed: [] }; }) as never,
       applyCone: async (_p, dir, org) => { order.push(`cone:${org}@${dir}`); return { applied: [], kept: [] }; },
       afterPull: async () => { order.push("after"); },
     });
@@ -387,13 +388,124 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/.mattstack/orgs/acme",
       log,
-      converge: (async () => ({ held: [] })) as never,
+      converge: (async () => ({ held: [], updated: [], installed: [] })) as never,
       applyCone: async () => { throw new Error("sparse-checkout broke"); },
       afterPull: async () => { order.push("after"); },
     });
     await onPulled();
     expect(order).toEqual(["after"]);
     expect(warned(log, "could not apply the role")).toBe(true);
+  });
+
+  describe("createOnPulled keeps model invocation disabled", () => {
+    const SETTING = "rt.skills.disableModelInvocation";
+    const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
+    const nothing = { held: [], updated: [], installed: [] };
+
+    function installedSkill(): { home: string; file: string } {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshots-dmi-")));
+      const version = join(home, ".claude", "plugins", "cache", "market", "widgets", "2.0.0");
+      mkdirSync(join(version, "skills", "alpha"), { recursive: true });
+      const file = join(version, "skills", "alpha", "SKILL.md");
+      writeFileSync(file, plain);
+      return { home, file };
+    }
+    const onPulledWith = (home: string, result: unknown, log = fakeLog()) => createOnPulled({
+      probes: fakeProbes({ home }),
+      slug: "acme",
+      dir: join(home, "orgs", "acme"),
+      log,
+      converge: (async () => result) as never,
+      applyCone: async () => ({ applied: [], kept: [] }),
+    });
+
+    test("a pack the pull updated gets the member's choice back", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      try {
+        await onPulledWith(home, { ...nothing, updated: [{ id: "widgets@market", to: "2.0.0" }] })();
+        expect(readFileSync(file, "utf8")).toContain("disable-model-invocation: true");
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a pack the pull installed gets the member's choice back", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      try {
+        await onPulledWith(home, { ...nothing, installed: ["widgets@market"] })();
+        expect(readFileSync(file, "utf8")).toContain("disable-model-invocation: true");
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a pull that changed no pack edits nothing", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      try {
+        await onPulledWith(home, nothing)();
+        expect(readFileSync(file, "utf8")).toBe(plain);
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a skill left alone is logged as a warning and the pull still finishes", async () => {
+      const { home, file } = installedSkill();
+      writeFileSync(file, "no frontmatter\n");
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      const log = fakeLog();
+      try {
+        await onPulledWith(home, { ...nothing, installed: ["widgets@market"] }, log)();
+        expect(warned(log, "no frontmatter")).toBe(true);
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("an updated pack with no stored choices leaves a marked copy alone", async () => {
+      const { home, file } = installedSkill();
+      const marked = "---\nname: alpha\ndisable-model-invocation: true # rt: personal\n---\nbody\n";
+      writeFileSync(file, marked);
+      try {
+        await onPulledWith(home, { ...nothing, updated: [{ id: "widgets@market", to: "2.0.0" }] })();
+        expect(readFileSync(file, "utf8")).toBe(marked);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a settings store the daemon cannot read edits nothing and does not fail the pull", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      const log = fakeLog();
+      const after: string[] = [];
+      try {
+        const onPulled = createOnPulled({
+          probes: fakeProbes({ home }),
+          slug: "acme",
+          dir: join(home, "orgs", "acme"),
+          log,
+          converge: (async () => ({ ...nothing, updated: [{ id: "widgets@market", to: "2.0.0" }] })) as never,
+          applyCone: async () => ({ applied: [], kept: [] }),
+          afterPull: async (slug) => { after.push(slug); },
+          readChoices: () => { throw new Error("no settings here"); },
+        });
+        await onPulled();
+        expect(readFileSync(file, "utf8")).toBe(plain);
+        expect(after).toEqual(["acme"]);
+        expect(warned(log, "no settings here")).toBe(true);
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
   });
 
   test("createOnPulled logs the team folders a cone kept", async () => {
@@ -403,7 +515,7 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/.mattstack/orgs/acme",
       log,
-      converge: (async () => ({ held: [] })) as never,
+      converge: (async () => ({ held: [], updated: [], installed: [] })) as never,
       applyCone: async () => ({ applied: [], kept: ["gadgets"] }),
     });
     await onPulled();
@@ -420,7 +532,7 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/orgs/acme",
       log,
-      converge: (async () => ({ held: [held] })) as never,
+      converge: (async () => ({ held: [held], updated: [], installed: [] })) as never,
       holds: { has: (k) => seen.has(k), mark: (k) => { seen.add(k); } },
     });
     await onPulled();

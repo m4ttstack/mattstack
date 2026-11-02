@@ -20,6 +20,7 @@ import { UserActionableError } from "../errors.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { applyRoleCone } from "../team/org-cone.ts";
 import { convergeDataBranch, type ConvergeResult } from "../team/org-data-branch.ts";
+import { disableModelInvocationConfigDirs, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../skills/disable-model-invocation.ts";
 import { roleFor } from "../team/roles.ts";
 import {
   startSnapshot,
@@ -86,7 +87,7 @@ function originOf(dir: string): string | null {
   }
 }
 
-/** The converge first, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
+/** The converge first, then a pack it changed gets the member's disabled skills back, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
 export function createOnPulled(opts: {
   probes: Probes;
   slug: string;
@@ -95,6 +96,8 @@ export function createOnPulled(opts: {
   converge: typeof convergePackCache;
   afterPull?: (slug: string) => Promise<void>;
   applyCone?: typeof applyRoleCone;
+  /** Injectable so a test can stand in for a daemon whose settings will not read. */
+  readChoices?: () => Record<string, string[]>;
   /** Remembers which held pack versions were already logged; defaults to the state db's kv table. */
   holds?: { has(key: string): boolean; mark(key: string): void };
 }): () => Promise<void> {
@@ -110,9 +113,21 @@ export function createOnPulled(opts: {
       opts.log.warn({ err }, "cone: could not apply the role's sparse checkout");
     }
   };
+  // An empty read means the store is absent or unreadable, and either way there is nothing to put back.
+  const reapplyDisabledSkills = (): void => {
+    try {
+      const choices = (opts.readChoices ?? readDisableModelInvocationChoices)();
+      if (Object.keys(choices).length === 0) return;
+      const { warnings } = reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(opts.probes.env, opts.probes.home), choices });
+      for (const warning of warnings) opts.log.warn({ warning }, `disable-model-invocation: ${warning}`);
+    } catch (err) {
+      opts.log.warn({ err }, `disable-model-invocation: could not reapply after a pack update: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   return async () => {
     try {
       const result = await opts.converge(opts.probes, opts.slug, opts.log);
+      if (result.updated.length > 0 || result.installed.length > 0) reapplyDisabledSkills();
       for (const h of result.held) {
         const key = `${h.id}@${h.to}`;
         let seen = false;
