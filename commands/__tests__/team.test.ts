@@ -1472,7 +1472,7 @@ describe("realUseTeamSeams", () => {
     const home = "/home/x";
     const p = fakeProbes({ home, env: { PATH: "/fixture/bin", CLAUDE_CONFIG_DIR: "/fixture/config" },
       dirs: { [`${home}/.mattstack/orgs`]: ["acme"] },
-      files: { ...adminFiles, "/fixture/bin/claude": "bin", [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets", "widgets"] }] }), [`${ZONE_DIR}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme-market", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
+      files: { ...adminFiles, "/fixture/bin/claude": "bin", [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets", "widgets"] }] }), [`${ZONE_DIR}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme-market", plugins: [{ name: "widgets", source: "./mattstack/teams/widgets/plugin" }, { name: "gadgets", source: "./mattstack/teams/gadgets/plugin" }] }) },
       exec: async (argv, opts) => {
         if (argv[0] === "/fixture/deck") return { code: 0, stdout: "", stderr: "" };
         // The generated team marketplace reads the org file at its ref.
