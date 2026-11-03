@@ -28,6 +28,8 @@ Open board from the mattstack window, or at `https://board.mattstack`. It is a t
 
 **Run reviews through Slack.** board follows a channel convention: a review request is a message with the MR link, and review state is signalled with three reactions (looking, commented, approved). You can post a request and [set the reactions](#slack-reactions) from a row.
 
+**Read and answer review comments.** The row's thread count opens [the comments drawer](#comments-and-threads), where you can reply to a thread and resolve it without leaving the board.
+
 **Ask a teammate's agent.** When teammates run their own boards, your board can ask their agents to work on your MRs, and theirs can ask yours. [Asks between boards](#asks-between-boards) follows an ask from start to finish.
 
 ## Three things decide what you see
@@ -278,6 +280,21 @@ The bulk menu is titled "N selected". It offers only what every checked MR's own
 An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, follow-up reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
 
 The board runs the action on four MRs at a time, then shows one summary, for example "merge accepted on !1, !2 · couldn't merge !3 (not approved yet) · 1 didn't need it".
+
+## Comments and threads
+
+A row with review comments shows a thread count, such as "3 threads". It reads "2 threads waiting" when threads wait on you, and "author replied" when the author answered yours. Click it to open the comments drawer for that MR.
+
+The drawer lists the MR's review threads, each with its status: **awaiting author**, **author replied** or **resolved**. Below them, **MR comments** holds the Overview comments that are not threads. Each comment links to its place in GitLab.
+
+On a local board you can also write from the drawer:
+
+- **reply** opens a reply box under a thread. Press <kbd>⌘</kbd><kbd>↩</kbd> or **send** to post it, or <kbd>Esc</kbd> to close the box.
+- **send & resolve** posts the reply and resolves the thread in one step.
+- **resolve** and **unresolve** work on every thread of your own MR, and on threads you started on someone else's.
+- An MR comment takes a reply once someone other than the author has commented. It cannot be resolved.
+
+The drawer sends one write at a time. When a write fails, its error shows under that thread, for example "reply sent, but resolve failed".
 
 ## Decisions waiting on you
 
