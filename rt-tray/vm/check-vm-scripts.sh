@@ -46,6 +46,7 @@ t "walkthrough --dry-run"        env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walk
 t "walkthrough --dry-run ledgers teardown once" bash -c \
   'rm -rf /tmp/vmcheck-art-td; env VM_ARTIFACTS=/tmp/vmcheck-art-td bash run/walkthrough.sh --ver 26 --app ../mattstack.app --dry-run >/dev/null 2>&1 \
    && [ "$(cat /tmp/vmcheck-art-td/*/phases.jsonl | grep -c "\"phase\":\"teardown\"")" -eq 1 ]; rc=$?; rm -rf /tmp/vmcheck-art-td; exit $rc'
+t "walkthrough --start-ref --dry-run" env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --start-ref HEAD --scenario create --fresh-team-repo --dry-run
 t "walkthrough usage"            bash -c '! bash run/walkthrough.sh >/dev/null 2>&1'
 t "walkthrough --fresh-team-repo --dry-run creates nothing" bash -c \
   'out=$(env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --fresh-team-repo --dry-run 2>&1) && ! printf "%s" "$out" | grep -q "unknown arg"'
