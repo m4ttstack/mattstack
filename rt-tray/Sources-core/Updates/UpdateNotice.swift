@@ -34,7 +34,7 @@ public enum UpdateNotice {
         let body: String
         switch hold {
         case .windowsOpen: body = "Installs when you close mattstack's windows"
-        case .setupRunning: body = "Installs when setup finishes"
+        case .setupRunning: body = "Installs once setup finishes and mattstack's windows close"
         }
         return Copy(title: "mattstack \(version) is ready", body: body)
     }

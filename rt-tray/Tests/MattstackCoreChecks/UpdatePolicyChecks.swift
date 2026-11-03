@@ -24,6 +24,12 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdatePolicy.hold(setupRunning: true, windowsOpen: 0), .setupRunning)
         c.expectEqual(UpdatePolicy.hold(setupRunning: true, windowsOpen: 1), .setupRunning)
     },
+    Check("UpdatePolicy.windowHoldsUpdate: a minimized window still holds the install; the status bar does not") { c in
+        c.expectEqual(UpdatePolicy.windowHoldsUpdate(isVisible: true, isMiniaturized: false, canBecomeKey: true), true)
+        c.expectEqual(UpdatePolicy.windowHoldsUpdate(isVisible: false, isMiniaturized: true, canBecomeKey: true), true)
+        c.expectEqual(UpdatePolicy.windowHoldsUpdate(isVisible: false, isMiniaturized: false, canBecomeKey: true), false)
+        c.expectEqual(UpdatePolicy.windowHoldsUpdate(isVisible: true, isMiniaturized: false, canBecomeKey: false), false)
+    },
     Check("HeldUpdateInstaller installs an offered update at once when the app is idle") { c in
         let installer = HeldUpdateInstaller(setupRunning: { false }, windowsOpen: { 0 })
         var installs = 0
@@ -80,7 +86,7 @@ let updatePolicyChecks: [Check] = [
         c.expectEqual(UpdateNotice.waiting(version: "2.28.0", hold: .windowsOpen),
                       UpdateNotice.Copy(title: "mattstack 2.28.0 is ready", body: "Installs when you close mattstack's windows"))
         c.expectEqual(UpdateNotice.waiting(version: "2.28.0", hold: .setupRunning),
-                      UpdateNotice.Copy(title: "mattstack 2.28.0 is ready", body: "Installs when setup finishes"))
+                      UpdateNotice.Copy(title: "mattstack 2.28.0 is ready", body: "Installs once setup finishes and mattstack's windows close"))
     },
     Check("UpdatePolicy: a run in flight holds updates with no window open") { c in
         c.expectEqual(UpdatePolicy.setupBusy(windowRunning: false, runInFlight: true), true)

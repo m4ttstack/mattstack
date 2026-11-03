@@ -31,11 +31,11 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
     ]
 
     init(isDevBuild: Bool, isBusy: @escaping () -> Bool) {
-        // NSStatusBarWindow is always present and always isVisible for this
-        // LSUIElement app -- canBecomeKey excludes it while still counting
-        // real content windows (process panel, settings, setup).
-        installer = HeldUpdateInstaller(setupRunning: isBusy,
-                                        windowsOpen: { NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }.count })
+        installer = HeldUpdateInstaller(setupRunning: isBusy, windowsOpen: {
+            NSApp.windows.filter {
+                UpdatePolicy.windowHoldsUpdate(isVisible: $0.isVisible, isMiniaturized: $0.isMiniaturized, canBecomeKey: $0.canBecomeKey)
+            }.count
+        })
         let info = Bundle.main.infoDictionary
         feedOverride = UpdatePolicy.feedOverride(environment: ProcessInfo.processInfo.environment,
                                                  arguments: CommandLine.arguments, isDevBuild: isDevBuild)
