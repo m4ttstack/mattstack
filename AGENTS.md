@@ -65,7 +65,7 @@ Turborepo (`turbo.json`, `scripts/turbo.sh`) runs
 their gates and rt's static gates; `bun run check` is what `checks.yml`'s
 `static` job runs. rt's unit suite is `bun run test` and never walks the apps'
 vitest packages: the `test` script names rt's directories one by one, and
-`scripts/ci/test-scope.ts` skips the macOS shards on a PR that touches only
+`scripts/ci/test-scope.ts` skips the unit shards on a PR that touches only
 apps trees or `plugins/` trees (each plugin has its own CI job, which
 `scripts/__tests__/no-plugin-ci-jobs.test.ts` enforces). Deck serves the
 apps from this checkout in dev mode
