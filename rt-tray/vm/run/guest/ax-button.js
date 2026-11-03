@@ -6,6 +6,7 @@
 //
 //   osascript -l JavaScript ax-button.js <process> read <axid>
 //   osascript -l JavaScript ax-button.js <process> press <axid> <wording>
+//   osascript -l JavaScript ax-button.js <process> pick <axid> <option wording>
 //
 // Lookups run under the process's first window, as `window 1` does in ax.sh.
 // A read and the press it guards are one invocation: a read that lands
@@ -90,6 +91,47 @@ function pressEl(el, id) {
   if (err != 0) throw new Error("press failed: " + id + " (AX error " + err + ")");
 }
 
+function options(el, acc, depth) {
+  if (depth > 10) return acc;
+  var kids = attr(el, "AXChildren");
+  if (!kids) return acc;
+  var arr = ObjC.castRefToObject(kids);
+  for (var i = 0; i < arr.count; i++) {
+    var c = arr.objectAtIndex(i);
+    if (textAt(c, "AXRole") === "AXRadioButton") acc.push(c);
+    else options(c, acc, depth + 1);
+  }
+  return acc;
+}
+
+// A segment's options carry their wording where System Events cannot read it.
+function pick(win, id, want) {
+  var all = options(find(win, id), [], 0), seen = [];
+  for (var i = 0; i < all.length; i++) {
+    var w = wordingAt(all[i]);
+    seen.push(w);
+    if (w === want) {
+      pressEl(all[i], id + " option " + want);
+      delay(0.5);
+      // The press redraws the screen, so the old element no longer reads.
+      var now = options(find(win, id), [], 0);
+      for (var j = 0; j < now.length; j++) {
+        if (wordingAt(now[j]) !== want) continue;
+        // A SwiftUI representation's option may expose no value to check;
+        // then only another option reading selected disproves the press.
+        var value = textAt(now[j], "AXValue");
+        if (value !== "1" && value !== "") throw new Error("option " + want + " in " + id + " did not take the press (value '" + value + "')");
+        for (var k = 0; k < now.length; k++) {
+          if (k !== j && textAt(now[k], "AXValue") === "1") throw new Error("option " + want + " in " + id + " did not take the press (" + wordingAt(now[k]) + " still reads selected)");
+        }
+        return;
+      }
+      throw new Error("option " + want + " in " + id + " is gone after the press");
+    }
+  }
+  throw new Error("no option " + want + " in " + id + "; options read: [" + seen.join(", ") + "]");
+}
+
 function run(argv) {
   ObjC.import("ApplicationServices");
   var proc = argv[0], mode = argv[1];
@@ -97,18 +139,21 @@ function run(argv) {
   if (!p.exists()) throw new Error("process not running: " + proc);
   var pid = p.unixId();
   var b, v;
+  if (mode !== "read") p.frontmost = true;
   switch (mode) {
     case "read":
       b = find(firstWindow(proc, pid), argv[2]);
       v = wordingAt(b);
       if (v === "") throw new Error("no readable wording: " + argv[2]);
       return v;
+    case "pick":
+      pick(firstWindow(proc, pid), argv[2], argv[3]);
+      return "";
     case "press":
-      p.frontmost = true;
       b = find(firstWindow(proc, pid), argv[2]);
       refuse(pressHeld(argv[2], argv[3], wordingAt(b), enabledAt(b)));
       pressEl(b, argv[2]);
       return "";
   }
-  throw new Error("usage: ax-button.js <process> read <axid> | press <axid> <wording>");
+  throw new Error("usage: ax-button.js <process> read <axid> | press <axid> <wording> | pick <axid> <option wording>");
 }

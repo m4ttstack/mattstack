@@ -18,6 +18,7 @@ case "$1 $2 $3" in
     env > "$HOME/rt-env"
     sops="$HOME/.mattstack/orgs/vmtest/.sops.yaml"
     mkdir -p "$(dirname "$sops")"
+    git -C "$(dirname "$sops")" init -q
     adds=$(cat "$HOME/../sync-adds" 2>/dev/null)
     handles=$(cat "$HOME/../sync-handles" 2>/dev/null)
     printf 'creation_rules:\\n  - age: %s\\n' "$(printf '%s' "$adds" | tr ' ' ',')" > "$sops"
@@ -65,6 +66,15 @@ describe("approve-join.sh", () => {
     const env = read(join(r.home, "rt-env"));
     expect(env).toContain(`HOME=${r.home}\n`);
     expect(env).not.toContain("OPERATOR_ONLY");
+  });
+
+  test("commits the sync's write, since publish pushes only commits", () => {
+    const r = approve();
+    expect(r.code).toBe(0);
+    const clone = join(r.home, ".mattstack", "orgs", "vmtest");
+    const committed = Bun.spawnSync(["git", "-C", clone, "show", "--name-only", "--format=", "HEAD"]).stdout.toString();
+    expect(committed).toContain(".sops.yaml");
+    expect(Bun.spawnSync(["git", "-C", clone, "status", "--porcelain"]).stdout.toString()).toBe("");
   });
 
   test("fails, and publishes nothing, when the joiner's key is not a recipient afterwards", () => {
