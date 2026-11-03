@@ -275,6 +275,19 @@ describe("reconcileDisableModelInvocation", () => {
       expect(r.warnings).toEqual([]);
     });
 
+    test("an install under the org marketplace's cache folder is marked with no outside warning", () => {
+      const config = join(tmp, "c");
+      const key = "widgets@acme-org";
+      const dir = join(config, "plugins", "cache", "acme-org", "widgets", "0123abcd");
+      mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+      const file = skill(dir, "skills/alpha", plain("alpha"));
+      registry(config, JSON.stringify({ plugins: { [key]: [{ scope: "user", installPath: dir }] } }));
+      const r = reconcileDisableModelInvocation({ configDirs: [config], choices: { [key]: ["alpha"] } });
+      expect(read(file)).toContain(PERSONAL_MARK);
+      expect(r.changed).toEqual([file]);
+      expect(r.warnings).toEqual([]);
+    });
+
     test("an installPath outside the cache edits nothing and warns by plugin", () => {
       const config = join(tmp, "c");
       const cur = skill(versionDir(config, "1.0.0"), "skills/alpha", plain("alpha"));

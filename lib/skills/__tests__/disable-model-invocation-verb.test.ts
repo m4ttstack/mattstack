@@ -647,6 +647,18 @@ describe("what set tells a person with a session already running", () => {
     expect(io.lines().join("\n")).not.toContain("/reload-plugins");
   });
 
+  test("a hashed version folder in the cache reports applied true with no warnings", async () => {
+    fixture();
+    const dir = join(process.env.HOME!, ".claude", "plugins", "cache", "market", "widgets", "0123abcd");
+    put(join(dir, "skills", "alpha", "SKILL.md"), plain("alpha"));
+    put(join(process.env.HOME!, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { [KEY]: [{ scope: "user", installPath: dir }] } }));
+    await skillsDisableModelInvocation(["set", "alpha", "--on", "--pack", "widgets", "--json"]);
+    const report = lastJson();
+    expect(report.applied).toBe(true);
+    expect(report.warnings).toEqual([]);
+    expect(read(join(dir, "skills", "alpha", "SKILL.md"))).toContain(PERSONAL_MARK);
+  });
+
   test("a copy outside the plugin cache reports applied false with the reason", async () => {
     fixture();
     const elsewhere = join(tmp, "elsewhere");
