@@ -15,7 +15,7 @@ import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from 
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { createCapableGitHubToken, GITHUB_OAUTH_CLIENT_ID, readGitHubSignIn, readStoredGitHubToken, type GitHubSignIn } from "./github-signin.ts";
-import { homeBackupOrigin } from "./home-remote.ts";
+import { homeOrigin, isRestorableOrigin } from "./home-remote.ts";
 import { isValidHostname } from "./host-validate.ts";
 import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
@@ -668,6 +668,8 @@ export interface ThisMacInputs extends DrawnContext {
   backup: HomeBackupChoice | undefined;
   /** The home repo's origin, or the staged url before the repo exists. */
   homeRemote: string | null;
+  /** The home repo has an origin `rt home restore` cannot open (a local path, an http or git:// url). */
+  originUnsupported?: boolean;
   ghSignedIn: boolean;
   /** The device sign-in record: live, or ended with an outcome. */
   githubSignIn: GitHubSignIn | null;
@@ -738,6 +740,8 @@ function remoteRow(i: ThisMacInputs): FormRow | null {
   if (i.backup.create) return { ...base, state: "done", detail: c.creates, action: null };
   const signInVerb = ["setup", "github", "sign-in"];
   const sign = i.githubSignIn;
+  // An origin restore cannot open is replaced by a url; creating or signing in would only meet that origin again.
+  if (i.originUnsupported) return urlRow(base, c);
   if (sign && sign.outcome === undefined) {
     const t = FORM_COPY.connect.teamTool;
     return { ...base, state: "waiting", detail: t.code(sign.userCode), action: { type: "open-url", label: t.openAgain, url: sign.url }, watch: true };
@@ -750,6 +754,10 @@ function remoteRow(i: ThisMacInputs): FormRow | null {
     const detail = sign ? (sign.outcome === "declined" ? c.declined : c.expired) : "";
     return { ...base, state: "todo", detail, ...(sign ? {} : { subtext: c.signInSubtext }), action: { type: "run", label: c.signIn, verb: signInVerb } };
   }
+  return urlRow(base, c);
+}
+
+function urlRow(base: Pick<FormRow, "id" | "title" | "subtext" | "waiting" | "watch" | "optional">, c: (typeof FORM_COPY)["thisMac"]["remote"]): FormRow {
   return {
     ...base,
     state: "todo",
@@ -1027,7 +1035,8 @@ async function thisMacSection(
   clientId: string,
 ): Promise<FormRow[]> {
   const rows = new Map(planRows(plan).map((r) => [r.id, r]));
-  const origin = await homeBackupOrigin(p);
+  const anyOrigin = await homeOrigin(p);
+  const origin = anyOrigin !== null && isRestorableOrigin(anyOrigin) ? anyOrigin : null;
   // A Mac set up before the choice existed already backs up to its origin, so it is not asked again.
   const backup: HomeBackupChoice | undefined = state.homeBackup ?? (origin !== null ? { mode: "remote", url: origin } : undefined);
   const remote = homeRemote(origin, backup);
@@ -1047,6 +1056,7 @@ async function thisMacSection(
     prepare: macosPrepare(p),
     backup,
     homeRemote: remote,
+    originUnsupported: anyOrigin !== null && origin === null,
     ghSignedIn: signedInThroughGh,
     githubSignIn,
     githubReady: github.ready,

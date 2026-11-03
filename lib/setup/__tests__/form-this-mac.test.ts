@@ -371,6 +371,12 @@ describe("the remote repo row signs in to GitHub", () => {
   const SIGN_IN = ["setup", "github", "sign-in"];
   const live = { userCode: "ABCD-1234", url: "https://github.com/login/device", expiresAt: "2026-10-30T10:10:00.000Z", pid: 4242 };
 
+  test("an origin restore cannot open asks for a url, never offers a create or sign-in it cannot use", () => {
+    for (const over of [{ ghSignedIn: true }, { githubReady: true }, {}]) {
+      expect(remote({ originUnsupported: true, ...over }).action).toMatchObject({ type: "form", verb: ["home", "remote", "set"] });
+    }
+  });
+
   test("a staged url or create is done and shows no action", () => {
     expect(remote({ homeRemote: "git@github.com:janedoe/mattstack-home.git" })).toMatchObject({ state: "done", detail: "git@github.com:janedoe/mattstack-home.git", action: null });
     expect(remote({ backup: { mode: "remote", create: true } })).toMatchObject({ state: "done", detail: "rt creates it as a private repo when setup runs", action: null });

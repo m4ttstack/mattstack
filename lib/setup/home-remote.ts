@@ -14,6 +14,7 @@ import { createGitHubRepo, githubCreateAccess, readStoredGitHubToken } from "./g
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState, type HomeBackupChoice } from "./state.ts";
 import { homeGitDir } from "./home-paths.ts";
+import { homeRepoTarget } from "../home/home-repo.ts";
 import { rtCredentialHelper } from "./steps/repos.ts";
 
 export type { HomeBackupChoice } from "./state.ts";
@@ -165,10 +166,21 @@ export function pendingHomeRemote(p: Pick<Probes, "readFile" | "exists" | "home"
   return null;
 }
 
-/** The home repo's origin when it is an address another Mac can restore from; a local path or a url with a password is not. */
+/** True when `rt home restore` can open this origin on another Mac: the same parser restore uses decides. */
+export function isRestorableOrigin(origin: string): boolean {
+  if (!GIT_REMOTE_URL_PATTERN.test(origin)) return false;
+  try {
+    homeRepoTarget(origin);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The home repo's origin when another Mac can restore from it. */
 export async function homeBackupOrigin(p: Pick<Probes, "exists" | "exec" | "home">): Promise<string | null> {
   const origin = await homeOrigin(p);
-  return origin !== null && GIT_REMOTE_URL_PATTERN.test(origin) && !hasUrlCredentials(origin) ? origin : null;
+  return origin !== null && isRestorableOrigin(origin) ? origin : null;
 }
 
 /** Written only after a push lands, so the remote is no longer staged. */

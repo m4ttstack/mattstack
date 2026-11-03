@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "path";
 import { UserActionableError } from "../../errors.ts";
-import { setHomeRemote } from "../home-remote.ts";
+import { isRestorableOrigin, setHomeRemote } from "../home-remote.ts";
 import type { ExecResult } from "../probes.ts";
 import { __test__, setWarningLog } from "../../ui/warn.ts";
 import { fakeProbes } from "./fakes.ts";
@@ -23,6 +23,15 @@ async function refusal(run: () => Promise<unknown>): Promise<UserActionableError
   }
   throw new Error("expected a refusal");
 }
+
+describe("isRestorableOrigin", () => {
+  test("only an origin rt home restore can open counts as a backup", () => {
+    for (const ok of ["https://github.com/janedoe/mattstack-home.git", "git@github.com:janedoe/mattstack-home.git"]) expect(isRestorableOrigin(ok)).toBe(true);
+    for (const no of ["/tmp/home.git", "ssh://git@example.com/home.git", "http://example.com/janedoe/home.git", "git://example.com/janedoe/home.git", "https://janedoe:pw@github.com/janedoe/home.git"]) {
+      expect(isRestorableOrigin(no)).toBe(false);
+    }
+  });
+});
 
 describe("setHomeRemote", () => {
   test("set-home-remote keeps today's refusals", async () => {
