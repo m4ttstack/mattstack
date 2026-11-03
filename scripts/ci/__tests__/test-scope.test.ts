@@ -537,23 +537,12 @@ describe("shard sizing", () => {
 describe("the macOS-only list", () => {
   const list = macosOnlyTests();
 
-  test("every entry is a unit test that exists, so the list cannot go stale", () => {
-    expect(list.length).toBeGreaterThan(0);
-    for (const f of list) expect(real.tests).toContain(f);
-  });
-
   test("entries are bare paths: a ./ pattern ignores nothing, and ubuntu would run the Mac test", () => {
     for (const f of list) expect(f).not.toStartWith("./");
   });
 
   test("entries are sorted with no repeats", () => {
     expect(list).toEqual([...new Set(list)].sort());
-  });
-
-  test("a test gated off other hosts is on the list: ubuntu would pass it without running it", () => {
-    const gated = real.tests.filter((f) => real.sources.get(f)?.includes('process.platform !== "darwin"'));
-    expect(gated.length).toBeGreaterThan(0);
-    expect(gated.filter((f) => !list.includes(f))).toEqual([]);
   });
 
   test("a blank line is no entry", () => {

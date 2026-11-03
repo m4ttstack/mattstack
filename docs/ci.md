@@ -75,8 +75,8 @@ are never checked: the tests that read the site are guards, and `static`'s
 `scripts/ci/macos-only-tests.txt` lists the unit tests that cannot run on
 ubuntu, one bare repo-relative path per line. `unit` passes each one to
 `--path-ignore-patterns`, where a `./` prefix matches nothing and would leave
-the test on ubuntu, so the scope test refuses one. It also refuses an entry
-whose file is gone.
+the test on ubuntu, so the scope test refuses one. The
+`no-macos-list-drift` guard refuses an entry whose file is gone.
 
 | Test | Needs |
 |---|---|
@@ -95,7 +95,7 @@ stops at a bare import. Nothing reached skips it.
 
 A new test that needs a Mac fails on ubuntu on its own PR, and the author adds
 it there. One gated with `process.platform !== "darwin"` would pass on ubuntu
-without running, so the scope test requires it on the list. A test that only
+without running, so the same guard requires it on the list. A test that only
 names a Mac path, identity or tool gets made portable instead, and a flake
 gets fixed, never listed.
 
