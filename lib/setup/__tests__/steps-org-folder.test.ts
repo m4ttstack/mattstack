@@ -462,11 +462,29 @@ describe("org.folder: the step", () => {
   });
 
   test("the marketplace piece failing ends partial with the commands as the remedy", async () => {
-    seams({ marketplace: async () => ({ state: "partial", detail: "claude is missing", commands: ["claude plugin marketplace remove acme", `claude plugin marketplace add ${ORGS}/acme`] }) });
+    const generated = `${RT}/marketplaces/acme`;
+    seams({ marketplace: async () => ({ state: "partial", detail: "the add failed", commands: [`claude plugin marketplace add ${generated}`, "claude plugin install gadgets@acme --scope user"] }) });
     const p = fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy() });
     const out = await convergeOrgFolder(makeCtx(p).ctx);
-    expect(out).toMatchObject({ state: "partial", remedy: `Run claude plugin marketplace remove acme, then claude plugin marketplace add ${ORGS}/acme` });
+    expect(out).toMatchObject({ state: "partial", remedy: `Run claude plugin marketplace add ${generated}, then claude plugin install gadgets@acme --scope user` });
     expect(p.calls.renames).toContainEqual([`${TEAMS}/acme`, `${ORGS}/acme`]);
+  });
+
+  test("a marketplace piece that could not write this Mac's marketplace says why on a row that stays done", async () => {
+    const why = "rt could not write this Mac's copy of the acme marketplace (the org repo has no .claude-plugin/marketplace.json on main), so Claude's registration was left as it is";
+    seams({ marketplace: async () => ({ state: "skipped", detail: why, note: why }) });
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain(`acme: ${why}`);
+  });
+
+  test("a skipped marketplace piece with no note leaves the row's detail alone", async () => {
+    seams({ marketplace: async () => ({ state: "skipped", detail: "the clone declares no Claude marketplace" }) });
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).not.toContain("declares no Claude marketplace");
   });
 
   test("a marketplace partial with no commands takes the fix-then-rerun remedy and names its cause", async () => {
