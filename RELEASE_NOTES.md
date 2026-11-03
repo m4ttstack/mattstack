@@ -29,6 +29,8 @@ Also in this release: the board says "follow-up review" everywhere and lets you 
 - `EnterWorktree` into a worktree rt's registry holds no longer asks; the daemon's dialog auto-accept and `panes.relocationAutoAccept` are gone (#953, #955)
 - `EnterWorktree` never waits on a person: a path that no longer exists, or a folder that isn't an rt worktree, is refused at once with what to do instead (#977)
 - `rt runs` leaves out runs a validation harness started; `--include-tests` lists them (#979)
+- pack reads cache Claude's plugin list, so they no longer start a `claude plugin list` each time (#982)
+- the console's pack reads no longer get cut off when they run long (#981)
 
 ### Board
 
@@ -46,10 +48,14 @@ Also in this release: the board says "follow-up review" everywhere and lets you 
 - WebKit fixes for the gate sheet's head, round bar and avatars
 - the comments drawer is wider, keeps thread cards from squashing, and ends with the same reached-the-end marker as the gates
 - the row menu leads with set auto-merge when only CI is left, and a respond-again row sits under respond
+- a teammate's agent review that was lost shows in the ask band, with retry and dismiss (#984)
+- the ask band's trail opens above the row when it's near the bottom edge
 
 ### Menu bar app
 
 - a downloaded update installs once mattstack's windows are closed and setup isn't running, trying again every minute; a notification says when it is waiting and when it has landed, and **Update Available** installs it at once (#978)
+- the process panel no longer leaks memory or keeps polling after you close it, which slowed the app down after hours open (#983)
+- app windows can be inspected with Web Inspector in every build (#980)
 - **Settings > Notifications** has a sound **Preset**: Calm (Sober 2, Sober 3, Sosumi), now the default, or Lively, the built-in tones
 
 ### Bundled tools

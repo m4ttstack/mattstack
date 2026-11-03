@@ -109,16 +109,38 @@ test('hovering the band opens nothing; clicking its trigger opens the trail, cli
   expect(document.querySelector('.tui-ask-trail')).toBeNull();
 });
 
-test('the open trail closes on an outside click (Escape is the kit menu own)', async () => {
+test('the trail is a popover anchored to its trigger, not a menu, and clicks inside it stay off the row', async () => {
+  const rowClicks: string[] = [];
+  container.addEventListener('click', () => rowClicks.push('row'));
+  await render(mrWith({ kind: 're-review' }), ctx());
+  const trigger =
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
+  await React.act(async () => trigger.click());
+  const trail = document.querySelector<HTMLElement>('.tui-ask-trail')!;
+  expect(trail.getAttribute('role')).toBe('dialog');
+  expect(trail.getAttribute('aria-label')).toBe('Follow-up review from Grace');
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  rowClicks.length = 0;
+  await React.act(async () => {
+    trail.querySelector<HTMLElement>('.tui-ask-trail-step')!.click();
+  });
+  expect(rowClicks).toEqual([]);
+});
+
+test('the open trail closes on an outside click (Escape is the kit popover own)', async () => {
   await render(mrWith({}), ctx());
   const trigger =
     container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
   await React.act(async () => trigger.click());
   expect(document.querySelector('.tui-ask-trail')).not.toBeNull();
   await React.act(async () => {
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup'])
+      document.body.dispatchEvent(
+        new PointerEvent(type, { bubbles: true, button: 0 })
+      );
+    document.body.click();
   });
-  expect(document.querySelector('.tui-ask-trail')).toBeNull();
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });
 
 test('a running ask shows the spinner and offers dismiss', async () => {
@@ -189,6 +211,72 @@ test('a stopped ask renders its reason and offers retry and dismiss', async () =
   expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
     'failed to run'
   );
+});
+
+test('a review a peer board lost renders as a band with retry and dismiss, and its trail names their board', async () => {
+  const calls: string[] = [];
+  const mr = {
+    ...mrWith(),
+    peerReviews: [
+      {
+        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+        iid: 1418,
+        reviewer: 'grace',
+        status: 'error',
+        reason: 'pane closed',
+        updatedAt: NOW - 60_000,
+      },
+    ],
+  } as unknown as BoardMRWithReview;
+  await render(
+    mr,
+    ctx({
+      onAskRetry: m => calls.push(`retry ${m.iid}`),
+      onAskDismiss: m => calls.push(`dismiss ${m.iid}`),
+    })
+  );
+  const band = container.querySelector('.tui-ask')!;
+  expect(band.getAttribute('data-ask-tone')).toBe('bad');
+  expect(band.getAttribute('data-ask')).toBe('peer-failed');
+  expect(band.textContent).toContain("grace's agent");
+  expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
+    'stopped: pane closed'
+  );
+  expect(buttons()).toEqual(['Retry', 'Dismiss']);
+  await React.act(async () => {
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!.click();
+  });
+  const trail = document.querySelector('.tui-ask-trail')!;
+  expect(trail.textContent).toContain('Review from grace');
+  expect(trail.textContent).toContain("grace's board");
+  expect(trail.textContent).not.toContain('Requested');
+  expect(trail.textContent).toContain(
+    "Retry asks grace's agent to review again."
+  );
+  const [retry, dismiss] = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-ask-btn'),
+  ];
+  await React.act(async () => retry!.click());
+  await React.act(async () => dismiss!.click());
+  expect(calls).toEqual(['retry 1418', 'dismiss 1418']);
+});
+
+test('a dismissed peer failure renders nothing', async () => {
+  const mr = {
+    ...mrWith(),
+    peerReviews: [
+      {
+        mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+        iid: 1418,
+        reviewer: 'grace',
+        status: 'error',
+        updatedAt: NOW - 60_000,
+        dismissedAt: NOW,
+      },
+    ],
+  } as unknown as BoardMRWithReview;
+  await render(mr, ctx());
+  expect(container.querySelector('.tui-ask')).toBeNull();
 });
 
 test('a quiet ask renders no update with retry, dismiss and its history trail', async () => {

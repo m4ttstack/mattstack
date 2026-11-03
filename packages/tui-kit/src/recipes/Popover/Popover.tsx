@@ -29,6 +29,9 @@ export interface PopoverOwnProps {
   side?: "bottom" | "top";
   align?: "start" | "center" | "end";
   sideOffset?: number;
+  /** What the popup positions against, when that is not the trigger: a
+      trigger inside a wider strip can open the popup under the whole strip. */
+  anchor?: ComponentProps<typeof BasePopover.Positioner>["anchor"];
   ariaLabel: string;
   /** Where focus lands when the popup opens; Base UI's own rule (the first
       tabbable inside, or the popup on touch) when omitted. */
@@ -54,6 +57,7 @@ export const Popover = defineComponent<
       side,
       align,
       sideOffset,
+      anchor,
       ariaLabel,
       initialFocus,
       children,
@@ -80,6 +84,7 @@ export const Popover = defineComponent<
             side={side ?? "bottom"}
             align={align ?? "center"}
             sideOffset={sideOffset ?? 4}
+            {...(anchor === undefined ? {} : { anchor })}
             collisionPadding={VIEWPORT_MARGIN}
             {...getStyles("positioner")}
             data-part={POPOVER_PARTS.positioner}

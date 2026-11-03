@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 
-import { Button, ContextMenu, Spinner } from '@mattstack/tui-kit';
+import { Button, Popover, Spinner } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import {
   askBandModel,
+  bandSource,
   clock,
+  peerFailureBandModel,
   type AskAction,
   type AskBand,
 } from './ask-band.ts';
@@ -17,35 +18,23 @@ const ACTION: Record<AskAction, string> = {
   dismiss: 'Dismiss',
 };
 
-const FOOTER =
+const SENT_FOOTER =
   'Dismiss clears it now. Retry drops the old ask and sends a fresh one.';
+const peerFooter = (who: string) =>
+  `Dismiss clears it now. Retry asks ${who} to review again.`;
 
-/** The trail: what the row knows of the ask's life, oldest first, in the
-    kit's anchored menu surface (it clamps to the viewport and closes on
-    Escape, an outside click, scroll and resize). A portal, since the row
-    clips its own overflow. */
-function Trail({
-  band,
-  rect,
-  onClose,
-}: {
-  band: AskBand;
-  rect: DOMRect;
-  onClose: () => void;
-}) {
+/** The trail: what the row knows of the ask's life, oldest first. Clicks
+    inside stay in the trail, since the row behind it opens on a click. */
+function Trail({ band, foot }: { band: AskBand; foot: string }) {
   const last = band.steps.length - 1;
   const stop = band.tone === 'bad' || band.tone === 'warn';
-  return createPortal(
-    <ContextMenu
-      x={rect.left}
-      y={rect.bottom + 6}
-      ariaLabel={band.title}
-      onClose={onClose}
-      className="tui-ask-trail"
+  return (
+    <div
+      className="tui-ask-trail-body"
       onClick={e => e.stopPropagation()}
       onContextMenu={e => e.stopPropagation()}
     >
-      <ContextMenu.Label>{band.title}</ContextMenu.Label>
+      <div className="tui-ask-trail-title">{band.title}</div>
       {band.steps.map((step, i) => (
         <div
           key={step.name}
@@ -67,17 +56,16 @@ function Trail({
         </div>
       ))}
       {band.actions.length > 0 && (
-        <div className="tui-ask-trail-foot">{FOOTER}</div>
+        <div className="tui-ask-trail-foot">{foot}</div>
       )}
-    </ContextMenu>,
-    document.body
+    </div>
   );
 }
 
-/** This board's own ask of a teammate's agent, on its own line at the foot of
-    the row. Retry and dismiss write through the local board, so a remote
-    viewer sees the band without them. The left side is the click target that
-    opens the trail. */
+/** A teammate's agent on this MR, on its own line at the foot of the row:
+    this board's own ask, or a review their board lost. Retry and dismiss
+    write through the local board, so a remote viewer sees the band without
+    them. The left side is the click target that opens the trail. */
 export function AskBand({
   mr,
   ctx,
@@ -85,54 +73,70 @@ export function AskBand({
   mr: BoardMRWithReview;
   ctx: RowContext;
 }) {
-  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [open, setOpen] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
   const people = usePeople(mr);
-  const sent = mr.sentNudge;
-  if (!sent) return null;
-  const band = askBandModel(sent, Date.now(), people.short(sent.reviewer));
+  const source = bandSource(mr);
+  if (!source) return null;
+  const band =
+    source.kind === 'sent'
+      ? askBandModel(
+          source.sent,
+          Date.now(),
+          people.short(source.sent.reviewer)
+        )
+      : peerFailureBandModel(source.peer, people.short(source.peer.reviewer));
+  const foot = source.kind === 'sent' ? SENT_FOOTER : peerFooter(band.who);
   const run = (action: AskAction) =>
     action === 'retry' ? ctx.onAskRetry(mr) : ctx.onAskDismiss(mr);
-  const open = rect !== null;
   return (
     <div
       ref={bar}
       className="tui-ask"
       data-ask-tone={band.tone}
-      data-ask={sent.display}
+      data-ask={source.kind === 'sent' ? source.sent.display : 'peer-failed'}
     >
-      <button
-        type="button"
-        className="tui-ask-trigger"
-        aria-expanded={open}
-        title={open ? 'hide the ask history' : 'show the ask history'}
-        onMouseDown={e => e.stopPropagation()}
-        onClick={e => {
-          e.stopPropagation();
-          setRect(open ? null : bar.current!.getBoundingClientRect());
-        }}
+      <Popover
+        open={open}
+        onOpenChange={setOpen}
+        align="start"
+        sideOffset={6}
+        anchor={bar}
+        ariaLabel={band.title}
+        classNames={{ popup: 'tui-ask-trail' }}
+        trigger={
+          <button
+            type="button"
+            className="tui-ask-trigger"
+            title={open ? 'hide the ask history' : 'show the ask history'}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+          >
+            <span className="tui-ask-where">
+              <AskGlyph name="cloud" />
+              {band.who}
+            </span>
+            <span className="tui-ask-sep" aria-hidden>
+              ·
+            </span>
+            <span className="tui-ask-state">
+              {band.icon === 'loader' ? (
+                <Spinner size="xs" />
+              ) : (
+                <AskGlyph name={band.icon} />
+              )}
+              <span className="tui-ask-label" title={band.label}>
+                {band.label}
+              </span>
+            </span>
+            <span className="tui-ask-caret" data-open={open ? '1' : undefined}>
+              <AskGlyph name="chevron-down" size={12} />
+            </span>
+          </button>
+        }
       >
-        <span className="tui-ask-where">
-          <AskGlyph name="cloud" />
-          {band.who}
-        </span>
-        <span className="tui-ask-sep" aria-hidden>
-          ·
-        </span>
-        <span className="tui-ask-state">
-          {band.icon === 'loader' ? (
-            <Spinner size="xs" />
-          ) : (
-            <AskGlyph name={band.icon} />
-          )}
-          <span className="tui-ask-label" title={band.label}>
-            {band.label}
-          </span>
-        </span>
-        <span className="tui-ask-caret" data-open={open ? '1' : undefined}>
-          <AskGlyph name="chevron-down" size={12} />
-        </span>
-      </button>
+        <Trail band={band} foot={foot} />
+      </Popover>
       {band.note && <span className="tui-ask-note">{band.note}</span>}
       {ctx.local &&
         band.actions.map(action => (
@@ -152,7 +156,6 @@ export function AskBand({
             {ACTION[action]}
           </Button>
         ))}
-      {rect && <Trail band={band} rect={rect} onClose={() => setRect(null)} />}
     </div>
   );
 }
