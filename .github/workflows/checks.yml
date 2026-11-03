@@ -90,7 +90,7 @@ jobs:
       - name: Workflow lint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
-          "$RUNNER_TEMP/actionlint" .github/workflows/checks.yml .github/workflows/e2e.yml .github/workflows/purity.yml .github/workflows/renovate.yml .github/workflows/timings.yml .github/workflows/unit-linux-probe.yml
+          "$RUNNER_TEMP/actionlint" .github/workflows/checks.yml .github/workflows/e2e.yml .github/workflows/purity.yml .github/workflows/renovate.yml .github/workflows/timings.yml .github/workflows/nightly-macos.yml
 
       # A PR restores main's newest cache; main restores its own previous one.
       # Entries older than a week are dropped first or compiled binaries pile up.
