@@ -1758,6 +1758,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Tool", type: "text", placeholder: "gh", hint: "Tool name (rt, gh, fast-browser, gitq, deck, ...)" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the envelope as JSON" },
+          { name: "Path", flag: "--path", type: "boolean", default: false, hint: "Print only the resolved path" },
         ],
       },
       link: {

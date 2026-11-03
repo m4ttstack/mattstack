@@ -1,7 +1,7 @@
 /**
  * rt deps — resolve bundled tools by absolute path and expose them on PATH.
  *
- *   rt deps resolve <tool> [--json]
+ *   rt deps resolve <tool> [--json | --path]
  *   rt deps link <tool> [--force] [--json]
  *   rt deps unlink <tool> [--json]
  *   rt deps reconcile [--json]
@@ -60,9 +60,23 @@ export function resolveBlocks(r: ToolResolution): Block[] {
 }
 
 export async function depsResolve(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
+  const pathOnly = args.includes("--path");
+  if (pathOnly && args.includes("--json")) {
+    out.fail(usageFailure("Pick one of --path and --json", "rt deps resolve <tool> --path"));
+    process.exit(2);
+  }
   const t = await requireTool(args, "rt deps resolve <tool>", "Resolve which tool?", () => DEFAULT_EXPOSED);
 
   const resolution = resolveTool(p, t);
+
+  if (pathOnly) {
+    if (!resolution.chosen) {
+      out.diagnostic(`${t} is neither bundled nor on PATH\n`);
+      process.exit(1);
+    }
+    out.payload(`${resolution.chosen}\n`);
+    return;
+  }
 
   if (args.includes("--json")) {
     out.json(envelope(resolution));

@@ -10,6 +10,7 @@ import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { depsLink, depsReconcile, depsResolve, depsUnlink } from "../deps.ts";
 import { toolsInstall } from "../tools.ts";
+import { TREE } from "../../lib/command-tree-def.ts";
 
 const LOCK = {
   schema: 1,
@@ -96,6 +97,34 @@ describe("rt deps commands", () => {
     const { logs, exitCode } = await runCapturingExit(() => depsResolve(["nonexistent-tool"], {}, bundleProbe()));
     expect(exitCode).toBeUndefined();
     expect(logs.join("\n")).toContain("not bundled");
+  });
+
+  test("depsResolve --path prints the chosen path alone and exits 0", async () => {
+    const { logs, errors, exitCode } = await runCapturingExit(() => depsResolve(["gh", "--path"], {}, bundleProbe()));
+    expect(exitCode).toBeUndefined();
+    expect(logs).toEqual([ghPath]);
+    expect(errors).toEqual([]);
+  });
+
+  test("depsResolve --path on an unresolved tool prints nothing on stdout, one stderr line, exit 1", async () => {
+    const { logs, errors, exitCode } = await runCapturingExit(() => depsResolve(["nonexistent-tool", "--path"], {}, bundleProbe()));
+    expect(exitCode).toBe(1);
+    expect(logs).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("nonexistent-tool");
+    expect(errors[0]).toMatch(/neither bundled nor on PATH/);
+  });
+
+  test("depsResolve refuses --path together with --json, exit 2", async () => {
+    const { logs, exitCode } = await runCapturingExit(() => depsResolve(["gh", "--path", "--json"], {}, bundleProbe()));
+    expect(exitCode).toBe(2);
+    expect(logs).toEqual([]);
+  });
+
+  test("the resolve command tree names --path with help copy", () => {
+    const flag = TREE.deps!.subcommands!.resolve!.args!.find((a) => a.flag === "--path");
+    expect(flag?.type).toBe("boolean");
+    expect(flag?.hint).toBe("Print only the resolved path");
   });
 
   test("depsLink links a bundled tool and prints a success line", async () => {
