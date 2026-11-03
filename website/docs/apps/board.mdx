@@ -283,9 +283,11 @@ The board runs the action on four MRs at a time, then shows one summary, for exa
 
 ## Comments and threads
 
-A row with review comments shows a thread count, such as "3 threads". It reads "2 threads waiting" when threads wait on you, and "author replied" when the author answered yours. Click it to open the comments drawer for that MR.
+A row with review comments shows a count, such as "3 threads". It counts review threads and MR comments together. It reads "2 threads waiting" when threads wait on you, and "author replied" when the author answered yours. Click it to open the comments drawer for that MR.
 
 The drawer lists the MR's review threads, each with its status: **awaiting author**, **author replied** or **resolved**. Below them, **MR comments** holds the Overview comments that are not threads. Each comment links to its place in GitLab.
+
+The drawer and the count leave out what is not feedback: comments from bots, automatic links, threads where only the author and bots took part, and the thread the board itself adds to ask for a follow-up review.
 
 On a local board you can also write from the drawer:
 
