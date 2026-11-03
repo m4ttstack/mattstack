@@ -48,6 +48,8 @@ describe("2026-11-02-team-packs-from-git", () => {
     onExec?: (argv: string[], dir: string | undefined) => void;
     /** The org file at the data branch; null answers a missing ref. */
     committed?: string | null;
+    /** Writes an org marker at this layout beside the org store. */
+    layout?: number;
   } = {}) {
     const calls: Call[] = [];
     const files: Record<string, string> = { "/usr/local/bin/claude": "bin" };
@@ -57,6 +59,10 @@ describe("2026-11-02-team-packs-from-git", () => {
       files[join(clone(), ".git", "config")] = "[core]\n";
       files[join(clone(), ".claude-plugin", "marketplace.json")] = ORG_FILE;
       dirs[join(home, ".mattstack", "orgs")] = ["acme"];
+    }
+    if (opts.layout !== undefined) {
+      files[join(clone(), "mattstack", "mattstack.jsonc")] = JSON.stringify({ role: "org", org: "acme", layout: opts.layout });
+      files[join(clone(), "mattstack", "org", "settings.org.jsonc")] = "{}";
     }
     for (const [team, floor] of Object.entries(opts.floors ?? {})) {
       files[join(clone(), "mattstack", "teams", team, "plugin", "pack", "requires.json")] = JSON.stringify({ minEngine: floor });
@@ -108,6 +114,25 @@ describe("2026-11-02-team-packs-from-git", () => {
     expect(await teamPacksFromGitMigration.run(ctx)).toEqual({ state: "skipped", detail: "No team plugins are installed on this Mac" });
     expect(changes(calls)).toEqual([]);
     expect(p.readFile(join(generated(), ".claude-plugin", "marketplace.json"))).toContain('"git-subdir"');
+  });
+
+  for (const layout of [2, 6]) {
+    test(`a clone on layout ${layout}, which this rt does not read, writes nothing and stays unrecorded without failing`, async () => {
+      const { ctx, calls, p } = harness({ layout, installed: { [defaultDir()]: [{ id: `widgets@${MARKET}`, enabled: true }] } });
+
+      const outcome = await teamPacksFromGitMigration.run(ctx);
+
+      expect(outcome.state).toBe("partial");
+      expect(outcome.detail).toContain(layout === 2 ? "Your org has not moved to its new layout yet." : "Update the app.");
+      expect(calls).toEqual([]);
+      expect(p.readFile(join(generated(), ".claude-plugin", "marketplace.json"))).toBeNull();
+      expect(readSetupState(p).orgMarketplaceMoves).toBeUndefined();
+    });
+  }
+
+  test("a clone on a readable layout is reinstalled as usual", async () => {
+    const { ctx } = harness({ layout: 5, installed: { [defaultDir()]: [{ id: `widgets@${MARKET}`, enabled: true }] } });
+    expect(await teamPacksFromGitMigration.run(ctx)).toEqual({ state: "done", detail: `Reinstalled widgets@${MARKET} from the org repo.` });
   });
 
   test("re-points the marketplace, then uninstalls and reinstalls each pack keeping scope and enabled state", async () => {

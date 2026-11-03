@@ -20,6 +20,7 @@ import { claudeConfigDirs } from "../setup/tools-install.ts";
 import { resolveTool } from "../deps/resolve.ts";
 import { cswapConfigDirs } from "../cswap.ts";
 import { checkedOutBranch } from "../team/org-branch.ts";
+import { orgLayoutState } from "../team/org-layout.ts";
 import { warn } from "../ui/warn.ts";
 import { hasKvValue, setKvValue } from "../state/kv-blob.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
@@ -132,6 +133,12 @@ function distinctConfigDirs(dirs: string[]): string[] {
  * Never throws.
  */
 async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, write: typeof writeGeneratedMarketplace): Promise<void> {
+  // The pull gate holds only a tip above the readable layouts, so a clone below them still reaches here.
+  const layout = orgLayoutState(p);
+  if (layout.kind === "waiting" && layout.slug === org) {
+    log.debug({ layout: layout.layout }, "generated marketplace: left as it is; the org is on a layout this rt does not read");
+    return;
+  }
   let written: Awaited<ReturnType<typeof writeGeneratedMarketplace>>;
   try {
     written = await write(p, org);

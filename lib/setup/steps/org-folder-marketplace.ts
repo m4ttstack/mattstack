@@ -25,6 +25,7 @@ import { resolveTool } from "../../deps/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import { heldCopy, runnableEngine } from "../../engine-floor.ts";
 import { isGeneratedMarketplaceFolder } from "../../rt-paths.ts";
+import { orgLayoutState } from "../../team/org-layout.ts";
 import { writeGeneratedMarketplace } from "../generated-marketplace.ts";
 import { PACK_EXEC_TIMEOUT_MS, readServedPacks } from "../pack-cache.ts";
 import { ADMIT_UNFLOORED, admit, installArgs, type Admission, type Admitted } from "../plugin-calls.ts";
@@ -171,6 +172,9 @@ function isLeftoverGeneratedFolder(ctx: ApplyContext, path: string, target: stri
 
 export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: string; stalePaths: string[] }): Promise<MarketplaceOutcome> {
   const org = basename(clone.dir);
+  // The org.layout row already explains a waiting clone, so this piece stays quiet on the org.folder row.
+  const layout = orgLayoutState(ctx.p);
+  if (layout.kind === "waiting" && layout.slug === org) return { state: "skipped", detail: `the ${org} org is on a layout this rt does not read, so Claude's registration was left as it is` };
   const generated = await writeGeneratedMarketplace(ctx.p, org);
   const target = generated.path;
   const name = generated.skipped === undefined ? marketplaceName(ctx.p, target) : null;

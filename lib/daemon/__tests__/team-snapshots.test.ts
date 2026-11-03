@@ -404,19 +404,27 @@ describe("startTeamSnapshots", () => {
     const nothing = { held: [], updated: [], installed: [] };
 
     /** `registered` maps a config dir to the marketplace list Claude answers there; any `git` call answers as a clone on `branch`. */
-    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean; home?: string; dirs?: Record<string, string[]>; dataBranch?: string }) {
+    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean; home?: string; dirs?: Record<string, string[]>; dataBranch?: string; layout?: number }) {
       const at = opts.home ?? home;
       const folder = `${at}/.mattstack/rt/marketplaces/acme`;
       const calls: { argv: string[]; configDir: string | undefined }[] = [];
       const gitTimeouts: (number | undefined)[] = [];
+      const cloneDir = `${at}/.mattstack/orgs/acme`;
       const probes = fakeProbes({
         home: at,
         env: { PATH: "/usr/local/bin" },
-        dirs: opts.dirs,
+        dirs: { ...opts.dirs, ...(opts.layout !== undefined ? { [`${at}/.mattstack/orgs`]: ["acme"] } : {}) },
         files: {
           "/usr/local/bin/claude": "bin",
           [`${folder}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", plugins: [] }),
           ...(opts.dataBranch ? { [`${at}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ dataBranch: opts.dataBranch }) } : {}),
+          ...(opts.layout !== undefined
+            ? {
+                [`${cloneDir}/.git/config`]: "[core]\n",
+                [`${cloneDir}/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: opts.layout }),
+                [`${cloneDir}/mattstack/org/settings.org.jsonc`]: "{}",
+              }
+            : {}),
         },
         exec: (argv, o) => {
           if (argv[0] === "git") {
@@ -451,6 +459,22 @@ describe("startTeamSnapshots", () => {
       const { onPulled, order } = harness({ changed: false });
       await onPulled();
       expect(order).toEqual(["write", "converge"]);
+    });
+
+    for (const layout of [2, 6]) {
+      test(`a clone on layout ${layout}, which this rt does not read, keeps its folder and registration and still converges`, async () => {
+        const { onPulled, calls, order } = harness({ changed: true, layout, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+        await onPulled();
+        expect(order).toEqual(["converge"]);
+        expect(calls).toEqual([]);
+      });
+    }
+
+    test("a clone on a readable layout is rewritten and re-pointed as usual", async () => {
+      const { onPulled, calls, order } = harness({ changed: true, layout: 5, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+      await onPulled();
+      expect(order).toEqual(["write", "converge"]);
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: "/h/.claude" }]);
     });
 
     test("an unchanged folder asks Claude nothing", async () => {

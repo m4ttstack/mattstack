@@ -4,6 +4,7 @@ import { cswapConfigDirs } from "../../cswap.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import { heldCopy, runnableEngine } from "../../engine-floor.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
+import { layoutSentence, orgLayoutState } from "../../team/org-layout.ts";
 import { disableModelInvocationConfigDirs, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../../skills/disable-model-invocation.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
 import type { MigrationEventId } from "../contract.ts";
@@ -81,7 +82,10 @@ function reapplyDisableModelInvocation(ctx: ApplyContext): boolean {
  * or local install is left on its copy: redoing it would rewrite that
  * project's own settings. Any failure returns `failed`, which leaves the
  * migration unrecorded so a later update runs it again; a pack it already
- * reinstalled is reinstalled again then, which changes nothing.
+ * reinstalled is reinstalled again then, which changes nothing. A clone on a
+ * layout this rt does not read returns `partial`, also unrecorded, so the
+ * move runs once the org's layout (or the app) catches up, without the
+ * notification a `failed` raises.
  */
 export const teamPacksFromGitMigration: MigrationDef = {
   id: ID,
@@ -89,6 +93,8 @@ export const teamPacksFromGitMigration: MigrationDef = {
   async run(ctx): Promise<StepOutcome> {
     const slugs = cloneSlugs(ctx.p);
     if (slugs.length === 0) return { state: "skipped", detail: "This Mac has no org clone" };
+    const layout = orgLayoutState(ctx.p);
+    if (layout.kind === "waiting") return { state: "partial", detail: `${layoutSentence(layout)} Your team plugins move to the org repo's copy after that.` };
     const claude = resolveTool(ctx.p, "claude");
     if (!claude.exec) return { state: "skipped", detail: "Claude Code is not installed" };
 

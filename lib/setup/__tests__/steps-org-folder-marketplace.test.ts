@@ -141,6 +141,37 @@ describe("convergeMarketplace: the registration", () => {
     expect(readSetupState(p).marketplaces).toEqual([generated()]);
   });
 
+  /** An org marker at `layout` beside the org store, listed under orgs/ the way orgLayoutState reads it. */
+  const atLayout = (layout: number): Record<string, string> => ({
+    [join(clone(), ".git", "config")]: "[core]\n",
+    [join(clone(), "mattstack", "mattstack.jsonc")]: JSON.stringify({ role: "org", org: "acme", layout }),
+    [join(clone(), "mattstack", "org", "settings.org.jsonc")]: "{}",
+  });
+
+  for (const layout of [2, 6]) {
+    test(`a clone on layout ${layout}, which this rt does not read, leaves the registration and the generated folder as they are`, async () => {
+      const claude = claudeFake({ registeredAt: clone(), plugins: [{ id: "widgets@acme", enabled: true }] });
+      const p = probes(claude.exec, atLayout(layout));
+      p.mkdirp(clone());
+      updateSetupState(p, (s) => ({ ...s, marketplaces: [clone()] }));
+      const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+      expect(out.state).toBe("skipped");
+      expect(out.note).toBeUndefined();
+      expect(claude.calls).toEqual([]);
+      expect(p.readFile(generatedFile())).toBeNull();
+      expect(readSetupState(p).marketplaces).toEqual([clone()]);
+    });
+  }
+
+  test("a clone on a readable layout is re-pointed as usual", async () => {
+    const claude = claudeFake({ registeredAt: clone(), plugins: [] });
+    const p = probes(claude.exec, atLayout(5));
+    p.mkdirp(clone());
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("done");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", `plugin marketplace add ${generated()}`]);
+  });
+
   test("skipped when the marketplace is not registered and nothing is pending", async () => {
     const claude = claudeFake({ registeredAt: null, plugins: [] });
     const p = probes(claude.exec);
