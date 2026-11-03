@@ -121,6 +121,23 @@ describe("runCheck", () => {
     expect(calls.some((c) => c.startsWith("merge-base"))).toBe(false);
   });
 
+  test("a failed merge base is an error and runs nothing", async () => {
+    const { deps, execCalls } = harness({}, fakeGit({ "merge-base HEAD origin/main": { code: 1 } }));
+    const r = await runCheck("/tree", {}, deps);
+    expect(execCalls).toHaveLength(0);
+    expect(r).toMatchObject({
+      configured: true,
+      verdict: "error",
+      reason: "could not find the merge base with origin/main",
+      sha: "abc123",
+      base: "",
+      dirty: false,
+      command: "bun x",
+      fromCache: false,
+      summary: { mode: "exit", selected: null, passed: null, failed: null, failures: [] },
+    });
+  });
+
   test("the default branch falls back to main", async () => {
     const { deps, execCalls } = harness({}, fakeGit({ "symbolic-ref refs/remotes/origin/HEAD": { code: 1 } }));
     await runCheck("/tree", {}, deps);

@@ -59,10 +59,10 @@ export async function treeState(tree: string, deps: Pick<RunDeps, "git">): Promi
   return { sha, dirty: status !== "" };
 }
 
-async function mergeBase(tree: string, git: GitRunner): Promise<string> {
+async function mergeBase(tree: string, git: GitRunner): Promise<{ base: string; branch: string }> {
   const head = await gitOut(git, ["symbolic-ref", "refs/remotes/origin/HEAD"], tree);
   const branch = head?.replace(/^refs\/remotes\/origin\//, "") || "main";
-  return (await gitOut(git, ["merge-base", "HEAD", `origin/${branch}`], tree)) ?? "";
+  return { base: (await gitOut(git, ["merge-base", "HEAD", `origin/${branch}`], tree)) ?? "", branch };
 }
 
 export async function runCheck(
@@ -74,7 +74,25 @@ export async function runCheck(
   if (!config) return { configured: false };
 
   const { sha, dirty } = await treeState(tree, deps);
-  const base = opts.base ?? (await mergeBase(tree, deps.git));
+  let base = opts.base ?? "";
+  if (!opts.base) {
+    const found = await mergeBase(tree, deps.git);
+    if (!found.base) {
+      return {
+        configured: true,
+        verdict: "error",
+        summary: parseSummary("", -1, 0),
+        sha,
+        base: "",
+        dirty,
+        command: config.command,
+        reason: `could not find the merge base with origin/${found.branch}`,
+        outputTail: "",
+        fromCache: false,
+      };
+    }
+    base = found.base;
+  }
 
   const started = deps.now();
   const run = await deps.exec(["/bin/sh", "-c", config.command], {
