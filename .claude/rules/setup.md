@@ -80,7 +80,10 @@ that blocks Install or Finish must have a screen, or setup can never end:
 - a leftover on the this-mac screen after a run that ended ok, for a
   blocking row the run should have set up and did not (`runFixes`,
   `RUN_FIXES`, `extraRows` with `afterRun: true`). `formStage` lands such a
-  run on this-mac, never back on the bar.
+  run on this-mac, never back on the bar. An intent on disk means a choice
+  made since that run (a team created from Settings on a Just me Mac), so
+  no leftover shows: the coming run sets those rows up, and its team step
+  publishes the repo `rt team create` never pushes.
 
 A new blocking row that fits none of these strands the member. A `settings`
 target (`tool.mission-control`, `tool.chrome-signin`, `skills.overrides`) is
