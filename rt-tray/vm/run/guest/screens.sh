@@ -334,13 +334,16 @@ screen_invite() {
 # P3c: the team's name, its forge, the owner or group from --team-remote,
 # then rt's create rows, then Create team, which makes and pushes the repo.
 screen_create_team() {
-  local group label deadline
+  local group label owner read_as deadline
   [ -n "$TEAM_REMOTE" ] || ax_fail "create needs --team-remote (its owner or group is where Create team makes the team's repo)"
   group=$(screen_remote_group "$TEAM_REMOTE") || ax_fail "no owner or group in --team-remote $TEAM_REMOTE"
-  case "$FORGE" in github) label=GitHub ;; gitlab) label=GitLab ;; *) ax_fail "unknown forge: $FORGE" ;; esac
+  case "$FORGE" in github) label=GitHub; owner=Owner ;; gitlab) label=GitLab; owner=Group ;; *) ax_fail "unknown forge: $FORGE" ;; esac
   screen_wait create-team 30
   ax_set_field setup.fast.create-team.name "$SLUG"
   ax_pick_segment setup.fast.create-team.forge "$label" || ax_fail "could not pick $label in setup.fast.create-team.forge"
+  # The forge's options may expose no selected state, so the owner field's label is what shows the pick took.
+  read_as=$(ax_title setup.fast.create-team.group || true)
+  [ "$read_as" = "$owner" ] || ax_fail "picked $label, but setup.fast.create-team.group reads '${read_as}', not $owner"
   ax_set_field setup.fast.create-team.group "$group"
   screen_answer_rows create-team 1500
   screen_shot 03-create-team

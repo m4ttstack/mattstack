@@ -87,9 +87,9 @@ screen_done() { ! awk -v sc="$1" '$1 == sc && $4 != "done" { found = 1 } END { e
 # FDA_LIVE: the running app sees the Full Disk Access grant without a relaunch.
 # HOST: what the admin's host answers (done, failed, manual, none).
 # RUN_END: where the bar ends (ready or paused). ADMIN_IN_RUN: a dialog comes up on P6.
-FDA_LIVE=0; CLT_SLOW=0; CLAUDE_AFTER=done; CLAUDE_LAG=0; HOST=done; HAND_AFTER=-1; RUN_END=ready; ADMIN_IN_RUN=0; STRAIGHT_IN=0
+FDA_LIVE=0; CLT_SLOW=0; CLAUDE_AFTER=done; CLAUDE_LAG=0; HOST=done; HAND_AFTER=-1; RUN_END=ready; ADMIN_IN_RUN=0; STRAIGHT_IN=0; PICK_SLIPS=0
 model() {  # <scenario>
-  : > "$M/calls"; rm -f "$M"/claude "$M"/claude-lag "$M"/clt "$M"/dialog "$M"/looks "$M"/hand "$M"/admin-shown "$GUEST_RUN"/in/join-*
+  : > "$M/calls"; rm -f "$M"/forge "$M"/claude "$M"/claude-lag "$M"/clt "$M"/dialog "$M"/looks "$M"/hand "$M"/admin-shown "$GUEST_RUN"/in/join-*
   mset screen macos; mset code ""
   cat > "$M/rows" <<ROWS
 macos perm.fda action todo
@@ -203,6 +203,10 @@ ax_button() {
     if [ "$(row_state claude connect)" = install ]; then echo Install; else echo "Sign in"; fi
     return 0
   fi
+  if [ "$1" = read ] && [ "$2" = setup.fast.create-team.group ]; then
+    if [ "$(mget forge)" = GitHub ]; then echo Owner; else echo Group; fi
+    return 0
+  fi
   [ "$1" = press ] || return 1
   [ "$2" = setup.fast.this-mac.primary ] && [ "$3" = "Set up this Mac" ] && [ "$(ax_enabled "$2")" = true ] || { note "held:$2"; return 1; }
   note "press:$2"; mset screen running
@@ -235,7 +239,7 @@ ax_click_raw() {
 }
 ax_set_field() { note "set:$1=$2"; [ "$1" = setup.fast.invite.code ] && mset code "$2"; return 0; }
 ax_value() { case "$1" in setup.fast.invite.code) mget code ;; *) echo x ;; esac; }
-ax_pick_segment() { note "pick:$1=$2"; }
+ax_pick_segment() { note "pick:$1=$2"; [ "$PICK_SLIPS" = 1 ] || mset forge "$2"; }
 ax_shot() { note "shot:$1"; }
 ax_texts() { echo "Setup paused"; }
 ax_wait_window() { :; }
@@ -293,6 +297,9 @@ model create; drive whole_run
 check "create on GitLab: the GitLab segment and a nested group" \
   '[ "$rc" -eq 0 ] && [ "$(count "^pick:setup.fast.create-team.forge=GitLab$")" -eq 1 ] && [ "$(count "^set:setup.fast.create-team.group=acme/platform$")" -eq 1 ]'
 FORGE=github; TEAM_REMOTE=https://github.com/acme/widgets.git
+PICK_SLIPS=1; model create; drive whole_run; PICK_SLIPS=0
+check "create: a forge pick the owner field does not show fails before Create team" \
+  '[ "$rc" -ne 0 ] && grep -q "reads .Group., not Owner" "$AX_LOG" && [ "$(count "^click:setup.fast.create-team.primary$")" -eq 0 ]'
 
 model solo; drive whole_run
 check "solo: straight from the card to Connect" \

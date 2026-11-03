@@ -117,9 +117,13 @@ function pick(win, id, want) {
       var now = options(find(win, id), [], 0);
       for (var j = 0; j < now.length; j++) {
         if (wordingAt(now[j]) !== want) continue;
-        // A SwiftUI representation's option may expose no value to check.
+        // A SwiftUI representation's option may expose no value to check;
+        // then only another option reading selected disproves the press.
         var value = textAt(now[j], "AXValue");
         if (value !== "1" && value !== "") throw new Error("option " + want + " in " + id + " did not take the press (value '" + value + "')");
+        for (var k = 0; k < now.length; k++) {
+          if (k !== j && textAt(now[k], "AXValue") === "1") throw new Error("option " + want + " in " + id + " did not take the press (" + wordingAt(now[k]) + " still reads selected)");
+        }
         return;
       }
       throw new Error("option " + want + " in " + id + " is gone after the press");
