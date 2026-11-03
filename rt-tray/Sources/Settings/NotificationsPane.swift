@@ -23,6 +23,10 @@ struct NotificationsPane: View {
                 NotificationManager.preview(id: id, tier: tier)
                 sounds.pick(tier, id, rt: env.rt)
             },
+            onPreset: { preset in
+                fileErrors = [:]
+                sounds.apply(preset, rt: env.rt)
+            },
             onChooseFile: { tier in DispatchQueue.main.async { chooseFile(for: tier) } },
             onPreview: { tier in NotificationManager.preview(id: sounds.picks[tier], tier: tier) })
         .task {
@@ -73,14 +77,17 @@ struct NotificationsPaneForm: View {
     let fileErrors: [SoundTier: String]
     let error: String?
     let onPick: (SoundTier, String) -> Void
+    let onPreset: (SoundPreset) -> Void
     let onChooseFile: (SoundTier) -> Void
     let onPreview: (SoundTier) -> Void
 
     private static let chooseFileTag = "choose-file"
+    private static let customPresetTag = "custom"
 
     var body: some View {
         Form {
             Section {
+                presetRow
                 ForEach(SoundTier.allCases, id: \.self) { tier in row(tier) }
             } header: {
                 Text("Sounds")
@@ -95,6 +102,24 @@ struct NotificationsPaneForm: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Reads Custom when the three picks match no preset; choosing Custom changes nothing.
+    private var presetRow: some View {
+        let current = SoundPreset.matching(picks)
+        var entries: [SoundPopUp.Entry] = SoundPreset.allCases.map { .item($0.rawValue) }
+        if current == nil { entries += [.separator, .item(Self.customPresetTag)] }
+        return HStack {
+            Text("Preset")
+            Spacer()
+            SoundPopUp(entries: entries, selection: current?.rawValue ?? Self.customPresetTag,
+                       accessibilityLabel: "Sound preset",
+                       title: { SoundPreset(rawValue: $0)?.title ?? "Custom" }) { id in
+                if let preset = SoundPreset(rawValue: id) { onPreset(preset) }
+            }
+            .fixedSize()
+            .accessibilityIdentifier(AXID.settingsSoundPreset)
+        }
     }
 
     @ViewBuilder private func row(_ tier: SoundTier) -> some View {
@@ -134,7 +159,8 @@ struct NotificationsPaneForm: View {
         entries += [.separator, .header("macOS")] + systemIDs.map { .item($0) }
         if !customIDs.isEmpty { entries += [.separator, .header("My sounds")] + customIDs.map { .item($0) } }
         entries += [.separator, .item(SoundID.none), .action(Self.chooseFileTag, "Choose file…")]
-        return SoundPopUp(entries: entries, selection: picks[tier], accessibilityLabel: "\(tier.title) sound") { id in
+        return SoundPopUp(entries: entries, selection: picks[tier], accessibilityLabel: "\(tier.title) sound",
+                          title: { SoundID.displayName($0, tier: tier) }) { id in
             id == Self.chooseFileTag ? onChooseFile(tier) : onPick(tier, id)
         }
         .fixedSize()
@@ -155,6 +181,7 @@ struct SoundPopUp: NSViewRepresentable {
     let entries: [Entry]
     let selection: String
     let accessibilityLabel: String
+    let title: (String) -> String
     let onSelect: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -177,7 +204,7 @@ struct SoundPopUp: NSViewRepresentable {
             for entry in entries {
                 switch entry {
                 case .item(let id):
-                    let item = NSMenuItem(title: SoundID.displayName(id), action: nil, keyEquivalent: "")
+                    let item = NSMenuItem(title: title(id), action: nil, keyEquivalent: "")
                     item.representedObject = id
                     menu.addItem(item)
                 case .action(let id, let title):
@@ -222,15 +249,19 @@ enum NotificationsPaneSnapshot {
         let out = URL(fileURLWithPath: args[i + 1])
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         _ = NSApplication.shared
-        let picks = SoundPicks(neutral: SoundID.original, positive: SoundID.sober("102"), warning: SoundID.macos("Glass"))
+        let custom = SoundPicks(neutral: SoundID.original, positive: SoundID.sober("102"), warning: SoundID.macos("Glass"))
         let system = SoundCatalog.systemSoundIDs(in: SoundLocations.systemSoundsDir)
-        let states: [(String, [SoundTier: String])] = [("resting", [:]), ("refused", [.warning: "Can't play “voice-memo.amr”. Choose another file"])]
+        let states: [(String, SoundPicks, [SoundTier: String])] = [
+            ("resting", SoundPicks.defaults, [:]),
+            ("custom", custom, [:]),
+            ("refused", custom, [.warning: "Can't play “voice-memo.amr”. Choose another file"]),
+        ]
         var count = 0
-        for (name, errors) in states {
+        for (name, picks, errors) in states {
             for scheme in ["light", "dark"] {
                 let view = NotificationsPaneForm(picks: picks, systemIDs: system, customIDs: [SoundID.custom("Doorbell.m4a")],
                                                  fileErrors: errors, error: nil,
-                                                 onPick: { _, _ in }, onChooseFile: { _ in }, onPreview: { _ in })
+                                                 onPick: { _, _ in }, onPreset: { _ in }, onChooseFile: { _ in }, onPreview: { _ in })
                     .frame(width: 680)
                 SnapshotRenderer.render(view, appearance: scheme == "dark" ? .darkAqua : .aqua,
                                         to: out.appendingPathComponent("notifications-pane-\(name)-\(scheme).png"))

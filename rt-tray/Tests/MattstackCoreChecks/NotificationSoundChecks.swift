@@ -27,10 +27,23 @@ let notificationSoundChecks: [Check] = [
         c.expectEqual(SoundTier(category: "new_comment", readyHeldCategory: "ready_held"), .neutral)
         c.expect(SoundTier.warning > SoundTier.positive && SoundTier.positive > SoundTier.neutral, "warning outranks positive outranks neutral")
     },
-    Check("an unset or partial setting keeps each missing tier on Original") { c in
+    Check("Calm is the default: Sober 2, Sober 3 and Sosumi") { c in
+        c.expectEqual(SoundPicks.defaults, SoundPicks(neutral: "sober/102", positive: "sober/103", warning: "macos/Sosumi"))
+        c.expectEqual(SoundPreset.calm.picks, SoundPicks.defaults)
+    },
+    Check("Lively plays every tier's Original") { c in
+        c.expectEqual(SoundPreset.lively.picks, SoundPicks(neutral: "original", positive: "original", warning: "original"))
+    },
+    Check("an unset or partial setting keeps each missing tier on Calm's pick") { c in
         let partial = try? JSONDecoder().decode(SoundPicks.self, from: Data(#"{"warning":"macos/Glass"}"#.utf8))
-        c.expectEqual(partial, SoundPicks(neutral: "original", positive: "original", warning: "macos/Glass"))
-        c.expectEqual(SoundPicks.defaults[.positive], "original")
+        c.expectEqual(partial, SoundPicks(neutral: "sober/102", positive: "sober/103", warning: "macos/Glass"))
+    },
+    Check("picks that match a preset name it; any other mix is custom") { c in
+        c.expectEqual(SoundPreset.matching(SoundPreset.calm.picks), .calm)
+        c.expectEqual(SoundPreset.matching(SoundPreset.lively.picks), .lively)
+        c.expectEqual(SoundPreset.matching(SoundPicks(neutral: "sober/102", positive: "sober/103", warning: "macos/Glass")), nil)
+        c.expectEqual(SoundPreset.calm.title, "Calm")
+        c.expectEqual(SoundPreset.lively.title, "Lively")
     },
     Check("each kind of pick resolves to its file") { c in
         c.expectEqual(SoundCatalog.resolve("original", tier: .warning, in: loc, exists: on("/App/Contents/Resources/warning.caf")),
@@ -55,12 +68,13 @@ let notificationSoundChecks: [Check] = [
                       .fallback(nil, missing: "original"))
     },
     Check("picks show plain names") { c in
-        c.expectEqual(SoundID.displayName("original"), "Original")
-        c.expectEqual(SoundID.displayName("none"), "None")
-        c.expectEqual(SoundID.displayName("sober/101"), "Sober 1")
-        c.expectEqual(SoundID.displayName("sober/104"), "Sober 4")
-        c.expectEqual(SoundID.displayName("macos/Submarine"), "Submarine")
-        c.expectEqual(SoundID.displayName("custom/Doorbell 2.m4a"), "Doorbell 2")
+        c.expectEqual(SoundID.displayName("original", tier: .neutral), "Lively Neutral")
+        c.expectEqual(SoundID.displayName("original", tier: .warning), "Lively Warning")
+        c.expectEqual(SoundID.displayName("none", tier: .neutral), "None")
+        c.expectEqual(SoundID.displayName("sober/101", tier: .neutral), "Sober 1")
+        c.expectEqual(SoundID.displayName("sober/104", tier: .neutral), "Sober 4")
+        c.expectEqual(SoundID.displayName("macos/Submarine", tier: .neutral), "Submarine")
+        c.expectEqual(SoundID.displayName("custom/Doorbell 2.m4a", tier: .neutral), "Doorbell 2")
     },
     Check("an added file never overwrites one already there") { c in
         c.expectEqual(SoundCatalog.uniqueFileName("Doorbell.m4a", taken: []), "Doorbell.m4a")
