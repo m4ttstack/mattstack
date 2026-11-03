@@ -129,6 +129,21 @@ describe("runDevUpdate", () => {
     const { s, swapCmds } = seams({ releaseBuild: false });
     const r = await runDevUpdate(s, runner);
     expect(r.stages[2]!.status).toBe("skipped");
+    expect(r.stages[2]!.hint).toContain("rt dev update --release");
+    expect(swapCmds).toEqual([]);
+  });
+
+  test("--release replaces a locally built dev app, even one that reads newer", async () => {
+    const { s, swapCmds } = seams({ releaseBuild: false, installedVersion: "2.99.0" });
+    const r = await runDevUpdate(s, runner, { release: true });
+    expect(r.stages[2]!.status).toBe("done");
+    expect(swapCmds.some((c) => c.startsWith("ditto") && c.endsWith("/Applications/mattstack-dev.app"))).toBe(true);
+  });
+
+  test("--release on a release-built dev app that is current changes nothing", async () => {
+    const { s, swapCmds } = seams({ installedVersion: "2.23.0" });
+    const r = await runDevUpdate(s, runner, { release: true });
+    expect(r.stages[2]!.status).toBe("skipped");
     expect(swapCmds).toEqual([]);
   });
 
