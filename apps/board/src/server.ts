@@ -265,6 +265,7 @@ import { listPeerBoards } from './peer/onboard.ts';
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
 import {
   attachPeerReviews,
+  dismissPeerReview,
   importPeerReviewFiles,
   prunePeerReviews,
   readPeerReviews,
@@ -4103,6 +4104,41 @@ const httpServer = Bun.serve({
         if (typeof mrUrl !== 'string' || !mrUrl)
           return new Response('expected { mrUrl: string }', { status: 400 });
         dismissSentNudge(mrUrl);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      case '/peer-review/dismiss': {
+        // The band's dismiss of a review a peer's board lost: stamp this
+        // board's copy of that reviewer's state. Nothing is sent to the peer.
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, reviewer } = (body ?? {}) as {
+          mrUrl?: unknown;
+          reviewer?: unknown;
+        };
+        if (
+          typeof mrUrl !== 'string' ||
+          !mrUrl ||
+          typeof reviewer !== 'string' ||
+          !reviewer
+        )
+          return new Response('expected { mrUrl: string, reviewer: string }', {
+            status: 400,
+          });
+        dismissPeerReview(mrUrl, reviewer);
         return new Response(JSON.stringify({ ok: true }), {
           headers: { 'content-type': 'application/json' },
         });
