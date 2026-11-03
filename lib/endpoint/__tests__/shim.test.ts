@@ -126,8 +126,18 @@ test("interceptsPath points at the retired intercepts.json location under rtDir"
 });
 
 test("writeInterceptRules + loadInterceptRules round-trip through the store", () => {
-  writeInterceptRules(rules);
-  expect(loadInterceptRules()).toEqual(rules);
+  const dir = mkdtempSync(join(tmpdir(), "shim-test-round-trip-home-"));
+  const origHome = process.env.HOME;
+  process.env.HOME = dir;
+  closeStateDb();
+  try {
+    writeInterceptRules(rules);
+    expect(loadInterceptRules()).toEqual(rules);
+  } finally {
+    process.env.HOME = origHome;
+    closeStateDb();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a pre-existing intercepts.json is imported on first read and renamed to .migrated", () => {
