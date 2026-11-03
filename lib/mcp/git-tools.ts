@@ -2,6 +2,9 @@ import { existsSync } from "fs";
 import { dirname, resolve } from "path";
 import { rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
 import { ensureLease } from "../ci/lease-guard.ts";
+import { checkTree, realCheckDeps, type CheckRun } from "../check/index.ts";
+import { postStatus } from "../check/status.ts";
+import { parseSummary } from "../check/summary.ts";
 import { explainError } from "../explain-error.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { rtSelfArgv } from "../rt-self.ts";
@@ -604,6 +607,39 @@ export interface GitToolDeps {
   authoredOpenMrs: (identity: string) => Promise<AuthoredMrs>;
   repoTrees: (identity: string) => Promise<RepoTrees>;
   ensureLease?: typeof ensureLease;
+  /** Runs the repo's configured check on the tree; the default is `checkTree` over `realCheckDeps`. */
+  check?: (tree: string, opts: { post: boolean }) => Promise<CheckRun>;
+  /** Posts the verdict on the pushed sha; the default is `postStatus` over `realCheckDeps`. */
+  postCheck?: typeof postStatus;
+  /** The serialized identity a status is posted under; the default is `realCheckDeps.identity`. */
+  identity?: (tree: string) => string;
+}
+
+/** A check that threw ran nothing, so it is an error verdict carrying the reason, and attests to no sha. */
+function thrownCheck(e: unknown): CheckRun {
+  const reason = e instanceof Error ? e.message : String(e);
+  return {
+    result: { configured: true, verdict: "error", summary: parseSummary("", -1, 0), sha: "", base: "", dirty: false, command: "", reason, outputTail: "", fromCache: false },
+    status: null,
+  };
+}
+
+async function runPushCheck(path: string, deps: GitToolDeps): Promise<CheckRun> {
+  try {
+    return await (deps.check ?? ((tree, o) => checkTree(tree, o, realCheckDeps)))(path, { post: false });
+  } catch (e) {
+    return thrownCheck(e);
+  }
+}
+
+async function postPushed(run: CheckRun, path: string, sha: string, deps: GitToolDeps): Promise<void> {
+  const result = run.result;
+  if (!result.configured || result.sha === "") return;
+  if (result.dirty) {
+    run.status = { posted: false, reason: "dirty-tree" };
+    return;
+  }
+  run.status = await (deps.postCheck ?? postStatus)((deps.identity ?? realCheckDeps.identity)(path), sha, result, realCheckDeps);
 }
 
 export const realGitToolDeps: GitToolDeps = {
@@ -629,18 +665,33 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
   return [
     {
       name: "git_push",
-      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
-      inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" }, leaseMrUrl: { type: "string", description: "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease." } }, required: ["tree"], additionalProperties: false },
+      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Before pushing it runs the repo's configured check (rt.check; rt check runs the same one) and, once the push succeeds, posts the verdict on the pushed sha as a GitHub commit status (a forge refusal never fails the push, and a dirty tree is never posted); a repo with no check pushes with check: null. A red or errored check, or a check that cannot run, refuses with pushed: false, refusal: \"check-red\" or \"check-error\", check (the verdict, summary and failing files) and next: \"rt check\"; allowRed: true pushes anyway and still posts the result, skipCheck: true runs and posts nothing and wins over allowRed. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead). Returns the pushed sha and, read from GitLab just before the push, the branch's open MR (mr: {iid, url} or null) and that MR's latest pipeline id (priorPipelineId), so a CI watch can tell the push's pipeline from the one already there. mrLookup is \"unavailable\" when the forge could not be read (a GitHub repo, the daemon down), in which case mr: null is not proof there is none; the push goes ahead either way.",
+      inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" }, allowRed: { type: "boolean", description: "Push even when the check is red or errored, and post that result." }, skipCheck: { type: "boolean", description: "Run no check and post no status." }, leaseMrUrl: { type: "string", description: "The MR or PR https URL whose CI lease this session must hold (or can claim) for the push to run. Refused with pushed: false while another owner holds a fresh lease." } }, required: ["tree"], additionalProperties: false },
       shellForms: ["git push", "rt git push"],
       handler: (input, env) => guarded(async (path, input, repoName) => {
-        const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }, { name: "leaseMrUrl", type: "string" }]);
+        const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }, { name: "allowRed", type: "boolean" }, { name: "skipCheck", type: "boolean" }, { name: "leaseMrUrl", type: "string" }]);
         if (bad) return err(bad);
         if (input.leaseMrUrl !== undefined) {
           const branch = await currentBranch(path, deps.git);
           const lease = (deps.ensureLease ?? ensureLease)(input.leaseMrUrl as string, env, branch === null ? {} : { branch });
           if (!lease.ok) return "refused" in lease ? ok({ pushed: false, refused: lease.refused, holder: lease.holder }) : err(lease.error);
         }
-        return gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git, (branch) => deps.openMr(repoName, branch));
+        let run: CheckRun | null = null;
+        if (input.skipCheck !== true) {
+          const checked = await runPushCheck(path, deps);
+          if (checked.result.configured) {
+            run = checked;
+            const verdict = checked.result.verdict;
+            if (verdict !== "green" && input.allowRed !== true) {
+              return ok({ pushed: false, refusal: verdict === "red" ? "check-red" : "check-error", check: checked, next: "rt check" });
+            }
+          }
+        }
+        const pushed = await gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true }, deps.git, (branch) => deps.openMr(repoName, branch));
+        if (!pushed.ok || pushed.body === null || typeof pushed.body !== "object") return pushed;
+        const body = pushed.body as { sha: string };
+        if (run) await postPushed(run, path, body.sha, deps);
+        return ok({ ...body, check: run });
       })(input),
     },
     {

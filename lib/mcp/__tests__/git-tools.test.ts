@@ -6,6 +6,9 @@ import { branchSyncPreflight, branchSyncSweep, gitChildEnv, gitPull, gitPush, gi
 import type { CiLease } from "../../../packages/rt-client/src/index.ts";
 import type { GuardResult } from "../../ci/lease-guard.ts";
 import type { TreeGuardDeps } from "../tree-guard.ts";
+import type { CheckRun } from "../../check/index.ts";
+import type { CheckResult } from "../../check/run.ts";
+import { childEnv } from "../../subprocess.ts";
 
 const GIT_PATHS = "rev-parse --git-path rebase-merge --git-path rebase-apply";
 
@@ -31,8 +34,9 @@ const onFeature: Script = {
   "rev-parse --abbrev-ref --symbolic-full-name @{u}": { stdout: "origin/feat/x\n" },
   "rev-parse --verify HEAD": { stdout: "abc1234\n" },
 };
-/** No MR on any branch: what the git tools read when a test is not about the forge. */
-const noForge: Pick<GitToolDeps, "openMr" | "resolveRepo" | "authoredOpenMrs" | "repoTrees"> = {
+/** No MR on any branch and no check configured: what the git tools read when a test is not about the forge. */
+const noForge: Pick<GitToolDeps, "openMr" | "resolveRepo" | "authoredOpenMrs" | "repoTrees" | "check"> = {
+  check: async () => ({ result: { configured: false }, status: null }),
   openMr: async () => ({ ok: true, mr: null }),
   resolveRepo: async () => ({ ok: false, error: "no repo in this test" }),
   authoredOpenMrs: async () => ({ ok: true, mrs: [], complete: true }),
@@ -299,7 +303,7 @@ describe("git_push reports what it pushed", () => {
       calls.push("<mr lookup>");
       return { ok: true, mr: { iid: 7, url: "https://forge/mr/7", pipelineId: 991 } };
     }, {}, calls);
-    expect(r).toEqual({ ok: true, body: { pushed: true, branch: "feat/x", sha: "abc1234", forceWithLease: false, upstream: "origin/feat/x", mr: { iid: 7, url: "https://forge/mr/7" }, priorPipelineId: 991, mrLookup: "read", tree: "/t" } });
+    expect(r).toEqual({ ok: true, body: { pushed: true, branch: "feat/x", sha: "abc1234", forceWithLease: false, upstream: "origin/feat/x", mr: { iid: 7, url: "https://forge/mr/7" }, priorPipelineId: 991, mrLookup: "read", check: null, tree: "/t" } });
     expect(asked).toEqual([["r", "feat/x"]]);
     expect(calls.indexOf("<mr lookup>")).toBeLessThan(calls.indexOf(PUSH));
   });
@@ -328,6 +332,156 @@ describe("git_push reports what it pushed", () => {
     const r = await push(async () => ({ ok: true, mr: null }), { "rev-parse --verify HEAD": { code: 128, stderr: "fatal: bad HEAD" } }, calls);
     expect(r.ok).toBe(false);
     expect(calls).not.toContain(PUSH);
+  });
+});
+
+describe("git_push runs the repo's check", () => {
+  const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false, ignoredBy: () => false };
+  const PUSH = "push --no-follow-tags --recurse-submodules=no --end-of-options origin HEAD:refs/heads/feat/x";
+  const result = (over: Partial<Extract<CheckResult, { configured: true }>> = {}): Extract<CheckResult, { configured: true }> => ({
+    configured: true, verdict: "green", summary: { mode: "changed", selected: 3, passed: 3, failed: 0, durationMs: 1000, failures: [] },
+    sha: "abc1234", base: "b", dirty: false, command: "bun check", outputTail: "", fromCache: false, ...over,
+  });
+  const run = (over: Partial<Extract<CheckResult, { configured: true }>> = {}): CheckRun => ({ result: result(over), status: null });
+  const POSTED = { posted: true as const, context: "rt/local-check", state: "success" as const, description: "d" };
+
+  const setup = (check: (calls: string[]) => GitToolDeps["check"], input: Record<string, unknown> = {}, postOutcome: Awaited<ReturnType<typeof import("../../check/status.ts").postStatus>> = POSTED) => {
+    const calls: string[] = [];
+    const posts: Array<[string, string]> = [];
+    const tool = gitToolDefs({
+      ...noForge,
+      git: fakeGit({ ...onFeature, [PUSH]: {} }, calls),
+      guard,
+      sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      check: check(calls),
+      identity: () => "remote:github.com%2Facme%2Fapp",
+      postCheck: async (identity, sha) => { calls.push("<post>"); posts.push([identity, sha]); return postOutcome; },
+    }).find((t) => t.name === "git_push")!;
+    return { call: () => tool.handler({ tree: "/t", ...input }, {} as NodeJS.ProcessEnv), calls, posts };
+  };
+  const checkReturning = (r: CheckRun | { result: { configured: false }; status: null }, asked: Array<{ tree: string; post: boolean }> = []) => (calls: string[]): GitToolDeps["check"] => async (tree, o) => {
+    calls.push("<check>");
+    asked.push({ tree, post: o.post });
+    return r as CheckRun;
+  };
+
+  test("an unconfigured repo pushes with check: null and posts nothing", async () => {
+    const t = setup(checkReturning({ result: { configured: false }, status: null }));
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: null });
+    expect(t.posts).toEqual([]);
+  });
+  test("a green check runs before the push, asks for no post of its own, and is posted on the pushed sha afterwards", async () => {
+    const asked: Array<{ tree: string; post: boolean }> = [];
+    const t = setup(checkReturning(run(), asked));
+    const r = await t.call();
+    expect(asked).toEqual([{ tree: "/t", post: false }]);
+    expect(t.calls.indexOf("<check>")).toBeLessThan(t.calls.indexOf(PUSH));
+    expect(t.calls.indexOf(PUSH)).toBeLessThan(t.calls.indexOf("<post>"));
+    expect(t.posts).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
+    expect(r.body).toMatchObject({ pushed: true, sha: "abc1234", check: { result: { verdict: "green" }, status: POSTED } });
+  });
+  test("a red check refuses with check-red and next rt check, and pushes and posts nothing", async () => {
+    const red = run({ verdict: "red" });
+    const t = setup(checkReturning(red));
+    const r = await t.call();
+    expect(r).toEqual({ ok: true, body: { pushed: false, refusal: "check-red", check: red, next: "rt check", tree: "/t" } });
+    expect(t.calls).not.toContain(PUSH);
+    expect(t.posts).toEqual([]);
+  });
+  test("an error check refuses with check-error", async () => {
+    const t = setup(checkReturning(run({ verdict: "error", reason: "timed out after 600s" })));
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: false, refusal: "check-error", next: "rt check" });
+    expect(t.calls).not.toContain(PUSH);
+  });
+  test("a check that throws refuses with check-error carrying the reason, and pushes nothing", async () => {
+    const t = setup(() => async () => { throw new Error("unknown variable ${nope}"); });
+    const r = await t.call();
+    expect(r.ok).toBe(true);
+    expect(r.body).toMatchObject({ pushed: false, refusal: "check-error", next: "rt check", check: { result: { configured: true, verdict: "error", reason: "unknown variable ${nope}" } } });
+    expect(t.calls).not.toContain(PUSH);
+  });
+  test("allowRed pushes a red check and posts the failure", async () => {
+    const t = setup(checkReturning(run({ verdict: "red" })), { allowRed: true }, { ...POSTED, state: "failure" });
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "red" }, status: { posted: true, state: "failure" } } });
+    expect(t.posts).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
+  });
+  test("allowRed pushes an error check too", async () => {
+    const t = setup(checkReturning(run({ verdict: "error" })), { allowRed: true });
+    expect((await t.call()).body).toMatchObject({ pushed: true });
+  });
+  test("allowRed still pushes when the check throws", async () => {
+    const t = setup(() => async () => { throw new Error("boom"); }, { allowRed: true });
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "error", reason: "boom" }, status: null } });
+    expect(t.posts).toEqual([]);
+  });
+  test("skipCheck runs nothing and posts nothing", async () => {
+    const t = setup(checkReturning(run()), { skipCheck: true });
+    const r = await t.call();
+    expect(t.calls).not.toContain("<check>");
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: null });
+  });
+  test("skipCheck beats allowRed", async () => {
+    const t = setup(checkReturning(run({ verdict: "red" })), { skipCheck: true, allowRed: true });
+    const r = await t.call();
+    expect(t.calls).not.toContain("<check>");
+    expect(r.body).toMatchObject({ pushed: true, check: null });
+  });
+  test("a cached green is reused and posted", async () => {
+    const t = setup(checkReturning(run({ fromCache: true })));
+    const r = await t.call();
+    expect(t.posts).toHaveLength(1);
+    expect(r.body).toMatchObject({ check: { result: { fromCache: true } } });
+  });
+  test("a forge refusal never fails the push", async () => {
+    const t = setup(checkReturning(run()), {}, { posted: false, reason: "gh-failed", detail: "HTTP 403" });
+    const r = await t.call();
+    expect(r.ok).toBe(true);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "gh-failed" } } });
+  });
+  test("a dirty tree pushes if green but never posts", async () => {
+    const t = setup(checkReturning(run({ dirty: true })));
+    const r = await t.call();
+    expect(t.posts).toEqual([]);
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "dirty-tree" } } });
+  });
+  test("a push that fails posts nothing", async () => {
+    const calls: string[] = [];
+    const posts: string[] = [];
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, [PUSH]: { code: 1, stderr: "rejected" } }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      check: async () => run(), identity: () => "i", postCheck: async () => { posts.push("x"); return POSTED; },
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.ok).toBe(false);
+    expect(posts).toEqual([]);
+  });
+  test("allowRed and skipCheck must be booleans", async () => {
+    const t = setup(checkReturning(run()), { allowRed: "yes" });
+    expect((await t.call()).ok).toBe(false);
+    expect(t.calls).not.toContain("<check>");
+  });
+  test("a refused lease never runs the check", async () => {
+    const calls: string[] = [];
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, [PUSH]: {} }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      ensureLease: () => ({ ok: false, refused: "held", holder: { owner: "o" } }) as never,
+      check: async () => { calls.push("<check>"); return run(); },
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t", leaseMrUrl: "https://forge/mr/1" }, {} as NodeJS.ProcessEnv);
+    expect(r.body).toMatchObject({ pushed: false });
+    expect(calls).not.toContain("<check>");
+  });
+
+  test("lib/mcp/git-tools.ts imports first in a fresh process despite lib/check importing it back", async () => {
+    const root = join(import.meta.dir, "..", "..", "..");
+    const p = Bun.spawn(["bun", "-e", 'await import("./lib/mcp/git-tools.ts");'], { cwd: root, env: childEnv(), stdout: "pipe", stderr: "pipe" });
+    const [code, stderr] = [await p.exited, await new Response(p.stderr).text()];
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
   });
 });
 
