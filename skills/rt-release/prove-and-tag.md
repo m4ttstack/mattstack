@@ -337,7 +337,7 @@ update leg, and `team-upgrade` skips in every scenario but solo.
 ### Check the kept update VM
 
 `--keep` leaves the guest running; the report's teardown note and the run's warning name it
-(`kept <vm>`). Reach it with `ssh -i rt-tray/vm/.cache/id_ed25519 tester@$(tart ip <kept-vm>)`
+(`kept <vm>`). Reach it with `ssh -i "$VM_CACHE/id_ed25519" tester@$(tart ip <kept-vm>)`
 (`VM_SSH_KEY`, `VM_TESTER_USER` in `rt-tray/vm/lib/common.sh`) and confirm:
 
 - `~/.mattstack/rt/setup-state.json` has `lastUpdate.version` naming the rehearsal (the compiled
