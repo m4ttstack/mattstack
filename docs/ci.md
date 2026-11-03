@@ -1,7 +1,10 @@
 # CI jobs and what triggers them
 
-Every push to `main` runs every job. On a pull request, a job runs only
-when the diff touches a path it can be affected by. The `scope` job in
+A merge-queue run (`merge_group`) runs every job in full on the exact tree
+about to land. On a pull request, a job runs only when the diff touches a
+path it can be affected by. A push to `main` runs only `purity`: the queue
+already tested that tree, and the org's five macOS slots were spending two
+thirds of their minutes on post-merge reruns. The `scope` job in
 `checks.yml` and the `changes` job in `e2e.yml` both run
 `scripts/ci/test-scope.ts`, which holds every rule below, and
 `scripts/ci/__tests__/test-scope.test.ts` pins each one.
@@ -84,8 +87,11 @@ path rule can rule out (the lockfile, workflow lint, the PR text).
 
 ## Required checks
 
-Branch protection requires `checks`, `e2e` and `purity`. `checks` and `e2e`
-are aggregate jobs that run with `always()`: each fails when its scope job
-fails, and passes a skipped job only when scope said that job did not
-apply. A gated job that is skipped for any other reason fails the gate.
-`glitter-pty` is not part of the `e2e` gate, so it stays advisory.
+Branch protection requires `checks`, `e2e` and `purity`, and a ruleset puts
+every merge through the merge queue (squash, batches of up to five). The
+queue waits for the same three checks on its `merge_group` run before
+landing the batch. `checks` and `e2e` are aggregate jobs that run with
+`always()`: each fails when its scope job fails, and passes a skipped job
+only when scope said that job did not apply. A gated job that is skipped
+for any other reason fails the gate. `glitter-pty` is not part of the `e2e`
+gate, so it stays advisory.

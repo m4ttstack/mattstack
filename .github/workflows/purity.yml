@@ -11,6 +11,7 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, edited]
+  merge_group:
 
 jobs:
   purity:
@@ -27,6 +28,6 @@ jobs:
           filter: blob:none
       - name: No employer or domain references in the tracked tree
         env:
-          PURITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+          PURITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.merge_group.base_sha || github.event.before }}
           PURITY_PR_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}
         run: scripts/repo-purity.sh

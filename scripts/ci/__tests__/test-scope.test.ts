@@ -47,8 +47,9 @@ function prInput(changed: string[]): ScopeInput {
 }
 
 describe("decide", () => {
-  test("a push is always full", () => {
+  test("a push or a merge-queue run is always full", () => {
     expect(decide({ ...pr(["docs/a.md"]), event: "push" }).mode).toBe("full");
+    expect(decide({ ...pr([]), event: "merge_group" }).mode).toBe("full");
   });
 
   test("an empty diff skips with its own reason", () => {
@@ -664,9 +665,10 @@ describe("jobsFor", () => {
   const none = { go: false, deck: false, e2e: false, glitter: false, website: false };
   const every = { go: true, deck: true, e2e: true, glitter: true, website: true };
 
-  test("a push to main runs every job", () => {
+  test("a push to main or a merge-queue run runs every job", () => {
     expect(jobsFor("push", [])).toEqual(every);
     expect(jobsFor("push", ["docs/a.md"])).toEqual(every);
+    expect(jobsFor("merge_group", [])).toEqual(every);
   });
 
   test("a website-only PR builds the site and nothing else", () => {

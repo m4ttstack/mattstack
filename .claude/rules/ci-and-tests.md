@@ -27,7 +27,8 @@ guard in the unit directories.
 Any other test that spawns
 `cli.ts` or reads source as text is not selected by `--changed`, so it
 must be named `no-*` to run on a PR at all; an un-prefixed one only runs
-on main, so a TypeScript-only PR can go green and break main there. When
+in the merge queue's full run, so a TypeScript-only PR can go green and
+then fail to land. When
 the shards' printed wall times drift more than a minute apart, refresh
 the timings file by running the Timings workflow
 (`gh workflow run timings.yml`) and committing its artifact;

@@ -279,9 +279,10 @@ export const GLITTER_TRIGGERS = [
 
 export type Jobs = { go: boolean; deck: boolean; e2e: boolean; glitter: boolean; website: boolean };
 
-// Which path-gated jobs a CI event runs. Anything but a pull request runs
-// them all: main is what releases cut from, so a wrong rule fails there
-// rather than ships. Without e2eReach, every rt TypeScript file counts.
+// Which path-gated jobs a CI event runs. Anything but a pull request (the
+// merge queue's run, a push) runs them all: that tree is what lands and what
+// releases cut from, so a wrong rule fails there rather than ships. Without
+// e2eReach, every rt TypeScript file counts.
 export function jobsFor(event: string, changed: string[], reach?: ReadonlySet<string>): Jobs {
   if (event !== "pull_request") return { go: true, deck: true, e2e: true, glitter: true, website: true };
   return {

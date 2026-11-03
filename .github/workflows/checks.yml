@@ -1,12 +1,15 @@
 name: Checks
 
+# A PR runs scoped; the merge queue runs the full suite on the exact tree
+# that lands, so a push to main itself runs nothing here: the org's five
+# macOS slots were spending two thirds of their minutes re-testing merged
+# trees, and PR shards queued behind them.
 on:
-  push:
-    branches: [main]
   pull_request:
+  merge_group:
 
 # A newer push to a PR supersedes its older run and frees its macOS slot;
-# main runs are never cancelled, so every commit on main keeps its verdict.
+# merge-queue runs are never cancelled, so every landing tree keeps its verdict.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
