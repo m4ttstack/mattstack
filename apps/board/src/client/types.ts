@@ -131,8 +131,12 @@ export interface PeerReviewInfo {
   reviewer: string;
   status: string;
   outcome?: string;
+  /** The peer's own words for an error. */
+  reason?: string;
   updatedAt: number;
   receivedAt?: number;
+  /** When this board's owner dismissed an errored review from the row. */
+  dismissedAt?: number;
 }
 /** The re-review this board asked a peer for, and where that ask now stands.
     `reason` only comes with a rejection (the peer's own words for the refusal). */

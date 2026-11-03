@@ -1,7 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { SentNudgeInfo } from '../../types.ts';
-import { clock, askBandModel as model } from '../ask-band.ts';
+import type {
+  BoardMRWithReview,
+  PeerReviewInfo,
+  SentNudgeInfo,
+} from '../../types.ts';
+import {
+  bandSource,
+  clock,
+  askBandModel as model,
+  peerFailureBandModel,
+} from '../ask-band.ts';
 import { people } from '../people.ts';
 
 const NOW = 10_000_000_000;
@@ -296,5 +305,81 @@ describe('askBandModel', () => {
     expect(askBandModel(sent({ kind: 'review' })).title).toBe(
       'Review from Grace'
     );
+  });
+});
+
+describe('peerFailureBandModel', () => {
+  const peer = (over: Partial<PeerReviewInfo> = {}): PeerReviewInfo => ({
+    mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+    iid: 1418,
+    reviewer: 'grace',
+    status: 'error',
+    updatedAt: NOW - 20 * MIN,
+    ...over,
+  });
+
+  test('a review their board lost: bad tone, the reason, retry and dismiss', () => {
+    expect(
+      peerFailureBandModel(peer({ reason: 'pane closed' }), 'Grace')
+    ).toEqual({
+      tone: 'bad',
+      icon: 'triangle-alert',
+      name: 'Grace',
+      who: "Grace's agent",
+      title: 'Review from Grace',
+      label: 'stopped: pane closed',
+      actions: ['retry', 'dismiss'],
+      steps: [
+        { name: 'Started', detail: "Grace's board" },
+        { name: 'Failed', detail: 'pane closed', at: NOW - 20 * MIN },
+      ],
+    });
+  });
+
+  test('without a reason it says the agent hit an error', () => {
+    const m = peerFailureBandModel(peer(), 'Grace');
+    expect(m.label).toBe('failed to run');
+    expect(m.steps[1]).toEqual({
+      name: 'Failed',
+      detail: "Grace's agent hit an error",
+      at: NOW - 20 * MIN,
+    });
+  });
+});
+
+describe('bandSource', () => {
+  const mr = (over: Partial<BoardMRWithReview>): BoardMRWithReview =>
+    ({ iid: 1418, ...over }) as BoardMRWithReview;
+  const errored = (over: Partial<PeerReviewInfo> = {}): PeerReviewInfo => ({
+    mrUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418',
+    iid: 1418,
+    reviewer: 'grace',
+    status: 'error',
+    updatedAt: NOW,
+    ...over,
+  });
+
+  test('a sent ask wins the band', () => {
+    const s = sent({});
+    expect(
+      bandSource(mr({ sentNudge: s, peerReviews: [errored()] }))
+    ).toEqual({ kind: 'sent', sent: s });
+  });
+
+  test('an errored peer review nobody dismissed takes the band when nothing was sent', () => {
+    const p = errored();
+    expect(bandSource(mr({ peerReviews: [p] }))).toEqual({
+      kind: 'peer',
+      peer: p,
+    });
+  });
+
+  test('a dismissed error, or a review in any other state, leaves no band', () => {
+    expect(
+      bandSource(mr({ peerReviews: [errored({ dismissedAt: NOW })] }))
+    ).toBeNull();
+    for (const status of ['queued', 'reviewing', 'done'])
+      expect(bandSource(mr({ peerReviews: [errored({ status })] }))).toBeNull();
+    expect(bandSource(mr({}))).toBeNull();
   });
 });
