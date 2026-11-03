@@ -244,28 +244,99 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }).teamAuthored).toEqual(["gadgets@acme"]);
     });
 
-    test("after a switch, the previous team's pack is neither updated, reinstalled nor enabled, and the new team's pack lands turned on", async () => {
-      const marketplacePath = join(home, ".mattstack", "orgs", "acme", ".claude-plugin", "marketplace.json");
-      const execCalls: string[][] = [];
-      const p = fakeProbes({
-        home,
-        env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
-        exec: async (argv) => {
-          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
-          execCalls.push(argv);
-          return argv[2] === "list" ? ok(JSON.stringify([{ id: "gadgets@acme", version: "1.0.0", enabled: false }])) : ok("");
-        },
+    describe("another team's installed pack", () => {
+      const clone = () => join(home, ".mattstack", "orgs", "acme");
+      const team = { slug: "acme", name: "Acme", mode: "none" } as const;
+      function orgFiles(floor: string | null = null): Record<string, string> {
+        return {
+          [join(clone(), ".claude-plugin", "marketplace.json")]: JSON.stringify({
+            name: "acme",
+            plugins: [{ name: "widgets", source: "./w" }, { name: "gadgets", source: "./g" }, { name: "gizmos", source: "./z" }],
+          }),
+          [join(clone(), "w", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "1.0.0" }),
+          [join(clone(), "g", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "2.0.0" }),
+          [join(clone(), "z", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "1.0.0" }),
+          ...(floor ? { [join(clone(), "g", "pack", "requires.json")]: JSON.stringify({ minEngine: floor }) } : {}),
+        };
+      }
+      /** Models the real claude: update moves the version and keeps enablement; install turns a pack on. */
+      function harness(files: Record<string, string>, installed: { id: string; version: string; enabled: boolean }[], failUpdate = false) {
+        const execCalls: string[][] = [];
+        const state = new Map(installed.map((e) => [e.id, { ...e }]));
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin", ...files },
+          exec: async (argv) => {
+            const shown = gitShowFromFiles(files, argv);
+            if (shown) return shown;
+            if (argv[0] === "git") return ok("");
+            execCalls.push(argv);
+            const [, , verb, id] = argv;
+            if (verb === "list") return ok(JSON.stringify([...state.values()]));
+            const entry = state.get(id!);
+            if (verb === "update") {
+              if (failUpdate && id === "gadgets@acme") return { code: 1, stdout: "", stderr: "registry exploded" };
+              if (entry && id === "gadgets@acme") entry.version = "2.0.0";
+            }
+            if (verb === "install") state.set(id!, { id: id!, version: "1.0.0", enabled: true });
+            if (verb === "enable" && entry) entry.enabled = true;
+            if (verb === "disable" && entry) entry.enabled = false;
+            return ok("");
+          },
+        });
+        return { p, execCalls, state };
+      }
+      const gadgetsCalls = (execCalls: string[][]) => execCalls.filter((a) => a.includes("gadgets@acme")).map((a) => a[2]);
+
+      for (const update of [false, true]) {
+        test(`after a switch the previous team's stale pack is updated and stays off, and the new team's pack lands turned on (${update ? "update" : "apply"} run)`, async () => {
+          const { p, execCalls, state } = harness(orgFiles(), [{ id: "gadgets@acme", version: "1.0.0", enabled: false }]);
+          const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, update });
+
+          const outcome = await pluginsInstallStep.run(ctx);
+
+          expect(outcome.state).toBe("done");
+          expect(gadgetsCalls(execCalls)).toEqual(["update"]);
+          expect(state.get("gadgets@acme")).toEqual({ id: "gadgets@acme", version: "2.0.0", enabled: false });
+          expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "enable"]);
+          expect(execCalls.filter((a) => a.includes("gizmos@acme"))).toEqual([]);
+          expect(detailOf(outcome)).not.toContain("awaiting your approval");
+          expect(detailOf(outcome)).not.toContain("gadgets@acme");
+        });
+      }
+
+      test("one already at the served version takes no call", async () => {
+        const { p, execCalls } = harness(orgFiles(), [{ id: "gadgets@acme", version: "2.0.0", enabled: true }]);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, update: true });
+
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        expect(gadgetsCalls(execCalls)).toEqual([]);
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "widgets" });
 
-      const outcome = await pluginsInstallStep.run(ctx);
+      test("one served above this Mac's engine is held, and the detail names it", async () => {
+        const { p, execCalls } = harness(orgFiles("0.31.0"), [{ id: "gadgets@acme", version: "1.0.0", enabled: false }]);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => "0.30.28", update: true });
 
-      expect(outcome.state).toBe("done");
-      expect(execCalls.filter((a) => a.includes("gadgets@acme"))).toEqual([]);
-      expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "enable"]);
-      expect(detailOf(outcome)).not.toContain("awaiting your approval");
-      expect(detailOf(outcome)).not.toContain("gadgets@acme");
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(gadgetsCalls(execCalls)).toEqual([]);
+        expect(detailOf(outcome)).toContain("gadgets 2.0.0 needs a newer mattstack app (engine 0.31.0 or later)");
+      });
+
+      test("one whose update fails is logged and named, never reinstalled, and the step still finishes", async () => {
+        const { p, execCalls, state } = harness(orgFiles(), [{ id: "gadgets@acme", version: "1.0.0", enabled: false }], true);
+        const { ctx, logs } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, update: true });
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(gadgetsCalls(execCalls)).toEqual(["update"]);
+        expect(state.get("gadgets@acme")!.enabled).toBe(false);
+        expect(logs.some((l) => l.line.includes("gadgets@acme") && l.line.includes("registry exploded"))).toBe(true);
+        expect(detailOf(outcome)).toContain("gadgets@acme could not be updated");
+      });
     });
 
     describe("disabled skills", () => {

@@ -340,6 +340,8 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
   // A team pack rt lands, other than the active team's own, is left disabled;
   // one already enabled wherever it settled needs nothing more from the member.
   const awaitingEnable = new Set<string>();
+  /** Installed packs of other teams whose update failed: the member keeps the copy they have, so the step still finishes. */
+  const notUpdated: string[] = [];
 
   for (const dir of configDirs) {
     const env = { CLAUDE_CONFIG_DIR: dir };
@@ -501,6 +503,32 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
       settled.push(plugin);
       if (needsEnable) awaitingEnable.add(plugin);
     }
+
+    // Before the cache, Claude read every installed pack straight from the
+    // clone, so each one tracked the data branch. Only ever an update: never
+    // installed when absent, and update keeps the member's enabled state.
+    // Without the generated folder the name may still point at the clone's
+    // working tree, which a pack must never be updated from.
+    if (teamSkipped !== null) continue;
+    for (const pack of served) {
+      if (allPlugins.includes(pack.id)) continue;
+      const entry = byId.get(pack.id);
+      if (!entry || pack.servedVersion === null || entry.version === pack.servedVersion) continue;
+      const admission = admit(pack.floor, engine);
+      if (!admission.ok) {
+        const copy = heldCopy(pack.name, pack.servedVersion, admission.floor);
+        ctx.log("plugins.install", copy);
+        held.add(copy);
+        continue;
+      }
+      const updated = await runner.run(updateArgs(admission, pack.id, ["-y"]), PACK_EXEC_TIMEOUT_MS);
+      if (updated.code === 0) {
+        settled.push(pack.id);
+        continue;
+      }
+      ctx.log("plugins.install", `${pack.id} (${dir}): plugin update exited ${updated.code}: ${childOutput(updated) || "no output"}`);
+      if (!notUpdated.includes(pack.id)) notUpdated.push(pack.id);
+    }
   }
 
   updateSetupState(ctx.p, (s) => ({
@@ -523,8 +551,9 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
   const disabledNote = reapply() ? ". Some skills could not have model invocation disabled" : "";
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
+  const notUpdatedNote = notUpdated.length > 0 ? `. ${notUpdated.join(", ")} could not be updated` : "";
   const unsourcedNote = unsourced.length > 0 ? `. ${unsourced.join(", ")} ${unsourced.length === 1 ? "was" : "were"} not installed: ${teamSkipped}` : "";
-  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${disabledNote}${pendingNote}${unsourcedNote}${heldNote}` };
+  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${disabledNote}${pendingNote}${unsourcedNote}${notUpdatedNote}${heldNote}` };
 }
 
 /** A plugin update replaces the installed copy, so the member's disabled-model-invocation choices go back on; a failure here only warns. True when something was left alone. */
