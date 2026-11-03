@@ -836,8 +836,12 @@ export async function toolRows(
     // have no way out but --force.
     rows.push(row({ id: "team.marketplace", kind: "tool", title: "Team marketplace", why: "The team's marketplace.json lists the packs Install manages.", required: false, status: "error", detail: served.error }));
   }
+  const orgError = reqs.find((r) => r.orgError)?.orgError;
+  if (orgError) {
+    rows.push(row({ id: "org.requirements", kind: "tool", title: "Org requirements", why: "Tools every team in this org needs.", required: false, status: "error", detail: orgError }));
+  }
   const byPack = new Map(served.packs.map((s) => [s.name, s]));
-  const names = [...new Set([...reqs.map((r) => r.pack), ...served.packs.map((s) => s.name)])].sort();
+  const names = [...new Set([...reqs.filter((r) => !r.orgOnly).map((r) => r.pack), ...served.packs.map((s) => s.name)])].sort();
   for (const name of names) {
     const req = reqs.find((r) => r.pack === name) ?? { pack: name, tools: [], integrations: [] };
     rows.push(packRow(req, pluginList, byPack.get(name), engine));

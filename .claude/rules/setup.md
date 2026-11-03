@@ -162,6 +162,16 @@ read) returns `partial`: unrecorded, so it runs again, and no notification. The 
 only spawns the verb and routes the `setup_update` notification click to the
 Setup status window; put no decision in Swift.
 
+## Org requirements
+
+`readPackRequirements` folds `org/requirements.jsonc` into the team's one
+`PackRequirements` entry. Nothing may add a second entry: `setupPackFlow`
+(`lib/setup/pack.ts`) reads `reqs[0]`, and `toolRows` draws a `pack.*` row per
+entry. A team with no pack file gets an `orgOnly` entry, which both readers
+skip as a pack. An org file's error stays on `orgError`, drawn as the
+non-blocking `org.requirements` row; it never reaches `error`, which fails the
+pack stage.
+
 ## Your repos
 
 The "Your repos" group is one `repos.place:<identity>` row per tracked repo,
