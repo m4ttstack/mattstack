@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MattstackCore
 
 // MARK: - Outline Item Wrappers (reference types for NSOutlineView)
 
@@ -164,11 +165,15 @@ struct ProcessOutlineView: NSViewRepresentable {
             coordinator.lastDataVersion = dataVersion
             let structureChanged = coordinator.updateItems(from: groups)
             coordinator.applySortToItems()
-            if structureChanged {
+            let plan = OutlineRefresh<NSObject>.plan(structureChanged: structureChanged, roots: coordinator.groupItems) {
+                ($0 as? OutlineGroupItem)?.processItems ?? ($0 as? OutlineProcessItem)?.childItems ?? []
+            }
+            switch plan {
+            case .rebuild:
                 outlineView.reloadData()
                 coordinator.restoreExpansion()
-            } else {
-                outlineView.reloadItem(nil, reloadChildren: true)
+            case .reloadEach(let items):
+                items.forEach { outlineView.reloadItem($0, reloadChildren: false) }
             }
         } else if oldKillingPids != killingPids {
             coordinator.reloadRows(affectedBy: oldKillingPids.symmetricDifference(killingPids))
