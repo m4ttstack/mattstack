@@ -126,7 +126,7 @@ setup runs, window or not.
 `rt setup update` is what the app runs at every launch once its services
 settle (`AppDelegate.settleAgentsAfterLaunch`); rt decides whether anything
 happens (`lib/setup/update.ts`: setup not finished, already stamped for
-this version, or run), and only one run at a time holds
+this version with no migration pending, or run), and only one run at a time holds
 `~/.mattstack/rt/setup-update.lock` (`lib/setup/update-lock.ts`); a second
 one reports `skipped: "running"`. A run is `org.folder` and `org.pull`, then
 pending migrations, then `team.identity` and the other `StepDef`s with
@@ -135,7 +135,11 @@ pending migrations, then `team.identity` and the other `StepDef`s with
 `orgs/<org>` holding what its checked-out branch holds on origin now. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error
 ends the run, as a bug (exit 1, no stamp). Otherwise the version is
-stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Two
+stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. A
+stamped version runs again at each launch while any migration is still
+unrecorded on this Mac (`decideUpdate`'s `retry`), so one that failed or
+waited finishes without a release or `--force`; a retry posts no
+notification, so a broken item still nags once per release. Two
 other verbs feed that stamp: a full, `--from` or `--resume` `rt setup apply`
 that ends ok stamps it too, unless a migration is still pending, and records
 Finish once nothing blocks it, both before it lets go of the run lock and
@@ -173,7 +177,9 @@ plugin, an editor setup-state has no record of).
 migration changes only this Mac and never writes the org or team stores (a
 change there is an admin's `rt settings set` or a layout change, see the
 `rt:settings` skill); it
-runs once per machine and is recorded when `done` or `skipped`. The tray
+runs once per machine and is recorded when `done` or `skipped`. One that
+must wait for something outside this Mac (an org layout this rt does not
+read) returns `partial`: unrecorded, so it runs again, and no notification. The tray
 only spawns the verb and routes the `setup_update` notification click to the
 Setup status window; put no decision in Swift.
 

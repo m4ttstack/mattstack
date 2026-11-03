@@ -21,7 +21,7 @@ import type { MigrationEventId } from "../contract.ts";
 export interface MigrationDef {
   id: string;
   title: string;
-  /** `done` changed something, `skipped` found nothing to fix; both are recorded. `failed` is not, so it runs again next time. */
+  /** `done` changed something, `skipped` found nothing to fix; both are recorded. Any other state is not, so it runs again at the next launch's update. */
   run(ctx: ApplyContext): Promise<StepOutcome>;
 }
 

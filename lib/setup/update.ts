@@ -18,15 +18,24 @@ export function rtVersion(): string {
   return process.env.RT_VERSION ?? DEV_VERSION;
 }
 
-export type UpdateDecision = { kind: "not-set-up" } | { kind: "current"; version: string } | { kind: "run" };
+/** `retry`: this version already ran here, and runs again only because a migration is still pending. */
+export type UpdateDecision = { kind: "not-set-up" } | { kind: "current"; version: string } | { kind: "run"; retry?: true };
 
-/** "Finished" is the answer mattstack.app reopens setup on: until then the wizard owns the Mac, and an update run would re-apply steps to a half-configured machine and could overlap the wizard's own Install, which the update lock does not guard. A `dev` version never counts as current, so a source build re-applies every launch. */
-export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "now">, version: string, force: boolean): UpdateDecision {
+/** The migrations this Mac has not recorded (done or skipped), so an update run still owes them. */
+export function pendingMigrationIds(applied: readonly string[], migrationIds: readonly string[]): string[] {
+  return migrationIds.filter((id) => !applied.includes(id));
+}
+
+/**
+ * "Finished" is the answer mattstack.app reopens setup on: until then the wizard owns the Mac, and an update run would re-apply steps to a half-configured machine and could overlap the wizard's own Install, which the update lock does not guard. A `dev` version never counts as current, so a source build re-applies every launch.
+ * A stamped version still runs while any of `migrationIds` is pending, so a migration that failed or waited finishes at a later launch without a release or `--force`.
+ */
+export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "now">, version: string, force: boolean, migrationIds: readonly string[]): UpdateDecision {
   const state = readSetupState(p);
   if (!isSetupFinished(state)) return { kind: "not-set-up" };
   if (force || version === DEV_VERSION) return { kind: "run" };
   const last = state.lastUpdate;
-  if (last && last.version === version) return { kind: "current", version };
+  if (last && last.version === version) return pendingMigrationIds(state.migrations, migrationIds).length > 0 ? { kind: "run", retry: true } : { kind: "current", version };
   return { kind: "run" };
 }
 
