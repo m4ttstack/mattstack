@@ -407,7 +407,7 @@ describe("the plan event's bar phases", () => {
     });
     const plan = events[0];
     if (plan?.event !== "plan") throw new Error("missing plan");
-    const words = plan.steps.map((s) => s.phase);
+    const words = plan.steps.map((s) => s.phase ?? "");
     for (const word of words) expect(PHASE_WORDS).toContain(word);
     expect(words[0]).not.toBe(words[1]);
 
