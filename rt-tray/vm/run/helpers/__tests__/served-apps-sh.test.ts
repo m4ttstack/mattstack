@@ -28,7 +28,7 @@ function lockRow(name: string, serve?: { port: number; args: string[] }) {
 
 // A fake bundle, HOME, launchctl and curl: the stubs answer from files under
 // root and append every call to root/calls so a test can see what ran.
-function world(opts: { statusFailures?: number; deadHosts?: string[]; withLock?: boolean; restartAfterPrints?: number } = {}): World {
+function world(opts: { statusFailures?: number; deadHosts?: string[]; slowHosts?: Record<string, number>; withLock?: boolean; restartAfterPrints?: number } = {}): World {
   const root = mkdtempSync(join(tmpdir(), "served-apps-sh-"));
   const home = join(root, "home");
   const app = join(root, "mattstack.app");
@@ -62,6 +62,7 @@ function world(opts: { statusFailures?: number; deadHosts?: string[]; withLock?:
   }
   writeFileSync(join(root, "status-failures"), String(opts.statusFailures ?? 0));
   writeFileSync(join(root, "dead-hosts"), (opts.deadHosts ?? []).join("\n") + "\n");
+  for (const [host, n] of Object.entries(opts.slowHosts ?? {})) writeFileSync(join(root, `slow-${host}`), String(n));
   writeFileSync(join(root, "restart-after"), String(opts.restartAfterPrints ?? 1_000_000));
   const launchctl = join(root, "launchctl");
   writeFileSync(launchctl, `#!/bin/bash
@@ -86,6 +87,7 @@ case "$url" in
   https://*)
     host="\${url#https://}"
     grep -qx "$host" "${root}/dead-hosts" && exit 22
+    if [ -f "${root}/slow-$host" ]; then n=$(cat "${root}/slow-$host"); if [ "$n" -gt 0 ]; then echo $((n - 1)) > "${root}/slow-$host"; exit 7; fi; fi
     echo ok;;
   *) exit 2;;
 esac
@@ -94,7 +96,7 @@ esac
   chmodSync(curl, 0o755);
   return {
     root, home, app, calls,
-    env: { HOME: home, PATH: "/usr/bin:/bin", SERVED_APP: app, SERVED_CURL: curl, SERVED_LAUNCHCTL: launchctl, SERVED_POLL_S: "1" },
+    env: { HOME: home, PATH: "/usr/bin:/bin", SERVED_APP: app, SERVED_CURL: curl, SERVED_LAUNCHCTL: launchctl, SERVED_POLL_S: "1", SERVED_PROXY_WAIT_S: "3" },
   };
 }
 
@@ -197,6 +199,13 @@ describe("assert_mattstack_routes", () => {
     expect(out).toContain("ASSERT FAIL chat.mattstack is routed but does not answer through the proxy");
     expect(out).toContain("ASSERT ok   deck.mattstack answers over https through the proxy");
     expect(calls(w)).not.toContain("board.localhost");
+  });
+
+  test("an app that answers a few seconds after a restart passes", () => {
+    const w = world({ slowHosts: { "chat.mattstack": 2 } });
+    const { out, fails } = run(w, "assert_mattstack_routes trusted proxy");
+    expect(fails).toBe(0);
+    expect(out).toContain("ASSERT ok   chat.mattstack answers over https through the proxy");
   });
 
   test("the untrusted mode wants every route to answer insecurely and fail trust", () => {
