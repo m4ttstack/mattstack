@@ -28,12 +28,14 @@ describe("worktreePathState", () => {
     treeByPath: (p: string) => (p === "/pool/t1" ? { repoName: "r", tree: p } : null),
     realpath: (p: string) => {
       if (p === "/gone") throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      if (p === "/file/child") throw Object.assign(new Error("ENOTDIR"), { code: "ENOTDIR" });
       if (p === "/locked") throw Object.assign(new Error("EACCES"), { code: "EACCES" });
       return p;
     },
   };
   test("a path that does not exist reads missing, so the mod can refuse it without asking a person", () => {
     expect(worktreePathState("/gone", deps)).toBe("missing");
+    expect(worktreePathState("/file/child", deps)).toBe("missing");
   });
   test("a registry tree reads registered, and anything else that exists or cannot be read reads unregistered", () => {
     expect(worktreePathState("/pool/t1", deps)).toBe("registered");

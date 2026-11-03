@@ -246,7 +246,8 @@ export function worktreePathState(path: unknown, deps: TreeGuardDeps = REAL_TREE
   try {
     real = deps.realpath(path);
   } catch (err) {
-    return (err as { code?: unknown }).code === "ENOENT" ? "missing" : "unregistered";
+    const code = (err as { code?: unknown }).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unregistered";
   }
   return deps.treeByPath(path) !== null || deps.treeByPath(real) !== null ? "registered" : "unregistered";
 }
