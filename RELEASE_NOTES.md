@@ -28,6 +28,7 @@ Also in this release: the board says "follow-up review" everywhere and lets you 
 - review panes no longer stall at the domain skill's hand-back (#962)
 - `EnterWorktree` into a worktree rt's registry holds no longer asks; the daemon's dialog auto-accept and `panes.relocationAutoAccept` are gone (#953, #955)
 - `EnterWorktree` never waits on a person: a path that no longer exists, or a folder that isn't an rt worktree, is refused at once with what to do instead (#977)
+- `rt runs` leaves out runs a validation harness started; `--include-tests` lists them (#979)
 
 ### Board
 
@@ -43,6 +44,8 @@ Also in this release: the board says "follow-up review" everywhere and lets you 
 - a sunny empty state on a review with no findings
 - the Slack marks tooltip says whether you or someone else marked it
 - WebKit fixes for the gate sheet's head, round bar and avatars
+- the comments drawer is wider, keeps thread cards from squashing, and ends with the same reached-the-end marker as the gates
+- the row menu leads with set auto-merge when only CI is left, and a respond-again row sits under respond
 
 ### Menu bar app
 
@@ -52,6 +55,7 @@ Also in this release: the board says "follow-up review" everywhere and lets you 
 ### Bundled tools
 
 - gh 2.103.3, glab 1.127.0, node 26.13.0 (LTS) and cloudflared 2026.10.7 (#966, #974)
+- fast-browser 0.1.19: recording a GIF no longer leaves video on, which made later sessions refuse saved dev logins
 - held: Sparkle stays at 2.10.0; 2.10.1 ships in a release of its own, since it changes the updater (#975)
 - held: portless stays at 0.15.9; 0.15.13 stops answering for the apps' `.mattstack` addresses (#976)
 
