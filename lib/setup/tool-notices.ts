@@ -7,7 +7,7 @@
 
 import { dirname, join } from "path";
 import { integrationDef } from "./integrations.ts";
-import { intentPath } from "./intent.ts";
+import { intentPath, orgRefFromIntent } from "./intent.ts";
 import type { Probes } from "./probes.ts";
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
 import { isSetupFinished, readSetupState, type SetupRun } from "./state.ts";
@@ -83,9 +83,9 @@ function setupIsRunning(p: Probes, run: SetupRun | undefined): boolean {
   return (run !== undefined && run.endedAt === undefined) || p.exists(intentPath(p.home)) || lockHeldByLiveRun(updateLockPath(p.home));
 }
 
-/** The org setup reads: one record file per Mac, so a pull of any other clone must not touch it. */
-function setupOrg(p: Probes): string | undefined {
-  return discoverOrgs(p).sort()[0];
+/** The org setup reads, through setup's own rule: one record file per Mac, so a pull of any other clone must not touch it. */
+function setupOrg(p: Probes): string {
+  return orgRefFromIntent(null, discoverOrgs(p)).slug;
 }
 
 export async function runToolNotices(p: Probes, slug: string, notify: (title: string, message: string, id: string) => void): Promise<void> {
