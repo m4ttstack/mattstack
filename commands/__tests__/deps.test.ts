@@ -10,6 +10,7 @@ import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { depsLink, depsReconcile, depsResolve, depsUnlink } from "../deps.ts";
 import { toolsInstall } from "../tools.ts";
+import { TREE } from "../../lib/command-tree-def.ts";
 
 const LOCK = {
   schema: 1,
@@ -18,6 +19,12 @@ const LOCK = {
     {
       name: "gh", version: "2.0.0", license: "MIT", url: "https://x/gh.tar.gz", sha256: "a".repeat(64),
       archive: "tar.gz", extract: "gh", bundlePath: `${HELPERS_DIR}/gh`, exec: [`${HELPERS_DIR}/gh`],
+      exposeByDefault: false, entitlements: "none", status: "bundled", kind: "helper",
+    },
+    {
+      name: "fast-browser", version: "0.1.0", license: "MIT", url: "https://x/fb.tgz", sha256: "b".repeat(64),
+      archive: "npm", extract: "package", bundlePath: `${HELPERS_DIR}/fast-browser`,
+      exec: [`${HELPERS_DIR}/node/bin/node`, `${HELPERS_DIR}/fast-browser/bin/fast-browser.mjs`],
       exposeByDefault: false, entitlements: "none", status: "bundled", kind: "helper",
     },
   ],
@@ -48,6 +55,8 @@ describe("rt deps commands", () => {
   let home: string;
   let appRoot: string;
   let ghPath: string;
+  let nodePath: string;
+  let fbPath: string;
 
   beforeEach(() => {
     bundleLayoutTest.resetBundleLayoutMemo();
@@ -65,6 +74,12 @@ describe("rt deps commands", () => {
     setSetting("mattstack.appPath", appRoot, "machine");
 
     ghPath = join(appRoot, HELPERS_DIR, "gh");
+    nodePath = join(appRoot, HELPERS_DIR, "node", "bin", "node");
+    fbPath = join(appRoot, HELPERS_DIR, "fast-browser", "bin", "fast-browser.mjs");
+    mkdirSync(join(appRoot, HELPERS_DIR, "node", "bin"), { recursive: true });
+    mkdirSync(join(appRoot, HELPERS_DIR, "fast-browser", "bin"), { recursive: true });
+    writeFileSync(nodePath, "node-binary");
+    writeFileSync(fbPath, "fb-binary");
   });
 
   afterEach(() => {
@@ -77,8 +92,8 @@ describe("rt deps commands", () => {
     return fakeProbes({
       home,
       ...extra,
-      files: { [ghPath]: "gh-binary", ...(extra.files ?? {}) },
-      dirs: { [appRoot]: [], ...(extra.dirs ?? {}) },
+      files: { [ghPath]: "gh-binary", [nodePath]: "node-binary", [fbPath]: "fb-binary", ...(extra.files ?? {}) },
+      dirs: { [appRoot]: [], [join(appRoot, HELPERS_DIR, "fast-browser")]: ["bin"], ...(extra.dirs ?? {}) },
     });
   }
 
@@ -96,6 +111,51 @@ describe("rt deps commands", () => {
     const { logs, exitCode } = await runCapturingExit(() => depsResolve(["nonexistent-tool"], {}, bundleProbe()));
     expect(exitCode).toBeUndefined();
     expect(logs.join("\n")).toContain("not bundled");
+  });
+
+  test("depsResolve --path prints the chosen path alone and exits 0", async () => {
+    const { logs, errors, exitCode } = await runCapturingExit(() => depsResolve(["gh", "--path"], {}, bundleProbe()));
+    expect(exitCode).toBeUndefined();
+    expect(logs).toEqual([ghPath]);
+    expect(errors).toEqual([]);
+  });
+
+  test("depsResolve --path on an unresolved tool prints nothing on stdout, one stderr line, exit 1", async () => {
+    const { logs, errors, exitCode } = await runCapturingExit(() => depsResolve(["nonexistent-tool", "--path"], {}, bundleProbe()));
+    expect(exitCode).toBe(1);
+    expect(logs).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("nonexistent-tool");
+    expect(errors[0]).toMatch(/neither bundled nor on PATH/);
+  });
+
+  test("depsResolve --path prints an absolute path for a user copy found through a relative PATH entry", async () => {
+    const abs = join(process.cwd(), "bin", "relcopy-tool");
+    const p = bundleProbe({ env: { PATH: "bin" }, files: { [abs]: "x", "bin/relcopy-tool": "x" } });
+    const { logs, exitCode } = await runCapturingExit(() => depsResolve(["relcopy-tool", "--path"], {}, p));
+    expect(exitCode).toBeUndefined();
+    expect(logs).toEqual([abs]);
+  });
+
+  test("depsResolve --path on a multi-entry tool prints nothing on stdout, one stderr line, exit 1", async () => {
+    const { logs, errors, exitCode } = await runCapturingExit(() => depsResolve(["fast-browser", "--path"], {}, bundleProbe()));
+    expect(exitCode).toBe(1);
+    expect(logs).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/fast-browser runs through 2 entries/);
+    expect(errors[0]).toContain("--json");
+  });
+
+  test("depsResolve refuses --path together with --json, exit 2", async () => {
+    const { logs, exitCode } = await runCapturingExit(() => depsResolve(["gh", "--path", "--json"], {}, bundleProbe()));
+    expect(exitCode).toBe(2);
+    expect(logs).toEqual([]);
+  });
+
+  test("the resolve command tree names --path with help copy", () => {
+    const flag = TREE.deps!.subcommands!.resolve!.args!.find((a) => a.flag === "--path");
+    expect(flag?.type).toBe("boolean");
+    expect(flag?.hint).toBe("Print only the resolved path");
   });
 
   test("depsLink links a bundled tool and prints a success line", async () => {
