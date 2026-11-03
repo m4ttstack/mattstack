@@ -96,8 +96,8 @@ that should not block.
   and team declare the same tool (team wins in `signInTools` and the rows), a
   null team, a team with no pack file, and a malformed org file with the pack
   stage still installing.
-- `.claude/rules/setup.md`, and a docs site line where team requirements are
-  described.
+- `.claude/rules/setup.md`. No user docs describe `requirements.jsonc` today, so
+  none change.
 
 ## After it ships
 
