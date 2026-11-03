@@ -21,6 +21,7 @@ test('an own MR shows the short top level, flyouts last', async () => {
   await openMenu(ownIdle, ownEnv);
   expect(menuLines()).toEqual([
     '# !1418',
+    '# slack actions',
     'post to slack',
     '---',
     '# agent actions',

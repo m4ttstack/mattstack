@@ -31,6 +31,7 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1418",
+      "# slack actions",
       "post to slack",
       "---",
       "# agent actions",
@@ -145,6 +146,7 @@ test('failed lanes, finished respond, conflicts and a peer review with comments'
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1422",
+      "# slack actions",
       "post to slack",
       "---",
       "# agent actions",

@@ -409,9 +409,21 @@ function ActionMenu({
       </ContextMenu.Row>
     );
 
+  const topGroups = (['gitlab', 'slack'] as const)
+    .map(from => ({ from, items: top.filter(e => e.from === from) }))
+    .filter(g => g.items.length);
+  const topLoose = top.filter(e => !e.from);
+
   return shell(
     <>
-      {top.map(renderItem)}
+      {topLoose.map(renderItem)}
+      {topGroups.map((g, i) => (
+        <Fragment key={g.from}>
+          {(i > 0 || topLoose.length > 0) && <ContextMenu.Separator />}
+          <ContextMenu.Label>{g.from} actions</ContextMenu.Label>
+          {g.items.map(renderItem)}
+        </Fragment>
+      ))}
       {agentItems.length > 0 && (
         <>
           {top.length > 0 && <ContextMenu.Separator />}

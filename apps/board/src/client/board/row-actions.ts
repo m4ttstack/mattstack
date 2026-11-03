@@ -83,6 +83,8 @@ export type ActionRequest =
 export interface MenuEntry {
   key: string;
   section: Section;
+  /** A top entry's home section: the heading it leads under. */
+  from?: 'gitlab' | 'slack';
   label: string;
   /** Null for an agent action, which leads with the bot mark in its lane's
       color instead. */
@@ -637,6 +639,7 @@ export function rowActions(
             { kind: 'mr', action: 'setAutoMerge' },
             {
               bulk: 'set auto-merge',
+              ...(autoMergeLeads ? { from: 'gitlab' as const } : {}),
               ...block(!autoMerge.visible && hidden),
             }
           )
@@ -739,7 +742,10 @@ export function rowActions(
           othersLeft ? 'post to other codeowners…' : 'post to slack',
           SLACK,
           { kind: 'post-slack' },
-          block(!owners && found && 'posted')
+          {
+            ...(leads ? { from: 'slack' as const } : {}),
+            ...block(!owners && found && 'posted'),
+          }
         )
       );
     }
@@ -997,8 +1003,7 @@ export function bulkActions(
   const entries = [...groups].map(([key, g]): BulkEntry => {
     const entry: BulkEntry = {
       key,
-      section:
-        key === 'setAutoMerge' ? 'gitlab' : BULK_SECTION[g.first.section],
+      section: BULK_SECTION[g.first.from ?? g.first.section],
       label:
         g.redo && g.redoCount === g.targets.length
           ? g.first.label
