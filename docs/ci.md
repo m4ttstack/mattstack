@@ -34,13 +34,17 @@ unit test reads them by path: docs (`docs/`, `.md` and `.mdx` outside
 directories, the apps and plugin trees, workflow files other than
 `checks.yml`, repo metadata (`.gitignore` and the like), and `e2e/` files no
 unit test imports. A snapshot (`__snapshots__/x.test.ts.snap`) drops out
-too, and its own test is added to the run. Then:
+too, and its own test is added to the run. So does a file in those trees
+that a unit test does read by path (`plugin.json`, `rt-tray/deps.lock`,
+a Swift file a parity test checks): the tests reading it are added to the
+run whole, since `--changed` cannot see a read that is not an import. When
+the reader is not a test, the tests importing the reader are added
+instead; a reader no test imports forces full. Then:
 
 - **skip**: nothing is left.
 - **full**: every unit test, in three shards. Any push, any change to
   `checks.yml`, `e2e.yml` (the scope test pins both gates) or the scope
-  script, a dropped-out file a unit test does
-  read, and any remaining file `--changed` cannot trace (a non-TypeScript
+  script, and any remaining file `--changed` cannot trace (a non-TypeScript
   file such as `bun.lock`, a fixture, the preload or its imports,
   `packages/glance/`).
 - **changed**: `--changed=HEAD^1` over what is left, which is all
