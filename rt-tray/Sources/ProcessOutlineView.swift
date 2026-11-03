@@ -7,11 +7,17 @@ import MattstackCore
 final class OutlineGroupItem: NSObject {
     var group: RepoGroup
     var processItems: [OutlineProcessItem]
+    /// The children the outline last drew, in order; a difference from
+    /// `childPids` means the outline must re-read this group's subtree.
+    var shownChildPids: [Int]
 
     init(_ group: RepoGroup) {
         self.group = group
         self.processItems = group.processes.map { OutlineProcessItem($0) }
+        self.shownChildPids = processItems.map { $0.process.pid }
     }
+
+    var childPids: [Int] { processItems.map { $0.process.pid } }
 
     func updateData(from group: RepoGroup) {
         self.group = group
@@ -40,11 +46,15 @@ final class OutlineGroupItem: NSObject {
 final class OutlineProcessItem: NSObject {
     var process: SystemProcess
     var childItems: [OutlineProcessItem]
+    var shownChildPids: [Int]
 
     init(_ process: SystemProcess) {
         self.process = process
         self.childItems = (process.children ?? []).map { OutlineProcessItem($0) }
+        self.shownChildPids = childItems.map { $0.process.pid }
     }
+
+    var childPids: [Int] { childItems.map { $0.process.pid } }
 
     func updateData(from proc: SystemProcess) {
         self.process = proc
@@ -165,16 +175,27 @@ struct ProcessOutlineView: NSViewRepresentable {
             coordinator.lastDataVersion = dataVersion
             let structureChanged = coordinator.updateItems(from: groups)
             coordinator.applySortToItems()
-            let plan = OutlineRefresh<NSObject>.plan(structureChanged: structureChanged, roots: coordinator.groupItems) {
-                ($0 as? OutlineGroupItem)?.processItems ?? ($0 as? OutlineProcessItem)?.childItems ?? []
-            }
+            let plan = OutlineRefresh<NSObject>.plan(
+                structureChanged: structureChanged, roots: coordinator.groupItems,
+                children: { ($0 as? OutlineGroupItem)?.processItems ?? ($0 as? OutlineProcessItem)?.childItems ?? [] },
+                childrenChanged: { item in
+                    if let group = item as? OutlineGroupItem { return group.childPids != group.shownChildPids }
+                    if let proc = item as? OutlineProcessItem { return proc.childPids != proc.shownChildPids }
+                    return false
+                })
             switch plan {
             case .rebuild:
                 outlineView.reloadData()
                 coordinator.restoreExpansion()
-            case .reloadEach(let items):
-                items.forEach { outlineView.reloadItem($0, reloadChildren: false) }
+            case .reload(let steps):
+                for step in steps {
+                    switch step {
+                    case .node(let item): outlineView.reloadItem(item, reloadChildren: false)
+                    case .subtree(let item): outlineView.reloadItem(item, reloadChildren: true)
+                    }
+                }
             }
+            coordinator.markChildrenShown()
         } else if oldKillingPids != killingPids {
             coordinator.reloadRows(affectedBy: oldKillingPids.symmetricDifference(killingPids))
         }
@@ -395,6 +416,19 @@ struct ProcessOutlineView: NSViewRepresentable {
                     let cmp = Self.compareProcesses(a.process, b.process, by: column)
                     return ascending ? cmp == .orderedAscending : cmp == .orderedDescending
                 }
+            }
+        }
+
+        /// Every item now shows its current children; the next plan compares
+        /// against this.
+        func markChildrenShown() {
+            func visit(_ item: OutlineProcessItem) {
+                item.shownChildPids = item.childPids
+                item.childItems.forEach(visit)
+            }
+            for group in groupItems {
+                group.shownChildPids = group.childPids
+                group.processItems.forEach(visit)
             }
         }
 

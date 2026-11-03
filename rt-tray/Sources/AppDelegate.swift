@@ -1694,6 +1694,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         processWindow = window
+        processWindowPolling?.show()
     }
 
     @MainActor
