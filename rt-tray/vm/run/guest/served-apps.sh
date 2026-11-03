@@ -8,6 +8,8 @@ SERVED_JQ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/jq"
 : "${SERVED_POLL_S:=5}"
 : "${SERVED_PROXY_WAIT_S:=30}"
 [[ "$SERVED_PROXY_WAIT_S" =~ ^[0-9]+$ ]] || SERVED_PROXY_WAIT_S=30
+[[ "$SERVED_POLL_S" =~ ^[0-9]+$ ]] || SERVED_POLL_S=5
+SERVED_PROXY_WAIT_S=$((10#$SERVED_PROXY_WAIT_S)) SERVED_POLL_S=$((10#$SERVED_POLL_S))
 SERVED_JQ="$SERVED_APP/Contents/Helpers/jq"
 
 served_deck_port() {
@@ -92,7 +94,7 @@ assert_served_apps() {  # <log-name> <timeout-s> [<launchd.json from record_serv
 
 # An app restarted by an update can take a few seconds to listen behind its route.
 served_proxy_answers() {  # <host> [curl flag...]
-  local h="$1" end=$((SECONDS + 10#$SERVED_PROXY_WAIT_S)) left
+  local h="$1" end=$((SECONDS + SERVED_PROXY_WAIT_S)) left
   shift
   while :; do
     left=$((end - SECONDS))
