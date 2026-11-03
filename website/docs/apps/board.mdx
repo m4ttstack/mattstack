@@ -87,7 +87,7 @@ Every item here needs a local board. Each row links to what that agent does. The
 | Icon | Label | What it does | Shows when |
 | --- | --- | --- | --- |
 | <BoardIcon name="agent" lane="review" /> | review | Launches an agentic review. See [Review](#review). | The board has not reviewed the MR, or its last review failed. |
-| <BoardIcon name="agent" lane="review" /> | follow-up review (round N) | Launches a follow-up review, once the author has responded to yours. See [Follow-up review](#follow-up-review). Reads plain "follow-up review" when no round is recorded. | The board's review finished, or someone already reviewed the MR. |
+| <BoardIcon name="agent" lane="review" /> | follow-up review (round N) | Launches a follow-up review, once the author has responded to yours. See [Follow-up review](#follow-up-review). Reads plain "follow-up review" when no round is recorded. | The board's review finished, or you reviewed the MR on GitLab: you approved it, left a review or opened a thread. On your own MR, anyone's review counts. |
 | <BoardIcon name="agent" lane="review" /> | focus review | Shows the running review's pane. | A review is running and its pane is open. |
 | <BoardIcon name="agent" lane="review" /> | redo review | Starts a new review from scratch, after you confirm. See [Redo](#redo). | The board's review finished, or its pane closed while it ran. |
 | <BoardIcon name="agent" lane="respond" /> | respond to dev2 (round N) | Launches an agent that answers one person's feedback on your MR. See [Respond](#respond). Reads "respond to…" and opens a list of people when more than one has something open. The round shows from round 2. | Your own MR, when someone has an open thread or comment for you. |
@@ -98,7 +98,7 @@ Every item here needs a local board. Each row links to what that agent does. The
 | <BoardIcon name="agent" lane="doctor" /> | redo doctor | Starts a new doctor run from scratch, after you confirm. See [Redo](#redo). | The doctor finished, or its pane closed while it ran, and the MR still has failing CI or conflicts. |
 | <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target, and a doctor skill is set up for the tab you are on. |
 | <BoardIcon name="agentCloud" /> | request review from… | Opens a list of people to ask for a review, on your team and others. See [Picking who to ask](#picking-who-to-ask). | Your own MR, when there is someone left to ask. Otherwise it sits greyed in **all agent actions**. |
-| <BoardIcon name="agentCloud" /> | ask dev2's agent to re-review | Asks a teammate whose review left comments to review again. See [Asks between boards](#asks-between-boards). | Your own MR, one item per such teammate. |
+| <BoardIcon name="agentCloud" /> | ask dev2's agent for a follow-up review | Asks a teammate whose review left comments to review again. Reads **retry dev2's agent review** when their agent's last review hit an error. See [Asks between boards](#asks-between-boards). | Your own MR, one item per such teammate. |
 | <BoardIcon name="agentCloud" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
 
 The asks to a teammate's agent sit last, below a divider.
@@ -170,7 +170,7 @@ When a review's or response's pane closes while it is still running, the row's s
 
 #### Respond
 
-A response answers one person at a time: every open review thread they started on your MR, and their Overview comments you have not answered. Threads you or a bot started are left out. The board counts rounds for each person, so a second response to the same reviewer is round 2, and the row, the lane line and the decision header name the person and the round.
+A response answers one person at a time: every open review thread they started on your MR, and their Overview comments you have not answered. An Overview comment the reviewer left before approving the MR counts as answered. Threads you or a bot started are left out. The board counts rounds for each person, so a second response to the same reviewer is round 2, and the row, the lane line and the decision header name the person and the round.
 
 The agent drafts a reply to each of that person's threads and comments.
 
@@ -180,7 +180,7 @@ For each approved fix, it edits code in the board's respond folder, on whatever 
 
 Before posting, it asks again: for each thread, whether to post the reply and whether to resolve the thread. When a thread you picked has a code fix and the folder is on the MR's branch, it pushes, never with force. Otherwise it keeps the fixes and tells you. Threads you only replied to stay open. An Overview comment can only be replied to, never resolved.
 
-A reviewer board's re-review thread (see [Asking for a re-review through the MR](#asking-for-a-re-review-through-the-mr)) is never one of the threads a response handles. When one is still open, the posting question on the board also offers **Ask dev2 for a re-review once posting finishes**. Tick it, and the board resolves that thread once the response finishes, so dev2's board reviews again. A response that ends in an error drops the pick.
+A reviewer board's re-review thread (see [Asking for a re-review through the MR](#asking-for-a-re-review-through-the-mr)) is never one of the threads a response handles. When one is still open, the posting question on the board also shows a card for it, **Ask dev2 to re-review** ("After the replies post"), ticked by default. Leave it ticked, and the board resolves that thread once the response finishes, so dev2's board reviews again. Untick it, and dev2 isn't asked. A response that ends in an error drops the pick.
 
 #### Doctor
 
@@ -275,7 +275,7 @@ The bulk menu is titled "N selected". It offers only what every checked MR's own
 - **gitlab**: rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
 - **slack**: the three Slack reactions.
 
-An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, re-reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
+An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, follow-up reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
 
 The board runs the action on four MRs at a time, then shows one summary, for example "merge accepted on !1, !2 · couldn't merge !3 (not approved yet) · 1 didn't need it".
 
@@ -297,6 +297,8 @@ The controls above the rows choose what you see. Your choices are kept in the pa
 
 Each chip turns a set of MRs on or off and shows how many it holds, whether it is on or off.
 
+With yourself selected as the member, the chips you pick are remembered apart from the ones you pick for everyone else, so each view keeps its own. Your own view's picks stay out of the page address.
+
 | Chip | Shows | Offered |
 | --- | --- | --- |
 | Posted to #channel | MRs posted to the team's Slack channel. On by default. | When Slack is connected. |
@@ -315,7 +317,7 @@ The **Group** menu splits the rows into groups:
 | author | One group per member. |
 | status | Review state: needs review, changes requested, commented, comments resolved, approved. The default. |
 | my reviews | The board's own review of each MR: reviewing, queued, review ready, review failed, not reviewed. |
-| need | What each MR needs from you: decide, unstick, respond, fix, re-review, review, merge. Only on the Needs me tab, which switches to it. |
+| need | What each MR needs from you: decide, unstick, respond, fix, follow-up review, review, merge. Only on the Needs me tab, which switches to it. |
 
 A stack of MRs stays together in the group of its bottom MR. Within a group, the oldest activity comes first.
 
@@ -339,7 +341,7 @@ There are three kinds of ask:
 | Ask | Sent by | From the menu item |
 | --- | --- | --- |
 | review | The MR's author, to anyone in the org | request review from… |
-| re-review | The MR's author, to a teammate whose agent left comments | ask dev2's agent to re-review |
+| re-review | The MR's author, to a teammate whose agent left comments | ask dev2's agent for a follow-up review |
 | respond | A reviewer, to the MR's author | ask dev1's agent to respond |
 
 Asks need peering: both boards must be in the same [org](/start/teams) and connected to its relay, which `rt team join` sets up. A board that is not connected shows a banner with the command that fixes it.
@@ -364,7 +366,7 @@ Pick a person, and the ask's dialog opens before anything is sent. With several 
 
 ### Asking for a re-review through the MR
 
-A reviewer's board whose review left comments adds a thread to the MR, for the author to resolve once everything is addressed (see [Review](#review)). When the relay has heard nothing from that reviewer's board but their thread is still open, **ask dev2's agent to re-review** resolves the thread instead of sending an ask. Their board picks it up on its next pass. Until then the item is greyed "asked in the MR thread".
+A reviewer's board whose review left comments adds a thread to the MR, for the author to resolve once everything is addressed (see [Review](#review)). When the relay has heard nothing from that reviewer's board but their thread is still open, **ask dev2's agent for a follow-up review** resolves the thread instead of sending an ask. Their board picks it up on its next pass. Until then the item is greyed "asked in the MR thread".
 
 ### The inbox
 
@@ -372,13 +374,13 @@ The inbox icon (<BoardIcon name="inbox" />) at the top right of a local board op
 
 <Screenshot name="board/inbox" alt="The Asks for your agent inbox with waiting asks, each with Decline, a go-ahead button and an always allow checkbox" />
 
-Each waiting ask shows who asked, what they asked for ("asked for a review", "asked for a re-review" or "asked your agent to respond"), the MR and their note, with three controls:
+Each waiting ask shows who asked, what they asked for ("asked for a review", "asked for a follow-up review" or "asked your agent to respond"), the MR and their note, with three controls:
 
-- **Review**, **Re-review** or **Respond** starts your agent. The card shows "Your agent is reviewing !N" for a few seconds, with a **focus** link to its pane.
+- **Review**, **Follow-up review** or **Respond** starts your agent. The card shows "Your agent is reviewing !N" for a few seconds, with a **focus** link to its pane.
 - **Decline** asks why, with optional reasons (busy right now, not my area, ask me later) and a note, then sends your answer back.
 - **always allow dev2** starts dev2's future asks without waiting for you.
 
-**history** lists the asks you handled in the last two weeks, and what came of each: reviewed, re-reviewed, responded, declined, skipped (a rule of your board refused it) or expired. Under it, **Always allowed** lists the teammates whose asks start on their own; remove one to confirm their asks again.
+**history** lists the asks you handled in the last two weeks, and what came of each: reviewed, followed up, responded, declined, skipped (a rule of your board refused it) or expired. Under it, **Always allowed** lists the teammates whose asks start on their own; remove one to confirm their asks again.
 
 The footer says it plainly: asks run on this Mac with your Claude usage.
 
@@ -415,7 +417,7 @@ Before it starts the agent, dev2's board checks the ask still makes sense. It re
 - the ask is over 48 hours old.
 - a review or response is already running.
 - dev2 already reviewed the MR (for a first review).
-- there is no earlier review with comments (for a re-review).
+- there is no earlier review with comments (for a follow-up review).
 - the MR is not dev2's (for respond).
 
 An always-allowed ask also counts against two automatic limits in `board.triage`: a 30 minute cooldown and a daily budget of 3 runs. Going ahead by hand skips both.
@@ -430,8 +432,8 @@ dev1's row grows a band at its foot that follows the ask. Click it for the trail
 | --- | --- | --- |
 | review requested (re-review requested, response requested) | Sent, no answer yet. | |
 | waiting for dev2's go ahead | It is in dev2's inbox. | Dismiss |
-| reviewing (re-reviewing, responding) | dev2's agent is working. | Dismiss |
-| reviewed: approved, reviewed: comments (re-reviewed, responded) | dev2's agent finished, with its verdict. | Dismiss |
+| reviewing (following up, responding) | dev2's agent is working. | Dismiss |
+| reviewed: approved, reviewed: comments (followed up, responded) | dev2's agent finished, with its verdict. | Dismiss |
 | stopped: reason, or failed to run | dev2's agent did not finish. | Retry, Dismiss |
 | dev2 declined: reason | dev2 said no. | Dismiss |
 | dev2 has asks turned off | dev2's board takes no asks. | Dismiss |

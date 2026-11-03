@@ -19,6 +19,16 @@
   --ms-raised-border: #8f8f9c;
   --ms-code-bg: var(--ms-bg-alt);
   --ms-code-border: var(--ms-border);
+  /* Syntax colors from Prism's oneLight. */
+  --ms-syntax-fg: hsl(230, 8%, 24%);
+  --ms-syntax-comment: hsl(230, 4%, 64%);
+  --ms-syntax-constant: hsl(35, 99%, 36%);
+  --ms-syntax-keyword: hsl(301, 63%, 40%);
+  --ms-syntax-tag: hsl(5, 74%, 59%);
+  --ms-syntax-string: hsl(119, 34%, 47%);
+  --ms-syntax-punctuation: hsl(119, 34%, 47%);
+  --ms-syntax-function: hsl(221, 87%, 60%);
+  --ms-syntax-url: hsl(198, 99%, 37%);
 }
 
 [data-theme="dark"] {
@@ -38,4 +48,14 @@
   --ms-raised-border: rgba(255, 255, 255, 0.36);
   --ms-code-bg: var(--ms-surface);
   --ms-code-border: var(--ms-border-soft);
+  /* Syntax colors from Prism's oneDark. */
+  --ms-syntax-fg: hsl(220, 14%, 71%);
+  --ms-syntax-comment: hsl(220, 10%, 40%);
+  --ms-syntax-constant: hsl(29, 54%, 61%);
+  --ms-syntax-keyword: hsl(286, 60%, 67%);
+  --ms-syntax-tag: hsl(355, 65%, 65%);
+  --ms-syntax-string: hsl(95, 38%, 62%);
+  --ms-syntax-punctuation: hsl(220, 14%, 71%);
+  --ms-syntax-function: hsl(207, 82%, 66%);
+  --ms-syntax-url: hsl(187, 47%, 55%);
 }

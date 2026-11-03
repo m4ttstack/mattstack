@@ -1,6 +1,6 @@
 import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
-import { themes as prismThemes } from "prism-react-renderer";
+import { prismTheme } from "./src/prism-theme";
 
 const config: Config = {
   title: "mattstack",
@@ -69,8 +69,8 @@ const config: Config = {
       copyright: "mattstack",
     },
     prism: {
-      theme: prismThemes.oneLight,
-      darkTheme: prismThemes.oneDark,
+      theme: prismTheme,
+      darkTheme: prismTheme,
       additionalLanguages: ["bash", "json", "diff"],
     },
     colorMode: { respectPrefersColorScheme: true },

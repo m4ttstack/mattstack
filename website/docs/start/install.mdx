@@ -113,7 +113,9 @@ After **Store in a GitHub repo**, a **Remote repo** row appears:
 - On a Mac with no GitHub token, such as a Just me Mac or a GitLab team's, the row offers **Sign in to GitHub** ("Opens your browser once. rt then makes a private repo for you"). Your browser opens `github.com/login/device`, and the row reads "Your code is XXXX-XXXX. Confirm it in your browser" with **Open again**. Once you confirm, it reads "rt creates it as a private repo when setup runs".
 - A stored GitHub token that can't create repos still gets a field for the repo's URL.
 
-rt names the new repo `mattstack-home`, or `mattstack-home-2` to `-5` when that name is taken. It's private, and the `gh` CLI isn't needed.
+When your settings folder already has a remote another Mac can restore from, the row shows that remote and rt creates nothing. A remote rt can't restore from, such as a local folder, gets a field for a new URL instead.
+
+Otherwise rt names the new repo `mattstack-home`, or `mattstack-home-2` to `-5` when that name is taken. It's private, and the `gh` CLI isn't needed.
 
 You can set a different or non-GitHub repo later with `rt home remote set <url>`.
 
@@ -121,7 +123,7 @@ Click **Set up this Mac**. The footer says it takes about 10 minutes.
 
 ## Setting up this Mac
 
-One progress bar runs the rest: a short message such as **Cloning your repos**, a percent, and the time left. Nothing needs you, so close the window if you like, or click **Hide**. A notification says when the Mac is ready.
+One progress bar runs the rest: a playful word such as **Bloviating…**, a percent, and the time left. Nothing needs you, so close the window if you like, or click **Hide**. A notification says when the Mac is ready.
 
 The run:
 
@@ -164,7 +166,7 @@ Restore puts the recovery key in your keychain, clones your settings, and starts
 
 ## After setup
 
-**Setup status…**, just under **Settings…** in the menu bar menu, reopens the setup window on whatever screen needs you, such as **Connect your accounts** when a token expired. With nothing to do, it shows **This Mac is ready**. Until setup is finished, the same spot reads **Resume setup…** and reopens the window where you left off.
+**Setup status…**, just under **Settings…** in the menu bar menu, reopens the setup window on whatever screen needs you, such as **Connect your accounts** when a token expired. With nothing to do, it shows **This Mac is ready**. When a step the last run couldn't finish is all that's left, the window lists it under **Still to do** with its own button, and the footer reads **Finish setup**: fix the row, and setup finishes on its own. Until setup is finished, the same spot reads **Resume setup…** and reopens the window where you left off.
 
 **Settings…** holds the rest. See [The menu bar app](/start/menu-bar-app). Three things live only there, and none of them holds up setup:
 

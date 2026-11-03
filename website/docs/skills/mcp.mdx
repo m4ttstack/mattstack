@@ -296,13 +296,11 @@ Forge payloads can carry live credentials: avatar URLs with a `private_token` qu
 
 ## Entering an rt worktree
 
-`EnterWorktree` into an rt pool tree raises Claude Code's "permission-root relocation" dialog, since rt's trees live outside the repo's `.claude/worktrees/`, and no allow rule suppresses it. In a herdr pane, rt answers it for you when the target is a worktree in rt's own registry:
+Claude Code asks before `EnterWorktree` moves a session into a tree outside the repo's `.claude/worktrees/`, and rt keeps its trees elsewhere. The mattstack plugin answers that ask for you when rt's worktree registry holds the tree. It works the same in a herdr pane, a herd worker and a plain terminal.
 
-- In a pane you are attending, the mattstack plugin's `PreToolUse` hook on `EnterWorktree` tells the daemon which tree the session is about to enter (so does rt's worktree hook when it provisions a tree for `EnterWorktree` by name). The daemon then accepts the dialog on that pane only if it appears within a few seconds and names that same registered tree.
-- Herd workers and other unattended panes rt watches are answered by the daemon's watchdog and reconciler, again only for a registered tree.
-- Any other relocation waits for you, and outside herdr (a plain terminal) you always answer it yourself.
+Any other path gets turned down without asking you, with a note that tells the agent what to do instead. A path that no longer exists, such as a tree removed after its PR merged, points the agent to `worktree_provision`. A folder that isn't an rt tree points it to `rt worktree list`. If rt can't be reached, Claude Code's own ask stands.
 
-`ExitWorktree` raises no dialog on current Claude Code, so there is nothing to answer on the way out. The machine setting `panes.relocationAutoAccept` (on by default) turns all of this off; see [`rt settings set`](/rt/reference/settings/set).
+`ExitWorktree` raises no ask on current Claude Code, so there is nothing to answer on the way out.
 
 ## What stays on Bash
 
