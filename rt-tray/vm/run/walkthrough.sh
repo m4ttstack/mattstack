@@ -568,7 +568,7 @@ else
   else
     # drive.log is written through the share, so it stays current after the
     # ssh channel that carries screens.log has gone quiet.
-    vm_phase_end screens fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/drive.log" "$(tail -1 "$VM_RUN_DIR/logs/drive.log" 2>/dev/null || echo 'see logs/screens.log')")" $(cd "$VM_RUN_DIR" && ls screenshots/*.png 2>/dev/null)
+    vm_phase_end screens fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/drive.log" "$(tail -1 "$VM_RUN_DIR/logs/drive.log" 2>/dev/null || echo 'see logs/screens.log')")${CLAUDE_STANDIN_NOTE:+; $CLAUDE_STANDIN_NOTE}" $(cd "$VM_RUN_DIR" && ls screenshots/*.png 2>/dev/null)
   fi
 fi
 
@@ -590,7 +590,7 @@ else
   n=$(grep -c 'ASSERT FAIL' "$VM_RUN_DIR/logs/assert.log")
   if [ "$n" -gt 0 ]; then reason="$n assertion(s) failed (logs/assert.log)"
   else reason="script exited $rc (logs/assert.log)"; fi
-  vm_phase_end assert fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/assert.log" "$reason")"
+  vm_phase_end assert fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/assert.log" "$reason")${CLAUDE_STANDIN_NOTE:+; $CLAUDE_STANDIN_NOTE}"
 fi
 
 # ── team-upgrade ─────────────────────────────────────────────────────────────
