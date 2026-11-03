@@ -66,6 +66,8 @@ export const READ_TIMEOUT_MS = 30_000;
     large pack, where a read takes a second or two. */
 export const WRITE_TIMEOUT_MS = 120_000;
 
+const KILL_GRACE_MS = 2_000;
+
 /**
  * The one Bun-only call in this module -- unreachable from vitest's Node
  * runtime, same split `embedded/serve.ts` documents for `Bun.file`.
@@ -83,21 +85,29 @@ export const runRt: RunRt = async (
     stdout: 'pipe',
     stderr: 'pipe',
   });
-  let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, timeoutMs);
+  // Settles on the deadline itself, not on exit: a grandchild that keeps
+  // rt's pipes open, or an rt that ignores SIGTERM, would otherwise hold the
+  // read past every timeout above it.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      proc.kill();
+      setTimeout(() => proc.kill('SIGKILL'), KILL_GRACE_MS).unref?.();
+      reject(new RtTimeoutError(argv, timeoutMs));
+    }, timeoutMs);
+  });
 
   try {
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
+    const [stdout, stderr, code] = await Promise.race([
+      Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]),
+      deadline,
     ]);
-    if (timedOut) throw new RtTimeoutError(argv, timeoutMs);
     return { code, stdout, stderr };
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 };

@@ -896,7 +896,9 @@ export function mountSkills(
   realpath: (path: string) => Promise<string> = path => fsRealpath(path),
   skillsDir: () => string = installedSkillsDir
 ) {
-  const cache = new Map<string, { at: number; result: Promise<RtRunResult> }>();
+  /** `at` is null while the spawn is in flight. */
+  type CacheEntry = { at: number | null; result: Promise<RtRunResult> };
+  const cache = new Map<string, CacheEntry>();
 
   /** Where an app installed a skill the pack fills (`board:review`), by the
       name rt reports for it; never a name from the request. */
@@ -984,21 +986,22 @@ export function mountSkills(
 
   /** Concurrent identical reads share one spawn: the rail and the page ask
       for the same composition at once, and every extra rt competes for the
-      same CPU on a cold load. A failed spawn is never served from cache. */
+      same CPU on a cold load. A read in flight is shared however long it
+      runs; only a settled one with output is served from cache. */
   function cachedRun(argv: string[]): Promise<RtRunResult> {
     const key = JSON.stringify(argv);
     const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.result;
-    const entry = { at: Date.now(), result: runRt(argv) };
+    if (hit && (hit.at === null || Date.now() - hit.at < CACHE_TTL_MS))
+      return hit.result;
+    const entry: CacheEntry = { at: null, result: runRt(argv) };
     cache.set(key, entry);
-    entry.result.then(
-      () => {
-        entry.at = Date.now();
-      },
-      () => {
-        if (cache.get(key) === entry) cache.delete(key);
-      }
-    );
+    const forget = () => {
+      if (cache.get(key) === entry) cache.delete(key);
+    };
+    entry.result.then(result => {
+      if (result.stdout.trim()) entry.at = Date.now();
+      else forget();
+    }, forget);
     return entry.result;
   }
 

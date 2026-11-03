@@ -252,6 +252,40 @@ describe('skills routes', () => {
     expect(b.status).toBe(200);
   });
 
+  it('shares a read still in flight past the cache TTL instead of spawning again', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => (release = r));
+    const run = vi.fn(async () => {
+      await gate;
+      return {
+        code: 0,
+        stdout: JSON.stringify({ pack: 'demo', verbs: [] }),
+        stderr: '',
+      };
+    });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0);
+    const app = mountSkills(new Hono(), run);
+
+    const first = app.request('/api/skills/composition?pack=demo');
+    now.mockReturnValue(60_000);
+    const second = app.request('/api/skills/composition?pack=demo');
+    release();
+    await Promise.all([first, second]);
+    now.mockRestore();
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('never serves an empty-output read from the cache', async () => {
+    const rt = fakeRt({ code: 1, stdout: '', stderr: 'boom' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await app.request('/api/skills/composition?pack=demo');
+    await app.request('/api/skills/composition?pack=demo');
+
+    expect(rt.run).toHaveBeenCalledTimes(2);
+  });
+
   it('answers a timed-out read with a JSON 502 naming the timeout, and never caches it', async () => {
     const run = vi
       .fn()
