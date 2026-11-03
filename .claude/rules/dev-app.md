@@ -53,7 +53,9 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   target commit, `scripts/fetch-deps.sh arm64`, then `bun install
   --frozen-lockfile` (`build-apps` runs turbo over `packages/*` and needs
   `node_modules` in the scratch tree), then `bun scripts/build-apps.ts`,
-  then `rt-tray/build.sh dev`, never in the shared checkout's `rt-tray/`.
+  then `bun run package` in each `extensions/vscode/*` (build.sh bundles the
+  editor extensions only from `RT_VSIX` and `RT_SKILL_BLOCKS_VSIX`), then
+  `rt-tray/build.sh dev`, never in the shared checkout's `rt-tray/`.
   Then replace
   `/Applications/mattstack-dev.app` by moving the old one aside, the way the
   dev-bundle leg of the `rt:release` skill does. A collaborator's dev app

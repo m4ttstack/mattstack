@@ -46,6 +46,12 @@ export function devAppStagePaths(home: string) {
   return { root, stagedDir: `${root}/staged`, lastSourceFile: `${root}/last-source`, buildsDir: `${root}/builds` };
 }
 
+/** Each editor extension under extensions/vscode and the build.sh variable that bundles its .vsix. */
+const EDITOR_EXTENSIONS: ReadonlyArray<readonly [string, string]> = [
+  ["rt-context", "RT_VSIX"],
+  ["skill-blocks", "RT_SKILL_BLOCKS_VSIX"],
+];
+
 /** build.sh prints its own ✗ lines on stdout, so both streams are kept. */
 function tail(r: RunResult): string {
   return `${r.stdout}\n${r.stderr}`.trim().split("\n").filter(Boolean).slice(-8).join("\n");
@@ -181,6 +187,19 @@ export async function stageLocalDevApp(seams: StageSeams, cwd: string): Promise<
     );
   }
 
+  // build.sh bundles the editor extensions only from these paths, as release.yml hands them over.
+  const vsixEnv: string[] = [];
+  for (const [ext, envName] of EDITOR_EXTENSIONS) {
+    const dir = `${scratch}/extensions/vscode/${ext}`;
+    const packaged = await seams.exec(["bun", "run", "package"], { cwd: dir, timeoutMs: 600_000 });
+    const vsix = seams.listDir(dir).find((name) => name.endsWith(".vsix"));
+    if (packaged.exitCode !== 0 || vsix === undefined) {
+      const detail = tail(packaged);
+      throw new UserActionableError("dev-app-extension-failed", `packaging the ${ext} editor extension failed${detail ? `: ${detail}` : ""}`);
+    }
+    vsixEnv.push(`${envName}=${dir}/${vsix}`);
+  }
+
   const identityEnv = buildIdentity
     ? [
         `MS_BUILD_TREE=${buildIdentity.tree}`,
@@ -190,7 +209,7 @@ export async function stageLocalDevApp(seams: StageSeams, cwd: string): Promise<
       ]
     : [];
   const build = await seams.exec(
-    ["env", `MS_BUILD_STAMP=${stamp}`, ...identityEnv, `RT_VERSION=${version}`, "rt-tray/build.sh", "dev"],
+    ["env", `MS_BUILD_STAMP=${stamp}`, ...identityEnv, ...vsixEnv, `RT_VERSION=${version}`, "rt-tray/build.sh", "dev"],
     { cwd: scratch, timeoutMs: 1_800_000 },
   );
   if (build.exitCode !== 0) throw new UserActionableError("dev-app-build-failed", `build.sh dev failed: ${tail(build)}`);

@@ -30,6 +30,7 @@ function fakeSeams(
     cacheEntries?: string[];
     untracked?: string;
     diffAfterCopy?: string;
+    noVsix?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
@@ -44,7 +45,12 @@ function fakeSeams(
     runningApp: RUNNING_APP,
     now: () => new Date(2026, 8, 24, 9, 41, 2),
     scratchDir: () => "/scratch",
-    listDir: (p) => (p === BUILDS ? (opts.cacheEntries ?? []) : []),
+    listDir: (p) => {
+      if (p === BUILDS) return opts.cacheEntries ?? [];
+      const ext = /^\/scratch\/extensions\/vscode\/([a-z-]+)$/.exec(p)?.[1];
+      if (ext) return opts.noVsix ? ["package.json"] : ["package.json", `${ext}-0.4.0.vsix`];
+      return [];
+    },
     readBytes: () => null,
     readLink: () => null,
     pathExists: (p) =>
@@ -227,6 +233,24 @@ describe("stageLocalDevApp", () => {
     expect(buildApps).toBeGreaterThan(install);
     expect(cwds[buildApps]).toBe("/scratch");
     expect(build).toBeGreaterThan(buildApps);
+  });
+
+  test("both editor extensions are packaged in the scratch copy and handed to build.sh", async () => {
+    const { seams, calls, cwds } = fakeSeams({ sourceDeps: "none" });
+    await stageLocalDevApp(seams, "/src/tree/rt-tray");
+    const packaged = calls.flatMap((c, i) => (c === "bun run package" ? [cwds[i]] : []));
+    expect(packaged).toEqual(["/scratch/extensions/vscode/rt-context", "/scratch/extensions/vscode/skill-blocks"]);
+    const build = calls.find((c) => c.includes("rt-tray/build.sh dev"))!;
+    expect(build).toContain(" RT_VSIX=/scratch/extensions/vscode/rt-context/rt-context-0.4.0.vsix ");
+    expect(build).toContain(" RT_SKILL_BLOCKS_VSIX=/scratch/extensions/vscode/skill-blocks/skill-blocks-0.4.0.vsix ");
+    expect(calls.lastIndexOf("bun run package")).toBeLessThan(calls.findIndex((c) => c.includes("rt-tray/build.sh dev")));
+  });
+
+  test("an extension that packages no .vsix fails the stage before build.sh", async () => {
+    const { seams, calls } = fakeSeams({ sourceDeps: "none", noVsix: true });
+    const err = await stageLocalDevApp(seams, "/src/tree/rt-tray").catch((e: unknown) => e);
+    expect((err as Error).message).toContain("rt-context");
+    expect(calls.some((c) => c.includes("rt-tray/build.sh dev"))).toBe(false);
   });
 
   test("a failed bun install in the scratch copy fails the stage and never runs build-apps or build.sh", async () => {
