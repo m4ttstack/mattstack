@@ -41,3 +41,15 @@ the timings file by running the Timings workflow
 (`gh workflow run timings.yml`) and committing its artifact;
 `bun run test:timings` on a laptop produces a laptop-balanced file,
 which is not the same thing.
+
+`scripts/ci/local-check.ts` is mattstack's `rt.check` command, the pre-push
+check `rt check` and `git_push` run. It asks `test-scope.ts` what a PR with
+the diff `RT_CHECK_BASE..RT_CHECK_HEAD` would run, then runs `--changed` over
+the unit directories in `cores / 2` processes (at most six) and the `extra`
+tests in a separate call, as the `unit` job does; a `skip` runs nothing and
+`RT_CHECK_FULL=1` or a `full` decision runs the whole suite. Stdout carries
+only the last-line JSON summary, so anything printed there by a change to
+this script breaks `rt check`. It reads bun's `N pass` / `N fail` lines and
+the file header before each `(fail)`, so keep `parseTestOutput` in step with
+bun's output on a bun bump. Its status is the pusher's attestation; the merge
+queue still lands the tree.

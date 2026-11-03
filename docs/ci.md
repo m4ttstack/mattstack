@@ -115,6 +115,27 @@ test, a script). Workspace packages always count, since `cli.ts` reaches
 them through bare imports, and so does a `packages/*/package.json` change,
 since `e2e/setup.ts` rebuilds the binary on one.
 
+## Before you push
+
+`rt check` runs `bun scripts/ci/local-check.ts` from the tree root, and
+`git_push` runs it first and refuses a red push. The `rt.check` setting
+holds that command. The script takes `RT_CHECK_BASE` and `RT_CHECK_HEAD`,
+asks `test-scope.ts` what a PR with that diff would run, and runs the same
+unit selection the shards use: `bun test <dirs> --changed=<base>` split
+across half the cores (at most six processes) with `test-timings.json`, then
+the tests CI reads by path in their own call. A diff the scope script would
+skip runs nothing, and a diff it would make full runs the whole suite. The
+`no-*` guards are left to the `guards` job unless the run is full, which
+`RT_CHECK_FULL=1` forces. Its exit code is the verdict, and the last stdout
+line is a JSON summary (`mode`, `selected`, `passed`, `failed`,
+`durationMs`, `failures`). It runs unit tests only: no typecheck, e2e or
+path-gated job.
+
+A green run posts the `rt/local-check` commit status. That status is the
+pusher's attestation that this sha ran its scoped tests on their machine,
+and anyone who can push can post it. The merge queue's full, hosted run is
+still what lands a tree, so a wrong local status cannot break `main`.
+
 ## Jobs left ungated
 
 `static` and `purity` run on every PR. Both are ubuntu and short, `static`
