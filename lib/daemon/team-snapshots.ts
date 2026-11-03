@@ -100,22 +100,36 @@ export function __resetParkedWarnings(): void {
 }
 
 /** Claude may record the path it was given or its realpath (macOS tmp folders differ). */
+function real(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 function samePath(a: string, b: string): boolean {
-  const real = (path: string): string => {
-    try {
-      return realpathSync(path);
-    } catch {
-      return resolve(path);
-    }
-  };
   return real(a) === real(b);
+}
+
+/** cswap accounts usually share one `plugins/` folder through a symlink, and that folder is what Claude registers into. */
+function distinctConfigDirs(dirs: string[]): string[] {
+  const seen = new Set<string>();
+  return dirs.filter((dir) => {
+    const key = real(join(dir, "plugins"));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
  * Registering the generated folder the first time belongs to setup, which
- * also reinstalls the packs from it; the daemon adds it only when no config
- * dir knows it yet, so a pull that adds a team still reaches a Mac setup has
- * not migrated. Never throws.
+ * also reinstalls the packs from it. The daemon only re-points a config dir
+ * whose registration of the name still names another source, so a pull that
+ * adds a team reaches a Mac setup has not migrated; a name a config dir does
+ * not register at all may be one the member removed, and stays removed.
+ * Never throws.
  */
 async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, write: typeof writeGeneratedMarketplace): Promise<void> {
   let written: Awaited<ReturnType<typeof writeGeneratedMarketplace>>;
@@ -140,30 +154,39 @@ async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, 
   const claude = resolveTool(p, "claude");
   if (name === null || !claude.exec) return;
 
-  for (const configDir of claudeConfigDirs(p, cswapConfigDirs(p))) {
+  const stale: string[] = [];
+  for (const configDir of distinctConfigDirs(claudeConfigDirs(p, cswapConfigDirs(p)))) {
     const listed = await p.exec([...claude.exec, "plugin", "marketplace", "list", "--json"], { env: { CLAUDE_CONFIG_DIR: configDir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
     const known = listed.code === 0 ? parseMarketplaceList(listed.stdout) : null;
     if (known === null) {
       log.warn({ configDir, code: listed.code }, "generated marketplace: could not read Claude's marketplace list, so registering it is left to setup");
       return;
     }
-    if (known.some((m) => m.name === name && m.source !== null && samePath(m.source, written.path))) return;
+    const named = known.filter((m) => m.name === name);
+    if (named.length === 0) continue;
+    if (named.some((m) => m.source !== null && samePath(m.source, written.path))) continue;
+    stale.push(configDir);
   }
-  const added = await p.exec([...claude.exec, "plugin", "marketplace", "add", written.path], { timeoutMs: PACK_EXEC_TIMEOUT_MS });
-  if (added.code !== 0 && !isAlready(added)) {
-    log.warn({ path: written.path, detail: claudeMessage(added, `exited ${added.code}`) }, "generated marketplace: claude plugin marketplace add failed");
-    return;
+  for (const configDir of stale) {
+    const added = await p.exec([...claude.exec, "plugin", "marketplace", "add", written.path], { env: { CLAUDE_CONFIG_DIR: configDir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+    if (added.code !== 0 && !isAlready(added)) {
+      log.warn({ path: written.path, configDir, detail: claudeMessage(added, `exited ${added.code}`) }, "generated marketplace: claude plugin marketplace add failed");
+      continue;
+    }
+    log.info({ path: written.path, marketplace: name, configDir }, "generated marketplace: registered");
   }
-  log.info({ path: written.path, marketplace: name }, "generated marketplace: registered");
 }
 
-/** A clone parked off the ref keeps the ref's packs, so every pull would otherwise look like a no-op update; one warning per org per daemon. Never throws. */
+/**
+ * A clone parked off the ref keeps the ref's packs, so every pull would otherwise look like a no-op update; one warning per org per daemon. Never throws.
+ * `main` is never parked: a clone sits there until the data-branch move runs.
+ */
 async function warnIfParked(p: Probes, org: string, dir: string): Promise<void> {
   if (parkedWarned.has(org)) return;
   try {
     const ref = generatedMarketplaceRef(p, dir);
-    const branch = await checkedOutBranch(p, dir);
-    if (branch === null || branch === ref) return;
+    const branch = await checkedOutBranch(p, dir, { timeoutMs: PACK_EXEC_TIMEOUT_MS });
+    if (branch === null || branch === ref || branch === "main") return;
     parkedWarned.add(org);
     warn("team-snapshots", `The ${org} org clone is on ${branch}, not ${ref}, so its team packs stay at ${ref}'s versions until it is back on ${ref}`, {
       context: { org, branch, ref },

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { __resetParkedWarnings, createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
@@ -404,14 +404,25 @@ describe("startTeamSnapshots", () => {
     const nothing = { held: [], updated: [], installed: [] };
 
     /** `registered` maps a config dir to the marketplace list Claude answers there; any `git` call answers as a clone on `branch`. */
-    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean }) {
+    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean; home?: string; dirs?: Record<string, string[]>; dataBranch?: string }) {
+      const at = opts.home ?? home;
+      const folder = `${at}/.mattstack/rt/marketplaces/acme`;
       const calls: { argv: string[]; configDir: string | undefined }[] = [];
+      const gitTimeouts: (number | undefined)[] = [];
       const probes = fakeProbes({
-        home,
+        home: at,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [`${generated}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", plugins: [] }) },
+        dirs: opts.dirs,
+        files: {
+          "/usr/local/bin/claude": "bin",
+          [`${folder}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", plugins: [] }),
+          ...(opts.dataBranch ? { [`${at}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ dataBranch: opts.dataBranch }) } : {}),
+        },
         exec: (argv, o) => {
-          if (argv[0] === "git") return { code: 0, stdout: `${opts.branch ?? "main"}\n`, stderr: "" };
+          if (argv[0] === "git") {
+            gitTimeouts.push(o?.timeoutMs);
+            return { code: 0, stdout: `${opts.branch ?? "main"}\n`, stderr: "" };
+          }
           const configDir = o?.env?.CLAUDE_CONFIG_DIR;
           calls.push({ argv: argv.slice(1), configDir });
           if (argv.includes("list")) {
@@ -429,11 +440,11 @@ describe("startTeamSnapshots", () => {
         dir: "/h/.mattstack/orgs/acme",
         log,
         converge: (async () => { order.push("converge"); return nothing; }) as never,
-        writeMarketplace: async () => { order.push("write"); return { path: generated, changed: opts.changed, dropped: [] }; },
+        writeMarketplace: async () => { order.push("write"); return { path: folder, changed: opts.changed, dropped: [] }; },
         applyCone: async () => ({ applied: [], kept: [] }),
         readChoices: () => ({}),
       });
-      return { onPulled, calls, order, log };
+      return { onPulled, calls, order, log, gitTimeouts };
     }
 
     test("the folder is rewritten before the converge", async () => {
@@ -448,10 +459,56 @@ describe("startTeamSnapshots", () => {
       expect(calls).toEqual([]);
     });
 
-    test("a changed folder no config dir knows is added once, bare", async () => {
+    test("a changed folder Claude still knows at another source is re-pointed there, bare", async () => {
       const { onPulled, calls } = harness({ changed: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
       await onPulled();
-      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: undefined }]);
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: "/h/.claude" }]);
+    });
+
+    test("a marketplace the member removed is not added back", async () => {
+      const { onPulled, calls, order } = harness({ changed: true, registered: { "/h/.claude": [{ name: "other", source: "directory", path: "/elsewhere" }] } });
+      await onPulled();
+      expect(calls.map((c) => c.argv.join(" "))).toEqual(["plugin marketplace list --json"]);
+      expect(order).toEqual(["write", "converge"]);
+    });
+
+    test("only the config dir that still points elsewhere is re-pointed", async () => {
+      const sessions = "/h/.claude-swap-backup/sessions";
+      const { onPulled, calls } = harness({
+        changed: true,
+        dirs: { [sessions]: ["one", "two"], [`${sessions}/one`]: [], [`${sessions}/two`]: [] },
+        registered: {
+          "/h/.claude": [{ name: "acme", source: "directory", path: generated }],
+          [`${sessions}/one`]: [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }],
+          [`${sessions}/two`]: [],
+        },
+      });
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: `${sessions}/one` }]);
+    });
+
+    test("config dirs sharing one plugins folder are asked once", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-generated-dedupe-")));
+      try {
+        const sessions = join(root, ".claude-swap-backup", "sessions");
+        mkdirSync(join(root, ".claude", "plugins"), { recursive: true });
+        mkdirSync(join(sessions, "linked"), { recursive: true });
+        symlinkSync(join(root, ".claude", "plugins"), join(sessions, "linked", "plugins"));
+        const stale = [{ name: "acme", source: "directory", path: join(root, ".mattstack", "orgs", "acme") }];
+        const { onPulled, calls } = harness({
+          changed: true,
+          home: root,
+          dirs: { [sessions]: ["linked"], [join(sessions, "linked")]: [] },
+          registered: { [join(root, ".claude")]: stale, [join(sessions, "linked")]: stale },
+        });
+        await onPulled();
+        expect(calls.map((c) => [c.argv.join(" "), c.configDir])).toEqual([
+          ["plugin marketplace list --json", join(root, ".claude")],
+          [`plugin marketplace add ${join(root, ".mattstack", "rt", "marketplaces", "acme")}`, join(root, ".claude")],
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     });
 
     test("a changed folder already registered somewhere is left to setup", async () => {
@@ -499,6 +556,22 @@ describe("startTeamSnapshots", () => {
         const other = harness({ changed: false, branch: "main" });
         await other.onPulled();
         expect(seen).toHaveLength(1);
+      } finally {
+        warnTest.reset();
+        __resetParkedWarnings();
+      }
+    });
+
+    test("a clone still on main before it moves to the data branch is not parked, and its branch read is bounded", async () => {
+      __resetParkedWarnings();
+      const seen: string[] = [];
+      setWarningLog((_module, message) => { seen.push(message); });
+      try {
+        const { onPulled, gitTimeouts } = harness({ changed: false, branch: "main", dataBranch: "mattstack" });
+        await onPulled();
+        expect(seen).toEqual([]);
+        expect(gitTimeouts.length).toBeGreaterThan(0);
+        expect(gitTimeouts.every((t) => typeof t === "number" && t > 0)).toBe(true);
       } finally {
         warnTest.reset();
         __resetParkedWarnings();
