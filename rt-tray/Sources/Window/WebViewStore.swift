@@ -37,6 +37,9 @@ final class WebViewStore {
         config.websiteDataStore = .default()
         let view = WKWebView(frame: .zero, configuration: config)
         view.allowsBackForwardNavigationGestures = true
+        // Every flavor, prod included: a freeze on a teammate's Mac can only be
+        // profiled from Safari's Develop menu on that Mac.
+        view.isInspectable = true
         // underPageBackgroundColor stays at its default, which WebKit derives
         // from the page. Pinning it to the shell's dark chrome also fills the
         // scroller gutter of any page that reserves one, and macOS draws a
