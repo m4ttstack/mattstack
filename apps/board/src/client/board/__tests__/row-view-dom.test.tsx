@@ -508,6 +508,26 @@ test("a note renders as the row's last line, and only when there is one", async 
   expect(body.lastElementChild).toBe(band);
 });
 
+test('a review a peer board lost marks the row to grow for its band, as a sent ask does', async () => {
+  await render([
+    mr({
+      peerReviews: [
+        {
+          mrUrl: URL,
+          iid: 1418,
+          reviewer: 'grace',
+          status: 'error',
+          reason: 'pane closed',
+          updatedAt: NOW - 60_000,
+        },
+      ],
+    }),
+  ]);
+  const row = container.querySelector('.tui-row')!;
+  expect(row.getAttribute('data-ask')).toBe('1');
+  expect(row.querySelector('.tui-ask')).not.toBeNull();
+});
+
 test('"dismiss note" saves an empty note, which is the clear', async () => {
   const saved: Array<[number, string]> = [];
   await render(

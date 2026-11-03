@@ -11,6 +11,7 @@ import '../../style.css';
 
 import type { BoardMRWithReview, RowContext, SentNudgeInfo } from '../types.ts';
 import { AskBand } from './AskBand.tsx';
+import { people, PeopleProvider } from './people.ts';
 
 const stage = (
   Story: () => ReactNode,
@@ -113,6 +114,20 @@ const states: Array<[string, SentNudgeInfo]> = [
     },
   ],
 ];
+const peerFailed = {
+  webUrl: 'https://example.invalid/peer-failed',
+  peerReviews: [
+    {
+      mrUrl: 'https://example.invalid/peer-failed',
+      iid: 1,
+      reviewer: 'mira-fixture',
+      status: 'error',
+      reason: 'pane closed',
+      updatedAt: NOW - 3 * MIN,
+    },
+  ],
+} as unknown as BoardMRWithReview;
+const miraPeople = people([{ username: 'mira-fixture', name: 'Mira' }]);
 const ctx = {
   local: true,
   onAskRetry: () => {},
@@ -123,7 +138,7 @@ export const AllStates: Story = {
   play: async ({ canvasElement }) => {
     await canvasElement.ownerDocument.fonts.ready;
     const bands = canvasElement.querySelectorAll<HTMLElement>('.tui-ask');
-    expect(bands).toHaveLength(8);
+    expect(bands).toHaveLength(9);
     for (const band of bands) {
       const label = band.querySelector<HTMLElement>('.tui-ask-label')!;
       expect(label.scrollWidth, label.textContent ?? '').toBeLessThanOrEqual(
@@ -153,6 +168,9 @@ export const AllStates: Story = {
           ctx={ctx}
         />
       ))}
+      <PeopleProvider value={miraPeople}>
+        <AskBand mr={peerFailed} ctx={ctx} />
+      </PeopleProvider>
     </div>
   ),
 };
