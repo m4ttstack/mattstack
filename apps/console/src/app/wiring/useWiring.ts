@@ -62,7 +62,11 @@ async function readOrThrow<T>(
   res: { ok: boolean; status: number; json(): Promise<unknown> },
   label: string
 ): Promise<T> {
-  const body = await res.json();
+  // A proxy in front of the server answers its own failures in HTML, and
+  // WebKit's parse error for that names nothing a person can act on.
+  const body = await res.json().catch(() => {
+    throw new Error(`${label} failed: ${res.status}`);
+  });
   if (!res.ok) {
     const message =
       body &&
