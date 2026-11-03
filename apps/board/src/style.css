@@ -1256,6 +1256,9 @@ body {
   text-decoration: underline;
 }
 .tui-cd-body {
+  /* Shrinking in the drawer's scrolling column pushes its bottom padding
+     past the scroll end. */
+  flex-shrink: 0;
   padding: 0.8rem 1rem 1.4rem;
   display: flex;
   flex-direction: column;
