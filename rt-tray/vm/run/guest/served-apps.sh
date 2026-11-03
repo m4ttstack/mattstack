@@ -7,6 +7,7 @@ SERVED_JQ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/jq"
 : "${SERVED_LAUNCHCTL:=launchctl}"
 : "${SERVED_POLL_S:=5}"
 : "${SERVED_PROXY_WAIT_S:=30}"
+[[ "$SERVED_PROXY_WAIT_S" =~ ^[0-9]+$ ]] || SERVED_PROXY_WAIT_S=30
 SERVED_JQ="$SERVED_APP/Contents/Helpers/jq"
 
 served_deck_port() {
@@ -91,10 +92,14 @@ assert_served_apps() {  # <log-name> <timeout-s> [<launchd.json from record_serv
 
 # An app restarted by an update can take a few seconds to listen behind its route.
 served_proxy_answers() {  # <host> [curl flag...]
-  local h="$1" deadline=$((SECONDS + SERVED_PROXY_WAIT_S))
+  local h="$1" end=$((SECONDS + 10#$SERVED_PROXY_WAIT_S)) left
   shift
-  until "$SERVED_CURL" -fsS "$@" --max-time 10 "https://$h" >/dev/null 2>&1; do
-    [ "$SECONDS" -lt "$deadline" ] || return 1
+  while :; do
+    left=$((end - SECONDS))
+    [ "$left" -ge 1 ] || left=1
+    [ "$left" -le 10 ] || left=10
+    "$SERVED_CURL" -fsS "$@" --max-time "$left" "https://$h" >/dev/null 2>&1 && return 0
+    [ $((SECONDS + SERVED_POLL_S)) -lt "$end" ] || return 1
     sleep "$SERVED_POLL_S"
   done
 }
@@ -123,9 +128,13 @@ assert_mattstack_routes() {  # <trusted|untrusted> <log-name>
       served_proxy_answers "$h" --insecure \
         && ok "$h answers over https through the untrusted proxy" \
         || bad "$h is routed but does not answer through the proxy"
-      "$SERVED_CURL" -fsS --max-time 10 "https://$h" >/dev/null 2>&1 \
-        && bad "$h verified against the system trust store, so the certificate was not declined" \
-        || ok "$h is not trusted yet, as the declined scenario expects"
+      # 60 is curl's certificate-verification failure; any other failure proves nothing about trust.
+      "$SERVED_CURL" -fsS --max-time 10 "https://$h" >/dev/null 2>&1
+      case $? in
+        0)  bad "$h verified against the system trust store, so the certificate was not declined";;
+        60) ok "$h is not trusted yet, as the declined scenario expects";;
+        *)  bad "$h could not be reached to check its trust";;
+      esac
     else
       served_proxy_answers "$h" \
         && ok "$h answers over https through the proxy" \
