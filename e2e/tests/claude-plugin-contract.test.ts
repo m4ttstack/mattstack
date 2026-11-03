@@ -2,7 +2,8 @@
  * The claude CLI behaviors pack-cache.ts is built on, asserted against the real
  * binary. Opt-in because no CI workflow installs claude: RT_CLAUDE_PLUGIN_E2E=1.
  * Every branch in settlePack keys off one of these, so a claude behavior change
- * must fail loudly here rather than silently in production.
+ * must fail loudly here rather than silently in production. The second block
+ * pins the git-subdir install team packs use: what reaches the cache and when.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from "fs";
@@ -188,12 +189,16 @@ describe.skipIf(!enabled)("claude git-subdir install contract", () => {
     expect(cachedSkill("1.0.0")).toContain("description: first");
   });
 
-  test("an uncommitted edit never lands, and a same-version update is a no-op", () => {
-    writePack("1.0.0", "edited, uncommitted");
-    expect(claude(["plugin", "update", id, "-y"]).code).toBe(0);
-    expect(cacheVersions()).toEqual(["1.0.0"]);
-    expect(cachedSkill("1.0.0")).toContain("description: first");
-    git(repo, ["checkout", "--", "."]);
+  test("an uncommitted version bump never lands", () => {
+    writePack("1.0.9", "edited, uncommitted");
+    try {
+      claude(["plugin", "update", id, "-y"]);
+      expect(cacheVersions()).toEqual(["1.0.0"]);
+      expect(registered()[0]!.version).toBe("1.0.0");
+      expect(cachedSkill("1.0.0")).toContain("description: first");
+    } finally {
+      git(repo, ["checkout", "--", "."]);
+    }
   });
 
   test("a committed version bump lands as a new cache folder", () => {
