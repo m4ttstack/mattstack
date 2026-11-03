@@ -68,6 +68,33 @@ describe("Popover (browser)", () => {
     await expect.element(page.getByRole("dialog", { name: "Asks" })).not.toBeInTheDocument();
   });
 
+  it("positions against the anchor when one is given, not the trigger", async () => {
+    function AnchorHarness() {
+      const box = useRef<HTMLDivElement>(null);
+      return (
+        <div ref={box} data-testid="box" style={{ margin: 40, padding: 12, width: 300 }}>
+          <Popover
+            open
+            onOpenChange={() => {}}
+            ariaLabel="Trail"
+            align="start"
+            sideOffset={6}
+            anchor={box}
+            trigger={<button type="button">t</button>}
+          >
+            <p>x</p>
+          </Popover>
+        </div>
+      );
+    }
+    await renderWithTheme(<AnchorHarness />);
+    const popup = page.getByRole("dialog", { name: "Trail" });
+    await expect.element(popup).toBeInTheDocument();
+    const box = page.getByTestId("box").element().getBoundingClientRect();
+    await expect.poll(() => popup.element().getBoundingClientRect().left).toBeCloseTo(box.left, 0);
+    await expect.poll(() => popup.element().getBoundingClientRect().top).toBeCloseTo(box.bottom + 6, 0);
+  });
+
   it("stamps its parts for app CSS", async () => {
     await renderWithTheme(
       <Popover open onOpenChange={() => {}} ariaLabel="Asks" trigger={<button type="button">t</button>}>
