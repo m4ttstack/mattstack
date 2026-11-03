@@ -498,11 +498,11 @@ vm_phase_begin launch
 # own environment, which every launch and relaunch inherits.
 guest_session_env() {  # <name> <value>
   vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "u=\$(id -u '$VM_TESTER_USER'); sudo launchctl asuser \$u sudo -u '$VM_TESTER_USER' launchctl setenv '$1' '$2'" >>"$VM_RUN_DIR/logs/install.log" 2>&1 \
-    || vm_warn "could not set $1 in the guest session"
+    || { vm_warn "could not set $1 in the guest session"; return 1; }
 }
 LAUNCH_ARGS=""
 if [ -n "$UPD" ]; then
-  guest_session_env MATTSTACK_APPCAST_URL "http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml"
+  guest_session_env MATTSTACK_APPCAST_URL "http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml" || true
   LAUNCH_ARGS="--arg --allow-appcast-override"
 fi
 # Sign in to Claude finishes in a browser no script can drive. With
@@ -513,7 +513,9 @@ CLAUDE_STANDIN_ENV=""; CLAUDE_STANDIN_NOTE=""
 if [ "${VM_CLAUDE_STANDIN:-0}" = 1 ]; then
   CLAUDE_STANDIN_ENV="ANTHROPIC_API_KEY=vm-placeholder"
   CLAUDE_STANDIN_NOTE="Claude sign-in NOT exercised (VM_CLAUDE_STANDIN placeholder key)"
-  guest_session_env ANTHROPIC_API_KEY vm-placeholder
+  # Without the key, Connect waits out CONNECT_WAIT_S on a sign-in nobody makes.
+  guest_session_env ANTHROPIC_API_KEY vm-placeholder \
+    || { vm_phase_end launch fail "VM_CLAUDE_STANDIN=1, but its key could not be set in the guest session (logs/install.log)"; exit 1; }
 fi
 vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/install-app.sh launch $LAUNCH_ARGS" >>"$VM_RUN_DIR/logs/install.log" 2>&1
 rc=$?
