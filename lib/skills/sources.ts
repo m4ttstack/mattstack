@@ -15,6 +15,7 @@ import { findPlaceholders } from "./placeholders.ts";
 import { firstTeamMarker } from "./team-params.ts";
 import { layeredFromManifest } from "./manifest-merge.ts";
 import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap, type LayeredBindings } from "./pipelines.ts";
+import { cachedPluginList, claudeConfigDir, livePluginListCacheDeps, pluginListCacheFile, pluginListInputs } from "./plugin-list-cache.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, StepSource, VerbDef } from "./types.ts";
 
@@ -152,7 +153,13 @@ export function buildPluginRoots(list: PluginListEntry[]): PluginRoots {
  * live against real installed plugins in integration coverage instead.
  */
 export function resolvePluginRoots(): PluginRoots {
-  return buildPluginRoots(listInstalledPlugins());
+  const bin = resolveClaudeBin() ?? "claude";
+  const list = cachedPluginList(
+    pluginListCacheFile(),
+    pluginListInputs(claudeConfigDir(), process.cwd(), bin),
+    livePluginListCacheDeps(() => listInstalledPlugins()),
+  );
+  return buildPluginRoots(list);
 }
 
 /**
