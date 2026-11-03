@@ -67,6 +67,7 @@ import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDrop
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
+import { writeGeneratedMarketplace } from "../lib/setup/generated-marketplace.ts";
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
@@ -238,6 +239,26 @@ function exitTeamError(err: UserActionableError, json: boolean, deps: TeamDeps):
   process.exit(2);
 }
 
+/**
+ * A pushed pack installs only once this Mac's generated marketplace lists it,
+ * and a plain `rt setup update` stops at "already current" on a release Mac,
+ * so a throw or a skip names the forced update.
+ */
+async function rewriteGeneratedMarketplace(p: Probes, org: string, title: string): Promise<void> {
+  let reason: string;
+  try {
+    const written = await writeGeneratedMarketplace(p, org);
+    if (!written.skipped) return;
+    reason = written.skipped;
+  } catch (err) {
+    reason = err instanceof Error ? err.message : String(err);
+  }
+  warn("team", `generated marketplace for ${org}: ${reason}`, {
+    context: { org },
+    show: { title, hint: "rt setup update --force writes it", next: out.cmd("rt setup update --force") },
+  });
+}
+
 export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   const team = positional(args, ["--owner", "--team"])[0];
@@ -251,6 +272,7 @@ export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: T
     const sharePaths = [`mattstack/teams/${team}`, ".claude-plugin/marketplace.json"];
     rememberPackShare(deps.probes, org, team, sharePaths);
     const published = await sharePack(deps.probes, org, team, sharePaths, deps.forgeToken ?? storedForgeToken);
+    if (published.pushed) await rewriteGeneratedMarketplace(deps.probes, org, `The ${team} team is added, but rt could not update this Mac's team marketplace`);
     if (json) {
       deps.print(JSON.stringify(envelope({ ...result, published })));
       return;
@@ -599,6 +621,7 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
     if (!json && pending.skipped.length > 0) out.note(...droppedShareBlocks(pending.skipped));
     const token = target ? await (deps.forgeToken ?? storedForgeToken)(deps.probes, target) : null;
     const result = await publishTeam(deps.probes, slug, remote, { token, tokenRemote: target });
+    if (result.pushed) await rewriteGeneratedMarketplace(deps.probes, slug, `Pushed the ${slug} team, but rt could not update this Mac's team marketplace`);
     if (json) {
       deps.print(JSON.stringify(envelope({ ...result, ...droppedShares(pending.skipped) })));
       return;

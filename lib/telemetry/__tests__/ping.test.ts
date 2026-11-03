@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { fakeProbes, type ExecScript } from "../../setup/__tests__/fakes.ts";
+import { fakeProbes, gitShowFromFiles, type ExecScript } from "../../setup/__tests__/fakes.ts";
 import type { ExecResult } from "../../setup/probes.ts";
 import { MIGRATION_IDS } from "../../setup/migrations/ids.ts";
 import { rtVersion } from "../../setup/update.ts";
@@ -78,7 +78,7 @@ function world(teams: TeamFixture[], opts: WorldOpts = {}) {
     home: HOME,
     files,
     dirs: { [ORGS]: teams.map((t) => t.slug), "/Applications/mattstack.app": [] },
-    exec: (argv, execOpts) => (argv[1] === "plugin" && argv[2] === "list" ? listing : (opts.exec ?? exec)(argv, execOpts)),
+    exec: (argv, execOpts) => (argv[1] === "plugin" && argv[2] === "list" ? listing : gitShowFromFiles(files, argv) ?? (opts.exec ?? exec)(argv, execOpts)),
   });
 }
 

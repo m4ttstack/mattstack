@@ -55,22 +55,23 @@ title in Silkscreen 18 (`#ece8f4`) and a subtitle in IBM Plex Mono 13
 | Armed (first time) | `armed` | open | Ready for another pass? | Resolve this thread to ask | `#f08fb0` | leg shuffle, eye blink |
 | Queued | `queued` | resolved | Follow-up review queued | why it is waiting (below) | `#e6b860` | dots tick after the title |
 | Running | `running` | resolved | Follow-up review running | Results post here when done | `#7fbfe8` | creature marches; ring loader on the right |
-| Error, retrying | `error` | resolved | Follow-up review hit a snag | Retrying on the next sweep | `#f2917e` | quick shake, dots tick |
+| Error, retrying | `error` | resolved | Follow-up review hit a snag | Trying again in a few minutes | `#f2917e` | quick shake, dots tick |
 | Error, stuck | `error` | resolved | Follow-up review stuck | Reviewer notified | `#f2917e` | quick shake, blink |
 | Done, comments | `armed` | open | Follow-up review done | N new comments. Resolve when ready | `#b9a0f2` | one hop, blink |
 | Done, approved | `spent` | resolved | Follow-up review done | Approved. Nothing more to do | `#86cfa0` | hop with sparkles |
 | Approved, no follow-up | `spent` | resolved | Approved | Nothing more to do | `#86cfa0` | hop with sparkles |
-| Superseded | `spent` | resolved | Superseded | A newer latch is live | `#8e88a0` | still |
+| Replaced | `spent` | resolved | Replaced | Use the newer thread | `#8e88a0` | still |
 
-Queued subtitles, by why the request is waiting: "Starts on the next
-sweep" (nothing blocks it), "Waiting out the cooldown", "Daily limit hit;
-starts tomorrow", "Waiting for the running review" (`review-in-flight`).
+Queued subtitles, by why the request is waiting: "Starts in a few
+minutes" (nothing blocks it), "Waiting between reviews" (the cooldown),
+"Daily limit reached. Starts tomorrow", "Waiting on another review"
+(`review-in-flight`).
 These are the only reasons `decideRequest` can give a latch request that
 clear by themselves; respond never blocks a latch.
 
 Error, retrying names the wait the same way when a retry is blocked:
-"Retrying on the next sweep", "Retrying after the cooldown", "Daily limit
-hit; retrying tomorrow".
+"Trying again in a few minutes", "Trying again after a pause", "Daily
+limit reached. Trying again tomorrow".
 
 Done-comments counts what actually landed: the reviewer's discussions on
 the MR created after the follow-up launched (the launch stamp, below).
@@ -79,9 +80,13 @@ count the board cannot read, shows "Review posted. Resolve when ready".
 (My call: the report JSON's findings are the drafted set, and the
 reviewer can drop findings before posting.)
 
-The note body under the image keeps a plain sentence per state, so
-blocked images still say what is happening. The current armed and spent
-copy stays; new states get one sentence each.
+A sentence goes under the image only when the author has something to
+do: armed and done-comments. Every other state is the banner alone; its
+title and subtitle are the image's alt text, so a blocked image or a
+screen reader still says what is happening. A cached upload is reused only
+while its alt text matches the current copy, so a copy change re-draws the
+banner on each MR's next write. Banner and comment copy never names the
+board's own terms (latch, spent, sweep, cooldown).
 
 ## Replies and notifications
 

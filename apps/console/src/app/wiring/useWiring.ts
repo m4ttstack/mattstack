@@ -441,6 +441,47 @@ export function useSkillsApply(pack: string) {
   return { surfaceApply, writing };
 }
 
+export type SkillsDisableModelInvocationReport = InferResponseType<
+  (typeof client.api.skills)['disable-model-invocation']['$post'],
+  200
+>;
+
+/** Posts one row's choice at once, with no staging and no confirm. It writes
+    the person's own settings and installed copy, never the pack, so it runs
+    under its own key and takes no part in the pack's write lock. */
+export function useDisableModelInvocation(pack: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ['skills', 'disable-model-invocation', pack],
+    // rt reads, edits and writes back one settings key, so two toggles at
+    // once would lose the first.
+    scope: { id: 'disable-model-invocation' },
+    mutationFn: async (choice: { name: string; on: boolean }) => {
+      const res = await client.api.skills['disable-model-invocation'].$post({
+        json: { pack, ...choice },
+      });
+      return readOrThrow<SkillsDisableModelInvocationReport>(
+        res,
+        'disable model invocation'
+      );
+    },
+    onSuccess: report => {
+      if ('error' in report) notifications.error(report.error);
+      else if (!report.applied) {
+        // Stays up: the row now reads as disabled while Claude still sees the
+        // old copy, so this is the only sign of that.
+        notifications.warning({
+          message: 'Saved, but the installed copy did not change',
+          autoClose: false,
+        });
+      }
+    },
+    onError: error => notifications.error(error.message),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ['skills', 'surface', pack] }),
+  });
+}
+
 export type SkillsCheckPayload = InferResponseType<
   typeof client.api.skills.check.$get,
   200

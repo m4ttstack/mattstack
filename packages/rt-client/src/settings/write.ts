@@ -696,6 +696,32 @@ export function storeUnparseable(storePath: string): boolean {
   }
 }
 
+/**
+ * True when this Mac's user store cannot be trusted for a read-modify-write of `key`: the file exists but
+ * cannot be read or parsed, or the value it holds for `key` fails the key's own schema. The resolver reads
+ * both as "not set", so a caller that acts on an empty read must ask this first.
+ */
+export function userStoreUnreadableFor(key: string): boolean {
+  const file = userSettingsPath();
+  if (!existsSync(file)) return false;
+  let content: string;
+  try {
+    content = readFileSync(file, "utf8");
+  } catch {
+    return true;
+  }
+  if (content.trim() === "") return false;
+  try {
+    assertEditableJsonc(file, content);
+  } catch {
+    return true;
+  }
+  const stored = (parse(content, [], { allowTrailingComma: true }) as Record<string, unknown>)[key];
+  const def = getDef(key);
+  if (stored === undefined || !def) return false;
+  return !validateWrite(def, stored, { scope: "user" }).ok;
+}
+
 export type SectionRename = "moved" | "already" | "none" | "refused" | "skipped";
 
 function realPathOf(path: string): string {

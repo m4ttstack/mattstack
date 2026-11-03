@@ -15,12 +15,14 @@ clone's `.claude-plugin/marketplace.json` lists it with the source
 `./mattstack/teams/widgets/plugin`.
 
 Walk this map to the end; a pack is not done until it is published. A
-successful init publishes the new pack itself: it commits the pack, the
-team's claim and the marketplace entry in one commit and pushes the org
-clone, and says how that went in the envelope's `published`. Whenever init
-stops short of that (a failed share, or a failure after it wrote the pack),
-`rt team publish --team <org>` finishes it: init remembered the share on
-this Mac before it compiled.
+successful init shares the new pack before it installs it: it commits the
+pack, the team's claim and the marketplace entry in one commit, pushes the
+org clone, and only then installs the pack from that shared commit. A
+rejected push stops init with `share-failed` and nothing installed: publish
+with `rt team publish --team <org>`, then `rt setup update --force` installs
+the pack, then reload. Every other failure after init wrote the pack ends its
+remedy with that same publish: init remembered the share on this Mac before
+it compiled.
 
 ```dot
 digraph create_pack {
@@ -42,12 +44,15 @@ digraph create_pack {
     ask_admin_add_team [label="Ask an org admin to add the team" shape=box];
     rt_skills_init [label="rt skills init --json --team <team> --repo <repo-path> [--extends <base>]" shape=plaintext];
     init_envelope [label="Envelope?" shape=diamond];
-    published_pushed [label="published.pushed?" shape=diamond];
-    relay_publish_reason [label="Relay published.reason" shape=box];
+    say_not_shared [label="Say the pack is not shared or installed yet" shape=box];
     rt_team_publish [label="rt team publish --team <org> --json" shape=plaintext];
     publish_envelope [label="Publish envelope?" shape=diamond];
     pulled_for_share [label="Pulled for this share already?" shape=diamond];
     rt_team_pull [label="rt team pull --team <org> --json" shape=plaintext];
+    rt_setup_update [label="rt setup update --force" shape=plaintext];
+    pack_installed [label="claude plugin list --json lists <pack>@<marketplace>?" shape=diamond];
+    claude_plugin_install [label="claude plugin install <pack>@<marketplace>" shape=plaintext];
+    install_landed [label="Install landed?" shape=diamond];
     gate_share_failed [label="Gate: share did not land" shape=box];
     relay_error_message [label="Relay error.message verbatim" shape=box];
     refusal_code [label="Refusal code?" shape=diamond];
@@ -58,12 +63,12 @@ digraph create_pack {
     base_name_asked [label="Asked for the base name once already?" shape=diamond];
     fix_base_name [label="Ask the author for the base name" shape=box];
     relay_error_wrote [label="Relay error.message and error.wrote" shape=box];
-    write_failed [label="write-failed?" shape=diamond];
+    failure_code [label="error.code?" shape=diamond];
     pack_dir_removed [label="Removed the pack dir once already?" shape=diamond];
     gate_write_failed [label="Gate: write failed after cleanup" shape=box];
     remove_pack_dir [label="Remove the pack dir" shape=box];
     stop_rerun_init [label="STOP: never re-run init on a written pack" shape=octagon style=filled fillcolor=red fontcolor=white];
-    follow_remedy [label="Follow the printed remedy" shape=box];
+    follow_remedy [label="Run the remedy for error.code" shape=box];
     remedy_completed [label="The remedy completed the pack?" shape=diamond];
     gate_remedy_failed [label="Gate: remedy did not complete the pack" shape=box];
     in_herdr_pane [label="In a herdr pane?" shape=diamond];
@@ -104,12 +109,16 @@ digraph create_pack {
     rt_team_add -> rt_skills_init;
     rt_team_create -> rt_skills_init;
     rt_skills_init -> init_envelope;
-    init_envelope -> published_pushed [label="ok: true"];
-    published_pushed -> in_herdr_pane [label="true"];
-    published_pushed -> relay_publish_reason [label="false"];
-    relay_publish_reason -> rt_team_publish;
+    init_envelope -> in_herdr_pane [label="ok: true"];
+    say_not_shared -> rt_team_publish;
     rt_team_publish -> publish_envelope;
-    publish_envelope -> in_herdr_pane [label="pushed: true"];
+    publish_envelope -> rt_setup_update [label="pushed: true"];
+    rt_setup_update -> pack_installed;
+    pack_installed -> in_herdr_pane [label="yes"];
+    pack_installed -> claude_plugin_install [label="no"];
+    claude_plugin_install -> install_landed;
+    install_landed -> in_herdr_pane [label="yes"];
+    install_landed -> gate_remedy_failed [label="no"];
     publish_envelope -> pulled_for_share [label="error.code org-moved"];
     publish_envelope -> gate_share_failed [label="any other error.code"];
     pulled_for_share -> rt_team_pull [label="no"];
@@ -134,10 +143,12 @@ digraph create_pack {
     init_runs_spent -> gate_init_budget [label="yes"];
     gate_init_budget -> rt_skills_init [label="retry: author fixed it"];
     gate_init_budget -> handed_to_author [label="author takes over"];
-    relay_error_wrote -> write_failed;
-    write_failed -> pack_dir_removed [label="yes"];
-    write_failed -> follow_remedy [label="no"];
-    write_failed -> stop_rerun_init [label="tempted to re-run init"];
+    relay_error_wrote -> failure_code;
+    failure_code -> pack_dir_removed [label="write-failed"];
+    failure_code -> say_not_shared [label="share-failed"];
+    failure_code -> rt_setup_update [label="install-failed: shared, not installed"];
+    failure_code -> follow_remedy [label="any other code"];
+    failure_code -> stop_rerun_init [label="tempted to re-run init"];
     stop_rerun_init -> follow_remedy;
     pack_dir_removed -> remove_pack_dir [label="no"];
     pack_dir_removed -> gate_write_failed [label="yes"];
@@ -216,16 +227,27 @@ team needs a folder, give the command an admin runs
 (`rt team add <team> --owner <username>`, with the author as owner), and
 stop until the folder exists.
 
-### Relay published.reason
+### Say the pack is not shared or installed yet
 
-`published` is `{ "pushed": false, "reason", "next" }` when the commit or
-the push failed. The pack is installed on this Mac but not shared yet. Say
-so, relay `published.reason`, and run the publish on Bash:
-`rt team publish --team <org> --json` makes the commit init could not, then
-pushes. Read its envelope, never its text: `{ "pushed": true, ... }` means
-the pack is shared; a failure exits 2 with `{ "error": { "code", "message" } }`.
-`org-moved` means someone else pushed first: pull with
-`rt team pull --team <org> --json`, then publish again, once.
+`share-failed` means init wrote and compiled the pack but its push to the
+org was rejected, so it installed nothing: Claude installs a pack only from
+a commit the org has. Say so, then do these in order:
+
+1. `rt team publish --team <org> --json` on Bash makes the commit init
+   could not, then pushes. Read its envelope, never its text:
+   `{ "pushed": true, ... }` means the pack is shared; a failure exits 2
+   with `{ "error": { "code", "message" } }`. `org-moved` means someone
+   else pushed first: pull with `rt team pull --team <org> --json`, then
+   publish again, once.
+2. `rt setup update --force` installs the shared pack on this Mac (it is the
+   active team's pack; a plain update does nothing on a Mac already at this
+   version). When `claude plugin list --json` still lists no
+   `<pack>@<marketplace>`, run `claude plugin install <pack>@<marketplace>`
+   (the marketplace name is the `name` in the org clone's
+   `.claude-plugin/marketplace.json`).
+3. Reload, as the graph goes on. A failed init returns no `tryNext`: it is
+   `/<pack>:work <ticket>`, with `<pack>` the pack's name (the team's
+   folder name), the same value a successful init returns.
 
 ### Gate: share did not land
 
@@ -299,12 +321,30 @@ Only after `write-failed`: that code's remedy is to remove the pack dir and
 run init again. Remove the pack dir the `error.wrote` paths sit in, and
 nothing else in the org clone.
 
-### Follow the printed remedy
+### Run the remedy for error.code
 
-Do exactly what the printed remedy says. Never re-run init on a written
-pack. Once the pack compiles and installs, the remedy's last step is
-`rt team publish --team <org>`, which shares the pack with its entry; run
-it with `--json` and read its envelope as `Relay published.reason` says.
+The `--json` failure envelope carries no remedy commands, so run the one
+for its `error.code`, in order. `<pack dir>` is the folder the
+`error.wrote` paths sit in. The compile runs on Bash: `rt_verb` refuses
+`--pack-dir` on compile.
+
+| `error.code` | remedy |
+| --- | --- |
+| `materialize-failed` | `rt skills materialize --dir <repo-path>`, then publish |
+| `hand-skill-failed` | `rt_verb {args: ["skills", "check", "--pack-dir", "<pack dir>"]}`, then publish |
+| `compile-failed`, `check-drift`, `pointer-failed` | `rt skills compile --pack-dir <pack dir>`, `rt_verb {args: ["skills", "check", "--pack-dir", "<pack dir>"]}`, then publish |
+| a code this table does not name | relay `error.message`, then go to `Gate: remedy did not complete the pack` |
+
+Never re-run init on a written pack. Publish is
+`rt team publish --team <org> --json`, which shares the pack with its entry;
+read its envelope and install the pack as `Say the pack is not shared or
+installed yet` says.
+
+`install-failed` skips this step: init had already shared the pack, and
+only this Mac's install failed. Go straight to `rt setup update --force`,
+then the `claude plugin list --json` check and, when the pack is missing,
+`claude plugin install <pack>@<marketplace>`, as step 2 of `Say the pack is
+not shared or installed yet` says.
 
 ### End the turn
 
@@ -379,7 +419,8 @@ author finishes the pack.
 
 ### Gate: remedy did not complete the pack
 
-Quote the remedy and what is still missing, and propose the next move.
+Quote the remedy (or the failed `claude plugin install`) and what is still
+missing, and propose the next move.
 Retry: follow the remedy again with the author's note, and a remedy that
 still leaves the pack incomplete comes back here. Takes over: the pack stays
 as init and the remedy left it, for the author.
@@ -400,7 +441,8 @@ as init and the remedy left it, for the author.
   unless the team sets its own), on the org's forge host. Init adds this
   repo to the team's list.
 - An ok envelope is `{ "ok": true, ... }` and carries `pack.name`,
-  `pack.dir`, `tryNext`, `restartNeeded` and `published`.
+  `pack.dir`, `tryNext`, `restartNeeded` and `published` (always
+  `pushed: true`: a rejected push is the `share-failed` failure instead).
   `restartNeeded` is always true; the reload runs in place, never a
   restart.
 - At `Pack published`, say that the team's members receive the pack

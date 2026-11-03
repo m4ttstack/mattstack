@@ -28,7 +28,7 @@ import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, typ
 import { APPLY_RUN_LOCK_MAX_AGE_MS, applyRunLockPath, attachToRun, recordingEmit, resumePoint } from "../lib/setup/apply-run.ts";
 import { ignoreClosedPipes } from "../lib/setup/closed-pipes.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
-import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
+import { decideUpdate, pendingMigrationIds, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, lockHeldByLiveRun, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
@@ -447,6 +447,10 @@ async function finishWholeRun(deps: ApplyDeps, warnings: RunWarning[]): Promise<
   if (finish) warnings.push(finish);
 }
 
+function migrationIdsOf(deps: ApplyDeps): string[] {
+  return (deps.migrations ?? MIGRATIONS).map((m) => m.id);
+}
+
 /**
  * A whole run just did everything an update run re-applies, so only a pending
  * migration still needs one. Unstamped, the update run a fresh Mac's Finish
@@ -455,7 +459,7 @@ async function finishWholeRun(deps: ApplyDeps, warnings: RunWarning[]): Promise<
 function stampUpdateWhenNothingPends(deps: ApplyDeps): RunWarning | null {
   try {
     const applied = readSetupState(deps.probes).migrations;
-    if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return null;
+    if (pendingMigrationIds(applied, migrationIdsOf(deps)).length > 0) return null;
     updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version: deps.version ?? rtVersion(), at: deps.probes.now().toISOString() } }));
     return null;
   } catch (err) {
@@ -494,9 +498,11 @@ async function announceDevApp(deps: ApplyDeps): Promise<void> {
 /**
  * `rt setup update [--force] [--json]`: the app runs this at every launch;
  * by hand it re-applies after an update. Every decision is rt's: a Mac whose
- * setup has not finished skips, a version already stamped skips, and a run
- * stamps its version whatever happened so a broken item nags once per
- * release. `need` events cannot occur (update-safe steps are `kind: "rt"`),
+ * setup has not finished skips, a version already stamped skips unless a
+ * migration is still pending here, and a run stamps its version whatever
+ * happened so a broken item nags once per release. A pending migration's
+ * rerun at a later launch runs only org.folder, org.pull and the pending
+ * migrations, and changes no stamp and posts no notification. `need` events cannot occur (update-safe steps are `kind: "rt"`),
  * so the context is non-interactive.
  */
 export async function setupUpdate(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
@@ -512,7 +518,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     }
   }
 
-  const decision = decideUpdate(deps.probes, version, args.includes("--force"));
+  const decision = decideUpdate(deps.probes, version, args.includes("--force"), migrationIdsOf(deps));
   if (decision.kind === "not-set-up") {
     if (json) emit({ event: "done", ok: true, skipped: "not-set-up" });
     else out.print(out.line("pending", "Setup has not finished on this Mac yet"), out.callout("next", out.cmd("rt setup install")));
@@ -566,19 +572,22 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
       ...(human ? { tip: human.tip } : {}),
     });
     await human?.settle();
-    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
+    const retry = decision.kind === "run" && decision.retry === true;
+    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx, { retry });
     const lastId = result.outcomes.at(-1)?.id;
     if (lockError && lastId) emit({ event: "log", id: lastId, line: `warn: setup update lock not taken, running unguarded: ${lockError}` });
 
-    try {
-      updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+    if (!retry) {
+      try {
+        updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+      }
     }
 
     const notification = updateNotification(version, result.outcomes);
-    if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
+    if (notification && !retry) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
 
     await announceDevApp(deps);
 

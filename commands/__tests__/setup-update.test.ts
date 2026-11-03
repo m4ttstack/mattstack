@@ -357,6 +357,69 @@ describe("rt setup update", () => {
     expect(readSetupState(deps.probes).migrations).toEqual(["2026-09-30-a"]);
   });
 
+  describe("a migration left unrecorded", () => {
+    const stamped = (migrations: string[] = []) => fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" }, migrations }) } });
+
+    test("runs again at the next launch of the same version until it records, then the launch is current", async () => {
+      let outcome: StepOutcome = { state: "partial", detail: "waiting on the org" };
+      const migrations: MigrationDef[] = [
+        { id: "2026-09-30-a", title: "a", run: async () => ({ state: "done" }) },
+        { id: "2026-09-30-b", title: "b", run: async () => outcome },
+      ];
+      const probes = fakeProbes({ files: { [DAEMON]: "{}" } });
+
+      await run(updateDeps({ probes, migrations }), ["--json"]);
+      expect(readSetupState(probes).migrations).toEqual(["2026-09-30-a"]);
+      expect(readSetupState(probes).lastUpdate?.version).toBe("2.15.0");
+
+      outcome = { state: "done" };
+      const retry = updateDeps({ probes, migrations });
+      await run(retry, ["--json"]);
+      expect(jsonEvents(retry.lines).at(-1)).toEqual({ event: "done", ok: true });
+      expect(readSetupState(probes).migrations).toEqual(["2026-09-30-a", "2026-09-30-b"]);
+
+      const settled = updateDeps({ probes, migrations, steps: [neverRunsStep("path.link")] });
+      await run(settled, ["--json"]);
+      expect(jsonEvents(settled.lines)).toEqual([{ event: "done", ok: true, skipped: "current" }]);
+    });
+
+    test("a retry runs only the leads and the pending migrations: no other step, no verify, no app restart, no new stamp", async () => {
+      let restarts = 0;
+      const ran: string[] = [];
+      const step = (id: StepId): StepDef => ({ ...fakeStep(id, async () => (ran.push(id), { state: "done" })), updateSafe: true });
+      const restart: StepDef = { ...fakeStep("apps.restart", async () => (restarts++, { state: "done" })), updateSafe: true };
+      const migrations: MigrationDef[] = [
+        { id: "2026-09-30-a", title: "a", run: async () => { throw new Error("recorded, must not run"); } },
+        { id: "2026-09-30-b", title: "b", run: async () => ({ state: "partial", detail: "still waiting" }) },
+      ];
+      const probes = stamped(["2026-09-30-a"]);
+      const deps = updateDeps({ probes, migrations, steps: [step("org.folder"), step("org.pull"), step("path.link"), step("verify"), restart] });
+      await run(deps, ["--json"]);
+      const ids = jsonEvents(deps.lines).flatMap((e) => (e.event === "step" && e.state === "running" ? [e.id] : []));
+      expect(ids).toEqual(["org.folder", "org.pull", "migration.2026-09-30-b"]);
+      expect(ran).toEqual(["org.folder", "org.pull"]);
+      expect(restarts).toBe(0);
+      expect(readSetupState(probes).lastUpdate).toEqual({ version: "2.15.0", at: "x" });
+      expect(deps.notifications).toEqual([]);
+    });
+
+    test("a retry that still needs the member exits 2 but does not post the notification again", async () => {
+      const migrations: MigrationDef[] = [{ id: "2026-09-30-a", title: "a", run: async () => ({ state: "failed", detail: "claude list unreadable" }) }];
+      const deps = updateDeps({ probes: stamped(), migrations });
+      await run(deps, ["--json"]);
+      expect(jsonEvents(deps.lines).some((e) => e.event === "step" && e.id === "migration.2026-09-30-a" && e.state === "failed")).toBe(true);
+      expect(deps.exitCodes).toEqual([2]);
+      expect(deps.notifications).toEqual([]);
+    });
+
+    test("a migration this Mac recorded keeps a stamped launch current", async () => {
+      const migrations: MigrationDef[] = [{ id: "2026-09-30-a", title: "a", run: async () => { throw new Error("must not run"); } }];
+      const deps = updateDeps({ probes: stamped(["2026-09-30-a"]), migrations, steps: [neverRunsStep("path.link")] });
+      await run(deps, ["--json"]);
+      expect(jsonEvents(deps.lines)).toEqual([{ event: "done", ok: true, skipped: "current" }]);
+    });
+  });
+
   test("the context is non-interactive: a step that calls need() gets no-app, never a hang", async () => {
     let reply: unknown;
     const deps = updateDeps({

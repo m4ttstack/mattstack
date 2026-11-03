@@ -5,12 +5,13 @@
  * validator can both use it without importing a setup step.
  */
 
-import { join } from "path";
+import { isAbsolute, join, posix } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { activeTeamFor } from "../team/active-team.ts";
-import { readFloor, runnableEngine } from "../engine-floor.ts";
-import { admit, installArgs, updateArgs, type Admitted } from "./plugin-calls.ts";
+import { FLOOR_REL, readFloor, runnableEngine } from "../engine-floor.ts";
+import { generatedMarketplaceRef } from "./generated-marketplace.ts";
+import { admit, installArgs, PACK_EXEC_TIMEOUT_MS, updateArgs, type Admitted } from "./plugin-calls.ts";
 import type { ExecResult, Probes } from "./probes.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Logger } from "pino";
@@ -75,8 +76,7 @@ function teamCloneDir(home: string, slug: string): string {
   return orgDirUnder(home, slug);
 }
 
-function readVersion(p: Pick<Probes, "readFile">, pluginDir: string): string | null {
-  const raw = p.readFile(join(pluginDir, ".claude-plugin", "plugin.json"));
+function parseVersion(raw: string | null): string | null {
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(stripJsonc(raw)) as { version?: unknown };
@@ -86,38 +86,75 @@ function readVersion(p: Pick<Probes, "readFile">, pluginDir: string): string | n
   }
 }
 
+/** The pack's folder as git names it inside the clone; null for a source git cannot show. */
+function sourceRel(source: string): string | null {
+  if (isAbsolute(source)) return null;
+  const rel = posix.normalize(source).replace(/\/+$/, "");
+  if (rel === ".") return "";
+  if (rel === ".." || rel.startsWith("../")) return null;
+  return rel;
+}
+
+type Shown = { kind: "text"; text: string } | { kind: "missing" } | { kind: "unreadable" };
+
+/** git's own wording under LC_ALL=C for a path or ref the commit does not have; any other failure says nothing about the file. */
+/** "cannot change to" is a clone that does not exist yet (onboarding plans before the join): no packs, not a fault. */
+const NOT_AT_REF = /does not exist in|exists on disk, but not in|invalid object name|cannot change to|not a git repository/;
+
+async function showAt(p: Pick<Probes, "exec">, clone: string, ref: string, path: string): Promise<Shown> {
+  const res = await p.exec(["git", "-C", clone, "show", `${ref}:${path}`], { env: { LC_ALL: "C" }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+  if (res.code === 0) return { kind: "text", text: res.stdout };
+  return NOT_AT_REF.test(res.stderr) ? { kind: "missing" } : { kind: "unreadable" };
+}
+
 /**
  * A null `servedVersion` means rt cannot read a version for that pack (an
- * object-form source, or an unreadable plugin.json). Callers must treat that
- * as "outside the converge", never as a version mismatch.
+ * object-form source, a plugin.json missing or unparsable at the ref, or a
+ * manifest or floor git could not read). Callers must treat that as
+ * "outside the converge", never as a version mismatch.
+ *
+ * The org file, each version and each floor are read at the org's data
+ * branch, the ref Claude installs from through the generated marketplace: a
+ * working tree ahead of it must not read as an update Claude can never land.
  *
  * `only` unset serves every entry; a name serves that pack alone; null serves
  * none, for a Mac on no team.
  */
-export function readServedPacks(p: Pick<Probes, "readFile" | "home">, slug: string, opts: { only?: string | null } = {}): ServedPacks {
+export async function readServedPacks(p: Pick<Probes, "readFile" | "home" | "exec">, slug: string, opts: { only?: string | null } = {}): Promise<ServedPacks> {
   const clone = teamCloneDir(p.home, slug);
   const path = join(clone, ".claude-plugin", "marketplace.json");
-  const raw = p.readFile(path);
-  if (raw === null) return { packs: [], error: null };
+  const ref = generatedMarketplaceRef(p, clone);
+  const shown = await showAt(p, clone, ref, ".claude-plugin/marketplace.json");
+  if (shown.kind === "missing") return { packs: [], error: null };
+  if (shown.kind === "unreadable") return { packs: [], error: `git could not read ${path} on ${ref}` };
 
   let parsed: { name?: unknown; plugins?: unknown };
   try {
-    parsed = JSON.parse(stripJsonc(raw)) as { name?: unknown; plugins?: unknown };
+    parsed = JSON.parse(stripJsonc(shown.text)) as { name?: unknown; plugins?: unknown };
   } catch {
-    return { packs: [], error: `${path} did not parse` };
+    return { packs: [], error: `${path} on ${ref} did not parse` };
   }
 
   const marketplace = typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : slug;
   const entries = Array.isArray(parsed.plugins) ? (parsed.plugins as MarketplaceEntry[]) : [];
-  const packs: ServedPack[] = [];
-  for (const entry of entries) {
-    if (!isPlainObject(entry) || typeof entry.name !== "string" || entry.name.length === 0) continue;
-    if (opts.only !== undefined && entry.name !== opts.only) continue;
-    const dir = typeof entry.source === "string" ? join(clone, entry.source) : null;
-    const servedVersion = dir ? readVersion(p, dir) : null;
-    const floor = dir ? readFloor(p.readFile, dir) : null;
-    packs.push({ id: `${entry.name}@${marketplace}`, name: entry.name, servedVersion, floor });
-  }
+  const wanted = entries.filter(
+    (entry): entry is MarketplaceEntry & { name: string } =>
+      isPlainObject(entry) && typeof entry.name === "string" && entry.name.length > 0 && (opts.only === undefined || entry.name === opts.only),
+  );
+  if (wanted.length === 0) return { packs: [], error: null };
+  const packs = await Promise.all(
+    wanted.map(async (entry): Promise<ServedPack> => {
+      const id = `${entry.name}@${marketplace}`;
+      const unknown = { id, name: entry.name, servedVersion: null, floor: null };
+      const rel = typeof entry.source === "string" ? sourceRel(entry.source) : null;
+      if (rel === null) return unknown;
+      const at = (file: string): string => (rel === "" ? file : `${rel}/${file}`);
+      const [manifest, floorShown] = await Promise.all([showAt(p, clone, ref, at(".claude-plugin/plugin.json")), showAt(p, clone, ref, at(FLOOR_REL))]);
+      if (manifest.kind === "unreadable" || floorShown.kind === "unreadable") return unknown;
+      const floor = readFloor(() => (floorShown.kind === "text" ? floorShown.text : null), `${ref}:${rel === "" ? "." : rel}`);
+      return { id, name: entry.name, servedVersion: parseVersion(manifest.kind === "text" ? manifest.text : null), floor };
+    }),
+  );
   return { packs, error: null };
 }
 
@@ -125,7 +162,7 @@ export function readServedPacks(p: Pick<Probes, "readFile" | "home">, slug: stri
 export const SETTLE_EXEC_TIMEOUT_MS = 30_000;
 /** Three settlement execs. A settlement never starts without this much budget left, so it can never abort part-way and strand a pack installed-and-enabled. */
 export const SETTLEMENT_MAX_MS = 3 * SETTLE_EXEC_TIMEOUT_MS;
-export const PACK_EXEC_TIMEOUT_MS = 60_000;
+export { PACK_EXEC_TIMEOUT_MS };
 /** 30s fetch + this must stay under commands/team.ts PULL_TIMEOUT_MS (180_000). */
 export const CONVERGE_BUDGET_MS = 120_000;
 
@@ -258,9 +295,10 @@ export function isNotFound(res: ExecResult): boolean {
  * Brings the Claude plugin cache in line with what the team clone serves.
  * Never installs a pack whose served version it cannot read: that version is
  * the only evidence the pack is a local directory copy, which is what the
- * settlement's timeouts were measured against. Only the active team's pack is
- * converged, and one it newly installs is turned on; a Mac on no team
- * converges none.
+ * settlement's timeouts were measured against. Every pack the org serves that
+ * a config dir already has is updated, whichever team it belongs to; only the
+ * active team's pack is installed when absent, and turned on when it is. A Mac
+ * on no team installs none.
  */
 export async function convergePackCache(
   p: Probes,
@@ -279,7 +317,7 @@ export async function convergePackCache(
   }
 
   const team = (opts.activeTeam ?? (() => activeTeamFor(p, slug).team))();
-  const servedPacks = readServedPacks(p, slug, { only: team });
+  const servedPacks = await readServedPacks(p, slug);
   if (servedPacks.error) {
     result.failed.push({ id: "*", detail: servedPacks.error });
     return result;
@@ -315,11 +353,12 @@ export async function convergePackCache(
     const byId = new Map(installed.map((entry) => [entry.id, entry]));
 
     for (const pack of servedPacks.packs) {
+      const entry = byId.get(pack.id);
+      if (!entry && pack.name !== team) continue;
       if (pack.servedVersion === null) {
         result.skipped.push({ id: pack.id, reason: "version unknown" });
         continue;
       }
-      const entry = byId.get(pack.id);
       if (entry && entry.version === null) {
         result.skipped.push({ id: pack.id, reason: "version unknown" });
         continue;

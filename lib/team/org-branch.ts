@@ -15,8 +15,8 @@ export function shellQuote(s: string): string {
 }
 
 /** Null when no branch is checked out (a detached HEAD, or git could not say). */
-export async function checkedOutBranch(p: Pick<Probes, "exec">, dir: string): Promise<string | null> {
-  const head = await p.exec(["git", "symbolic-ref", "-q", "--short", "HEAD"], { cwd: dir });
+export async function checkedOutBranch(p: Pick<Probes, "exec">, dir: string, opts: { timeoutMs?: number } = {}): Promise<string | null> {
+  const head = await p.exec(["git", "symbolic-ref", "-q", "--short", "HEAD"], { cwd: dir, ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }) });
   const branch = head.code === 0 ? head.stdout.trim() : "";
   return branch === "" ? null : branch;
 }

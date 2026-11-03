@@ -8,12 +8,18 @@ usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
          [--scenario create|join|headless|solo] [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT]
          [--invite-code-file <p>] [--team-remote <url> (solo scenario: runs the team-upgrade phase)] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
          [--fresh-team-repo] [--mint-rt <rt>] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
-         [--golden <name>]
+         [--golden <name>] [--start-ref <tag>]
 --fresh-team-repo (join) mints an empty team repo; the host also scaffolds the
 team there and mints the invite (under a throwaway HOME, with the bundle's rt
 or --mint-rt), so no --invite-code-file is needed. A run that creates a team
 (create, and solo's team-upgrade) takes a slug of its own, vmtest-<run id>,
 and teardown deletes the repo Create team made for it.
+--start-ref (the update leg, --scenario create only) names the tag --dmg was
+built from: setup is driven and asserted by that tag's own guest scripts, since
+a release's setup screens can predate today's driver. A tag from before fast
+setup takes a pasted repo, so --fresh-team-repo mints one; a later tag's Create
+team makes its own, as today's does. The update phase still runs today's
+trigger-update.sh.
 EOF
 exit 2; }
 
@@ -22,25 +28,34 @@ VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; SLUG_SET=0; TEAM_REMOTE_SE
 # creates a team replaces it with the repo Create team will make (preflight).
 [ -n "${TEAM_REMOTE:-}" ] && TEAM_REMOTE_SET=1
 TEAM_REMOTE="${TEAM_REMOTE:-https://github.com/${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}/${MATTSTACK_VMTEST_TEAM_REPO:-mattstack-vmtest-team}.git}"
-UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""; MINT_RT=""
+UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""; MINT_RT=""; START_REF=""
 while [ $# -gt 0 ]; do case "$1" in
   --ver) VER="$2"; shift 2;; --dmg) DMG="$2"; shift 2;; --app) APP="$2"; shift 2;;
   --scenario) SCENARIO="$2"; shift 2;; --team-slug) SLUG="$2"; SLUG_SET=1; shift 2;; --pat-env) PAT_ENV="$2"; shift 2;;
   --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; TEAM_REMOTE_SET=1; shift 2;; --forge) FORGE="$2"; shift 2;;
   --update-dir) UPD="$2"; shift 2;; --update-version) UPDV="$2"; shift 2;;
-  --golden) GOLDEN_OVERRIDE="$2"; shift 2;;
+  --golden) GOLDEN_OVERRIDE="$2"; shift 2;; --start-ref) START_REF="$2"; shift 2;;
   --fresh-team-repo) FRESH_REPO=1; shift;; --mint-rt) MINT_RT="$2"; shift 2;;
   --decline-trust) DECLINE_TRUST=1; shift;;
   --no-quarantine) QUAR=0; shift;; --no-graphics) GRAPHICS=0; shift;; --keep) KEEP=1; shift;; --dry-run) DRY=1; shift;;
   --verify-golden) VERIFY_GOLDEN=1; shift;; -h|--help) usage;; *) vm_warn "unknown arg $1"; usage;; esac; done
 [ -n "$VER" ] || usage
 [ -n "$DMG" ] || [ -n "$APP" ] || usage
+# An older tag's assert-installed.sh takes no --join, --board-repo or --solo,
+# and would pass without those checks.
+[ -n "$START_REF" ] && [ "$SCENARIO" != create ] && { vm_warn "--start-ref drives only --scenario create (the update leg)"; usage; }
+# A start ref from before fast setup pastes a repo on create; one from after
+# drives Create team, which makes the repo itself, as today's driver does.
+START_PASTES_REPO=0
+if [ -n "$START_REF" ] && ! git -C "$VM_ROOT/../.." show "$START_REF:rt-tray/vm/run/guest/screens.sh" 2>/dev/null | grep 'setup\.fast\.create-team\.primary' >/dev/null; then
+  START_PASTES_REPO=1
+fi
 # `rt team create` refuses a remote with commits, so a freshly minted repo is
 # consumed by exactly one creator, the host's mint (join). Create team makes
 # its own repo, so a create run mints nothing.
 case "$SCENARIO" in
   join) ;;
-  create) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo adds nothing to --scenario create: Create team makes its own repo, and teardown deletes it"; FRESH_REPO=0; } ;;
+  create) [ "$START_PASTES_REPO" = 0 ] && [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo adds nothing to --scenario create: Create team makes its own repo, and teardown deletes it"; FRESH_REPO=0; } ;;
   *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };;
 esac
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$CODE_FILE" ] && { vm_warn "--invite-code-file and --fresh-team-repo both name the invite; pass one"; usage; }
@@ -312,7 +327,7 @@ fi
 # Create team makes <group>/mattstack-team-<slug> itself, so a run that
 # creates a team takes a slug of its own (a fixed one collides with the last
 # run's repo) and teardown deletes that repo.
-if [ "$SCENARIO" = create ] || [ "$SCENARIO" = solo ]; then
+if [ "$START_PASTES_REPO" = 0 ] && { [ "$SCENARIO" = create ] || [ "$SCENARIO" = solo ]; }; then
   [ "$SLUG_SET" = 1 ] || SLUG="vmtest-${VM_RUN_ID%%-walk-*}"
   if [ "$TEAM_REMOTE_SET" = 1 ]; then
     # The guest's own reading of a remote (screen_remote_group): https or scp-style ssh.
@@ -391,6 +406,14 @@ fi
 if [ "$SCENARIO" != headless ] && [ -z "${!PAT_ENV:-}" ]; then vm_warn "\$$PAT_ENV empty — the forge account row cannot be connected; the screens phase will fail there if the app shows it"; fi
 if [ "$SCENARIO" = solo ] && [ -n "$TEAM_REMOTE" ] && [ -z "${!PAT_ENV:-}" ]; then vm_warn "\$$PAT_ENV empty; the team-upgrade phase needs the token to connect the forge row"; fi
 cp -R "$VM_ROOT/run/guest" "$VM_RUN_DIR/in/guest"; cp "$VM_ROOT/../../scripts/e2e-cleanroom.sh" "$VM_RUN_DIR/in/guest/" 2>/dev/null || true
+START_BIN="$GUEST_BIN"
+if [ -n "$START_REF" ]; then
+  mkdir -p "$VM_RUN_DIR/in/start-src"
+  git -C "$VM_ROOT/../.." archive "$START_REF" rt-tray/vm/run/guest | tar -x -C "$VM_RUN_DIR/in/start-src" \
+    || { vm_phase_end preflight fail "could not read the guest scripts at $START_REF"; exit 1; }
+  mv "$VM_RUN_DIR/in/start-src/rt-tray/vm/run/guest" "$VM_RUN_DIR/in/guest/start"; rm -rf "$VM_RUN_DIR/in/start-src"
+  START_BIN="$GUEST_BIN/start"
+fi
 # The headless recipe's check-bundle step parses deps.lock with bun; CI gets
 # bun from setup-bun, but a clean-room guest has none, so the harness hands it
 # over — at $HOME/.bun/bin, the path the recipe's PATH already searches.
@@ -482,7 +505,30 @@ fi
 vm_phase_begin launch
 # Prod builds honour MATTSTACK_APPCAST_URL only with --allow-appcast-override; the same env/arg is
 # replayed by drive-setup.sh on any driver-initiated relaunch (DRIVER_LAUNCH_ARGS).
-LAUNCH_ARGS=""; [ -n "$UPD" ] && LAUNCH_ARGS="--env MATTSTACK_APPCAST_URL=http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml --arg --allow-appcast-override"
+# open --env never reached the app, so an env var goes in the guest session's
+# own environment, which every launch and relaunch inherits.
+guest_session_env() {  # <name> <value>
+  vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "u=\$(id -u '$VM_TESTER_USER'); sudo launchctl asuser \$u sudo -u '$VM_TESTER_USER' launchctl setenv '$1' '$2'" >>"$VM_RUN_DIR/logs/install.log" 2>&1 \
+    || { vm_warn "could not set $1 in the guest session"; return 1; }
+}
+LAUNCH_ARGS=""
+if [ -n "$UPD" ]; then
+  guest_session_env MATTSTACK_APPCAST_URL "http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml" \
+    || { vm_phase_end launch fail "--update-dir set, but MATTSTACK_APPCAST_URL could not be set in the guest session (logs/install.log)"; exit 1; }
+  LAUNCH_ARGS="--arg --allow-appcast-override"
+fi
+# Sign in to Claude finishes in a browser no script can drive. With
+# VM_CLAUDE_STANDIN=1, claude reads a placeholder key as signed in, so an
+# unattended run can pass Connect; the sign-in itself is then not exercised,
+# and the screens and assert rows say so.
+CLAUDE_STANDIN_ENV=""; CLAUDE_STANDIN_NOTE=""
+if [ "${VM_CLAUDE_STANDIN:-0}" = 1 ]; then
+  CLAUDE_STANDIN_ENV="ANTHROPIC_API_KEY=vm-placeholder"
+  CLAUDE_STANDIN_NOTE="Claude sign-in NOT exercised (VM_CLAUDE_STANDIN placeholder key)"
+  # Without the key, Connect waits out CONNECT_WAIT_S on a sign-in nobody makes.
+  guest_session_env ANTHROPIC_API_KEY vm-placeholder \
+    || { vm_phase_end launch fail "VM_CLAUDE_STANDIN=1, but its key could not be set in the guest session (logs/install.log)"; exit 1; }
+fi
 vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/install-app.sh launch $LAUNCH_ARGS" >>"$VM_RUN_DIR/logs/install.log" 2>&1
 rc=$?
 SHOT00=""
@@ -525,16 +571,16 @@ else
   # Job control hands a background job the walkthrough's stdin, a terminal
   # on an attended run; a read from it would stop the watcher's group.
   if [ "$SCENARIO" = join ]; then set -m; approve_watcher </dev/null & APPROVE_PID=$!; set +m; fi
-  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' JOIN_HAND_WAIT_S='${JOIN_HAND_WAIT_S:-1800}' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' CONNECT_WAIT_S='${CONNECT_WAIT_S:-900}' RUN_WAIT_S='${RUN_WAIT_S:-1800}' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' JOIN_HAND_WAIT_S='${JOIN_HAND_WAIT_S:-1800}' FB_EXTENSION_WAIT_S='${FB_EXTENSION_WAIT_S:-300}' CONNECT_WAIT_S='${CONNECT_WAIT_S:-900}' RUN_WAIT_S='${RUN_WAIT_S:-1800}' bash $START_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   rc=$?
   stop_approve_watcher
   mint_detach; drop_mint_home
   if [ "$rc" -eq 0 ]; then
-    vm_phase_end screens pass "" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
+    vm_phase_end screens pass "$CLAUDE_STANDIN_NOTE" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
   else
     # drive.log is written through the share, so it stays current after the
     # ssh channel that carries screens.log has gone quiet.
-    vm_phase_end screens fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/drive.log" "$(tail -1 "$VM_RUN_DIR/logs/drive.log" 2>/dev/null || echo 'see logs/screens.log')")" $(cd "$VM_RUN_DIR" && ls screenshots/*.png 2>/dev/null)
+    vm_phase_end screens fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/drive.log" "$(tail -1 "$VM_RUN_DIR/logs/drive.log" 2>/dev/null || echo 'see logs/screens.log')")${CLAUDE_STANDIN_NOTE:+; $CLAUDE_STANDIN_NOTE}" $(cd "$VM_RUN_DIR" && ls screenshots/*.png 2>/dev/null)
   fi
 fi
 
@@ -548,15 +594,15 @@ UNTRUSTED_ARG=""; [ "$DECLINE_TRUST" = 1 ] && UNTRUSTED_ARG=--expect-untrusted
 MODE_ARG=""; [ "$SCENARIO" = solo ] && MODE_ARG="--solo"
 [ "$SCENARIO" = join ] && MODE_ARG="--join '$SLUG'"
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$TRACK_REPO" ] && MODE_ARG="$MODE_ARG --board-repo '$TRACK_REPO'"
-vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $MODE_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
+vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' $CLAUDE_STANDIN_ENV bash $START_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $MODE_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
 rc=$?
 if [ "$rc" -eq 0 ]; then
-  vm_phase_end assert pass
+  vm_phase_end assert pass "$CLAUDE_STANDIN_NOTE"
 else
   n=$(grep -c 'ASSERT FAIL' "$VM_RUN_DIR/logs/assert.log")
   if [ "$n" -gt 0 ]; then reason="$n assertion(s) failed (logs/assert.log)"
   else reason="script exited $rc (logs/assert.log)"; fi
-  vm_phase_end assert fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/assert.log" "$reason")"
+  vm_phase_end assert fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/assert.log" "$reason")${CLAUDE_STANDIN_NOTE:+; $CLAUDE_STANDIN_NOTE}"
 fi
 
 # ── team-upgrade ─────────────────────────────────────────────────────────────

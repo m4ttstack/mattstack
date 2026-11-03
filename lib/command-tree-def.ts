@@ -2528,6 +2528,39 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      "disable-model-invocation": {
+        description: "Choose which pack skills have disable-model-invocation set",
+        subcommands: {
+          list: {
+            description: "See which pack skills have model invocation disabled",
+            module: "./commands/skills.ts",
+            fn: "skillsDisableModelInvocationList",
+            args: [
+              { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit to pick from the discovered packs" },
+              SETUP_JSON_ARG,
+            ],
+          },
+          set: {
+            description: "Disable model invocation on pack skills, or turn it back on",
+            module: "./commands/skills.ts",
+            fn: "skillsDisableModelInvocationSet",
+            omitBehavior: "picker",
+            args: [
+              { name: "Skills", type: "text", placeholder: "alpha beta", hint: "One or more skill names in the pack; omit to pick" },
+              { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name; omit to pick from the discovered packs" },
+              { name: "On", flag: "--on", type: "boolean", default: false, hint: "Disable model invocation on the named skills" },
+              { name: "Off", flag: "--off", type: "boolean", default: false, hint: "Let Claude invoke the named skills again" },
+              SETUP_JSON_ARG,
+            ],
+          },
+          reapply: {
+            description: "Put your choices back on the installed skills",
+            module: "./commands/skills.ts",
+            fn: "skillsDisableModelInvocationReapply",
+            args: [SETUP_JSON_ARG],
+          },
+        },
+      },
       packs: {
         description: "List packs discovered from installed marketplace plugins that carry a surface.jsonc",
         module: "./commands/skills.ts",

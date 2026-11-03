@@ -23,6 +23,7 @@
  * | `team-sections`    | plan's domain fill holds two `widgets` team sections, one changed |
  * | `blocks`           | the composition lists `mini`, a block-tree verb, so the block view can open it; `ship`'s and `work`'s anatomy are rt's own, and work's placeholders sit in its block files |
  * | `stale-engine`     | the installed mattstack plugin is older than rt, so every block tree answers `stale-engine` |
+ * | `disable-model-invocation` | surface rows show the field on, off, locked and absent |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -51,6 +52,7 @@ export const SCENARIOS = [
   'team-sections',
   'blocks',
   'stale-engine',
+  'disable-model-invocation',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -128,7 +130,13 @@ interface Check {
 interface Surface {
   pack: string;
   packDir: string;
-  rows: { name: string; kind: string; status: string; base?: string }[];
+  rows: {
+    name: string;
+    kind: string;
+    status: string;
+    base?: string;
+    disableModelInvocation?: 'on' | 'off' | 'locked';
+  }[];
 }
 
 /** What rt prints when a verb fails: an exit code and stderr, no stdout. */
@@ -757,6 +765,60 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
     },
   },
   'stale-engine': { subject: 'stage-plan', staleEngine: true },
+  'disable-model-invocation': {
+    subject: 'stage-plan',
+    surface: {
+      pack: 'acme',
+      packDir: '/fixture/packs/acme',
+      rows: [
+        {
+          name: 'work',
+          kind: 'compiled',
+          status: 'public',
+          disableModelInvocation: 'off',
+        },
+        {
+          name: 'review',
+          kind: 'compiled',
+          status: 'public',
+          disableModelInvocation: 'on',
+        },
+        {
+          name: 'ship',
+          kind: 'hand-authored',
+          status: 'public',
+          disableModelInvocation: 'on',
+        },
+        {
+          name: 'shepherdr',
+          kind: 'compiled',
+          status: 'public',
+          disableModelInvocation: 'locked',
+        },
+        {
+          name: 'watch-ci',
+          kind: 'compiled',
+          status: 'public',
+          disableModelInvocation: 'off',
+        },
+        {
+          name: 'checkout',
+          kind: 'compiled',
+          status: 'public',
+          disableModelInvocation: 'off',
+        },
+        { name: 'standup', kind: 'compiled', status: 'public' },
+        { name: 'self-review', kind: 'compiled', status: 'internal' },
+        { name: 'plan-policy', kind: 'hand-authored', status: 'internal' },
+        {
+          name: 'dev-servers',
+          kind: 'compiled',
+          status: 'internal',
+          base: BASE,
+        },
+      ],
+    },
+  },
   'team-sections': {
     subject: 'stage-plan',
     anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainHoldsSections } },

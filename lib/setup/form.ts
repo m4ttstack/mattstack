@@ -657,7 +657,7 @@ export function connectRows(i: ConnectInputs): FormRow[] {
 export interface ThisMacInputs extends DrawnContext {
   plan: Plan;
   signIn: ToolRequirement[];
-  /** The last run ended ok. */
+  /** The last run ended ok and no choice has been made since it. */
   ranOk: boolean;
   cltInstalled: boolean;
   prepare: MacosPrepare;
@@ -1024,12 +1024,14 @@ async function thisMacSection(
   const signedInThroughGh = ghSignedIn(rows);
   const liveSignIn = githubSignIn !== null && githubSignIn.outcome === undefined;
   const github = await githubToken(p, backup, remote, signedInThroughGh || liveSignIn, token);
+  const intent = readIntent(p);
   return thisMacRows({
     path,
     plan,
-    forge: teamForge(p, plan, readIntent(p)),
+    forge: teamForge(p, plan, intent),
     signIn: signInTools(readPackRequirements(p, plan.team.slug)),
-    ranOk: state.run?.ok === true,
+    // A whole run that ends ok clears the intent, so one on disk is a choice made since (a team created from Settings): the coming run sets its rows up.
+    ranOk: state.run?.ok === true && intent === null,
     cltInstalled: isReady(rows, "tool.clt"),
     prepare: macosPrepare(p),
     backup,

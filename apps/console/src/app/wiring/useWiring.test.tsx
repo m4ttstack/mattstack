@@ -10,6 +10,7 @@ const anatomyGet = vi.fn();
 const blocksGet = vi.fn();
 const sourceGet = vi.fn();
 const changesGet = vi.fn();
+const disableModelInvocationPost = vi.fn();
 
 vi.mock('../api', () => ({
   client: {
@@ -21,6 +22,9 @@ vi.mock('../api', () => ({
         blocks: { $get: (...args: unknown[]) => blocksGet(...args) },
         source: { $get: (...args: unknown[]) => sourceGet(...args) },
         changes: { $get: (...args: unknown[]) => changesGet(...args) },
+        'disable-model-invocation': {
+          $post: (...args: unknown[]) => disableModelInvocationPost(...args),
+        },
         surface: {
           apply: { $post: (...args: unknown[]) => surfaceApplyPost(...args) },
         },
@@ -32,6 +36,7 @@ vi.mock('../api', () => ({
 const {
   useAnatomy,
   useBlocks,
+  useDisableModelInvocation,
   useDiscardChanges,
   usePendingChanges,
   useSkillSource,
@@ -373,6 +378,51 @@ describe('the per-pack write lock', () => {
 
 const SIGNATURE =
   '7ce21e4417715d4f9cc0069f90e6123eff0bac0da6995ce8e7feb2b3da634bba';
+
+describe('useDisableModelInvocation', () => {
+  it('runs toggles on two packs one at a time, since both write one setting', async () => {
+    disableModelInvocationPost.mockReset();
+    let answerFirst!: (body: unknown) => void;
+    disableModelInvocationPost.mockReturnValueOnce(
+      new Promise(resolve => {
+        answerFirst = body => resolve(reply(body));
+      })
+    );
+    disableModelInvocationPost.mockResolvedValue(
+      reply({ names: ['beta'], on: true, applied: true, warnings: [] })
+    );
+    const { Wrap } = harness();
+    const { result } = renderHook(
+      () => ({
+        acme: useDisableModelInvocation('acme'),
+        globex: useDisableModelInvocation('globex'),
+      }),
+      { wrapper: Wrap }
+    );
+
+    act(() => {
+      result.current.acme.mutate({ name: 'alpha', on: true });
+      result.current.globex.mutate({ name: 'beta', on: true });
+    });
+    await waitFor(() =>
+      expect(disableModelInvocationPost).toHaveBeenCalledTimes(1)
+    );
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(disableModelInvocationPost).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      answerFirst({ names: ['alpha'], on: true, applied: true, warnings: [] })
+    );
+    await waitFor(() =>
+      expect(disableModelInvocationPost).toHaveBeenCalledTimes(2)
+    );
+    expect(disableModelInvocationPost.mock.calls[1]![0].json).toStrictEqual({
+      pack: 'globex',
+      name: 'beta',
+      on: true,
+    });
+  });
+});
 
 describe('useSkillsSync', () => {
   it('posts commitPending when asked to', async () => {

@@ -136,7 +136,10 @@ The team instance differs from the home one in four ways:
   `mattstack/teams/<team>/plugin/`, and `mattstack/packs/` on a clone not yet
   converted) is a standing claimed zone (owner `skills-publish`): a pack is
   published by its own commit (the `mattstack:editing-skills` flow,
-  `rt skills sync`), so a watch never commits a half-made pack edit. A new
+  `rt skills sync`), so a watch never commits a half-made pack edit. Every
+  Mac installs a pack from its org clone's data branch through rt's generated
+  marketplace (`~/.mattstack/rt/marketplaces/<org>/`), so an install sees only
+  commits on that branch, never the working tree or a trial branch. A new
   pack goes up with its marketplace entry in one commit and push, made by
   `rt team add` or `rt skills init` itself; when that commit or push fails,
   the command says so and names `rt team publish --team <org>`, which makes
