@@ -50,8 +50,9 @@ publishes on that Mac (`orgBranch` in `lib/team/org-branch.ts`), so an admin
 can try a breaking change on a branch while every other member stays on the
 org's data branch. Team pack installs are the exception: they always read
 the data branch (`generatedMarketplaceRef`), so a clone on a trial branch
-keeps its packs at the data branch's last local commit. From layout 4 that branch is the marker's `dataBranch`
-(`mattstack` by default; `dataBranchOf` in `lib/team/org-branch.ts`) and
+keeps its packs at the data branch's last local commit. From layout 4 the
+data branch is the marker's `dataBranch` (`mattstack` by default;
+`dataBranchOf` in `lib/team/org-branch.ts`) and
 `main` keeps only a pointer (`lib/team/main-pointer.ts`): the root file
 `.mattstack.jsonc` (`POINTER_REL`, with a header saying what the data
 branch is), or on an org that moved before it existed the old

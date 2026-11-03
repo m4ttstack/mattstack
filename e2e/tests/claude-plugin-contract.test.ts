@@ -128,7 +128,8 @@ describe.skipIf(!enabled)("claude git-subdir install contract", () => {
   }
 
   function git(cwd: string, args: string[]): string {
-    return execFileSync("git", ["-C", cwd, "-c", "user.name=probe", "-c", "user.email=probe@example.test", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const env = { ...childEnv(), HOME: home, GIT_CONFIG_GLOBAL: "/dev/null" } as NodeJS.ProcessEnv;
+    return execFileSync("git", ["-C", cwd, "-c", "user.name=probe", "-c", "user.email=probe@example.test", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
   }
 
   function writePack(version: string, description: string): void {
@@ -209,6 +210,14 @@ describe.skipIf(!enabled)("claude git-subdir install contract", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]!.version).toBe("1.0.1");
     expect(entries[0]!.installPath).toBe(join(config, "plugins/cache", marketplace, "plug", "1.0.1"));
+    expect(cachedSkill("1.0.1")).toContain("description: second");
+  });
+
+  test("a committed content change at an unchanged version is not picked up by update", () => {
+    commitPack("1.0.1", "third, same version");
+    claude(["plugin", "update", id, "-y"]);
+    expect(cacheVersions()).toEqual(["1.0.0", "1.0.1"]);
+    expect(registered()[0]!.version).toBe("1.0.1");
     expect(cachedSkill("1.0.1")).toContain("description: second");
   });
 

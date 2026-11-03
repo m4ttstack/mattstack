@@ -13,7 +13,9 @@ version bumps are the convention (see any pack bump in git history). Both
 estates install from a _git-subdir_ entry, so an update clones a committed
 ref and copies one subdirectory into the cache; an uncommitted edit or an
 untracked file never reaches it, and a loaded skill's reported base dir is
-the cache copy itself.
+the cache copy itself. The one exception is a pack outside any org, whose
+marketplace names it with a _directory_ source: Claude Code loads that pack
+from its source folder, not the cache.
 
 | Estate | Installs from | Ref the update reads |
 | --- | --- | --- |
@@ -91,6 +93,7 @@ digraph publish_skill {
     team_pack_clone [label="Team pack (the org clone, on whatever branch it has checked out)?" shape=diamond];
     push_org_clone_branch [label="Push the org clone's checked-out branch" shape=box];
     push_landed [label="Push landed?" shape=diamond];
+    on_data_branch [label="Org clone on the data branch?" shape=diamond];
     gate_team_pack_push_rejected [label="Gate: team pack push rejected" shape=box];
     git_push_upstream [label="git_push {tree: <checkout>, setUpstream: true}" shape=plaintext];
     git_push_result [label="git_push result?" shape=diamond];
@@ -131,6 +134,7 @@ digraph publish_skill {
     end_turn_reload [label="End the turn; the reload runs in place" shape=box];
     ask_user_reload [label="Ask the user to type /reload-plugins" shape=box];
     pushed_sync_waits [label="Pushed: sync waits until the branch lands on main" shape=doublecircle];
+    on_trial_branch [label="On a trial branch: try it with claude --plugin-dir <pack dir>; it installs once merged to the data branch" shape=doublecircle];
     handed_to_human [label="Handed to the human" shape=doublecircle];
     change_live [label="Change live in the cache" shape=doublecircle style=filled fillcolor=lightgreen];
 
@@ -168,7 +172,9 @@ digraph publish_skill {
     team_pack_clone -> push_org_clone_branch [label="yes: a team pack"];
     team_pack_clone -> git_push_upstream [label="no: every mattstack change"];
     push_org_clone_branch -> push_landed;
-    push_landed -> list_packs [label="yes"];
+    push_landed -> on_data_branch [label="yes"];
+    on_data_branch -> list_packs [label="yes"];
+    on_data_branch -> on_trial_branch [label="no"];
     push_landed -> gate_team_pack_push_rejected [label="no: quote the rejection"];
     gate_team_pack_push_rejected -> push_org_clone_branch [label="retry: human fixed it"];
     gate_team_pack_push_rejected -> handed_to_human [label="human takes over"];
@@ -395,11 +401,11 @@ A published team pack or mattstack plugin whose floor
 (`pack/requires.json` `minEngine`) is above a member's app is held on that
 Mac until they update the app: setup never installs it, and the
 `pack.<name>` row (for mattstack, the `tool.plugins` row) reads needs-you
-with the update-the-app copy. When the org folder moves while a pack is
-held, `org.folder` rewrites the generated folder and runs only a bare
+with the update-the-app copy. When the org folder moves, `org.folder`
+rewrites the generated folder and runs a bare
 `claude plugin marketplace add ~/.mattstack/rt/marketplaces/<org>`, so the
-registration follows the folder and the installed copy stays until the app
-updates.
+registration follows the folder and every installed copy, a held pack's
+included, stays as it is.
 
 A mattstack change never takes this box: it is made on a branch in a
 monorepo worktree, pushed with `git_push`, and lands through a pull request
@@ -551,7 +557,8 @@ human brings the rest current.
 Quote the cache listing and the version you bumped to (with no edit, the
 manifest's `version`), and propose why it
 lags (the update ran under another config dir, a marketplace points
-elsewhere). Retry: bring the packs current again, with `Sync calls`
+elsewhere, the org clone is off the data branch so sync skipped the
+update). Retry: bring the packs current again, with `Sync calls`
 starting again at zero. Takes over: the human chases the cache.
 
 ## What the graph cannot show

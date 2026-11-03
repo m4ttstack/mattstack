@@ -194,7 +194,7 @@ Make and test the change, then merge `org-trial` into the data branch on your fo
 rt team branch use mattstack
 ```
 
-Your installed packs stay on the data branch's version while you work on the trial. To try a pack change from the trial, start a session with `claude --plugin-dir <pack folder>`.
+Your installed packs stay on the data branch's version while you work on the trial. Your local copy of the data branch also stops moving while you are on the trial branch, so pack changes your teammates publish reach you only once you switch back. To try a pack change from the trial, start a session with `claude --plugin-dir <pack folder>`.
 
 `rt team status` names the branch when your clone is not on `main`. `rt team invite` refuses on a trial branch, because the people you invite clone the data branch.
 

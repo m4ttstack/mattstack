@@ -44,7 +44,8 @@ if [ -d "$FIX/plugins" ]; then
   # install only sees committed work. Commit the plugins and the listing now,
   # before anything installs them, and fail here rather than at the install.
   git -C "$TEAM" add plugins .claude-plugin/marketplace.json
-  git -C "$TEAM" -c user.name=vmtest -c user.email=vmtest@example.invalid commit -q -m "team: add fixture plugins"
+  git -C "$TEAM" diff --cached --quiet \
+    || git -C "$TEAM" -c user.name=vmtest -c user.email=vmtest@example.invalid commit -q -m "team: add fixture plugins"
   for d in "$FIX"/plugins/*/; do
     p="plugins/$(basename "$d")"
     git -C "$TEAM" cat-file -e "HEAD:$p/.claude-plugin/plugin.json" \
