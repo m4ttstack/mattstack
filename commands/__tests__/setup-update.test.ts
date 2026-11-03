@@ -383,6 +383,26 @@ describe("rt setup update", () => {
       expect(jsonEvents(settled.lines)).toEqual([{ event: "done", ok: true, skipped: "current" }]);
     });
 
+    test("a retry runs only the leads and the pending migrations: no other step, no verify, no app restart, no new stamp", async () => {
+      let restarts = 0;
+      const ran: string[] = [];
+      const step = (id: StepId): StepDef => ({ ...fakeStep(id, async () => (ran.push(id), { state: "done" })), updateSafe: true });
+      const restart: StepDef = { ...fakeStep("apps.restart", async () => (restarts++, { state: "done" })), updateSafe: true };
+      const migrations: MigrationDef[] = [
+        { id: "2026-09-30-a", title: "a", run: async () => { throw new Error("recorded, must not run"); } },
+        { id: "2026-09-30-b", title: "b", run: async () => ({ state: "partial", detail: "still waiting" }) },
+      ];
+      const probes = stamped(["2026-09-30-a"]);
+      const deps = updateDeps({ probes, migrations, steps: [step("org.folder"), step("org.pull"), step("path.link"), step("verify"), restart] });
+      await run(deps, ["--json"]);
+      const ids = jsonEvents(deps.lines).flatMap((e) => (e.event === "step" && e.state === "running" ? [e.id] : []));
+      expect(ids).toEqual(["org.folder", "org.pull", "migration.2026-09-30-b"]);
+      expect(ran).toEqual(["org.folder", "org.pull"]);
+      expect(restarts).toBe(0);
+      expect(readSetupState(probes).lastUpdate).toEqual({ version: "2.15.0", at: "x" });
+      expect(deps.notifications).toEqual([]);
+    });
+
     test("a retry that still needs the member exits 2 but does not post the notification again", async () => {
       const migrations: MigrationDef[] = [{ id: "2026-09-30-a", title: "a", run: async () => ({ state: "failed", detail: "claude list unreadable" }) }];
       const deps = updateDeps({ probes: stamped(), migrations });

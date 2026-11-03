@@ -500,8 +500,9 @@ async function announceDevApp(deps: ApplyDeps): Promise<void> {
  * by hand it re-applies after an update. Every decision is rt's: a Mac whose
  * setup has not finished skips, a version already stamped skips unless a
  * migration is still pending here, and a run stamps its version whatever
- * happened so a broken item nags once per release: a pending migration's
- * rerun at a later launch posts no notification. `need` events cannot occur (update-safe steps are `kind: "rt"`),
+ * happened so a broken item nags once per release. A pending migration's
+ * rerun at a later launch runs only org.folder, org.pull and the pending
+ * migrations, and changes no stamp and posts no notification. `need` events cannot occur (update-safe steps are `kind: "rt"`),
  * so the context is non-interactive.
  */
 export async function setupUpdate(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
@@ -571,19 +572,22 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
       ...(human ? { tip: human.tip } : {}),
     });
     await human?.settle();
-    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
+    const retry = decision.kind === "run" && decision.retry === true;
+    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx, { retry });
     const lastId = result.outcomes.at(-1)?.id;
     if (lockError && lastId) emit({ event: "log", id: lastId, line: `warn: setup update lock not taken, running unguarded: ${lockError}` });
 
-    try {
-      updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+    if (!retry) {
+      try {
+        updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+      }
     }
 
     const notification = updateNotification(version, result.outcomes);
-    if (notification && !(decision.kind === "run" && decision.retry)) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
+    if (notification && !retry) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
 
     await announceDevApp(deps);
 

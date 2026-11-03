@@ -138,8 +138,11 @@ ends the run, as a bug (exit 1, no stamp). Otherwise the version is
 stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. A
 stamped version runs again at each launch while any migration is still
 unrecorded on this Mac (`decideUpdate`'s `retry`), so one that failed or
-waited finishes without a release or `--force`; a retry posts no
-notification, so a broken item still nags once per release. Two
+waited finishes without a release or `--force`. A retry runs only
+`org.folder`, `org.pull` and the pending migrations: no other step, no
+`verify`, no `apps.restart`, no stamp change and no notification, so a
+stuck migration costs little per launch and a broken item still nags once
+per release. Two
 other verbs feed that stamp: a full, `--from` or `--resume` `rt setup apply`
 that ends ok stamps it too, unless a migration is still pending, and records
 Finish once nothing blocks it, both before it lets go of the run lock and
