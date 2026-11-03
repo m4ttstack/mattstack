@@ -16,7 +16,8 @@
  * this step's own rule still holds for plugins.install itself.
  */
 
-import { join } from "path";
+import { join, resolve } from "path";
+import { canon } from "../../fs-canon.ts";
 import { parseMarketplaceList, type RegisteredMarketplace } from "../marketplace-list.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import { stripJsonc } from "../../jsonc.ts";
@@ -164,17 +165,22 @@ interface TeamSource {
 /**
  * Team packs install from the marketplace rt generates for this Mac, never the org clone itself: a directory source
  * loads from the clone and ignores the cache. Rewritten here as well as in org.folder because `rt setup pack` runs
- * this step alone. Null when there is no team marketplace yet or the folder could not be written.
+ * this step alone. Null when there is no team marketplace yet; `skipped` when the folder could not be written.
  */
-async function teamSource(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): Promise<TeamSource | null> {
+async function teamSource(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): Promise<TeamSource | { skipped: string } | null> {
   if (!ctx.team.slug || !teamMarketplace) return null;
   const generated = await writeGeneratedMarketplace(ctx.p, ctx.team.slug);
   if (generated.skipped !== undefined) {
     ctx.log("plugins.install", `the team marketplace was not added: ${generated.skipped}`);
-    return null;
+    return { skipped: generated.skipped };
   }
   for (const dropped of generated.dropped) ctx.log("plugins.install", `generated marketplace left out ${dropped}`);
   return { path: generated.path, orgDir: orgDirUnder(ctx.p.home, ctx.team.slug), name: teamMarketplace.name ?? ctx.team.slug };
+}
+
+/** Claude may record the path it was given or its realpath. */
+function samePath(a: string, b: string): boolean {
+  return canon(resolve(a)) === canon(resolve(b));
 }
 
 /** An item is the org's or a team's only when no layer of your own lists it too; one with no layer at all fails closed. */
@@ -245,7 +251,21 @@ async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
   return materializeTally(result.repos);
 }
 
+/** An earlier step (org.folder finishing a pending reinstall) relies on this step to put the lines back, so every exit reapplies. */
 async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
+  let reapplied = false;
+  const reapply = (): boolean => {
+    reapplied = true;
+    return reapplyDisableModelInvocation(ctx);
+  };
+  try {
+    return await pluginsInstallBody(ctx, reapply);
+  } finally {
+    if (!reapplied) reapplyDisableModelInvocation(ctx);
+  }
+}
+
+async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Promise<StepOutcome> {
   const claude = resolveTool(ctx.p, "claude");
   if (!claude.exec) {
     // The app gates Install on tool.claude (required:true), so this branch
@@ -261,7 +281,12 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
-  const team = await teamSource(ctx, teamMarketplace);
+  const source = await teamSource(ctx, teamMarketplace);
+  const team = source !== null && "path" in source ? source : null;
+  /** Without the generated folder the team's packs have nowhere to install from. */
+  const teamSkipped = source !== null && "skipped" in source ? source.skipped : null;
+  const teamMarketplaceName = teamMarketplace?.name ?? ctx.team.slug;
+  const unsourced: string[] = [];
   const marketplaces = computeMarketplaces(ctx, team);
   const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
   const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins, activeTeamPack } = computePlugins(ctx, teamMarketplace);
@@ -272,6 +297,9 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   // unrecorded one is new in this release and still installs.
   const update = ctx.update === true;
   const recorded = update ? readSetupState(ctx.p) : null;
+  /** A pack a pending re-point record names is one rt removed and is still reinstalling, not one the member removed. */
+  const midReinstall = (plugin: string, dir: string): boolean =>
+    (recorded?.orgMarketplaceMoves ?? []).some((m) => samePath(m.configDir, dir) && m.plugins.some((pl) => pl.id === plugin));
 
   /** The single site every enable goes through, trusted plugins and the active team's pack alike. Logged: a silent failure would leave a disabled plugin with no signal anywhere. */
   async function enableLogged(runner: ClaudeRunner, plugin: string, dir: string): Promise<void> {
@@ -306,7 +334,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     for (const src of marketplaces) {
       const key = marketplaceSourceKey(src);
       const isTeam = team !== null && src === team.path;
-      if (known?.some((m) => m.source !== null && marketplaceSourceKey(m.source) === key)) {
+      if (known?.some((m) => m.source !== null && (isTeam ? samePath(m.source, src) : marketplaceSourceKey(m.source) === key))) {
         if (isTeam) teamRegistered = true;
         continue;
       }
@@ -366,8 +394,13 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       const enables = !teamAuthored || plugin === activeTeamPack;
       const needsEnable = !enables && !byId.get(plugin)?.enabled;
 
+      if (teamSkipped !== null && teamMarketplaceName && plugin.endsWith(`@${teamMarketplaceName}`)) {
+        if (!unsourced.includes(plugin)) unsourced.push(plugin);
+        continue;
+      }
+
       if (update && !byId.has(plugin)) {
-        if (recorded!.plugins.includes(plugin)) {
+        if (recorded!.plugins.includes(plugin) && !midReinstall(plugin, dir)) {
           ctx.log("plugins.install", `${plugin}: removed since rt installed it, left alone`);
           continue;
         }
@@ -465,10 +498,11 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
-  const disabledNote = reapplyDisableModelInvocation(ctx) ? ". Some skills could not have model invocation disabled" : "";
+  const disabledNote = reapply() ? ". Some skills could not have model invocation disabled" : "";
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
-  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${disabledNote}${pendingNote}${heldNote}` };
+  const unsourcedNote = unsourced.length > 0 ? `. ${unsourced.join(", ")} ${unsourced.length === 1 ? "was" : "were"} not installed: ${teamSkipped}` : "";
+  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${disabledNote}${pendingNote}${unsourcedNote}${heldNote}` };
 }
 
 /** A plugin update replaces the installed copy, so the member's disabled-model-invocation choices go back on; a failure here only warns. True when something was left alone. */

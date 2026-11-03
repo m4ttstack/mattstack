@@ -24,11 +24,13 @@ import { stripJsonc } from "../../jsonc.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import { heldCopy, runnableEngine } from "../../engine-floor.ts";
+import { isGeneratedMarketplaceFolder } from "../../rt-paths.ts";
 import { writeGeneratedMarketplace } from "../generated-marketplace.ts";
 import { PACK_EXEC_TIMEOUT_MS, readServedPacks } from "../pack-cache.ts";
 import { ADMIT_UNFLOORED, admit, installArgs, type Admission, type Admitted } from "../plugin-calls.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { readSetupState, updateSetupState, type PendingMarketplaceMove } from "../state.ts";
+import { cloneSlugs } from "../team-settings.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { parseMarketplaceList } from "../marketplace-list.ts";
 import { claudeMessage } from "./plugins.ts";
@@ -50,6 +52,19 @@ export function marketplaceName(p: Pick<Probes, "readFile">, dir: string): strin
   try {
     const parsed = JSON.parse(stripJsonc(raw)) as { name?: unknown };
     return typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The plugin ids the marketplace folder at `dir` lists under `marketplace`, or null when its file cannot be read. */
+export function catalogPluginIds(p: Pick<Probes, "readFile">, dir: string, marketplace: string): Set<string> | null {
+  const raw = p.readFile(join(dir, ".claude-plugin", "marketplace.json"));
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(stripJsonc(raw)) as { plugins?: unknown };
+    const entries = Array.isArray(parsed.plugins) ? (parsed.plugins as { name?: unknown }[]) : [];
+    return new Set(entries.flatMap((e) => (e && typeof e.name === "string" ? [`${e.name}@${marketplace}`] : [])));
   } catch {
     return null;
   }
@@ -103,11 +118,11 @@ function rewriteMarketplaces(ctx: ApplyContext, stale: string[], current: string
   updateSetupState(ctx.p, (s) => ({ ...s, marketplaces: [...new Set(s.marketplaces.map((m) => (stale.some((old) => samePath(old, m)) ? current : m)))] }));
 }
 
-function pendingFor(ctx: ApplyContext, marketplace: string, configDir: string): PendingMarketplaceMove | null {
+export function pendingFor(ctx: ApplyContext, marketplace: string, configDir: string): PendingMarketplaceMove | null {
   return (readSetupState(ctx.p).orgMarketplaceMoves ?? []).find((m) => m.marketplace === marketplace && m.configDir === configDir) ?? null;
 }
 
-function setPending(ctx: ApplyContext, record: PendingMarketplaceMove | null, marketplace: string, configDir: string): void {
+export function setPending(ctx: ApplyContext, record: PendingMarketplaceMove | null, marketplace: string, configDir: string): void {
   updateSetupState(ctx.p, (s) => {
     const others = (s.orgMarketplaceMoves ?? []).filter((m) => !(m.marketplace === marketplace && m.configDir === configDir));
     const next = record ? [...others, record] : others;
@@ -147,17 +162,24 @@ function handBack(prefix: string, plugins: InstalledPlugin[], grant: Grant): str
 
 const pluralPlugins = (n: number): string => `${n} plugin${n === 1 ? "" : "s"}`;
 
+/** A folder another org's slug names is that org's own generated marketplace, never a leftover. */
+function isLeftoverGeneratedFolder(ctx: ApplyContext, path: string, target: string): boolean {
+  if (samePath(path, target)) return false;
+  if (!isGeneratedMarketplaceFolder(ctx.p.home, path) && !isGeneratedMarketplaceFolder(real(ctx.p.home), real(path))) return false;
+  return !cloneSlugs(ctx.p).includes(basename(path));
+}
+
 export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: string; stalePaths: string[] }): Promise<MarketplaceOutcome> {
-  const orgName = marketplaceName(ctx.p, clone.dir);
-  if (orgName === null) return { state: "skipped", detail: "the clone declares no Claude marketplace" };
-  const generated = await writeGeneratedMarketplace(ctx.p, basename(clone.dir));
-  if (generated.skipped !== undefined) {
-    const why = `rt could not write this Mac's copy of the ${orgName} marketplace (${generated.skipped}), so Claude's registration was left as it is`;
+  const org = basename(clone.dir);
+  const generated = await writeGeneratedMarketplace(ctx.p, org);
+  const target = generated.path;
+  const name = generated.skipped === undefined ? marketplaceName(ctx.p, target) : null;
+  if (name === null) {
+    const why = `rt could not write this Mac's copy of the ${org} marketplace (${generated.skipped ?? `${target} has no marketplace name`}), so Claude's registration was left as it is`;
     return { state: "skipped", detail: why, note: why };
   }
   for (const dropped of generated.dropped) ctx.log("org.folder", `generated marketplace left out ${dropped}`);
-  const target = generated.path;
-  const name = marketplaceName(ctx.p, target) ?? orgName;
+  const catalog = catalogPluginIds(ctx.p, target, name);
   const configDirs = distinctConfigDirs(claudeConfigDirs(ctx.p, cswapConfigDirs(ctx.p)));
   const defaultDir = configDirs[0]!;
   const prefixFor = (dir: string): string => (dir === defaultDir && ctx.p.env.CLAUDE_CONFIG_DIR === undefined ? "" : `CLAUDE_CONFIG_DIR=${dir} `);
@@ -194,6 +216,9 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
   const handedBackIds: string[] = [];
   /** Every source setup-state may still record for this marketplace; they follow it once one config dir points at the generated folder. */
   const stale = [clone.dir, ...clone.stalePaths];
+  /** Generated folders a registration of this name pointed at, such as an org's folder from before a rename; deleted once every config dir points away. */
+  const leftovers: string[] = [];
+  const uncatalogued: string[] = [];
   let pointed = false;
   let sawMarketplace = false;
   const settleRecords = (): void => {
@@ -210,8 +235,19 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
     }
     const registered = known.find((m) => m.name === name) ?? null;
     const current = registered !== null && registered.source !== null && samePath(registered.source, target);
-    if (registered?.source && !current) stale.push(registered.source);
-    const pending = pendingFor(ctx, name, dir);
+    if (registered?.source && !current) {
+      stale.push(registered.source);
+      if (isLeftoverGeneratedFolder(ctx, registered.source, target) && !leftovers.includes(registered.source)) leftovers.push(registered.source);
+    }
+    let pending = pendingFor(ctx, name, dir);
+    // A plugin the catalog no longer lists (its team retired) can never be reinstalled, so the record lets it go.
+    const gone = pending && catalog ? pending.plugins.filter((pl) => !catalog.has(pl.id)) : [];
+    if (pending && gone.length > 0) {
+      for (const pl of gone) if (!uncatalogued.includes(pl.id)) uncatalogued.push(pl.id);
+      const listed = pending.plugins.filter((pl) => catalog!.has(pl.id));
+      pending = listed.length > 0 ? { ...pending, plugins: listed } : null;
+      setPending(ctx, pending, name, dir);
+    }
 
     let steps: Planned[];
     let handOff: InstalledPlugin[] = [];
@@ -290,6 +326,11 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
     handedBackIds.push(...handOff.map((pl) => pl.id).filter((id) => !handedBackIds.includes(id)));
   }
   settleRecords();
+  for (const leftover of leftovers) {
+    ctx.p.removeDir(leftover);
+    ctx.log("org.folder", `removed ${leftover}, which no Claude config folder points at any more`);
+  }
+  if (uncatalogued.length > 0) notes.push(`${uncatalogued.join(", ")} ${uncatalogued.length === 1 ? "is" : "are"} not in the ${name} marketplace any more, so rt cannot reinstall ${uncatalogued.length === 1 ? "it" : "them"}`);
   if (handedBack.length > 0) notes.push(`${handedBackIds.join(", ")} must be reinstalled from the project that used ${handedBackIds.length === 1 ? "it" : "them"}`);
   if (heldNotes.length > 0) {
     const detail = [...heldNotes, ...(notes.length > 0 ? [`${notes.join("; ")}.`] : []), "The held plugins wait for the app to update."].join(" ");

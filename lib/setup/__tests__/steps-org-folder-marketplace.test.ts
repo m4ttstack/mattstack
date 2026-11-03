@@ -20,6 +20,7 @@ const generated = () => join(home, ".mattstack", "rt", "marketplaces", "acme");
 const generatedFile = () => join(generated(), ".claude-plugin", "marketplace.json");
 const defaultCfg = () => join(home, ".claude");
 const EMPTY_ORG = '{ "name": "acme", "plugins": [] }';
+const ORG_FILE = JSON.stringify({ name: "acme", plugins: ["widgets", "gadgets", "gizmos"].map((name) => ({ name, source: `./mattstack/teams/${name}/plugin` })) });
 
 function ctxFor(p: Probes, logs: string[] = []): ApplyContext {
   return { p, emit: () => {}, log: (_id: string, line: string) => { logs.push(line); }, intent: null, team: { slug: "", name: "", mode: "none" }, snapshot: null, reqs: [], nonInteractive: true, teamOfOne: false, appPath: null, ci: false, secrets: {} as never, teamSecrets: () => ({}) as never, relay: {} as never, secretPresence: { has: async () => null }, redact: () => {}, need: async () => "no-app" } as ApplyContext;
@@ -47,11 +48,11 @@ function claudeFake(opts: { registeredAt: string | null; plugins: { id: string; 
 /** git answers with the clone's org file as committed (or a missing ref), every other command goes to the claude fake. */
 function probes(exec: ExecScript | undefined, files: Record<string, string> = {}, opts: { missingRef?: boolean } = {}) {
   const orgPath = join(clone(), ".claude-plugin", "marketplace.json");
-  const committed = files[orgPath] ?? EMPTY_ORG;
+  const committed = files[orgPath] ?? ORG_FILE;
   const p = fakeProbes({
     home,
     env: exec ? { PATH: "/usr/local/bin" } : {},
-    files: { ...(exec ? { [CLAUDE]: "bin" } : {}), [orgPath]: EMPTY_ORG, ...files },
+    files: { ...(exec ? { [CLAUDE]: "bin" } : {}), [orgPath]: ORG_FILE, ...files },
   });
   const served = (argv: string[]) => argv[4]?.endsWith(":.claude-plugin/marketplace.json") ? gitShow(opts.missingRef ? null : committed) : gitShowFromFiles(files, argv) ?? ok("");
   p.exec = (argv, o) => Promise.resolve(argv[0] === "git" ? served(argv) : exec ? exec(argv, o) : ok(""));
@@ -94,11 +95,21 @@ describe("convergeMarketplace: the generated folder", () => {
     expect(p.readFile(generatedFile())).toBeNull();
   });
 
-  test("a clone that declares no marketplace is skipped quietly, with nothing written", async () => {
+  test("the gate is the committed file alone: a working tree with no marketplace file still converges", async () => {
+    const claude = claudeFake({ registeredAt: clone(), plugins: [] });
+    const p = probes(claude.exec);
+    p.removeFile(join(clone(), ".claude-plugin", "marketplace.json"));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("done");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", `plugin marketplace add ${generated()}`]);
+  });
+
+  test("a clone with nothing committed to generate from is skipped with the note, and claude is never asked", async () => {
     const p = fakeProbes({ home });
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
-    expect(out).toEqual({ state: "skipped", detail: "the clone declares no Claude marketplace" });
-    expect(p.calls.exec).toEqual([]);
+    expect(out.state).toBe("skipped");
+    expect(out.note).toBe(out.detail);
+    expect(p.calls.exec.every((argv) => argv[0] === "git")).toBe(true);
   });
 
   test("an org entry the generated folder leaves out is logged", async () => {
@@ -206,6 +217,34 @@ describe("convergeMarketplace: the registration", () => {
     expect(claude.commands()).toEqual(["plugin marketplace list --json"]);
   });
 
+  test("an org's generated folder from before a rename is deleted once the registration points away from it", async () => {
+    const before = join(home, ".mattstack", "rt", "marketplaces", "acme-old");
+    const claude = claudeFake({ registeredAt: before, plugins: [] });
+    const p = probes(claude.exec, { [join(before, ".claude-plugin", "marketplace.json")]: EMPTY_ORG });
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("done");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", `plugin marketplace add ${generated()}`]);
+    expect(p.calls.removed).toContain(before);
+    expect(p.readFile(join(before, ".claude-plugin", "marketplace.json"))).toBeNull();
+  });
+
+  test("another clone's generated folder is never deleted, and a failed re-point deletes nothing", async () => {
+    const other = join(home, ".mattstack", "rt", "marketplaces", "beta");
+    const claude = claudeFake({ registeredAt: other, plugins: [] });
+    const p = probes(claude.exec);
+    p.mkdirp(join(home, ".mattstack", "orgs", "beta"));
+    p.mkdirp(join(home, ".mattstack", "orgs", "beta", ".git"));
+    p.writeFile(join(home, ".mattstack", "orgs", "beta", ".git", "config"), "[core]\n");
+    await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(p.calls.removed).not.toContain(other);
+
+    const old = join(home, ".mattstack", "rt", "marketplaces", "acme-old");
+    const failing = claudeFake({ registeredAt: old, plugins: [], fail: "plugin marketplace add" });
+    const q = probes(failing.exec);
+    expect((await convergeMarketplace(ctxFor(q), { dir: clone(), stalePaths: [] })).state).toBe("partial");
+    expect(q.calls.removed).not.toContain(old);
+  });
+
   test("a held pack takes the same bare add as any other and is not reported as waiting", async () => {
     const files = {
       [join(clone(), ".claude-plugin", "marketplace.json")]: '{ "name": "acme", "plugins": [{ "name": "widgets", "source": "./widgets" }] }',
@@ -302,9 +341,31 @@ describe("convergeMarketplace: a pending record an older rt left", () => {
     expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
   });
 
+  test("a recorded plugin the catalog no longer lists is dropped from the record and named once, never installed", async () => {
+    const claude = claudeFake({ registeredAt: generated(), plugins: [] });
+    const p = probes(claude.exec);
+    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "retired@acme", scope: "user", enabled: true }, { id: "gadgets@acme", scope: "user", enabled: true }] }] }));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("retired@acme is not in the acme marketplace any more, so rt cannot reinstall it");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install gadgets@acme --scope user"]);
+    expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+  });
+
+  test("a record that names only retired plugins is cleared without a plugin call", async () => {
+    const claude = claudeFake({ registeredAt: generated(), plugins: [] });
+    const p = probes(claude.exec);
+    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "retired@acme", scope: "user", enabled: true }] }] }));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("retired@acme is not in the acme marketplace any more");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json"]);
+    expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+  });
+
   describe("with a pack held by its engine floor", () => {
     const heldFiles = () => ({
-      [join(clone(), ".claude-plugin", "marketplace.json")]: '{ "name": "acme", "plugins": [{ "name": "widgets", "source": "./widgets" }, { "name": "gizmos", "source": "./gizmos" }] }',
+      [join(clone(), ".claude-plugin", "marketplace.json")]: '{ "name": "acme", "plugins": [{ "name": "widgets", "source": "./widgets" }, { "name": "gadgets", "source": "./gadgets" }, { "name": "gizmos", "source": "./gizmos" }] }',
       [join(clone(), "widgets", "pack", "requires.json")]: '{ "minEngine": "0.31.0" }',
       [join(clone(), "widgets", ".claude-plugin", "plugin.json")]: '{ "name": "widgets", "version": "2.0.0" }',
     });

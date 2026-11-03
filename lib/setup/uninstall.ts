@@ -11,14 +11,14 @@
  */
 
 import { existsSync, readFileSync, realpathSync } from "fs";
-import { basename, isAbsolute, join, relative, resolve } from "path";
+import { basename, isAbsolute, join, resolve } from "path";
 import { cswapConfigDirs } from "../cswap.ts";
 import { markDaemonUninstalled } from "../daemon-config.ts";
 import { otherFlavor, processFlavor } from "../flavor.ts";
 import { DEFAULT_EXPOSED, isOurLink, unlink } from "../deps/links.ts";
 import { appBundlePath, resolveTool } from "../deps/resolve.ts";
 import { detectEditors, type DetectedEditor } from "../editors.ts";
-import { DEV_TRAY_APP_BUNDLE, generatedMarketplaceDir, installedTrayAppPath, TRAY_APP_BUNDLE } from "../rt-paths.ts";
+import { DEV_TRAY_APP_BUNDLE, generatedMarketplaceDir, generatedMarketplacesRoot, installedTrayAppPath, isGeneratedMarketplaceFolder, TRAY_APP_BUNDLE } from "../rt-paths.ts";
 import { detectShell, MARKER, removeShellIntegration, removeZshenvPrecedence, shellRcPath } from "../shell-integration.ts";
 import type { ApplyContext, StepOutcome } from "./apply.ts";
 import type { UninstallActionId, StepKind } from "./contract.ts";
@@ -265,20 +265,9 @@ async function extensionUninstallRun(ctx: ApplyContext, seams: UninstallSeams = 
   return { outcome: { state: "done", detail: `Uninstalled from ${uninstalled.join(", ") || "none"}` } };
 }
 
-function generatedMarketplacesRoot(home: string): string {
-  return join(home, ".mattstack", "rt", "marketplaces");
-}
-
 /** The per-org marketplace folders rt generated; a dotfile the Finder leaves is not one. */
 function generatedMarketplaceFolders(p: Pick<Probes, "home" | "readDir">): string[] {
   return p.readDir(generatedMarketplacesRoot(p.home)).filter((name) => !name.startsWith(".")).map((name) => generatedMarketplaceDir(p.home, name));
-}
-
-/** Refuses anything but one folder directly under `<home>/.mattstack/rt/marketplaces`, under a home that is absolute and not `/`. */
-function isGeneratedMarketplaceFolder(home: string, path: string): boolean {
-  if (!home || home.trim() === "" || home === "/" || !isAbsolute(home)) return false;
-  const rel = relative(generatedMarketplacesRoot(home), path);
-  return rel !== "" && rel !== "." && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel) && !rel.includes("/");
 }
 
 function realOrResolved(path: string): string {

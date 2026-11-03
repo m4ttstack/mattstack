@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { basename, dirname, join } from "path";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { userSettingsPath } from "../../rt-paths.ts";
@@ -251,6 +251,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           execCalls.push(argv);
           return argv[2] === "list" ? ok(JSON.stringify([{ id: "gadgets@acme", version: "1.0.0", enabled: false }])) : ok("");
         },
@@ -310,6 +311,24 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcome.state).toBe("done");
         expect(logs.some((l) => l.id === "plugins.install" && l.line.includes("read-only"))).toBe(true);
         expect(detailOf(outcome)).toContain("Some skills could not have model invocation disabled");
+      });
+
+      test("a run that fails early still puts the line back on what an earlier step reinstalled", async () => {
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
+        const landed = landedFile();
+        mkdirSync(dirname(landed), { recursive: true });
+        writeFileSync(landed, plain);
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin" },
+          exec: async (argv) => (argv[2] === "list" ? { code: 1, stdout: "", stderr: "corrupt" } : ok("")),
+        });
+
+        const outcome = await pluginsInstallStep.run(makeCtx(p).ctx);
+
+        expect(outcome.state).toBe("failed");
+        expect(readFileSync(landed, "utf8")).toContain("# rt: personal");
       });
 
       test("with no warning the detail says nothing about disabled skills", async () => {
@@ -656,6 +675,49 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(logs.some((l) => l.line.includes("removed since rt added it, left alone"))).toBe(true);
       });
 
+      test("a registration at another spelling of the generated folder is current and is not added again", async () => {
+        mkdirSync(generatedDir(), { recursive: true });
+        const link = join(home, "generated-link");
+        symlinkSync(generatedDir(), link);
+        const { p, adds } = member(link);
+        expect((await pluginsInstallStep.run(teamCtx(p).ctx)).state).toBe("done");
+        expect(adds).not.toContain(generatedDir());
+      });
+
+      test("an update installs a team pack rt removed and is still reinstalling, though setup-state records it", async () => {
+        const { p } = member(generatedDir());
+        const installs: string[][] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv.slice(1));
+          return exec(argv, o);
+        };
+        const pack = "acme-skills@acme-market";
+        updateSetupState(p, (s) => ({
+          ...s,
+          plugins: [...BASE_PLUGINS, pack],
+          orgMarketplaceMoves: [{ marketplace: "acme-market", dir: generatedDir(), configDir: join(home, ".claude"), plugins: [{ id: pack, scope: "user", enabled: true }] }],
+        }));
+        const { ctx, logs } = teamCtx(p, { update: true });
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        expect(installs.some((a) => a[2] === pack)).toBe(true);
+        expect(logs.some((l) => l.line.includes(`${pack}: removed since rt installed it`))).toBe(false);
+      });
+
+      test("a full apply whose generated folder could not be written skips the team pack and says why", async () => {
+        const { p } = member(null, { committed: null });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        const outcome = await pluginsInstallStep.run(teamCtx(p).ctx);
+        expect(outcome.state).toBe("done");
+        expect(installs).not.toContain("acme-skills@acme-market");
+        expect(detailOf(outcome)).toContain("acme-skills@acme-market was not installed: the org repo has no .claude-plugin/marketplace.json on main");
+      });
+
       test("a clone with no marketplace on its ref adds no team marketplace, the org clone included, and says why in the log", async () => {
         const { p, adds } = member(null, { committed: null });
         const { ctx, logs } = teamCtx(p);
@@ -982,6 +1044,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
           if (verb === "list") return ok(JSON.stringify(Object.keys(enabled).map((k) => ({ id: k, version: "1.0.0", enabled: enabled[k] }))));
           if (verb === "install") {
@@ -1075,6 +1138,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           execCalls.push(argv);
           const [, , verb, id] = argv;
           if (verb === "list") return ok(JSON.stringify(Object.keys(enabled).map((k) => ({ id: k, version: "1.0.0", enabled: enabled[k] }))));
@@ -1114,6 +1178,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           execCalls.push(argv);
           const [, , verb, id] = argv;
           if (verb === "list") return ok(JSON.stringify(Object.keys(enabled).map((k) => ({ id: k, version: "1.0.0", enabled: enabled[k] }))));
@@ -1217,6 +1282,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
           if (verb === "list") return ok("[]");
           if (verb === "enable") {
@@ -1250,6 +1316,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
           if (verb === "list") return ok("[]");
           if (verb === "install") return { code: 1, stdout: "", stderr: "plugin already installed" };
