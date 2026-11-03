@@ -133,12 +133,6 @@ function distinctConfigDirs(dirs: string[]): string[] {
  * Never throws.
  */
 async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, write: typeof writeGeneratedMarketplace): Promise<void> {
-  // The pull gate holds only a tip above the readable layouts, so a clone below them still reaches here.
-  const layout = orgLayoutState(p);
-  if (layout.kind === "waiting" && layout.slug === org) {
-    log.debug({ layout: layout.layout }, "generated marketplace: left as it is; the org is on a layout this rt does not read");
-    return;
-  }
   let written: Awaited<ReturnType<typeof writeGeneratedMarketplace>>;
   try {
     written = await write(p, org);
@@ -203,7 +197,7 @@ async function warnIfParked(p: Probes, org: string, dir: string): Promise<void> 
   }
 }
 
-/** The generated marketplace is rewritten first (a pull can add a team), then the converge, then a pack it changed gets the member's disabled skills back, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. */
+/** The generated marketplace is rewritten first (a pull can add a team), then the converge, then a pack it changed gets the member's disabled skills back, then the clone's cone follows the role, then the post-pull hooks; the cone and the hooks run even when the converge threw, and a cone that failed never fails the pull. On an org layout this rt does not read, only the cone and the hooks run. */
 export function createOnPulled(opts: {
   probes: Probes;
   slug: string;
@@ -244,6 +238,12 @@ export function createOnPulled(opts: {
   };
   return async () => {
     try {
+      // The pull gate holds only a tip above the readable layouts, so a clone below them still reaches here.
+      const layout = orgLayoutState(opts.probes);
+      if (layout.kind === "waiting" && layout.slug === opts.slug) {
+        opts.log.debug({ layout: layout.layout }, "team packs: left as they are; the org is on a layout this rt does not read");
+        return;
+      }
       await refreshGeneratedMarketplace(opts.probes, opts.slug, opts.log, opts.writeMarketplace ?? writeGeneratedMarketplace);
       await warnIfParked(opts.probes, opts.slug, opts.dir);
       const result = await opts.converge(opts.probes, opts.slug, opts.log);

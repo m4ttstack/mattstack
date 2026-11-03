@@ -462,10 +462,10 @@ describe("startTeamSnapshots", () => {
     });
 
     for (const layout of [2, 6]) {
-      test(`a clone on layout ${layout}, which this rt does not read, keeps its folder and registration and still converges`, async () => {
+      test(`a clone on layout ${layout}, which this rt does not read, keeps its folder, registration and installed packs`, async () => {
         const { onPulled, calls, order } = harness({ changed: true, layout, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
         await onPulled();
-        expect(order).toEqual(["converge"]);
+        expect(order).toEqual([]);
         expect(calls).toEqual([]);
       });
     }
