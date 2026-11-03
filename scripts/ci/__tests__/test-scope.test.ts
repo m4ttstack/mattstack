@@ -434,7 +434,8 @@ describe("websiteChanged", () => {
 });
 
 describe("workflow wiring", () => {
-  type Job = { needs?: string | string[]; if?: string; outputs?: Record<string, string> };
+  type Step = { name?: string; run?: string };
+  type Job = { needs?: string | string[]; if?: string; outputs?: Record<string, string>; "runs-on"?: string; steps?: Step[] };
   function jobs(file: string): Record<string, Job> {
     return (Bun.YAML.parse(readFileSync(join(ROOT, ".github", "workflows", file), "utf8")) as { jobs: Record<string, Job> }).jobs;
   }
@@ -451,6 +452,48 @@ describe("workflow wiring", () => {
     const expected = Object.keys(all).filter((name) => name !== gate && name !== "glitter-pty");
     expect(needs(all[gate]!).sort()).toEqual(expected.sort());
     expect(all[gate]!.if).toBe("always()");
+  });
+
+  function runs(job: Job): string {
+    return (job.steps ?? []).map((step) => step.run ?? "").join("\n");
+  }
+
+  test("unit runs on ubuntu and leaves out every test on the macOS list", () => {
+    const unit = jobs("checks.yml").unit!;
+    expect(unit["runs-on"]).toBe("ubuntu-latest");
+    expect(runs(unit)).toContain("sed 's/^/--path-ignore-patterns=/' scripts/ci/macos-only-tests.txt");
+  });
+
+  test("the unit job's git identity is at system scope: the preload moves HOME, so a global one never reaches a test", () => {
+    expect(runs(jobs("checks.yml").unit!)).toContain("git config --system user.name");
+  });
+
+  test("unit-macos runs on macOS, only when scope names tests", () => {
+    const job = jobs("checks.yml")["unit-macos"]!;
+    expect(job["runs-on"]).toBe("macos-latest");
+    expect(job.if).toBe("needs.scope.outputs.macos != ''");
+    expect(runs(job)).toContain("$TESTS");
+  });
+
+  describe("the checks gate on unit-macos", () => {
+    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_MACOS: "./a.test.ts" };
+    function gate(env: Record<string, string>): number {
+      const script = jobs("checks.yml").checks!.steps!.find((step) => step.name === "Every gate passed")!.run!;
+      return Bun.spawnSync(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", ...passing, ...env }, stdout: "pipe", stderr: "pipe" }).exitCode;
+    }
+
+    test("a pass passes", () => {
+      expect(gate({})).toBe(0);
+    });
+    test("a skip passes when scope named no tests", () => {
+      expect(gate({ UNIT_MACOS: "skipped", RUN_MACOS: "" })).toBe(0);
+    });
+    test("a skip fails when scope named tests", () => {
+      expect(gate({ UNIT_MACOS: "skipped" })).toBe(1);
+    });
+    test.each(["failure", "cancelled"])("a %s fails", (result) => {
+      expect(gate({ UNIT_MACOS: result })).toBe(1);
+    });
   });
 
   test.each(["checks.yml", "e2e.yml"])("every scope output %s reads is one the script writes", (file) => {
