@@ -82,17 +82,25 @@ describe("convergeMarketplace: the generated folder", () => {
     ]);
   });
 
-  test("a clone with no marketplace on its ref is skipped with a note for the row, and claude is never asked", async () => {
+  test("a clone with no marketplace on its ref serves no packs: a quiet skip, and claude is never asked", async () => {
     const claude = claudeFake({ registeredAt: clone(), plugins: [] });
     const p = probes(claude.exec, {}, { missingRef: true });
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
     expect(out.state).toBe("skipped");
-    expect(out.note).toBe(out.detail);
-    expect(out.detail).toContain("rt could not write this Mac's copy of the acme marketplace");
-    expect(out.detail).toContain("no .claude-plugin/marketplace.json on main");
-    expect(out.detail).toContain("left as it is");
+    expect(out.note).toBeUndefined();
     expect(claude.calls).toEqual([]);
     expect(p.readFile(generatedFile())).toBeNull();
+  });
+
+  test("a marketplace file the ref cannot serve is skipped with a note for the row", async () => {
+    const claude = claudeFake({ registeredAt: clone(), plugins: [] });
+    const p = probes(claude.exec, { [join(clone(), ".claude-plugin", "marketplace.json")]: "{ broken" });
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("skipped");
+    expect(out.note).toBe(out.detail);
+    expect(out.detail).toContain("rt could not write this Mac's copy of the acme marketplace");
+    expect(out.detail).toContain("did not parse");
+    expect(claude.calls).toEqual([]);
   });
 
   test("the gate is the committed file alone: a working tree with no marketplace file still converges", async () => {

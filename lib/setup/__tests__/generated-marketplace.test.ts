@@ -82,6 +82,7 @@ describe("writeGeneratedMarketplace", () => {
     const res = await writeGeneratedMarketplace(p, "acme");
     expect(res.changed).toBe(false);
     expect(res.skipped).toContain("main");
+    expect(res.missing).toBe(true);
     expect(p.calls.renames).toHaveLength(0);
   });
 });

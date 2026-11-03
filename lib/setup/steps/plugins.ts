@@ -300,6 +300,8 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
   /** A pack a pending re-point record names is one rt removed and is still reinstalling, not one the member removed. */
   const midReinstall = (plugin: string, dir: string): boolean =>
     (recorded?.orgMarketplaceMoves ?? []).some((m) => samePath(m.configDir, dir) && m.plugins.some((pl) => pl.id === plugin));
+  const wasOffBeforeReinstall = (plugin: string, dir: string): boolean =>
+    (recorded?.orgMarketplaceMoves ?? []).some((m) => samePath(m.configDir, dir) && m.plugins.some((pl) => pl.id === plugin && pl.scope === "user" && !pl.enabled));
 
   /** The single site every enable goes through, trusted plugins and the active team's pack alike. Logged: a silent failure would leave a disabled plugin with no signal anywhere. */
   async function enableLogged(runner: ClaudeRunner, plugin: string, dir: string): Promise<void> {
@@ -463,7 +465,11 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
       // from this scope's listing while install still reports it installed).
       // settlePack deliberately does not enable, so this is the only site and
       // the only place the result gets logged.
-      if (enables && (outcome.kind === "installed" || outcome.kind === "current")) {
+      const landed = outcome.kind === "installed" || outcome.kind === "current";
+      if (landed && update && wasOffBeforeReinstall(plugin, dir)) {
+        const off = await runner.run(["plugin", "disable", plugin], PACK_EXEC_TIMEOUT_MS);
+        if (off.code !== 0) ctx.log("plugins.install", `claude plugin disable ${plugin} (${dir}): ${childOutput(off) || "no output"} ... ignored`);
+      } else if (enables && landed) {
         await enableLogged(runner, plugin, dir);
       }
       if (outcome.kind === "failed") {

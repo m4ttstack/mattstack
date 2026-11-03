@@ -174,6 +174,7 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
   const generated = await writeGeneratedMarketplace(ctx.p, org);
   const target = generated.path;
   const name = generated.skipped === undefined ? marketplaceName(ctx.p, target) : null;
+  if (generated.missing) return { state: "skipped", detail: `the ${org} org serves no team packs` };
   if (name === null) {
     const why = `rt could not write this Mac's copy of the ${org} marketplace (${generated.skipped ?? `${target} has no marketplace name`}), so Claude's registration was left as it is`;
     return { state: "skipped", detail: why, note: why };

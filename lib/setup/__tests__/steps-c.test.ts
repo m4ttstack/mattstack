@@ -704,6 +704,28 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(logs.some((l) => l.line.includes(`${pack}: removed since rt installed it`))).toBe(false);
       });
 
+      test("a pack the member had turned off goes back in turned off, never enabled", async () => {
+        const { p } = member(generatedDir());
+        const calls: string[][] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[1] === "plugin" && (argv[2] === "install" || argv[2] === "enable" || argv[2] === "disable")) calls.push(argv.slice(2, 4));
+          return exec(argv, o);
+        };
+        const pack = "acme-skills@acme-market";
+        updateSetupState(p, (s) => ({
+          ...s,
+          plugins: [...BASE_PLUGINS, pack],
+          orgMarketplaceMoves: [{ marketplace: "acme-market", dir: generatedDir(), configDir: join(home, ".claude"), plugins: [{ id: pack, scope: "user", enabled: false }] }],
+        }));
+        const { ctx } = teamCtx(p, { update: true });
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        const forPack = calls.filter((c) => c[1] === pack).map((c) => c[0]);
+        expect(forPack).toContain("install");
+        expect(forPack).toContain("disable");
+        expect(forPack).not.toContain("enable");
+      });
+
       test("a full apply whose generated folder could not be written skips the team pack and says why", async () => {
         const { p } = member(null, { committed: null });
         const installs: string[] = [];

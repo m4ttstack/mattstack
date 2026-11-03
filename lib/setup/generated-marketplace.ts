@@ -70,6 +70,8 @@ export interface GeneratedMarketplaceResult {
   changed: boolean;
   /** Set when nothing was written: the clone has no such ref or file, or the file did not parse. */
   skipped?: string;
+  /** The org file is absent at the ref: an org that serves no packs, not a fault. */
+  missing?: true;
   dropped: string[];
 }
 
@@ -81,7 +83,10 @@ export async function writeGeneratedMarketplace(
   const cloneDir = orgDirUnder(p.home, org);
   const ref = generatedMarketplaceRef(p, cloneDir);
   const shown = await p.exec(["git", "-C", cloneDir, "show", `${ref}:.claude-plugin/marketplace.json`], { env: { LC_ALL: "C" }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
-  if (shown.code !== 0) return { path, changed: false, skipped: `the org repo has no .claude-plugin/marketplace.json on ${ref}`, dropped: [] };
+  if (shown.code !== 0) {
+    const missing = /does not exist in|exists on disk, but not in|invalid object name/.test(shown.stderr);
+    return { path, changed: false, skipped: `the org repo has no .claude-plugin/marketplace.json on ${ref}`, dropped: [], ...(missing ? { missing: true } : {}) };
+  }
 
   const rendered = renderGeneratedMarketplace(shown.stdout, cloneDir, ref);
   if (rendered.json === null) return { path, changed: false, skipped: `the org repo's marketplace.json on ${ref} did not parse`, dropped: [] };
