@@ -18,7 +18,7 @@ import { UserActionableError } from "../../errors.ts";
 import { writeIntent, type SetupIntent } from "../intent.ts";
 import { updateSetupState } from "../state.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
-import { fakeProbes, fakeTray, ok } from "./fakes.ts";
+import { fakeProbes, fakeTray, gitShowFromFiles, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
@@ -35,6 +35,7 @@ function fakeSecrets(stored: Record<string, string> = {}): SecretPresence {
 const readyExec: ExecScript = (argv) => {
   if (argv[0] === "sw_vers") return ok("15.6");
   if (argv[0] === "git" && argv[1] === "--version") return ok("git version 2.50.1");
+  if (argv[0] === "git" && argv[1] === "-C" && argv[3] === "show") return { code: 128, stdout: "", stderr: `fatal: cannot change to '${argv[2]}': No such file or directory` };
   if (argv[0] === "herdr" && argv[1] === "integration") return ok("claude: current\n");
   if (argv[0] === "herdr") return ok("0.8.0");
   if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
@@ -210,11 +211,12 @@ describe("composePlan", () => {
     // readyExec puts no fast-browser on PATH, so the row's "missing" branch is the one asserted; the pending branches already read required:false in every mode.
     for (const intent of [createIntent(), joinIntent(), restoreIntent()]) {
       const isJoin = intent.mode === "join";
+      // The join case alone seeds a marketplace.json, and it's deliberately unparseable so a team.* row actually exists to assert against below.
+      const files: Record<string, string> = isJoin ? { "/fake-home/.mattstack/orgs/acme/.claude-plugin/marketplace.json": "not json" } : {};
       const p = fakeProbes({
-        exec: readyExec,
+        exec: (argv, o) => (isJoin ? gitShowFromFiles(files, argv) : null) ?? readyExec(argv, o),
         tray: grantedTray,
-        // The join case alone seeds a marketplace.json, and it's deliberately unparseable so a team.* row actually exists to assert against below.
-        files: isJoin ? { "/fake-home/.mattstack/orgs/acme/.claude-plugin/marketplace.json": "not json" } : {},
+        files,
       });
       writeIntent(p, intent);
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });

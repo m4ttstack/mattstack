@@ -98,7 +98,8 @@ function sourceRel(source: string): string | null {
 type Shown = { kind: "text"; text: string } | { kind: "missing" } | { kind: "unreadable" };
 
 /** git's own wording under LC_ALL=C for a path or ref the commit does not have; any other failure says nothing about the file. */
-const NOT_AT_REF = /does not exist in|exists on disk, but not in|invalid object name/;
+/** "cannot change to" is a clone that does not exist yet (onboarding plans before the join): no packs, not a fault. */
+const NOT_AT_REF = /does not exist in|exists on disk, but not in|invalid object name|cannot change to|not a git repository/;
 
 async function showAt(p: Pick<Probes, "exec">, clone: string, ref: string, path: string): Promise<Shown> {
   const res = await p.exec(["git", "-C", clone, "show", `${ref}:${path}`], { env: { LC_ALL: "C" }, timeoutMs: PACK_EXEC_TIMEOUT_MS });

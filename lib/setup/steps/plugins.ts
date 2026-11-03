@@ -305,6 +305,16 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
   /** A pack a pending re-point record names is one rt removed and is still reinstalling, not one the member removed. */
   const midReinstall = (plugin: string, dir: string): boolean =>
     (recorded?.orgMarketplaceMoves ?? []).some((m) => samePath(m.configDir, dir) && m.plugins.some((pl) => pl.id === plugin));
+  /** Once the reinstall lands the record's job is done; left behind, a later converge would replay it over the member's own choices. */
+  const finishPendingReinstall = (plugin: string, dir: string): void => {
+    updateSetupState(ctx.p, (s) => {
+      const moves = (s.orgMarketplaceMoves ?? [])
+        .map((m) => (samePath(m.configDir, dir) ? { ...m, plugins: m.plugins.filter((pl) => pl.id !== plugin) } : m))
+        .filter((m) => m.plugins.length > 0);
+      const { orgMarketplaceMoves: _dropped, ...rest } = s;
+      return moves.length ? { ...rest, orgMarketplaceMoves: moves } : rest;
+    });
+  };
   const wasOffBeforeReinstall = (plugin: string, dir: string): boolean =>
     (recorded?.orgMarketplaceMoves ?? []).some((m) => samePath(m.configDir, dir) && m.plugins.some((pl) => pl.id === plugin && pl.scope === "user" && !pl.enabled));
 
@@ -477,6 +487,7 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
       } else if (enables && landed) {
         await enableLogged(runner, plugin, dir);
       }
+      if (landed && update && midReinstall(plugin, dir)) finishPendingReinstall(plugin, dir);
       if (outcome.kind === "failed") {
         ctx.log("plugins.install", `${plugin}: plugin ${outcome.stage === "install" ? "install" : "uninstall"} exited ${outcome.code}: ${outcome.output || "no output"}`);
         const detail = outcome.stage === "install" ? `Installing plugins failed (exit ${outcome.code})` : `${plugin}: ${outcome.detail}`;

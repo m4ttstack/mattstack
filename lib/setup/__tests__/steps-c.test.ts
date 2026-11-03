@@ -725,6 +725,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(forPack).toContain("install");
         expect(forPack).toContain("disable");
         expect(forPack).not.toContain("enable");
+        expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
       });
 
       test("a full apply whose generated folder could not be written skips the team pack and says why", async () => {
