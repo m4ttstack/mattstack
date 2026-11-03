@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { applyArgInject, collectPreservedKeys, renderEnvTemplates, runRoleHook } from "../env.ts";
 
 const alloc = { role: "portal", port: 5001, refs: { backend: { port: 10400, url: "http://localhost:10400", running: true } } };
@@ -34,6 +34,22 @@ describe("runRoleHook", () => {
     expect(echo).toEqual({ env: { HOOKED: "5001" } });
     expect(await runRoleHook("false", { worktree: "/w", role: "r", port: 1, refs: {}, env: {} })).toBeNull();
     expect(await runRoleHook("sleep 30", { worktree: "/w", role: "r", port: 1, refs: {}, env: {} }, 200)).toBeNull();
+  });
+
+  test("a hook that exits without reading its input still counts", async () => {
+    // Held until the hook has exited, so the input always lands on a closed pipe.
+    const realSpawn = Bun.spawn;
+    const slowSpawn = spyOn(Bun, "spawn").mockImplementation(((...args: Parameters<typeof Bun.spawn>) => {
+      const proc = realSpawn(...args);
+      Bun.sleepSync(100);
+      return proc;
+    }) as typeof Bun.spawn);
+    try {
+      const res = await runRoleHook(`echo '{"env":{"HOOKED":"1"}}'`, { worktree: "/w", role: "r", port: 1, refs: {}, env: {} });
+      expect(res).toEqual({ env: { HOOKED: "1" } });
+    } finally {
+      slowSpawn.mockRestore();
+    }
   });
 
   test("honors its deadline when a backgrounded grandchild holds the pipes open", async () => {
