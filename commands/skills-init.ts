@@ -22,6 +22,7 @@ import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.
 import { envelope } from "../lib/setup/contract.ts";
 import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
+import { writeGeneratedMarketplace } from "../lib/setup/generated-marketplace.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
@@ -67,9 +68,8 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
     ui.kv("Marketplace", o.pack.marketplace),
     ui.kv("Installed", `${o.installed.plugin} ${o.installed.version}`),
     ui.kv("Repo bindings", o.repo.manifest),
-    ...(o.published.pushed
-      ? [...packShareBlocks(o.pack.name, o.published), ui.callout("next", ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)])]
-      : packShareBlocks(o.pack.name, o.published, [", then run ", ui.cmd("/reload-plugins"), " in your Claude session and try ", ui.cmd(o.tryNext)])),
+    ...packShareBlocks(o.pack.name, o.published),
+    ui.callout("next", ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)]),
   ];
 }
 
@@ -276,6 +276,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
     },
     sharePack: (zone, paths) => sharePack(p, zone.org, zone.team, paths),
     rememberShare: (zone, paths) => rememberPackShare(p, zone.org, zone.team, paths),
+    writeMarketplace: (zone) => writeGeneratedMarketplace(p, zone.org),
   };
 }
 

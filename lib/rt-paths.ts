@@ -24,7 +24,7 @@
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { homedir, hostname } from "os";
-import { basename, join } from "path";
+import { basename, isAbsolute, join, relative } from "path";
 import { parseIdentity } from "../packages/rt-client/src/settings/identity-codec.ts";
 import { getSetting } from "./settings/resolve.ts";
 
@@ -237,6 +237,23 @@ export function orgsDirUnder(home: string): string {
 
 export function orgDirUnder(home: string, org: string): string {
   return join(orgsDirUnder(home), org);
+}
+
+/** Where rt keeps the per-Mac marketplaces it generates: ~/.mattstack/rt/marketplaces. */
+export function generatedMarketplacesRoot(home: string): string {
+  return join(home, ".mattstack", "rt", "marketplaces");
+}
+
+/** The per-Mac marketplace rt generates for an org's team packs: ~/.mattstack/rt/marketplaces/<org>. */
+export function generatedMarketplaceDir(home: string, org: string): string {
+  return join(generatedMarketplacesRoot(home), org);
+}
+
+/** The guard before deleting one: true only for a folder directly under the root, under a home that is absolute and not `/`. */
+export function isGeneratedMarketplaceFolder(home: string, path: string): boolean {
+  if (!home || home.trim() === "" || home === "/" || !isAbsolute(home)) return false;
+  const rel = relative(generatedMarketplacesRoot(home), path);
+  return rel !== "" && rel !== "." && rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel) && !rel.includes("/");
 }
 
 export function orgMarkerPath(org: string): string {

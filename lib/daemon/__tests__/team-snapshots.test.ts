@@ -1,12 +1,15 @@
-import { describe, test, expect } from "bun:test";
+import { beforeEach, describe, test, expect } from "bun:test";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
+import { __resetParkedWarnings, __resetPendingRegistrations, createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
+import { __test__ as warnTest, setWarningLog } from "../../ui/warn.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
-import { fakeProbes } from "../../setup/__tests__/fakes.ts";
+import { fakeProbes, gitShowFromFiles } from "../../setup/__tests__/fakes.ts";
+import { convergePackCache } from "../../setup/pack-cache.ts";
 import { createRealProbes } from "../../setup/probes.ts";
+import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { openStateDb } from "../../state/db.ts";
 import { childEnv } from "../../subprocess.ts";
 import { writeTeamLocal } from "../../team/team-local.ts";
@@ -371,7 +374,7 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/.mattstack/orgs/acme",
       log: fakeLog(),
-      converge: (async () => { order.push("converge"); return { held: [] }; }) as never,
+      converge: (async () => { order.push("converge"); return { held: [], updated: [], installed: [] }; }) as never,
       applyCone: async (_p, dir, org) => { order.push(`cone:${org}@${dir}`); return { applied: [], kept: [] }; },
       afterPull: async () => { order.push("after"); },
     });
@@ -387,13 +390,422 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/.mattstack/orgs/acme",
       log,
-      converge: (async () => ({ held: [] })) as never,
+      converge: (async () => ({ held: [], updated: [], installed: [] })) as never,
       applyCone: async () => { throw new Error("sparse-checkout broke"); },
       afterPull: async () => { order.push("after"); },
     });
     await onPulled();
     expect(order).toEqual(["after"]);
     expect(warned(log, "could not apply the role")).toBe(true);
+  });
+
+  describe("createOnPulled and the generated marketplace", () => {
+    const home = "/h";
+    const generated = "/h/.mattstack/rt/marketplaces/acme";
+    const nothing = { held: [], updated: [], installed: [] };
+
+    /** `registered` maps a config dir to the marketplace list Claude answers there; any `git` call answers as a clone on `branch`. */
+    beforeEach(() => __resetPendingRegistrations());
+
+    /** Options are read on every call, so a test can change them between pulls. `readyPeer` adds an `able` clone on a readable layout, which sorts ahead of `acme`. */
+    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean; addFails?: boolean; home?: string; dirs?: Record<string, string[]>; dataBranch?: string; layout?: number; readyPeer?: boolean }) {
+      const at = opts.home ?? home;
+      const folder = `${at}/.mattstack/rt/marketplaces/acme`;
+      const calls: { argv: string[]; configDir: string | undefined }[] = [];
+      const gitTimeouts: (number | undefined)[] = [];
+      const cloneDir = `${at}/.mattstack/orgs/acme`;
+      const probes = fakeProbes({
+        home: at,
+        env: { PATH: "/usr/local/bin" },
+        dirs: { ...opts.dirs, ...(opts.layout !== undefined ? { [`${at}/.mattstack/orgs`]: opts.readyPeer ? ["able", "acme"] : ["acme"] } : {}) },
+        files: {
+          "/usr/local/bin/claude": "bin",
+          [`${folder}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", plugins: [] }),
+          ...(opts.dataBranch ? { [`${at}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ dataBranch: opts.dataBranch }) } : {}),
+          ...(opts.layout !== undefined
+            ? {
+                [`${cloneDir}/.git/config`]: "[core]\n",
+                [`${cloneDir}/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: opts.layout }),
+                [`${cloneDir}/mattstack/org/settings.org.jsonc`]: "{}",
+              }
+            : {}),
+          ...(opts.readyPeer
+            ? {
+                [`${at}/.mattstack/orgs/able/.git/config`]: "[core]\n",
+                [`${at}/.mattstack/orgs/able/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "able", layout: 5 }),
+                [`${at}/.mattstack/orgs/able/mattstack/org/settings.org.jsonc`]: "{}",
+              }
+            : {}),
+        },
+        exec: (argv, o) => {
+          if (argv[0] === "git") {
+            gitTimeouts.push(o?.timeoutMs);
+            return { code: 0, stdout: `${opts.branch ?? "main"}\n`, stderr: "" };
+          }
+          const configDir = o?.env?.CLAUDE_CONFIG_DIR;
+          calls.push({ argv: argv.slice(1), configDir });
+          if (argv.includes("list")) {
+            if (opts.listFails) return { code: 1, stdout: "", stderr: "boom" };
+            return { code: 0, stdout: JSON.stringify(opts.registered?.[configDir ?? ""] ?? []), stderr: "" };
+          }
+          if (argv.includes("add") && opts.addFails) return { code: 1, stdout: "", stderr: "boom" };
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      const order: string[] = [];
+      const log = fakeLog();
+      const onPulled = createOnPulled({
+        probes,
+        slug: "acme",
+        dir: "/h/.mattstack/orgs/acme",
+        log,
+        converge: (async () => { order.push("converge"); return nothing; }) as never,
+        writeMarketplace: async () => { order.push("write"); return { path: folder, changed: opts.changed, dropped: [] }; },
+        applyCone: async () => ({ applied: [], kept: [] }),
+        readChoices: () => ({}),
+      });
+      return { onPulled, calls, order, log, gitTimeouts };
+    }
+
+    test("the folder is rewritten before the converge", async () => {
+      const { onPulled, order } = harness({ changed: false });
+      await onPulled();
+      expect(order).toEqual(["write", "converge"]);
+    });
+
+    for (const layout of [2, 6]) {
+      test(`a clone on layout ${layout}, which this rt does not read, keeps its folder, registration and installed packs`, async () => {
+        const { onPulled, calls, order } = harness({ changed: true, layout, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+        await onPulled();
+        expect(order).toEqual([]);
+        expect(calls).toEqual([]);
+      });
+    }
+
+    test("a clone on a layout this rt does not read is held although another clone under orgs/ is ready", async () => {
+      const { onPulled, calls, order } = harness({ changed: true, layout: 2, readyPeer: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+      await onPulled();
+      expect(order).toEqual([]);
+      expect(calls).toEqual([]);
+    });
+
+    test("a clone on a readable layout is rewritten and re-pointed as usual", async () => {
+      const { onPulled, calls, order } = harness({ changed: true, layout: 5, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+      await onPulled();
+      expect(order).toEqual(["write", "converge"]);
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: "/h/.claude" }]);
+    });
+
+    test("an unchanged folder asks Claude nothing", async () => {
+      const { onPulled, calls } = harness({ changed: false });
+      await onPulled();
+      expect(calls).toEqual([]);
+    });
+
+    test("a changed folder Claude still knows at another source is re-pointed there, bare", async () => {
+      const { onPulled, calls } = harness({ changed: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: "/h/.claude" }]);
+    });
+
+    test("a marketplace the member removed is not added back", async () => {
+      const { onPulled, calls, order } = harness({ changed: true, registered: { "/h/.claude": [{ name: "other", source: "directory", path: "/elsewhere" }] } });
+      await onPulled();
+      expect(calls.map((c) => c.argv.join(" "))).toEqual(["plugin marketplace list --json"]);
+      expect(order).toEqual(["write", "converge"]);
+    });
+
+    test("only the config dir that still points elsewhere is re-pointed", async () => {
+      const sessions = "/h/.claude-swap-backup/sessions";
+      const { onPulled, calls } = harness({
+        changed: true,
+        dirs: { [sessions]: ["one", "two"], [`${sessions}/one`]: [], [`${sessions}/two`]: [] },
+        registered: {
+          "/h/.claude": [{ name: "acme", source: "directory", path: generated }],
+          [`${sessions}/one`]: [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }],
+          [`${sessions}/two`]: [],
+        },
+      });
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: `${sessions}/one` }]);
+    });
+
+    test("config dirs sharing one plugins folder are asked once", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-generated-dedupe-")));
+      try {
+        const sessions = join(root, ".claude-swap-backup", "sessions");
+        mkdirSync(join(root, ".claude", "plugins"), { recursive: true });
+        mkdirSync(join(sessions, "linked"), { recursive: true });
+        symlinkSync(join(root, ".claude", "plugins"), join(sessions, "linked", "plugins"));
+        const stale = [{ name: "acme", source: "directory", path: join(root, ".mattstack", "orgs", "acme") }];
+        const { onPulled, calls } = harness({
+          changed: true,
+          home: root,
+          dirs: { [sessions]: ["linked"], [join(sessions, "linked")]: [] },
+          registered: { [join(root, ".claude")]: stale, [join(sessions, "linked")]: stale },
+        });
+        await onPulled();
+        expect(calls.map((c) => [c.argv.join(" "), c.configDir])).toEqual([
+          ["plugin marketplace list --json", join(root, ".claude")],
+          [`plugin marketplace add ${join(root, ".mattstack", "rt", "marketplaces", "acme")}`, join(root, ".claude")],
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    test("a changed folder already registered somewhere is left to setup", async () => {
+      const { onPulled, calls } = harness({ changed: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: generated }] } });
+      await onPulled();
+      expect(calls.map((c) => c.argv.join(" "))).toEqual(["plugin marketplace list --json"]);
+    });
+
+    test("an unreadable marketplace list adds nothing and still converges", async () => {
+      const { onPulled, calls, order, log } = harness({ changed: true, listFails: true });
+      await onPulled();
+      expect(calls.some((c) => c.argv.includes("add"))).toBe(false);
+      expect(order).toEqual(["write", "converge"]);
+      expect(warned(log, "left to setup")).toBe(true);
+    });
+
+    test("a registration whose list failed is retried on the next pull, though the folder did not change again", async () => {
+      const stale = { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] };
+      const opts = { changed: true, listFails: true, registered: stale };
+      const { onPulled, calls } = harness(opts);
+      await onPulled();
+      expect(calls.some((c) => c.argv.includes("add"))).toBe(false);
+      opts.changed = false;
+      opts.listFails = false;
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: "/h/.claude" }]);
+    });
+
+    test("a registration whose add failed is retried on the next pull, and once it lands an unchanged pull asks Claude nothing", async () => {
+      const opts = { changed: true, addFails: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } as Record<string, unknown[]> };
+      const { onPulled, calls } = harness(opts);
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toHaveLength(1);
+      opts.changed = false;
+      opts.addFails = false;
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toHaveLength(2);
+      opts.registered = { "/h/.claude": [{ name: "acme", source: "directory", path: generated }] };
+      const before = calls.length;
+      await onPulled();
+      expect(calls.slice(before)).toEqual([]);
+    });
+
+    test("a rewrite that throws is logged and the converge still runs", async () => {
+      const log = fakeLog();
+      const order: string[] = [];
+      const onPulled = createOnPulled({
+        probes: fakeProbes({ home }),
+        slug: "acme",
+        dir: "/h/.mattstack/orgs/acme",
+        log,
+        converge: (async () => { order.push("converge"); return nothing; }) as never,
+        writeMarketplace: async () => { throw new Error("disk full"); },
+        applyCone: async () => ({ applied: [], kept: [] }),
+        readChoices: () => ({}),
+      });
+      await onPulled();
+      expect(order).toEqual(["converge"]);
+      expect(warned(log, "disk full")).toBe(true);
+    });
+
+    test("a clone parked off the data branch warns once per org, and still converges every pull", async () => {
+      __resetParkedWarnings();
+      const seen: { module: string; message: string }[] = [];
+      setWarningLog((module, message) => { seen.push({ module, message }); });
+      try {
+        const { onPulled, order } = harness({ changed: false, branch: "trial" });
+        await onPulled();
+        await onPulled();
+        expect(order).toEqual(["write", "converge", "write", "converge"]);
+        expect(seen).toEqual([{ module: "team-snapshots", message: "The acme org clone is on trial, not main, so its team packs stay at main's versions until it is back on main" }]);
+        const other = harness({ changed: false, branch: "main" });
+        await other.onPulled();
+        expect(seen).toHaveLength(1);
+      } finally {
+        warnTest.reset();
+        __resetParkedWarnings();
+      }
+    });
+
+    test("a clone still on main before it moves to the data branch is not parked, and its branch read is bounded", async () => {
+      __resetParkedWarnings();
+      const seen: string[] = [];
+      setWarningLog((_module, message) => { seen.push(message); });
+      try {
+        const { onPulled, gitTimeouts } = harness({ changed: false, branch: "main", dataBranch: "mattstack" });
+        await onPulled();
+        expect(seen).toEqual([]);
+        expect(gitTimeouts.length).toBeGreaterThan(0);
+        expect(gitTimeouts.every((t) => typeof t === "number" && t > 0)).toBe(true);
+      } finally {
+        warnTest.reset();
+        __resetParkedWarnings();
+      }
+    });
+  });
+
+  describe("createOnPulled keeps model invocation disabled", () => {
+    const SETTING = "rt.skills.disableModelInvocation";
+    const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
+    const nothing = { held: [], updated: [], installed: [] };
+
+    function installedSkill(): { home: string; file: string } {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshots-dmi-")));
+      const version = join(home, ".claude", "plugins", "cache", "market", "widgets", "2.0.0");
+      mkdirSync(join(version, "skills", "alpha"), { recursive: true });
+      const file = join(version, "skills", "alpha", "SKILL.md");
+      writeFileSync(file, plain);
+      return { home, file };
+    }
+    const onPulledWith = (home: string, result: unknown, log = fakeLog()) => createOnPulled({
+      probes: fakeProbes({ home }),
+      slug: "acme",
+      dir: join(home, "orgs", "acme"),
+      log,
+      converge: (async () => result) as never,
+      applyCone: async () => ({ applied: [], kept: [] }),
+    });
+
+    test("a pack the pull updated gets the member's choice back", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      try {
+        await onPulledWith(home, { ...nothing, updated: [{ id: "widgets@market", to: "2.0.0" }] })();
+        expect(readFileSync(file, "utf8")).toContain("disable-model-invocation: true");
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a pack the pull installed gets the member's choice back", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      try {
+        await onPulledWith(home, { ...nothing, installed: ["widgets@market"] })();
+        expect(readFileSync(file, "utf8")).toContain("disable-model-invocation: true");
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("another team's installed pack the real converge updates gets the member's choice back too", async () => {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshots-dmi-")));
+      const clone = join(home, ".mattstack", "orgs", "acme");
+      const files: Record<string, string> = {
+        "/usr/local/bin/claude": "bin",
+        [join(clone, ".claude-plugin", "marketplace.json")]: JSON.stringify({ name: "market", plugins: [{ name: "widgets", source: "./w" }, { name: "gadgets", source: "./g" }] }),
+        [join(clone, "w", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "1.0.0" }),
+        [join(clone, "g", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "2.0.0" }),
+      };
+      const landed = join(home, ".claude", "plugins", "cache", "market", "gadgets", "2.0.0", "skills", "beta", "SKILL.md");
+      const updates: string[] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files,
+        exec: async (argv) => {
+          const shown = gitShowFromFiles(files, argv);
+          if (shown) return shown;
+          const [, , verb, id] = argv;
+          if (verb === "list") return { code: 0, stdout: JSON.stringify([{ id: "widgets@market", version: "1.0.0", enabled: true }, { id: "gadgets@market", version: "1.0.0", enabled: false }]), stderr: "" };
+          if (verb === "update") {
+            updates.push(id!);
+            mkdirSync(dirname(landed), { recursive: true });
+            writeFileSync(landed, "---\nname: beta\ndescription: d\n---\nbody\n");
+          }
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      setSetting(SETTING, { "gadgets@market": ["beta"] }, "user");
+      try {
+        await createOnPulled({
+          probes: p,
+          slug: "acme",
+          dir: clone,
+          log: fakeLog(),
+          converge: (probes, slug, log) => convergePackCache(probes, slug, log, { activeTeam: () => "widgets", engine: () => null }),
+          writeMarketplace: (async () => ({ path: "", changed: false, dropped: [] })) as never,
+          applyCone: async () => ({ applied: [], kept: [] }),
+          holds: { has: () => false, mark: () => {} },
+        })();
+        expect(updates).toEqual(["gadgets@market"]);
+        expect(readFileSync(landed, "utf8")).toContain("disable-model-invocation: true");
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a pull that changed no pack edits nothing", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      try {
+        await onPulledWith(home, nothing)();
+        expect(readFileSync(file, "utf8")).toBe(plain);
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a skill left alone is logged as a warning and the pull still finishes", async () => {
+      const { home, file } = installedSkill();
+      writeFileSync(file, "no frontmatter\n");
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      const log = fakeLog();
+      try {
+        await onPulledWith(home, { ...nothing, installed: ["widgets@market"] }, log)();
+        expect(warned(log, "no frontmatter")).toBe(true);
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("an updated pack with no stored choices leaves a marked copy alone", async () => {
+      const { home, file } = installedSkill();
+      const marked = "---\nname: alpha\ndisable-model-invocation: true # rt: personal\n---\nbody\n";
+      writeFileSync(file, marked);
+      try {
+        await onPulledWith(home, { ...nothing, updated: [{ id: "widgets@market", to: "2.0.0" }] })();
+        expect(readFileSync(file, "utf8")).toBe(marked);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
+    test("a settings store the daemon cannot read edits nothing and does not fail the pull", async () => {
+      const { home, file } = installedSkill();
+      setSetting(SETTING, { "widgets@market": ["alpha"] }, "user");
+      const log = fakeLog();
+      const after: string[] = [];
+      try {
+        const onPulled = createOnPulled({
+          probes: fakeProbes({ home }),
+          slug: "acme",
+          dir: join(home, "orgs", "acme"),
+          log,
+          converge: (async () => ({ ...nothing, updated: [{ id: "widgets@market", to: "2.0.0" }] })) as never,
+          applyCone: async () => ({ applied: [], kept: [] }),
+          afterPull: async (slug) => { after.push(slug); },
+          readChoices: () => { throw new Error("no settings here"); },
+        });
+        await onPulled();
+        expect(readFileSync(file, "utf8")).toBe(plain);
+        expect(after).toEqual(["acme"]);
+        expect(warned(log, "no settings here")).toBe(true);
+      } finally {
+        unsetSetting(SETTING, "user");
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
   });
 
   test("createOnPulled logs the team folders a cone kept", async () => {
@@ -403,7 +815,7 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/.mattstack/orgs/acme",
       log,
-      converge: (async () => ({ held: [] })) as never,
+      converge: (async () => ({ held: [], updated: [], installed: [] })) as never,
       applyCone: async () => ({ applied: [], kept: ["gadgets"] }),
     });
     await onPulled();
@@ -420,7 +832,7 @@ describe("startTeamSnapshots", () => {
       slug: "acme",
       dir: "/h/orgs/acme",
       log,
-      converge: (async () => ({ held: [held] })) as never,
+      converge: (async () => ({ held: [held], updated: [], installed: [] })) as never,
       holds: { has: (k) => seen.has(k), mark: (k) => { seen.add(k); } },
     });
     await onPulled();

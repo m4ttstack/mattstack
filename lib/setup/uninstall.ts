@@ -10,14 +10,15 @@
  * reports `failed` and never partially deletes.
  */
 
-import { existsSync, readFileSync } from "fs";
-import { basename, isAbsolute, join } from "path";
+import { existsSync, readFileSync, realpathSync } from "fs";
+import { basename, isAbsolute, join, resolve } from "path";
+import { cswapConfigDirs } from "../cswap.ts";
 import { markDaemonUninstalled } from "../daemon-config.ts";
 import { otherFlavor, processFlavor } from "../flavor.ts";
 import { DEFAULT_EXPOSED, isOurLink, unlink } from "../deps/links.ts";
 import { appBundlePath, resolveTool } from "../deps/resolve.ts";
 import { detectEditors, type DetectedEditor } from "../editors.ts";
-import { DEV_TRAY_APP_BUNDLE, installedTrayAppPath, TRAY_APP_BUNDLE } from "../rt-paths.ts";
+import { DEV_TRAY_APP_BUNDLE, generatedMarketplaceDir, generatedMarketplacesRoot, installedTrayAppPath, isGeneratedMarketplaceFolder, TRAY_APP_BUNDLE } from "../rt-paths.ts";
 import { detectShell, MARKER, removeShellIntegration, removeZshenvPrecedence, shellRcPath } from "../shell-integration.ts";
 import type { ApplyContext, StepOutcome } from "./apply.ts";
 import type { UninstallActionId, StepKind } from "./contract.ts";
@@ -98,7 +99,7 @@ export function computeUninstallActions(p: Probes, opts: { keepData: boolean }, 
     actions.push({ id: "extension.uninstall", title: "Uninstall rt's editor extensions", kind: "rt" });
   }
 
-  if (state.plugins.length > 0 || state.marketplaces.length > 0) {
+  if (state.plugins.length > 0 || state.marketplaces.length > 0 || generatedMarketplaceFolders(p).length > 0) {
     actions.push({ id: "plugins.uninstall", title: "Uninstall the mattstack plugins from Claude Code", kind: "rt" });
   }
 
@@ -264,12 +265,66 @@ async function extensionUninstallRun(ctx: ApplyContext, seams: UninstallSeams = 
   return { outcome: { state: "done", detail: `Uninstalled from ${uninstalled.join(", ") || "none"}` } };
 }
 
+/** The per-org marketplace folders rt generated; a dotfile the Finder leaves is not one. */
+function generatedMarketplaceFolders(p: Pick<Probes, "home" | "readDir">): string[] {
+  return p.readDir(generatedMarketplacesRoot(p.home)).filter((name) => !name.startsWith(".")).map((name) => generatedMarketplaceDir(p.home, name));
+}
+
+function realOrResolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * Unregisters each generated marketplace from every Claude config folder rt
+ * registered it in, then deletes the folder. A folder whose registration
+ * could not be removed stays, so Retry can still match it by path.
+ */
+async function removeGeneratedMarketplaces(ctx: ApplyContext, exec: string[], notes: string[]): Promise<number> {
+  const folders = generatedMarketplaceFolders(ctx.p);
+  if (folders.length === 0) return 0;
+  const kept = new Set<string>();
+  for (const dir of claudeConfigDirs(ctx.p, cswapConfigDirs(ctx.p))) {
+    const run = (args: string[]) => ctx.p.exec([...exec, ...args], { env: { CLAUDE_CONFIG_DIR: dir } });
+    const listing = await run(["plugin", "marketplace", "list", "--json"]);
+    const listed = listing.code === 0 ? parseMarketplaceList(listing.stdout) : null;
+    if (listed === null) {
+      notes.push(`${dir}: could not list marketplaces (${claudeMessage(listing, `exited ${listing.code}`)})`);
+      for (const folder of folders) kept.add(folder);
+      continue;
+    }
+    for (const folder of folders) {
+      const match = listed.find((m) => m.source !== null && realOrResolved(m.source) === realOrResolved(folder));
+      if (!match) continue;
+      const res = await run(["plugin", "marketplace", "remove", match.name]);
+      if (res.code !== 0 && !isAlreadyGone(res)) {
+        notes.push(`${dir}: marketplace remove ${match.name}: ${claudeMessage(res, `exited ${res.code}`)}`);
+        kept.add(folder);
+      }
+    }
+  }
+  let removed = 0;
+  for (const folder of folders) {
+    if (kept.has(folder)) continue;
+    if (!isGeneratedMarketplaceFolder(ctx.p.home, folder)) {
+      notes.push(`Refusing to delete ${folder}: it is not a folder rt generated under ${generatedMarketplacesRoot(ctx.p.home)}`);
+      continue;
+    }
+    ctx.p.removeDir(folder);
+    removed++;
+  }
+  return removed;
+}
+
 async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   const claude = resolveTool(ctx.p, "claude");
   if (!claude.exec) return { outcome: { state: "skipped", detail: "Claude Code is not installed" } };
 
   const state = readSetupState(ctx.p);
-  if (state.plugins.length === 0 && state.marketplaces.length === 0) {
+  if (state.plugins.length === 0 && state.marketplaces.length === 0 && generatedMarketplaceFolders(ctx.p).length === 0) {
     return { outcome: { state: "skipped", detail: "Nothing recorded to remove" } };
   }
 
@@ -308,9 +363,11 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   }
 
   updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)] }));
+  const generated = await removeGeneratedMarketplaces(ctx, claude.exec, notes);
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
-  return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}` } };
+  const generatedNote = generated > 0 ? `, and deleted ${generated} generated team marketplace folder${generated === 1 ? "" : "s"}` : "";
+  return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}${generatedNote}` } };
 }
 
 function mattstackDataDir(p: Pick<Probes, "home">): string {

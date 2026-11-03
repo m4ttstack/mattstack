@@ -220,6 +220,11 @@ describe("rt uninstall", () => {
       expect(computeUninstallActions(p, { keepData: true }, noEditorSeams).some((a) => a.id === "plugins.uninstall")).toBe(true);
     });
 
+    test("plugins.uninstall: a generated team marketplace folder alone gates it", () => {
+      const p = bareProbes({ dirs: { [join(home, ".mattstack", "rt", "marketplaces")]: ["acme"] } });
+      expect(computeUninstallActions(p, { keepData: true }, noEditorSeams).some((a) => a.id === "plugins.uninstall")).toBe(true);
+    });
+
     test("app.trash: gated on appBundlePath resolving", () => {
       expect(computeUninstallActions(bareProbes(), { keepData: true }, noEditorSeams).some((a) => a.id === "app.trash")).toBe(false);
       const p = bareProbes({ dirs: { [APP_BUNDLE_ROOT]: [] } });
@@ -819,6 +824,78 @@ describe("rt uninstall", () => {
       const last = events.filter((e) => e.event === "step").at(-1) as { detail?: string };
       expect(last.detail).toContain("unknown option --json");
       expect(readSetupState(p).marketplaces).toEqual(["https://github.com/m4ttstack/mattstack-marketplace.git"]);
+    });
+
+    describe("the generated team marketplace", () => {
+      const generated = () => join(home, ".mattstack", "rt", "marketplaces", "acme");
+      const root = () => join(home, ".mattstack", "rt", "marketplaces");
+
+      function generatedProbes(opts: { removeReply?: () => { code: number; stdout: string; stderr: string }; sessions?: string[] } = {}) {
+        const execCalls: { argv: string[]; dir?: string }[] = [];
+        const listing = JSON.stringify([
+          { name: "acme-market", source: "directory", path: generated() },
+          { name: "mine", source: "directory", path: "/Users/me/mine" },
+        ]);
+        const sessionsRoot = join(home, ".claude-swap-backup", "sessions");
+        const p = bareProbes({
+          ...pathTool("claude"),
+          dirs: {
+            [root()]: ["acme", ".DS_Store"],
+            [generated()]: [".claude-plugin"],
+            ...(opts.sessions ? { [sessionsRoot]: opts.sessions } : {}),
+          },
+          statPaths: Object.fromEntries((opts.sessions ?? []).map((s) => [join(sessionsRoot, s), { isDirectory: true, writable: true }])),
+          exec: async (argv, execOpts) => {
+            execCalls.push({ argv: argv.slice(1), dir: execOpts?.env?.CLAUDE_CONFIG_DIR });
+            if (argv.slice(1).join(" ") === "plugin marketplace list --json") return ok(listing);
+            if (argv[3] === "remove" && opts.removeReply) return opts.removeReply();
+            return ok("");
+          },
+        });
+        return { p, execCalls };
+      }
+
+      test("unregisters it by its listed name in every Claude config folder, then deletes the folder", async () => {
+        const { p, execCalls } = generatedProbes({ sessions: ["work"] });
+        const { ctx } = makeCtx(p);
+
+        const result = await runUninstall(ctx, [{ id: "plugins.uninstall", title: "x", kind: "rt" }]);
+
+        expect(result.ok).toBe(true);
+        const removes = execCalls.filter((c) => c.argv[2] === "remove");
+        expect(removes.map((c) => c.argv)).toEqual([
+          ["plugin", "marketplace", "remove", "acme-market"],
+          ["plugin", "marketplace", "remove", "acme-market"],
+        ]);
+        expect(removes.map((c) => c.dir)).toEqual([join(home, ".claude"), join(home, ".claude-swap-backup", "sessions", "work")]);
+        expect(p.calls.removed).toContain(generated());
+        expect(p.calls.removed).not.toContain(join(root(), ".DS_Store"));
+      });
+
+      test("a registration that could not be removed keeps the folder for Retry", async () => {
+        const { p } = generatedProbes({ removeReply: () => ({ code: 1, stdout: "", stderr: "EACCES" }) });
+        const { ctx } = makeCtx(p);
+
+        const result = await runUninstall(ctx, [{ id: "plugins.uninstall", title: "x", kind: "rt" }]);
+
+        expect(result.ok).toBe(false);
+        expect(p.calls.removed).not.toContain(generated());
+      });
+
+      test("an unsafe home deletes nothing", async () => {
+        const p = fakeProbes({
+          home: "/",
+          ...pathTool("claude"),
+          dirs: { "/.mattstack/rt/marketplaces": ["acme"] },
+          exec: async (argv) => (argv.slice(1).join(" ") === "plugin marketplace list --json" ? ok("[]") : ok("")),
+        });
+        const { ctx } = makeCtx(p);
+
+        const result = await runUninstall(ctx, [{ id: "plugins.uninstall", title: "x", kind: "rt" }]);
+
+        expect(result.ok).toBe(false);
+        expect(p.calls.removed).toEqual([]);
+      });
     });
 
     test("a genuine failure (not 'already gone') fails the action with a retry remedy", async () => {

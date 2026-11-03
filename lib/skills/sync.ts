@@ -11,6 +11,8 @@ import { FLOOR_REL, heldCopy, readFloor, refusalCopy, runnableEngine, type Floor
 import { admit, updateArgs } from "../setup/plugin-calls.ts";
 import { mattstackFloor } from "../setup/mattstack-floor.ts";
 import { createRealProbes } from "../setup/probes.ts";
+import { generatedMarketplaceRef } from "../setup/generated-marketplace.ts";
+import { disableModelInvocationConfigDirs, disableModelInvocationHome, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "./disable-model-invocation.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -46,12 +48,16 @@ export type SyncDeps = {
   inTreeRoot: string | null;
   /** Where org clones live: a pack inside one follows whatever branch that clone has checked out. */
   orgsRoot?: string | null;
+  /** The ref an org clone's packs install from: the org's data branch, or main for an org with none. */
+  orgInstallRef?: (cloneDir: string) => string;
   /** The engine version this rt runs; null when it cannot tell. */
   engine?: () => string | null;
   /** The floor the mattstack marketplace's cached copy publishes. */
   engineFloor?: () => Promise<Floor>;
   /** This Mac's forge username in an org, which the org's roster lists it by. */
   forgeUsername?: (org: string) => string | null;
+  /** Where the member's disabled-model-invocation choices and the config folders they apply to come from. */
+  disableModelInvocation?: { configDirs: () => string[]; choices: () => Record<string, string[]> };
 };
 
 /**
@@ -61,7 +67,10 @@ export type SyncDeps = {
  */
 export const LAYOUT_HOLD: unique symbol = Symbol("layoutHold");
 
-export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string; [LAYOUT_HOLD]?: true };
+/** A step changed installed skills with no plugin update; a symbol, so the frozen --json report never carries it. */
+export const RELOAD_NEEDED: unique symbol = Symbol("reloadNeeded");
+
+export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string; [LAYOUT_HOLD]?: true; [RELOAD_NEEDED]?: true };
 
 /** `expect` is the signature `rt skills changes` printed: the sync refuses when the pack's pending changes no longer match it. */
 export type SyncOptions = { commitPending?: boolean; expect?: string };
@@ -99,7 +108,7 @@ function originGit(deps: SyncDeps, args: string[], opts: { cwd: string; push?: b
   return deps.runOrigin ? deps.runOrigin(args, opts) : deps.run("git", args, { cwd: opts.cwd });
 }
 
-type Outcome = Pick<SyncStep, "status" | "detail" | typeof LAYOUT_HOLD>;
+type Outcome = Pick<SyncStep, "status" | "detail" | typeof LAYOUT_HOLD | typeof RELOAD_NEEDED>;
 
 function ran(detail: string): Outcome {
   return { status: "ran", detail };
@@ -261,9 +270,9 @@ export function insideCheckout(dir: string, root: string | null): boolean {
 /** Claude Code installs an in-tree plugin from its git-subdir source's ref, never the checkout's working tree. */
 const IN_TREE_REF = "main";
 
-async function readInTreeVersion(deps: SyncDeps, root: string, dir: string): Promise<string> {
+async function readInTreeVersion(deps: SyncDeps, root: string, dir: string, ref: string = IN_TREE_REF): Promise<string> {
   const rel = relative(root, dir).split(sep).join("/");
-  const spec = `${IN_TREE_REF}:${rel === "" ? "" : rel + "/"}.claude-plugin/plugin.json`;
+  const spec = `${ref}:${rel === "" ? "" : rel + "/"}.claude-plugin/plugin.json`;
   const res = await deps.run("git", ["show", spec], { cwd: root });
   if (res.code !== 0) throw new Error(`git show ${spec} failed in ${root}: ${res.stderr.trim()}`);
   const manifest = JSON.parse(res.stdout) as { version?: string };
@@ -285,6 +294,14 @@ async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
   if (branch === IN_TREE_REF) return "";
   const where = branch === "" ? "is detached" : `is on ${branch}`;
   return `; the shared checkout at ${root} ${where}, not ${IN_TREE_REF}, and the plugin installs from ${IN_TREE_REF}`;
+}
+
+/** The org clone a pack sits in: the first folder under the orgs root, the one the generated marketplace's git-subdir url names. */
+function orgCloneOf(packDir: string, orgsRoot: string | null): string | null {
+  const root = realRoot(orgsRoot);
+  const dir = realRoot(packDir) ?? packDir;
+  if (root === null || dir === root || !isInside(dir, root)) return null;
+  return join(root, relative(root, dir).split(sep)[0]!);
 }
 
 function plural(n: number, word: string): string {
@@ -482,6 +499,11 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const engineGit = !engineInTree && !engineCached;
   const packInTree = isInside(pack.dir, inTreeRoot);
   const packGit = !sameCheckout && !packInTree;
+  // Claude Code installs an org clone's pack from a git-subdir source at the
+  // org's data branch, so only what is committed there ever installs.
+  const orgClone = packGit ? orgCloneOf(pack.dir, deps.orgsRoot ?? null) : null;
+  let orgRef: string | null = null;
+  let orgOffRef: string | null = null;
 
   let installedEngineBefore: string | null = null;
   let installedPackBefore: string | null = null;
@@ -518,6 +540,29 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     return res.code === 0 ? res.stdout.trim() : pack.dir;
   };
 
+  /** Reconcile failures warn; a plugin update replaces the installed copy, so the choices go back on after one. */
+  const reapplyDisableModelInvocation = async (): Promise<void> => {
+    const outcome = await tryStep(async () => {
+      const choices = (deps.disableModelInvocation?.choices ?? readDisableModelInvocationChoices)();
+      if (Object.keys(choices).length === 0) return skipped("no skills have model invocation disabled");
+      const configDirs = (deps.disableModelInvocation?.configDirs ?? (() => disableModelInvocationConfigDirs(process.env, disableModelInvocationHome())))();
+      if (configDirs.length === 0) return ran("no Claude config folders found, nothing changed");
+      const result = reconcileDisableModelInvocation({ configDirs, choices });
+      warnings.push(...result.warnings);
+      const n = result.changed.length;
+      const applied = `reapplied to ${n} ${n === 1 ? "skill" : "skills"}`;
+      const reload = n > 0 ? { [RELOAD_NEEDED]: true as const } : {};
+      if (result.warnings.length > 0) return { ...ran(n === 0 ? "some skills were left alone, see the warnings" : `${applied}, some left alone, see the warnings`), ...reload };
+      return { ...ran(n === 0 ? "nothing needed changing" : applied), ...reload };
+    });
+    if (outcome.status === "failed") {
+      warnings.push(`Could not keep model invocation disabled: ${outcome.detail}`);
+      steps.push({ name: "disable-model-invocation", status: "skipped", detail: "could not run, see the warnings" });
+      return;
+    }
+    steps.push({ name: "disable-model-invocation", ...outcome });
+  };
+
   const finish = (): SyncReport => ({
     ok: !steps.some(stops),
     pack: pack.name,
@@ -542,12 +587,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       );
     }
     if (!pack.marketplace) {
-      return refused(`The ${pack.name} pack was not installed from a directory marketplace, so rt has nothing to sync it from`);
+      return refused(`The ${pack.name} pack was not installed from a marketplace, so rt has nothing to sync it from`);
     }
     if (!engine.marketplace) {
       return refused(`The ${engine.name} engine was not installed from a marketplace. Install it from one, then run this again`);
     }
-    for (const rel of [".worktrees", join(".claude", "worktrees")]) {
+    // A git-subdir install carries only committed files, so a worktrees folder never reaches an org clone's pack.
+    for (const rel of orgClone === null ? [".worktrees", join(".claude", "worktrees")] : []) {
       const dir = join(pack.dir, rel);
       if (existsSync(dir)) {
         return refused(`There is a worktrees folder at ${dir}, and an update would copy it into the plugin. Remove it, then run this again`);
@@ -615,6 +661,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       }
       if (packBranch !== "main" && !isInside(realRoot(pack.dir) ?? pack.dir, realRoot(deps.orgsRoot ?? null))) {
         return refused(`The pack checkout is on ${packBranch}, not main. Switch it to main, then run this again`);
+      }
+      if (orgClone !== null) {
+        orgRef = (deps.orgInstallRef ?? ((dir: string) => generatedMarketplaceRef(createRealProbes(), dir)))(orgClone);
+        if (packBranch !== orgRef) {
+          orgOffRef = `the org clone is on ${packBranch}, not ${orgRef}, and only work committed on ${orgRef} installs`;
+          warnings.push(`The org clone at ${orgClone} is on ${packBranch}, not ${orgRef}. Only work committed on ${orgRef} installs, so the installed pack stays as it is until the clone is back on ${orgRef}`);
+        }
       }
     }
 
@@ -826,7 +879,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   // installed cache is keyed by version, so it must still bump, push and update.
   const rebuild = drift || published;
   const noOp = !rebuild && installedPackBefore === packSourceVersion;
-  if (noOp) return finish();
+  if (noOp) {
+    await reapplyDisableModelInvocation();
+    return finish();
+  }
   const mine = !rebuild || mayWritePack;
 
   const bump = await tryStep(async () => {
@@ -1083,6 +1139,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let packHeld = false;
   const updatePack = await tryStep(async () => {
     if (installedPackBefore === null) return skipped(notInstalled);
+    if (orgOffRef !== null) return skipped(orgOffRef);
     if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
     const id = pluginId(pack);
     const floor = packInTree ? await readInTreeFloor(deps, inTreeRoot!, pack.dir) : readFloor(readFileOrNull, pack.dir);
@@ -1101,16 +1158,20 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const verifyInstalled = await tryStep(async () => {
     if (installedPackBefore === null) return skipped(notInstalled);
     if (packHeld) return skipped("held for the app");
+    if (orgOffRef !== null) return skipped(orgOffRef);
     const list = await listInstalled(deps);
     installedPackAfter = installedVersionFor(list, pluginId(pack));
     installedEngineAfter = installedVersionFor(list, pluginId(engine));
-    if (installedPackAfter !== packSourceVersion) {
-      return failed(`The installed copy is at ${installedPackAfter ?? "unknown"}, but the source is at ${packSourceVersion}`);
+    const installable = orgClone !== null && orgRef !== null ? await readInTreeVersion(deps, orgClone, realRoot(pack.dir) ?? pack.dir, orgRef) : packSourceVersion;
+    if (installedPackAfter !== installable) {
+      return failed(`The installed copy is at ${installedPackAfter ?? "unknown"}, but the source is at ${installable}`);
     }
-    return ran(`the installed copy matches the source at ${packSourceVersion}`);
+    return ran(`the installed copy matches the source at ${installable}`);
   });
   steps.push({ name: "verify-installed", ...verifyInstalled });
   if (stops(verifyInstalled)) return finish();
+
+  await reapplyDisableModelInvocation();
 
   const cswapSweep = await tryStep(async () => {
     if (!existsSync(deps.cswapSessionsDir)) return skipped(`no cswap sessions folder at ${deps.cswapSessionsDir}`);

@@ -187,6 +187,7 @@ Bash, and only as a one-time lookup, not a per-round call.
 | a rule that holds even outside a pipeline (branch names, forbidden ops, where things live) | `skills/context/SKILL.md`, a hand-authored public skill |
 | something one stage or verb should do differently | a fill bound to a prop on one of that engine's blocks: a step's block for a rule at that step, `domain-rules` for the whole stage (or the review cluster's `criteria` / `reply-rules`) |
 | a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` plus `rt_verb {args: ["skills", "surface", "set", "<verb>", "--public", "--pack", "<pack>"]}` |
+| a new `ship` or `sync-open-mrs` door | the same, and a `watch-ci` roster entry too: both read that verb's file, so compile fails without it |
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
 | one kind of work (accessibility, a bug fix) that runs its own stages or its own fills | a pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb that names it (see Add a specialized pipeline) |
 | taking a pipeline's override back off | one `bind --pipeline <name> --unset`, then check (see Undo a pipeline's override) |

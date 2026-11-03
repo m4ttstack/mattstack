@@ -9,23 +9,28 @@ Skills load from a **versioned plugin cache**
 (`<config>/plugins/cache/<marketplace>/<plugin>/<version>/`), never from the
 source repo. A source edit is invisible until you bump the plugin version,
 run the update, and run `/reload-plugins` in the session. Same-commit
-version bumps are the convention (see any pack bump in git history). What the update puts in the
-cache differs by estate: a team pack's update copies the pack's whole
-working tree, untracked files and `.worktrees/` included; the mattstack
-plugin's update clones the shared monorepo checkout's committed `main` and installs
-its `plugins/mattstack` subdirectory, so an uncommitted edit or an untracked
-file never reaches the cache.
+version bumps are the convention (see any pack bump in git history). Both
+estates install from a _git-subdir_ entry, so an update clones a committed
+ref and copies one subdirectory into the cache; an uncommitted edit or an
+untracked file never reaches it, and a loaded skill's reported base dir is
+the cache copy itself. The one exception is a pack outside any org, whose
+marketplace names it with a _directory_ source: Claude Code loads that pack
+from its source folder, not the cache.
 
-The team pack is a _directory-source_ marketplace, so a loaded pack skill's
-reported base dir often points at the SOURCE path, not the cache copy. Don't
-read that as "it loads from source": the versioned cache is still what a
-session loads, and the bump/update/reload rule above still applies.
-The source path in the base dir is a convenience, not the live surface. The
-pack's entry in the org clone's `.claude-plugin/marketplace.json` has the
-source `./mattstack/teams/widgets/plugin`, relative to the clone. The
-mattstack plugin is a _git-subdir_ entry (a `file://` URL to the shared
-monorepo checkout, path `plugins/mattstack`, ref `main`), so its base dir is
-the cache copy itself.
+| Estate | Installs from | Ref the update reads |
+| --- | --- | --- |
+| Team pack | rt's per-Mac generated marketplace `~/.mattstack/rt/marketplaces/<org>/` (same `name` as the org's marketplace): a `file://` URL to this Mac's org clone, path `mattstack/teams/widgets/plugin` | the org's data branch in the org clone (`main` on an org with no data branch) |
+| mattstack plugin | the local dev marketplace: a `file://` URL to the shared monorepo checkout, path `plugins/mattstack` | `main` |
+
+So a team pack edit reaches a session only once it is committed on the
+data branch, followed by a sync (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`, or an app update's setup run)
+and `/reload-plugins`. Work on a trial branch, or not yet committed, never
+does: try it with `claude --plugin-dir <pack dir>` (see What the graph
+cannot show). The org clone's committed `.claude-plugin/marketplace.json`
+still lists the pack with the source `./mattstack/teams/widgets/plugin`,
+relative to the clone: rt reads that file at the data branch and writes the
+generated one from it, so never register the org clone itself as a
+marketplace.
 
 ## The two estates
 
@@ -33,7 +38,7 @@ the cache copy itself.
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Source      | `~/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/skills/<name>/` (hand-authored) or `.../plugin/attachments/<fill>/` (fills)                | `plugins/mattstack/plugin/skills/<name>/` in the mattstack monorepo (invocable), `plugins/mattstack/attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `plugins/mattstack/pack/stubs.jsonc` + `plugins/mattstack/pack/skills.jsonc` (the pack's OWN roster and bindings: `shepherdr`, `wrap-up` and the writing styles, compiled to `skills/<verb>/`) |
 | Manifest    | `.../plugin/.claude-plugin/plugin.json`                                                                                                           | `plugins/mattstack/.claude-plugin/plugin.json`                                                                                                                                                                                                                                                                                                                                                 |
-| Marketplace | `name` in the org clone's `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the org clone itself)         | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a git-subdir source: a `file://` URL to the shared monorepo checkout, path `plugins/mattstack`, ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257)                                                                                                            |
+| Marketplace | `name` in the org clone's `.claude-plugin/marketplace.json`, which need not match the pack name; registered through the generated folder `~/.mattstack/rt/marketplaces/<org>/`, which keeps that `name` | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a git-subdir source: a `file://` URL to the shared monorepo checkout, path `plugins/mattstack`, ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257)                                                                                                            |
 | Update      | `claude plugin update <plugin>@<marketplace>` (derive both, see below)                                                                            | `claude plugin update mattstack@mattstack`                                                                                                                                                                                                                                                                                                                                                     |
 
 **Where a team pack edit goes.** In the org clone itself, at the Source
@@ -41,10 +46,10 @@ row's path, on the branch the clone has checked out: every fill, skill,
 `pack/skills.jsonc`, `pack/stubs.jsonc`, `pack/surface.jsonc`,
 `pack/params.jsonc` and `pack/sections/` edit, and
 its commit and push. Never in a git worktree or another copy of the org
-repo: materialize reads a pack's fragment only from the org clone, and sync
-publishes the checkout the marketplace names (the org clone) and refuses a
-`.worktrees/` or `.claude/worktrees/` folder under the pack. Only a
-mattstack change is made in a worktree (your own monorepo worktree).
+repo: materialize reads a pack's fragment only from the org clone, and
+sync commits and pushes in the org clone, and installs only what its data
+branch holds. Only a mattstack change is made in a worktree (your own
+monorepo worktree).
 
 **Deriving `<plugin>@<marketplace>` for the update.** The two names are
 independent: `<plugin>` is the `name` in the pack's `plugin.json`;
@@ -88,6 +93,7 @@ digraph publish_skill {
     team_pack_clone [label="Team pack (the org clone, on whatever branch it has checked out)?" shape=diamond];
     push_org_clone_branch [label="Push the org clone's checked-out branch" shape=box];
     push_landed [label="Push landed?" shape=diamond];
+    on_data_branch [label="Org clone on the data branch?" shape=diamond];
     gate_team_pack_push_rejected [label="Gate: team pack push rejected" shape=box];
     git_push_upstream [label="git_push {tree: <checkout>, setUpstream: true}" shape=plaintext];
     git_push_result [label="git_push result?" shape=diamond];
@@ -128,6 +134,7 @@ digraph publish_skill {
     end_turn_reload [label="End the turn; the reload runs in place" shape=box];
     ask_user_reload [label="Ask the user to type /reload-plugins" shape=box];
     pushed_sync_waits [label="Pushed: sync waits until the branch lands on main" shape=doublecircle];
+    on_trial_branch [label="On a trial branch: try it with claude --plugin-dir <pack dir>; it installs once merged to the data branch" shape=doublecircle];
     handed_to_human [label="Handed to the human" shape=doublecircle];
     change_live [label="Change live in the cache" shape=doublecircle style=filled fillcolor=lightgreen];
 
@@ -165,7 +172,9 @@ digraph publish_skill {
     team_pack_clone -> push_org_clone_branch [label="yes: a team pack"];
     team_pack_clone -> git_push_upstream [label="no: every mattstack change"];
     push_org_clone_branch -> push_landed;
-    push_landed -> list_packs [label="yes"];
+    push_landed -> on_data_branch [label="yes"];
+    on_data_branch -> list_packs [label="yes"];
+    on_data_branch -> on_trial_branch [label="no"];
     push_landed -> gate_team_pack_push_rejected [label="no: quote the rejection"];
     gate_team_pack_push_rejected -> push_org_clone_branch [label="retry: human fixed it"];
     gate_team_pack_push_rejected -> handed_to_human [label="human takes over"];
@@ -349,9 +358,8 @@ rounds` counts the fixes already made for this change.
 
 ### Bump version in the manifest
 
-Bump `version` in the estate's manifest, in the same commit as the change.
-A team pack's update copies the whole working tree, so prune stray
-worktrees under the pack before the bump. For mattstack the bump comes
+Bump `version` in the estate's manifest, in the same commit as the change:
+an update at an unchanged version leaves the cache as it was. For mattstack the bump comes
 after certify and before the commit: sync consumes whatever `main` says and
 never bumps the engine, so a skipped bump leaves the engine cache, and
 therefore every pack that compiles against it, silently on the old version.
@@ -385,16 +393,19 @@ branch, and on some orgs that is the branch the clone has checked out.
 `git push` <!-- mcp-lint: allow -->
 
 For the team pack, push IS the team publish: teammates' installs read the
-same repo. Never force.
+same repo, at its data branch. A push from a trial branch reaches nobody's
+install, this Mac's included, until it lands on the data branch. Never
+force.
 
 A published team pack or mattstack plugin whose floor
 (`pack/requires.json` `minEngine`) is above a member's app is held on that
 Mac until they update the app: setup never installs it, and the
 `pack.<name>` row (for mattstack, the `tool.plugins` row) reads needs-you
-with the update-the-app copy. When the org folder moves while a pack is
-held, `org.folder` runs only a bare `claude plugin marketplace add <clone>`,
-so the registration follows the folder and the installed copy stays until
-the app updates.
+with the update-the-app copy. When the org folder moves, `org.folder`
+rewrites the generated folder and runs a bare
+`claude plugin marketplace add ~/.mattstack/rt/marketplaces/<org>`, so the
+registration follows the folder and every installed copy, a held pack's
+included, stays as it is.
 
 A mattstack change never takes this box: it is made on a branch in a
 monorepo worktree, pushed with `git_push`, and lands through a pull request
@@ -439,12 +450,14 @@ step's reason:
 
 Sync refuses before anything mutates unless both checkouts are clean, the
 engine checkout is on `main`, the pack checkout is on `main` or is the org
-clone (which may sit on whatever branch it has checked out), there is no
-`.worktrees/` or `.claude/worktrees/` under the pack, `claude` resolves to
-a binary, and each has a marketplace. Fix the one it names. Sync always
-acts on the checkout the marketplace names, never a worktree: a worktrees
-refusal means one was made under the pack, so carry its edits into the org
-clone (see Where a team pack edit goes) and remove the folder.
+clone (which may sit on whatever branch it has checked out), `claude`
+resolves to a binary, and each has a marketplace. A directory-source pack
+(not an org clone's) also refuses a `.worktrees/` or `.claude/worktrees/`
+folder under it: carry that worktree's edits into the pack checkout and
+remove the folder. Fix the one it names. Sync always acts on the org clone
+for a team pack, never a worktree. When the org clone sits on a branch
+other than the data branch, sync commits and pushes there but warns that
+the install stays on the data branch's version, and skips the update.
 An in-tree plugin (`plugins/mattstack` in the shared monorepo checkout)
 skips these git checks: sync reads its version from that checkout's `main`
 and only warns when the checkout sits on another branch.
@@ -544,7 +557,8 @@ human brings the rest current.
 Quote the cache listing and the version you bumped to (with no edit, the
 manifest's `version`), and propose why it
 lags (the update ran under another config dir, a marketplace points
-elsewhere). Retry: bring the packs current again, with `Sync calls`
+elsewhere, the org clone is off the data branch so sync skipped the
+update). Retry: bring the packs current again, with `Sync calls`
 starting again at zero. Takes over: the human chases the cache.
 
 ## What the graph cannot show
@@ -554,7 +568,9 @@ starting again at zero. Takes over: the human chases the cache.
   `git -C <path> ...`.
 - To try an uncommitted edit for one session without touching the cache:
   `claude --plugin-dir <monorepo checkout>/plugins/mattstack`, or
-  `claude --plugin-dir <pack dir>` for a team pack.
+  `claude --plugin-dir <pack dir>` for a team pack. For a team pack this is
+  the only way to try uncommitted or trial-branch work: the install reads
+  only the data branch's commits.
 - Every hand-off from `mattstack:extending-a-pack` or
   `mattstack:creating-a-pack` enters at `What changed?` with no RED
   baseline here. A round that wrote or revised a skill folder already passed

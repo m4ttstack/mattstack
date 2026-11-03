@@ -90,15 +90,66 @@
   padding: 10px 16px 12px;
 }
 
+/* The shell's `sm` breakpoint: a row's contents do not fit half a phone. */
+@media (max-width: 48em) {
+  .groupRows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* A row's edit link and its wash wait for the pointer or keyboard focus;
    the wash is the panel's near-white, so an off switch keeps its contrast. */
 .row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 11px;
+  row-gap: 1px;
+  align-items: center;
+  /* A neighbour in the list can stretch this row taller; the first line stays
+     at the top, so switches line up across the two columns. */
+  align-content: start;
   border-radius: 6px;
+}
+
+.rowLine {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+/* Under the skill's name, not its switch. */
+.rowNote {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 5px;
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.25;
+  color: var(--tk-text-3);
+}
+
+.rowNoteInfo {
+  display: inline-flex;
+  cursor: help;
 }
 
 .rowEdit {
   opacity: 0;
   transition: opacity 120ms ease;
+}
+
+/* Its menu sits in a portal, so the pointer leaves the row to reach it. */
+.rowEdit[data-expanded] {
+  opacity: 1;
+}
+
+/* Nothing can hover on a touch screen, so nothing would ever reveal them. */
+@media (hover: none) {
+  .rowEdit {
+    opacity: 1;
+  }
 }
 
 @media (hover: hover) {

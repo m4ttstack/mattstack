@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { basename, dirname, join } from "path";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { userSettingsPath } from "../../rt-paths.ts";
@@ -17,7 +17,7 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import type { ToolsInstallSeams } from "../tools-install.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
-import { fakeProbes, fakeTray, ok } from "./fakes.ts";
+import { fakeProbes, fakeTray, gitShowFromFiles, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 
 import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, __test__ as pluginsTest, computePlugins, pluginsInstallStep } from "../steps/plugins.ts";
@@ -244,27 +244,173 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }).teamAuthored).toEqual(["gadgets@acme"]);
     });
 
-    test("after a switch, the previous team's pack is neither updated, reinstalled nor enabled, and the new team's pack lands turned on", async () => {
-      const marketplacePath = join(home, ".mattstack", "orgs", "acme", ".claude-plugin", "marketplace.json");
-      const execCalls: string[][] = [];
-      const p = fakeProbes({
-        home,
-        env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
-        exec: async (argv) => {
-          execCalls.push(argv);
-          return argv[2] === "list" ? ok(JSON.stringify([{ id: "gadgets@acme", version: "1.0.0", enabled: false }])) : ok("");
-        },
+    describe("another team's installed pack", () => {
+      const clone = () => join(home, ".mattstack", "orgs", "acme");
+      const team = { slug: "acme", name: "Acme", mode: "none" } as const;
+      function orgFiles(floor: string | null = null): Record<string, string> {
+        return {
+          [join(clone(), ".claude-plugin", "marketplace.json")]: JSON.stringify({
+            name: "acme",
+            plugins: [{ name: "widgets", source: "./w" }, { name: "gadgets", source: "./g" }, { name: "gizmos", source: "./z" }],
+          }),
+          [join(clone(), "w", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "1.0.0" }),
+          [join(clone(), "g", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "2.0.0" }),
+          [join(clone(), "z", ".claude-plugin", "plugin.json")]: JSON.stringify({ version: "1.0.0" }),
+          ...(floor ? { [join(clone(), "g", "pack", "requires.json")]: JSON.stringify({ minEngine: floor }) } : {}),
+        };
+      }
+      /** Models the real claude: update moves the version and keeps enablement; install turns a pack on. */
+      function harness(files: Record<string, string>, installed: { id: string; version: string; enabled: boolean }[], failUpdate = false) {
+        const execCalls: string[][] = [];
+        const state = new Map(installed.map((e) => [e.id, { ...e }]));
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin", ...files },
+          exec: async (argv) => {
+            const shown = gitShowFromFiles(files, argv);
+            if (shown) return shown;
+            if (argv[0] === "git") return ok("");
+            execCalls.push(argv);
+            const [, , verb, id] = argv;
+            if (verb === "list") return ok(JSON.stringify([...state.values()]));
+            const entry = state.get(id!);
+            if (verb === "update") {
+              if (failUpdate && id === "gadgets@acme") return { code: 1, stdout: "", stderr: "registry exploded" };
+              if (entry && id === "gadgets@acme") entry.version = "2.0.0";
+            }
+            if (verb === "install") state.set(id!, { id: id!, version: "1.0.0", enabled: true });
+            if (verb === "enable" && entry) entry.enabled = true;
+            if (verb === "disable" && entry) entry.enabled = false;
+            return ok("");
+          },
+        });
+        return { p, execCalls, state };
+      }
+      const gadgetsCalls = (execCalls: string[][]) => execCalls.filter((a) => a.includes("gadgets@acme")).map((a) => a[2]);
+
+      for (const update of [false, true]) {
+        test(`after a switch the previous team's stale pack is updated and stays off, and the new team's pack lands turned on (${update ? "update" : "apply"} run)`, async () => {
+          const { p, execCalls, state } = harness(orgFiles(), [{ id: "gadgets@acme", version: "1.0.0", enabled: false }]);
+          const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, ...(update ? { update: true as const } : {}) });
+
+          const outcome = await pluginsInstallStep.run(ctx);
+
+          expect(outcome.state).toBe("done");
+          expect(gadgetsCalls(execCalls)).toEqual(["update"]);
+          expect(state.get("gadgets@acme")).toEqual({ id: "gadgets@acme", version: "2.0.0", enabled: false });
+          expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "enable"]);
+          expect(execCalls.filter((a) => a.includes("gizmos@acme"))).toEqual([]);
+          expect(detailOf(outcome)).not.toContain("awaiting your approval");
+          expect(detailOf(outcome)).not.toContain("gadgets@acme");
+        });
+      }
+
+      test("one already at the served version takes no call", async () => {
+        const { p, execCalls } = harness(orgFiles(), [{ id: "gadgets@acme", version: "2.0.0", enabled: true }]);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, update: true });
+
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        expect(gadgetsCalls(execCalls)).toEqual([]);
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "widgets" });
 
-      const outcome = await pluginsInstallStep.run(ctx);
+      test("one served above this Mac's engine is held, and the detail names it", async () => {
+        const { p, execCalls } = harness(orgFiles("0.31.0"), [{ id: "gadgets@acme", version: "1.0.0", enabled: false }]);
+        const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => "0.30.28", update: true });
 
-      expect(outcome.state).toBe("done");
-      expect(execCalls.filter((a) => a.includes("gadgets@acme"))).toEqual([]);
-      expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "enable"]);
-      expect(detailOf(outcome)).not.toContain("awaiting your approval");
-      expect(detailOf(outcome)).not.toContain("gadgets@acme");
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(gadgetsCalls(execCalls)).toEqual([]);
+        expect(detailOf(outcome)).toContain("gadgets 2.0.0 needs a newer mattstack app (engine 0.31.0 or later)");
+      });
+
+      test("one whose update fails is logged and named, never reinstalled, and the step still finishes", async () => {
+        const { p, execCalls, state } = harness(orgFiles(), [{ id: "gadgets@acme", version: "1.0.0", enabled: false }], true);
+        const { ctx, logs } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, update: true });
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(gadgetsCalls(execCalls)).toEqual(["update"]);
+        expect(state.get("gadgets@acme")!.enabled).toBe(false);
+        expect(logs.some((l) => l.line.includes("gadgets@acme") && l.line.includes("registry exploded"))).toBe(true);
+        expect(detailOf(outcome)).toContain("gadgets@acme could not be updated");
+      });
+    });
+
+    describe("disabled skills", () => {
+      const plain = "---\nname: alpha\ndescription: d\n---\nbody\n";
+
+      /** The plugin is listed and installed; its update lands a new version folder with no line yet. */
+      function updatingProbes(landed: string, readOnly = false) {
+        setSetting("claude.plugins", ["widgets@market"], "user");
+        mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+        return fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin" },
+          exec: async (argv) => {
+            if (argv[2] === "list") return ok(JSON.stringify([{ id: "widgets@market", version: "1.0.0", enabled: true }]));
+            if (argv[2] === "update") {
+              mkdirSync(join(landed, ".."), { recursive: true });
+              writeFileSync(landed, plain);
+              if (readOnly) chmodSync(landed, 0o444);
+            }
+            return ok("");
+          },
+        });
+      }
+
+      const landedFile = () => join(home, ".claude", "plugins", "cache", "market", "widgets", "2.0.0", "skills", "alpha", "SKILL.md");
+
+      test("the line is on the version the plugin update lands", async () => {
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
+        const { ctx } = makeCtx(updatingProbes(landedFile()));
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(readFileSync(landedFile(), "utf8")).toContain("# rt: personal");
+      });
+
+      test("a reconcile warning is logged, shown in the detail, and the step still returns done", async () => {
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
+        const { ctx, logs } = makeCtx(updatingProbes(landedFile(), true));
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect(logs.some((l) => l.id === "plugins.install" && l.line.includes("read-only"))).toBe(true);
+        expect(detailOf(outcome)).toContain("Some skills could not have model invocation disabled");
+      });
+
+      test("a run that fails early still puts the line back on what an earlier step reinstalled", async () => {
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
+        const landed = landedFile();
+        mkdirSync(dirname(landed), { recursive: true });
+        writeFileSync(landed, plain);
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin" },
+          exec: async (argv) => (argv[2] === "list" ? { code: 1, stdout: "", stderr: "corrupt" } : ok("")),
+        });
+
+        const outcome = await pluginsInstallStep.run(makeCtx(p).ctx);
+
+        expect(outcome.state).toBe("failed");
+        expect(readFileSync(landed, "utf8")).toContain("# rt: personal");
+      });
+
+      test("with no warning the detail says nothing about disabled skills", async () => {
+        setSetting("rt.skills.disableModelInvocation", { "widgets@market": ["alpha"] }, "user");
+        const { ctx } = makeCtx(updatingProbes(landedFile()));
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(detailOf(outcome)).not.toContain("model invocation");
+      });
     });
 
     describe("engine floor", () => {
@@ -286,6 +432,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           env: { PATH: "/usr/local/bin" },
           files: { "/usr/local/bin/claude": "bin", ...files },
           exec: async (argv) => {
+            const shown = gitShowFromFiles(files, argv);
+            if (shown) return shown;
             execCalls.push(argv);
             const [, , verb, sub] = argv;
             if (verb === "list") return ok(JSON.stringify(installed));
@@ -414,6 +562,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
       const marketSrcs = execCalls.filter((a) => a.includes("marketplace") && a.includes("add")).map((a) => a.at(-1));
       expect(marketSrcs).not.toContain(join(home, ".mattstack", "orgs", "acme"));
+      expect(marketSrcs).not.toContain(join(home, ".mattstack", "rt", "marketplaces", "acme"));
     });
 
     // Replies captured from the real CLI (2.1.280): a repeat add exits 0 and
@@ -490,15 +639,18 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
     test("happy path: one custom marketplace + team marketplace/plugin, one config dir — full argv sequence, setup-state recorded", async () => {
       const teamDir = join(home, ".mattstack", "orgs", "acme");
+      const generatedDir = join(home, ".mattstack", "rt", "marketplaces", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
+      const orgFile = JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] });
       setSetting("claude.marketplaces", ["https://example.com/extra-market"], "user");
 
       const execCalls: { argv: string[]; env?: Record<string, string> }[] = [];
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: orgFile },
         exec: async (argv, opts) => {
+          if (argv[0] === "git") return ok(orgFile);
           execCalls.push({ argv, env: opts?.env });
           return argv[2] === "list" ? ok("[]") : ok("");
         },
@@ -526,7 +678,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       // otherwise squat the "mattstack" name before rt's own add runs.
       const marketSrcs = marketAdds.map((c) => c.argv.at(-1) ?? "");
       expect(marketSrcs[0]).toBe(MATTSTACK_MARKETPLACE_SOURCE);
-      expect(marketSrcs).toEqual(expect.arrayContaining(["https://example.com/extra-market", MATTSTACK_MARKETPLACE_SOURCE, teamDir]));
+      expect(marketSrcs).toEqual(expect.arrayContaining(["https://example.com/extra-market", MATTSTACK_MARKETPLACE_SOURCE, generatedDir]));
+      expect(marketSrcs).not.toContain(teamDir);
+      expect(JSON.parse(p.readFile(join(generatedDir, ".claude-plugin", "marketplace.json"))!).plugins[0].source).toMatchObject({ source: "git-subdir", path: "mattstack/teams/acme-skills/plugin" });
 
       const pluginNames = installs.map((c) => c.argv.at(-1) ?? "");
       expect(pluginNames).toEqual(expect.arrayContaining(["mattstack@mattstack", "fast-browser@mattstack", "chat@mattstack", "superpowers@claude-plugins-official", "acme-skills@acme-market"]));
@@ -534,6 +688,180 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const state = readSetupState(p);
       expect([...state.marketplaces].sort()).toEqual([...marketSrcs].sort());
       expect([...state.plugins].sort()).toEqual([...pluginNames].sort());
+    });
+
+    describe("the team marketplace is this Mac's generated folder", () => {
+      const teamDir = () => join(home, ".mattstack", "orgs", "acme");
+      const generatedDir = () => join(home, ".mattstack", "rt", "marketplaces", "acme");
+      const orgFile = JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] });
+
+      /** A claude whose `marketplace list` answers from what is registered so far; `teamAt` is where the team's name starts out, if anywhere. */
+      function member(teamAt: string | null, opts: { committed?: string | null; workingTree?: string | null } = {}) {
+        const adds: string[] = [];
+        const registered = new Map<string, string>(teamAt === null ? [] : [["acme-market", teamAt]]);
+        const workingTree = opts.workingTree === undefined ? orgFile : opts.workingTree;
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin", ...(workingTree === null ? {} : { [join(teamDir(), ".claude-plugin", "marketplace.json")]: workingTree }) },
+          exec: async (argv) => {
+            if (argv[0] === "git") return opts.committed === null ? { code: 128, stdout: "", stderr: "fatal: invalid object name 'main'" } : ok(opts.committed ?? orgFile);
+            const [, , verb, sub, target] = argv;
+            if (verb === "marketplace" && sub === "list") return ok(JSON.stringify([...registered].map(([name, path]) => ({ name, source: "directory", path }))));
+            if (verb === "marketplace" && sub === "add" && target) {
+              adds.push(target);
+              registered.set(target === generatedDir() || target === teamDir() ? "acme-market" : target, target);
+            }
+            return argv[2] === "list" ? ok("[]") : ok("");
+          },
+        });
+        return { p, adds };
+      }
+      const teamCtx = (p: Probes, overrides: Partial<ApplyContext> = {}) => makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills", ...overrides });
+
+      test("a registration already at the generated folder is current: neither it nor the org clone is added again", async () => {
+        const { p, adds } = member(generatedDir());
+        const outcome = await pluginsInstallStep.run(teamCtx(p).ctx);
+        expect(outcome.state).toBe("done");
+        expect(adds).not.toContain(generatedDir());
+        expect(adds).not.toContain(teamDir());
+      });
+
+      test("a registration still at the org clone is re-pointed with one add of the generated folder, and setup-state's record follows it", async () => {
+        const { p, adds } = member(teamDir());
+        updateSetupState(p, (s) => ({ ...s, marketplaces: [teamDir()] }));
+        const outcome = await pluginsInstallStep.run(teamCtx(p, { update: true }).ctx);
+        expect(outcome.state).toBe("done");
+        expect(adds.filter((a) => a === generatedDir())).toEqual([generatedDir()]);
+        expect(adds).not.toContain(teamDir());
+        expect(readSetupState(p).marketplaces).toContain(generatedDir());
+        expect(readSetupState(p).marketplaces).not.toContain(teamDir());
+      });
+
+      test("an update leaves alone a team marketplace the member removed since rt added it as the org clone", async () => {
+        const { p, adds } = member(null);
+        updateSetupState(p, (s) => ({ ...s, marketplaces: [teamDir()] }));
+        const { ctx, logs } = teamCtx(p, { update: true });
+        await pluginsInstallStep.run(ctx);
+        expect(adds).not.toContain(generatedDir());
+        expect(adds).not.toContain(teamDir());
+        expect(logs.some((l) => l.line.includes("removed since rt added it, left alone"))).toBe(true);
+      });
+
+      test("a registration at another spelling of the generated folder is current and is not added again", async () => {
+        mkdirSync(generatedDir(), { recursive: true });
+        const link = join(home, "generated-link");
+        symlinkSync(generatedDir(), link);
+        const { p, adds } = member(link);
+        expect((await pluginsInstallStep.run(teamCtx(p).ctx)).state).toBe("done");
+        expect(adds).not.toContain(generatedDir());
+      });
+
+      test("an update installs a team pack rt removed and is still reinstalling, though setup-state records it", async () => {
+        const { p } = member(generatedDir());
+        const installs: string[][] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv.slice(1));
+          return exec(argv, o);
+        };
+        const pack = "acme-skills@acme-market";
+        updateSetupState(p, (s) => ({
+          ...s,
+          plugins: [...BASE_PLUGINS, pack],
+          orgMarketplaceMoves: [{ marketplace: "acme-market", dir: generatedDir(), configDir: join(home, ".claude"), plugins: [{ id: pack, scope: "user", enabled: true }] }],
+        }));
+        const { ctx, logs } = teamCtx(p, { update: true });
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        expect(installs.some((a) => a[2] === pack)).toBe(true);
+        expect(logs.some((l) => l.line.includes(`${pack}: removed since rt installed it`))).toBe(false);
+      });
+
+      test("a pack the member had turned off goes back in turned off, never enabled", async () => {
+        const { p } = member(generatedDir());
+        const calls: string[][] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[1] === "plugin" && (argv[2] === "install" || argv[2] === "enable" || argv[2] === "disable")) calls.push(argv.slice(2, 4));
+          return exec(argv, o);
+        };
+        const pack = "acme-skills@acme-market";
+        updateSetupState(p, (s) => ({
+          ...s,
+          plugins: [...BASE_PLUGINS, pack],
+          orgMarketplaceMoves: [{ marketplace: "acme-market", dir: generatedDir(), configDir: join(home, ".claude"), plugins: [{ id: pack, scope: "user", enabled: false }] }],
+        }));
+        const { ctx } = teamCtx(p, { update: true });
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        const forPack = calls.filter((c) => c[1] === pack).map((c) => c[0]);
+        expect(forPack).toContain("install");
+        expect(forPack).toContain("disable");
+        expect(forPack).not.toContain("enable");
+        expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+      });
+
+      test("a pack the working tree lists but the data branch does not is never installed, and the step still finishes", async () => {
+        const committed = JSON.stringify({ name: "acme-market", plugins: [] });
+        const { p } = member(generatedDir(), { committed });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        expect((await pluginsInstallStep.run(teamCtx(p, { update: true }).ctx)).state).toBe("done");
+        expect(installs).not.toContain("acme-skills@acme-market");
+      });
+
+      test("the marketplace name comes from the data branch when the working tree names it differently", async () => {
+        const workingTree = JSON.stringify({ name: "renamed-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] });
+        const { p } = member(generatedDir(), { workingTree });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        expect((await pluginsInstallStep.run(teamCtx(p).ctx)).state).toBe("done");
+        expect(installs).toContain("acme-skills@acme-market");
+        expect(installs).not.toContain("acme-skills@renamed-market");
+      });
+
+      test("a committed catalog with no working-tree copy still registers the generated folder and installs the pack", async () => {
+        const { p, adds } = member(null, { workingTree: null });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        expect((await pluginsInstallStep.run(teamCtx(p).ctx)).state).toBe("done");
+        expect(adds).toContain(generatedDir());
+        expect(installs).toContain("acme-skills@acme-market");
+      });
+
+      test("a full apply whose generated folder could not be written skips the team pack and says why", async () => {
+        const { p } = member(null, { committed: null });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        const outcome = await pluginsInstallStep.run(teamCtx(p).ctx);
+        expect(outcome.state).toBe("done");
+        expect(installs).not.toContain("acme-skills@acme-market");
+        expect(detailOf(outcome)).toContain("acme-skills@acme-market was not installed: the org repo has no .claude-plugin/marketplace.json on main");
+      });
+
+      test("a clone with no marketplace on its ref adds no team marketplace, the org clone included, and says why in the log", async () => {
+        const { p, adds } = member(null, { committed: null });
+        const { ctx, logs } = teamCtx(p);
+        await pluginsInstallStep.run(ctx);
+        expect(adds).not.toContain(generatedDir());
+        expect(adds).not.toContain(teamDir());
+        expect(logs.some((l) => l.line.includes("the team marketplace was not added: the org repo has no .claude-plugin/marketplace.json on main"))).toBe(true);
+      });
     });
 
     test("runs materializeSkills AFTER a successful install, honest tally when the engine pack exists", async () => {
@@ -850,8 +1178,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
           if (verb === "list") return ok(JSON.stringify(Object.keys(enabled).map((k) => ({ id: k, version: "1.0.0", enabled: enabled[k] }))));
           if (verb === "install") {
@@ -897,7 +1226,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
           execCalls.push(argv);
           const [, , verb, id] = argv;
@@ -943,8 +1272,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           execCalls.push(argv);
           const [, , verb, id] = argv;
           if (verb === "list") return ok(JSON.stringify(Object.keys(enabled).map((k) => ({ id: k, version: "1.0.0", enabled: enabled[k] }))));
@@ -982,8 +1312,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           execCalls.push(argv);
           const [, , verb, id] = argv;
           if (verb === "list") return ok(JSON.stringify(Object.keys(enabled).map((k) => ({ id: k, version: "1.0.0", enabled: enabled[k] }))));
@@ -1085,8 +1416,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
           if (verb === "list") return ok("[]");
           if (verb === "enable") {
@@ -1118,8 +1450,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
+          if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
           if (verb === "list") return ok("[]");
           if (verb === "install") return { code: 1, stdout: "", stderr: "plugin already installed" };
