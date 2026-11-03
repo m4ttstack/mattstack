@@ -15,6 +15,7 @@ import { pathToFileURL } from "url";
 import { stripJsonc } from "../jsonc.ts";
 import { generatedMarketplaceDir, orgDirUnder } from "../rt-paths.ts";
 import { knownDataBranch } from "../team/org-branch.ts";
+import { PACK_EXEC_TIMEOUT_MS } from "./plugin-calls.ts";
 import type { Probes } from "./probes.ts";
 
 export interface RenderedMarketplace {
@@ -79,7 +80,7 @@ export async function writeGeneratedMarketplace(
   const path = generatedMarketplaceDir(p.home, org);
   const cloneDir = orgDirUnder(p.home, org);
   const ref = generatedMarketplaceRef(p, cloneDir);
-  const shown = await p.exec(["git", "-C", cloneDir, "show", `${ref}:.claude-plugin/marketplace.json`], { env: { LC_ALL: "C" } });
+  const shown = await p.exec(["git", "-C", cloneDir, "show", `${ref}:.claude-plugin/marketplace.json`], { env: { LC_ALL: "C" }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
   if (shown.code !== 0) return { path, changed: false, skipped: `the org repo has no .claude-plugin/marketplace.json on ${ref}`, dropped: [] };
 
   const rendered = renderGeneratedMarketplace(shown.stdout, cloneDir, ref);

@@ -3,6 +3,7 @@ import { join } from "path";
 import { pathToFileURL } from "url";
 import { generatedMarketplaceDir, orgDirUnder } from "../../rt-paths.ts";
 import { renderGeneratedMarketplace, writeGeneratedMarketplace } from "../generated-marketplace.ts";
+import { PACK_EXEC_TIMEOUT_MS } from "../pack-cache.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const home = "/h";
@@ -67,6 +68,13 @@ describe("writeGeneratedMarketplace", () => {
     const p = fakeProbes({ home, exec: () => ({ code: 0, stdout: orgFile, stderr: "" }) });
     await writeGeneratedMarketplace(p, "acme");
     expect(p.calls.exec[0]).toEqual(["git", "-C", clone, "show", "main:.claude-plugin/marketplace.json"]);
+  });
+
+  test("the git show is bounded, since the daemon runs it on every pull", async () => {
+    const timeouts: (number | undefined)[] = [];
+    const p = fakeProbes({ home, exec: (_argv, o) => { timeouts.push(o?.timeoutMs); return { code: 0, stdout: orgFile, stderr: "" }; } });
+    await writeGeneratedMarketplace(p, "acme");
+    expect(timeouts).toEqual([PACK_EXEC_TIMEOUT_MS]);
   });
 
   test("a clone without the file at the ref is skipped, not thrown", async () => {

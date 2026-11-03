@@ -101,7 +101,7 @@ describe("convergePackCache", () => {
   });
 
   test("a working tree ahead of the data branch issues no update: the installed pack matches the branch", async () => {
-    const atBranch = pluginJson("acme-skills", "0.5.28");
+    const atBranch = { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.5.28") };
     const { p, execs } = probesWith(
       { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.6.0") },
       () => listing([{ id: "acme-skills@acme-market", version: "0.5.28", enabled: false }]),

@@ -11,7 +11,7 @@ import { stripJsonc } from "../jsonc.ts";
 import { activeTeamFor } from "../team/active-team.ts";
 import { FLOOR_REL, readFloor, runnableEngine } from "../engine-floor.ts";
 import { generatedMarketplaceRef } from "./generated-marketplace.ts";
-import { admit, installArgs, updateArgs, type Admitted } from "./plugin-calls.ts";
+import { admit, installArgs, PACK_EXEC_TIMEOUT_MS, updateArgs, type Admitted } from "./plugin-calls.ts";
 import type { ExecResult, Probes } from "./probes.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Logger } from "pino";
@@ -95,21 +95,26 @@ function sourceRel(source: string): string | null {
   return rel;
 }
 
-async function showAt(p: Pick<Probes, "exec">, clone: string, ref: string, path: string): Promise<string | null> {
-  const res = await p.exec(["git", "-C", clone, "show", `${ref}:${path}`], { env: { LC_ALL: "C" } });
-  return res.code === 0 ? res.stdout : null;
+type Shown = { kind: "text"; text: string } | { kind: "missing" } | { kind: "unreadable" };
+
+/** git's own wording under LC_ALL=C for a path or ref the commit does not have; any other failure says nothing about the file. */
+const NOT_AT_REF = /does not exist in|exists on disk, but not in|invalid object name/;
+
+async function showAt(p: Pick<Probes, "exec">, clone: string, ref: string, path: string): Promise<Shown> {
+  const res = await p.exec(["git", "-C", clone, "show", `${ref}:${path}`], { env: { LC_ALL: "C" }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+  if (res.code === 0) return { kind: "text", text: res.stdout };
+  return NOT_AT_REF.test(res.stderr) ? { kind: "missing" } : { kind: "unreadable" };
 }
 
 /**
  * A null `servedVersion` means rt cannot read a version for that pack (an
- * object-form source, or a plugin.json missing or unparsable at the ref).
- * Callers must treat that as "outside the converge", never as a version
- * mismatch.
+ * object-form source, a plugin.json missing or unparsable at the ref, or a
+ * manifest or floor git could not read). Callers must treat that as
+ * "outside the converge", never as a version mismatch.
  *
- * The entries come from the org file in the working tree, but each version
- * and floor is read at the org's data branch, the ref Claude installs from
- * through the generated marketplace: a working tree ahead of it must not
- * read as an update Claude can never land.
+ * The org file, each version and each floor are read at the org's data
+ * branch, the ref Claude installs from through the generated marketplace: a
+ * working tree ahead of it must not read as an update Claude can never land.
  *
  * `only` unset serves every entry; a name serves that pack alone; null serves
  * none, for a Mac on no team.
@@ -117,14 +122,16 @@ async function showAt(p: Pick<Probes, "exec">, clone: string, ref: string, path:
 export async function readServedPacks(p: Pick<Probes, "readFile" | "home" | "exec">, slug: string, opts: { only?: string | null } = {}): Promise<ServedPacks> {
   const clone = teamCloneDir(p.home, slug);
   const path = join(clone, ".claude-plugin", "marketplace.json");
-  const raw = p.readFile(path);
-  if (raw === null) return { packs: [], error: null };
+  const ref = generatedMarketplaceRef(p, clone);
+  const shown = await showAt(p, clone, ref, ".claude-plugin/marketplace.json");
+  if (shown.kind === "missing") return { packs: [], error: null };
+  if (shown.kind === "unreadable") return { packs: [], error: `git could not read ${path} on ${ref}` };
 
   let parsed: { name?: unknown; plugins?: unknown };
   try {
-    parsed = JSON.parse(stripJsonc(raw)) as { name?: unknown; plugins?: unknown };
+    parsed = JSON.parse(stripJsonc(shown.text)) as { name?: unknown; plugins?: unknown };
   } catch {
-    return { packs: [], error: `${path} did not parse` };
+    return { packs: [], error: `${path} on ${ref} did not parse` };
   }
 
   const marketplace = typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : slug;
@@ -134,16 +141,17 @@ export async function readServedPacks(p: Pick<Probes, "readFile" | "home" | "exe
       isPlainObject(entry) && typeof entry.name === "string" && entry.name.length > 0 && (opts.only === undefined || entry.name === opts.only),
   );
   if (wanted.length === 0) return { packs: [], error: null };
-  const ref = generatedMarketplaceRef(p, clone);
   const packs = await Promise.all(
     wanted.map(async (entry): Promise<ServedPack> => {
       const id = `${entry.name}@${marketplace}`;
+      const unknown = { id, name: entry.name, servedVersion: null, floor: null };
       const rel = typeof entry.source === "string" ? sourceRel(entry.source) : null;
-      if (rel === null) return { id, name: entry.name, servedVersion: null, floor: null };
+      if (rel === null) return unknown;
       const at = (file: string): string => (rel === "" ? file : `${rel}/${file}`);
-      const [manifest, floorRaw] = await Promise.all([showAt(p, clone, ref, at(".claude-plugin/plugin.json")), showAt(p, clone, ref, at(FLOOR_REL))]);
-      const floor = readFloor(() => floorRaw, `${ref}:${rel === "" ? "." : rel}`);
-      return { id, name: entry.name, servedVersion: parseVersion(manifest), floor };
+      const [manifest, floorShown] = await Promise.all([showAt(p, clone, ref, at(".claude-plugin/plugin.json")), showAt(p, clone, ref, at(FLOOR_REL))]);
+      if (manifest.kind === "unreadable" || floorShown.kind === "unreadable") return unknown;
+      const floor = readFloor(() => (floorShown.kind === "text" ? floorShown.text : null), `${ref}:${rel === "" ? "." : rel}`);
+      return { id, name: entry.name, servedVersion: parseVersion(manifest.kind === "text" ? manifest.text : null), floor };
     }),
   );
   return { packs, error: null };
@@ -153,7 +161,7 @@ export async function readServedPacks(p: Pick<Probes, "readFile" | "home" | "exe
 export const SETTLE_EXEC_TIMEOUT_MS = 30_000;
 /** Three settlement execs. A settlement never starts without this much budget left, so it can never abort part-way and strand a pack installed-and-enabled. */
 export const SETTLEMENT_MAX_MS = 3 * SETTLE_EXEC_TIMEOUT_MS;
-export const PACK_EXEC_TIMEOUT_MS = 60_000;
+export { PACK_EXEC_TIMEOUT_MS };
 /** 30s fetch + this must stay under commands/team.ts PULL_TIMEOUT_MS (180_000). */
 export const CONVERGE_BUDGET_MS = 120_000;
 
