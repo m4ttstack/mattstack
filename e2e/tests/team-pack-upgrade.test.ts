@@ -12,7 +12,7 @@
  * branch a real update takes.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, realpathSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, realpathSync, rmSync } from "fs";
 import { join } from "path";
 import { execFileSync } from "child_process";
 import { createTestHome } from "../harness.ts";
@@ -27,6 +27,10 @@ import { convergePackCache } from "../../lib/setup/pack-cache.ts";
 import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
 import { setSetting, setSettingsNoticeSink } from "../../lib/settings/write.ts";
 import { PERSONAL_MARK } from "../../lib/skills/disable-model-invocation-line.ts";
+import { ORG_LAYOUT, POINTER_REL, pointerText } from "../../lib/team/org-marker.ts";
+import { orgLayoutState } from "../../lib/team/org-layout.ts";
+import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
+import { createOnPulled } from "../../lib/daemon/team-snapshots.ts";
 
 const enabled = process.env.RT_CLAUDE_PLUGIN_E2E === "1" && Bun.which("claude") !== null;
 
@@ -81,7 +85,7 @@ describe.skipIf(!enabled)("team pack upgrade: directory-source member to the gen
   /** Real probes on the test's HOME; every child gets this HOME and config dir unless the caller names its own, and no app bundle's helpers are visible. */
   function probes(): Probes {
     const real = createRealProbes();
-    const pinned = <T extends ExecOpts>(opts: T | undefined): T => ({ ...opts, env: { HOME: home, CLAUDE_CONFIG_DIR: config, ...opts?.env } }) as T;
+    const pinned = <T extends ExecOpts>(opts: T | undefined): T => ({ ...opts, env: { HOME: home, CLAUDE_CONFIG_DIR: config, ...opts?.env } }) as unknown as T;
     return {
       ...real,
       home,
@@ -185,10 +189,17 @@ describe.skipIf(!enabled)("team pack upgrade: directory-source member to the gen
     previousSink = setSettingsNoticeSink(() => {});
     mkdirSync(config, { recursive: true });
 
-    // The org clone as a member has it today: the data branch checked out, layout 5, the team record naming the branch.
+    // The org clone as a member has it today: `main` holding only the pointer, the data branch checked out with the org store, layout 5, the team record naming the branch.
     mkdirSync(clone, { recursive: true });
-    git(["init", "-q", "-b", DATA_BRANCH]);
-    writeJson(join(clone, "mattstack/mattstack.jsonc"), { role: "org", org: ORG, layout: 5, dataBranch: DATA_BRANCH });
+    git(["init", "-q", "-b", "main"]);
+    writeFileSync(join(clone, POINTER_REL), pointerText(ORG, DATA_BRANCH, ORG_LAYOUT));
+    git(["add", "-A"]);
+    git(["commit", "-qm", "pointer"]);
+    git(["checkout", "-q", "--orphan", DATA_BRANCH]);
+    git(["rm", "-q", "-r", "--cached", "."]);
+    rmSync(join(clone, POINTER_REL));
+    writeJson(join(clone, "mattstack/mattstack.jsonc"), { role: "org", org: ORG, layout: ORG_LAYOUT, dataBranch: DATA_BRANCH });
+    writeJson(join(clone, ORG_STORE_REL), {});
     writeJson(join(clone, ".claude-plugin/marketplace.json"), {
       name: ORG,
       owner: { name: ORG },
@@ -226,6 +237,10 @@ describe.skipIf(!enabled)("team pack upgrade: directory-source member to the gen
     if (saved.CLAUDE_CONFIG_DIR === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = saved.CLAUDE_CONFIG_DIR;
     cleanup?.();
+  });
+
+  test("fixture: the org reads as a ready layout-5 org", () => {
+    expect(orgLayoutState(probes())).toEqual({ kind: "ready", slug: ORG, layout: ORG_LAYOUT });
   });
 
   test("fixture: the old directory-source install is what claude reports", () => {
@@ -353,19 +368,45 @@ describe.skipIf(!enabled)("team pack upgrade: directory-source member to the gen
     expect(enabledPlugins()[WIDGETS]).toBe(true);
   });
 
-  // Fails today: only the active team's pack is ever updated (plugins.install's
-  // computePlugins, convergePackCache's `only: team`). Under the directory
-  // source a session read every installed pack from the clone, so this pack
-  // tracked the data branch; on the cache it stays at the version the
-  // migration reinstalled.
-  test.todo("a committed version bump on an installed pack that is not the active team's lands too", async () => {
+  test("a committed version bump on an installed pack that is not the active team's lands too, and it stays off", async () => {
     writePack("gadgets", "1.1.0", "beta", "gadgets beta v1.1");
     git(["add", "-A"]);
     git(["commit", "-qm", "gadgets 1.1.0"]);
-    const { result } = await update();
+    const { result, logs } = await update();
+    console.log(`[gadgets bump] outcomes: ${JSON.stringify(result.outcomes, null, 2)}`);
+    if (logs.length > 0) console.log(`[gadgets bump] logs:\n${logs.join("\n")}`);
     expect(result.ok).toBe(true);
-    expect(registry()[GADGETS]![0]!.version).toBe("1.1.0");
+    const entry = registry()[GADGETS]![0]!;
+    expect(entry.version).toBe("1.1.0");
+    expect(entry.installPath).toBe(join(config, "plugins/cache", ORG, "gadgets", "1.1.0"));
+    expect(cachedSkill("gadgets", "1.1.0", "beta")).toContain("gadgets beta v1.1");
     expect(enabledPlugins()[GADGETS]).toBe(false);
+    expect(enabledPlugins()[WIDGETS]).toBe(true);
+  });
+
+  test("the daemon's pack converge lands a later bump of the non-active pack, with a personal line it carries, and keeps it off", async () => {
+    setSetting("rt.skills.disableModelInvocation", { [WIDGETS]: ["alpha"], [GADGETS]: ["beta"] }, "user");
+    writePack("gadgets", "1.2.0", "beta", "gadgets beta v1.2");
+    git(["add", "-A"]);
+    git(["commit", "-qm", "gadgets 1.2.0"]);
+    const quiet = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as never;
+    const onPulled = createOnPulled({
+      probes: probes(),
+      slug: ORG,
+      dir: clone,
+      log: quiet,
+      converge: (p, slug, log) => convergePackCache(p, slug, log, { activeTeam: () => "widgets", engine: () => null }),
+      applyCone: async () => ({ applied: [], kept: [] }),
+      holds: { has: () => false, mark: () => {} },
+    });
+    await onPulled();
+    const entry = registry()[GADGETS]![0]!;
+    expect(entry.version).toBe("1.2.0");
+    const skill = cachedSkill("gadgets", "1.2.0", "beta");
+    expect(skill).toContain("gadgets beta v1.2");
+    expect(skill).toContain(`disable-model-invocation: true ${PERSONAL_MARK}`);
+    expect(enabledPlugins()[GADGETS]).toBe(false);
+    expect(enabledPlugins()[WIDGETS]).toBe(true);
   });
 
   test("downgrade then upgrade: an older rt's directory add is undone by the next converge, packs kept", async () => {

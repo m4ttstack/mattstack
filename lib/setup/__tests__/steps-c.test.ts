@@ -292,7 +292,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       for (const update of [false, true]) {
         test(`after a switch the previous team's stale pack is updated and stays off, and the new team's pack lands turned on (${update ? "update" : "apply"} run)`, async () => {
           const { p, execCalls, state } = harness(orgFiles(), [{ id: "gadgets@acme", version: "1.0.0", enabled: false }]);
-          const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, update });
+          const { ctx } = makeCtx(p, { team, activeTeam: () => "widgets", engine: () => null, ...(update ? { update: true as const } : {}) });
 
           const outcome = await pluginsInstallStep.run(ctx);
 
