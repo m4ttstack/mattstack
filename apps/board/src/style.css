@@ -1248,7 +1248,7 @@ body {
   color: var(--text-accent-small);
   font-size: 0.76rem;
   text-decoration: none;
-  padding: 0 1rem 0.7rem;
+  padding: 0.3rem 1rem 0.7rem;
   border-bottom: 1px solid var(--border-soft);
 }
 .tui-cd-open:hover {
@@ -1261,6 +1261,9 @@ body {
   gap: 1rem;
 }
 .tui-cd-thread {
+  /* overflow: hidden drops a flex item's minimum height to 0, so the drawer's
+     fixed-height column would squash the card into its last note. */
+  flex-shrink: 0;
   /* Card sits on --card so it contrasts with the --panel drawer. */
   background: var(--card);
   border: 1px solid var(--border);
