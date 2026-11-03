@@ -186,6 +186,7 @@ function fakeSeams(opts: Options = {}): {
       if (cmd.startsWith("scripts/fetch-deps.sh")) return ok("", opts.fetchDepsExit ?? 0);
       if (cmd === "bun install --frozen-lockfile") return ok("");
       if (cmd === "bun scripts/build-apps.ts --arch arm64") return ok("");
+      if (cmd === "bun run build" || cmd.startsWith("bunx vsce package --no-dependencies --out ")) return ok("");
       if (cmd.startsWith("rt-tray/build.sh")) return ok("", opts.buildExit ?? 0);
       if (cmd.startsWith("pgrep")) return ok(devPids.length ? `${devPids.join("\n")}\n` : "");
       if (cmd.startsWith("kill")) {
@@ -1230,7 +1231,16 @@ describe("runDevAppRebuild", () => {
     const { seams, execOpts } = fakeSeams();
     await runDevAppRebuild(seams, "main");
     const build = execOpts.find((e) => e.cmd === "rt-tray/build.sh dev")!;
-    expect(build.opts?.env).toBeUndefined();
+    expect(build.opts?.env?.MS_DEV_RELEASE_BUILD).toBeUndefined();
+  });
+
+  test("a ref rebuild packages both editor extensions and hands them to build.sh", async () => {
+    const { seams, execOpts } = fakeSeams();
+    await runDevAppRebuild(seams, "main");
+    expect(execOpts.filter((e) => e.cmd.startsWith("bunx vsce package"))).toHaveLength(2);
+    const env = execOpts.find((e) => e.cmd === "rt-tray/build.sh dev")!.opts?.env;
+    expect(env?.RT_VSIX).toMatch(/\/rt-dev-bundle\/extensions\/vscode\/rt-context\/rt-context\.vsix$/);
+    expect(env?.RT_SKILL_BLOCKS_VSIX).toMatch(/\/rt-dev-bundle\/extensions\/vscode\/skill-blocks\/skill-blocks\.vsix$/);
   });
 
   test("resolves the ref and runs only the dev-bundle leg at that sha", async () => {

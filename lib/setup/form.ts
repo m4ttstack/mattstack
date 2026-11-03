@@ -6,7 +6,6 @@
  * connect section is built from the full plan, which one call composes at most
  * once and shares between sections.
  */
-import { join } from "path";
 import { approvalState, type ApprovalState } from "../team/approval.ts";
 import { mayOfferTokenToHost } from "../team/forge-token.ts";
 import { readTeamLocal, type TeamLocalRecord } from "../team/team-local.ts";
@@ -16,7 +15,7 @@ import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from 
 import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { createCapableGitHubToken, GITHUB_OAUTH_CLIENT_ID, readGitHubSignIn, readStoredGitHubToken, type GitHubSignIn } from "./github-signin.ts";
-import { homeGitDir } from "./home-paths.ts";
+import { homeOrigin, isRestorableOrigin } from "./home-remote.ts";
 import { isValidHostname } from "./host-validate.ts";
 import { integrationDef } from "./integrations.ts";
 import { readIntent, type SetupIntent } from "./intent.ts";
@@ -85,6 +84,8 @@ export interface SetupForm {
   sections: { macos?: FormRow[]; invite?: FormRow[]; restore?: FormRow[]; connect?: FormRow[]; thisMac?: FormRow[]; create?: FormRow[] };
   continueReady: boolean;
   startReady: boolean;
+  /** The this-mac footer's button and the note beside it. */
+  start: { label: string; note: string };
   paused: FormPaused | null;
   home: { label: string; url: string };
 }
@@ -182,7 +183,10 @@ export const FORM_COPY = {
       declined: "GitHub sign-in was declined. Sign in again",
     },
     footer: "About 10 minutes once you start",
+    soloFooter: "About 5 minutes once you start",
     start: "Set up this Mac",
+    finish: "Finish setup",
+    finishNote: "Complete the steps above first",
   },
   home: {
     board: { label: "Open the board", url: "https://board.mattstack" },
@@ -664,6 +668,8 @@ export interface ThisMacInputs extends DrawnContext {
   backup: HomeBackupChoice | undefined;
   /** The home repo's origin, or the staged url before the repo exists. */
   homeRemote: string | null;
+  /** The home repo has an origin `rt home restore` cannot open (a local path, an http or git:// url). */
+  originUnsupported?: boolean;
   ghSignedIn: boolean;
   /** The device sign-in record: live, or ended with an outcome. */
   githubSignIn: GitHubSignIn | null;
@@ -731,6 +737,8 @@ function remoteRow(i: ThisMacInputs): FormRow | null {
   const c = FORM_COPY.thisMac.remote;
   const base = { id: "settings.remote", title: c.title, subtext: c.subtext, waiting: null, watch: false, optional: false };
   if (i.homeRemote !== null) return { ...base, state: "done", detail: i.homeRemote, action: null };
+  // An origin restore cannot open is replaced by a url; a staged create, a create or a sign-in would only meet that origin again.
+  if (i.originUnsupported) return urlRow(base, c);
   if (i.backup.create) return { ...base, state: "done", detail: c.creates, action: null };
   const signInVerb = ["setup", "github", "sign-in"];
   const sign = i.githubSignIn;
@@ -746,6 +754,10 @@ function remoteRow(i: ThisMacInputs): FormRow | null {
     const detail = sign ? (sign.outcome === "declined" ? c.declined : c.expired) : "";
     return { ...base, state: "todo", detail, ...(sign ? {} : { subtext: c.signInSubtext }), action: { type: "run", label: c.signIn, verb: signInVerb } };
   }
+  return urlRow(base, c);
+}
+
+function urlRow(base: Pick<FormRow, "id" | "title" | "subtext" | "waiting" | "watch" | "optional">, c: (typeof FORM_COPY)["thisMac"]["remote"]): FormRow {
   return {
     ...base,
     state: "todo",
@@ -853,6 +865,14 @@ function joinedClone(p: Probes, clones: Clone[]): { clone: Clone; approval: Appr
 /** Every row answered, or optional. */
 export function allAnswered(rows: FormRow[] | undefined): boolean {
   return rows !== undefined && rows.every((r) => r.optional || r.state === "done");
+}
+
+/** After an ok run whose only open rows are leftovers, a run is not what is next: each leftover's own action is, and the form records Finish once they are done. */
+export function startButton(path: FormPath | null, ranOk: boolean, rows: FormRow[], leftoverIds: ReadonlySet<string>): { label: string; note: string } {
+  const c = FORM_COPY.thisMac;
+  const open = rows.filter((r) => !r.optional && r.state !== "done");
+  if (ranOk && open.length > 0 && open.every((r) => leftoverIds.has(r.id))) return { label: c.finish, note: c.finishNote };
+  return { label: c.start, note: path === "solo" ? c.soloFooter : c.footer };
 }
 
 /**
@@ -988,11 +1008,8 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormP
 }
 
 /** A url staged before Install still counts once the Join page has made the repo without an origin. */
-async function homeRemote(p: Probes, backup: HomeBackupChoice | undefined): Promise<string | null> {
-  const staged = backup?.mode === "remote" ? (backup.url ?? null) : null;
-  if (!p.exists(homeGitDir(p.home))) return staged;
-  const origin = await p.exec(["git", "-C", join(p.home, ".mattstack", "user"), "remote", "get-url", "origin"]);
-  return (origin.code === 0 && origin.stdout.trim()) || staged;
+function homeRemote(origin: string | null, backup: HomeBackupChoice | undefined): string | null {
+  return origin ?? (backup?.mode === "remote" ? (backup.url ?? null) : null);
 }
 
 /** Read only while the remote row is open: the store and the network are not touched on every form read. */
@@ -1018,8 +1035,11 @@ async function thisMacSection(
   clientId: string,
 ): Promise<FormRow[]> {
   const rows = new Map(planRows(plan).map((r) => [r.id, r]));
-  const backup = state.homeBackup;
-  const remote = await homeRemote(p, backup);
+  const anyOrigin = await homeOrigin(p);
+  const origin = anyOrigin !== null && isRestorableOrigin(anyOrigin) ? anyOrigin : null;
+  // A Mac set up before the choice existed already backs up to its origin, so it is not asked again.
+  const backup: HomeBackupChoice | undefined = state.homeBackup ?? (origin !== null ? { mode: "remote", url: origin } : undefined);
+  const remote = homeRemote(origin, backup);
   const githubSignIn = readGitHubSignIn(p);
   const signedInThroughGh = ghSignedIn(rows);
   const liveSignIn = githubSignIn !== null && githubSignIn.outcome === undefined;
@@ -1036,6 +1056,7 @@ async function thisMacSection(
     prepare: macosPrepare(p),
     backup,
     homeRemote: remote,
+    originUnsupported: anyOrigin !== null && origin === null,
     ghSignedIn: signedInThroughGh,
     githubSignIn,
     githubReady: github.ready,
@@ -1107,6 +1128,12 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     sections,
     continueReady: allAnswered(sections.connect),
     startReady: allAnswered(sections.thisMac),
+    start: startButton(
+      path,
+      state.run?.ok === true && intent === null,
+      sections.thisMac ?? [],
+      new Set(sections.thisMac ? planRows(await plan()).filter(runFixes).map((r) => r.id) : []),
+    ),
     paused: null,
     home: homeApp(path),
   };

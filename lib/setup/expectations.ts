@@ -18,8 +18,6 @@ export const ROW_TARGETS: Readonly<Record<string, Target>> = {
   "tool.claude": "finish",
   "tool.fast-browser": "finish",
   "tool.linear-mcp": "finish",
-  "tool.extension": "finish",
-  "tool.vsix": "finish",
   "tool.rt-link": "finish",
   "tool.shell": "finish",
   "tool.intercepts": "finish",

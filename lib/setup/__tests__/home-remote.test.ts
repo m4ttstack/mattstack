@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "path";
 import { UserActionableError } from "../../errors.ts";
-import { setHomeRemote } from "../home-remote.ts";
+import { isRestorableOrigin, setHomeRemote } from "../home-remote.ts";
 import type { ExecResult } from "../probes.ts";
 import { __test__, setWarningLog } from "../../ui/warn.ts";
 import { fakeProbes } from "./fakes.ts";
@@ -23,6 +23,15 @@ async function refusal(run: () => Promise<unknown>): Promise<UserActionableError
   }
   throw new Error("expected a refusal");
 }
+
+describe("isRestorableOrigin", () => {
+  test("only an origin rt home restore can open counts as a backup", () => {
+    for (const ok of ["https://github.com/janedoe/mattstack-home.git", "git@github.com:janedoe/mattstack-home.git"]) expect(isRestorableOrigin(ok)).toBe(true);
+    for (const no of ["/tmp/home.git", "ssh://git@example.com/home.git", "http://example.com/janedoe/home.git", "git://example.com/janedoe/home.git", "https://janedoe:pw@github.com/janedoe/home.git"]) {
+      expect(isRestorableOrigin(no)).toBe(false);
+    }
+  });
+});
 
 describe("setHomeRemote", () => {
   test("set-home-remote keeps today's refusals", async () => {
@@ -51,6 +60,21 @@ describe("setHomeRemote", () => {
   test("a pushed remote reports the url, the remote change and created", async () => {
     const probes = fakeProbes({ home: HOME, dirs: { [GIT_DIR]: [] }, exec: async (argv) => (argv.includes("get-url") ? fail(2) : ok()) });
     expect(await setHomeRemote(probes, { url: URL })).toEqual({ url: URL, remote: "added", pushed: true, created: false });
+  });
+
+  test("create refuses a home repo that already has an origin, and creates nothing", async () => {
+    const existing = "https://github.com/janedoe/mattstack-home.git";
+    const probes = fakeProbes({
+      home: HOME,
+      dirs: { [GIT_DIR]: [] },
+      fetch: async () => {
+        throw new Error("no repo may be created");
+      },
+      exec: async (argv) => (argv.includes("get-url") ? ok(`${existing}\n`) : ok()),
+    });
+    const refused = await refusal(() => setHomeRemote(probes, { create: true }));
+    expect(refused.code).toBe("origin-exists");
+    expect(probes.calls.exec.map((a) => a.join(" "))).toEqual([`git -C ${USER_REPO} remote get-url origin`]);
   });
 
   describe("create", () => {
@@ -161,7 +185,7 @@ describe("setHomeRemote", () => {
       const err = await refusal(() => setHomeRemote(probes, { create: true }, { ...hooks, onCreated: (u) => seen.push(u) }));
       expect(err.why).toContain("Bad credentials");
       expect(seen).toEqual([]);
-      expect(probes.calls.exec.some((a) => a.includes("remote"))).toBe(false);
+      expect(probes.calls.exec.some((a) => a.includes("remote") && (a.includes("add") || a.includes("set-url")))).toBe(false);
     });
 
     test("without a token it still runs gh repo create", async () => {
