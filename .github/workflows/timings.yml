@@ -9,6 +9,12 @@ on:
     paths:
       - .github/workflows/timings.yml
 
+# The paths filter fires on every push to a PR that touches this file, and
+# each run holds a macOS slot for twenty minutes; only the newest matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   timings:
     runs-on: macos-latest
