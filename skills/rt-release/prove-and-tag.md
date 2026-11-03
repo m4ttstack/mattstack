@@ -202,8 +202,13 @@ The walkthrough runs only on this machine (GitHub runners cannot nest virtualiza
 about 25 minutes per scenario, and every run needs the `mattstack-golden-26` image plus: `MATTSTACK_VMTEST_PAT`
 (`gh auth token` works for GitHub; `--forge gitlab` needs a GitLab PAT, which the harness exports
 as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
-`MATTSTACK_VMTEST_ORG_CONFIRM=matts-hasura-demo` (the README's default org does not exist).
-`<scratch>` is this session's scratchpad.
+`MATTSTACK_VMTEST_ORG_CONFIRM=matts-hasura-demo` (the README's default org does not exist),
+`VM_CACHE=~/Documents/GitHub/repo-tools/rt-tray/vm/.cache` (the golden's ssh key; a fresh
+worktree has no `.cache` of its own), `MATTSTACK_VMTEST_TRACK_REPO=github.com/m4ttheweric/glance-conformance`
+(join's tracked repo must be on the run's forge, and the fixture's is on gitlab.com) and
+`VM_CLAUDE_STANDIN=1`. Sign in to Claude finishes in a browser no script drives, so the stand-in
+reads Claude as signed in and the `screens` and `assert` rows say sign-in was not exercised; Matt
+proves sign-in by hand. `<scratch>` is this session's scratchpad.
 
 Counters: the first dispatch is not a rerun, so `Rehearsal reruns = 2?` is yes after the second
 counted `gh run rerun <run-id> --failed` has also gone red; it counts only reds of ours. A red
@@ -299,9 +304,11 @@ Four scenarios, every one on the rehearsal build. Set the environment above in e
 | create | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario create --fresh-team-repo --no-graphics` |
 | join | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario join --fresh-team-repo --mint-rt <scratch>/rehearsal-app/mattstack.app/Contents/MacOS/rt --no-graphics` |
 | solo | `bash rt-tray/vm/run/team-setup.sh reset`, then `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario solo --no-graphics` |
-| update leg | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <scratch>/previous/mattstack-<previous ver>.dmg --scenario create --fresh-team-repo --update-dir <scratch>/update --update-version <rehearsal X.Y.Z> --keep --no-graphics` |
+| update leg | `bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <scratch>/previous/mattstack-<previous ver>.dmg --start-ref <previous-tag> --scenario create --fresh-team-repo --update-dir <scratch>/update --update-version <rehearsal X.Y.Z> --keep --no-graphics` |
 
 Solo takes no `--fresh-team-repo`: its `team-upgrade` phase creates the team in the throwaway org's standing team repo, so every solo run, a rerun included, starts with `team-setup.sh reset`, which archives that repo and creates it again empty. The reset leaves `--fresh-team-repo` runs alone, since each of those mints its own repo.
+
+The update leg's `--start-ref <previous-tag>` drives and asserts setup with that tag's own guest scripts, since the previous release's setup screens can predate today's driver; its `update` phase still runs today's `trigger-update.sh`. With `--start-ref`, create pastes a repo, so `--fresh-team-repo` mints one there too.
 
 Two runs may go at once, never more (the macOS cap), and never two that attach the same dmg at
 the same time. Every run's preflight attaches its `--dmg` for a moment to read the version, so
