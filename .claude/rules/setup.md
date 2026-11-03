@@ -18,8 +18,10 @@ paths:
 
 Setup is screens drawn from one verb and one run. `rt setup form` (hidden,
 `commands/setup-form.ts`, `lib/setup/form.ts`) answers which screen setup is
-on (`formStage`: macos, path, invite, waiting, connect, this-mac, running,
-paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|create`).
+on (`formStage`: macos, path, invite, waiting, connect, this-mac, tools, running,
+paused, ready) and each section's rows (`--section macos|invite|restore|connect|this-mac|tools|create`).
+`tools` holds a finished Mac whose only blockers are team tools or their
+accounts, or that was told about a tool, until Done acknowledges it (`--ack-tools`).
 The tray draws what it returns: no decision in Swift about which rows a
 member needs, where setup resumes or a row's state. A run still going
 outranks the macos stage, and P1 skips rt's read for the cards only on a Mac

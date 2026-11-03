@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setupForm, type FormDeps } from "../setup-form.ts";
 import { finalizePlan, row, type Plan, type Row } from "../../lib/setup/contract.ts";
 import { readSetupState, type SetupRun } from "../../lib/setup/state.ts";
+import { readToolNotices, toolNoticesPath, type ToolNotices } from "../../lib/setup/tool-notices.ts";
 import { PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH } from "../../lib/setup/steps/services.ts";
 import { fakeProbes, fakeTray } from "../../lib/setup/__tests__/fakes.ts";
 import { capturePlain } from "./helpers/json-line.ts";
@@ -24,6 +25,23 @@ const ANSWERED_FILES = {
   "/fake-home/.mattstack/rt/repo-root.json": JSON.stringify({ root: "/fake-home/code" }),
 };
 
+interface TeamFixture {
+  tools: unknown[];
+  notices?: Partial<ToolNotices>;
+}
+
+const ACME_ROOT = "/fake-home/.mattstack/orgs/acme";
+const TEAM_DIRS = { "/fake-home/.mattstack/orgs": ["acme"], [`${ACME_ROOT}/mattstack/teams`]: ["widgets"] };
+
+function teamFiles(team: TeamFixture): Record<string, string> {
+  return {
+    [`${ACME_ROOT}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }] }),
+    [`${ACME_ROOT}/mattstack/teams/widgets/plugin/requirements.jsonc`]: JSON.stringify({ tools: team.tools, integrations: [] }),
+    "/fake-home/.mattstack/user/settings.user.jsonc": JSON.stringify({ "mattstack.activeTeam": "widgets" }),
+    ...(team.notices ? { [toolNoticesPath("/fake-home")]: JSON.stringify({ pending: [], told: [], acked: [], ...team.notices }) } : {}),
+  };
+}
+
 function grantedTray(notifications: "authorized" | "denied") {
   return fakeTray({ "GET /permissions": () => ({ status: 200, json: { fda: { status: "granted" }, notifications: { status: notifications }, loginItems: { status: "enabled" } } }) });
 }
@@ -32,22 +50,24 @@ function grantedTray(notifications: "authorized" | "denied") {
  * `plan` answers plan mode and `status` (else `plan`) answers status mode. A
  * seeded run carries the Install stamp a real run writes unless `stamped` is false.
  */
-function deps(o: { run?: SetupRun; stamped?: boolean; plan?: Plan; status?: Plan; answered?: boolean; notifications?: "authorized" | "denied" } = {}) {
+function deps(o: { run?: SetupRun; stamped?: boolean; plan?: Plan; status?: Plan; answered?: boolean; notifications?: "authorized" | "denied"; finishedAt?: string; team?: TeamFixture } = {}) {
   const lines: string[] = [];
   const run = o.run ? { run: o.run, ...(o.stamped === false ? {} : { installRanAt: o.run.startedAt }) } : null;
-  const state = run || o.answered ? { v: 2, ...run, ...(o.answered ? { homeBackup: { mode: "local" } } : {}) } : null;
+  const state = run || o.answered ? { v: 2, ...run, ...(o.answered ? { homeBackup: { mode: "local" } } : {}), ...(o.finishedAt ? { finishedAt: o.finishedAt } : {}) } : null;
   const files: Record<string, string> = {
     ...(state ? { [STATE]: JSON.stringify(state) } : {}),
     ...(o.answered ? ANSWERED_FILES : {}),
+    ...(o.team ? teamFiles(o.team) : {}),
   };
-  const d: FormDeps = {
-    probes: fakeProbes({ home: "/fake-home", files, ...(o.answered ? { tray: grantedTray(o.notifications ?? "authorized") } : {}) }),
+  const probes = fakeProbes({ home: "/fake-home", files, ...(o.team ? { dirs: TEAM_DIRS } : {}), ...(o.answered ? { tray: grantedTray(o.notifications ?? "authorized") } : {}) });
+  const d: FormDeps & { probes: typeof probes } = {
+    probes,
     secrets: { has: async () => null },
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code) => {
       throw new ExitSentinel(code);
     },
-    orgs: () => [],
+    orgs: () => (o.team ? ["acme"] : []),
     ...(o.plan ? { plan: async (mode) => (mode === "status" ? (o.status ?? o.plan!) : o.plan!) } : {}),
   };
   return { d, lines };
@@ -238,5 +258,151 @@ describe("rt setup form finishes setup once nothing blocks it", () => {
     const t = deps({ run: ENDED_OK, plan: blocked });
     await setupForm(["--json"], {}, t.d);
     expect(finishedAt(t)).toBeUndefined();
+  });
+});
+
+describe("rt setup form on a finished Mac with a new team tool", () => {
+  const FINISHED_AT = "2025-12-31T23:55:00.000Z";
+  const DOPPLER_REQ = { name: "doppler", why: "Pulls your dev secrets", connect: { integration: "doppler" } };
+  const WIDGET_REQ = { name: "widget-cli", why: "Builds the widgets" };
+  const INSTALL = { type: "install" as const, label: "Install", tool: "widget-cli", via: "brew" as const };
+  const SLACK_OAUTH = { type: "oauth" as const, label: "Connect Slack", integration: "slack" as const, verb: ["setup", "slack", "connect"] };
+
+  const widgetMissing = r("tool.team.widget-cli", "missing", "widget-cli is not installed", { action: INSTALL });
+  const widgetReady = r("tool.team.widget-cli", "ready", "widget-cli 1.0.0");
+  const packMissing = r("pack.widgets", "missing", "The widgets pack is not installed");
+
+  function teamPlan(rows: Row[]): Plan {
+    return finalizePlan({ slug: "acme", name: "Acme", mode: "join" }, [{ id: "tools", title: "Tools", rows: [...SETTLED, ...rows] }], NOW);
+  }
+
+  function mac(rows: Row[], team: TeamFixture = { tools: [WIDGET_REQ] }) {
+    return deps({ run: ENDED_OK, plan: teamPlan(rows), answered: true, finishedAt: FINISHED_AT, team });
+  }
+
+  async function read(t: ReturnType<typeof deps>, ...args: string[]) {
+    t.lines.length = 0;
+    await setupForm([...args, "--json"], {}, t.d);
+    return JSON.parse(t.lines[0]!);
+  }
+
+  test("a finished Mac with only a missing team tool lands on tools", async () => {
+    const body = await read(mac([widgetMissing]));
+    expect(body.stage).toBe("tools");
+    expect(body.sections.tools.map((x: { id: string }) => x.id)).toEqual(["tool.team.widget-cli"]);
+    expect(body.tools).toEqual({ heading: "One new tool for your team", allDone: false });
+  });
+
+  test("a team tool's own account counts as the tool", async () => {
+    const t = mac(
+      [r("tool.team.doppler", "missing", "doppler is not installed", { action: { ...INSTALL, tool: "doppler" } }), r("account.doppler", "invalid", "Not signed in to Doppler")],
+      { tools: [DOPPLER_REQ] },
+    );
+    const body = await read(t);
+    expect(body.stage).toBe("tools");
+    expect(body.sections.tools.map((x: { id: string }) => x.id)).toEqual(["tool.team.doppler"]);
+  });
+
+  test("a sign-in-only blocker lands on tools and offers the sign-in", async () => {
+    const t = mac([r("tool.team.doppler", "ready", "doppler 3.70.0"), r("account.doppler", "invalid", "Not signed in to Doppler")], { tools: [DOPPLER_REQ] });
+    const body = await read(t);
+    expect(body.stage).toBe("tools");
+    expect(body.sections.tools[0]).toMatchObject({ id: "tool.team.doppler", state: "todo", action: { type: "run", label: "Sign in", verb: ["setup", "doppler", "connect"] } });
+  });
+
+  test("any other blocker keeps today's stage", async () => {
+    const t = mac([widgetMissing, r("account.slack", "missing", "No Slack account connected yet", { action: SLACK_OAUTH })]);
+    expect((await read(t)).stage).toBe("connect");
+  });
+
+  test("a pack row beside a team tool keeps this-mac", async () => {
+    const body = await read(mac([widgetReady, packMissing]));
+    expect(body.stage).toBe("this-mac");
+    const withTool = await read(mac([widgetMissing, packMissing]));
+    expect(withTool.stage).toBe("connect");
+    expect(withTool.sections).not.toHaveProperty("tools");
+  });
+
+  test("a told name beside a blocking pack row keeps today's route", async () => {
+    const t = mac([widgetReady, packMissing], { tools: [WIDGET_REQ], notices: { told: ["widget-cli"] } });
+    expect((await read(t)).stage).toBe("this-mac");
+  });
+
+  test("a told name not yet acked holds tools after the rows clear, and --ack-tools then reads ready", async () => {
+    const t = mac([widgetReady], { tools: [WIDGET_REQ], notices: { told: ["widget-cli"] } });
+    const held = await read(t);
+    expect(held.stage).toBe("tools");
+    expect(held.sections.tools).toEqual([expect.objectContaining({ id: "tool.team.widget-cli", state: "done", detail: "widget-cli 1.0.0", action: null })]);
+    expect(held.tools).toEqual({ heading: "You're all set", allDone: true });
+
+    await read(t, "--ack-tools");
+    const after = await read(t);
+    expect(after.stage).toBe("ready");
+    expect(after).not.toHaveProperty("tools");
+    expect(after.sections).not.toHaveProperty("tools");
+  });
+
+  test("a told name no longer required does not hold tools", async () => {
+    const t = mac([], { tools: [], notices: { told: ["widget-cli"] } });
+    expect((await read(t)).stage).toBe("ready");
+  });
+
+  test("a told name made optional does not hold tools", async () => {
+    const t = mac([r("tool.team.widget-cli", "missing", "widget-cli is not installed", { required: false, action: INSTALL })], {
+      tools: [{ ...WIDGET_REQ, optional: true }],
+      notices: { told: ["widget-cli"] },
+    });
+    const body = await read(t);
+    expect(body.stage).not.toBe("tools");
+    expect((await read(t, "--section", "tools")).sections.tools).toEqual([]);
+  });
+
+  // No action can clear a tool rt could not run, so landing here would be a screen Done never leaves.
+  test("a required tool rt cannot read stays off tools", async () => {
+    const t = mac([r("tool.team.widget-cli", "error", "widget-cli did not answer in time")]);
+    expect((await read(t)).stage).toBe("ready");
+  });
+
+  test("a read on tools never records Finish", async () => {
+    const t = mac([widgetMissing]);
+    expect((await read(t)).stage).toBe("tools");
+    expect(readSetupState(t.d.probes).finishedAt).toBe(FINISHED_AT);
+    expect(t.d.probes.calls.writes).toEqual({});
+
+    const unfinished = deps({ run: ENDED_OK, plan: teamPlan([{ ...widgetMissing, finishGated: true, waivable: false }]), answered: true, team: { tools: [WIDGET_REQ], notices: { told: ["widget-cli"] } } });
+    expect((await read(unfinished)).stage).not.toBe("tools");
+    expect(readSetupState(unfinished.d.probes).finishedAt).toBeUndefined();
+  });
+
+  test("--section tools reads the rows and the heading without the stage", async () => {
+    const body = await read(mac([widgetMissing]), "--section", "tools");
+    expect(Object.keys(body.sections)).toEqual(["tools"]);
+    expect(body.stage).toBeNull();
+    expect(body.tools.heading).toBe("One new tool for your team");
+  });
+
+  test("a section read of another part leaves tools out", async () => {
+    const body = await read(mac([widgetMissing]), "--section", "macos");
+    expect(body).not.toHaveProperty("tools");
+  });
+
+  test("--ack-tools adds every told name and keeps what the daemon wrote", async () => {
+    const t = mac([], { tools: [], notices: { pending: ["ldcli"], told: ["widget-cli", "doppler"], acked: ["doppler"] } });
+    await read(t, "--ack-tools");
+    expect(readToolNotices(t.d.probes)).toEqual({ pending: ["ldcli"], told: ["widget-cli", "doppler"], acked: ["doppler", "widget-cli"] });
+  });
+
+  test("--ack-tools with nothing told succeeds and writes nothing", async () => {
+    const t = mac([], { tools: [] });
+    expect(await exitCode(() => setupForm(["--ack-tools", "--json"], {}, t.d))).toBeUndefined();
+    expect(JSON.parse(t.lines[0]!)).toMatchObject({ contract: 1, ok: true });
+    expect(t.d.probes.calls.writes).toEqual({});
+  });
+
+  test("--ack-tools prints nothing for a person", async () => {
+    const t = mac([], { tools: [], notices: { told: ["widget-cli"] } });
+    await setupForm(["--ack-tools"], {}, t.d);
+    expect(quiet.stdout()).toBe("");
+    expect(t.lines).toEqual([]);
   });
 });

@@ -47,6 +47,9 @@ function stage(over: Partial<StageInputs> = {}): FormStage {
     connectDone: true,
     thisMacDone: false,
     needsRun: false,
+    onlyTeamTools: true,
+    toolsOpen: false,
+    toolsUnacked: false,
     ...over,
   });
 }
@@ -155,6 +158,36 @@ describe("formStage on a finished Mac", () => {
   test("a finished Mac whose re-run failed shows Setup paused", () => {
     expect(finished({ run: FAILED })).toBe("paused");
     expect(finished({ run: FAILED, macosDone: false, connectDone: false, thisMacDone: false, needsRun: true })).toBe("paused");
+  });
+
+  test("an open team tool row lands on tools, ahead of the connect screen it also holds", () => {
+    expect(finished({ toolsOpen: true })).toBe("tools");
+    expect(finished({ toolsOpen: true, connectDone: false })).toBe("tools");
+  });
+
+  test("a told name not yet acked holds tools with nothing left open", () => {
+    expect(finished({ toolsUnacked: true })).toBe("tools");
+  });
+
+  test("a blocker outside the team tools keeps today's stage, open rows or told names", () => {
+    expect(finished({ onlyTeamTools: false, toolsOpen: true, connectDone: false })).toBe("connect");
+    expect(finished({ onlyTeamTools: false, toolsOpen: true, needsRun: true })).toBe("this-mac");
+    expect(finished({ onlyTeamTools: false, toolsUnacked: true, connectDone: false })).toBe("connect");
+  });
+
+  test("a run still going outranks tools", () => {
+    expect(finished({ run: RUNNING, toolsOpen: true, toolsUnacked: true })).toBe("running");
+    expect(finished({ run: FAILED, toolsOpen: true, toolsUnacked: true })).toBe("paused");
+  });
+
+  test("macOS and a join outrank tools", () => {
+    expect(finished({ macosDone: false, toolsOpen: true })).toBe("macos");
+    expect(finished({ join: "waiting", toolsOpen: true })).toBe("waiting");
+  });
+
+  test("an unfinished Mac never lands on tools", () => {
+    expect(stage({ toolsOpen: true, toolsUnacked: true })).toBe("this-mac");
+    expect(stage({ toolsOpen: true, toolsUnacked: true, connectDone: false })).toBe("connect");
   });
 });
 
@@ -293,6 +326,9 @@ function stageOf(s: Record<Section, FormRow[]>, p: Plan, o: { finished: boolean;
     connectDone: allAnswered(s.connect),
     thisMacDone: allAnswered(s["this-mac"]),
     needsRun: o.finished && needsRun(p),
+    onlyTeamTools: false,
+    toolsOpen: false,
+    toolsUnacked: false,
   });
 }
 
