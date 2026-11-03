@@ -1217,6 +1217,7 @@ body {
 }
 
 .tui-cd-panel {
+  width: min(560px, 92vw);
   color: var(--text-3);
   font-size: 0.76rem;
   line-height: 16px;
