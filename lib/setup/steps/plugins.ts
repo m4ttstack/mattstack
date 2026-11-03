@@ -147,8 +147,7 @@ function teamMarketplacePath(home: string, slug: string): string {
  * no trace, so the caller logs the parse failure by name rather than
  * treating it the same as "nothing here yet".
  */
-function readTeamMarketplace(ctx: ApplyContext, slug: string): TeamMarketplaceFile | null {
-  const path = teamMarketplacePath(ctx.p.home, slug);
+function readMarketplaceFile(ctx: ApplyContext, path: string): TeamMarketplaceFile | null {
   const raw = ctx.p.readFile(path);
   if (raw === null) return null;
   try {
@@ -159,28 +158,44 @@ function readTeamMarketplace(ctx: ApplyContext, slug: string): TeamMarketplaceFi
   }
 }
 
+function readTeamMarketplace(ctx: ApplyContext, slug: string): TeamMarketplaceFile | null {
+  return readMarketplaceFile(ctx, teamMarketplacePath(ctx.p.home, slug));
+}
+
 interface TeamSource {
   /** The folder rt generated for this Mac, the one `claude plugin marketplace add` takes. */
   path: string;
   /** The org clone, which an older rt registered and recorded instead. */
   orgDir: string;
   name: string;
+  /** Read back from the generated folder: the clone's working tree can list a pack the data branch does not serve. */
+  catalog: TeamMarketplaceFile | null;
+}
+
+interface SkippedTeamSource {
+  skipped: string;
+  /** The working tree's catalog, used only to name the packs that did not install. */
+  catalog: TeamMarketplaceFile | null;
 }
 
 /**
  * Team packs install from the marketplace rt generates for this Mac, never the org clone itself: a directory source
  * loads from the clone and ignores the cache. Rewritten here as well as in org.folder because `rt setup pack` runs
- * this step alone. Null when there is no team marketplace yet; `skipped` when the folder could not be written.
+ * this step alone. Null when the folder could not be written and the working tree has no team marketplace either, so
+ * there is nothing to name; `skipped` when it could not be written and the working tree lists packs.
  */
-async function teamSource(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): Promise<TeamSource | { skipped: string } | null> {
-  if (!ctx.team.slug || !teamMarketplace) return null;
+async function teamSource(ctx: ApplyContext): Promise<TeamSource | SkippedTeamSource | null> {
+  if (!ctx.team.slug) return null;
   const generated = await writeGeneratedMarketplace(ctx.p, ctx.team.slug);
   if (generated.skipped !== undefined) {
+    const workingTree = readTeamMarketplace(ctx, ctx.team.slug);
+    if (workingTree === null) return null;
     ctx.log("plugins.install", `the team marketplace was not added: ${generated.skipped}`);
-    return { skipped: generated.skipped };
+    return { skipped: generated.skipped, catalog: workingTree };
   }
   for (const dropped of generated.dropped) ctx.log("plugins.install", `generated marketplace left out ${dropped}`);
-  return { path: generated.path, orgDir: orgDirUnder(ctx.p.home, ctx.team.slug), name: teamMarketplace.name ?? ctx.team.slug };
+  const catalog = readMarketplaceFile(ctx, join(generated.path, ".claude-plugin", "marketplace.json"));
+  return { path: generated.path, orgDir: orgDirUnder(ctx.p.home, ctx.team.slug), name: catalog?.name ?? ctx.team.slug, catalog };
 }
 
 /** Claude may record the path it was given or its realpath. */
@@ -285,11 +300,11 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
       : { state: "failed", detail, remedy: "Install Claude Code from the Tools section, then Retry." };
   }
 
-  const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
-  const source = await teamSource(ctx, teamMarketplace);
+  const source = await teamSource(ctx);
   const team = source !== null && "path" in source ? source : null;
   /** Without the generated folder the team's packs have nowhere to install from. */
   const teamSkipped = source !== null && "skipped" in source ? source.skipped : null;
+  const teamMarketplace = source?.catalog ?? null;
   const teamMarketplaceName = teamMarketplace?.name ?? ctx.team.slug;
   const unsourced: string[] = [];
   const marketplaces = computeMarketplaces(ctx, team);

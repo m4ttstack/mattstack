@@ -696,13 +696,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const orgFile = JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] });
 
       /** A claude whose `marketplace list` answers from what is registered so far; `teamAt` is where the team's name starts out, if anywhere. */
-      function member(teamAt: string | null, opts: { committed?: string | null } = {}) {
+      function member(teamAt: string | null, opts: { committed?: string | null; workingTree?: string | null } = {}) {
         const adds: string[] = [];
         const registered = new Map<string, string>(teamAt === null ? [] : [["acme-market", teamAt]]);
+        const workingTree = opts.workingTree === undefined ? orgFile : opts.workingTree;
         const p = fakeProbes({
           home,
           env: { PATH: "/usr/local/bin" },
-          files: { "/usr/local/bin/claude": "bin", [join(teamDir(), ".claude-plugin", "marketplace.json")]: orgFile },
+          files: { "/usr/local/bin/claude": "bin", ...(workingTree === null ? {} : { [join(teamDir(), ".claude-plugin", "marketplace.json")]: workingTree }) },
           exec: async (argv) => {
             if (argv[0] === "git") return opts.committed === null ? { code: 128, stdout: "", stderr: "fatal: invalid object name 'main'" } : ok(opts.committed ?? orgFile);
             const [, , verb, sub, target] = argv;
@@ -797,6 +798,46 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(forPack).toContain("disable");
         expect(forPack).not.toContain("enable");
         expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+      });
+
+      test("a pack the working tree lists but the data branch does not is never installed, and the step still finishes", async () => {
+        const committed = JSON.stringify({ name: "acme-market", plugins: [] });
+        const { p } = member(generatedDir(), { committed });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        expect((await pluginsInstallStep.run(teamCtx(p, { update: true }).ctx)).state).toBe("done");
+        expect(installs).not.toContain("acme-skills@acme-market");
+      });
+
+      test("the marketplace name comes from the data branch when the working tree names it differently", async () => {
+        const workingTree = JSON.stringify({ name: "renamed-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] });
+        const { p } = member(generatedDir(), { workingTree });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        expect((await pluginsInstallStep.run(teamCtx(p).ctx)).state).toBe("done");
+        expect(installs).toContain("acme-skills@acme-market");
+        expect(installs).not.toContain("acme-skills@renamed-market");
+      });
+
+      test("a committed catalog with no working-tree copy still registers the generated folder and installs the pack", async () => {
+        const { p, adds } = member(null, { workingTree: null });
+        const installs: string[] = [];
+        const exec = p.exec.bind(p);
+        p.exec = (argv, o) => {
+          if (argv[2] === "install") installs.push(argv[3]!);
+          return exec(argv, o);
+        };
+        expect((await pluginsInstallStep.run(teamCtx(p).ctx)).state).toBe("done");
+        expect(adds).toContain(generatedDir());
+        expect(installs).toContain("acme-skills@acme-market");
       });
 
       test("a full apply whose generated folder could not be written skips the team pack and says why", async () => {
@@ -1137,7 +1178,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
           if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
@@ -1185,7 +1226,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
           execCalls.push(argv);
           const [, , verb, id] = argv;
@@ -1231,7 +1272,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
           if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           execCalls.push(argv);
@@ -1271,7 +1312,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
           if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           execCalls.push(argv);
@@ -1375,7 +1416,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
           if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
@@ -1409,7 +1450,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
-        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills", source: "./mattstack/teams/acme-skills/plugin" }] }) },
         exec: async (argv) => {
           if (argv[0] === "git") return ok(p.readFile(marketplacePath) ?? "");
           const [, , verb, id] = argv;
