@@ -11,6 +11,8 @@ copy gets no setup row. A file anywhere else is ignored without a warning.
 - An org declares a tool or integration once; every team's setup picks it up.
 - A team can change an org tool, make it optional, or remove it.
 - An org with no org file behaves exactly as it does today.
+- A member on a finished Mac hears about a new required tool when it arrives, and
+  resolves it on a screen that shows only that tool.
 
 Non-goals: new action kinds for tool rows (RT-414), removing the copies teams
 already carry, and org-level `chrome` or `workType`.
@@ -74,19 +76,50 @@ that parsed still apply. The row has no `ROW_TARGETS` entry and blocks nothing,
 so the fast screens do not draw it. It shows under Setup status only.
 
 **Unchanged.** Row ids stay `tool.team.<name>`, so stored waivers and the tray
-see no difference, and `PlanModels.swift` needs no new field. The prepare stage
+see no difference, and `PlanModels.swift` needs no new row field. The prepare stage
 builds its list from the same reader, so it installs org tools too. Org tools
 with a sign-in land on the connect screen through `signInTools`. Others show as
 "Before you finish" rows while they block.
 
-**Finished Macs.** A required org tool makes every member's finished Mac read
-unfinished at their next `org.pull`, all at once, from one org edit. The footer
-reads "Finish setup", and fixing the row finishes setup. A team adding a tool to
-its pack does the same today, for one team. Org tools default to required, the
-same rule as a pack (Matt's pick): an admin writes `optional: true` for a tool
-that should not block.
+**Required by default.** Org tools default to required, the same rule as a pack
+(Matt's pick): an admin writes `optional: true` for a tool that should not
+block. One org edit reaches every member at their next pull.
 
-**Older apps.** They ignore the org file and `excludeOrg`, so nothing breaks.
+## A new tool on a finished Mac
+
+Today a member hears nothing until the next app update, because `rt setup
+update` runs once per version, and then the notification blames the update. The
+fix applies to any new required tool, from a pack or the org, since both come
+through the same reader. Mock: `docs/apps/design/setup/setup.pen`, section T.
+
+**Notification.** The daemon's `afterPull` hook runs after each team pull on a
+finished Mac. It reads the merged requirements, finds required tools whose binary
+is missing, and sends one notification for those not yet told. Category
+`setup_update`, so a click opens Setup status and the member's notification
+setting applies.
+
+- One tool: "Your team needs Doppler", "Open setup to install it".
+- Several: "Your team needs 2 new tools", "Doppler and ldcli".
+
+`setup-state.json` gains `toolNotices: string[]`, the names already told. A name
+drops off once the tool is no longer required and missing, so a tool removed and
+added back notifies again. Later never re-notifies; the update run's existing
+"Setup needs you" notification stays as the per-release reminder.
+
+**Screen (T2).** `finishedStage` returns a new stage `tools` when every blocking
+row is a `tool.team.*` row and its account. Any other blocker keeps today's route,
+so a broken Mac is not reduced to one tool. `rt setup form --section tools`
+returns the rows, built by the connect section's `signInRow` and `extraRow`, so
+Install, Download, Show steps and sign-in behave as they do on the connect screen.
+
+- Heading: "One new tool for your team", or "2 new tools for your team".
+- Footer: "Find this later in Setup status", with Later and Done.
+- Later closes the window. Done is off until every row is done, then closes it.
+- Once the rows clear, the heading reads "You're all set".
+- The tray's step label reads "Setup status". There is no sub line.
+
+**Older apps.** They ignore the org file and `excludeOrg`, so nothing breaks. The
+`tools` stage ships in the same bundle as the rt that returns it.
 
 ## Left to the builder
 

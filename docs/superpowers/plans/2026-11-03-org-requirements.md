@@ -16,7 +16,9 @@
 - Org errors never reach `PackRequirements.error`: `lib/setup/pack.ts:41` fails the pack stage on it.
 - The reader always returns at most one entry. `pack` is the team's name, never the org's.
 - No active team, or an empty org slug, returns `[]`.
-- Row ids stay `tool.team.<name>`. No change to `PlanModels.swift`.
+- Row ids stay `tool.team.<name>`.
+- Screen copy is fixed by the spec's "A new tool on a finished Mac" section. Mock: `docs/apps/design/setup/setup.pen`, section T, frames T1 to T7.
+- UI is validated by rendering both schemes and looking at them.
 - No employer names or real team slugs in code, tests or docs. Fixtures use `acme` and `widgets`.
 - Run `bun test` from the repo root, and only the files each task names.
 - Comments state a constraint the code cannot show, or do not exist.
@@ -191,4 +193,149 @@ Expected: no errors.
 ```bash
 git add lib/setup/pack.ts lib/setup/validators/tools.ts lib/setup/regroup.ts .claude/rules/setup.md lib/setup/__tests__/pack.test.ts lib/setup/__tests__/validators-tools.test.ts lib/setup/__tests__/regroup.test.ts
 git commit -m "setup: pack readers skip an org-only entry; org errors get a status row"
+```
+
+### Task 3: Notify once when a required tool arrives
+
+**Files:**
+- Create: `lib/setup/tool-notices.ts`
+- Modify: `lib/setup/state.ts`, the `afterPull` wiring passed to `lib/daemon/team-snapshots.ts`
+- Test: `lib/setup/__tests__/tool-notices.test.ts`
+
+**Interfaces:**
+- Consumes: `readPackRequirements` from Task 1.
+- Produces:
+  - `SetupState.toolNotices?: string[]`
+  - `export function toolNotice(missing: { name: string; title: string }[], told: string[]): { notice: { title: string; message: string } | null; told: string[] }`, pure.
+  - `export async function runToolNotices(p: Probes, slug: string, notify: (title: string, message: string, id: string) => void): Promise<void>`
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+const dop = { name: "doppler", title: "Doppler" };
+const ld = { name: "ldcli", title: "ldcli" };
+
+test("one new tool names it", () => {
+  expect(toolNotice([dop], [])).toEqual({
+    notice: { title: "Your team needs Doppler", message: "Open setup to install it" },
+    told: ["doppler"],
+  });
+});
+test("several tools count and list", () => {
+  expect(toolNotice([dop, ld], []).notice).toEqual({ title: "Your team needs 2 new tools", message: "Doppler and ldcli" });
+});
+test("a tool already told sends nothing", () => {
+  expect(toolNotice([dop], ["doppler"])).toEqual({ notice: null, told: ["doppler"] });
+});
+test("a tool no longer missing drops off, so it can notify again", () => {
+  expect(toolNotice([], ["doppler"])).toEqual({ notice: null, told: [] });
+});
+test("only the new name counts toward the notice", () => {
+  expect(toolNotice([dop, ld], ["doppler"]).notice?.title).toBe("Your team needs ldcli");
+});
+```
+
+`runToolNotices`, with `fakeProbes`: `"an unfinished Mac sends nothing"`, `"an optional tool sends nothing"`, `"a sent notice records its names in setup-state"`, `"a notify that throws records nothing"`.
+
+`title` is `integrationDef(connect.integration).title` when the tool connects an integration, otherwise its `name` as written.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `bun test lib/setup/__tests__/tool-notices.test.ts`
+Expected: FAIL, module not found.
+
+- [ ] **Step 3: Implement**
+
+`runToolNotices` returns unless `isSetupFinished`, reads the merged requirements, filters to non-optional tools, finds missing binaries with the same check `prepare.ts` uses (export `missingBinary`), calls `toolNotice`, sends with id `setup_update:tools:<sorted names>`, then writes `toolNotices`. Wire it into the daemon's `afterPull`, using `notifyEnabled(SETUP_UPDATE_CATEGORY, ...)`, and keep any existing `afterPull` work running first. A failure logs and never breaks the pull.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `bun test lib/setup/__tests__/tool-notices.test.ts lib/setup/__tests__/prepare.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/setup/tool-notices.ts lib/setup/state.ts lib/setup/prepare.ts lib/setup/__tests__/tool-notices.test.ts lib/daemon
+git commit -m "setup: notify once when a required tool arrives on a finished Mac"
+```
+
+### Task 4: The `tools` stage and section
+
+**Files:**
+- Modify: `lib/setup/form.ts`, `commands/setup-form.ts`
+- Test: the form suite beside `lib/setup/form.ts` (`lib/setup/__tests__/form*.test.ts`)
+
+**Interfaces:**
+- Consumes: `signInRow`, `extraRow` in `form.ts`.
+- Produces:
+  - `FormStage` gains `"tools"`.
+  - `rt setup form --section tools` returns `{ heading: string; rows: FormRow[]; allDone: boolean }`.
+
+- [ ] **Step 1: Write the failing tests**
+
+- `"a finished Mac with only a missing team tool lands on tools"`: `formStage` returns `"tools"`.
+- `"a team tool's own account counts as the tool"`: a missing `tool.team.doppler` plus an unconnected `account.doppler` still lands on `tools`.
+- `"any other blocker keeps today's stage"`: a missing `account.slack` plus a team tool returns `"connect"`.
+- `"an unfinished Mac never lands on tools"`.
+- `"a run still going outranks tools"`.
+- `"the tools section draws an Install row for a missing tool"`, with state `todo` and action `install`.
+- `"a sign-in tool, once installed, offers its sign-in"`.
+- `"a tool with no sign-in and no brew offers Download or Show steps"`.
+- Heading: one row `"One new tool for your team"`, two `"2 new tools for your team"`, all done `"You're all set"` with `allDone: true`.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `bun test lib/setup/__tests__/form`
+Expected: FAIL on the new tests.
+
+- [ ] **Step 3: Implement**
+
+`StageInputs` gains `onlyTeamTools: boolean`, true when the blocking set is non-empty and every id is `tool.team.*` or the `account.<session>` of a sign-in tool. `finishedStage` returns `"tools"` after its `macos` check and before `connect`. Keep the copy in `FORM_COPY`. Add `tools` to the section list and `USAGE`. The section lists the blocking tools plus those named in `toolNotices`, so a resolved tool stays on screen as a done row, and "You're all set" can show before the window closes. Once nothing blocks, the stage reads `ready`; the tray holds the screen until Done.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `bun test lib/setup/__tests__/form`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/setup/form.ts commands/setup-form.ts lib/setup/__tests__
+git commit -m "setup: a tools stage for a new tool on a finished Mac"
+```
+
+### Task 5: The tray screen
+
+**Files:**
+- Create: `rt-tray/Sources/Setup/Fast/ToolsScreen.swift`
+- Modify: the `FormStage` and `FastSetupScreen` enums, `FastSetupView.swift`, `FastSetupSnapshot.swift`
+- Test: the `FastSetupFlow` suite in `rt-tray`
+
+**Interfaces:**
+- Consumes: `rt setup form --section tools` from Task 4.
+- Produces: `FastSetupScreen.tools`.
+
+- [ ] **Step 1: Write the failing test**
+
+`FastSetupFlow`: `land(on: .tools)` shows `.tools`, and a read returning `.ready` while the screen is `.tools` holds it there until Done.
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run the tray's core test target, per `.claude/rules/dev-app.md`.
+Expected: FAIL, no `tools` case.
+
+- [ ] **Step 3: Implement `ToolsScreen`**
+
+Follow `ConnectScreen.swift`, reusing `FormCard`, `FormRowView` and `FastFooter`. Heading from the section, no sub line, step label "Setup status", footer note "Find this later in Setup status". Later closes the window. Done is off until `allDone`, then closes it. No decision in Swift about which rows show. Add snapshot pages for T2, T3, T4, T5, T6 and T7, in both schemes.
+
+- [ ] **Step 4: Run the test and render both schemes**
+
+Run the same test target, expected PASS. Render the snapshots in light and dark, compare with section T, and say plainly what looks wrong.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add rt-tray
+git commit -m "tray: a short screen for a new team tool"
 ```
