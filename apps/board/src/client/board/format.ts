@@ -448,9 +448,9 @@ function respondChoices(
   return choices.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function respondChoiceLabel(c: RespondChoice): string {
+function respondChoiceLabel(c: RespondChoice, name = c.name): string {
   const verb = c.open > 0 ? 'respond to' : 'redo response to';
-  return `${verb} ${c.name}${roundSuffix(c.nextRound)}`;
+  return `${verb} ${name}${roundSuffix(c.nextRound)}`;
 }
 
 /** The name a respond label shows for a username: the display name while

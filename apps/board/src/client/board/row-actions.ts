@@ -311,7 +311,7 @@ export function rowActions(
           return agentItem(
             'respond',
             'respond',
-            respondChoiceLabel(only),
+            respondChoiceLabel(only, people.short(only.username)),
             { kind: 'launch', flow: 'respond', person: only.username },
             {
               notable: true,
