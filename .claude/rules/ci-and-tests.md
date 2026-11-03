@@ -11,10 +11,13 @@ paths:
 
 # CI shards and test scope
 
-CI runs the unit suite as three macOS shards (`bun test --shard=i/3
+CI runs the unit suite as three macOS shards, each runner taking two
+halves of its shard in parallel (`bun test --shard=i/6
 --timings=test-timings.json`, balanced by the committed timings file,
-which the Timings workflow regenerates) and runs the non-Mac gates on
-ubuntu. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
+which the Timings workflow regenerates), and runs the non-Mac gates on
+ubuntu. Two bun processes share a runner safely because the preload keys
+HOME, the socket dir and tmp by pid; a test that binds a fixed port or
+path outside them will flake under this and must be fixed, not serialized. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
 the shards and for every path-gated job (`go`, `deck-macos`, `e2e-tests`,
 `glitter-pty`, `website`, the plugin jobs); `docs/ci.md` has the table.
 Its "The unit shards' modes" section says which diffs skip the shards,
@@ -24,7 +27,8 @@ guard in the unit directories.
 Any other test that spawns
 `cli.ts` or reads source as text is not selected by `--changed`, so it
 must be named `no-*` to run on a PR at all; an un-prefixed one only runs
-on main, so a TypeScript-only PR can go green and break main there. When
+in the merge queue's full run, so a TypeScript-only PR can go green and
+then fail to land. When
 the shards' printed wall times drift more than a minute apart, refresh
 the timings file by running the Timings workflow
 (`gh workflow run timings.yml`) and committing its artifact;

@@ -11,6 +11,7 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, edited]
+  merge_group:
 
 jobs:
   purity:
@@ -21,9 +22,12 @@ jobs:
         with:
           # Without full history neither base below resolves, and the script
           # falls back to the newest 30 commits instead of the exact range.
+          # The script greps the working tree and commit messages, never an
+          # old blob, so history comes without them.
           fetch-depth: 0
+          filter: blob:none
       - name: No employer or domain references in the tracked tree
         env:
-          PURITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+          PURITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.merge_group.base_sha || github.event.before }}
           PURITY_PR_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}
         run: scripts/repo-purity.sh

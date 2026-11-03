@@ -47,8 +47,9 @@ function prInput(changed: string[]): ScopeInput {
 }
 
 describe("decide", () => {
-  test("a push is always full", () => {
+  test("a push or a merge-queue run is always full", () => {
     expect(decide({ ...pr(["docs/a.md"]), event: "push" }).mode).toBe("full");
+    expect(decide({ ...pr([]), event: "merge_group" }).mode).toBe("full");
   });
 
   test("an empty diff skips with its own reason", () => {
@@ -69,12 +70,17 @@ describe("decide", () => {
     expect(decide(pr(["rt-tray/Sources-core/Tray/Menu.swift"])).mode).toBe("skip");
   });
 
-  test("a swift file a parity test reads by path is full", () => {
-    expect(decide(pr(["rt-tray/Sources-core/Flavor/FlavorLaunch.swift"])).mode).toBe("full");
+  test("a swift file a parity test reads by path runs that test whole, not the suite", () => {
+    const decision = decide(pr(["rt-tray/Sources-core/Flavor/FlavorLaunch.swift"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["lib/__tests__/dev-mode.test.ts"]);
+    expect(decision.reason).toContain("1 file(s) read by a test");
   });
 
-  test("a tray file a test reads by basename is full", () => {
-    expect(decide(pr(["rt-tray/build.sh"])).mode).toBe("full");
+  test("a tray file a test reads by basename runs its readers whole", () => {
+    const decision = decide(pr(["rt-tray/build.sh"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra?.length).toBeGreaterThan(0);
   });
 
   test("a tray plist nothing names skips", () => {
@@ -103,10 +109,57 @@ describe("decide", () => {
     expect(decide(prInput([f, "lib/daemon.ts"])).mode).toBe("changed");
   });
 
-  test("a doc a unit test reads beside typescript is full, naming the reader", () => {
+  test("a doc a unit test reads beside typescript runs --changed plus that reader", () => {
     const decision = decide(pr(["rt-tray/Sources-core/Flavor/FlavorLaunch.swift", "lib/x.ts"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["lib/__tests__/dev-mode.test.ts"]);
+  });
+
+  test("a read file whose reader is not a test runs the tests importing the reader", () => {
+    const reading = new Map(sources);
+    reading.set("lib/helper.ts", `readFileSync(join(ROOT, "docs/strongdm.md"))`);
+    const graph = new Map([["lib/__tests__/a.test.ts", ["lib/helper.ts"]], ["lib/__tests__/b.test.ts", []], ["lib/helper.ts", []]]);
+    const tests = ["lib/__tests__/a.test.ts", "lib/__tests__/b.test.ts"];
+    const decision = decide({ event: "pull_request", changed: ["docs/strongdm.md"], sources: reading, preloadImports, tests, graph });
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["lib/__tests__/a.test.ts"]);
+  });
+
+  test("a source file a test reads as text, without importing it, adds that test to the changed run", () => {
+    const decision = decide(prInput(["lib/daemon.ts"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toContain("lib/daemon/__tests__/gate-push.test.ts");
+  });
+
+  test("a source file named by a non-test source adds nothing: only a test's own read counts in the shards", () => {
+    const reading = new Map(sources);
+    reading.set("lib/orphan.ts", `readFileSync(join(ROOT, "lib/daemon.ts"))`);
+    const decision = decide({ event: "pull_request", changed: ["lib/daemon.ts"], sources: reading, preloadImports, tests: [], graph: new Map() });
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).not.toContain("lib/orphan.ts");
+  });
+
+  test("a source file whose basename other files share is matched by path, not name", () => {
+    const reading = new Map(sources);
+    reading.set("lib/__tests__/names.test.ts", `const where = "setup.ts";`);
+    const decision = decide({ event: "pull_request", changed: ["commands/setup.ts"], sources: reading, preloadImports, tracked: real.tracked });
+    expect(decision.extra ?? []).not.toContain("lib/__tests__/names.test.ts");
+  });
+
+  test("a read file whose reader is not a test runs full when no import graph is at hand", () => {
+    const reading = new Map(sources);
+    reading.set("lib/helper.ts", `readFileSync(join(ROOT, "docs/strongdm.md"))`);
+    const decision = decide({ event: "pull_request", changed: ["docs/strongdm.md"], sources: reading, preloadImports });
     expect(decision.mode).toBe("full");
-    expect(decision.reason).toContain("lib/__tests__/dev-mode.test.ts");
+    expect(decision.reason).toContain("lib/helper.ts");
+  });
+
+  test("a read file whose reader no test imports runs full rather than nothing", () => {
+    const reading = new Map(sources);
+    reading.set("lib/helper.ts", `readFileSync(join(ROOT, "docs/strongdm.md"))`);
+    const graph = new Map([["lib/__tests__/b.test.ts", []], ["lib/helper.ts", []]]);
+    const decision = decide({ event: "pull_request", changed: ["docs/strongdm.md"], sources: reading, preloadImports, tests: ["lib/__tests__/b.test.ts"], graph });
+    expect(decision.mode).toBe("full");
   });
 
   test("a non-typescript file outside the skip set still forces full in a mixed diff", () => {
@@ -267,15 +320,15 @@ describe("plugins", () => {
     expect(decide(pr(changed)).mode).toBe("skip");
     expect(pluginDirs(changed)).toEqual(["plugins/mattstack"]);
   });
-  test("a plugins-only diff that an rt test reads by repo path runs full", () => {
+  test("a plugins-only diff that an rt test reads by repo path runs that test whole", () => {
     const reading = new Map(sources);
     reading.set(
       "lib/__tests__/plugin-parity.test.ts",
       `const manifest = readFileSync(join(ROOT, "plugins/herdr-chat/plugin.json"), "utf8");`,
     );
     const decision = decide({ event: "pull_request", changed: ["plugins/herdr-chat/plugin.json"], sources: reading, preloadImports });
-    expect(decision.mode).toBe("full");
-    expect(decision.reason).toContain("lib/__tests__/plugin-parity.test.ts");
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["lib/__tests__/plugin-parity.test.ts"]);
   });
   test("a plugin file matches by repo path only, never by a shared basename", () => {
     const reading = new Map(sources);
@@ -504,7 +557,9 @@ describe("files the shards never run, beside typescript", () => {
   test("a snapshot runs its own test as an extra, not the full suite", () => {
     const decision = decide(prInput(["commands/__tests__/__snapshots__/setup-copy.test.ts.snap", "commands/setup.ts"]));
     expect(decision.mode).toBe("changed");
-    expect(decision.extra).toEqual(["commands/__tests__/setup-copy.test.ts"]);
+    expect(decision.extra).toContain("commands/__tests__/setup-copy.test.ts");
+    // Tests that name commands/setup.ts only as "setup.ts" are not readers of it.
+    expect(decision.extra?.length).toBeLessThan(4);
   });
 
   test("a snapshot alone is a changed run of its test", () => {
@@ -526,8 +581,10 @@ describe("files the shards never run, beside typescript", () => {
     expect(decide(prInput([f, "lib/daemon.ts"])).mode).toBe("changed");
   });
 
-  test.each(["rt-tray/build.sh", "rt-tray/sparkle-minimum-update"])("%s, which a unit test reads, still forces full", (f) => {
-    expect(decide(prInput([f, "lib/daemon.ts"])).mode).toBe("full");
+  test.each(["rt-tray/build.sh", "rt-tray/sparkle-minimum-update"])("%s, which a unit test reads, adds that test to the changed run", (f) => {
+    const decision = decide(prInput([f, "lib/daemon.ts"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra?.length).toBeGreaterThan(0);
   });
 
   test("an e2e file a unit test imports stays in the --changed set", () => {
@@ -550,9 +607,9 @@ describe("what counts as a test reading a file", () => {
   }
 
   test("a quoted path segment, a joined segment or a template tail counts", () => {
-    expect(reads(`readFileSync(join(ROOT, "AGENTS.md"))`, ["AGENTS.md"])).toBe("full");
-    expect(reads(`readFileSync(\`\${ROOT}/AGENTS.md\`)`, ["AGENTS.md"])).toBe("full");
-    expect(reads(`readFileSync(join(ROOT, "docs", "strongdm.md"))`, ["docs/strongdm.md"])).toBe("full");
+    expect(reads(`readFileSync(join(ROOT, "AGENTS.md"))`, ["AGENTS.md"])).toBe("changed");
+    expect(reads(`readFileSync(\`\${ROOT}/AGENTS.md\`)`, ["AGENTS.md"])).toBe("changed");
+    expect(reads(`readFileSync(join(ROOT, "docs", "strongdm.md"))`, ["docs/strongdm.md"])).toBe("changed");
   });
 
   test("prose that mentions the file, or a longer path ending in its name, does not", () => {
@@ -562,20 +619,20 @@ describe("what counts as a test reading a file", () => {
   });
 
   test("a full path behind a ../ prefix counts", () => {
-    expect(reads(`readFileSync(join(import.meta.dir, "../../plugins/x/ref.md"))`, ["plugins/x/ref.md"])).toBe("full");
-    expect(reads(`readFileSync(join(dir, "../../../rt-tray/Sources-core/A.swift"))`, ["rt-tray/Sources-core/A.swift"])).toBe("full");
+    expect(reads(`readFileSync(join(import.meta.dir, "../../plugins/x/ref.md"))`, ["plugins/x/ref.md"])).toBe("changed");
+    expect(reads(`readFileSync(join(dir, "../../../rt-tray/Sources-core/A.swift"))`, ["rt-tray/Sources-core/A.swift"])).toBe("changed");
   });
 
   test("a full path spelled as join() segments counts, an apps file included", () => {
-    expect(reads(`join(import.meta.dir, "..", "apps", "board", "switchboard", "server.ts")`, ["apps/board/switchboard/server.ts"])).toBe("full");
-    expect(reads(`join(ROOT, ".github", "workflows", "release.yml")`, [".github/workflows/release.yml"])).toBe("full");
+    expect(reads(`join(import.meta.dir, "..", "apps", "board", "switchboard", "server.ts")`, ["apps/board/switchboard/server.ts"])).toBe("changed");
+    expect(reads(`join(ROOT, ".github", "workflows", "release.yml")`, [".github/workflows/release.yml"])).toBe("changed");
   });
 
   test("an apps file's bare basename does not count", () => {
     expect(reads(`join(dir, "server.ts")`, ["apps/board/switchboard/server.ts"])).toBe("skip");
   });
 
-  test("the live tree: files read through ../ and join() run full", () => {
+  test("the live tree: files read through ../ and join() run their readers", () => {
     for (const f of [
       "plugins/mattstack/attachments/orchestration/shepherdr/references/job-template.md",
       "rt-tray/Sources-core/Services/DevBuild.swift",
@@ -583,7 +640,9 @@ describe("what counts as a test reading a file", () => {
       "apps/board/src/slack.ts",
       "apps/board/switchboard/server.ts",
     ]) {
-      expect(decide(prInput([f])).mode).toBe("full");
+      const decision = decide(prInput([f]));
+      expect(decision.mode).toBe("changed");
+      expect(decision.extra?.length).toBeGreaterThan(0);
     }
   });
 
@@ -615,11 +674,13 @@ describe("workflow files", () => {
     expect(decision.mode).toBe("full");
     expect(decision.reason).toContain("checks.yml");
   });
-  test("a workflow a unit test reads by repo path runs full", () => {
+  test("a workflow a unit test reads by repo path runs that test whole", () => {
     const reading = new Map(sources);
     reading.set("scripts/__tests__/renovate.test.ts", `readFileSync(join(ROOT, ".github/workflows/renovate.yml"))`);
     const changed = [".github/workflows/renovate.yml"];
-    expect(decide({ event: "pull_request", changed, sources: reading, preloadImports }).mode).toBe("full");
+    const decision = decide({ event: "pull_request", changed, sources: reading, preloadImports });
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["scripts/__tests__/renovate.test.ts"]);
   });
 });
 
@@ -627,9 +688,10 @@ describe("jobsFor", () => {
   const none = { go: false, deck: false, e2e: false, glitter: false, website: false };
   const every = { go: true, deck: true, e2e: true, glitter: true, website: true };
 
-  test("a push to main runs every job", () => {
+  test("a push to main or a merge-queue run runs every job", () => {
     expect(jobsFor("push", [])).toEqual(every);
     expect(jobsFor("push", ["docs/a.md"])).toEqual(every);
+    expect(jobsFor("merge_group", [])).toEqual(every);
   });
 
   test("a website-only PR builds the site and nothing else", () => {

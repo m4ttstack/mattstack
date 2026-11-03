@@ -1,7 +1,10 @@
 # CI jobs and what triggers them
 
-Every push to `main` runs every job. On a pull request, a job runs only
-when the diff touches a path it can be affected by. The `scope` job in
+A merge-queue run (`merge_group`) runs every job in full on the exact tree
+about to land. On a pull request, a job runs only when the diff touches a
+path it can be affected by. A push to `main` runs only `purity`: the queue
+already tested that tree, and the org's five macOS slots were spending two
+thirds of their minutes on post-merge reruns. The `scope` job in
 `checks.yml` and the `changes` job in `e2e.yml` both run
 `scripts/ci/test-scope.ts`, which holds every rule below, and
 `scripts/ci/__tests__/test-scope.test.ts` pins each one.
@@ -25,6 +28,7 @@ own changes.
 | e2e | `e2e-tests` | macOS | anything the compiled binary or the e2e run can reach (below) |
 | e2e | `glitter-pty` | macOS | the paths in `GLITTER_TRIGGERS` (the board's inputs, `e2e.yml`, the scope script) |
 | purity | `purity` | ubuntu | always |
+| unit-linux-probe | `probe` | ubuntu | its own workflow file, or by hand; advisory, never fails a PR |
 
 ## The unit shards' modes
 
@@ -34,13 +38,17 @@ unit test reads them by path: docs (`docs/`, `.md` and `.mdx` outside
 directories, the apps and plugin trees, workflow files other than
 `checks.yml`, repo metadata (`.gitignore` and the like), and `e2e/` files no
 unit test imports. A snapshot (`__snapshots__/x.test.ts.snap`) drops out
-too, and its own test is added to the run. Then:
+too, and its own test is added to the run. So does a file in those trees
+that a unit test does read by path (`plugin.json`, `rt-tray/deps.lock`,
+a Swift file a parity test checks): the tests reading it are added to the
+run whole, since `--changed` cannot see a read that is not an import. When
+the reader is not a test, the tests importing the reader are added
+instead; a reader no test imports forces full. Then:
 
 - **skip**: nothing is left.
 - **full**: every unit test, in three shards. Any push, any change to
   `checks.yml`, `e2e.yml` (the scope test pins both gates) or the scope
-  script, a dropped-out file a unit test does
-  read, and any remaining file `--changed` cannot trace (a non-TypeScript
+  script, and any remaining file `--changed` cannot trace (a non-TypeScript
   file such as `bun.lock`, a fixture, the preload or its imports,
   `packages/glance/`).
 - **changed**: `--changed=HEAD^1` over what is left, which is all
@@ -79,8 +87,11 @@ path rule can rule out (the lockfile, workflow lint, the PR text).
 
 ## Required checks
 
-Branch protection requires `checks`, `e2e` and `purity`. `checks` and `e2e`
-are aggregate jobs that run with `always()`: each fails when its scope job
-fails, and passes a skipped job only when scope said that job did not
-apply. A gated job that is skipped for any other reason fails the gate.
-`glitter-pty` is not part of the `e2e` gate, so it stays advisory.
+Branch protection requires `checks`, `e2e` and `purity`, and a ruleset puts
+every merge through the merge queue (squash, batches of up to five). The
+queue waits for the same three checks on its `merge_group` run before
+landing the batch. `checks` and `e2e` are aggregate jobs that run with
+`always()`: each fails when its scope job fails, and passes a skipped job
+only when scope said that job did not apply. A gated job that is skipped
+for any other reason fails the gate. `glitter-pty` is not part of the `e2e`
+gate, so it stays advisory.

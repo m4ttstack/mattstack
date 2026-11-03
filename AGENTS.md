@@ -134,7 +134,7 @@ something that does nothing.
 
 ## Footguns
 
-### `bun run test` is one of three suites, and CI runs all three on main
+### `bun run test` is one of three suites, and CI runs all three in the merge queue
 
 The `test` script in `package.json` is the one source of truth for which
 directories this suite covers. CI also runs `test:e2e`

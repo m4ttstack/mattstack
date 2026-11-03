@@ -1,11 +1,10 @@
 name: E2E Tests
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  merge_group:
 
-# Same rule as checks.yml: superseded PR runs are cancelled, main runs never.
+# Same rule as checks.yml: superseded PR runs are cancelled, merge-queue runs never.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
