@@ -269,6 +269,15 @@ real 2.8.1 build. The prod-Mac leg (Create Release → appcast → an installed
 app on real hardware) still awaits the first real tag; treat that first run
 as a verification exercise, not a routine.
 
+A downloaded update installs and relaunches once no window is open and
+setup is not running. Sparkle offers its install handler once, and the
+tray keeps it (`HeldUpdateInstaller`) rather than declining: a declined
+update waits for a quit, which a login item rarely sees, and Sparkle puts
+off its next check for a week. The tray retries every minute, and the
+"Update Available" menu item installs at once (setup still holds it). An
+`app_update` notification says when an update is waiting and again after
+the relaunch into the new version (`UpdateNotice`).
+
 ### Requiring an intermediate update
 
 When one release must be installed before the next (a safety patch that
