@@ -1728,6 +1728,7 @@ export const TREE: Record<string, CommandNode> = {
     omitBehavior: "list",
     args: [
       { name: "Repo", flag: "--repo", type: "text", placeholder: "myrepo", hint: "Scope to one registry repo" },
+      { name: "Include tests", flag: "--include-tests", type: "boolean", default: false, hint: "Also list runs a validation harness started" },
     ],
     subcommands: runsSubcommands,
   },
