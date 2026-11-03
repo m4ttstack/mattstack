@@ -123,7 +123,7 @@ Expected: FAIL, `mergeOrgRequirements` is not exported.
   - `integrations` is team's, then org's not in `dropped`, deduped.
   - The result spreads `team` when present, otherwise `{ pack: teamName, tools: [], integrations: [], orgOnly: true }`, with `tools: [...team.tools, ...kept]` and `integrations`, plus `orgError: org.error` only when set.
 - `readPackRequirements`:
-  - Return `[]` when `org` is empty, before resolving the active team. Change the parameter to `team?: string | null` and resolve inside.
+  - Return `[]` when `org` is empty, before resolving the active team. Change the parameter to `team?: string | null` and resolve inside. `plan.ts:204` and `form.ts:1003,1052` call it without guarding an empty slug, so this return is not redundant.
   - Keep the `team === null` return.
   - Build today's `PackRequirements | null` from the existing branches.
   - Read `join(orgDir, "mattstack", "org", "requirements.jsonc")`. Absent: return today's result. Present but unreadable: fold an empty org with `error: "could not read <file>"`.
@@ -155,7 +155,7 @@ git commit -m "setup: fold org requirements into the team's entry"
 
 `pack.test.ts`:
 
-- `"an orgOnly entry takes the same path as no entry"`: same fixture as the existing `reqs: []` case that reaches `NO_MANIFEST_DETAIL`, passing `[{ pack: "widgets", tools: [], integrations: [], orgOnly: true }]`. Assert the same result as `[]`.
+- `"an orgOnly entry takes the same path as no entry"`: the fixture at `pack.test.ts:116` (`registerRepo` plus `materializeWorld`), run once with `reqs: []` and once with `[{ pack: "widgets", tools: [], integrations: [], orgOnly: true }]`. Assert both results are equal.
 - `"an orgError never fails the pack stage"`: `reqs: widgets("feature")` with `orgError: "bad"` on the entry, same result as without it.
 
 `validators-tools.test.ts`:
@@ -198,8 +198,8 @@ git commit -m "setup: pack readers skip an org-only entry; org errors get a stat
 ### Task 3: Notify once when a required tool arrives
 
 **Files:**
-- Create: `lib/setup/tool-notices.ts`
-- Modify: `lib/setup/validators/tools.ts` (export `teamToolRow`), the `afterPull` wiring passed to `lib/daemon/team-snapshots.ts`
+- Create: `lib/setup/tool-notices.ts`, `lib/daemon/tool-notice-pull-hook.ts`
+- Modify: `lib/setup/validators/tools.ts` (export `teamToolRow`), `lib/daemon.ts:1137` (add the hook to `composePullHooks([...])`)
 - Test: `lib/setup/__tests__/tool-notices.test.ts`
 
 **Interfaces:**
@@ -255,7 +255,9 @@ Expected: FAIL, module not found.
 
 - [ ] **Step 3: Implement**
 
-`runToolNotices` returns unless `isSetupFinished`, and returns while `setup-update.lock` is held, `setup-intent.json` exists, or the run record has no `endedAt`. It reads the merged requirements, filters to non-optional tools, and builds each with `teamToolRow`; a tool is missing only when the row's status is `missing`. It calls `toolNotice`, sends with id `setup_update:tools:<sorted names>`, then writes the record. Wire it into the daemon's `afterPull` using `notifyEnabled(SETUP_UPDATE_CATEGORY, ...)`, which keeps the member's notification setting and never asks for permission. Keep any existing `afterPull` work running first. A failure logs and never breaks the pull.
+`runToolNotices` returns unless `isSetupFinished`, and returns while `setup-update.lock` is held, `setup-intent.json` exists, or the run record has no `endedAt`. It reads the merged requirements, filters to non-optional tools, and builds each with `teamToolRow(p, tool, false)`; `hasBrew` changes only the row's action, and a tool is missing only when the row's status is `missing`. It calls `toolNotice`, sends with id `setup_update:tools:<sorted names>`, then writes the record. It sends through `notifyEnabled(SETUP_UPDATE_CATEGORY, ...)`, which keeps the member's notification setting and never asks for permission.
+
+`tool-notice-pull-hook.ts` is a factory following `lib/daemon/materialize-pull-hook.ts`. Import `tool-notices.ts` lazily inside the hook, because the daemon graph must not load the setup chain at boot (the `no-eager-tui` guard). Add it to `composePullHooks` after the existing hooks. A failure logs and never breaks the pull.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -265,7 +267,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/setup/tool-notices.ts lib/setup/validators/tools.ts lib/setup/__tests__/tool-notices.test.ts lib/daemon
+git add lib/setup/tool-notices.ts lib/setup/validators/tools.ts lib/setup/__tests__/tool-notices.test.ts lib/daemon/tool-notice-pull-hook.ts lib/daemon.ts
 git commit -m "setup: notify once when a required tool arrives on a finished Mac"
 ```
 
@@ -279,7 +281,8 @@ git commit -m "setup: notify once when a required tool arrives on a finished Mac
 - Consumes: `signInRow`, `extraRow` in `form.ts`.
 - Produces:
   - `FormStage` gains `"tools"`.
-  - `rt setup form --section tools` returns `{ heading: string; rows: FormRow[]; allDone: boolean }`.
+  - `SetupForm.sections.tools?: FormRow[]`, the same shape as every other section.
+  - `SetupForm.tools?: { heading: string; allDone: boolean }`, set when `tools` is the stage or the section asked for.
   - `rt setup form --ack-tools` adds every `told` name to `acked`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -305,7 +308,7 @@ Expected: FAIL on the new tests.
 
 - [ ] **Step 3: Implement**
 
-`StageInputs` gains `onlyTeamTools: boolean`, true when the blocking set is non-empty and every id is `tool.team.*` or the `account.<session>` of a sign-in tool, and `toolsUnacked: boolean`, true when `told` holds a name outside `acked`. `finishedStage` returns `"tools"` on either, after its `macos` check and before `connect`. Keep the copy in `FORM_COPY`. Add `tools` to the section list and `USAGE`. The section lists the blocking tools plus those named in `toolNotices`, so a resolved tool stays on screen as a done row, and "You're all set" can show before the window closes.
+Add a pure helper `onlyTeamToolsBlock(plan: Plan, signIn: readonly ToolRequirement[]): boolean` beside `needsRun` (`form.ts:947`), reading `requiredMissing` and `finishBlockedBy`. `StageInputs`, assembled at `form.ts:1145`, gains `onlyTeamTools: boolean` from it, true when the blocking set is non-empty and every id is `tool.team.*` or the `account.<session>` of a sign-in tool, and `toolsUnacked: boolean`, true when `told` holds a name outside `acked`. `finishedStage` returns `"tools"` on either, after its `macos` check and before `connect`. Keep the copy in `FORM_COPY`. Add `tools` to the section list and `USAGE`. The section lists the blocking tools plus those named in `toolNotices`, so a resolved tool stays on screen as a done row, and "You're all set" can show before the window closes.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -323,11 +326,11 @@ git commit -m "setup: a tools stage for a new tool on a finished Mac"
 
 **Files:**
 - Create: `rt-tray/Sources/Setup/Fast/ToolsScreen.swift`
-- Modify: the `FormStage` and `FastSetupScreen` enums, `FastSetupView.swift`, `FastSetupSnapshot.swift`
-- Test: the `FastSetupFlow` suite in `rt-tray`
+- Modify: `rt-tray/Sources-core/Contract/FormModels.swift` (`FormStage` at line 25, `FormSections` at line 63 including `rows(for:)` and `all`, and `SetupForm`'s `tools` field), `rt-tray/Sources-core/Setup/FastSetupFlow.swift` (`FastSetupScreen` at line 9, `section` at line 17, `screen(for:)` at line 134), `rt-tray/Sources/Setup/Fast/FastSetupView.swift`, `rt-tray/Sources/Setup/Fast/FastSetupSnapshot.swift` (the `registered` list at line 48)
+- Test: the `MattstackCoreChecks` target (`rt-tray/Package.swift:56`)
 
 **Interfaces:**
-- Consumes: `rt setup form --section tools` from Task 4.
+- Consumes: `sections.tools`, `SetupForm.tools` and `--ack-tools` from Task 4.
 - Produces: `FastSetupScreen.tools`.
 
 - [ ] **Step 1: Write the failing test**
@@ -336,16 +339,25 @@ git commit -m "setup: a tools stage for a new tool on a finished Mac"
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run the tray's core test target, per `.claude/rules/dev-app.md`.
+Run: `swift test --package-path rt-tray`
 Expected: FAIL, no `tools` case.
 
 - [ ] **Step 3: Implement `ToolsScreen`**
 
-Follow `ConnectScreen.swift`, reusing `FormCard`, `FormRowView` and `FastFooter`. Heading from the section, no sub line, step label "Setup status", footer note "Find this later in Setup status". Later closes the window and writes nothing. Done is off until `allDone`, then runs the ack and closes. The stage comes from rt: no hold in Swift, and no decision about which rows show. Add snapshot pages for T2, T3, T4, T5, T6 and T7, in both schemes.
+Follow `ConnectScreen.swift`, reusing `FormCard`, `FormRowView` and `FastFooter`. Heading from the section, no sub line, step label "Setup status", footer note "Find this later in Setup status". Later closes the window and writes nothing. Done is off until `allDone`, then runs the ack and closes. The stage comes from rt: no hold in Swift, and no decision about which rows show. Register snapshot pages, in both schemes. T1 is the notification, which rt sends, so it has no page.
+
+| Page | Shows |
+|---|---|
+| T2 | One missing tool with Install, Done off, Later on |
+| T3 | The same row, busy, reading "Installing…" |
+| T4 | The Doppler row, installed, offering Sign in (`signInRow`'s own label) |
+| T5 | "You're all set", a done row, Done on, no Later |
+| T6 | "2 new tools for your team": one row with Install, one with Download |
+| T7 | A failed install: the row's own action and rt's reason |
 
 - [ ] **Step 4: Run the test and render both schemes**
 
-Run the same test target, expected PASS. Render the snapshots in light and dark, compare with section T, and say plainly what looks wrong.
+Run: `swift test --package-path rt-tray`, expected PASS. Build with `swift build --package-path rt-tray --product rt-tray`, never over an installed app, and run `rt-tray/.build/debug/rt-tray --render-fast-setup-snapshots <out-dir>` under an isolated HOME (`env -i HOME=<temp> ...`). Read the images in light and dark, compare with the table above, and say plainly what looks wrong.
 
 - [ ] **Step 5: Commit**
 

@@ -108,8 +108,8 @@ notification setting applies. It never asks for notification permission.
 The record lives in its own file, `~/.mattstack/rt/tool-notices.json`, holding
 `pending`, `told` and `acked` name lists. It stays out of `setup-state.json`
 because `updateSetupState` has no lock, and a daemon write during a run could lose
-a migration id. A name drops off once the tool is no longer required and missing,
-so a tool removed and added back notifies again. Later never re-notifies; the
+a migration id. A told name stays until Done acknowledges it, then drops off, so a
+tool removed and added back later notifies again. Later never re-notifies; the
 update run's existing "Setup needs you" notification stays as the per-release
 reminder.
 
@@ -126,7 +126,7 @@ The stage never records Finish.
 - Later closes the window and writes nothing, so Setup status lands here again.
 - Done is off until every row is done. It runs `rt setup form --ack-tools`, which
   adds the names to `acked`, then closes the window.
-- Once the rows clear, the heading reads "You're all set".
+- Once the rows clear, the heading reads "You're all set" and Later goes away.
 - The tray's step label reads "Setup status". There is no sub line.
 
 **Older apps.** They ignore the org file and `excludeOrg`, so nothing breaks. The
