@@ -16,7 +16,7 @@ A Mac holds one org. Its clone lives at `~/.mattstack/orgs/<org>/`, a folder nam
 - `mattstack/org/` holds the org's settings, its secrets and its base packs.
 - `mattstack/teams/<team>/` holds one team's settings and its pack, the team's Claude plugin, under `plugin/`.
 
-Each Mac holds only the team folders its role reaches. An org owner's or admin's Mac holds every team. Everyone else holds the org's own files and the teams they are on or own. When you leave a team while your copy has changes in its folder, the folder stays, and the **Team folders** row in setup status says what to do.
+Each Mac holds only the team folders its role reaches. An org owner's or admin's Mac holds every team. Everyone else holds the org's own files and the teams they are on or own. When you leave a team while your copy has changes in its folder, the folder stays, and the **Team folders** row in `rt setup status` says what to do.
 
 ## Roles
 
@@ -35,7 +35,11 @@ An app older than v2.25.0 reads only `admins`. Until every member has updated, l
 
 ## Creating an org
 
-In setup's team step, choose **Create a team**, give it a name, and leave **Others will join later** on if teammates will follow. For the repo, paste the URL of an empty repo on GitHub, GitLab, or anything git can push to. When the `gh` CLI is signed in, you can instead let mattstack create a private GitHub repo under an owner you pick. Setup scaffolds the org under `~/.mattstack/orgs/<name>/`, and its Install step pushes it.
+In the setup window, choose **Create a team**. Give it a name and pick where its settings live: GitLab or GitHub. Then name the group for its repo, or the owner on GitHub.
+
+**Create team** creates a private `mattstack-team-<name>` repo there with your forge token. On GitHub with the `gh` CLI signed in, it uses `gh` instead. Setup scaffolds the org under `~/.mattstack/orgs/<name>/`, and the setup run pushes it.
+
+No wait for approval follows. The account and this-Mac screens come next. They add a **Slack app** row, which one owner makes once so the team can connect Slack. See [Create a team](/start/install#create-a-team).
 
 The org starts with one team inside. That first team takes the org's name, unless you name it with `--first-team`. You become the org's owner and the first team's owner. The org starts with its data on the `mattstack` branch and a pointer on `main`.
 
@@ -46,7 +50,7 @@ rt team create Acme --first-team widgets --remote git@github.com:acme/mattstack-
 rt team publish                                                                                  # push your org changes
 ```
 
-`--others` is the terminal form of **Others will join later**.
+`--remote` takes an empty repo on any host git can push to. `--forge gitlab --group acme` creates the repo with your stored token instead. `--others` marks the team as having members beyond you.
 
 ## Adding a team
 
@@ -121,7 +125,7 @@ On its own it prints the plan and writes nothing. Run it again with `--write` to
 
 It also marks the org as layout 3 and puts the whole move in one commit on the branch your clone has checked out. Review it with `git show`, then publish it with `rt team publish`. The script refuses while team sync is on for your Mac, because sync could publish the move before you review it; the refusal names the commands that turn sync off.
 
-A member's app that reads only an older layout never pulls the converted org. Its daemon holds the clone at the last commit it can read, and the **Org layout** row in setup status says to update the app. After the update, the next pull brings the move in, and the member runs nothing. An app older than v2.21.1 does not hold: it pulls the move, and its board posts to its built-in `#code-review` channel instead of your team's. A board older than v2.21.0 also loses its tabs. Update every member's Mac to at least v2.21.1 before you publish the move.
+A member's app that reads only an older layout never pulls the converted org. Its daemon holds the clone at the last commit it can read, and the **Org layout** row in `rt setup status` says to update the app. After the update, the next pull brings the move in, and the member runs nothing. An app older than v2.21.1 does not hold: it pulls the move, and its board posts to its built-in `#code-review` channel instead of your team's. A board older than v2.21.0 also loses its tabs. Update every member's Mac to at least v2.21.1 before you publish the move.
 
 ## Inviting a member
 
@@ -139,10 +143,13 @@ The same pane shows the org's name, your team, the remote, the last push, and yo
 
 ## What a joiner sees
 
-The joiner opens the invite link, or pastes the code into **Join a team** in setup's team step. A Mac holds one org: a join is refused while another org is set up on it, and joining your own org again is fine: **Settings → Team → Rejoin this org…** takes a new invite from your org admin. The checklist then runs a forge-auth preflight against the org repo:
+The joiner opens the invite link, or picks **Join a team** in the setup window and pastes the code. A Mac holds one org: a join is refused while another org is set up on it, and joining your own org again is fine: **Settings → Team → Rejoin this org…** takes a new invite from your org admin.
 
-- If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking for access. The `access.team-repo` checklist row holds Install until access is resolved.
-- If access is confirmed, setup continues normally.
+On **Paste your invite**, the screen names the team and who sent the invite, for example **Mithrandir, invited by Jane Doe**. When the team's forge needs a token, the joiner pastes one there too, because joining clones the team's repo. **Join** accepts the invite, copies the team's settings, and sends the request. See [Paste your invite](/start/install#paste-your-invite).
+
+The joiner then waits for an admin to approve: **Waiting for Jane Doe to confirm your membership**. Nothing team-specific installs on the joiner's Mac while it waits. The admin approves from the notification described in [When an invitee replies](#when-an-invitee-replies). Once approved, a **You're in** notification brings the joiner back to connect the accounts and place the repos their team uses.
+
+From a terminal, `rt setup join-status` reports whether the admin approved this Mac, and `rt setup install` joins with no waiting screen.
 
 A rejoin on a Mac whose copy of the org was cloned before the org moved to a data branch moves that copy onto the data branch first, the same way a pull does. When the move is held, for example by unsaved changes or a copy that is not on a branch, the join refuses and says what is in the way. The invite is still unused, so join again once it's fixed.
 
@@ -152,7 +159,7 @@ The join clones only the org's data branch, then narrows it to the folders the j
 
 An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one" and removes the clone it just made; ask an admin for a new invite.
 
-The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the admin's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code). The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the org only when that Mac holds the switchboard admin token, in which case `rt team peer` connects its board. It shows an error with a **Re-check** when the switchboard does not answer.
+The invite also carries the joiner's board token. When this Mac's board ends up without one, `rt setup status` shows a **Board peering** row saying the board does not peer yet. It never shows in the setup window and never holds up setup, and the setup check after an app update notifies you about it. The fix is on the admin's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code). The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the org only when that Mac holds the switchboard admin token, in which case `rt team peer` connects its board. It shows an error when the switchboard does not answer.
 
 ## Connecting the admin's board
 
@@ -172,11 +179,11 @@ Your settings then read that team's folder over the org's, and its pack is turne
 
 ## When an invitee replies
 
-While you have outstanding invites, the daemon checks each one for a reply every few minutes and notifies you once per reply. The notification's **Add member…** action runs `rt team members sync`, which adds the invitee's key so the org's secrets decrypt for them.
+While you have outstanding invites, the daemon checks each one for a reply every few minutes and notifies you once per reply. The notification's **Add member…** action runs `rt team members sync`, which adds the invitee's key so the org's secrets decrypt for them. That is what approves the request: at its next check, the invitee's setup window moves on and a **You're in** notification tells them.
 
 ## How changes travel
 
-The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer, and on an admin's or owner's Mac it also commits and pushes the changes that Mac's role owns, such as a `rt settings set --scope org` or `--scope team` write, with no hand commit. It does this only on the org's data branch, or on a [trial branch](#trying-a-change-on-a-branch) you chose; on any other branch the **Org branch** row in setup status says it is paused. Packs are the exception: the pack's author commits and pushes a pack's edits, and `rt skills sync` brings the installed copies current. The daemon never publishes a pack. When pack edits sit unpublished for hours, it saves a copy on that Mac, and the **Unpublished packs** row in setup status names the pack and how to publish or throw away the edits. A member's Mac only pulls, so its clone never drifts from the org's.
+The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer, and on an admin's or owner's Mac it also commits and pushes the changes that Mac's role owns, such as a `rt settings set --scope org` or `--scope team` write, with no hand commit. It does this only on the org's data branch, or on a [trial branch](#trying-a-change-on-a-branch) you chose; on any other branch the **Org branch** row in `rt setup status` says it is paused. Packs are the exception: the pack's author commits and pushes a pack's edits, and `rt skills sync` brings the installed copies current. The daemon never publishes a pack. When pack edits sit unpublished for hours, it saves a copy on that Mac, and the **Unpublished packs** row in `rt setup status` names the pack and how to publish or throw away the edits. A member's Mac only pulls, so its clone never drifts from the org's.
 
 ## Trying a change on a branch
 
@@ -232,7 +239,7 @@ No other Mac moves. The real move refuses when the org repo already has its data
 
 Once the pointer is on `main`, each member's Mac on an updated app moves its clone onto the data branch by itself, at its next pull or `rt team pull`. Unpublished org commits move with it. Uncommitted changes, a detached HEAD, or commits outside the org's data hold the move, and the **Org layout** row says which. A member's app that cannot read the new layout holds at the last commit it can read, and the row says to update the app.
 
-A clone someone switched to `main` or to a branch that holds no org data comes back to the data branch the same way, and a clone with no branch checked out is told to switch to the data branch, never to `main`.
+A clone someone switched to `main`, or to a branch that holds no org data, comes back to the data branch the same way. A clone with no branch checked out is told to switch to the data branch, never to `main`.
 
 ### Moving the pointer to `.mattstack.jsonc`
 
@@ -248,7 +255,7 @@ Phase 1 adds `.mattstack.jsonc` beside the old file. Every version of rt reads o
 bun scripts/move-pointer-to-root.ts ~/.mattstack/orgs/<org> --admin <your forge username> --phase drop --members-confirmed --write
 ```
 
-Phase 2 deletes `mattstack/mattstack.jsonc`, leaving `.mattstack.jsonc` as the org's only file on `main`. rt v2.25.1 and older read only the old file, so a Mac still on one would treat the org as not moved. rt keeps no record of which version each member runs, so check that every member has updated, then pass `--members-confirmed`. Without it, phase 2 refuses and says what to confirm. When `main` refuses the push, the change goes to a `mattstack-root-pointer` branch instead; land it the way your repo takes changes.
+Phase 2 deletes `mattstack/mattstack.jsonc`, leaving `.mattstack.jsonc` as the org's only file on `main`. Versions of rt up to v2.25.1 read only the old file, so a Mac still on one would treat the org as not moved. Nothing records which version each member runs, so check that every member has updated. Then pass `--members-confirmed`. Without it, phase 2 refuses and says what to confirm. When `main` refuses the push, the change goes to a `mattstack-root-pointer` branch instead; land it the way your repo takes changes.
 
 ## Moving to block packs
 
@@ -342,7 +349,7 @@ bun scripts/move-to-block-packs.ts ~/.mattstack/orgs/<org> --admin <username>
 
 On an org already on layout 5 it checks every pack, says the org is already on layout 5, and writes nothing. When a pack shows old slot keys, convert it as in [Move a pack to blocks](/skills/packs#move-a-pack-to-blocks) and publish it.
 
-A member's app that reads only up to layout 4 keeps working on the old packs. It holds its org pull until it updates, and the **Org layout** row in setup status says to update the app.
+A member's app that reads only up to layout 4 keeps working on the old packs. It holds its org pull until it updates, and the **Org layout** row in `rt setup status` says to update the app.
 
 ## Keeping the data branch safe
 
@@ -376,7 +383,7 @@ Each member's Mac follows at its next setup check after an app update. To follow
 rt setup update --force
 ```
 
-Until then their clone keeps the old folder name and everything keeps working. The **Org folder** row in setup status says the folder has not caught up yet.
+Until then their clone keeps the old folder name and everything keeps working. The **Org folder** row in `rt setup status` says the folder has not caught up yet.
 
 ### Moving from the old folder
 
@@ -409,7 +416,7 @@ rt team forge-access
 rt team forge-access --apply
 ```
 
-On an admin's Mac the **Forge access** row in setup status shows the same difference. When the forge refuses a change, because your account can't administer the repo, the row shows the step to do by hand.
+On an admin's Mac the **Forge access** row in `rt setup status` shows the same difference. When the forge refuses a change, because your account can't administer the repo, the row shows the step to do by hand.
 
 rt manages forge access once the org's data has a branch of its own.
 
@@ -421,15 +428,15 @@ GitHub limits pushes to named people only on a repo an organization owns, and pr
 
 Setup installs your team's pack and turns it on: joining the team is the consent. If you turn it off yourself, rt leaves it off. The daemon's snapshot engine converges your team's pack on every pull that moves HEAD. For a pack that is already installed, it runs `claude plugin update`, which keeps the pack on or off as you left it. A pack it installs fresh is turned on. Other teams' packs are left alone. If you joined before v2.25.0, when setup still left the pack off, the update to v2.25.0 or later turns your team's pack on, once.
 
-The checklist (**Setup status…**, or `rt setup status`) shows a row per team-served pack with its installed version and served version, plus the command to turn it on when it is off.
+`rt setup status` shows a row per team-served pack with its installed version and served version, plus the command to turn it on when it is off.
 
 ### A pack that needs a newer app
 
-A pack can need a newer mattstack app than the one on your Mac. When it does, rt holds the pack back: if you already have it, you keep your installed version, and if you don't, nothing is installed. The mattstack plugin is held the same way. The pack's row on the checklist (the **Claude plugins** row, for the mattstack plugin) says so:
+A pack can need a newer mattstack app than the one on your Mac. When it does, rt holds the pack back: if you already have it, you keep your installed version, and if you don't, nothing is installed. The mattstack plugin is held the same way. The pack's row in `rt setup status` (the **Claude plugins** row, for the mattstack plugin) says so:
 
 > widgets 0.11.0 needs a newer mattstack app (engine 0.31.0 or later). Update the app when it's offered.
 
-The row has no button, and it never blocks **Install**. Once you update the app, the next pull or launch installs the held version with no other step.
+The row has no button, and it never holds up setup. Once you update the app, the next pull or launch installs the held version with no other step.
 
 `rt --version --json` shows the engine your app runs, beside rt's version.
 

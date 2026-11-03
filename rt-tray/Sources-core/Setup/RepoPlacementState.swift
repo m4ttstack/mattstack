@@ -14,6 +14,13 @@ public enum RepoPlacementState {
         return again ? "Locate again…" : "Locate…"
     }
 
+    /// The fast screen picks one of rt's `labels` for the shown segment; an rt without them has only `label`.
+    public static func fastButtonLabel(mode: String, lastError: String?, action: RowAction) -> String {
+        guard let labels = action.labels else { return action.label }
+        if mode == clone { return labels.clone }
+        return lastError != nil ? labels.checkoutAgain : labels.checkout
+    }
+
     /// `shown` is the segment on screen; rt's `problem` and `mode` describe its recorded segment only.
     /// `lastError` is a failed pick made on the shown segment.
     public static func noteStyle(action: RowAction, shown: String, lastError: String?) -> NoteStyle {

@@ -8,7 +8,7 @@
 import { dirname, join } from "path";
 import { resolveIndexPathForIdentity } from "../../repo-index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
-import { REPO_PLACE_ROW_PREFIX, row, type Action, type OrgRef, type PlacementMode, type Row, type RowStatus } from "../contract.ts";
+import { REPO_PLACE_ROW_PREFIX, row, type Action, type OrgRef, type PlaceRepoLabels, type PlacementMode, type Row, type RowStatus } from "../contract.ts";
 import type { Probes } from "../probes.ts";
 import {
   checkCheckout,
@@ -24,13 +24,16 @@ import {
   type ResolvedPlacement,
 } from "../repo-placement.ts";
 import { detectCandidate } from "../repo-root.ts";
-import { homeGitDir } from "../steps/home.ts";
+import { installHasRun, readSetupState } from "../state.ts";
 import { skippedIdentities } from "../steps/repos.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 
 type PlaceRepo = Extract<Action, { type: "place-repo" }>;
 
-const CLONES_AT_INSTALL = "rt clones it here when you click Install";
+const CLONES_AT_INSTALL = "rt clones it here when setup runs";
+/** `FORM_COPY.thisMac.repos` reads these: form.ts reaches this file through plan.ts, so the import runs that way. */
+export const PLACE_REPO_LABELS: PlaceRepoLabels = { checkout: "Locate…", checkoutAgain: "Locate again…", clone: "Choose…" };
+const BOARD_LINE = "The board starts here";
 
 async function indexedCheckout(p: Probes, identity: string): Promise<string | null> {
   const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
@@ -46,6 +49,8 @@ interface RowState {
   problem: string | null;
   oneClick: PlaceRepo["oneClick"];
   gated: boolean;
+  awaitsRun: boolean;
+  answered: boolean;
 }
 
 export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: TeamSnapshot): Promise<Row[]> {
@@ -58,8 +63,11 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
   const resolved = await resolvePlacements(p, tracked, rootPaths);
   const { placements, deferred, failed } = readPlacements(p);
   const placedParents = [...new Set(Object.values(resolved).filter((pl) => pl.mode === "checkout").map((pl) => dirname(pl.path)))];
-  const installed = p.exists(homeGitDir(p.home));
-  const then = installed ? ["setup", "apply", "--only", "repos.clone"] : null;
+  // The Join page creates the home repo before Install, so only Install's own stamp says an answer can land now.
+  const installed = installHasRun(readSetupState(p));
+  const boardRepo = snapshot.boardRepo ?? null;
+  // The board's repo also repoints the board and restarts it: an --only board.restart run lands the placement through repos.clone, then board.cwds, while either is unsatisfied.
+  const thenFor = (identity: string) => (installed ? ["setup", "apply", "--only", identity === boardRepo ? "board.restart" : "repos.clone"] : null);
   const taken = (identity: string) => takenFor(resolved, tracked, identity);
 
   /** A checkout row's other segment: the first folder rt would clone into that is free and is not the checkout itself, else the default's name with the first free `-<n>` suffix. */
@@ -80,12 +88,12 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
     const base = repoBasename(identity);
     const clonePath = placement.mode === "clone" ? placement.path : cloneAlternative(identity, placement.path);
     const checkoutPath = placement.mode === "checkout" ? placement.path : null;
-    const shape = { mode: placement.mode, checkoutPath, clonePath, problem: null, oneClick: null, gated: false };
+    const shape = { mode: placement.mode, checkoutPath, clonePath, problem: null, oneClick: null, gated: false, awaitsRun: false, answered: placement.source !== "default" };
     const indexed = await indexedCheckout(p, identity);
     const found = `Found your ${base} checkout`;
 
     if (deferred.includes(identity) && !indexed) {
-      const gated = { ...shape, status: "needs-you" as const, gated: true };
+      const gated = { ...shape, status: "needs-you" as const, gated: true, answered: placements[identity] !== undefined };
       const recorded = placements[identity];
       if (!recorded) {
         const note = "Choose where your repos go";
@@ -96,11 +104,11 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
       const lastFailure = failed[identity];
       if (lastFailure !== undefined) return { ...gated, note: lastFailure, problem: lastFailure, oneClick: { label: "Retry", mode: recorded.mode, path: recorded.path } };
       const where = tildify(p.home, recorded.path);
-      return { ...gated, note: recorded.mode === "clone" ? `rt clones it to ${where} next` : `rt uses your checkout at ${where} next` };
+      return { ...gated, awaitsRun: true, note: recorded.mode === "clone" ? `rt clones it to ${where} next` : `rt uses your checkout at ${where} next` };
     }
 
     // A recorded answer comes before the index, the order `repos.clone` follows.
-    if (placement.source !== "recorded" && indexed) return { ...shape, status: "ready", mode: "checkout", checkoutPath: indexed, clonePath: cloneAlternative(identity, indexed), note: found };
+    if (placement.source !== "recorded" && indexed) return { ...shape, status: "ready", mode: "checkout", checkoutPath: indexed, clonePath: cloneAlternative(identity, indexed), note: found, answered: true };
     if (placement.mode === "checkout") {
       const check = await checkCheckout(p, identity, placement.path, { tracked });
       if (check.ok) return { ...shape, status: "ready", note: found };
@@ -115,10 +123,12 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
     shown.map(async (identity) => {
       const base = repoBasename(identity);
       const s = await stateOf(identity, resolved[identity]!);
-      const label = s.mode === "clone" ? "Choose location…" : s.problem ? "Locate again…" : "Locate…";
+      const labels = { ...PLACE_REPO_LABELS };
+      const label = s.mode === "clone" ? labels.clone : s.problem ? labels.checkoutAgain : labels.checkout;
       const action: PlaceRepo = {
         type: "place-repo",
         label,
+        labels,
         identity,
         repo: base,
         mode: s.mode,
@@ -126,16 +136,19 @@ export async function repoPlacementRows(p: Probes, _team: OrgRef, snapshot: Team
         clonePath: s.clonePath,
         note: s.note,
         problem: s.problem,
-        then,
+        then: thenFor(identity),
         oneClick: s.oneClick,
         segmentRecords: !installed,
+        board: identity === boardRepo ? BOARD_LINE : null,
+        awaitsRun: s.awaitsRun,
+        answered: s.answered,
       };
       return row({
         id: `${REPO_PLACE_ROW_PREFIX}${identity}`,
         kind: "tool",
         title: base,
         why: dirname(identity),
-        required: false,
+        required: true,
         recheck: "on-activate",
         status: s.status,
         detail: s.problem ?? s.note,

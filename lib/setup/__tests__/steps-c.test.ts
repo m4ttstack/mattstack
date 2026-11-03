@@ -12,6 +12,7 @@ import type { ApplyContext, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS } from "../base-plugins.ts";
 import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { stageSecret } from "../staging.ts";
+import { preparePath } from "../prepare-record.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import type { ToolsInstallSeams } from "../tools-install.ts";
@@ -1856,6 +1857,71 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(p.calls.exec.at(-1)).toEqual(["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"]);
     });
 
+    test("a mattstack marketplace fast-browser setup added goes on the uninstall record; one already there does not", async () => {
+      let listed: Record<string, unknown>[] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/fast-browser": "bin", "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv.includes("marketplace") && argv.includes("list")) return ok(JSON.stringify(listed));
+          if (argv[1] === "setup") listed = [{ name: "mattstack", source: "git", url: MATTSTACK_MARKETPLACE_SOURCE }];
+          return ok("");
+        },
+      });
+      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
+      expect(readSetupState(p).marketplaces).toEqual([MATTSTACK_MARKETPLACE_SOURCE]);
+
+      updateSetupState(p, (s) => ({ ...s, marketplaces: [] }));
+      expect((await fastbrowserSetupStep.run(makeCtx(p).ctx)).state).toBe("done");
+      expect(readSetupState(p).marketplaces).toEqual([]);
+    });
+
+    test("Install's plugins.install and fastbrowser.setup wait for a running prepare accounts before touching Claude Code", async () => {
+      for (const step of [pluginsInstallStep, fastbrowserSetupStep]) {
+        const startedAt = new Date("2026-10-30T10:00:00.000Z");
+        const record = { stage: "accounts", startedAt: startedAt.toISOString(), pid: process.pid, items: ["claude", "fast-browser"], failed: [] };
+        let sleeps = 0;
+        const p: Probes = fakeProbes({
+          home,
+          now: startedAt,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/fast-browser": "bin", "/usr/local/bin/claude": "bin", [preparePath(home, "accounts")]: JSON.stringify(record) },
+          exec: async (argv) => {
+            if (argv[0] === "sleep" && ++sleeps === 2) p.writeFile(preparePath(home, "accounts"), JSON.stringify({ ...record, pid: undefined, endedAt: startedAt.toISOString() }));
+            return ok("[]");
+          },
+        });
+        const { ctx, logs } = makeCtx(p);
+        await step.run(ctx);
+        const calls = (p as ReturnType<typeof fakeProbes>).calls.exec;
+        expect(calls.slice(0, 2)).toEqual([
+          ["sleep", "5"],
+          ["sleep", "5"],
+        ]);
+        expect(calls.length).toBeGreaterThan(2);
+        expect(logs.filter((l) => l.line === "Waiting for the background installs to finish")).toEqual([{ id: step.id, line: "Waiting for the background installs to finish" }]);
+      }
+    });
+
+    test("a listing that failed before setup never claims the marketplace for rt", async () => {
+      let lists = 0;
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/fast-browser": "bin", "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv.includes("marketplace") && argv.includes("list")) {
+            lists++;
+            return lists === 1 ? { code: 1, stdout: "", stderr: "listing failed" } : ok(JSON.stringify([{ name: "mattstack", source: "git", url: MATTSTACK_MARKETPLACE_SOURCE }]));
+          }
+          return ok("");
+        },
+      });
+      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
+      expect(readSetupState(p).marketplaces).toEqual([]);
+    });
+
     test("not bundled, no user copy -> skipped honestly, never execs", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);
@@ -1946,17 +2012,29 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const { ctx } = makeCtx(p);
       const outcome = await herdrIntegrationStep.run(ctx);
       expect(outcome).toEqual({ state: "done", detail: `${join(home, ".claude")}: ok` });
-      expect(p.calls.exec).toEqual([["herdr", "integration", "install", "claude"]]);
+      expect(p.calls.exec).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
+    });
+
+    test("skips rt's own wrapper in ~/.local/bin and runs the Homebrew copy the row resolved", async () => {
+      const wrapper = join(home, ".local", "bin", "herdr");
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/bin:/bin" },
+        files: { [wrapper]: "#!/bin/sh\n# mattstack-link: herdr\nexec x\n", "/opt/homebrew/bin/herdr": "bin" },
+        exec: async () => ok(""),
+      });
+      expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
+      expect(p.calls.exec).toEqual([["/opt/homebrew/bin/herdr", "integration", "install", "claude"]]);
     });
 
     test("idempotent re-run: two independent installs each make their own real call — nothing memoized between runs", async () => {
       const p = fakeProbes({ home, env: { PATH: "/usr/local/bin" }, files: { "/usr/local/bin/herdr": "bin" }, exec: async () => ok("") });
       expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
-      expect(p.calls.exec).toEqual([["herdr", "integration", "install", "claude"]]);
+      expect(p.calls.exec).toEqual([["/usr/local/bin/herdr", "integration", "install", "claude"]]);
       expect((await herdrIntegrationStep.run(makeCtx(p).ctx)).state).toBe("done");
       expect(p.calls.exec).toEqual([
-        ["herdr", "integration", "install", "claude"],
-        ["herdr", "integration", "install", "claude"],
+        ["/usr/local/bin/herdr", "integration", "install", "claude"],
+        ["/usr/local/bin/herdr", "integration", "install", "claude"],
       ]);
     });
 

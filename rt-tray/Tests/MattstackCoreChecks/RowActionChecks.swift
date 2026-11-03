@@ -20,6 +20,21 @@ let rowActionChecks: [Check] = [
         c.expectEqual(d, .rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"token\":\"glpat-xyz\"}".utf8)))
         c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: nil, alternative: "use-gh"), .rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"useGh\":true}".utf8)))
     },
+    Check("connect: a self-hosted GitLab row's own verb carries --host to rt") { c in
+        let json = #"{"type":"connect","label":"Connect","integration":"gitlab","fields":[{"name":"token","label":"Token","secret":true}],"verb":["setup","gitlab","connect","--host","gitlab.example.com"]}"#
+        guard let a = try? JSONDecoder().decode(RowAction.self, from: Data(json.utf8)) else { c.expect(false, "decodes"); return }
+        c.expectEqual(a.verb, ["setup", "gitlab", "connect", "--host", "gitlab.example.com"])
+        c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: ["token": "glpat-xyz"], alternative: nil),
+                      .rtVerb(args: ["setup", "gitlab", "connect", "--host", "gitlab.example.com", "--json"], stdin: Data("{\"token\":\"glpat-xyz\"}".utf8)))
+    },
+    Check("connect: a verb that is not this integration's connect, or is empty, falls back to setup <integration> connect") { c in
+        let fields = [ActionField(name: "token", label: "Token", secret: true)]
+        let plain = DispatchedAction.rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"token\":\"glpat-xyz\"}".utf8))
+        for verb: [String] in [[], ["home", "remote", "set"], ["setup", "github", "connect"], ["setup", "gitlab"], ["setup", "gitlab", "create-app"]] {
+            let a = RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: fields, verb: verb)
+            c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: ["token": "glpat-xyz"], alternative: nil), plain, "\(verb)")
+        }
+    },
     Check("form: collect first, then the action's own verb with JSON on stdin; an alternative sends its id") { c in
         let fields = [ActionField(name: "url", label: "Remote URL", secret: false, hint: "an empty private repo")]
         let alts = [ActionAlternative(id: "create", label: "Create a private repo for me")]
@@ -44,6 +59,11 @@ let rowActionChecks: [Check] = [
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .openURL, label: "Download", url: "https://claude.ai/download"), fieldValues: nil, alternative: nil), .openURL(URL(string: "https://claude.ai/download")!))
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .unknown, label: "?"), fieldValues: nil, alternative: nil), .none)
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .openURL, label: "x", url: "not a url at all ::"), fieldValues: nil, alternative: nil), .none)
+    },
+    Check("RowActionDispatcher: Add to Chrome opens the Web Store") { c in
+        let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
+        let add = RowAction(type: .openURL, label: "Add to Chrome", url: url, waiting: "Waiting for Chrome", again: "Open again", primary: true)
+        c.expectEqual(RowActionDispatcher.dispatch(add, fieldValues: nil, alternative: nil), .openURL(URL(string: url)!))
     },
     Check("failureCopy redacts stderr for secret-bearing actions; RtClientError.copy never echoes the raw error") { c in
         let leaky = RtResult(exitCode: 1, stdout: Data(), stderr: Data("token=glpat-xyz-should-not-leak".utf8))

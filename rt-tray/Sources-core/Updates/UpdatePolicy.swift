@@ -21,6 +21,11 @@ public enum UpdatePolicy {
         return true
     }
 
+    /// A background prepare outlives the Setup window, and an update relaunch would kill it mid-install.
+    public static func setupBusy(windowRunning: Bool, runInFlight: Bool) -> Bool {
+        windowRunning || runInFlight
+    }
+
     public static func allowsImmediateInstall(setupRunning: Bool, windowsOpen: Int) -> Bool {
         !setupRunning && windowsOpen == 0
     }

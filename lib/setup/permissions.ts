@@ -84,7 +84,7 @@ function notificationsRow(reply: PermissionsReply | null): Row {
     title: "Notifications",
     why: "Shows menu-bar notifications when something needs your attention.",
     required: false,
-    optionalNote: "Works without this; you'll see menu-bar badges instead.",
+    optionalNote: null,
     recheck: "on-activate" as const,
   };
 
@@ -93,9 +93,10 @@ function notificationsRow(reply: PermissionsReply | null): Row {
     case "provisional":
       return row({ ...base, status: "ready", detail: "Allowed" });
     case "notDetermined":
-      return row({ ...base, status: "needs-you", detail: "Not requested", action: NOTIFICATIONS_REQUEST_ACTION });
+      return row({ ...base, required: true, status: "needs-you", detail: "Not requested", action: NOTIFICATIONS_REQUEST_ACTION });
     case "denied":
-      return row({ ...base, status: "needs-you", detail: "Denied", action: NOTIFICATIONS_SETTINGS_ACTION });
+      // Declining is an answer: macOS never asks twice, so it blocks neither Install nor Finish.
+      return row({ ...base, optionalNote: "Works without this; you'll see menu-bar badges instead.", status: "needs-you", detail: "Denied", action: NOTIFICATIONS_SETTINGS_ACTION });
     default:
       return row({ ...base, status: "skipped", detail: "Not checked: mattstack.app is not running" });
   }

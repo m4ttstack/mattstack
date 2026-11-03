@@ -168,6 +168,21 @@ describe("rt setup update", () => {
     }
   });
 
+  test("a current stamp restarts no apps; a run restarts them once, last", async () => {
+    let restarts = 0;
+    const restart: StepDef = { ...fakeStep("apps.restart", async () => (restarts++, { state: "done", detail: "Restarted board" })), updateSafe: true };
+    const stamped = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" } }) } });
+    await run(updateDeps({ probes: stamped, steps: [updateStep("verify", { state: "done" }), restart] }), ["--json"]);
+    expect(restarts).toBe(0);
+
+    const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [updateStep("verify", { state: "done" }), restart] });
+    await run(deps, ["--json"]);
+    expect(restarts).toBe(1);
+    const steps = jsonEvents(deps.lines).filter((e) => e.event === "step").map((e) => (e.event === "step" ? `${e.id}:${e.state}` : ""));
+    expect(steps).toEqual(["verify:running", "verify:done", "apps.restart:running", "apps.restart:done"]);
+    expect(jsonEvents(deps.lines).at(-1)).toEqual({ event: "done", ok: true });
+  });
+
   test("a run streams plan, steps and done, stamps the version, prints the summary, exits 0 and posts nothing when all clear", async () => {
     const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
     const cap = capturePlain();
@@ -402,6 +417,16 @@ describe("rt setup update", () => {
       expect(deps.exitCodes).toEqual([]);
       expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0"]);
       expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
+    });
+
+    test("an update run Finish starts that actually runs restarts the apps", async () => {
+      let restarts = 0;
+      const deps = updateDeps({
+        probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+        steps: [updateStep("verify", { state: "done" }), { ...fakeStep("apps.restart", async () => (restarts++, { state: "done" as const })), updateSafe: true }],
+      });
+      await updateAfterFinish({ json: true }, deps);
+      expect(restarts).toBe(1);
     });
 
     test("human mode draws the run and ends in the update summary", async () => {

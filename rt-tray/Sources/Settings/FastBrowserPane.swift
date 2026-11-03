@@ -40,9 +40,16 @@ struct FastBrowserPane: View {
                     Text("Couldn't re-read the checklist: \(e)").font(.caption).foregroundStyle(.red).accessibilityIdentifier(AXID.settingsFastBrowserError)
                 }
             }
+            if let row = readiness.row(SettingsExtras.chromeSignIn), SettingsExtras.shows(row) {
+                SettingsExtraSection(title: "Chrome sign-in", row: row, isChecking: readiness.checkingRowIds.contains(row.id)) { show(row) }
+            }
         }
         .formStyle(.grouped)
         .task { await readiness.refreshUnlessLoading() }
+        // Add to Chrome leaves for the Web Store; coming back is when the extension may have landed.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await readiness.refreshUnlessLoading() }
+        }
         .sheet(isPresented: Binding(get: { steps != nil }, set: { presented in
             guard !presented else { return }
             steps = nil
@@ -53,8 +60,12 @@ struct FastBrowserPane: View {
     }
 
     private func show(_ row: PlanRow) {
-        guard let action = row.action, action.type == .steps else { return }
-        steps = (title: row.title, steps: action.steps ?? [])
+        guard let action = row.action else { return }
+        switch RowActionDispatcher.dispatch(action, fieldValues: nil, alternative: nil) {
+        case .openURL(let url): NSWorkspace.shared.open(url)
+        case .showSteps(let list): steps = (title: row.title, steps: list)
+        default: break
+        }
     }
 
     /// The verb is awaited; the re-read is not, so a slow or hung plan can

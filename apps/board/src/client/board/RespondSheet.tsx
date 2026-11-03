@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Reply } from 'lucide-react';
+import { Reply, ScanSearch } from 'lucide-react';
 
 import {
   CODE_CHANGES_QUESTION_ID,
@@ -501,8 +501,11 @@ function RespondSheetBody({
     form.setNote(CODE_CHANGES_QUESTION_ID, text);
   const [revising, setRevising] = useState(() => reason.trim() !== '');
   // Board-only: the ticks ride beside the answer, never inside it, so the
-  // gate's own answer stays what the pane expects.
-  const [reReviewIds, setReReviewIds] = useState<Set<string>>(() => new Set());
+  // gate's own answer stays what the pane expects. Every ask starts ticked,
+  // so this holds the ones turned off.
+  const [skippedReReviews, setSkippedReReviews] = useState<Set<string>>(
+    () => new Set()
+  );
   const questionCtx = useMemo(
     () => new Map(gate.questions.map(q => [q.id, parseGateCtx(q.context)])),
     [gate.questions]
@@ -840,14 +843,14 @@ function RespondSheetBody({
           !l.requested && (!runPerson || l.reviewer.toLowerCase() === runPerson)
       );
   const reReview = latches
-    .filter(l => reReviewIds.has(l.discussionId))
+    .filter(l => !skippedReReviews.has(l.discussionId))
     .map(l => l.discussionId);
   const submitPayload = payload && { ...payload, reReview };
   const toggleReReview = (id: string, on: boolean) =>
-    setReReviewIds(prev => {
+    setSkippedReReviews(prev => {
       const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
+      if (on) next.delete(id);
+      else next.add(id);
       return next;
     });
   const canSubmit = !form.lost && !form.busy && payload !== null;
@@ -1089,7 +1092,7 @@ function RespondSheetBody({
                       form.resetAll({ keepTexts: true });
                       seedPostable();
                       seedPicks(true);
-                      setReReviewIds(new Set());
+                      setSkippedReReviews(new Set());
                     }
                   }}
                 >
@@ -1117,28 +1120,30 @@ function RespondSheetBody({
                   )}
                   {latches.length > 0 && (
                     <div
-                      className="tui-sheet-card-list tui-respond-rereview"
+                      className="tui-sheet-card-list"
                       data-section="re-review"
-                      data-resolve-slot={
-                        picks.some(p => p.resolve) || undefined
-                      }
                       role="group"
                       aria-label="Re-review"
                     >
                       {latches.map(l => {
-                        const on = reReviewIds.has(l.discussionId);
+                        const on = !skippedReReviews.has(l.discussionId);
+                        const who = people.short(l.reviewer);
                         return (
                           <label
                             key={l.discussionId}
-                            className="tui-sheet-card-row tui-respond-rereview-row"
+                            className="tui-respond-rereview-row"
+                            data-on={on ? '' : undefined}
                           >
-                            <span className="tui-respond-rereview-lead">
-                              <Chip intent="accent" variant="outline" uppercase>
-                                re-review
-                              </Chip>
-                            </span>
-                            <span className="tui-sheet-card-text">
-                              ask {people.short(l.reviewer)} after posting
+                            <ScanSearch size={16} aria-hidden />
+                            <span className="tui-respond-rereview-copy">
+                              <span className="tui-respond-rereview-label">
+                                Ask {who} to re-review
+                              </span>
+                              <span className="tui-respond-rereview-hint">
+                                {on
+                                  ? 'After the replies post'
+                                  : `Off. ${who} won’t be asked`}
+                              </span>
                             </span>
                             <span className="tui-check">
                               <input

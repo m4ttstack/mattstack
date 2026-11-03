@@ -18,21 +18,8 @@ enum CopyStep {
         // Before anything is written: the staging directory is a sibling of the
         // target, so every existing segment on the way down has to be root-owned
         // and unwritable by anyone else.
-        var targetExists = false
         let target = targetRoot.standardizedFileURL
-        for segment in ancestorsIncludingSelf(of: target) {
-            guard let info = try fs.stat(segment) else { continue }
-            if info.isSymlink {
-                throw ProxyInstallError("refusing to install under symlink \(segment.path)")
-            }
-            if info.uid != 0 {
-                throw ProxyInstallError("refusing to install under \(segment.path): owned by uid \(info.uid), not root")
-            }
-            if info.isGroupOrWorldWritable {
-                throw ProxyInstallError("refusing to install under \(segment.path): writable by group or other")
-            }
-            if segment.path == target.path { targetExists = true }
-        }
+        let targetExists = try RootOwned.check(target, fs: fs)
 
         let parent = target.deletingLastPathComponent()
         if try fs.stat(parent) == nil { try fs.mkdir(parent) }
@@ -102,17 +89,5 @@ enum CopyStep {
             throw error
         }
         Report.step("installed \(target.path)")
-    }
-
-    static func ancestorsIncludingSelf(of url: URL) -> [URL] {
-        var chain: [URL] = []
-        var current = url.standardizedFileURL
-        while true {
-            chain.append(current)
-            let parent = current.deletingLastPathComponent().standardizedFileURL
-            if parent.path == current.path { break }
-            current = parent
-        }
-        return chain.reversed()
     }
 }

@@ -19,6 +19,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "./probes.ts";
 import { interpretSdmStatus } from "../sdm/core.ts";
 import { tokenField } from "./token-create.ts";
+import { isValidHostname } from "./host-validate.ts";
 
 export interface ValidateResult {
   status: "ready" | "invalid" | "error";
@@ -177,7 +178,9 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
         // ask, so this must never imply the token itself is bad.
         return {
           status: "error",
-          detail: `Your team uses the GitLab host ${ctx.declaredHost}. Run rt setup gitlab connect --host ${ctx.declaredHost} to confirm that address`,
+          detail: isValidHostname(ctx.declaredHost)
+            ? `Your team uses the GitLab host ${ctx.declaredHost}. Run rt setup gitlab connect --host ${ctx.declaredHost} to confirm that address`
+            : "Your team uses a self-hosted GitLab. Run rt setup gitlab connect --host with its address to confirm it",
           scopesSeen: [],
         };
       }

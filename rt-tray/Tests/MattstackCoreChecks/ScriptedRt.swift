@@ -11,11 +11,18 @@ final class ScriptedRt: RtRunning, @unchecked Sendable {
     var streamLines: [String] = []
     /// Runs inside `run` before it answers, once: lets a check act while a call is in flight.
     var duringNextRun: (() async -> Void)?
+    /// Answers for one exact call, taken in order with the last repeating.
+    /// Set before the model starts polling, so no answer is swapped mid-run.
+    var sequences: [String: [(Int32, String)]] = [:]
 
     func run(_ args: [String], stdin: Data?) async throws -> RtResult {
         calls.append((args, stdin.map { String(decoding: $0, as: UTF8.self) }))
         if let during = duringNextRun { duringNextRun = nil; await during() }
         let key = args.joined(separator: " ")
+        if var seq = sequences[key], let first = seq.first {
+            if seq.count > 1 { seq.removeFirst(); sequences[key] = seq }
+            return RtResult(exitCode: first.0, stdout: Data(first.1.utf8), stderr: Data())
+        }
         // Longest matching prefix wins — deterministic even when two answer
         // keys are both prefixes of the same call (e.g. "restore" and a
         // hypothetical "restore --dry-run").

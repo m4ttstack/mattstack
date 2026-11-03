@@ -4,6 +4,7 @@ import { tokenLookupRemoteForHost } from "../../team/forge-token.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { markerState, ORG_LAYOUT, type MarkerState } from "../../team/org-marker.ts";
 import { holdSentence, type PullHold } from "../../team/org-layout.ts";
+import { PULL_TIMEOUT_MS } from "../../team/org-pull.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
@@ -12,8 +13,6 @@ import { trustedForgeTokenFor } from "./forge-token.ts";
 import { convergeOrgFolder } from "./org-folder.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
-
-const PULL_TIMEOUT_MS = 180_000;
 
 interface PullReply {
   ok: boolean;

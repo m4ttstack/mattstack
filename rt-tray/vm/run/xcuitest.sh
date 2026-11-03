@@ -1,5 +1,7 @@
 #!/bin/bash
-# XCUITest-driven walkthrough inside an -xcode golden. Gated on Xcode + L3's project.yml.
+# XCUITest run inside an -xcode golden. Gated on Xcode + L3's project.yml.
+# mattstackUITests holds only SettingsUITests (uninstall from Settings): the
+# setup screens are driven by walkthrough.sh, not by XCUITest.
 # Usage: xcuitest.sh --ver <14|15|26> --dmg <path> [--keep]
 set -uo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/lib/common.sh"

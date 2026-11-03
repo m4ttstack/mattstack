@@ -3,7 +3,7 @@ import SwiftUI
 import MattstackCore
 
 /// `rt-tray --render-checklist-row-snapshots <out-dir>` renders the checklist's
-/// three sections and the row states the row actions produce (waiting on the
+/// three sections (Needs you, You can skip, No action needed) and the row states the row actions produce (waiting on the
 /// admin dialog, the per-step buttons) and the dev-login Add sheet's states,
 /// light and dark, then exits before any
 /// window, status item, socket or daemon work exists. Also the "Your repos"
@@ -36,12 +36,9 @@ enum ChecklistRowSnapshot {
             }
         }
         for scheme in ["light", "dark"] {
-            SnapshotRenderer.render(InstallRows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("install-clone-progress-\(scheme).png"))
-        }
-        for scheme in ["light", "dark"] {
             SnapshotRenderer.render(RepoRows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("repo-rows-\(scheme).png"))
         }
-        print("wrote \(6 + sheets.count * 2) snapshots to \(out.path)")
+        print("wrote \(4 + sheets.count * 2) snapshots to \(out.path)")
         return true
         #else
         return false
@@ -58,24 +55,32 @@ enum ChecklistRowSnapshot {
         RowAction(type: .run, label: label, verb: ["setup", "apply", "--only", id])
     }
 
-    private static let extensionID = "tool.browser-extension"
+    private static let extensionID = "tool.fast-browser-extension"
+    /// The same row after Add to Chrome, while the Web Store is open.
+    private static let waitingExtensionID = "tool.fast-browser-extension.waiting"
+
+    private static func extensionRow(_ id: String) -> PlanRow {
+        PlanRow(id: id, kind: .tool, title: "Fast Browser extension",
+                why: "Fast Browser drives your real Chrome session through this extension.", required: false,
+                optionalNote: "You load this into Chrome yourself; Install cannot do it for you.",
+                status: .needsYou, detail: "The pinned Chrome extension is not installed.",
+                action: RowAction(type: .openURL, label: "Add to Chrome",
+                                  url: "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm",
+                                  waiting: "Waiting for Chrome", again: "Open again", primary: true),
+                recheck: .onActivate, finishGated: true, waivable: false)
+    }
 
     private static let tools: [PlanRow] = [
         PlanRow(id: "tool.daemon", kind: .tool, title: "Daemon",
-                why: "The daemon watches your repos and backs MRs and notifications.", required: true,
+                why: "The daemon watches your repos and backs MRs and notifications.", required: false,
                 status: .missing, detail: "not registered yet", action: step("Register services", "services.register"),
-                recheck: .onActivate),
-        PlanRow(id: extensionID, kind: .tool, title: "Browser extension",
-                why: "Agents drive your browser through this extension.", required: false,
-                optionalNote: "You load this into your browser yourself; Install cannot do it for you.",
-                status: .needsYou, detail: "not loaded yet",
-                action: RowAction(type: .steps, label: "Show steps…", steps: ["Open the extension store", "Add the extension"]),
-                recheck: .onActivate, finishGated: true),
+                recheck: .onActivate, waitsForInstall: true),
+        extensionRow(extensionID),
+        extensionRow(waitingExtensionID),
         PlanRow(id: "tool.proxy", kind: .tool, title: "Local proxy",
                 why: "Serves apps on .localhost/.mattstack domains instead of raw ports.", required: false,
-                optionalNote: "Works without this; apps serve on their ports meanwhile.",
                 status: .missing, detail: "not installed", action: step("Install proxy", "proxy.install"),
-                recheck: .onActivate),
+                recheck: .onActivate, finishGated: true, waivable: false),
         PlanRow(id: "tool.shell", kind: .tool, title: "Shell integration",
                 why: "The rtcd alias and PATH precedence come from your shell rc file.", required: false,
                 status: .needsYou, detail: "shell integration not added yet", action: step("Add to shell", "path.link"),
@@ -83,7 +88,7 @@ enum ChecklistRowSnapshot {
         PlanRow(id: "pack.acme", kind: .tool, title: "acme pack",
                 why: "Installed by Install for the acme pack.", required: false,
                 status: .error, detail: "plugin install exited 1", action: step("Install plugins", "plugins.install"),
-                recheck: .onChange),
+                recheck: .onChange, waitsForInstall: true),
         PlanRow(id: "tool.git", kind: .tool, title: "Command line tools",
                 why: "git and python3 come from here.", required: true, status: .ready, detail: "git 2.50.1", recheck: .onChange),
         PlanRow(id: "tool.agents", kind: .tool, title: "Agent runner",
@@ -93,6 +98,19 @@ enum ChecklistRowSnapshot {
                 required: false, status: .ready, detail: "Not needed: your team declares no intercepts", recheck: .onChange),
     ]
 
+    static let missionControl = PlanRow(
+        id: "tool.mission-control", kind: .tool, title: "Mission Control shortcut",
+        why: "rt's nav picker uses Control+Up, which macOS binds to Mission Control by default.", required: false,
+        optionalNote: "Works without this; only matters if Control+Up doesn't reach rt's nav picker.",
+        status: .needsYou, detail: "Control+Up opens Mission Control, and rt's picker needs it",
+        action: RowAction(type: .openSettings, label: "Open Keyboard Settings…", target: "keyboard-shortcuts"),
+        recheck: .onActivate, finishGated: true, waivable: true)
+
+    static let pathPrecedence = PlanRow(
+        id: "tool.path", kind: .tool, title: "PATH precedence",
+        why: "Which rt your shell runs when more than one is installed.", required: false,
+        status: .needsYou, detail: "~/.local/bin comes after /usr/local/bin", recheck: .onChange, information: true)
+
     private static let mac: [PlanRow] = [
         PlanRow(id: "perm.login-items", kind: .permission, title: "Login Items",
                 why: "Lets mattstack.app start automatically and stay running in the background.",
@@ -100,58 +118,58 @@ enum ChecklistRowSnapshot {
         PlanRow(id: "perm.disk", kind: .permission, title: "Full Disk Access",
                 why: "Reads your repositories' git state.", required: true, status: .ready, detail: "Granted",
                 action: RowAction(type: .openSettings, label: "Open Settings…", target: "fda"), recheck: .onActivate),
+        missionControl,
+        pathPrecedence,
+    ]
+
+    /// Settled rows only, so its No action needed card draws open: a skipped row with its note, an information row, and two rows waiting for Install.
+    private static let agents: [PlanRow] = [
+        PlanRow(id: "skills.overrides", kind: .tool, title: "Skill overrides",
+                why: "Old slot keys in your own overrides file stop the mattstack skills from compiling.", required: false,
+                optionalNote: "Skipped on this Mac: old slot keys stay in your overrides file.",
+                status: .needsYou, detail: "2 old slot keys in overrides.md", recheck: .onChange,
+                finishGated: true, waived: true, waivable: true),
+        PlanRow(id: "team.push-access", kind: .access, title: "Push access",
+                why: "Whether your token can push to the team repo.", required: false,
+                status: .ready, detail: "Read only: only admins push team settings", recheck: .onChange, information: true),
+        PlanRow(id: "tool.claude", kind: .tool, title: "Claude Code",
+                why: "Runs the agents.", required: true, status: .ready, detail: "2.1.0", recheck: .onChange),
+        PlanRow(id: "tool.plugins", kind: .tool, title: "Claude plugins",
+                why: "The mattstack plugin and your team's packs.", required: false, status: .missing, detail: "not installed",
+                action: step("Install plugins", "plugins.install"), recheck: .onChange, waitsForInstall: true),
+        PlanRow(id: "skills.writing-style", kind: .tool, title: "Writing style",
+                why: "How the reviews, replies and PR descriptions agents post under your name read.", required: false,
+                status: .needsYou, detail: "You choose this after Install", recheck: .onChange,
+                finishGated: true, waivable: false, waitsForInstall: true),
     ]
 
     private struct Rows: View {
         var body: some View {
             let layout = ChecklistLayout.make([PlanGroup(id: "tools", title: "Tools", rows: tools),
-                                               PlanGroup(id: "mac", title: "Your Mac", rows: mac)],
-                                              finishBlockedBy: [extensionID])
+                                               PlanGroup(id: "mac", title: "Your Mac", rows: mac),
+                                               PlanGroup(id: "agents", title: "Agents and editors", rows: agents)],
+                                              finishBlockedBy: [extensionID, waitingExtensionID, "tool.proxy", missionControl.id, "skills.writing-style"])
             let activity = RowActivity(checking: ["tool.proxy"],
-                                       waiting: ["tool.proxy": NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy])
-            // The second group has settled rows only, so its No action needed card draws open.
+                                       waiting: ["tool.proxy": NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install").waitingCopy,
+                                                 waitingExtensionID: "Waiting for Chrome"])
             return VStack(alignment: .leading, spacing: 20) {
                 ForEach(layout.sections) { section in
-                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity) { _ in }
+                    ChecklistSectionsView(section: section, finishBlockedBy: layout.finishBlockedBy, activity: activity,
+                                          onSkip: { _ in }) { _ in }
                 }
             }
             .padding(20)
             .controlSize(.large)
-            .frame(width: SetupWindowController.width)
-        }
-    }
-
-    private static let installSteps: [InstallStep] = [
-        InstallStep(info: StepInfo(id: "team.join", title: "Join your team", kind: .rt), state: .done, detail: "Joined acme"),
-        InstallStep(info: StepInfo(id: "repos.clone", title: "Clone your repos", kind: .rt), state: .running,
-                    detail: "Cloning acme-api (2 of 2) · widgets was already on this Mac",
-                    progress: StepProgress(label: "Receiving objects", percent: 42, note: "1.21 GiB · 18.4 MiB/s")),
-        InstallStep(info: StepInfo(id: "board.setup", title: "Set up the board", kind: .rt)),
-    ]
-
-    /// The Install list mid-clone, as the "R · Install" board draws it.
-    private struct InstallRows: View {
-        var body: some View {
-            Form {
-                Section {
-                    ForEach(installSteps) { step in
-                        InstallStepRow(step: step, hasLog: false, isFailedStep: false, isRunning: true,
-                                       showLog: {}, retryFromFailure: {}, retryFrom: {})
-                    }
-                } header: {
-                    Text("Installing… nothing runs that isn't listed here.")
-                }
-            }
-            .formStyle(.grouped)
-            .frame(width: SetupWindowController.width, height: 300)
-        }
+            .frame(width: SetupWindowController.width)        }
     }
 
     private static func place(_ repo: String, mode: String, checkout: String? = nil, clone: String, note: String,
-                              problem: String? = nil, oneClick: PlaceRepoOneClick? = nil, records: Bool = true) -> RowAction {
+                              problem: String? = nil, oneClick: PlaceRepoOneClick? = nil, records: Bool = true,
+                              board: String? = nil) -> RowAction {
         RowAction(type: .placeRepo, label: mode == "clone" ? "Choose location…" : "Locate…", identity: "gitlab.com/acme/\(repo)",
                   repo: repo, mode: mode, checkoutPath: checkout, clonePath: clone, note: note, problem: problem,
-                  then: records ? nil : ["setup", "apply", "--only", "repos.clone"], oneClick: oneClick, segmentRecords: records)
+                  then: records ? nil : ["setup", "apply", "--only", board == nil ? "repos.clone" : "board.restart"],
+                  oneClick: oneClick, segmentRecords: records, board: board)
     }
 
     private static func repoRow(_ repo: String, status: RowStatus, gated: Bool = false, _ action: RowAction) -> PlanRow {
@@ -162,6 +180,9 @@ enum ChecklistRowSnapshot {
 
     private static let found = repoRow("widgets", status: .ready,
         place("widgets", mode: "checkout", checkout: "~/code/widgets", clone: "~/Documents/GitHub/widgets-2", note: "Found your widgets checkout"))
+    private static let boardRepo = repoRow("gadgets", status: .ready,
+        place("gadgets", mode: "checkout", checkout: "~/code/gadgets", clone: "~/Documents/GitHub/gadgets", note: "Found your gadgets checkout",
+              board: "The board's review, respond and doctor agents start here"))
     private static let toClone = repoRow("acme-api", status: .ready,
         place("acme-api", mode: "clone", clone: "~/code/acme-api", note: "rt clones it here when you click Install"))
     private static let refused = repoRow("dev1", status: .ready,
@@ -181,7 +202,9 @@ enum ChecklistRowSnapshot {
             let none = RowActivity()
             return VStack(alignment: .leading, spacing: 20) {
                 ChecklistCard {
-                    ChecklistCardHeader(title: "No action needed · 3")
+                    ChecklistCardHeader(title: "No action needed", note: "4")
+                    Divider()
+                    SettledRow(row: boardRepo, isChecking: false, error: nil) { _ in }
                     Divider()
                     SettledRow(row: found, isChecking: false, error: nil) { _ in }
                     Divider()

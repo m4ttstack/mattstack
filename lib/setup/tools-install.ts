@@ -102,7 +102,7 @@ function firstLine(s: string): string {
 /** softwareupdate only lists Command Line Tools while this marker exists — the same trigger Homebrew and MDM tooling use. Best-effort removed afterwards; a stale marker only costs an extra listing. */
 const CLT_ON_DEMAND_MARKER = "/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress";
 const CLT_LIST_TIMEOUT_MS = 120_000;
-const CLT_INSTALL_TIMEOUT_MS = 45 * 60_000;
+export const CLT_INSTALL_TIMEOUT_MS = 45 * 60_000;
 
 /**
  * The newest CLT label wins — softwareupdate lists one label per available
@@ -174,6 +174,16 @@ async function installAppleClt(p: Probes): Promise<InstallResult> {
 
 function linkOutcomeDetail(outcome: LinkOutcome): string {
   return outcome.ok ? (outcome.state === "already" ? `already linked at ${outcome.path}` : `linked at ${outcome.path}`) : outcome.detail;
+}
+
+/** The branch `installTool` would take for `tool`, without installing; null where it would refuse (a team's download URL, a tap formula, or no method at all). */
+export async function installRoute(p: Probes, tool: string, reqs: PackRequirements[], hasBrew: boolean, seams: ToolsInstallSeams = REAL_SEAMS): Promise<"bundled" | "brew" | "vendor" | null> {
+  if (seams.bundledToolExec(p, tool)) return "bundled";
+  const teamBrew = reqs.flatMap((r) => r.tools).find((t) => t.name === tool)?.install?.brew;
+  const formula = BREW_FORMULAE[tool] ?? (teamBrew !== undefined && isValidBrewFormula(teamBrew) ? teamBrew : undefined);
+  if (hasBrew && formula) return "brew";
+  if (VENDOR_INSTALLERS[tool]) return "vendor";
+  return null;
 }
 
 export async function installTool(p: Probes, tool: string, reqs: PackRequirements[], seams: ToolsInstallSeams = REAL_SEAMS): Promise<InstallResult> {
@@ -345,10 +355,12 @@ async function setupFastBrowser(p: Probes, seams: ToolsInstallSeams, marketplace
   return { ok: true, detail: "Fast Browser is set up" };
 }
 
-async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult> {
+async function setupHerdr(p: Probes, seams: ToolsInstallSeams, configDirs: string[]): Promise<SetupResult> {
+  // A bare name could land on the rt wrapper the resolver just skipped.
+  const herdr = seams.resolveTool(p, "herdr").exec ?? ["herdr"];
   const results: { dir: string; ok: boolean; detail: string }[] = [];
   for (const dir of configDirs) {
-    const res = await p.exec(["herdr", "integration", "install", "claude"], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: INSTALL_TIMEOUT_MS });
+    const res = await p.exec([...herdr, "integration", "install", "claude"], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: INSTALL_TIMEOUT_MS });
     if (res.code === 124) results.push({ dir, ok: false, detail: "timed out" });
     else if (res.code !== 0) results.push({ dir, ok: false, detail: `exit ${res.code}` });
     else results.push({ dir, ok: true, detail: "ok" });
@@ -398,7 +410,7 @@ async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: 
 
 export async function setupTool(p: Probes, tool: string, opts: { configDirs: string[]; marketplaceSource?: string; onlyEditors?: readonly string[] }, seams: ToolsInstallSeams = REAL_SEAMS): Promise<SetupResult> {
   if (tool === "fast-browser") return setupFastBrowser(p, seams, opts.marketplaceSource);
-  if (tool === "herdr") return setupHerdr(p, opts.configDirs);
+  if (tool === "herdr") return setupHerdr(p, seams, opts.configDirs);
   if (tool === "extension") return setupExtension(p, seams, opts.onlyEditors);
   throw new UserActionableError("unknown-tool-setup", `no setup routine for "${tool}"`);
 }

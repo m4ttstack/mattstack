@@ -1,11 +1,17 @@
 import AppKit
 import MattstackCore
 
-/// Shared by the Setup checklist and Settings > Permissions relaunch buttons
+/// Shared by setup and Settings > Permissions relaunch buttons
 /// (both prompt this after a permission grant that only takes effect on the
 /// next launch).
 enum AppRelaunch {
-    static func relaunchInPlace(resumeAt step: SetupStep? = nil) {
+    /// Fast setup reopens after the relaunch when given a screen; rt's whole read decides the screen.
+    static func relaunchInPlace(resumeScreen: FastSetupScreen? = nil) {
+        relaunch(passthrough: SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeScreen: resumeScreen))
+    }
+
+    /// Never stops a child rt: a run or a background install outlives the app and is attached to again.
+    private static func relaunch(passthrough: [String]) {
         let path = Bundle.main.bundlePath
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -15,7 +21,6 @@ enum AppRelaunch {
         task.environment = [:]
         var args = ["-n", path]
         if let feed = ProcessInfo.processInfo.environment[UpdatePolicy.overrideEnv] { args += ["--env", "\(UpdatePolicy.overrideEnv)=\(feed)"] }
-        let passthrough = SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeAt: step)
         if !passthrough.isEmpty { args += ["--args"] + passthrough }
         task.arguments = args
         try? task.run()

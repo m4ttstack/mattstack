@@ -3,43 +3,26 @@ import Combine
 
 public enum TeamChoice: Equatable, Sendable { case create, join, restore, solo }
 
-/// Derives the summary's solo/owner framing from the plan the checklist
-/// loaded rather than from `TeamChoiceModel`, since a Full Disk Access
-/// relaunch (`AppRelaunch.swift`) resumes the wizard at the checklist with a
-/// fresh, default-`.create` choice model — the plan survives the relaunch.
-public enum DoneRole {
-    public static func solo(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
-        guard let planTeam else { return choice == .solo }
-        return planTeam.mode == .noTeam && (planTeam.slug ?? "").isEmpty
-    }
-    public static func owner(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
-        guard let planTeam else { return choice == .create }
-        return planTeam.mode == .create
-    }
-}
-
 public struct GitHubStatus: Codable, Equatable, Sendable {
     public var status: RowStatus
     public var handle: String?
     public var owners: [String]?
 }
 
-/// Screen 2 state. Every validation is an rt verb; codes and keys travel on
-/// stdin; nothing is pushed until Install.
+/// The path, invite, create and restore screens' state. Every validation is
+/// an rt verb; codes and keys travel on stdin.
 @MainActor
 public final class TeamChoiceModel: ObservableObject {
     public nonisolated static let inviteCodeLength = 77
-    public static let explainer = "mattstack keeps your team settings in git. That keeps them safe and gives you a paper trail: skill edits and every change are visible in history. The same goes for your own settings home repo, created by the same step."
-    public static let soloExplainer = "rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."
 
     @Published public var choice: TeamChoice = .create
     @Published public var teamName = ""
     @Published public var othersWillJoin = true
-    @Published public var useGhRepo = false
-    @Published public var ghOwner: String?
-    @Published public private(set) var ghOwners: [String] = []
     @Published public private(set) var ghHandle: String?
-    @Published public var remoteURL = ""
+    /// Where the new team's settings live: "gitlab" or "github".
+    @Published public var forge: String = "gitlab"
+    /// The forge group or account the team repo goes under.
+    @Published public var group = ""
     @Published public var inviteCode = ""
     @Published public var restoreRepo = ""
     @Published public var restoreAgeKey = ""
@@ -48,6 +31,8 @@ public final class TeamChoiceModel: ObservableObject {
     /// An early check's failure, shown on the Join card; Continue moves it to the screen's error line.
     @Published public private(set) var joinError: String?
     @Published public private(set) var isChecking = false
+    /// The team the last good dry run read.
+    @Published private var verdictTeam: TeamJoinResult.Team?
 
     private let rt: RtRunning
     private let pasteboard: PasteboardReading
@@ -62,12 +47,11 @@ public final class TeamChoiceModel: ObservableObject {
     private var preparedFingerprint: String?
     // The repo a real `rt restore` already finished for. The age key is wiped
     // from memory right after, so nothing may demand it again for that repo:
-    // without this latch Back→Continue is dead (canContinue wants a key) and
-    // re-pasting one re-runs the whole restore.
+    // without this latch a second press re-runs the whole restore.
     private var restoredRepo: String?
     // The code the shown join verdict belongs to, so a re-check of the same
     // code keeps its note on screen while a new code clears the old one.
-    private var verdictCode: String?
+    @Published private var verdictCode: String?
     // Bumped by every join check; a check that is no longer the newest writes nothing.
     private var checkGeneration = 0
 
@@ -83,8 +67,17 @@ public final class TeamChoiceModel: ObservableObject {
         if let joinCode { choice = .join; inviteCode = joinCode }
     }
 
+    /// The current code's dry run passed, so Join need not wait on display copy.
+    public var hasGoodVerdict: Bool { verdictCode != nil }
+
+    /// The dry run's `owner` is the inviter: rt keeps it as the joined team's `invitedBy`.
+    public var inviteLine: String? {
+        guard let team = verdictTeam, !team.name.isEmpty else { return nil }
+        guard let owner = team.owner, !owner.isEmpty else { return team.name }
+        return "\(team.name), invited by \(owner)"
+    }
+
     public var slugPreview: String { Slug.make(teamName) }
-    public var ghRepoPreview: String { "\(ghOwner ?? ghHandle ?? "you")/mattstack-team-\(slugPreview)" }
     public var normalizedInviteCode: String {
         JoinLink.code(fromText: inviteCode) ?? inviteCode.filter { !$0.isWhitespace && !$0.isNewline }
     }
@@ -94,31 +87,28 @@ public final class TeamChoiceModel: ObservableObject {
         inviteCode = code
     }
 
-    public var canContinue: Bool {
-        switch choice {
-        case .create:
-            guard !slugPreview.isEmpty else { return false }
-            return useGhRepo ? (ghHandle != nil) : !remoteURL.trimmingCharacters(in: .whitespaces).isEmpty
-        case .join:
-            return !normalizedInviteCode.isEmpty
-        case .restore:
-            let repo = restoreRepo.trimmingCharacters(in: .whitespaces)
-            return !repo.isEmpty && (restoredRepo == repo || !restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        case .solo:
-            return true
-        }
+    /// What Create team needs from the screen's own fields; rt's create rows gate the rest.
+    public var canCreateTeam: Bool { !slugPreview.isEmpty && !trimmedGroup.isEmpty }
+
+    private var trimmedGroup: String { group.trimmingCharacters(in: .whitespaces) }
+
+    /// Trimmed as `FastSetupFlow.restoreEnabled` trims it, so a pasted newline never reaches rt.
+    private var trimmedRestoreRepo: String { restoreRepo.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// GitHub with a gh sign-in keeps `--create-repo`; otherwise rt creates the repo with the forge token.
+    var createArguments: [String] {
+        var args = ["team", "create", teamName]
+        args += forge == "github" && ghHandle != nil ? ["--create-repo", trimmedGroup] : ["--forge", forge, "--group", trimmedGroup]
+        if othersWillJoin { args.append("--others") }
+        return args + ["--json"]
     }
 
     public func loadGitHubStatus() async {
         guard !didLoadGitHubStatus else { return }
         guard let result = try? await rt.run(["setup", "github", "status", "--json"], stdin: nil),
               let status = try? result.decode(GitHubStatus.self), status.status == .ready else { return }
+        // Only a live gh session yields a handle, and only it can run `gh repo create`.
         ghHandle = status.handle
-        ghOwners = status.owners ?? [status.handle].compactMap { $0 }
-        ghOwner = ghOwners.first
-        // Creating the repo runs `gh repo create`, and only a live gh session
-        // yields a handle; a stored token alone cannot create it.
-        useGhRepo = status.handle != nil
         didLoadGitHubStatus = true
     }
 
@@ -128,7 +118,7 @@ public final class TeamChoiceModel: ObservableObject {
     /// Idempotent for create/restore — a repeat call with unchanged inputs
     /// (e.g. Back then Continue again) skips the verb rather than re-running it.
     public func validateAndPrepare() async -> String? {
-        if choice == .restore, restoredRepo == restoreRepo.trimmingCharacters(in: .whitespaces) { return nil }
+        if choice == .restore, restoredRepo == trimmedRestoreRepo { return nil }
         let fingerprint = preparationFingerprint()
         if let fingerprint, fingerprint == preparedFingerprint { return nil }
         isChecking = true
@@ -137,11 +127,7 @@ public final class TeamChoiceModel: ObservableObject {
             switch choice {
             case .create:
                 if let e = await homeInitCheck() { return e }
-                var args = ["team", "create", teamName]
-                args += useGhRepo ? ["--create-repo", ghOwner ?? ghHandle ?? ""] : ["--remote", remoteURL.trimmingCharacters(in: .whitespaces)]
-                if othersWillJoin { args.append("--others") }
-                args.append("--json")
-                let r = try await rt.run(args, stdin: nil)
+                let r = try await rt.run(createArguments, stdin: nil)
                 if let e = r.userError { return e.message }
                 guard r.exitCode == 0 else { return r.failureCopy(verb: "team create") }
                 preparedFingerprint = fingerprint
@@ -157,17 +143,14 @@ public final class TeamChoiceModel: ObservableObject {
                 if let failure = verdict.failure { return failure }
                 return await homeInitCheck()
             case .restore:
-                // The app runs the real restore at Continue (clone + key
-                // into the Keychain), then records the intent so
-                // `setup apply`'s home.restore step only verifies.
-                let repo = restoreRepo.trimmingCharacters(in: .whitespaces)
-                let stdin = try JSONEncoder().encode(["ageKey": restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines)])
-                let r = try await rt.run(["restore", repo, "--json"], stdin: stdin)
+                // One verb puts the key in the Keychain, clones, and records
+                // the intent last, so `setup apply`'s home.restore step only
+                // verifies. The key goes as plain stdin, never argv.
+                let repo = trimmedRestoreRepo
+                let stdin = Data(restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines).utf8)
+                let r = try await rt.run(["home", "restore", repo, "--stdin", "--json"], stdin: stdin)
                 if let e = r.userError(redactStderr: true) { return e.message }
-                guard r.exitCode == 0 else { return r.failureCopy(verb: "restore", redactStderr: true) }
-                let intent = try await rt.run(["setup", "intent", "restore", repo, "--json"], stdin: nil)
-                if let e = intent.userError { return e.message }
-                guard intent.exitCode == 0 else { return intent.failureCopy(verb: "setup intent restore") }
+                guard r.exitCode == 0 else { return r.failureCopy(verb: "home restore", redactStderr: true) }
                 preparedFingerprint = fingerprint
                 restoredRepo = repo
                 restoreAgeKey = ""
@@ -209,35 +192,39 @@ public final class TeamChoiceModel: ObservableObject {
         joinWarning = nil
         joinError = nil
         verdictCode = nil
+        verdictTeam = nil
     }
 
     /// Join never latches, so a Back plus a second code re-runs the check:
     /// the previous code's verdict must not outlive its own attempt.
-    private func show(_ verdict: (summary: String?, warning: String?, failure: String?), for code: String) {
+    private func show(_ verdict: JoinVerdict, for code: String) {
         joinSummary = verdict.summary
         joinWarning = verdict.warning
         verdictCode = verdict.failure == nil ? code : nil
+        verdictTeam = verdict.failure == nil ? verdict.team : nil
     }
 
-    private func joinVerdict(_ code: String) async -> (summary: String?, warning: String?, failure: String?) {
+    private typealias JoinVerdict = (summary: String?, warning: String?, failure: String?, team: TeamJoinResult.Team?)
+
+    private func joinVerdict(_ code: String) async -> JoinVerdict {
         do {
             let stdin = try JSONEncoder().encode(["code": code])
             let r = try await rt.run(["team", "join", "--dry-run", "--json"], stdin: stdin)
-            if let e = r.userError(redactStderr: true) { return (nil, nil, Self.joinFailureCopy(e, owner: nil, team: nil)) }
-            guard r.exitCode == 0, let j = try? r.decode(TeamJoinResult.self) else { return (nil, nil, r.failureCopy(verb: "team join", redactStderr: true)) }
+            if let e = r.userError(redactStderr: true) { return (nil, nil, Self.joinFailureCopy(e, owner: nil, team: nil), nil) }
+            guard r.exitCode == 0, let j = try? r.decode(TeamJoinResult.self) else { return (nil, nil, r.failureCopy(verb: "team join", redactStderr: true), nil) }
             // Dev mode runs an app and a CLI built separately, so a CLI too
             // old to send `intent` must not wave a joiner past a denial it
             // did check.
             let wrote = j.intent.map { $0 == "written" } ?? (j.access == "ok")
             guard wrote else {
-                return (nil, nil, Self.joinFailureCopy(RtUserError(code: j.access == "denied" ? "no-access" : "unreachable", message: j.message ?? ""), owner: j.team?.owner, team: j.team?.name))
+                return (nil, nil, Self.joinFailureCopy(RtUserError(code: j.access == "denied" ? "no-access" : "unreachable", message: j.message ?? ""), owner: j.team?.owner, team: j.team?.name), nil)
             }
             // Exactly one of the two renders, so a non-ok verdict never
             // reaches the screen under the summary's green checkmark.
-            if j.access == "ok" { return (j.message ?? "Joining \(j.team?.name ?? "") (owner \(j.team?.owner ?? ""))", nil, nil) }
-            return (nil, j.message ?? "rt could not confirm access to the team repo; the checklist re-checks it.", nil)
+            if j.access == "ok" { return (j.message ?? "Joining \(j.team?.name ?? "") (owner \(j.team?.owner ?? ""))", nil, nil, j.team) }
+            return (nil, j.message ?? "rt could not confirm access to the team repo; the checklist re-checks it.", nil, j.team)
         } catch {
-            return (nil, nil, "Could not run rt: \(error)")
+            return (nil, nil, "Could not run rt: \(error)", nil)
         }
     }
 
@@ -246,14 +233,14 @@ public final class TeamChoiceModel: ObservableObject {
     private func preparationFingerprint() -> String? {
         switch choice {
         case .create:
-            return ["create", teamName, "\(othersWillJoin)", "\(useGhRepo)", ghOwner ?? "", remoteURL].joined(separator: "\u{1}")
+            return ["create", teamName, "\(othersWillJoin)", ghHandle ?? "", forge, trimmedGroup].joined(separator: "\u{1}")
         case .join:
             return nil
         case .restore:
             // The key is hashed, never stored: this value outlives the field
             // (which is wiped after a successful restore) and only ever has to
             // answer "did the inputs change".
-            return ["restore", restoreRepo.trimmingCharacters(in: .whitespaces), String(restoreAgeKey.hashValue)].joined(separator: "\u{1}")
+            return ["restore", trimmedRestoreRepo, String(restoreAgeKey.hashValue)].joined(separator: "\u{1}")
         case .solo:
             return "solo"
         }
@@ -270,7 +257,7 @@ public final class TeamChoiceModel: ObservableObject {
         switch error.code {
         case "no-access": return error.message.isEmpty ? "You don't have access yet: ask \(who) to grant you access to \(team ?? "the team")." : error.message
         case "expired", "not-found", "redeemed", "invite-unknown": return "Invite not recognized or expired: ask \(who) for a new one."
-        case "invite-malformed": return "That doesn't look like an invite code — paste the whole code (about \(inviteCodeLength) characters)."
+        case "invite-malformed": return "That doesn't look like an invite code. Paste the whole code (about \(inviteCodeLength) characters)."
         case "wrong-account": return "This code is for a different forge account than you're signed into."
         default: return error.message.isEmpty ? "Couldn't redeem the invite." : error.message
         }

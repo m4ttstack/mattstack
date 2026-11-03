@@ -5,6 +5,7 @@
  */
 
 import { boardCronByToolMigration } from "./board-cron-by-tool.ts";
+import { boardCwdsFollowBoardRepoMigration } from "./board-cwds-follow-board-repo.ts";
 import { boardPeerTriggerMigration } from "./board-peer-trigger.ts";
 import { enableTeamPackMigration } from "./enable-team-pack.ts";
 import { importAppSettingsMigration } from "./import-app-settings.ts";
@@ -49,6 +50,7 @@ export const MIGRATIONS: MigrationDef[] = [
   importAppSettingsMigration,
   enableTeamPackMigration,
   retireOldBgServerMigration,
+  boardCwdsFollowBoardRepoMigration,
   teamPacksFromGitMigration,
 ];
 

@@ -56,7 +56,7 @@ async function teamRepoRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | 
 }
 
 /** A joined team names its own forge host, but a team is not the user... probing (let alone authenticating against) that host is a network access rt takes on the user's behalf, so it waits for the same user-confirmed `rt.integrations` override ctxFor's credential validators require, rather than dialing an inviter-controlled host on its own. */
-function connectHostSteps(id: "github" | "gitlab", declaredHost: string): Action {
+export function connectHostSteps(id: "github" | "gitlab", declaredHost: string): Action {
   return { type: "steps", label: "Show steps…", steps: [`Run: rt setup ${id} connect --host ${declaredHost}`, "This confirms the host yourself before rt talks to it"] };
 }
 

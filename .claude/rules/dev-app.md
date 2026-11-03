@@ -59,3 +59,23 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   dev-bundle leg of the `rt:release` skill does. A collaborator's dev app
   comes from the release (`rt dev setup`, `rt dev update`); the `dev-publish`
   leg of `rt release update-machine` attaches it on the maintainer's Mac.
+
+## Test drive setup
+
+The dev app (and any DEBUG build) has **Test drive setup…** in the menu bar
+menu: the real setup window running on the stub rt
+(`rt-tray/Tests/stub-rt/stub.ts` under bun), so the screens can be walked on
+this Mac without changing it. The picker offers scenarios (join, create,
+Just me, restore, a run that pauses, slow installs; `TestDriveScenario` maps
+each to an `RT_STUB_SCENARIO`) and a speed, Instant or Realistic. Each drive
+gets its own throwaway HOME and stub state dir under the temp folder, an app
+socket that points nowhere, and fakes for every native effect (a settings
+pane, a macOS prompt, an admin password, a browser tab), which show as
+toasts on the drive's banner instead. **Reset** ends the drive, retires its
+rt so nothing pending reaches the stub, and deletes its folder; quitting the
+app does the same. The stub comes from the tree the dev app was last built
+from, then the checkout its rt wrapper runs (`DevSourceConfigReader`); bun
+from `RT_STUB_BUN`, that config, or the usual install paths. A stub that
+does not know `stub grant --probe` is too old for the app, one that fails it
+any other way won't run, and the picker says which. A new setup verb or screen needs a stub answer too, or the drive
+stops on it.

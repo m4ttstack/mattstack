@@ -1,8 +1,14 @@
 import { closeStateDb } from "../../state/index.ts";
 import { describe, test, expect } from "bun:test";
-import { applyInstallSatisfiedFlip, composePlan, pendingJoinTeam } from "../plan.ts";
-import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
-import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
+import { applyApprovalWait, applyInstallSatisfiedFlip, composePlan, pendingJoinTeam } from "../plan.ts";
+import { APPROVAL_DEPENDENT_IDS, APPROVAL_WAIT_DETAIL } from "../../team/approval.ts";
+import { teamLocalPath } from "../../team/team-local.ts";
+import { orgDirUnder } from "../../rt-paths.ts";
+import { renderSopsYamlRules } from "../../home/age-key.ts";
+import { TEAM_PATH_REGEX } from "../../secrets/team-store.ts";
+import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finalizePlan, row, type Group, type Plan, type Row } from "../contract.ts";
+import { applyFinishGate, waivedNote } from "../finish-gate.ts";
+import { applyExpectations } from "../expectations.ts";
 import { markDeferred } from "../repo-placement.ts";
 import { setSetting } from "../../settings/write.ts";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -10,6 +16,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { UserActionableError } from "../../errors.ts";
 import { writeIntent, type SetupIntent } from "../intent.ts";
+import { updateSetupState } from "../state.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
@@ -161,7 +168,7 @@ describe("composePlan", () => {
     }
   });
 
-  test("solo intent, no teams -> no access rows, github optional, fast-browser optional, no team rows, and the existing modes unchanged", async () => {
+  test("solo intent, no teams -> no access rows, github optional, fast-browser finish-gated, no team rows, and the existing modes unchanged", async () => {
     const priorHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), "rt-plan-solo-"));
     closeStateDb();
@@ -177,10 +184,11 @@ describe("composePlan", () => {
       const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
       expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false]]);
       const tools = everyRow(plan).rows;
-      expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(false);
+      expect(tools.find((r) => r.id === "tool.fast-browser")).toMatchObject({ required: false, finishGated: true, waivable: false, optionalNote: null });
       expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);
-      expect(plan.requiredMissing).toEqual([]);
-      expect(plan.canInstall).toBe(true);
+      // Only steps expected before Install on every path, each with something to press; nothing team-shaped.
+      expect(plan.requiredMissing).toEqual(["tool.chrome"]);
+      expect(plan.canInstall).toBe(false);
     } finally {
       closeStateDb();
       process.env.HOME = priorHome;
@@ -327,8 +335,7 @@ describe("composePlan — install-satisfied flip", () => {
       const r = everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
-      // The fake home has no home repo, so skills.writing-style also blocks Finish here.
-      expect(plan.finishBlockedBy).toEqual(["skills.writing-style", "tool.fast-browser-extension"]);
+      expect(plan.finishBlockedBy).toEqual(["tool.fast-browser", "tool.fast-browser-extension", "tool.proxy", "tool.state-backup", "home.backup"]);
       expect(plan.requiredMissing).not.toContain("tool.fast-browser-extension");
     }
   });
@@ -374,9 +381,67 @@ test("a daemon row that needs you with no action, as in CI, still flips like any
   expect(flip("status").required).toBe(true);
 });
 
-function gatedRow(status: Row["status"]): Row {
+test("before Install, a row only Install can make ready waits for Install; after it, none does", () => {
+  const rows = [
+    row({ id: "perm.login-items", kind: "permission", title: "Login Items", why: "x", required: false, status: "needs-you", detail: "d",
+          action: { type: "run", label: "Re-check", verb: ["setup", "status"] } }),
+    row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "missing", detail: "d",
+          action: { type: "run", label: "Register services", verb: ["setup", "apply", "--only", "services.register"] } }),
+    row({ id: "tool.plugins", kind: "tool", title: "Claude plugins", why: "x", required: false, status: "needs-you", detail: "d",
+          action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
+    row({ id: "pack.acme-skills", kind: "tool", title: "acme-skills", why: "x", required: false, status: "missing", detail: "d",
+          action: { type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] } }),
+    row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "You choose this after Install" }),
+  ];
+  const flip = (mode: "plan" | "status") => applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows }], mode)[0]!.rows;
+  expect(flip("plan").map((r) => [r.id, r.waitsForInstall])).toEqual(rows.map((r) => [r.id, true]));
+  expect(flip("status").map((r) => r.waitsForInstall)).toEqual(rows.map(() => undefined));
+});
+
+test("a ready Install-satisfied row, and a writing-style row with a choice to make, do not wait for Install", () => {
+  const ready = row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "ready", detail: "Running" });
+  const choosing = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "Not chosen yet",
+                         action: { type: "choose", label: "Choose style…", verb: ["skills", "writing-style", "use"], options: [] } });
+  const unrelated = row({ id: "tool.proxy", kind: "tool", title: "Local proxy", why: "x", required: false, status: "missing", detail: "d" });
+  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [ready, choosing, unrelated] }], "plan")[0]!.rows;
+  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined, undefined]);
+});
+
+test("after Install has run, a row Install could not finish asks for it again", () => {
+  const register = { type: "run" as const, label: "Register services", verb: ["setup", "apply", "--only", "services.register"] };
+  const daemon = row({ id: "tool.daemon", kind: "tool", title: "rt daemon", why: "x", required: false, status: "needs-you", detail: "Not running", action: register });
+  const waiting = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you",
+                        detail: "You choose this after Install" });
+  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [daemon, waiting] }], "plan", { installRan: true })[0]!.rows;
+  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, undefined]);
+  expect(flipped[0]!.action).toEqual(register);
+});
+
+test("composePlan reads whether Install has run from setup state, and a Mac that finished setup has run it", async () => {
+  const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+  const waiting = async () => (await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] })).groups
+    .flatMap((g) => g.rows).filter((r) => r.waitsForInstall).map((r) => r.id);
+  expect(await waiting()).toContain("skills.writing-style");
+  updateSetupState(p, (s) => ({ ...s, installRanAt: "2026-10-29T10:00:00.000Z" }));
+  expect(await waiting()).toEqual([]);
+
+  const finished = fakeProbes({ exec: readyExec, tray: grantedTray });
+  updateSetupState(finished, (s) => ({ ...s, finishedAt: "2026-09-01T10:00:00.000Z" }));
+  const plan = await composePlan({ p: finished, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
+  expect(plan.groups.flatMap((g) => g.rows).filter((r) => r.waitsForInstall)).toEqual([]);
+});
+
+test("a writing-style error is never folded as waiting for Install, and the actionless row before Install is", () => {
+  const error = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "error",
+                      detail: "Could not read the writing style: boom", finishGated: false });
+  const beforeInstall = row({ id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, status: "needs-you", detail: "d" });
+  const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [error, beforeInstall] }], "plan")[0]!.rows;
+  expect(flipped.map((r) => r.waitsForInstall)).toEqual([undefined, true]);
+});
+
+function gatedRow(status: Row["status"], id = "tool.fast-browser-extension"): Row {
   return row({
-    id: "tool.fast-browser-extension",
+    id,
     kind: "tool",
     title: "Fast Browser extension",
     why: "x",
@@ -389,14 +454,20 @@ function gatedRow(status: Row["status"]): Row {
   });
 }
 
-function gatedPlan(status: Row["status"], mode: "plan" | "status", waived: string[] = []) {
-  const groups: Group[] = [{ id: "tools", title: "Tools", rows: [gatedRow(status)] }];
+function gatedPlan(status: Row["status"], mode: "plan" | "status", waived: string[] = [], id?: string) {
+  const groups: Group[] = [{ id: "tools", title: "Tools", rows: [gatedRow(status, id)] }];
   return finalizePlan({ slug: "acme", name: "Acme", mode: "none" }, applyFinishGate(groups, mode, waived), new Date(), waived);
 }
 
 describe("finish gate", () => {
-  test("the contract names exactly two finish-gated rows today", () => {
-    expect([...FINISH_GATED_ROW_IDS]).toEqual(["tool.fast-browser-extension", "skills.writing-style"]);
+  test("the contract's finish-gated ids are the extension alone, and the finish targets stay gated", () => {
+    expect([...FINISH_GATED_ROW_IDS]).toEqual(["tool.fast-browser-extension"]);
+    expect([...WAIVABLE_ROW_IDS]).toEqual(["skills.overrides", "tool.chrome-signin", "tool.mission-control"]);
+    const shell = row({ id: "tool.shell", kind: "tool", title: "Shell", why: "x", required: false, status: "missing", detail: "d",
+                        action: { type: "run", label: "Install", verb: ["setup", "apply", "--only", "path.link"] } });
+    const gated = applyExpectations([{ id: "tools", title: "Tools", rows: [shell] }]);
+    expect(gated[0]!.rows[0]).toMatchObject({ finishGated: true, waivable: false });
+    expect(finalizePlan({ slug: "acme", name: "Acme", mode: "join" }, gated).finishBlockedBy).toEqual(["tool.shell"]);
   });
 
   test("a needs-you finish-gated row blocks Finish in both modes and never Install", () => {
@@ -436,11 +507,11 @@ describe("finish gate", () => {
 
   test("a waived finish-gated row reads optional with the skipped-on-this-Mac note, carries waived:true, keeps its status and action, and leaves finishBlockedBy, in both modes", () => {
     for (const mode of ["plan", "status"] as const) {
-      const plan = gatedPlan("needs-you", mode, ["tool.fast-browser-extension"]);
+      const plan = gatedPlan("needs-you", mode, ["tool.mission-control"], "tool.mission-control");
       const r = plan.groups[0]!.rows[0]!;
       expect(r.required).toBe(false);
       expect(r.waived).toBe(true);
-      expect(r.optionalNote).toBe(WAIVED_NOTE);
+      expect(r.optionalNote).toBe(waivedNote("tool.mission-control"));
       expect(r.status).toBe("needs-you");
       expect(r.action?.type).toBe("steps");
       expect(plan.finishBlockedBy).toEqual([]);
@@ -459,14 +530,12 @@ describe("finish gate", () => {
     const home = mkdtempSync(join(tmpdir(), "rt-plan-waived-"));
     process.env.HOME = home;
     try {
-      setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
+      setSetting("setup.waived", ["tool.mission-control"], "machine");
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
-      const r = everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
-      expect(r.optionalNote).toBe(WAIVED_NOTE);
-      // skills.writing-style is finish-gated but not waivable, so it still blocks Finish.
-      expect(plan.finishBlockedBy).toEqual(["skills.writing-style"]);
+      const r = everyRow(plan).rows.find((r) => r.id === "tool.mission-control")!;
+      expect(r.optionalNote).toBe(waivedNote("tool.mission-control"));
+      expect(plan.finishBlockedBy).toEqual(["tool.proxy", "tool.state-backup", "home.backup"]);
     } finally {
       process.env.HOME = prevHome;
       rmSync(home, { recursive: true, force: true });
@@ -479,14 +548,13 @@ describe("finish gate", () => {
     process.env.HOME = home;
     try {
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-      const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => everyRow(plan).rows.find((r) => r.id === "tool.fast-browser-extension")!;
+      const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => everyRow(plan).rows.find((r) => r.id === "tool.mission-control")!;
 
       setSetting("setup.waived", [], "machine");
-      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
-      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: ["tool.fast-browser-extension"] });
+      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: ["tool.mission-control"] });
       expect(extension(injectedWaived).waived).toBe(true);
 
-      setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
+      setSetting("setup.waived", ["tool.mission-control"], "machine");
       const injectedNone = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: [] });
       expect(extension(injectedNone).waived).toBeFalsy();
       const fromStore = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
@@ -528,6 +596,53 @@ describe("finish gate", () => {
   });
 });
 
+
+describe("Install stays reachable", () => {
+  const RECHECK = ["setup", "status"].join(" ");
+
+  function stranded(plan: Plan): string[] {
+    const rows = plan.groups.flatMap((g) => g.rows);
+    return plan.requiredMissing.filter((id) => {
+      const r = rows.find((x) => x.id === id)!;
+      return r.action === null || (r.action.type === "run" && r.action.verb.join(" ") === RECHECK);
+    });
+  }
+
+  test("no required row that is not ready lacks an action a person can press", async () => {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-reachable-"));
+    closeStateDb();
+    process.env.HOME = home;
+    try {
+      const teamPath = sharedStorePath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, JSON.stringify({
+        "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, slack: { clientId: "abc" } },
+        "mattstack.tracking": { repos: { "github.com/acme/widgets": {} } },
+      }));
+      const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
+      // A restore brings the team's clone back with the home repo, so its plan reads that clone's origin.
+      const restoredClone = { [join(orgDirUnder("/fake-home", "acme"), ".git", "config")]: '[remote "origin"]\n\turl = https://github.com/acme/mattstack.git\n' };
+      const fixtures: { name: string; intent: SetupIntent; orgs: string[]; files?: Record<string, string> }[] = [
+        { name: "create", intent: createIntent(), orgs: [] },
+        { name: "join, cloned", intent: joinIntent(), orgs: ["acme"] },
+        { name: "restore", intent: restoreIntent(), orgs: ["acme"], files: restoredClone },
+        { name: "solo", intent: { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" }, orgs: [] },
+      ];
+      for (const f of fixtures) {
+        // A reachable network: a host that does not answer is a fault Re-check is the honest remedy for.
+        const p = fakeProbes({ exec: soloExec, tray: grantedTray, fetch: async () => ({ status: 200, body: "", headers: {} }), dirs: { "/Applications/mattstack.app": [] }, files: f.files ?? {} });
+        writeIntent(p, f.intent);
+        const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: f.orgs, waived: [] });
+        expect({ fixture: f.name, stranded: stranded(plan) }).toEqual({ fixture: f.name, stranded: [] });
+      }
+    } finally {
+      closeStateDb();
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("pendingJoinTeam", () => {
   test("before the clone exists the pointer's first team selects the pack", () => { expect(pendingJoinTeam(joinIntent(), [])).toBe("gadgets"); });
@@ -599,5 +714,97 @@ describe("a join asks for the team's Slack and repos whether or not the app rela
       expect(status.requiredMissing).toContain("account.slack");
       expect(rowsToChecks(status, { ci: false }).find((c) => c.name === "account.slack")).toMatchObject({ status: "fail", severity: "critical" });
     });
+  });
+});
+
+describe("approval wait", () => {
+  const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
+  const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
+  const DEPENDENT = new Set<string>(APPROVAL_DEPENDENT_IDS);
+
+  async function withSlackTeam(fn: () => Promise<void>): Promise<void> {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-approval-"));
+    closeStateDb();
+    process.env.HOME = home;
+    try {
+      const teamPath = sharedStorePath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, JSON.stringify({ "mattstack.integrations": { slack: { clientId: "abc" } } }));
+      await fn();
+    } finally {
+      closeStateDb();
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  function joinedProbes(members: string[]) {
+    return fakeProbes({
+      exec: readyExec,
+      tray: grantedTray,
+      files: {
+        [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ joinedByRt: true, joinedAt: "2026-10-29T09:00:00.000Z", agePublicKey: MINE }),
+        [join(orgDirUnder("/fake-home", "acme"), ".sops.yaml")]: renderSopsYamlRules([{ pathRegex: TEAM_PATH_REGEX, recipients: members }]),
+      },
+    });
+  }
+
+  const dependentRows = (plan: { groups: Group[] }) => plan.groups.flatMap((g) => g.rows).filter((r) => DEPENDENT.has(r.id));
+
+  test("while waiting, Slack, team sync, org secrets and board peering show the wait, never their own error", async () => {
+    await withSlackTeam(async () => {
+      const p = joinedProbes([OWNER]);
+      writeIntent(p, joinIntent());
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      const rows = dependentRows(plan);
+      expect(rows.map((r) => r.id)).toContain("account.slack");
+      for (const r of rows) {
+        expect(r).toMatchObject({
+          status: "needs-you",
+          detail: APPROVAL_WAIT_DETAIL,
+          action: { type: "run", label: "Check again", verb: ["setup", "join-status"] },
+          required: false,
+          finishGated: true,
+          waivable: false,
+        });
+      }
+    });
+  });
+
+  test("once approved the four rows are the validators' own", async () => {
+    await withSlackTeam(async () => {
+      const p = joinedProbes([OWNER, MINE]);
+      writeIntent(p, joinIntent());
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      expect(dependentRows(plan).map((r) => r.id)).toContain("account.slack");
+      expect(dependentRows(plan).some((r) => r.detail === APPROVAL_WAIT_DETAIL)).toBe(false);
+      expect(applyApprovalWait(plan.groups, { kind: "approved" })).toEqual(plan.groups);
+    });
+  });
+
+  test("the redeem cleared the intent: a joined clone with no intent still waits", async () => {
+    await withSlackTeam(async () => {
+      const p = joinedProbes([OWNER]);
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"], waived: [] });
+      const rows = dependentRows(plan);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const r of rows) expect(r.detail).toBe(APPROVAL_WAIT_DETAIL);
+    });
+  });
+
+  test("only the dependent rows change, and only while waiting", () => {
+    const own = row({ id: "account.slack", kind: "account", title: "Slack", why: "w", required: true, status: "error", detail: "own error" });
+    const other = row({ id: "tool.git", kind: "tool", title: "git", why: "w", required: true, status: "missing", detail: "no git" });
+    const groups: Group[] = [{ id: "accounts", title: "Accounts", rows: [own, other] }];
+    for (const wait of [{ kind: "not-joined" as const }, { kind: "approved" as const }, { kind: "unreadable" as const, path: "/x", reason: "is missing" }]) {
+      expect(applyApprovalWait(groups, wait)).toEqual(groups);
+    }
+    const peering = row({ id: "account.board-peering", kind: "account", title: "Board peering", why: "w", required: false, status: "ready", detail: "d" });
+    const peeringWaited = applyApprovalWait([{ id: "accounts", title: "Accounts", rows: [peering] }], { kind: "waiting", since: null })[0]!.rows[0]!;
+    expect(peeringWaited).toMatchObject({ status: "needs-you", detail: APPROVAL_WAIT_DETAIL, finishGated: false });
+    const waited = applyApprovalWait(groups, { kind: "waiting", since: null });
+    expect(waited[0]!.rows[0]).toMatchObject({ id: "account.slack", status: "needs-you", detail: APPROVAL_WAIT_DETAIL, required: false });
+    expect(waited[0]!.rows[1]).toEqual(other);
   });
 });

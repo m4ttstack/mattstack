@@ -15,9 +15,9 @@ const answering = (paneIds: string[]): Snapshot => ({ ok: true, result: { snapsh
 const silent: Snapshot = { ok: false, code: "herdr unavailable", message: "connection refused" };
 
 describe("2026-10-22-retire-old-bg-server", () => {
-  test("sits after every older migration, so ids stay in date order", () => {
+  test("runs right before the board.cwds migration, so ids stay in date order", () => {
     const ids = MIGRATIONS.map((m) => m.id);
-    expect(ids.indexOf("2026-10-22-retire-old-bg-server")).toBe(ids.indexOf("2026-11-02-team-packs-from-git") - 1);
+    expect(ids.indexOf("2026-10-22-retire-old-bg-server")).toBe(ids.indexOf("2026-10-29-board-cwds-follow-board-repo") - 1);
   });
 
   test("no old socket: nothing to do", async () => {

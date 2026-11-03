@@ -56,7 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     // placeholder SUPublicEDKey already blocks Sparkle in every build this
     // repo produces, but a future real key must not revive it under the
     // stub-driven UI-test/QA harness.
-    lazy var updater = UpdaterController(isDevBuild: BundleFlavor.isDevBuild || BundleFlavor.isStubActive, isBusy: { SetupSession.isRunning })
+    lazy var updater = UpdaterController(isDevBuild: BundleFlavor.isDevBuild || BundleFlavor.isStubActive, isBusy: { UpdatePolicy.setupBusy(windowRunning: SetupSession.isRunning, runInFlight: SetupSession.runInFlight) })
     private var updaterObservation: NSKeyValueObservation?
 
     // ── Setup / Settings / rt ────────────────────────────────────────────────
@@ -66,6 +66,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var deckLifecycle: DeckLifecycle?
     private var needBroker: NeedBroker!
     private var coordinator: SetupCoordinator?
+    /// Made on first use, and only where `TestDrive.isAvailable` offers it.
+    private var testDrive: TestDriveController?
     private var rtClient: RtClient?
     // `mattstackWindow` holds the controller strongly: `WindowModel.controller`
     // is weak, so an unretained controller deallocates and every show()/open()
@@ -215,17 +217,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(handleSystemSessionEnding), name: NSWorkspace.willPowerOffNotification, object: nil)
 
-        // Setup / Settings surfaces, posted by the tray menu and the setup summary
+        // Setup / Settings surfaces, posted by the tray menu and the setup banners:
+        // a setup_update click is Setup status, a setup_progress click resumes, both in the one setup window.
         NotificationCenter.default.addObserver(self, selector: #selector(showSetupStatus), name: .rtShowSetupStatus, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resumeSetup), name: .rtResumeSetup, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettings), name: .rtShowSettings, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showUninstall), name: .rtShowUninstall, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(showSettingsTeam), name: .rtShowSettingsTeam, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettingsAccounts), name: .rtShowSettingsAccounts, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appsChanged), name: .rtAppsChanged, object: nil)
 
-        checkMissionControlConflict()
-        autoRegisterLoginItem()
+        if LaunchPrompts.asksAtLaunch(setupFinished: SetupSession.isFinished) {
+            checkMissionControlConflict()
+            autoRegisterLoginItem()
+        }
 
         Task { @MainActor in
             setHealth(.starting)
@@ -250,7 +254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             // First-run Setup has no daemon dependency, so it shows before the
             // agent wait below; a genuine first run (daemon not installed yet)
             // would otherwise sit at a blank menu bar for the whole wait.
-            coordinator?.showSetupOnLaunch(resumeFlag: SetupResume.step(from: CommandLine.arguments))
+            coordinator?.showSetupOnLaunch(arguments: CommandLine.arguments)
 
             if let launch {
                 if let takeover = launchTakeover, let failure = await takeover.value {
@@ -611,7 +615,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         notificationManager.rt = rtClient
         if let rt = rtClient {
             Task { await NotificationManager.sounds.load(rt: rt) }
-            coordinator = SetupCoordinator(rt: rt, permissions: permissionsService, permissionProbe: permissionProbe, needs: needBroker, updater: updater)
+            let notifications = notificationManager
+            coordinator = SetupCoordinator(rt: rt, permissions: permissionsService, permissionProbe: permissionProbe, needs: needBroker, updater: updater,
+                                           notify: { notifications.fireSetupProgress(title: $0.title, body: $0.body) },
+                                           registerLoginItem: { [weak self] in self?.autoRegisterLoginItem() })
             if let code = pendingJoinCode {
                 pendingJoinCode = nil
                 coordinator?.handleJoin(code: code)
@@ -855,14 +862,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @objc private func resumeSetup() { Task { @MainActor in coordinator?.resumeSetup() } }
     @objc private func showSettings() { Task { @MainActor in coordinator?.showSettings() } }
     @objc private func showUninstall() { Task { @MainActor in coordinator?.showSettings(pane: .uninstall) } }
-    @objc private func showSettingsTeam() { Task { @MainActor in coordinator?.showSettings(pane: .team) } }
     @objc private func showSettingsAccounts() { Task { @MainActor in coordinator?.showSettings(pane: .accounts) } }
     @objc private func appsChanged() { Task { @MainActor in await windowModel?.invalidateCatalog() } }
+
+    private static var isDebugBuild: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor
+    private func showTestDrive() {
+        let controller = testDrive ?? TestDriveController(permissions: permissionsService, updater: updater)
+        testDrive = controller
+        controller.showPicker()
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         statusTimer?.invalidate()
         notificationTimer?.invalidate()
         TrayServer.shared.stop()
+        MainActor.assumeIsolated { testDrive?.shutDown() }
     }
 
     // MARK: - Login Item
@@ -975,6 +997,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     NotificationCenter.default.post(name: .rtShowSetupStatus, object: nil)
                 })
             }
+        }
+        if TestDrive.isAvailable(isDevBuild: BundleFlavor.isDevBuild, isDebugBuild: Self.isDebugBuild) {
+            menu.addItem(ActionMenuItem("Test drive setup…", axid: AXID.trayTestDrive) { [weak self] in
+                MainActor.assumeIsolated { self?.showTestDrive() }
+            })
         }
         menu.addItem(troubleshootMenuItem())
         menu.addItem(.separator())
@@ -1913,7 +1940,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     // MARK: - Notifications Setup
 
     private func setupNotifications() {
-        notificationManager.requestPermission()
+        if LaunchPrompts.asksAtLaunch(setupFinished: SetupSession.isFinished) {
+            notificationManager.requestPermission()
+        }
         notificationManager.registerCategories()
     }
 

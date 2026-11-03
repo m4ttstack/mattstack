@@ -16,15 +16,19 @@ import { regroupTools } from "./regroup.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { activeTeamFor } from "../team/active-team.ts";
+import { APPROVAL_DEPENDENT_IDS, APPROVAL_WAIT_DETAIL, approvalState, type ApprovalState } from "../team/approval.ts";
+import { applyExpectations } from "./expectations.ts";
 import { applyFinishGate, gateTeamAccounts, readWaived } from "./finish-gate.ts";
 import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
+import { installHasRun, readSetupState } from "./state.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
 import { readPackRequirements } from "./requirements.ts";
 import { readStagedSecret } from "./staging.ts";
+import { isValidHostname } from "./host-validate.ts";
 import { forgeFromRemote, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { accessRows } from "./validators/access.ts";
-import { accountRows, type SecretPresence } from "./validators/accounts.ts";
+import { accountRows, BOARD_PEERING_ROW_ID, teamDeclaresIntegration, type SecretPresence } from "./validators/accounts.ts";
 import { adminSecretsRowSafe } from "./validators/admin-secrets.ts";
 import { boardTeamFieldsRowFor } from "./validators/board-team-fields.ts";
 import { macRows } from "./validators/mac.ts";
@@ -33,6 +37,7 @@ import { forgeAccessRow } from "./validators/org-forge-access.ts";
 import { repoPlacementRows } from "./validators/repos.ts";
 import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
+import { WRITING_STYLE_ROW_ID } from "./validators/writing-style.ts";
 
 export interface PlanInputs {
   p: Probes;
@@ -72,7 +77,9 @@ export function enrichSnapshotForge(snapshot: TeamSnapshot, intent: SetupIntent 
   if (snapshot.integrations.forge) return snapshot;
 
   const pointerForge = intent?.mode === "join" ? intent.join?.pointer.forge : undefined;
+  // The pointer is the inviter's free text: a host that is not a bare hostname is no declared forge.
   if (pointerForge) {
+    if (!isValidHostname(pointerForge)) return snapshot;
     const forge = { host: pointerForge, provider: (pointerForge === "github.com" ? "github" : "gitlab") as "github" | "gitlab" };
     return { ...snapshot, integrations: { ...snapshot.integrations, forge } };
   }
@@ -80,7 +87,7 @@ export function enrichSnapshotForge(snapshot: TeamSnapshot, intent: SetupIntent 
   const remote = intent?.mode === "create" ? intent.team?.remote : intent?.mode === "join" ? intent.join?.pointer.remote : null;
   if (!remote) return snapshot;
   const forge = forgeFromRemote(remote);
-  if (!forge) return snapshot;
+  if (!forge || !isValidHostname(forge.host)) return snapshot;
   return { ...snapshot, integrations: { ...snapshot.integrations, forge } };
 }
 
@@ -157,15 +164,28 @@ function isInstallSatisfied(r: Row): boolean {
   return INSTALL_SATISFIED_IDS.has(r.id) || r.id.startsWith("pack.");
 }
 
-/** The id-keyed set of rows only Install itself can satisfy reads required:false pre-install (canInstall stays reachable) and required:true once `setup status` runs post-install. */
-export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "status"): Group[] {
+/** The writing-style row before the home repo exists: no choice to offer until Install creates it. Its error row is a fault, never this. */
+function isWritingStyleBeforeInstall(r: Row): boolean {
+  return r.id === WRITING_STYLE_ROW_ID && r.status === "needs-you" && r.action === null;
+}
+
+/**
+ * The id-keyed set of rows only Install itself can satisfy reads required:false pre-install (canInstall stays reachable) and required:true
+ * once `setup status` runs post-install. Until a full Install has run on this Mac, those not yet ready, and the writing-style row with
+ * nothing to choose yet, carry `waitsForInstall` so the app files them under No action needed. The onboarding summary re-reads plan
+ * mode after Install, so a row Install could not finish must read as a task again there.
+ */
+export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "status", opts: { installRan?: boolean } = {}): Group[] {
+  const waits = mode === "plan" && opts.installRan !== true;
   return groups.map((g) => ({
     ...g,
     rows: g.rows.map((r) => {
+      if (waits && isWritingStyleBeforeInstall(r)) return { ...r, waitsForInstall: true as const };
       if (!isInstallSatisfied(r)) return r;
       // optionalNote reads as "works without this" downstream — false the moment required flips to true, so it's dropped rather than carried over.
       if (mode === "status") return { ...r, required: true, optionalNote: null };
-      return { ...r, required: false, optionalNote: r.optionalNote ?? INSTALLED_BY_INSTALL_NOTE };
+      const flipped = { ...r, required: false, optionalNote: r.optionalNote ?? INSTALLED_BY_INSTALL_NOTE };
+      return r.status === "ready" || !waits ? flipped : { ...flipped, waitsForInstall: true as const };
     }),
   }));
 }
@@ -204,7 +224,8 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
+      const usesLinear = teamDeclaresIntegration(snapshot, reqs, "linear");
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs), usesLinear });
       const repos = await repoPlacementRows(i.p, team, snapshot);
       const boardFields = boardTeamFieldsRowFor(i.p, { solo, teamFor: () => (i.orgs.includes(team.slug) ? activeTeamFor(i.p, team.slug).team : null) });
       return [...tools, ...repos, ...healthRows, ...(boardFields ? [boardFields] : [])];
@@ -212,7 +233,23 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
   ]);
 
   const waived = i.waived ?? readWaived();
-  return finalizePlan(team, regroupTools(applyFinishGate(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode), i.mode), i.mode, waived)), i.p.now(), waived);
+  const wait = team.slug ? approvalState(i.p, team.slug) : { kind: "not-joined" as const };
+  const gated = applyApprovalWait(applyExpectations(gateTeamAccounts(applyInstallSatisfiedFlip(groups, i.mode, { installRan: installHasRun(readSetupState(i.p)) }), i.mode)), wait);
+  return finalizePlan(team, regroupTools(applyFinishGate(gated, i.mode, waived)), i.p.now(), waived);
+}
+
+const CHECK_APPROVAL_ACTION = { type: "run" as const, label: "Check again", verb: ["setup", "join-status"] };
+
+/** Until the admin approves, these rows cannot read the team's secrets, so their own verdicts are noise: each shows the one wait instead, never blocking Install. All but board peering block Finish. */
+export function applyApprovalWait(groups: Group[], wait: ApprovalState): Group[] {
+  if (wait.kind !== "waiting") return groups;
+  const dependent = new Set<string>(APPROVAL_DEPENDENT_IDS);
+  return groups.map((g) => ({
+    ...g,
+    rows: g.rows.map((r) => (dependent.has(r.id)
+      ? { ...r, status: "needs-you" as const, detail: APPROVAL_WAIT_DETAIL, action: CHECK_APPROVAL_ACTION, required: false, optionalNote: null, finishGated: r.id !== BOARD_PEERING_ROW_ID, waivable: false }
+      : r)),
+  }));
 }
 
 /**

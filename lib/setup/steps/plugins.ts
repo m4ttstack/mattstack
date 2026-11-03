@@ -43,6 +43,7 @@ import {
 import { admit, updateArgs, type Admitted } from "../plugin-calls.ts";
 import { heldCopy, runnableEngine, type Floor } from "../../engine-floor.ts";
 import { mattstackFloor } from "../mattstack-floor.ts";
+import { waitWhilePreparing } from "../prepare-record.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
@@ -70,12 +71,16 @@ export function fastBrowserMarketplaceSource(env: Record<string, string | undefi
   return source.endsWith(".git") ? source : `${source}.git`;
 }
 
-/** The mattstack marketplace as Claude Code has it registered; null when there is no claude, no such marketplace, or no listing to read. */
-export async function registeredMattstackMarketplace(p: Probes): Promise<RegisteredMarketplace | null> {
+/** Claude Code's registered marketplaces; null when there is no claude or no listing to read, which is never the same as an empty list. */
+export async function claudeMarketplaces(p: Probes): Promise<RegisteredMarketplace[] | null> {
   const claude = resolveTool(p, "claude");
   if (!claude.exec) return null;
-  const listed = await listMarketplaces((args) => p.exec([...claude.exec!, ...args], { timeoutMs: PACK_EXEC_TIMEOUT_MS }));
-  return listed?.find((m) => m.name === "mattstack") ?? null;
+  return listMarketplaces((args) => p.exec([...claude.exec!, ...args], { timeoutMs: PACK_EXEC_TIMEOUT_MS }));
+}
+
+/** The mattstack marketplace as Claude Code has it registered; null when there is no claude, no such marketplace, or no listing to read. */
+export async function registeredMattstackMarketplace(p: Probes): Promise<RegisteredMarketplace | null> {
+  return (await claudeMarketplaces(p))?.find((m) => m.name === "mattstack") ?? null;
 }
 export const OFFICIAL_MARKETPLACE_SOURCE = "anthropics/claude-plugins-official";
 const RETRY_REMEDY = "Open Claude Code once so it finishes first-run, then Retry.";
@@ -541,5 +546,10 @@ export const pluginsInstallStep: StepDef = {
   prerequisites: ["team.create", "team.join"],
   updateSafe: true,
   applies: () => true,
-  run: installPlugins,
+  // A running `rt setup prepare accounts` may still be installing Claude Code
+  // or driving its plugin commands through Fast Browser's setup.
+  run: async (ctx) => {
+    await waitWhilePreparing(ctx.p, "accounts", { onWait: (line) => ctx.log("plugins.install", line) });
+    return installPlugins(ctx);
+  },
 };

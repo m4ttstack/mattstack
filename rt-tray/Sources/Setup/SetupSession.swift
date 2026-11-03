@@ -25,6 +25,18 @@ enum SetupSession {
         if running { owners.insert(owner) } else { owners.remove(owner) }
     }
 
+    /// Owners with a setup run going, window open or not, so the updater
+    /// never relaunches the app out from under it.
+    private static var runOwners = Set<ObjectIdentifier>()
+    static var runInFlight: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return !runOwners.isEmpty
+    }
+    static func setRunInFlight(_ inFlight: Bool, for owner: ObjectIdentifier) {
+        lock.lock(); defer { lock.unlock() }
+        if inFlight { runOwners.insert(owner) } else { runOwners.remove(owner) }
+    }
+
     /// Set at Finish, before `rt setup finish` has written it to disk, so
     /// the rest of this launch treats setup as finished at once.
     private static var finishedThisLaunch = false
@@ -39,10 +51,5 @@ enum SetupSession {
         return marked || SetupCompletion.isFinished(home: AppHome.current,
                                                     readFile: { FileManager.default.contents(atPath: $0) },
                                                     fileExists: { FileManager.default.fileExists(atPath: $0) })
-    }
-    static var resumeStep: SetupStep? {
-        SetupCompletion.resumeStep(home: AppHome.current,
-                                   readFile: { FileManager.default.contents(atPath: $0) },
-                                   fileExists: { FileManager.default.fileExists(atPath: $0) })
     }
 }
