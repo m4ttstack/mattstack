@@ -13,13 +13,20 @@ export const ROOT = resolve(import.meta.dirname, "..", "..");
 
 export type Mode = "full" | "changed" | "skip";
 // extra: tests a changed run adds by path, because --changed cannot select
-// them from the diff (a snapshot's own test).
+// them from the diff (a snapshot's own test, the tests reading a changed
+// non-TypeScript file).
 export type Decision = { mode: Mode; reason: string; extra?: string[] };
+// tests and graph (collectSources) resolve a reader that is not itself a
+// test to the tests importing it; without them such a reader forces full.
 export type ScopeInput = {
   event: string;
   changed: string[];
   sources: Map<string, string>;
   preloadImports: Set<string>;
+  tests?: string[];
+  graph?: Map<string, string[]>;
+  // Every tracked file, so a source's bare name is known to be unique or not.
+  tracked?: Set<string>;
 };
 
 const PRELOAD = "test-setup.ts";
@@ -274,9 +281,10 @@ export const GLITTER_TRIGGERS = [
 
 export type Jobs = { go: boolean; deck: boolean; e2e: boolean; glitter: boolean; website: boolean };
 
-// Which path-gated jobs a CI event runs. Anything but a pull request runs
-// them all: main is what releases cut from, so a wrong rule fails there
-// rather than ships. Without e2eReach, every rt TypeScript file counts.
+// Which path-gated jobs a CI event runs. Anything but a pull request (the
+// merge queue's run, a push) runs them all: that tree is what lands and what
+// releases cut from, so a wrong rule fails there rather than ships. Without
+// e2eReach, every rt TypeScript file counts.
 export function jobsFor(event: string, changed: string[], reach?: ReadonlySet<string>): Jobs {
   if (event !== "pull_request") return { go: true, deck: true, e2e: true, glitter: true, website: true };
   return {
@@ -306,7 +314,7 @@ export function existingPluginDirs(root: string = ROOT): string[] {
 // README.md, index.ts) are common enough to false-positive. A no-* guard
 // never counts: the guards job runs every one whenever the shards do not
 // run in full.
-function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: boolean } = {}): string | undefined {
+function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: boolean; testsOnly?: boolean } = {}): string[] {
   const fullOnly = opts.fullPathOnly || isPluginTree(f) || GENERIC_NAMES.has(basename(f));
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [new RegExp(`(["'\`]|\\}/|\\.\\./)${escape(f)}["'\`]`)];
@@ -316,11 +324,58 @@ function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: 
     patterns.push(new RegExp(`["'\`]${segments.map(escape).join(`["'\`]\\s*,\\s*["'\`]`)}["'\`]`));
   }
   if (!fullOnly) patterns.push(new RegExp(`(["'\`]|\\}/)${escape(basename(f))}["'\`]`));
+  const readers: string[] = [];
   for (const [source, text] of sources) {
     if (/^no-.*\.test\.tsx?$/.test(basename(source))) continue;
-    if (patterns.some((p) => p.test(text))) return source;
+    if (opts.testsOnly && !isTestFile(source)) continue;
+    if (patterns.some((p) => p.test(text)) || readsRelative(source, text, f)) readers.push(source);
   }
-  return undefined;
+  return readers;
+}
+
+// A path built from the reader's own directory: join(import.meta.dir, "..",
+// "..", "daemon.ts") or `${import.meta.dir}/../x.ts`, resolved against the
+// reader and compared whole, so a shared basename never false-positives.
+function readsRelative(source: string, text: string, f: string): boolean {
+  const dir = dirname(source);
+  const joins = text.matchAll(/join\(\s*import\.meta\.dir((?:\s*,\s*["'`][^"'`$]+["'`])+)\s*\)/g);
+  for (const m of joins) {
+    const parts = [...(m[1] ?? "").matchAll(/["'`]([^"'`]+)["'`]/g)].map((p) => p[1] ?? "");
+    if (join(dir, ...parts) === f) return true;
+  }
+  const templates = text.matchAll(/\$\{import\.meta\.dir\}\/([^"'`$\s]+)/g);
+  for (const m of templates) if (join(dir, m[1] ?? "") === f) return true;
+  return false;
+}
+
+const isTestFile = (f: string) => /\.test\.tsx?$/.test(basename(f));
+
+function uniqueBasename(input: ScopeInput, f: string): boolean {
+  const name = basename(f);
+  const universe = input.tracked ?? new Set([...input.sources.keys(), ...(input.tests ?? [])]);
+  for (const other of universe) {
+    if (other !== f && basename(other) === name) return false;
+  }
+  return true;
+}
+
+// The tests a changed run must add so every reader of f runs: a reader that
+// is a test runs itself; one that is not runs the tests importing it.
+// Undefined when some reader cannot be traced to a test, which only the
+// full suite covers.
+function readerTests(input: ScopeInput, readers: string[]): string[] | undefined {
+  const out: string[] = [];
+  for (const reader of readers) {
+    if (isTestFile(reader)) {
+      out.push(reader);
+      continue;
+    }
+    if (!input.tests || !input.graph) return undefined;
+    const importing = selectedTests([reader], input.tests, input.graph);
+    if (importing.length === 0) return undefined;
+    out.push(...importing);
+  }
+  return out;
 }
 
 function invisible(input: ScopeInput, f: string): string | undefined {
@@ -354,15 +409,16 @@ function outsideShards(input: ScopeInput, f: string): boolean {
 // Repo metadata is never checked either: tests that name ".gitignore" write
 // their own.
 // An ordinary apps file counts only by its full repo path.
-function readerOf(input: ScopeInput, f: string): string | undefined {
-  if (isWebsiteTree(f) || META_FILES.has(f)) return undefined;
+function readersOf(input: ScopeInput, f: string): string[] {
+  if (isWebsiteTree(f) || META_FILES.has(f)) return [];
   if (isAppsTree(f) && !APPS_ROOT_FILES.has(f)) return readBy(input.sources, f, { fullPathOnly: true });
   return readBy(input.sources, f);
 }
 
 // Files outside the shards that no unit test reads drop out before the
 // rest decides, so a TypeScript change that also edits AGENTS.md still runs
-// --changed rather than the full suite.
+// --changed rather than the full suite. A file a test does read adds that
+// test to the run whole, since --changed cannot see a non-import read.
 export function decide(input: ScopeInput): Decision {
   if (input.event !== "pull_request") return { mode: "full", reason: `${input.event} is not a pull request` };
   if (input.changed.length === 0) return { mode: "skip", reason: "no changed files" };
@@ -372,21 +428,36 @@ export function decide(input: ScopeInput): Decision {
   if (workflow) return { mode: "full", reason: `${workflow} is pinned by the scope test` };
 
   const rest: string[] = [];
-  const extra: string[] = [];
+  const extra = new Set<string>();
+  let snapshots = 0;
+  let read = 0;
   for (const f of input.changed) {
     const test = snapshotTest(f);
     if (test && input.sources.has(test)) {
-      extra.push(test);
+      extra.add(test);
+      snapshots++;
       continue;
     }
     if (input.sources.has(f) || !outsideShards(input, f)) {
+      // A test that reads a source file as text (a guard over daemon.ts's
+      // wording) is not its importer, so --changed never selects it. Only a
+      // test's own read counts here: the module registry names every command
+      // file, and its importers are not about this one. The bare name counts
+      // only when no other source shares it ("setup.ts" is five files).
+      // An importer is left out: --changed already runs it.
+      const readers = readBy(input.sources, f, { fullPathOnly: !uniqueBasename(input, f), testsOnly: true });
+      for (const t of readers) if (!(input.graph?.get(t) ?? []).includes(f)) extra.add(t);
       rest.push(f);
       continue;
     }
-    const by = readerOf(input, f);
-    if (by) return { mode: "full", reason: `${f} is read by ${by}` };
+    const by = readersOf(input, f);
+    if (by.length === 0) continue;
+    const tests = readerTests(input, by);
+    if (!tests) return { mode: "full", reason: `${f} is read by ${by[0]}, which no unit test can be traced to` };
+    for (const t of tests) extra.add(t);
+    read++;
   }
-  if (rest.length === 0 && extra.length === 0) {
+  if (rest.length === 0 && extra.size === 0) {
     return { mode: "skip", reason: "only docs, the docs site, tray, apps, plugin, e2e or workflow files, none of it read by a unit test" };
   }
 
@@ -394,10 +465,11 @@ export function decide(input: ScopeInput): Decision {
     const why = invisible(input, f);
     if (why) return { mode: "full", reason: `${f} is ${why}, which --changed cannot see` };
   }
-  const dropped = input.changed.length - rest.length - extra.length;
+  const dropped = input.changed.length - rest.length - snapshots - read;
   const also = dropped ? `, plus ${dropped} file(s) no unit test reads` : "";
-  const snaps = extra.length ? `, plus the tests of ${extra.length} snapshot(s)` : "";
-  return { mode: "changed", reason: `typescript only${also}${snaps}; --changed selects the importers`, extra };
+  const snaps = snapshots ? `, plus the tests of ${snapshots} snapshot(s)` : "";
+  const readers = read ? `, plus ${read} file(s) read by a test, run whole` : "";
+  return { mode: "changed", reason: `typescript only${also}${snaps}${readers}; --changed selects the importers`, extra: [...extra] };
 }
 
 const UNTIMED_TEST_MS = 1000;
@@ -447,6 +519,7 @@ export function collectSources(): {
   preloadImports: Set<string>;
   tests: string[];
   graph: Map<string, string[]>;
+  tracked: Set<string>;
 } {
   const preloadImports = new Set(walk([PRELOAD]).keys());
   preloadImports.delete(PRELOAD);
@@ -455,7 +528,13 @@ export function collectSources(): {
   const graph = walk([PRELOAD, ...tests]);
   const sources = new Map<string, string>();
   for (const rel of graph.keys()) sources.set(rel, readFileSync(join(ROOT, rel), "utf8"));
-  return { sources, preloadImports, tests, graph };
+  return { sources, preloadImports, tests, graph, tracked: trackedFiles() };
+}
+
+function trackedFiles(): Set<string> {
+  const ls = spawnSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" });
+  if (ls.status !== 0) throw new Error(`git ls-files failed: ${ls.stderr}`);
+  return new Set(ls.stdout.split("\0").filter(Boolean));
 }
 
 // Every TypeScript file the e2e job's compiled binary and its test run can

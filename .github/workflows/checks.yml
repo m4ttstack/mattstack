@@ -1,12 +1,15 @@
 name: Checks
 
+# A PR runs scoped; the merge queue runs the full suite on the exact tree
+# that lands, so a push to main itself runs nothing here: the org's five
+# macOS slots were spending two thirds of their minutes re-testing merged
+# trees, and PR shards queued behind them.
 on:
-  push:
-    branches: [main]
   pull_request:
+  merge_group:
 
 # A newer push to a PR supersedes its older run and frees its macOS slot;
-# main runs are never cancelled, so every commit on main keeps its verdict.
+# merge-queue runs are never cancelled, so every landing tree keeps its verdict.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -47,9 +50,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Full history for the schema diff and turbo's --affected, but no
+      # historical blobs: 73 revisions of a 35 MB design file made this
+      # checkout take up to six minutes. Blobs fetch lazily when a diff
+      # against origin/main needs one.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: blob:none
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -81,7 +89,7 @@ jobs:
       - name: Workflow lint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
-          "$RUNNER_TEMP/actionlint" .github/workflows/checks.yml .github/workflows/e2e.yml .github/workflows/purity.yml .github/workflows/renovate.yml .github/workflows/timings.yml
+          "$RUNNER_TEMP/actionlint" .github/workflows/checks.yml .github/workflows/e2e.yml .github/workflows/purity.yml .github/workflows/renovate.yml .github/workflows/timings.yml .github/workflows/unit-linux-probe.yml
 
       # A PR restores main's newest cache; main restores its own previous one.
       # Entries older than a week are dropped first or compiled binaries pile up.
@@ -134,6 +142,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: blob:none
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -198,10 +207,31 @@ jobs:
           start=$(date +%s)
           changed=""
           if [ "$MODE" = changed ]; then changed="--changed=HEAD^1"; fi
+          # bun runs test files one after another in a single process, so
+          # each runner takes two halves of its shard at once: the preload
+          # gives every process its own HOME, socket dir and tmp by pid.
+          # Output is captured per half and printed whole, not interleaved.
+          halves=$((TOTAL * 2))
+          a=$((SHARD * 2 - 1))
+          b=$((SHARD * 2))
+          # Two processes share three cores, and a git-heavy worktree test
+          # that takes two seconds alone has hit bun's 5s default beside its
+          # neighbour; the limit is for a hang, not a slow runner.
           # shellcheck disable=SC2086
-          bun test $DIRS --shard="$SHARD/$TOTAL" --timings=test-timings.json $changed
-          # A snapshot's own test, which --changed cannot select. Path
-          # arguments intersect with --changed, so it is its own call.
+          bun test $DIRS --shard="$a/$halves" --timings=test-timings.json --timeout 20000 $changed > "$RUNNER_TEMP/half-a.log" 2>&1 &
+          pid_a=$!
+          # shellcheck disable=SC2086
+          bun test $DIRS --shard="$b/$halves" --timings=test-timings.json --timeout 20000 $changed > "$RUNNER_TEMP/half-b.log" 2>&1 &
+          pid_b=$!
+          status=0
+          wait "$pid_a" || status=1
+          wait "$pid_b" || status=1
+          echo "::group::half $a of $halves"; cat "$RUNNER_TEMP/half-a.log"; echo "::endgroup::"
+          echo "::group::half $b of $halves"; cat "$RUNNER_TEMP/half-b.log"; echo "::endgroup::"
+          [ "$status" = 0 ] || { echo "a half of shard $SHARD failed; its log is above"; exit 1; }
+          # A snapshot's own test and the tests reading a changed file by
+          # path, which --changed cannot select. Path arguments intersect
+          # with --changed, so it is its own call.
           if [ "$MODE" = changed ] && [ "$SHARD" = 1 ] && [ -n "$EXTRA" ]; then
             # shellcheck disable=SC2086
             bun test $EXTRA
