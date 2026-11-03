@@ -262,7 +262,7 @@ describe("unitDirs", () => {
     for (const dir of dirs) expect(dir.startsWith("./")).toBe(true);
     expect(dirs).toContain("./lib");
     expect(dirs).toContain("./commands");
-    expect(pkg.scripts["test:timings"]).toMatch(/\bbun run test\b/);
+    expect(readFileSync(join(ROOT, "scripts/ci/timings.sh"), "utf8")).toMatch(/\bbun run test\b/);
     expect(pkg.scripts["test:watch"]).toMatch(/\bbun run test\b/);
     expect(pkg.scripts["test:all"]).toMatch(/\bbun run test\b/);
     const dirsList = dirs.join(" ");
