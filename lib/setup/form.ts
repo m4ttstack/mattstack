@@ -1063,8 +1063,7 @@ export interface FormOptions {
  * A whole read decides Finish first, then builds every section and the stage
  * from the plan the Mac reads from then on (status mode once finished), so the
  * next read lands on the same screen. `requiredMissing` is not read for
- * Finish: a row a section draws as done, such as denied notifications, can sit
- * there for good.
+ * Finish: a row a section draws as done can sit there for good.
  */
 export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupForm> {
   const wanted = opts.sections ?? FORM_SECTIONS;
