@@ -7,6 +7,7 @@ import type {
   PeerReviewInfo,
   SentNudgeInfo,
 } from '../types.ts';
+import type { ActionRequest } from './row-actions.ts';
 
 export type AskTone = 'neutral' | 'work' | 'ok' | 'bad' | 'warn';
 export type AskAction = 'retry' | 'dismiss';
@@ -276,4 +277,36 @@ export function bandSource(mr: BoardMRWithReview): BandSource | null {
     p => p.status === 'error' && p.dismissedAt === undefined
   );
   return peer ? { kind: 'peer', peer } : null;
+}
+
+/** The band's dismiss, as the local board takes it: a sent ask is dropped
+    outright; a peer's lost review is stamped on that reviewer's state. */
+export function bandDismissRequest(
+  mr: BoardMRWithReview
+): { path: string; body: Record<string, string> } | null {
+  const source = bandSource(mr);
+  if (!source || !mr.webUrl) return null;
+  return source.kind === 'sent'
+    ? { path: '/nudge/dismiss', body: { mrUrl: mr.webUrl } }
+    : {
+        path: '/peer-review/dismiss',
+        body: { mrUrl: mr.webUrl, reviewer: source.peer.reviewer },
+      };
+}
+
+/** The band's retry: the same kind of ask to the same teammate (/nudge
+    replaces the recorded ask, so the new one scraps the old), or a fresh
+    re-review from the peer whose own review was lost. */
+export function bandRetryAction(
+  mr: BoardMRWithReview
+): Extract<ActionRequest, { kind: 'ask' }> | null {
+  const source = bandSource(mr);
+  if (!source) return null;
+  return source.kind === 'sent'
+    ? {
+        kind: 'ask',
+        ask: source.sent.kind ?? 're-review',
+        reviewer: source.sent.reviewer,
+      }
+    : { kind: 'ask', ask: 're-review', reviewer: source.peer.reviewer };
 }

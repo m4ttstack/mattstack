@@ -6,6 +6,8 @@ import type {
   SentNudgeInfo,
 } from '../../types.ts';
 import {
+  bandDismissRequest,
+  bandRetryAction,
   bandSource,
   clock,
   askBandModel as model,
@@ -381,5 +383,38 @@ describe('bandSource', () => {
     for (const status of ['queued', 'reviewing', 'done'])
       expect(bandSource(mr({ peerReviews: [errored({ status })] }))).toBeNull();
     expect(bandSource(mr({}))).toBeNull();
+  });
+
+  const URL = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1418';
+
+  test('dismiss drops a sent ask, or stamps the one peer state that failed', () => {
+    expect(
+      bandDismissRequest(mr({ webUrl: URL, sentNudge: sent({}) }))
+    ).toEqual({ path: '/nudge/dismiss', body: { mrUrl: URL } });
+    expect(
+      bandDismissRequest(mr({ webUrl: URL, peerReviews: [errored()] }))
+    ).toEqual({
+      path: '/peer-review/dismiss',
+      body: { mrUrl: URL, reviewer: 'grace' },
+    });
+    expect(bandDismissRequest(mr({ webUrl: URL }))).toBeNull();
+    expect(bandDismissRequest(mr({ sentNudge: sent({}) }))).toBeNull();
+  });
+
+  test('retry asks the same kind again, or a fresh re-review from the peer who lost theirs', () => {
+    expect(
+      bandRetryAction(mr({ sentNudge: sent({ kind: 'review' }) }))
+    ).toEqual({ kind: 'ask', ask: 'review', reviewer: 'grace' });
+    expect(bandRetryAction(mr({ sentNudge: sent({}) }))).toEqual({
+      kind: 'ask',
+      ask: 're-review',
+      reviewer: 'grace',
+    });
+    expect(bandRetryAction(mr({ peerReviews: [errored()] }))).toEqual({
+      kind: 'ask',
+      ask: 're-review',
+      reviewer: 'grace',
+    });
+    expect(bandRetryAction(mr({}))).toBeNull();
   });
 });

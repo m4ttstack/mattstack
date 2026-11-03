@@ -423,7 +423,7 @@ export interface RowContext {
       kind of ask to the same teammate again. */
   onAskRetry: (mr: BoardMRWithReview) => void;
   /** The sent-ask band's dismiss: drops the board's record of the ask. */
-  onAskDismiss: (mr: BoardMR) => void;
+  onAskDismiss: (mr: BoardMRWithReview) => void;
   /** Row menu's "never diagnose this stack" toggle: mutes auto-doctor for
       this MR and every descendant (server-enforced), and on -> true clears
       whatever's currently on this row -- see POST /triage/stand-down. */

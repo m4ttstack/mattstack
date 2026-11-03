@@ -80,6 +80,7 @@ import {
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
 import { AppMark } from './AppMark.tsx';
+import { bandDismissRequest, bandRetryAction } from './ask-band.ts';
 import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
@@ -867,9 +868,10 @@ export function Board() {
   );
 
   const handleAskDismiss = useCallback(
-    (mr: BoardMR) => {
-      if (!mr.webUrl) return;
-      postAction('/nudge/dismiss', { mrUrl: mr.webUrl }).then(result => {
+    (mr: BoardMRWithReview) => {
+      const req = bandDismissRequest(mr);
+      if (!req) return;
+      postAction(req.path, req.body).then(result => {
         if (!result.ok) {
           addToast(`could not dismiss the ask (${result.status})`);
           return;
@@ -1142,17 +1144,11 @@ export function Board() {
     }),
     [handleCopy, handleDismissLane, handleStandDown, handlePostSlack]
   );
-  // Retry sends the same kind of ask to the same teammate: /nudge replaces
-  // the recorded ask for the MR, so the new one scraps the old.
   const handleAskRetry = useCallback(
     (mr: BoardMRWithReview) => {
-      const sent = mr.sentNudge;
-      if (!sent) return;
-      void runOne(
-        { kind: 'ask', ask: sent.kind ?? 're-review', reviewer: sent.reviewer },
-        mr,
-        runner
-      );
+      const action = bandRetryAction(mr);
+      if (!action) return;
+      void runOne(action, mr, runner);
     },
     [runner]
   );
