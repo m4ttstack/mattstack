@@ -136,6 +136,12 @@ function doneCommentsSub(raw: number | null | undefined): string {
   return `${count} new comments. Resolve when ready`;
 }
 
+/** The banner's alt text: what the image says, for a reader who can't see it. */
+export function bannerAlt(v: BannerVariant): string {
+  const { title, sub } = copyFor(v);
+  return `${title}${/[.?!]$/.test(title) ? '' : '.'} ${sub}`;
+}
+
 export function copyFor(v: BannerVariant): VariantCopy {
   switch (v.state) {
     case 'armed':
@@ -200,7 +206,7 @@ export function copyFor(v: BannerVariant): VariantCopy {
     case 'superseded':
       return {
         title: 'Replaced',
-        sub: 'See the newer thread below',
+        sub: 'Use the newer thread',
         accent: '#8e88a0',
         indicator: 'none',
       };

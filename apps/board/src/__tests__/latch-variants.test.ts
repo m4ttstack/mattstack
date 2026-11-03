@@ -133,12 +133,7 @@ describe('copy', () => {
         '#86cfa0',
       ],
       [{ state: 'approved' }, 'Approved', 'Nothing more to do', '#86cfa0'],
-      [
-        { state: 'superseded' },
-        'Replaced',
-        'See the newer thread below',
-        '#8e88a0',
-      ],
+      [{ state: 'superseded' }, 'Replaced', 'Use the newer thread', '#8e88a0'],
     ];
     for (const [v, title, sub, accent] of rows) {
       expect(copyFor(v)).toMatchObject({ title, sub, accent });

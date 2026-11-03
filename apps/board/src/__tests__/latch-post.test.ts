@@ -100,7 +100,7 @@ describe('bannerMarkdown', () => {
       { filename: 'latch-2317-armed.gif', contentType: 'image/gif' },
     ]);
     expect(md).toBe(
-      '![Ready for another pass?](/uploads/ab12/latch-2317-armed.gif)'
+      '![Ready for another pass? Resolve this thread to ask](/uploads/ab12/latch-2317-armed.gif)'
     );
   });
 
@@ -125,10 +125,33 @@ describe('bannerMarkdown', () => {
     );
     const md = await bannerMarkdown(gw, 42, MR, 2317, { state: 'running' }, db);
     const want =
-      '![Follow-up review running](/uploads/ab12/latch-2317-running.gif)';
+      '![Follow-up review running. Results post here when done](/uploads/ab12/latch-2317-running.gif)';
     expect(md).toBe(want);
     expect(calls).toEqual(['upload:latch-2317-running.gif']);
     expect(cachedUpload(MR, 'running', db)).toBe(want);
+  });
+
+  test('a banner cached with older copy is uploaded again and replaced', async () => {
+    const db = tempDb();
+    const { gw, calls } = gateway();
+    rememberUpload(
+      MR,
+      'queued-next-sweep',
+      '![Follow-up review queued. Starts on the next sweep](/uploads/old1/latch-2317-queued-next-sweep.gif)',
+      db
+    );
+    const md = await bannerMarkdown(
+      gw,
+      42,
+      MR,
+      2317,
+      { state: 'queued', wait: 'next-sweep' },
+      db
+    );
+    expect(md).toBe(
+      '![Follow-up review queued. Starts in a few minutes](/uploads/ab12/latch-2317-queued-next-sweep.gif)'
+    );
+    expect(calls).toEqual(['upload:latch-2317-queued-next-sweep.gif']);
   });
 
   test('a different variant uploads its own banner', async () => {
@@ -262,7 +285,7 @@ describe('spendLatch', () => {
       'resolve:d1',
     ]);
     expect(latchKindOf(bodies[0]!)).toBe('spent');
-    expect(bodies[0]).toContain('![Approved](');
+    expect(bodies[0]).toContain('![Approved. Nothing more to do](');
     expect(bodies[0]!.trimEnd().endsWith(')')).toBe(true);
   });
 
@@ -315,7 +338,7 @@ describe('spendLatch', () => {
       NOW,
       db
     );
-    expect(bodies[0]).toContain('![Replaced](');
+    expect(bodies[0]).toContain('![Replaced. Use the newer thread](');
     expect(bodies[0]).not.toContain('Approved');
   });
 
@@ -435,7 +458,7 @@ describe('spendAllLatches', () => {
       db
     );
     expect(
-      bodies.every(b => b.includes('![Replaced]('))
+      bodies.every(b => b.includes('![Replaced. Use the newer thread]('))
     ).toBe(true);
   });
 });

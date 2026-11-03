@@ -60,7 +60,7 @@ title in Silkscreen 18 (`#ece8f4`) and a subtitle in IBM Plex Mono 13
 | Done, comments | `armed` | open | Follow-up review done | N new comments. Resolve when ready | `#b9a0f2` | one hop, blink |
 | Done, approved | `spent` | resolved | Follow-up review done | Approved. Nothing more to do | `#86cfa0` | hop with sparkles |
 | Approved, no follow-up | `spent` | resolved | Approved | Nothing more to do | `#86cfa0` | hop with sparkles |
-| Replaced | `spent` | resolved | Replaced | See the newer thread below | `#8e88a0` | still |
+| Replaced | `spent` | resolved | Replaced | Use the newer thread | `#8e88a0` | still |
 
 Queued subtitles, by why the request is waiting: "Starts in a few
 minutes" (nothing blocks it), "Waiting between reviews" (the cooldown),
@@ -82,9 +82,11 @@ reviewer can drop findings before posting.)
 
 A sentence goes under the image only when the author has something to
 do: armed and done-comments. Every other state is the banner alone; its
-title is the image's alt text, so a blocked image still says what is
-happening. Banner and comment copy never names the board's own terms
-(latch, spent, sweep, cooldown).
+title and subtitle are the image's alt text, so a blocked image or a
+screen reader still says what is happening. A cached upload is reused only
+while its alt text matches the current copy, so a copy change re-draws the
+banner on each MR's next write. Banner and comment copy never names the
+board's own terms (latch, spent, sweep, cooldown).
 
 ## Replies and notifications
 

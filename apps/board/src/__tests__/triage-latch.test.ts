@@ -16,10 +16,10 @@ import {
   LATCH_MAX_FAILURES,
   LATCH_POST_GRACE_MS,
   LATCH_REPLY_GIVE_UP_MS,
-  STUCK_REPLY,
   latchInScope,
   runLatchPass,
   runStamp,
+  STUCK_REPLY,
   waitReasonOf,
   type LatchMrFacts,
   type LatchPassDeps,
@@ -663,9 +663,7 @@ describe('dedupe', () => {
       ),
     });
     await runLatchPass(deps);
-    expect(noteBodies.get(1)).toContain(
-      '![Replaced]('
-    );
+    expect(noteBodies.get(1)).toContain('![Replaced. Use the newer thread](');
     expect(noteBodies.get(1)).not.toContain('Approved');
   });
 });
@@ -1857,9 +1855,7 @@ describe('error, retry and stuck', () => {
     });
     failNextReply(h.deps.gateway);
     expect((await runLatchPass(h.deps)).stuck).toBe(1);
-    expect(readLatchRow(MR, db)?.replyDue).toBe(
-      STUCK_REPLY
-    );
+    expect(readLatchRow(MR, db)?.replyDue).toBe(STUCK_REPLY);
 
     note = errorBody();
     lane = { ...commented, status: 'reviewing', runStartedAt: NOW };
