@@ -114,6 +114,7 @@ describe("teamStatus", () => {
 
     test("human output shows your role and team under the resolved title", async () => {
       const io = captureOut();
+      io.reset();
       ui.__test__.setHuman(() => false);
       try {
         await teamStatus(["--team", SLUG], {}, depsFor("dev1"));
