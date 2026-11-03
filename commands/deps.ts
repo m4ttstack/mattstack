@@ -10,7 +10,7 @@
  * — this module only parses args, wires the real Probes seam, and renders.
  */
 
-import { join } from "path";
+import { isAbsolute, join, resolve } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
@@ -65,6 +65,7 @@ export async function depsResolve(args: string[], _ctx: CommandContext = {}, p: 
     out.fail(usageFailure("Pick one of --path and --json", "rt deps resolve <tool> --path"));
     process.exit(2);
   }
+  if (pathOnly) out.payloadOnStdout();
   const t = await requireTool(args, "rt deps resolve <tool>", "Resolve which tool?", () => DEFAULT_EXPOSED);
 
   const resolution = resolveTool(p, t);
@@ -74,7 +75,7 @@ export async function depsResolve(args: string[], _ctx: CommandContext = {}, p: 
       out.diagnostic(`${t} is neither bundled nor on PATH\n`);
       process.exit(1);
     }
-    out.payload(`${resolution.chosen}\n`);
+    out.payload(`${isAbsolute(resolution.chosen) ? resolution.chosen : resolve(resolution.chosen)}\n`);
     return;
   }
 

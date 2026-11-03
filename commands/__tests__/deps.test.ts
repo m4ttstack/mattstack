@@ -115,6 +115,14 @@ describe("rt deps commands", () => {
     expect(errors[0]).toMatch(/neither bundled nor on PATH/);
   });
 
+  test("depsResolve --path prints an absolute path for a user copy found through a relative PATH entry", async () => {
+    const abs = join(process.cwd(), "bin", "relcopy-tool");
+    const p = bundleProbe({ env: { PATH: "bin" }, files: { [abs]: "x", "bin/relcopy-tool": "x" } });
+    const { logs, exitCode } = await runCapturingExit(() => depsResolve(["relcopy-tool", "--path"], {}, p));
+    expect(exitCode).toBeUndefined();
+    expect(logs).toEqual([abs]);
+  });
+
   test("depsResolve refuses --path together with --json, exit 2", async () => {
     const { logs, exitCode } = await runCapturingExit(() => depsResolve(["gh", "--path", "--json"], {}, bundleProbe()));
     expect(exitCode).toBe(2);
