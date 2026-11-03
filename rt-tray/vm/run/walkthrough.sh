@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do case "$1" in
 # A start ref from before fast setup pastes a repo on create; one from after
 # drives Create team, which makes the repo itself, as today's driver does.
 START_PASTES_REPO=0
-if [ -n "$START_REF" ] && ! git -C "$VM_ROOT/../.." show "$START_REF:rt-tray/vm/run/guest/screens.sh" 2>/dev/null | grep -q 'setup\.fast\.create-team\.primary'; then
+if [ -n "$START_REF" ] && ! git -C "$VM_ROOT/../.." show "$START_REF:rt-tray/vm/run/guest/screens.sh" 2>/dev/null | grep 'setup\.fast\.create-team\.primary' >/dev/null; then
   START_PASTES_REPO=1
 fi
 # `rt team create` refuses a remote with commits, so a freshly minted repo is
@@ -513,7 +513,8 @@ guest_session_env() {  # <name> <value>
 }
 LAUNCH_ARGS=""
 if [ -n "$UPD" ]; then
-  guest_session_env MATTSTACK_APPCAST_URL "http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml" || true
+  guest_session_env MATTSTACK_APPCAST_URL "http://127.0.0.1:$VM_APPCAST_PORT/appcast.xml" \
+    || { vm_phase_end launch fail "--update-dir set, but MATTSTACK_APPCAST_URL could not be set in the guest session (logs/install.log)"; exit 1; }
   LAUNCH_ARGS="--arg --allow-appcast-override"
 fi
 # Sign in to Claude finishes in a browser no script can drive. With
