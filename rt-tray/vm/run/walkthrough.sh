@@ -14,10 +14,12 @@ team there and mints the invite (under a throwaway HOME, with the bundle's rt
 or --mint-rt), so no --invite-code-file is needed. A run that creates a team
 (create, and solo's team-upgrade) takes a slug of its own, vmtest-<run id>,
 and teardown deletes the repo Create team made for it.
---start-ref (the update leg) names the tag --dmg was built from: setup is driven
-and asserted by that tag's own guest scripts, since a release's setup screens
-can predate today's driver. Its create takes a pasted repo, so --fresh-team-repo
-mints one. The update phase still runs today's trigger-update.sh.
+--start-ref (the update leg, --scenario create only) names the tag --dmg was
+built from: setup is driven and asserted by that tag's own guest scripts, since
+a release's setup screens can predate today's driver. A tag from before fast
+setup takes a pasted repo, so --fresh-team-repo mints one; a later tag's Create
+team makes its own, as today's does. The update phase still runs today's
+trigger-update.sh.
 EOF
 exit 2; }
 
@@ -39,12 +41,21 @@ while [ $# -gt 0 ]; do case "$1" in
   --verify-golden) VERIFY_GOLDEN=1; shift;; -h|--help) usage;; *) vm_warn "unknown arg $1"; usage;; esac; done
 [ -n "$VER" ] || usage
 [ -n "$DMG" ] || [ -n "$APP" ] || usage
+# An older tag's assert-installed.sh takes no --join, --board-repo or --solo,
+# and would pass without those checks.
+[ -n "$START_REF" ] && [ "$SCENARIO" != create ] && { vm_warn "--start-ref drives only --scenario create (the update leg)"; usage; }
+# A start ref from before fast setup pastes a repo on create; one from after
+# drives Create team, which makes the repo itself, as today's driver does.
+START_PASTES_REPO=0
+if [ -n "$START_REF" ] && ! git -C "$VM_ROOT/../.." show "$START_REF:rt-tray/vm/run/guest/screens.sh" 2>/dev/null | grep -q 'setup\.fast\.create-team\.primary'; then
+  START_PASTES_REPO=1
+fi
 # `rt team create` refuses a remote with commits, so a freshly minted repo is
 # consumed by exactly one creator, the host's mint (join). Create team makes
 # its own repo, so a create run mints nothing.
 case "$SCENARIO" in
   join) ;;
-  create) [ -z "$START_REF" ] && [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo adds nothing to --scenario create: Create team makes its own repo, and teardown deletes it"; FRESH_REPO=0; } ;;
+  create) [ "$START_PASTES_REPO" = 0 ] && [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo adds nothing to --scenario create: Create team makes its own repo, and teardown deletes it"; FRESH_REPO=0; } ;;
   *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };;
 esac
 [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$CODE_FILE" ] && { vm_warn "--invite-code-file and --fresh-team-repo both name the invite; pass one"; usage; }
@@ -316,7 +327,7 @@ fi
 # Create team makes <group>/mattstack-team-<slug> itself, so a run that
 # creates a team takes a slug of its own (a fixed one collides with the last
 # run's repo) and teardown deletes that repo.
-if [ -z "$START_REF" ] && { [ "$SCENARIO" = create ] || [ "$SCENARIO" = solo ]; }; then
+if [ "$START_PASTES_REPO" = 0 ] && { [ "$SCENARIO" = create ] || [ "$SCENARIO" = solo ]; }; then
   [ "$SLUG_SET" = 1 ] || SLUG="vmtest-${VM_RUN_ID%%-walk-*}"
   if [ "$TEAM_REMOTE_SET" = 1 ]; then
     # The guest's own reading of a remote (screen_remote_group): https or scp-style ssh.
