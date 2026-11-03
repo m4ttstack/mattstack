@@ -74,6 +74,7 @@ function runRow(db: Database): RunSummary | null {
       last_event_at: Number(r.started_at),
       ticket: null,
       branch: null,
+      test: null,
       session: null,
       mr: null,
     };
@@ -168,6 +169,7 @@ function withAttention(db: Database, row: RunSummary, liveness?: RunLiveness): {
         last_event_at: lastEventAt(row, stages, fields, decisions),
         ticket: fieldValue(fields, "ticket"),
         branch: fieldValue(fields, "branch"),
+        test: fieldValue(fields, "test"),
         ...sessionAndMr(row, fields),
         agent: agentMirror(row, fields, liveness),
         stages: stageSummaries(stages),
@@ -186,7 +188,7 @@ function withAttention(db: Database, row: RunSummary, liveness?: RunLiveness): {
 // their liveness overlay is recomputed per call.
 const summaryCache = new Map<string, { mtimeMs: number; summary: RunSummary; src: OutcomeSource }>();
 
-export function listRuns(repo?: string, liveness?: RunLiveness): RunSummary[] {
+export function listRuns(repo?: string, liveness?: RunLiveness, opts: { includeTests?: boolean } = {}): RunSummary[] {
   if (repo != null && !isPathComponent(repo)) return [];
   const repos = repo ? [repo] : dirs(runsRoot());
   const out: RunSummary[] = [];
@@ -216,7 +218,8 @@ export function listRuns(repo?: string, liveness?: RunLiveness): RunSummary[] {
       }
     }
   }
-  return out.sort((a, b) => b.started_at - a.started_at);
+  const shown = opts.includeTests ? out : out.filter((r) => !r.test);
+  return shown.sort((a, b) => b.started_at - a.started_at);
 }
 
 export function readRun(repo: string, runId: string, liveness?: RunLiveness): RunDetail | null {
@@ -237,6 +240,7 @@ export function readRun(repo: string, runId: string, liveness?: RunLiveness): Ru
         last_event_at: lastEventAt(run, stages, fields, decisions),
         ticket: fieldValue(fields, "ticket"),
         branch: fieldValue(fields, "branch"),
+        test: fieldValue(fields, "test"),
         ...sessionAndMr(run, fields),
         agent: agentMirror(run, fields, liveness),
         stages: stageSummaries(stages),

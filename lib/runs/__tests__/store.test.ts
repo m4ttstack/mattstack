@@ -18,6 +18,16 @@ describe("runs store", () => {
     expect(listRuns().map(r => r.repo)).toEqual(["beta", "alpha", "alpha"]);
   });
 
+  test("listRuns leaves test runs out unless asked; readRun still finds them", () => {
+    const dir = root();
+    seedRun(dir, "alpha", "20260821-010101-aaaa", 1000);
+    seedRun(dir, "alpha", "20260821-020202-bbbb", 2000, 1, { fields: [{ key: "test", value: "replay", producedBy: "run" }] });
+    expect(listRuns("alpha").map(r => r.id)).toEqual(["20260821-010101-aaaa"]);
+    const all = listRuns("alpha", undefined, { includeTests: true });
+    expect(all.map(r => [r.id, r.test])).toEqual([["20260821-020202-bbbb", "replay"], ["20260821-010101-aaaa", null]]);
+    expect(readRun("alpha", "20260821-020202-bbbb")!.run.test).toBe("replay");
+  });
+
   test("readRun returns the full document; unknown run is null", () => {
     const dir = root();
     seedRun(dir, "alpha", "20260821-010101-aaaa", 1000);

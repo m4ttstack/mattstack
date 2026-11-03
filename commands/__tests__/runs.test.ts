@@ -231,6 +231,16 @@ describe("rt runs --repo identity resolution", () => {
     expect(call?.payload?.repo).toBe(runDisplayKey(identity));
   });
 
+  test("--include-tests asks the daemon for test runs too; without it they stay hidden", async () => {
+    const calls = installFakeDaemon({ ok: true, data: { runs: [] } });
+
+    await runsList(["--json"]);
+    await runsList(["--include-tests", "--json"]);
+
+    const lists = calls.filter((c) => c.cmd === "runs:list");
+    expect(lists.map((c) => c.payload?.includeTests)).toEqual([false, true]);
+  });
+
   test("no --repo forwards undefined so the daemon lists across all repos", async () => {
     const calls = installFakeDaemon({ ok: true, data: { runs: [] } });
 

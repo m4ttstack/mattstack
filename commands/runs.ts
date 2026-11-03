@@ -194,7 +194,7 @@ export async function runsList(args: string[]): Promise<void> {
     process.exit(2);
   }
   const repo = await resolveRepoFilter(args);
-  const res = await daemonQuery("runs:list", { repo }, 10_000);
+  const res = await daemonQuery("runs:list", { repo, includeTests: args.includes("--include-tests") }, 10_000);
   if (!res) fail(NO_DAEMON);
   if (!res.ok) fail({ title: "Could not list your runs", why: res.error });
   const data = res.data as { runs: RunSummary[] };
