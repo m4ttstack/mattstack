@@ -84,6 +84,17 @@ describe("needOf: hot rows are the seat's move whoever authored them", () => {
     expect(need(mr({ doctor: { status: 'error' } }))).toBe('unstick');
   });
 
+  test('posted replies with the reviewer back is a response, not an unstick', () => {
+    expect(
+      need(
+        own({
+          respond: { status: 'done', posted: 3, threads: 3, reportReady: true },
+          threadSummary: { awaiting: 2, replied: 1, resolved: 0 },
+        })
+      )
+    ).toBe('respond');
+  });
+
   test("a working agent has the row: nobody's move, even with threads awaiting the author", () => {
     expect(need(mr({ review: { status: 'reviewing' } }))).toBeNull();
     expect(

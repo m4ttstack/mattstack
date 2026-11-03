@@ -42,6 +42,10 @@ export const NEED_LABEL: Record<Need, string> = {
 type Resolved = ReadonlyMap<string, 'posted' | 'dismissed'>;
 
 const DECIDE_VERBS = new Set<Verb['kind']>(['answer', 'read-note']);
+const RESPOND_VERBS = new Set<Verb['kind']>([
+  'launch-respond',
+  'restart-respond',
+]);
 
 /** What the status line says about the seat's move: a hot line is always
     theirs (its verb says which kind); a working line means an agent has the
@@ -60,6 +64,7 @@ function lineNeed(
   const kind = line.verbs[0]?.kind;
   if (kind === 're-review') return 're-review';
   if (kind && DECIDE_VERBS.has(kind)) return 'decide';
+  if (kind && RESPOND_VERBS.has(kind)) return 'respond';
   return 'unstick';
 }
 
