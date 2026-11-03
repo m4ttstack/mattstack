@@ -611,7 +611,15 @@ export function rowActions(
     // An armed auto-merge stays cancellable on a draft, where glance hides
     // the button: GitLab's cancel checks only that auto-merge is on.
     const autoMerge = mrx.autoMergeButton;
-    gitlab.push(
+    // Approved with only CI left: arming auto-merge is the author's move, so
+    // it leads the menu until the pipeline settles.
+    const autoMergeLeads =
+      !autoMerge.isActive &&
+      autoMerge.visible &&
+      mrx.reviews.isApproved &&
+      !mrx.blockers.any &&
+      !!mrx.blockers.pipelineRunning;
+    (autoMergeLeads ? top : gitlab).push(
       autoMerge.isActive
         ? item(
             'gitlab',
@@ -622,7 +630,7 @@ export function rowActions(
             { bulk: 'cancel auto-merge' }
           )
         : item(
-            'gitlab',
+            autoMergeLeads ? 'top' : 'gitlab',
             'setAutoMerge',
             'set auto-merge',
             GITLAB_GLYPH.setAutoMerge,
@@ -989,7 +997,8 @@ export function bulkActions(
   const entries = [...groups].map(([key, g]): BulkEntry => {
     const entry: BulkEntry = {
       key,
-      section: BULK_SECTION[g.first.section],
+      section:
+        key === 'setAutoMerge' ? 'gitlab' : BULK_SECTION[g.first.section],
       label:
         g.redo && g.redoCount === g.targets.length
           ? g.first.label
