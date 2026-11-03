@@ -74,7 +74,7 @@ export function mergeOrgRequirements(team: PackRequirements | null, teamName: st
   const removed = new Set(team?.excludeOrg ?? []);
   const teamNames = new Set((team?.tools ?? []).map((t) => t.name));
   const kept = org.tools.filter((t) => !removed.has(t.name) && !teamNames.has(t.name));
-  const dropped = new Set<Integration>();
+  const dropped = new Set<string>(removed);
   for (const t of org.tools) {
     if (!kept.includes(t) && t.connect && "integration" in t.connect) dropped.add(t.connect.integration);
   }

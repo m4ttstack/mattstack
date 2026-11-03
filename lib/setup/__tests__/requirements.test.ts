@@ -87,6 +87,12 @@ describe("mergeOrgRequirements", () => {
     expect(merged.integrations).toEqual([]);
   });
 
+  test("excludeOrg removes an org integration of that name no tool connects", () => {
+    const team = { pack: "widgets", tools: [], integrations: [], excludeOrg: ["linear"] };
+    const merged = mergeOrgRequirements(team, "widgets", { pack: "org", tools: [], integrations: ["linear" as const] });
+    expect(merged.integrations).toEqual([]);
+  });
+
   test("an excludeOrg name matching nothing changes nothing and reports nothing", () => {
     const team = { pack: "widgets", tools: [], integrations: [], excludeOrg: ["nope"] };
     const merged = mergeOrgRequirements(team, "widgets", orgReq);
