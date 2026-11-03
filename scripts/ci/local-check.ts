@@ -30,7 +30,7 @@ export type Plan = {
 };
 
 export type Summary = {
-  mode: Mode;
+  mode: Mode | "error";
   selected: number;
   passed: number;
   failed: number;
@@ -72,7 +72,9 @@ const ANSI = /\x1b\[[0-9;]*m/g;
 const FILE_HEADER = /^(?:::group::)?(\S+\.test\.tsx?):$/;
 
 // bun prints a file's header just before the first thing that file reports,
-// so a (fail) line belongs to the header above it.
+// so a (fail) line belongs to the header above it. A file that fails to load
+// has no (fail) line: it reports "# Unhandled error between tests" there
+// and still counts in "N fail".
 export function parseTestOutput(output: string): { passed: number; failed: number; failures: string[]; summarised: boolean } {
   let passed = 0;
   let failed = 0;
@@ -86,7 +88,8 @@ export function parseTestOutput(output: string): { passed: number; failed: numbe
       file = header[1]!;
       continue;
     }
-    if (line.startsWith("(fail) ") && file && !failures.includes(file)) failures.push(file);
+    const failing = line.startsWith("(fail) ") || line === "# Unhandled error between tests";
+    if (failing && file && !failures.includes(file)) failures.push(file);
     const count = /^\s*(\d+) (pass|fail)$/.exec(line);
     if (!count) continue;
     summarised = true;
@@ -98,12 +101,26 @@ export function parseTestOutput(output: string): { passed: number; failed: numbe
 
 type Ran = { red: boolean; passed: number; failed: number; failures: string[] };
 
+// bun writes its file headers, failures and summary to stderr; stdout carries
+// only the version line. A red process always counts at least one failure, so
+// a crash reads "1 failed", never "0 failed" beside a red verdict.
+export function judgeRun(exitCode: number, stderr: string): Ran {
+  const parsed = parseTestOutput(stderr);
+  const red = exitCode !== 0 || !parsed.summarised;
+  return { red, passed: parsed.passed, failed: red ? Math.max(1, parsed.failed) : parsed.failed, failures: parsed.failures };
+}
+
+// Each test process leads its own group, so a cancel reaches the processes its
+// tests spawned, not only bun.
+const live = new Set<ReturnType<typeof Bun.spawn>>();
+
 async function runBun(args: string[], label: string, cwd: string): Promise<Ran> {
-  const proc = Bun.spawn([process.execPath, "test", ...args], { cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn([process.execPath, "test", ...args], { cwd, env: childEnv(), stdout: "pipe", stderr: "pipe", detached: true });
+  live.add(proc);
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  live.delete(proc);
   process.stderr.write(`--- ${label} (exit ${code})\n${out}${err}\n`);
-  const parsed = parseTestOutput(`${out}\n${err}`);
-  return { red: code !== 0 || !parsed.summarised, passed: parsed.passed, failed: parsed.failed, failures: parsed.failures };
+  return judgeRun(code, err);
 }
 
 function changedFiles(base: string, head: string, cwd: string): string[] {
@@ -112,7 +129,7 @@ function changedFiles(base: string, head: string, cwd: string): string[] {
   return diff.stdout.split("\n").filter(Boolean);
 }
 
-async function main(): Promise<number> {
+async function main(started: number): Promise<number> {
   const base = process.env.RT_CHECK_BASE;
   if (!base) {
     console.error("local-check: RT_CHECK_BASE is required (the ref the diff starts from)");
@@ -121,7 +138,6 @@ async function main(): Promise<number> {
   const head = process.env.RT_CHECK_HEAD || "HEAD";
   const cwd = process.env.RT_CHECK_TREE || ROOT;
   const full = process.env.RT_CHECK_FULL === "1";
-  const started = Date.now();
 
   const scope = collectSources();
   const changed = changedFiles(base, head, cwd);
@@ -154,8 +170,31 @@ async function main(): Promise<number> {
     durationMs: Date.now() - started,
     failures,
   };
-  console.log(JSON.stringify(summary));
+  printSummary(summary);
   return ran.some((r) => r.red) ? 1 : 0;
 }
 
-if (import.meta.main) process.exit(await main());
+function printSummary(summary: Summary): void {
+  console.log(JSON.stringify(summary));
+}
+
+async function guarded(): Promise<number> {
+  const started = Date.now();
+  for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
+    process.on(signal, () => {
+      for (const proc of live) process.kill(-proc.pid, "SIGTERM");
+      console.error(`local-check: ${signal}, stopped ${live.size} test process(es)`);
+      printSummary({ mode: "error", selected: 0, passed: 0, failed: 0, durationMs: Date.now() - started, failures: [] });
+      process.exit(code);
+    });
+  }
+  try {
+    return await main(started);
+  } catch (error) {
+    console.error(`local-check: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    printSummary({ mode: "error", selected: 0, passed: 0, failed: 0, durationMs: Date.now() - started, failures: [] });
+    return 1;
+  }
+}
+
+if (import.meta.main) process.exit(await guarded());

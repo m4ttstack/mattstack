@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { availableParallelism } from "os";
-import { parseTestOutput, planLocalCheck, processCount } from "../local-check.ts";
+import { judgeRun, parseTestOutput, planLocalCheck, processCount } from "../local-check.ts";
 import { unitDirs } from "../test-scope.ts";
 
 const BASE = "abc123";
@@ -23,6 +23,25 @@ const scope = {
   tracked: new Set<string>(),
 };
 
+  // Captured from `bun test` run with stderr and stdout split: a file with a bad
+  // import beside a green one. The file header and the summary are on stderr.
+  const loadFailure = `
+lib/__tests__/bad-import.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module './missing.ts' from '/repo/lib/__tests__/bad-import.test.ts'
+-------------------------------
+
+
+ 1 pass
+ 1 fail
+ 1 error
+ 1 expect() calls
+Ran 2 tests across 2 files. [5.00ms]
+`;
+
+
 describe("planLocalCheck", () => {
   test("a docs-only diff plans skip and nothing runs", () => {
     const plan = planLocalCheck(BASE, HEAD, false, scope, ["docs/architecture.md"]);
@@ -34,6 +53,18 @@ describe("planLocalCheck", () => {
     expect(plan.mode).toBe("changed");
     expect(plan.dirs).toEqual(unitDirs());
     expect(plan.changedArg).toBe(`--changed=${BASE}`);
+    expect(plan.extra).toEqual(["./lib/__tests__/dev-mode.test.ts"]);
+    expect(plan.processes).toBe(1);
+  });
+
+  test("a typescript change no test reaches, with no extras, plans skip", () => {
+    const plan = planLocalCheck(BASE, HEAD, false, scope, ["lib/orphan.ts"]);
+    expect(plan).toEqual({ mode: "skip", dirs: [], changedArg: null, extra: [], processes: 0 });
+  });
+
+  test("a change reached only by path plans the extras with one process", () => {
+    const plan = planLocalCheck(BASE, HEAD, false, scope, ["rt-tray/build.sh"]);
+    expect(plan.mode).toBe("changed");
     expect(plan.extra).toEqual(["./lib/__tests__/dev-mode.test.ts"]);
     expect(plan.processes).toBe(1);
   });
@@ -129,5 +160,27 @@ Ran 44 tests across 9 files. [3.00ms]
       failures: [],
       summarised: true,
     });
+  });
+
+  test("a file that fails to load is named, though it has no (fail) line", () => {
+    expect(parseTestOutput(loadFailure)).toEqual({ passed: 1, failed: 1, failures: ["lib/__tests__/bad-import.test.ts"], summarised: true });
+  });
+});
+
+describe("judgeRun", () => {
+  test("a green exit with a summary is not red", () => {
+    expect(judgeRun(0, "\n 5 pass\n 0 fail\nRan 5 tests across 1 files. [3.00ms]\n")).toEqual({ red: false, passed: 5, failed: 0, failures: [] });
+  });
+
+  test("a process that dies with no summary counts one failure", () => {
+    expect(judgeRun(137, "bun test v1.4.3\n")).toEqual({ red: true, passed: 0, failed: 1, failures: [] });
+  });
+
+  test("a non-zero exit beside a clean summary still counts one failure", () => {
+    expect(judgeRun(1, " 5 pass\n 0 fail\n")).toMatchObject({ red: true, failed: 1 });
+  });
+
+  test("a red summary keeps bun's own count", () => {
+    expect(judgeRun(1, loadFailure)).toMatchObject({ red: true, passed: 1, failed: 1, failures: ["lib/__tests__/bad-import.test.ts"] });
   });
 });

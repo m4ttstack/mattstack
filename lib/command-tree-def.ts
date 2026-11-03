@@ -1038,7 +1038,7 @@ export const TREE: Record<string, CommandNode> = {
     omitBehavior: { exempt: "running the check is the command; it takes no required argument" },
     context: "worktree",
     agentSafe: true,
-    agentTimeoutMs: 660_000,
+    agentTimeoutMs: 960_000,
     args: [
       { name: "Full", flag: "--full", type: "boolean", default: false, hint: "Ask the repo's command for its whole suite, not the scoped selection" },
       { name: "No status", flag: "--no-status", type: "boolean", default: false, hint: "Run without posting the result on the commit" },

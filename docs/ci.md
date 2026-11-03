@@ -117,19 +117,22 @@ since `e2e/setup.ts` rebuilds the binary on one.
 
 ## Before you push
 
-`rt check` runs `bun scripts/ci/local-check.ts` from the tree root, and
-`git_push` runs it first and refuses a red push. The `rt.check` setting
-holds that command. The script takes `RT_CHECK_BASE` and `RT_CHECK_HEAD`,
-asks `test-scope.ts` what a PR with that diff would run, and runs the same
-unit selection the shards use: `bun test <dirs> --changed=<base>` split
-across half the cores (at most six processes) with `test-timings.json`, then
-the tests CI reads by path in their own call. A diff the scope script would
-skip runs nothing, and a diff it would make full runs the whole suite. The
-`no-*` guards are left to the `guards` job unless the run is full, which
-`RT_CHECK_FULL=1` forces. Its exit code is the verdict, and the last stdout
-line is a JSON summary (`mode`, `selected`, `passed`, `failed`,
-`durationMs`, `failures`). It runs unit tests only: no typecheck, e2e or
-path-gated job.
+`rt check` runs the repo's check command from the tree root, and `git_push`
+runs it first and refuses a red push. For this repo the `rt.check` setting is
+`{"command": "bun scripts/ci/local-check.ts", "timeoutSeconds": 900}`; a full
+run takes about ten minutes, past the 600s default. The script takes
+`RT_CHECK_BASE` and `RT_CHECK_HEAD`, asks `test-scope.ts` what a PR with that
+diff would run, and runs the same unit selection the shards use:
+`bun test <dirs> --changed=<base>` split across half the cores (at most six
+processes) with `test-timings.json`, then the tests CI reads by path in their
+own call. A diff the scope script would skip runs nothing, and a diff it would
+make full runs the whole suite. The `no-*` guards are left to the `guards` job
+unless the run is full, which `RT_CHECK_FULL=1` forces. The exit code is the
+verdict, and the last stdout line is a JSON summary (`mode`, `selected`,
+`passed`, `failed`, `durationMs`, `failures`), printed on red too. A failure
+before any test runs (a bad ref, a syntax error in the scope script) prints
+`mode: "error"` and exits 1; a SIGTERM or SIGINT stops the test processes. It
+runs unit tests only: no typecheck, e2e or path-gated job.
 
 A green run posts the `rt/local-check` commit status. That status is the
 pusher's attestation that this sha ran its scoped tests on their machine,
