@@ -34,7 +34,7 @@ export const realCheckDeps: CheckDeps = {
 
 export async function checkTree(
   tree: string,
-  opts: { full?: boolean; base?: string; post: boolean },
+  opts: { full?: boolean; base?: string; post: boolean; signal?: AbortSignal },
   deps: CheckDeps,
 ): Promise<CheckRun> {
   const config = readConfig(tree, deps);

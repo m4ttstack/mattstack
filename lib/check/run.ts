@@ -67,7 +67,7 @@ async function mergeBase(tree: string, git: GitRunner): Promise<{ base: string; 
 
 export async function runCheck(
   tree: string,
-  opts: { full?: boolean; base?: string },
+  opts: { full?: boolean; base?: string; signal?: AbortSignal },
   deps: RunDeps,
 ): Promise<CheckResult> {
   const config = readConfig(tree, deps);
@@ -99,6 +99,7 @@ export async function runCheck(
     cwd: tree,
     stderr: "pipe",
     timeoutMs: config.timeoutSeconds * 1000,
+    ...(opts.signal && { signal: opts.signal }),
     env: {
       ...childEnv(),
       RT_CHECK_BASE: base,

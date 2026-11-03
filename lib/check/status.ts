@@ -16,7 +16,7 @@ export type StatusOutcome =
   | { posted: true; context: string; state: StatusState; description: string }
   | {
       posted: false;
-      reason: "dirty-tree" | "gitlab-not-supported" | "unknown-host" | "gh-failed" | "not-on-remote";
+      reason: "dirty-tree" | "gitlab-not-supported" | "unknown-host" | "gh-failed" | "not-on-remote" | "head-moved";
       detail?: string;
     };
 

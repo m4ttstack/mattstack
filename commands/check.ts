@@ -35,6 +35,7 @@ const NOT_POSTED: Record<Exclude<StatusOutcome, { posted: true }>["reason"], str
   "gitlab-not-supported": "This repo is on GitLab, which rt cannot post a result to yet",
   "unknown-host": "rt does not know how to post a result to this repo's host",
   "gh-failed": "The result could not be posted",
+  "head-moved": "The branch moved while the check ran, so the result was not posted",
 };
 
 function statusBlock(status: StatusOutcome | null, sha: string): Block {

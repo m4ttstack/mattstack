@@ -345,23 +345,25 @@ describe("git_push runs the repo's check", () => {
   const run = (over: Partial<Extract<CheckResult, { configured: true }>> = {}): CheckRun => ({ result: result(over), status: null });
   const POSTED = { posted: true as const, context: "rt/local-check", state: "success" as const, description: "d" };
 
-  const setup = (check: (calls: string[]) => GitToolDeps["check"], input: Record<string, unknown> = {}, postOutcome: Awaited<ReturnType<typeof import("../../check/status.ts").postStatus>> = POSTED) => {
+  const setup = (check: (calls: string[], script: Script) => GitToolDeps["check"], input: Record<string, unknown> = {}, postOutcome: Awaited<ReturnType<typeof import("../../check/status.ts").postStatus>> = POSTED) => {
     const calls: string[] = [];
-    const posts: Array<[string, string]> = [];
+    const posts: Array<[string, string, Extract<CheckResult, { configured: true }>]> = [];
+    const script: Script = { ...onFeature, [PUSH]: {} };
     const tool = gitToolDefs({
       ...noForge,
-      git: fakeGit({ ...onFeature, [PUSH]: {} }, calls),
+      git: fakeGit(script, calls),
       guard,
       sync: async () => ({ code: 0, stdout: "", stderr: "" }),
-      check: check(calls),
+      check: check(calls, script),
       identity: () => "remote:github.com%2Facme%2Fapp",
-      postCheck: async (identity, sha) => { calls.push("<post>"); posts.push([identity, sha]); return postOutcome; },
+      postCheck: async (identity, sha, result) => { calls.push("<post>"); posts.push([identity, sha, result]); return postOutcome; },
     }).find((t) => t.name === "git_push")!;
-    return { call: () => tool.handler({ tree: "/t", ...input }, {} as NodeJS.ProcessEnv), calls, posts };
+    return { call: (signal?: AbortSignal) => tool.handler({ tree: "/t", ...input }, {} as NodeJS.ProcessEnv, signal), calls, posts, script };
   };
-  const checkReturning = (r: CheckRun | { result: { configured: false }; status: null }, asked: Array<{ tree: string; post: boolean }> = []) => (calls: string[]): GitToolDeps["check"] => async (tree, o) => {
+  const checkReturning = (r: CheckRun | { result: { configured: false }; status: null }, asked: Array<{ tree: string; post: boolean }> = [], during: () => void = () => {}) => (calls: string[]): GitToolDeps["check"] => async (tree, o) => {
     calls.push("<check>");
     asked.push({ tree, post: o.post });
+    during();
     return r as CheckRun;
   };
 
@@ -378,14 +380,16 @@ describe("git_push runs the repo's check", () => {
     expect(asked).toEqual([{ tree: "/t", post: false }]);
     expect(t.calls.indexOf("<check>")).toBeLessThan(t.calls.indexOf(PUSH));
     expect(t.calls.indexOf(PUSH)).toBeLessThan(t.calls.indexOf("<post>"));
-    expect(t.posts).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
+    expect(t.posts.map((p) => p.slice(0, 2))).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
     expect(r.body).toMatchObject({ pushed: true, sha: "abc1234", check: { result: { verdict: "green" }, status: POSTED } });
   });
   test("a red check refuses with check-red and next rt check, and pushes and posts nothing", async () => {
     const red = run({ verdict: "red" });
     const t = setup(checkReturning(red));
     const r = await t.call();
-    expect(r).toEqual({ ok: true, body: { pushed: false, refusal: "check-red", check: red, next: "rt check", tree: "/t" } });
+    expect(r).toEqual({ ok: true, body: { pushed: false, refusal: "check-red", check: red, why: expect.stringContaining("allowRed"), next: "rt check", tree: "/t" } });
+    expect((r.body as { why: string }).why).toContain("skipCheck");
+    expect((r.body as { why: string }).why).toContain("check failed");
     expect(t.calls).not.toContain(PUSH);
     expect(t.posts).toEqual([]);
   });
@@ -406,17 +410,61 @@ describe("git_push runs the repo's check", () => {
     const t = setup(checkReturning(run({ verdict: "red" })), { allowRed: true }, { ...POSTED, state: "failure" });
     const r = await t.call();
     expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "red" }, status: { posted: true, state: "failure" } } });
-    expect(t.posts).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
+    expect(t.posts.map((p) => p.slice(0, 2))).toEqual([["remote:github.com%2Facme%2Fapp", "abc1234"]]);
   });
   test("allowRed pushes an error check too", async () => {
     const t = setup(checkReturning(run({ verdict: "error" })), { allowRed: true });
     expect((await t.call()).body).toMatchObject({ pushed: true });
   });
-  test("allowRed still pushes when the check throws", async () => {
+  test("allowRed still pushes when the check throws, and posts the error with its reason", async () => {
     const t = setup(() => async () => { throw new Error("boom"); }, { allowRed: true });
     const r = await t.call();
-    expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "error", reason: "boom" }, status: null } });
+    expect(r.body).toMatchObject({ pushed: true, check: { result: { verdict: "error", reason: "boom", sha: "abc1234" }, status: POSTED } });
+    expect(t.posts).toHaveLength(1);
+    expect(t.posts[0]![2]).toMatchObject({ verdict: "error", reason: "boom" });
+  });
+  test("a cancelled check pushes nothing", async () => {
+    const ctrl = new AbortController();
+    const t = setup(checkReturning(run(), [], () => ctrl.abort()));
+    const r = await t.call(ctrl.signal);
+    expect(r.ok).toBe(false);
+    expect(t.calls).not.toContain(PUSH);
     expect(t.posts).toEqual([]);
+  });
+  test("the signal reaches the check", async () => {
+    const ctrl = new AbortController();
+    let seen: AbortSignal | undefined;
+    const t = setup(() => async (_tree, o) => { seen = o.signal; return run(); });
+    await t.call(ctrl.signal);
+    expect(seen).toBe(ctrl.signal);
+  });
+  test("a head that moves during the check is refused as check-error, and the override still pushes", async () => {
+    const moveHead = (script: Script) => { script["rev-parse --verify HEAD"] = { stdout: "def5678\n" }; };
+    const refused = setup((c, script) => checkReturning(run(), [], () => moveHead(script))(c));
+    const r = await refused.call();
+    expect(r.body).toMatchObject({ pushed: false, refusal: "check-error", check: { result: { verdict: "error", reason: "HEAD moved during the check" } } });
+    expect(refused.calls).not.toContain(PUSH);
+    expect(refused.posts).toEqual([]);
+    const forced = setup((c, script) => checkReturning(run(), [], () => moveHead(script))(c), { allowRed: true });
+    const f = await forced.call();
+    expect(f.body).toMatchObject({ pushed: true, sha: "def5678", check: { status: { posted: false, reason: "head-moved" } } });
+    expect(forced.posts).toEqual([]);
+  });
+  test("a verdict for another sha than the pushed one is never posted", async () => {
+    const t = setup(checkReturning(run({ sha: "0000000" })), { allowRed: true });
+    const r = await t.call();
+    expect(r.body).toMatchObject({ pushed: true, check: { status: { posted: false, reason: "head-moved" } } });
+    expect(t.posts).toEqual([]);
+  });
+  test("a push gitPush will refuse never runs the check", async () => {
+    const calls: string[] = [];
+    const tool = gitToolDefs({
+      ...noForge, git: fakeGit({ ...onFeature, ...on("main") }, calls), guard, sync: async () => ({ code: 0, stdout: "", stderr: "" }),
+      check: async () => { calls.push("<check>"); return run(); },
+    }).find((t) => t.name === "git_push")!;
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.ok).toBe(false);
+    expect(calls).not.toContain("<check>");
   });
   test("skipCheck runs nothing and posts nothing", async () => {
     const t = setup(checkReturning(run()), { skipCheck: true });

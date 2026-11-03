@@ -65,6 +65,13 @@ describe("runCheck", () => {
     expect(execCalls[1]!.opts?.env?.RT_CHECK_FULL).toBe("1");
   });
 
+  test("hands the caller's abort signal to the command's child", async () => {
+    const { deps, execCalls } = harness();
+    const ctrl = new AbortController();
+    await runCheck("/tree", { signal: ctrl.signal }, deps);
+    expect(execCalls[0]!.opts?.signal).toBe(ctrl.signal);
+  });
+
   test("exit 0 with a summary line is green", async () => {
     const { deps } = harness({ stdout: 'noise\n{"mode":"selected","selected":95,"passed":95,"failed":0}\n' });
     const r = await runCheck("/tree", {}, deps);
