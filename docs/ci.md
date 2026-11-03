@@ -81,6 +81,8 @@ whose file is gone.
 | Test | Needs |
 |---|---|
 | `commands/__tests__/worktree-hydrate-clone.test.ts` | `clonefile(2)` |
+| `lib/__tests__/daemon-logger.test.ts` | native stderr redirect, a no-op elsewhere |
+| `lib/release/__tests__/dev-app-cache.test.ts` | `codesign` |
 | `lib/worktree/__tests__/clonefile.test.ts` | `clonefile(2)` |
 | `rt-tray/vm/run/helpers/__tests__/install-chrome.test.ts` | `plutil`, `ditto` |
 | `scripts/__tests__/fetch-deps-make-src.test.ts` | `otool`, `lipo`, `cc -dynamiclib` |
@@ -92,8 +94,10 @@ whole list when the diff touches a workspace package, since the import walk
 stops at a bare import. Nothing reached skips it.
 
 A new test that needs a Mac fails on ubuntu on its own PR, and the author adds
-it there. A test that only names a Mac path, identity or tool gets made
-portable instead, and a flake gets fixed, never listed.
+it there. One gated with `process.platform !== "darwin"` would pass on ubuntu
+without running, so the scope test requires it on the list. A test that only
+names a Mac path, identity or tool gets made portable instead, and a flake
+gets fixed, never listed.
 
 `nightly-macos.yml` runs the whole suite on macOS every night, so a bug only a
 Mac shows, in a file not on the list, can reach main and is caught the next

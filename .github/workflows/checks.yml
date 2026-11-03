@@ -223,8 +223,8 @@ jobs:
           fi
           echo "shard $SHARD of $TOTAL: $(( $(date +%s) - start ))s ($MODE)"
 
-  # The tests that truly need a Mac: clonefile(2), plutil and PlistBuddy,
-  # otool and lipo, ditto. A changed run takes only the ones the diff reaches.
+  # The tests that truly need a Mac, listed with why in docs/ci.md. A changed
+  # run takes only the ones the diff reaches.
   unit-macos:
     needs: scope
     if: needs.scope.outputs.macos != ''

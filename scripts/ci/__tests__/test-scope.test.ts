@@ -550,6 +550,12 @@ describe("the macOS-only list", () => {
     expect(list).toEqual([...new Set(list)].sort());
   });
 
+  test("a test gated off other hosts is on the list: ubuntu would pass it without running it", () => {
+    const gated = real.tests.filter((f) => real.sources.get(f)?.includes('process.platform !== "darwin"'));
+    expect(gated.length).toBeGreaterThan(0);
+    expect(gated.filter((f) => !list.includes(f))).toEqual([]);
+  });
+
   test("a blank line is no entry", () => {
     const root = mkdtempSync(join(tmpdir(), "test-scope-macos-list-"));
     try {
