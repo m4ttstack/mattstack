@@ -20,7 +20,9 @@ import { claudeConfigDirs } from "../setup/tools-install.ts";
 import { resolveTool } from "../deps/resolve.ts";
 import { cswapConfigDirs } from "../cswap.ts";
 import { checkedOutBranch } from "../team/org-branch.ts";
-import { orgLayoutState } from "../team/org-layout.ts";
+import { pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
+import { markerState } from "../team/org-marker.ts";
+import { ORG_STORE_REL } from "../../packages/rt-client/src/settings/paths.ts";
 import { warn } from "../ui/warn.ts";
 import { hasKvValue, setKvValue } from "../state/kv-blob.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
@@ -100,6 +102,12 @@ export function __resetParkedWarnings(): void {
   parkedWarned.clear();
 }
 
+/** Orgs whose generated folder changed and some config dir has not yet been re-pointed at it: an unchanged pull would otherwise never try again. */
+const registrationPending = new Set<string>();
+export function __resetPendingRegistrations(): void {
+  registrationPending.clear();
+}
+
 /** Claude may record the path it was given or its realpath (macOS tmp folders differ). */
 function real(path: string): string {
   try {
@@ -144,8 +152,11 @@ async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, 
     log.debug({ skipped: written.skipped }, "generated marketplace: not written");
     return;
   }
-  if (!written.changed) return;
-  log.info({ path: written.path, dropped: written.dropped }, "generated marketplace: rewritten");
+  if (written.changed) {
+    registrationPending.add(org);
+    log.info({ path: written.path, dropped: written.dropped }, "generated marketplace: rewritten");
+  }
+  if (!registrationPending.has(org)) return;
 
   let name: string | null = null;
   try {
@@ -168,14 +179,28 @@ async function refreshGeneratedMarketplace(p: Probes, org: string, log: Logger, 
     if (named.some((m) => m.source !== null && samePath(m.source, written.path))) continue;
     stale.push(configDir);
   }
+  let failed = false;
   for (const configDir of stale) {
     const added = await p.exec([...claude.exec, "plugin", "marketplace", "add", written.path], { env: { CLAUDE_CONFIG_DIR: configDir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
     if (added.code !== 0 && !isAlready(added)) {
       log.warn({ path: written.path, configDir, detail: claudeMessage(added, `exited ${added.code}`) }, "generated marketplace: claude plugin marketplace add failed");
+      failed = true;
       continue;
     }
     log.info({ path: written.path, marketplace: name, configDir }, "generated marketplace: registered");
   }
+  if (!failed) registrationPending.delete(org);
+}
+
+/**
+ * The layout of the clone this pull moved when it is one this rt does not read, else null. orgLayoutState classifies
+ * only the clone it picks, which with several clones under orgs/ need not be this one.
+ */
+function cloneWaitingLayout(p: Probes, slug: string, dir: string): number | null {
+  const picked = pickOrgClone([
+    { slug, isClone: p.exists(join(dir, ".git", "config")), marker: markerState(p, dir), hasStore: p.exists(join(dir, ORG_STORE_REL)) },
+  ]);
+  return picked !== null && !pickedCloneReady(picked) ? picked.layout : null;
 }
 
 /**
@@ -239,9 +264,9 @@ export function createOnPulled(opts: {
   return async () => {
     try {
       // The pull gate holds only a tip above the readable layouts, so a clone below them still reaches here.
-      const layout = orgLayoutState(opts.probes);
-      if (layout.kind === "waiting" && layout.slug === opts.slug) {
-        opts.log.debug({ layout: layout.layout }, "team packs: left as they are; the org is on a layout this rt does not read");
+      const waitingLayout = cloneWaitingLayout(opts.probes, opts.slug, opts.dir);
+      if (waitingLayout !== null) {
+        opts.log.debug({ layout: waitingLayout }, "team packs: left as they are; the org is on a layout this rt does not read");
         return;
       }
       await refreshGeneratedMarketplace(opts.probes, opts.slug, opts.log, opts.writeMarketplace ?? writeGeneratedMarketplace);

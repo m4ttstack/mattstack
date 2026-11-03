@@ -1,9 +1,9 @@
-import { describe, test, expect } from "bun:test";
+import { beforeEach, describe, test, expect } from "bun:test";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { __resetParkedWarnings, createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
+import { __resetParkedWarnings, __resetPendingRegistrations, createOnMoved, createOnPulled, PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
 import { __test__ as warnTest, setWarningLog } from "../../ui/warn.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
 import { fakeProbes, gitShowFromFiles } from "../../setup/__tests__/fakes.ts";
@@ -405,7 +405,10 @@ describe("startTeamSnapshots", () => {
     const nothing = { held: [], updated: [], installed: [] };
 
     /** `registered` maps a config dir to the marketplace list Claude answers there; any `git` call answers as a clone on `branch`. */
-    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean; home?: string; dirs?: Record<string, string[]>; dataBranch?: string; layout?: number }) {
+    beforeEach(() => __resetPendingRegistrations());
+
+    /** Options are read on every call, so a test can change them between pulls. `readyPeer` adds an `able` clone on a readable layout, which sorts ahead of `acme`. */
+    function harness(opts: { changed: boolean; registered?: Record<string, unknown[]>; branch?: string; listFails?: boolean; addFails?: boolean; home?: string; dirs?: Record<string, string[]>; dataBranch?: string; layout?: number; readyPeer?: boolean }) {
       const at = opts.home ?? home;
       const folder = `${at}/.mattstack/rt/marketplaces/acme`;
       const calls: { argv: string[]; configDir: string | undefined }[] = [];
@@ -414,7 +417,7 @@ describe("startTeamSnapshots", () => {
       const probes = fakeProbes({
         home: at,
         env: { PATH: "/usr/local/bin" },
-        dirs: { ...opts.dirs, ...(opts.layout !== undefined ? { [`${at}/.mattstack/orgs`]: ["acme"] } : {}) },
+        dirs: { ...opts.dirs, ...(opts.layout !== undefined ? { [`${at}/.mattstack/orgs`]: opts.readyPeer ? ["able", "acme"] : ["acme"] } : {}) },
         files: {
           "/usr/local/bin/claude": "bin",
           [`${folder}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", plugins: [] }),
@@ -424,6 +427,13 @@ describe("startTeamSnapshots", () => {
                 [`${cloneDir}/.git/config`]: "[core]\n",
                 [`${cloneDir}/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme", layout: opts.layout }),
                 [`${cloneDir}/mattstack/org/settings.org.jsonc`]: "{}",
+              }
+            : {}),
+          ...(opts.readyPeer
+            ? {
+                [`${at}/.mattstack/orgs/able/.git/config`]: "[core]\n",
+                [`${at}/.mattstack/orgs/able/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "able", layout: 5 }),
+                [`${at}/.mattstack/orgs/able/mattstack/org/settings.org.jsonc`]: "{}",
               }
             : {}),
         },
@@ -438,6 +448,7 @@ describe("startTeamSnapshots", () => {
             if (opts.listFails) return { code: 1, stdout: "", stderr: "boom" };
             return { code: 0, stdout: JSON.stringify(opts.registered?.[configDir ?? ""] ?? []), stderr: "" };
           }
+          if (argv.includes("add") && opts.addFails) return { code: 1, stdout: "", stderr: "boom" };
           return { code: 0, stdout: "", stderr: "" };
         },
       });
@@ -470,6 +481,13 @@ describe("startTeamSnapshots", () => {
         expect(calls).toEqual([]);
       });
     }
+
+    test("a clone on a layout this rt does not read is held although another clone under orgs/ is ready", async () => {
+      const { onPulled, calls, order } = harness({ changed: true, layout: 2, readyPeer: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
+      await onPulled();
+      expect(order).toEqual([]);
+      expect(calls).toEqual([]);
+    });
 
     test("a clone on a readable layout is rewritten and re-pointed as usual", async () => {
       const { onPulled, calls, order } = harness({ changed: true, layout: 5, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } });
@@ -548,6 +566,33 @@ describe("startTeamSnapshots", () => {
       expect(calls.some((c) => c.argv.includes("add"))).toBe(false);
       expect(order).toEqual(["write", "converge"]);
       expect(warned(log, "left to setup")).toBe(true);
+    });
+
+    test("a registration whose list failed is retried on the next pull, though the folder did not change again", async () => {
+      const stale = { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] };
+      const opts = { changed: true, listFails: true, registered: stale };
+      const { onPulled, calls } = harness(opts);
+      await onPulled();
+      expect(calls.some((c) => c.argv.includes("add"))).toBe(false);
+      opts.changed = false;
+      opts.listFails = false;
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toEqual([{ argv: ["plugin", "marketplace", "add", generated], configDir: "/h/.claude" }]);
+    });
+
+    test("a registration whose add failed is retried on the next pull, and once it lands an unchanged pull asks Claude nothing", async () => {
+      const opts = { changed: true, addFails: true, registered: { "/h/.claude": [{ name: "acme", source: "directory", path: "/h/.mattstack/orgs/acme" }] } as Record<string, unknown[]> };
+      const { onPulled, calls } = harness(opts);
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toHaveLength(1);
+      opts.changed = false;
+      opts.addFails = false;
+      await onPulled();
+      expect(calls.filter((c) => c.argv.includes("add"))).toHaveLength(2);
+      opts.registered = { "/h/.claude": [{ name: "acme", source: "directory", path: generated }] };
+      const before = calls.length;
+      await onPulled();
+      expect(calls.slice(before)).toEqual([]);
     });
 
     test("a rewrite that throws is logged and the converge still runs", async () => {
