@@ -31,6 +31,7 @@ import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 const ORIG_HOME = process.env.HOME;
 const ENGINE_PACK_DIR = resolve(import.meta.dir, "..", "..", "plugins", "mattstack");
 const SDM_MIGRATION = "2026-10-07-sdm-resources-key";
+const PACKS_MIGRATION = "2026-11-02-team-packs-from-git";
 /** The plugins every v2.21.0 Mac already has from the app's own marketplace. */
 const TRUSTED_PLUGINS = ["mattstack@mattstack", "fast-browser@mattstack", "chat@mattstack"];
 const BOARD_ENGINE = "board:review";
@@ -229,6 +230,12 @@ async function context(p: Probes, events: ApplyEvent[], opts: { update?: true } 
  */
 const MACHINE_ONLY_CHECKS = new Set(["perm.fda", "perm.login-items", "tool.macos", "tool.arch", "tool.herdr", "tool.claude", "tool.fast-browser", "tool.chrome", "tool.app", "tool.daemon", "access.team-repo", "access.forge"]);
 
+/** The team-packs migration a waiting layout left pending is the only one the next run owes, and it finishes and records there. */
+function expectPackMigrationFinished(run: Awaited<ReturnType<typeof runUpdate>>, p: Probes): void {
+  expect(run.outcomes.filter((o) => o.id.startsWith("migration.")).map((o) => `${o.id}:${o.state}`)).toEqual([`migration.${PACKS_MIGRATION}:done`]);
+  expect(readSetupState(p).migrations).toContain(PACKS_MIGRATION);
+}
+
 /** No failed and no needs-you outcome; verify may fail only on the machine checks, read with verify's own inputs and its own member-task rule. */
 async function expectCleanRun(run: Awaited<ReturnType<typeof runUpdate>>, ctx: ApplyContext): Promise<void> {
   const others = run.outcomes.filter((o) => o.id !== "verify");
@@ -270,6 +277,8 @@ describe("member upgrade: app first, org main converts later", () => {
     expect(states[`migration.${SDM_MIGRATION}`]).toBe("skipped");
     expect(run1.outcomes.find((o) => o.id === `migration.${SDM_MIGRATION}`)?.detail).toBe("Your org has not moved to its new layout yet; nothing to move on this Mac");
     expect(states["skills.materialize"]).toBe("skipped");
+    expect(states[`migration.${PACKS_MIGRATION}`]).toBe("partial");
+    expect(readSetupState(p).migrations).not.toContain(PACKS_MIGRATION);
     expect(existsSync(clone)).toBe(false);
     const moved = join(home, ".mattstack", "orgs", "acme");
     expect(existsSync(join(moved, ".git"))).toBe(true);
@@ -318,7 +327,7 @@ describe("member upgrade: app first, org main converts later", () => {
     const ctx2 = await context(p, [], { update: true });
     const run2 = await runUpdate(ctx2);
     await expectCleanRun(run2, ctx2);
-    expect(run2.outcomes.some((o) => o.id.startsWith("migration."))).toBe(false);
+    expectPackMigrationFinished(run2, p);
     expect(readFileSync(bindings, "utf8")).toBe(materialized);
     expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
     expect(marketplaces.get("widgets")).toBe(generatedMarketplace());
@@ -402,6 +411,8 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
     expect(states["org.folder"]).toBe("done");
     expect(states[`migration.${SDM_MIGRATION}`]).toBe("skipped");
     expect(states["skills.materialize"]).toBe("skipped");
+    expect(states[`migration.${PACKS_MIGRATION}`]).toBe("partial");
+    expect(readSetupState(p).migrations).not.toContain(PACKS_MIGRATION);
     expect(existsSync(clone)).toBe(false);
     const moved = join(home, ".mattstack", "orgs", "acme");
     expect(git(moved, ["rev-parse", "HEAD"])).toBe(held);
@@ -454,7 +465,7 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
     const ctx2 = await context(p, [], { update: true });
     const run2 = await runUpdate(ctx2);
     await expectCleanRun(run2, ctx2);
-    expect(run2.outcomes.some((o) => o.id.startsWith("migration."))).toBe(false);
+    expectPackMigrationFinished(run2, p);
     expect(readFileSync(bindings, "utf8")).toBe(materialized);
     expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
     expect(marketplaces.get("widgets")).toBe(generatedMarketplace());

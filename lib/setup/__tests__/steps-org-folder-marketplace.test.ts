@@ -163,6 +163,15 @@ describe("convergeMarketplace: the registration", () => {
     });
   }
 
+  test("a waiting clone that just moved is still followed, so the registration never names the folder it left", async () => {
+    const claude = claudeFake({ registeredAt: old(), plugins: [{ id: "widgets@acme", enabled: true }] });
+    const p = probes(claude.exec, atLayout(2));
+    p.mkdirp(clone());
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+    expect(out.state).toBe("done");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", `plugin marketplace add ${generated()}`]);
+  });
+
   test("a clone on a readable layout is re-pointed as usual", async () => {
     const claude = claudeFake({ registeredAt: clone(), plugins: [] });
     const p = probes(claude.exec, atLayout(5));

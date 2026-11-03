@@ -172,9 +172,11 @@ function isLeftoverGeneratedFolder(ctx: ApplyContext, path: string, target: stri
 
 export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: string; stalePaths: string[] }): Promise<MarketplaceOutcome> {
   const org = basename(clone.dir);
-  // The org.layout row already explains a waiting clone, so this piece stays quiet on the org.folder row.
+  // A clone that just moved must still be followed, or the registration names a folder that is gone. The org.layout row already explains a waiting clone, so the skip adds no note.
   const layout = orgLayoutState(ctx.p);
-  if (layout.kind === "waiting" && layout.slug === org) return { state: "skipped", detail: `the ${org} org is on a layout this rt does not read, so Claude's registration was left as it is` };
+  if (layout.kind === "waiting" && layout.slug === org && clone.stalePaths.length === 0) {
+    return { state: "skipped", detail: `the ${org} org is on a layout this rt does not read, so Claude's registration was left as it is` };
+  }
   const generated = await writeGeneratedMarketplace(ctx.p, org);
   const target = generated.path;
   const name = generated.skipped === undefined ? marketplaceName(ctx.p, target) : null;
