@@ -8,6 +8,7 @@ import type {
 import {
   bandDismissRequest,
   bandRetryAction,
+  bandRetrySettles,
   bandSource,
   clock,
   askBandModel as model,
@@ -417,5 +418,20 @@ describe('bandSource', () => {
       reviewer: 'grace',
     });
     expect(bandRetryAction(mr({}))).toBeNull();
+  });
+
+  test('a sent retry settles the peer failure it replaced, and nothing else', () => {
+    expect(
+      bandRetrySettles(mr({ webUrl: URL, peerReviews: [errored()] }))
+    ).toEqual({
+      path: '/peer-review/dismiss',
+      body: { mrUrl: URL, reviewer: 'grace' },
+    });
+    expect(
+      bandRetrySettles(
+        mr({ webUrl: URL, sentNudge: sent({}), peerReviews: [errored()] })
+      )
+    ).toBeNull();
+    expect(bandRetrySettles(mr({ webUrl: URL }))).toBeNull();
   });
 });

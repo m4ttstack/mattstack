@@ -80,7 +80,11 @@ import {
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
 import { AppMark } from './AppMark.tsx';
-import { bandDismissRequest, bandRetryAction } from './ask-band.ts';
+import {
+  bandDismissRequest,
+  bandRetryAction,
+  bandRetrySettles,
+} from './ask-band.ts';
 import { AskConfirmDialog } from './AskConfirmDialog.tsx';
 import { verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
@@ -1148,9 +1152,13 @@ export function Board() {
     (mr: BoardMRWithReview) => {
       const action = bandRetryAction(mr);
       if (!action) return;
-      void runOne(action, mr, runner);
+      const settles = bandRetrySettles(mr);
+      void runOne(action, mr, runner).then(result => {
+        if (settles && result?.ok)
+          void postAction(settles.path, settles.body).then(() => load());
+      });
     },
-    [runner]
+    [runner, load]
   );
   const runRowAction = useCallback(
     (action: RowAction, mr: BoardMR, opts: RunOpts) => {

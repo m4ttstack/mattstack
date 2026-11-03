@@ -294,6 +294,14 @@ export function bandDismissRequest(
       };
 }
 
+/** What a sent retry settles: the peer failure it replaced, stamped
+    dismissed so it cannot resurface once the new ask is gone. */
+export function bandRetrySettles(
+  mr: BoardMRWithReview
+): { path: string; body: Record<string, string> } | null {
+  return bandSource(mr)?.kind === 'peer' ? bandDismissRequest(mr) : null;
+}
+
 /** The band's retry: the same kind of ask to the same teammate (/nudge
     replaces the recorded ask, so the new one scraps the old), or a fresh
     re-review from the peer whose own review was lost. */
