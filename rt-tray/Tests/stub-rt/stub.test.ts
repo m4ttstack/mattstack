@@ -789,7 +789,7 @@ test("apply --resume streams phases and ends ok", async () => {
     expect(step.weight).toBeGreaterThan(0);
     expect(step.paused).toStartWith("Couldn't ");
   }
-  expect(plan.steps.find((s: { id: string }) => s.id === "repos.clone")).toMatchObject({ phase: "Cloning your repos", weight: 10 });
+  expect(plan.steps.find((s: { id: string }) => s.id === "repos.clone")).toMatchObject({ phase: expect.any(String), weight: 10, paused: "Couldn't clone your repos" });
   expect(res.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
 });
 

@@ -12,7 +12,7 @@ import type { MigrationDef } from "../migrations/index.ts";
 import type { Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
-import { STEP_PHASES } from "../run-phases.ts";
+import { PHASE_WORDS, STEP_PHASES } from "../run-phases.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
@@ -22,7 +22,7 @@ import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 import { logsDir } from "../../rt-paths.ts";
 
 /** A fake step's entry in an apply run's plan: its id doubles as its title. */
-const planStep = (id: StepId) => ({ id, title: id, kind: "rt" as const, ...STEP_PHASES[id] });
+const planStep = (id: StepId) => ({ id, title: id, kind: "rt" as const, phase: expect.any(String), ...STEP_PHASES[id] });
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -395,24 +395,29 @@ describe("runApplyWith: the run record", () => {
 });
 
 describe("the plan event's bar phases", () => {
-  test("the apply plan event carries each step's phase, weight and paused line", async () => {
+  test("the apply plan event carries a pool word per step, its weight and its plain paused line", async () => {
     const { ctx, events } = testCtx();
     await runApplyWith([fakeStep("repos.clone", { state: "done" }), fakeStep("verify", { state: "done" })], ctx);
     expect(events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "repos.clone", title: "repos.clone", kind: "rt", phase: "Cloning your repos", weight: 10, paused: "Couldn't clone your repos" },
-        { id: "verify", title: "verify", kind: "rt", phase: "Checking everything", weight: 2, paused: "Couldn't check everything" },
+        { id: "repos.clone", title: "repos.clone", kind: "rt", phase: expect.any(String), weight: 10, paused: "Couldn't clone your repos" },
+        { id: "verify", title: "verify", kind: "rt", phase: expect.any(String), weight: 2, paused: "Couldn't check everything" },
       ],
     });
+    const plan = events[0];
+    if (plan?.event !== "plan") throw new Error("missing plan");
+    const words = plan.steps.map((s) => s.phase);
+    for (const word of words) expect(PHASE_WORDS).toContain(word);
+    expect(words[0]).not.toBe(words[1]);
 
     const resumed = testCtx();
     await runApplyWith([fakeStep("org.pull", { state: "done" }), fakeStep("verify", { state: "done" })], resumed.ctx, { replay: ["org.pull"] });
     expect(resumed.events[0]).toEqual({
       event: "plan",
       steps: [
-        { id: "org.pull", title: "org.pull", kind: "rt", phase: "Getting your team's settings", weight: 1, paused: "Couldn't get your team's settings" },
-        { id: "verify", title: "verify", kind: "rt", phase: "Checking everything", weight: 2, paused: "Couldn't check everything" },
+        { id: "org.pull", title: "org.pull", kind: "rt", phase: expect.any(String), weight: 1, paused: "Couldn't get your team's settings" },
+        { id: "verify", title: "verify", kind: "rt", phase: expect.any(String), weight: 2, paused: "Couldn't check everything" },
       ],
     });
   });

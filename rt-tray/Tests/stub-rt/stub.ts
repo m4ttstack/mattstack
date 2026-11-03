@@ -20,7 +20,7 @@ import type { Action, Row, StepId } from "../../../lib/setup/contract.ts";
 import { FINISH_IN_BROWSER } from "../../../lib/setup/cli-login.ts";
 import { FANCY_URLS_DETAIL } from "../../../lib/setup/fancy-urls.ts";
 import { integrationDef } from "../../../lib/setup/integrations.ts";
-import { STEP_PHASES } from "../../../lib/setup/run-phases.ts";
+import { drawPhaseWords, STEP_PHASES } from "../../../lib/setup/run-phases.ts";
 import { PREPARE_STAGES } from "../../../lib/setup/prepare-record.ts";
 import { TITLES, tokenCreateLink, tokenField } from "../../../lib/setup/token-create.ts";
 import { PLACE_REPO_LABELS } from "../../../lib/setup/validators/repos.ts";
@@ -333,7 +333,8 @@ async function apply() {
   if (onlyId === "proxy.install") stateSet("proxy-installed", 1);
   if (onlyId === "team.join") { stateSet("team-joined", 1); stampNow("team-joined-at"); }
   if (holdsRun) stateSet("run-live", 1);
-  line({ event: "plan", steps: steps.map(([id, title, kind]) => ({ id, title, kind, ...STEP_PHASES[id as StepId] })) });
+  const words = drawPhaseWords(steps.length);
+  line({ event: "plan", steps: steps.map(([id, title, kind], i) => ({ id, title, kind, phase: words[i]!, ...STEP_PHASES[id as StepId] })) });
   const weightOf = (id: string) => STEP_PHASES[id as StepId]?.weight ?? 1;
   const totalWeight = STEPS.reduce((sum, [id]) => sum + weightOf(id), 0);
   const stepMs = (id: string) => speed && holdsRun ? (PACE[speed].bar * (slow ? 2.5 : 1) * weightOf(id)) / totalWeight : speed ? waitMs(1) : 120;
