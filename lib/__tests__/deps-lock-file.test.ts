@@ -56,6 +56,14 @@ describe("rt-tray/deps.lock", () => {
     expect(by["age"]?.version).toBe(by["age-keygen"]!.version);
     expect(by["age"]?.extract).toBe("age/age");
   });
+  // Team packs' Lore rule selectors run their vendored bundle on this node via
+  // `rt deps resolve node`; dropping it breaks those reviews.
+  test("node stays a bundled helper under Contents/Helpers", () => {
+    const node = lock.tools.find((t) => t.name === "node");
+    expect(node?.kind).toBe("helper");
+    expect(node?.status).toBe("bundled");
+    expect(node?.bundlePath?.startsWith("Contents/Helpers/")).toBe(true);
+  });
   // Upstream publishes no darwin binary and the Homebrew bottle links brew-only
   // dylibs, so zstd is compiled from its sha-pinned release tarball.
   test("zstd builds from the upstream source tarball", () => {
